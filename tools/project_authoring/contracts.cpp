@@ -12,6 +12,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <regex>
 #include <set>
 #include <stdexcept>
 #include <string_view>
@@ -95,6 +96,8 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "material.shader-override",
                                                    "material.parameter-override",
                                                    "material.texture-override",
+                                                   "layout.contract-input",
+                                                   "layout.state-shape",
                                                    "property.default-unique",
                                                    "property.default-value",
                                                    "property.local-unique",
@@ -339,6 +342,49 @@ UnionBranches tagged_union_branches(const Contracts& contracts, const Json& unio
     return result;
 }
 
+bool layout_scalar_matches(std::string_view type, const Json& value)
+{
+    if (type == "boolean")
+        return value.is_bool();
+    if (type == "string")
+        return value.is_string();
+    if (type == "integer")
+        return value.is_number() && std::isfinite(value.as<double>()) &&
+               std::trunc(value.as<double>()) == value.as<double>();
+    return type == "number" && value.is_number() && std::isfinite(value.as<double>());
+}
+
+bool layout_state_matches(const Json& shape, const Json& value, unsigned int depth = 0)
+{
+    if (depth > 128)
+        return false;
+    if (value.is_null())
+        return shape.at("nullable") == true;
+    const auto type = shape.at("type").as<std::string>();
+    if (type == "array") {
+        if (!value.is_array())
+            return false;
+        for (const auto& item : value.array_range())
+            if (!layout_state_matches(shape.at("items"), item, depth + 1))
+                return false;
+        return true;
+    }
+    if (type == "object") {
+        if (!value.is_object())
+            return false;
+        const auto& fields = shape.at("fields");
+        for (const auto& item : value.object_range())
+            if (!fields.contains(item.key()) ||
+                !layout_state_matches(fields.at(item.key()).at("shape"), item.value(), depth + 1))
+                return false;
+        for (const auto& field : fields.object_range())
+            if (field.value().at("required") == true && !value.contains(field.key()))
+                return false;
+        return true;
+    }
+    return layout_scalar_matches(type, value);
+}
+
 class Validator {
     const Contracts& contracts_;
     std::size_t visits_ = 0;
@@ -470,6 +516,21 @@ class Validator {
                       : id == "material.parameter-override"
                           ? "Material parameter override cannot be empty."
                           : "Material texture override cannot be empty.");
+        } else if (id == "layout.contract-input") {
+            if (!value || !value->is_object() || !value->contains("defaultValue"))
+                return;
+            const auto& input = *value;
+            const auto& proposed = input.at("defaultValue");
+            if (!(proposed.is_null()
+                      ? input.at("nullable") == true
+                      : layout_scalar_matches(input.at("type").as<std::string>(), proposed)))
+                issue(errors, path + "/defaultValue", "semantic." + id,
+                      "Layout input default must match its declared type and nullability.");
+        } else if (id == "layout.state-shape") {
+            if (value && value->is_object() && value->contains("defaultValue") &&
+                !layout_state_matches(*value, value->at("defaultValue")))
+                issue(errors, path + "/defaultValue", "semantic." + id,
+                      "Layout state default must match its recursive State Shape.");
         } else if (id == "property.default-unique" || id == "property.local-unique") {
             if (!value || !value->is_array())
                 return;
@@ -883,7 +944,7 @@ class SparseSourceProjection {
             return;
         }
         if (kind == "object" && value->is_object()) {
-            if (path.size() == 1 && path[0] == "data")
+            if (path.size() == 1 && path[0] == "data" && !value->contains("kind"))
                 value->insert_or_assign("kind", family_kind_);
             for (const auto& child : children.object_range()) {
                 if (child.key() == "$catchall")
@@ -1078,6 +1139,113 @@ ValidationResult validate_asset_source(std::string_view source_json)
 ValidationResult validate_material_source(std::string_view source_json)
 {
     return validate_sparse_record_source(source_json, "materials", "MaterialsRecord", "material");
+}
+
+ValidationResult validate_layout_source(std::string_view source_json,
+                                        const std::map<std::string, std::string>& companions)
+{
+    ValidationResult result;
+    const auto add = [&](std::string path, std::string message, std::string source_path = {}) {
+        result.diagnostics.push_back({std::move(path), "layout.source", std::move(message), "error",
+                                      std::move(source_path)});
+    };
+    try {
+        static const Contracts contracts;
+        Json source = Json::parse(source_json);
+        if (!source.is_object() || !source.contains("data") || !source.at("data").is_object()) {
+            add("/data", "Layout metadata must contain a data mapping.");
+            return result;
+        }
+        const auto id = source.contains("id") && source.at("id").is_string()
+                            ? source.at("id").as<std::string>()
+                            : std::string{};
+        if (id == "builtin-inventory")
+            add("/id", "The builtin-inventory Layout ID is reserved.");
+        auto& data = source.at("data");
+        for (const auto* channel : {"rml", "rcss", "lua"}) {
+            const std::string path = std::string("/data/") + channel;
+            if (!data.contains(channel) || !data.at(channel).is_object() ||
+                !data.at(channel).contains("sourceMode") ||
+                !data.at(channel).at("sourceMode").is_string()) {
+                add(path, "Layout source selector must declare sourceMode.");
+                continue;
+            }
+            const auto selector = data.at(channel);
+            const auto mode = selector.at("sourceMode").as<std::string>();
+            const auto companion = companions.find(channel);
+            const auto physical = "records/layouts/" + id + "/layout." + channel;
+            const bool file = mode == "file";
+            const bool asset = mode == "asset" && std::string_view(channel) != "lua";
+            const bool none = mode == "none" && std::string_view(channel) == "lua";
+            if ((!file && !asset && !none) || selector.size() != (asset ? 2u : 1u) ||
+                (asset && !selector.contains("sourceAsset"))) {
+                add(path, "Unsupported Layout selector or unexpected metadata fields.");
+                continue;
+            }
+            if (file != (companion != companions.end())) {
+                add(path + "/sourceMode", "Layout selector and companion source disagree.",
+                    physical);
+                continue;
+            }
+            if (asset) {
+                if (selector.at("sourceAsset").is_null()) {
+                    add(path + "/sourceAsset", "Asset-backed Layout source requires an Asset.");
+                    continue;
+                }
+                // The generated sparse reference projection expands its compact ID.
+                data.insert_or_assign(channel, selector);
+                continue;
+            }
+            Json projected = Json::object();
+            projected["sourceMode"] = "inline";
+            projected["sourceText"] = file ? companion->second : std::string{};
+            if (std::string_view(channel) != "lua")
+                projected["sourceAsset"] = Json::null();
+            data.insert_or_assign(channel, std::move(projected));
+        }
+        if (!result.diagnostics.empty())
+            return result;
+        const auto effective =
+            SparseSourceProjection(contracts, "layouts", "LayoutsRecord", "layout")
+                .project(std::move(source));
+        result = validate_record("LayoutsRecord", effective.to_string());
+        if (!result.accepted)
+            return result;
+        const auto normalized_record = Json::parse(result.effective_json);
+        const auto& normalized = normalized_record.at("data");
+        const auto& rml = normalized.at("rml");
+        if (rml.at("sourceMode") == "inline") {
+            const auto text = rml.at("sourceText").as<std::string>();
+            const auto has_tag = [&](std::string_view tag) {
+                return std::regex_search(
+                    text, std::regex(R"(<\s*)" + std::string(tag) + R"([\s>])", std::regex::icase));
+            };
+            const auto physical = "records/layouts/" + id + "/layout.rml";
+            if (text.find_first_not_of(" \t\r\n") == std::string::npos)
+                add("/data/rml/sourceText", "Inline RML source cannot be empty.", physical);
+            else if (normalized.at("layoutKind") == "fragment" &&
+                     (has_tag("rml") || has_tag("head") || has_tag("body")))
+                add("/data/rml/sourceText", "Fragment RML cannot contain document tags.", physical);
+            else if (normalized.at("layoutKind") == "document" &&
+                     (!has_tag("rml") || !has_tag("body")))
+                add("/data/rml/sourceText", "Document RML requires rml and body tags.", physical);
+        }
+        const auto& rcss = normalized.at("rcss");
+        if (rcss.at("sourceMode") == "inline" &&
+            trim_ecmascript(rcss.at("sourceText").as<std::string>()).empty())
+            result.diagnostics.push_back({"/data/rcss/sourceText", "layout.empty_stylesheet",
+                                          "Inline RCSS source is empty.", "warning",
+                                          "records/layouts/" + id + "/layout.rcss"});
+        result.accepted = std::none_of(result.diagnostics.begin(), result.diagnostics.end(),
+                                       [](const auto& issue) { return issue.severity == "error"; });
+        if (!result.accepted)
+            result.effective_json.clear();
+    } catch (const std::exception& error) {
+        add("/data", error.what());
+        result.accepted = false;
+        result.effective_json.clear();
+    }
+    return result;
 }
 
 std::optional<std::string> archetype_template_json(std::string_view instance_kind)

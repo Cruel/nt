@@ -644,12 +644,25 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
                             throw std::runtime_error("Layout source selector is malformed: " +
                                                      relative);
                         const auto mode = data.at(channel).at("sourceMode").as<std::string>();
+                        const auto& selector = data.at(channel);
+                        const bool file_mode = mode == "file";
+                        const bool asset_mode =
+                            mode == "asset" && std::string_view(channel) != "lua";
+                        const bool none_mode = mode == "none" && std::string_view(channel) == "lua";
+                        if ((!file_mode && !asset_mode && !none_mode) ||
+                            selector.size() != (asset_mode ? 2u : 1u) ||
+                            (asset_mode && !selector.contains("sourceAsset")))
+                            throw std::runtime_error("Unsupported Layout selector shape: " +
+                                                     relative + ": data." + channel);
                         const auto companion =
                             it->path().parent_path() / (std::string("layout.") + channel);
-                        if ((mode == "file") != std::filesystem::exists(companion))
+                        if (file_mode != std::filesystem::is_regular_file(companion))
                             throw std::runtime_error(
                                 "Layout companion and source selector disagree: " +
                                 companion.string());
+                        if (!file_mode && std::filesystem::exists(companion))
+                            throw std::runtime_error("Orphan Layout companion source: " +
+                                                     companion.string());
                     }
                 }
                 files.push_back({relative, ProjectFileKind::TrackedSource});
@@ -1876,6 +1889,15 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_asset_source(source_json);
     if (record_family_ == "materials")
         return validate_material_source(source_json);
+    if (record_family_ == "layouts") {
+        std::map<std::string, std::string> companions;
+        for (const auto* channel : {"rml", "rcss", "lua"}) {
+            const auto path = path_.parent_path() / (std::string("layout.") + channel);
+            if (std::filesystem::exists(path) && std::filesystem::is_regular_file(path))
+                companions.emplace(channel, read_bytes(path));
+        }
+        return validate_layout_source(source_json, companions);
+    }
     if (!validation_contract_.empty())
         return validate_record(validation_contract_, source_json);
     return is_map_ ? validate_map_source(source_json) : validate_room_source(source_json);
