@@ -47,7 +47,15 @@ tab. A browser callback advances at most one workload frame per
 `requestAnimationFrame` to keep the event loop responsive, including
 when the dashboard is closed and after an unattended run completes.
 A latched browser visibility event invalidates a background-tab trial even
-if rAF never fires while the page is hidden. The Web runner
+if rAF never fires while the page is hidden. A canvas `webglcontextlost`
+event similarly invalidates the active attempt: rendering and sampling stop
+until `webglcontextrestored`, when SDL/bgfx and their GPU resources are
+recreated outside the timed interval. Incomplete attempts are discarded and
+retried after fresh preparation and warmup (up to three retries per trial).
+Previously completed repeats remain in the report; `interruption_retries`
+records the retries on each logical trial. A persistent interruption or failed
+recovery produces an explicit incomplete result. Escape cancels an active
+collection instead of starting the remaining repeats. The Web runner
 records both callback-to-callback wall cadence and the CPU operation
 duration; **rAF-paced cadence is not uncapped GPU throughput or
 independently verified presented FPS**.
@@ -430,7 +438,7 @@ With an Android device connected (or select an emulator interactively):
 ./scripts/run-benchmark-android.sh --debug
 ./scripts/run-benchmark-android.sh -- --scenario raw-bgfx-geometry --smoke --no-ui
 ./scripts/run-benchmark-android.sh --no-build --pull
-adb -s DEVICE logcat -s SDL:V | grep '\[benchmark\]'
+adb -s DEVICE logcat -s 'SDL/APP:V' | grep '\[benchmark\]'
 ```
 
 The default launch opens the touch-scaled ImGui dashboard. Stage 1 Android
@@ -448,8 +456,12 @@ The dashboard submits a fresh complete frame before the Activity cover is
 removed. The view is a display-only measure against stale swap-chain contents,
 not a GPU timing instrument; use Clean CPU timings as specified and do not
 interpret the black screen as evidence of GPU clear or rendering.
-Backgrounding interrupts a measured trial instead of silently keeping stale
-frames. On foreground or surface resize the dashboard recreates its SDL/bgfx host and
+Backgrounding or a significant surface resize invalidates the in-progress
+trial; the runner discards its partial samples, waits for Activity foreground,
+recreates the SDL/bgfx graphics host, and retries the trial after fresh warmup
+(up to three retries). Completed repeats remain valid and a retry count is
+recorded in JSON. Android Back or a close request cancels the collection rather
+than retrying. On foreground or surface resize the dashboard recreates its SDL/bgfx host and
 ImGui resources, rather than reusing an obsolete `ANativeWindow`. An ADB launch
 while the phone is asleep can start SDL's native thread after Android has
 already paused the Activity and invalidated its surface. Before SDL window

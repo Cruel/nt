@@ -33,6 +33,12 @@ struct FakeScenario final : Scenario {
     int diagnostic_completion_calls = 0;
     bool emit_diagnostics = false;
     uint32_t frame_number = 19;
+    Interruption interruption_state = Interruption::None;
+    Interruption injected_interruption = Interruption::None;
+    int attempts_to_interrupt = 0;
+    int attempts_interrupted = 0;
+    int attempt_frames = 0;
+    [[nodiscard]] Interruption interruption() const override { return interruption_state; }
 
     explicit FakeScenario(FakeClock& value) : clock(value) {}
     const char* id() const override { return "synthetic"; }
@@ -41,6 +47,8 @@ struct FakeScenario final : Scenario {
     bool prepare(const Options&, std::string& reason) override
     {
         ++prepares;
+        attempt_frames = 0;
+        interruption_state = Interruption::None;
         if (fail_prepare || (fail_prepare_after >= 0 && prepares > fail_prepare_after)) {
             if (!omit_prepare_reason)
                 reason = "preparation failed";
@@ -59,6 +67,14 @@ struct FakeScenario final : Scenario {
     bool frame(std::string& reason) override
     {
         clock.time += 0.01;
+        ++attempt_frames;
+        if (attempt_frames == 2 && attempts_interrupted < attempts_to_interrupt) {
+            ++attempts_interrupted;
+            interruption_state = injected_interruption;
+            reason =
+                injected_interruption == Interruption::Cancelled ? "cancelled" : "surface lost";
+            return false;
+        }
         if (fail_frame || (fail_after_frames >= 0 && completed_frames == fail_after_frames)) {
             reason = "frame failed";
             return false;
@@ -152,6 +168,47 @@ int main()
     if (!check(results.scenarios[0].measured_frames == 10 &&
                    results.scenarios[0].cpu_operation.count == 10,
                "aggregate measured frames"))
+        return 1;
+
+    FakeClock recovery_clock;
+    FakeScenario recoverable(recovery_clock);
+    recoverable.injected_interruption = Interruption::Recoverable;
+    recoverable.attempts_to_interrupt = 1;
+    int graphics_rebuilds = 0;
+    const auto recovered = run_suite(options, {&recoverable}, recovery_clock, [&](std::string&) {
+        ++graphics_rebuilds;
+        return RecoveryState::Ready;
+    });
+    if (!check(recovered.outcome == "complete" && graphics_rebuilds == 1 &&
+                   recoverable.prepares == 3 && recoverable.cleanups == 3 &&
+                   recovered.scenarios[0].trials.size() == 2 &&
+                   recovered.scenarios[0].trials[0].interruption_retries == 1 &&
+                   recovered.scenarios[0].measured_frames == 10,
+               "native interrupted attempt retries with fresh warmup and retains repeats"))
+        return 1;
+
+    FakeClock persistent_clock;
+    FakeScenario persistent(persistent_clock);
+    persistent.injected_interruption = Interruption::Recoverable;
+    persistent.attempts_to_interrupt = 10;
+    Options one_trial = options;
+    one_trial.repeats = 1;
+    const auto exhausted = run_suite(one_trial, {&persistent}, persistent_clock);
+    if (!check(exhausted.outcome == "failed" &&
+                   persistent.prepares == static_cast<int>(kMaxInterruptionRetries + 1) &&
+                   exhausted.scenarios[0].trials[0].reason.find("retry limit") != std::string::npos,
+               "native recovery retries bounded and failure reported"))
+        return 1;
+
+    FakeClock cancel_clock;
+    FakeScenario cancel_scenario(cancel_clock);
+    cancel_scenario.injected_interruption = Interruption::Cancelled;
+    cancel_scenario.attempts_to_interrupt = 1;
+    const auto cancelled_run = run_suite(options, {&cancel_scenario}, cancel_clock);
+    if (!check(cancelled_run.outcome == "cancelled" && cancel_scenario.prepares == 1 &&
+                   cancelled_run.scenarios[0].trials.size() == 1 &&
+                   cancelled_run.scenarios[0].trials[0].outcome == "cancelled",
+               "native cancellation exits collection without retries or subsequent repeats"))
         return 1;
 
     FakeClock timeout_clock;

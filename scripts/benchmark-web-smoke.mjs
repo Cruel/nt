@@ -119,20 +119,84 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
 
     // Simulate a tab being hidden then restored. The visibility event must
     // remain latched even if no rAF callback ran while the page was hidden.
-    await page.goto(origin + '/benchmark.html?noUi=1&frames=300');
+    await page.goto(origin + '/benchmark.html?noUi=1&frames=60&repeats=3&warmup=0&rawSamples=1');
     await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
     await page.evaluate(() => {
       Object.defineProperty(document, 'hidden', {configurable: true, get: () => true});
       document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(180);
+    const hiddenRuns = await page.evaluate(() => window.NovelTeaBenchmark.runs.length);
+    if (hiddenRuns !== 0) throw new Error('benchmark completed while page hidden');
+    await page.evaluate(() => {
       delete document.hidden;
+      document.dispatchEvent(new Event('visibilitychange'));
     });
     await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
-                               {timeout: 15000});
+                               {timeout: 30000});
     const interrupted = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
-    if (interrupted.outcome !== 'failed' ||
-        !interrupted.scenarios[0].trials[0].reason.includes('backgrounded'))
-      throw new Error('hidden-tab benchmark was not invalidated');
-    console.log(name + ': background-tab interruption invalidates the trial');
+    if (interrupted.outcome !== 'complete' ||
+        interrupted.scenarios[0].aggregate.measured_frames !== 180 ||
+        !interrupted.scenarios[0].trials.some(t => t.interruption_retries > 0))
+      throw new Error('hidden-tab run was not retried with fresh samples: ' + JSON.stringify(interrupted.scenarios[0].trials));
+    console.log(name + ': hidden-tab interruption waits, recovers, and retries all repeats');
+
+    // WEBGL_lose_context exposes real browser resource invalidation. No
+    // measurements can be accepted until bgfx and its resources are rebuilt.
+    await page.goto(origin + '/benchmark.html?noUi=1&scenario=raw-bgfx-geometry&frames=90&repeats=2&warmup=0&rawSamples=1');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
+    const extensionPresent = await page.evaluate(() => {
+      const gl = document.querySelector('#canvas').getContext('webgl2');
+      const ext = gl?.getExtension('WEBGL_lose_context');
+      if (!ext) return false;
+      window.__lossExtension = ext;
+      ext.loseContext();
+      return true;
+    });
+    if (!extensionPresent) throw new Error('WEBGL_lose_context unavailable; cannot verify recovery');
+    await page.waitForFunction(() => window.NovelTeaBenchmark.contextLost);
+    await page.waitForTimeout(200);
+    if (await page.evaluate(() => window.NovelTeaBenchmark.runs.length))
+      throw new Error('successful report emitted during context loss');
+    await page.evaluate(() => window.__lossExtension.restoreContext());
+    await page.waitForFunction(() => !window.NovelTeaBenchmark.contextLost, null, {timeout: 15000});
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 45000});
+    const restored = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    if (restored.outcome !== 'complete' || restored.scenarios[0].aggregate.measured_frames !== 180 ||
+        !restored.scenarios[0].trials.some(t => t.interruption_retries > 0))
+      throw new Error('context restoration included invalid samples: ' + JSON.stringify(restored.scenarios[0].trials));
+    console.log(name + ': WebGL context loss discards affected samples and rebuilds graphics');
+
+    await page.goto(origin + '/benchmark.html?noUi=1&frames=300&repeats=3&warmup=0');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
+    await page.locator('#canvas').focus();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 15000});
+    const cancelled = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    if (cancelled.outcome !== 'cancelled' || cancelled.scenarios[0].trials.length !== 1 ||
+        cancelled.scenarios[0].trials[0].outcome !== 'cancelled')
+      throw new Error('Escape failed to cancel outstanding repeats: ' + JSON.stringify(cancelled.scenarios[0].trials));
+    console.log(name + ': Escape cancels the collection without additional repeats');
+
+    // The idle preview must also rebuild resources after loss. A subsequent
+    // benchmark should not inherit a destroyed context from the dashboard.
+    await page.goto(origin + '/benchmark.html?ui=1&scenario=raw-bgfx-geometry');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
+    await page.evaluate(() => {
+      const ext = document.querySelector('#canvas').getContext('webgl2')?.getExtension('WEBGL_lose_context');
+      if (!ext) throw new Error('context-loss extension unavailable during preview');
+      window.__previewLoss = ext;
+      ext.loseContext();
+    });
+    await page.waitForFunction(() => window.NovelTeaBenchmark.contextLost);
+    await page.evaluate(() => window.__previewLoss.restoreContext());
+    await page.waitForFunction(() => !window.NovelTeaBenchmark.contextLost &&
+                                    !window.NovelTeaBenchmark.contextRecoveryNeeded, null,
+                               {timeout: 15000});
+    const previewRecovered = await page.screenshot();
+    if (previewRecovered.length < 10000)
+      throw new Error('preview did not recover after idle context loss');
+    console.log(name + ': idle dashboard recovers from WebGL context loss');
 
     await page.goto(origin + '/benchmark.html?dashboardSmoke=1&smoke=1');
     await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 3, null, {timeout: 60000});

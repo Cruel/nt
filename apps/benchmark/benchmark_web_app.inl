@@ -77,6 +77,21 @@ struct WebBenchmarkApp {
         }
     }
 
+    bool restore_graphics(std::string& error)
+    {
+        preview_geometry.shutdown();
+        preview_ui.shutdown();
+        dashboard.shutdown();
+        graphics.shutdown();
+        if (!graphics.initialize(options, error))
+            return false;
+        EM_ASM({
+            window.NovelTeaBenchmark.contextRecoveryNeeded = false;
+            window.NovelTeaBenchmark.backgrounded = document.hidden;
+        });
+        return true;
+    }
+
     void start()
     {
         std::string error;
@@ -115,8 +130,16 @@ struct WebBenchmarkApp {
         // A hidden browser page cannot provide trustworthy frame cadence.
         // Reset the latch only at the start of a new trial collection.
         EM_ASM({ window.NovelTeaBenchmark.backgrounded = document.hidden; });
-        active = std::make_unique<noveltea::benchmark::FrameDrivenSuite>(frozen, *active_scenario,
-                                                                         clock);
+        active = std::make_unique<noveltea::benchmark::FrameDrivenSuite>(
+            frozen, *active_scenario, clock, [this](std::string& error) {
+                if (EM_ASM_INT({ return document.hidden || window.NovelTeaBenchmark.contextLost; }))
+                    return noveltea::benchmark::RecoveryState::Pending;
+                if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; }) &&
+                    !restore_graphics(error))
+                    return noveltea::benchmark::RecoveryState::Failed;
+                EM_ASM({ window.NovelTeaBenchmark.backgrounded = false; });
+                return noveltea::benchmark::RecoveryState::Ready;
+            });
         completed_run.reset();
         feedback.clear();
     }
@@ -139,13 +162,18 @@ struct WebBenchmarkApp {
                         scenario.measured_wall_seconds, scenario.cpu_operation.mean_ms);
             for (const auto& trial : scenario.trials) {
                 if (trial.outcome != "complete")
-                    std::fprintf(stderr, "[benchmark] trial failed: %s\n", trial.reason.c_str());
+                    std::fprintf(stderr, "[benchmark] trial %s: %s\n", trial.outcome.c_str(),
+                                 trial.reason.c_str());
             }
         }
         if (!options.no_ui) {
             std::string error;
-            if (!dashboard.initialize(graphics.window, options, error))
+            if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; }) &&
+                !restore_graphics(error)) {
+                feedback = "graphics recreation after context loss: " + error;
+            } else if (!dashboard.initialize(graphics.window, options, error)) {
                 feedback = "dashboard recreation: " + error;
+            }
         }
         if (options.dashboard_smoke) {
             std::printf("[benchmark] web dashboard cycle %d complete\n", ++smoke_cycle);
@@ -163,28 +191,58 @@ struct WebBenchmarkApp {
             return;
         SDL_Event event;
         bool should_exit = false;
+        bool escape_pressed = false;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
                 should_exit = true;
+            else if (active && event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE)
+                escape_pressed = true;
             else if (!active && dashboard.initialized())
                 dashboard.process_event(event);
         }
-        if (should_exit) {
-            if (active)
-                active->interrupt("browser window closed during benchmark");
-            else {
-                stopped = true;
-                emscripten_cancel_main_loop();
-                return;
-            }
+        if (should_exit && !active) {
+            stopped = true;
+            emscripten_cancel_main_loop();
+            return;
         }
+        const bool context_lost =
+            EM_ASM_INT({ return window.NovelTeaBenchmark.contextLost ? 1 : 0; });
+        const bool context_changed =
+            EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded ? 1 : 0; });
         if (active) {
-            if (EM_ASM_INT(
-                    { return window.NovelTeaBenchmark.backgrounded || document.hidden ? 1 : 0; }))
+            if (should_exit)
+                active->cancel("browser window closed during benchmark");
+            else if (escape_pressed)
+                active->cancel("benchmark cancelled with Escape");
+            else if (context_changed)
+                active->interrupt("WebGL context lost during benchmark");
+            else if (EM_ASM_INT({
+                         return window.NovelTeaBenchmark.backgrounded || document.hidden ? 1 : 0;
+                     }))
                 active->interrupt("browser tab backgrounded; requestAnimationFrame throttled");
+            // No bgfx teardown, drawing, or sample advancement while the GL
+            // context is actually lost. Continue cleanup/recovery after restore.
+            if (context_lost)
+                return;
             if (active->step())
                 finish();
             return;
+        }
+        if (context_lost)
+            return;
+        if (context_changed) {
+            std::string error;
+            if (!restore_graphics(error)) {
+                feedback = "WebGL graphics recovery failed: " + error;
+                stopped = true;
+                std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+                emscripten_cancel_main_loop();
+                return;
+            }
+            if (!options.no_ui && !dashboard.initialize(graphics.window, options, error)) {
+                feedback = "dashboard recovery: " + error;
+                std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+            }
         }
         if (dashboard.initialized()) {
             const auto action = dashboard.frame(options, completed_run ? &*completed_run : nullptr,

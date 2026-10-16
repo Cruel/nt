@@ -248,6 +248,7 @@ std::string encode_result(const Options& options, const Environment& environment
                 {{"outcome", trial.outcome},
                  {"reason", trial.reason.empty() ? Json(nullptr) : Json(trial.reason)},
                  {"phases", std::move(phases)},
+                 {"interruption_retries", trial.interruption_retries},
                  {"warmup_frames", trial.warmup_frames},
                  {"measured_frames", trial.measured_frames},
                  {"measured_wall_seconds",

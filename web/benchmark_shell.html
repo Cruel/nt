@@ -60,6 +60,8 @@ document.querySelector('#download').onclick = () => lastReport && downloadJson(l
 window.NovelTeaBenchmark = {
   ready: false,
   backgrounded: false,
+  contextLost: false,
+  contextRecoveryNeeded: false,
   runs: [],
   report(name, json, outcome) {
     lastReport = {name, json};
@@ -73,6 +75,19 @@ window.NovelTeaBenchmark = {
 // Latch the interruption until C++ observes it after the page becomes visible.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) window.NovelTeaBenchmark.backgrounded = true;
+});
+// A lost WebGL context invalidates *all* GPU resources in bgfx, even if the
+// browser later restores the same canvas. Recreate the entire benchmark host
+// outside measurement before allowing another attempt or preview frame.
+canvas.addEventListener('webglcontextlost', event => {
+  event.preventDefault(); // Opt in to browser context restoration.
+  window.NovelTeaBenchmark.contextLost = true;
+  window.NovelTeaBenchmark.contextRecoveryNeeded = true;
+  status.textContent = 'WebGL context lost · benchmark paused';
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  window.NovelTeaBenchmark.contextLost = false;
+  status.textContent = 'Restoring benchmark graphics…';
 });
 var Module = {
   canvas,

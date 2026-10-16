@@ -3,6 +3,7 @@
 #include "benchmark_options.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -23,6 +24,19 @@ enum class Readiness {
     Ready,
     Failed
 };
+// Platform interruptions are not workload failures; cancelled trials never retry.
+enum class Interruption {
+    None,
+    Recoverable,
+    Cancelled
+};
+enum class RecoveryState {
+    Pending,
+    Ready,
+    Failed
+};
+constexpr uint32_t kMaxInterruptionRetries = 3;
+using Recovery = std::function<RecoveryState(std::string&)>;
 
 struct FrameSample {
     double wall_seconds = 0.0;
@@ -91,6 +105,7 @@ struct TrialResult {
     std::string outcome = "failed";
     std::string reason;
     std::vector<Phase> phases;
+    uint32_t interruption_retries = 0;
     uint64_t warmup_frames = 0;
     uint64_t measured_frames = 0;
     double measured_wall_seconds = 0.0;
@@ -148,6 +163,9 @@ public:
     virtual bool complete(std::string& reason) = 0;
     // Return false with a diagnostic if teardown cannot release scenario resources.
     virtual bool cleanup(std::string& reason) = 0;
+    // A scenario that consumes native lifecycle/input events identifies the
+    // interruption that caused frame() to fail. Reset in prepare().
+    [[nodiscard]] virtual Interruption interruption() const { return Interruption::None; }
 };
 
 [[nodiscard]] bool validate_run_options(const Options& options, std::string& reason);
@@ -156,22 +174,26 @@ public:
 summarize_diagnostics(const std::vector<DiagnosticObservation>& observations,
                       const std::vector<DiagnosticObservation>& late_observations = {});
 [[nodiscard]] SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios,
-                                    Clock& clock);
+                                    Clock& clock, Recovery recovery = {});
 
 // Browser/event-loop runner: advance at most one workload frame per host callback.
 // Unlike run_suite, the caller owns pacing (requestAnimationFrame on Web).
 class FrameDrivenSuite {
 public:
-    FrameDrivenSuite(const Options& options, Scenario& scenario, Clock& clock);
+    FrameDrivenSuite(const Options& options, Scenario& scenario, Clock& clock,
+                     Recovery recovery = {});
     [[nodiscard]] bool step(); // true when results and cleanup are complete
     void interrupt(std::string reason);
+    void cancel(std::string reason);
     [[nodiscard]] const SuiteResult& result() const { return suite_; }
 
 private:
     void finish_trial();
+    void fail_frame(std::string fallback);
     Options options_;
     Scenario& scenario_;
     Clock& clock_;
+    Recovery recovery_;
     SuiteResult suite_;
     ScenarioResult scenario_result_;
     TrialResult trial_;
@@ -184,6 +206,11 @@ private:
     uint32_t trial_index_ = 0;
     bool done_ = false;
     bool results_ready_ = false;
+    bool cleanup_completed_ = false;
+    bool recovering_ = false;
+    bool interrupted_ = false;
+    bool cancelled_ = false;
+    uint32_t retry_count_ = 0;
     double readiness_start_ = 0.0;
     double warmup_start_ = 0.0;
     double measurement_start_ = 0.0;
