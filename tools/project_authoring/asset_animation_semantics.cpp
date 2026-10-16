@@ -246,38 +246,50 @@ ValidationResult validate_project_asset_aliases(const std::filesystem::path& pro
 }
 
 ValidationResult validate_asset_localizations(const std::filesystem::path& project_root,
-                                              const AuthoringRecordResolver& resolve)
+                                              const AuthoringRecordResolver& resolve,
+                                              std::string_view working_localization_json)
 {
     ValidationResult result{true, {}, {}};
-    const auto directory = project_root / "i18n/assets";
-    if (!std::filesystem::is_directory(directory))
-        return result;
-    std::vector<std::filesystem::path> locales;
-    for (const auto& file : std::filesystem::directory_iterator(directory))
-        if (file.path().extension() == ".yaml" && file.is_regular_file())
-            locales.push_back(file.path());
-    std::sort(locales.begin(), locales.end());
-    for (const auto& file : locales) {
-        std::ifstream stream(file, std::ios::binary);
-        const std::string bytes{std::istreambuf_iterator<char>(stream),
-                                std::istreambuf_iterator<char>()};
-        const auto opened = open_yaml_source(bytes);
-        const auto locale = file.stem().string();
-        const auto prefix = "/localization/assets/" + escape(locale);
-        if (!opened.accepted) {
-            add(result, prefix, "localization.assets.source", opened.error);
-            continue;
-        }
-        const auto normalized = validate_record("WorkspaceLocalizationAssets", opened.source_json);
-        if (!normalized.accepted) {
-            for (auto diagnostic : normalized.diagnostics) {
-                diagnostic.path = prefix + diagnostic.path;
-                result.diagnostics.push_back(std::move(diagnostic));
+    std::map<std::string, Json> effective;
+    if (!working_localization_json.empty()) {
+        const auto localization = Json::parse(working_localization_json);
+        for (const auto& entry : localization.at("assets").object_range())
+            effective.emplace(std::string(entry.key()), entry.value());
+    } else {
+        const auto directory = project_root / "i18n/assets";
+        if (!std::filesystem::is_directory(directory))
+            return result;
+        std::vector<std::filesystem::path> locales;
+        for (const auto& file : std::filesystem::directory_iterator(directory))
+            if (file.path().extension() == ".yaml" && file.is_regular_file())
+                locales.push_back(file.path());
+        std::sort(locales.begin(), locales.end());
+        for (const auto& file : locales) {
+            std::ifstream stream(file, std::ios::binary);
+            const std::string bytes{std::istreambuf_iterator<char>(stream),
+                                    std::istreambuf_iterator<char>()};
+            const auto opened = open_yaml_source(bytes);
+            const auto locale = file.stem().string();
+            const auto prefix = "/localization/assets/" + escape(locale);
+            if (!opened.accepted) {
+                add(result, prefix, "localization.assets.source", opened.error);
+                continue;
             }
-            result.accepted = false;
-            continue;
+            const auto normalized =
+                validate_record("WorkspaceLocalizationAssets", opened.source_json);
+            if (!normalized.accepted) {
+                for (auto diagnostic : normalized.diagnostics) {
+                    diagnostic.path = prefix + diagnostic.path;
+                    result.diagnostics.push_back(std::move(diagnostic));
+                }
+                result.accepted = false;
+                continue;
+            }
+            effective.emplace(locale, Json::parse(normalized.effective_json));
         }
-        const auto mappings = Json::parse(normalized.effective_json);
+    }
+    for (const auto& [locale, mappings] : effective) {
+        const auto prefix = "/localization/assets/" + escape(locale);
         for (const auto& entry : mappings.object_range()) {
             const auto path = prefix + "/" + escape(entry.key());
             const auto kind = asset_kind(resolve, entry.key());

@@ -47,6 +47,17 @@ std::pair<std::size_t, std::size_t> location(std::string_view source, std::size_
     return {line, column};
 }
 
+std::size_t utf16_offset(std::string_view source)
+{
+    std::size_t count = 0;
+    for (const char c : source) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (byte < 0x80 || byte >= 0xc0)
+            count += byte >= 0xf0 && byte < 0xf8 ? 2 : 1;
+    }
+    return count;
+}
+
 bool identifier_start(char value)
 {
     return std::isalpha(static_cast<unsigned char>(value)) || value == '_';
@@ -80,7 +91,26 @@ std::optional<std::pair<std::size_t, std::size_t>> long_bracket(std::string_view
     return {{cursor + 1, cursor - at - 1}};
 }
 
-std::string decode_quote(std::string_view source)
+void append_utf8(std::string& result, unsigned int codepoint)
+{
+    if (codepoint <= 0x7f)
+        result += static_cast<char>(codepoint);
+    else if (codepoint <= 0x7ff) {
+        result += static_cast<char>(0xc0 | (codepoint >> 6));
+        result += static_cast<char>(0x80 | (codepoint & 0x3f));
+    } else if (codepoint <= 0xffff) {
+        result += static_cast<char>(0xe0 | (codepoint >> 12));
+        result += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3f));
+        result += static_cast<char>(0x80 | (codepoint & 0x3f));
+    } else {
+        result += static_cast<char>(0xf0 | (codepoint >> 18));
+        result += static_cast<char>(0x80 | ((codepoint >> 12) & 0x3f));
+        result += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3f));
+        result += static_cast<char>(0x80 | (codepoint & 0x3f));
+    }
+}
+
+std::string decode_quote(std::string_view source, bool& complete)
 {
     std::string decoded;
     if (source.size() < 2)
@@ -90,9 +120,20 @@ std::string decode_quote(std::string_view source)
             decoded += source[i];
             continue;
         }
-        if (++i + 1 >= source.size())
+        if (++i + 1 >= source.size()) {
+            complete = false;
             break;
+        }
         switch (source[i]) {
+        case 'a':
+            decoded += '\a';
+            break;
+        case 'b':
+            decoded += '\b';
+            break;
+        case 'f':
+            decoded += '\f';
+            break;
         case 'n':
             decoded += '\n';
             break;
@@ -102,12 +143,86 @@ std::string decode_quote(std::string_view source)
         case 't':
             decoded += '\t';
             break;
+        case 'v':
+            decoded += '\v';
+            break;
+        case '\n':
+            decoded += '\n';
+            break;
+        case '\r':
+            if (i + 2 < source.size() && source[i + 1] == '\n')
+                ++i;
+            decoded += '\n';
+            break;
         case 'z':
             while (i + 2 < source.size() && std::isspace(static_cast<unsigned char>(source[i + 1])))
                 ++i;
             break;
+        case 'x': {
+            if (i + 3 >= source.size() ||
+                !std::isxdigit(static_cast<unsigned char>(source[i + 1])) ||
+                !std::isxdigit(static_cast<unsigned char>(source[i + 2]))) {
+                complete = false;
+                decoded += 'x';
+                break;
+            }
+            const auto digit = [](char ch) {
+                return static_cast<unsigned int>(
+                    ch <= '9' ? ch - '0' : (ch <= 'F' ? ch - 'A' + 10 : ch - 'a' + 10));
+            };
+            decoded += static_cast<char>((digit(source[i + 1]) << 4) | digit(source[i + 2]));
+            i += 2;
+            break;
+        }
+        case 'u': {
+            if (i + 2 >= source.size() || source[i + 1] != '{') {
+                complete = false;
+                decoded += 'u';
+                break;
+            }
+            const auto end = source.find('}', i + 2);
+            if (end == std::string_view::npos || end == i + 2) {
+                complete = false;
+                decoded += 'u';
+                break;
+            }
+            unsigned int value = 0;
+            bool valid = true;
+            for (auto at = i + 2; at < end; ++at) {
+                const auto ch = static_cast<unsigned char>(source[at]);
+                if (!std::isxdigit(ch) || value > 0x10ffffu / 16u) {
+                    valid = false;
+                    break;
+                }
+                value = value * 16 + (ch <= '9'   ? ch - '0'
+                                      : ch <= 'F' ? ch - 'A' + 10
+                                                  : ch - 'a' + 10);
+            }
+            if (!valid || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff))
+                complete = false;
+            else
+                append_utf8(decoded, value);
+            i = end;
+            break;
+        }
         default:
-            decoded += source[i];
+            if (std::isdigit(static_cast<unsigned char>(source[i]))) {
+                unsigned int value = static_cast<unsigned int>(source[i] - '0');
+                for (int digits = 1; digits < 3 && i + 2 < source.size() &&
+                                     std::isdigit(static_cast<unsigned char>(source[i + 1]));
+                     ++digits) {
+                    value = value * 10 + static_cast<unsigned int>(source[++i] - '0');
+                }
+                if (value > 255)
+                    complete = false;
+                else
+                    decoded += static_cast<char>(value);
+            } else if (source[i] == '\\' || source[i] == '\'' || source[i] == '"')
+                decoded += source[i];
+            else {
+                complete = false;
+                decoded += source[i];
+            }
             break;
         }
     }
@@ -157,8 +272,8 @@ std::vector<Token> lua_tokens(std::string_view source, SourceAnalysis& output,
             }
             complete &= closed;
             tokens.push_back({Token::Kind::String,
-                              closed ? decode_quote(source.substr(start, i - start)) : "", start,
-                              i});
+                              closed ? decode_quote(source.substr(start, i - start), complete) : "",
+                              start, i});
             continue;
         }
         if (const auto bracket = long_bracket(source, i)) {
@@ -288,6 +403,81 @@ bool static_metadata(const std::vector<Token>& tokens, Argument arg)
     return true;
 }
 
+void capture_metadata(ManagedSourceOccurrence& occurrence, const std::vector<Token>& tokens,
+                      Argument arg)
+{
+    for (auto at = arg.first; at + 2 < arg.last; ++at) {
+        if (tokens[at + 1].text != "=" || tokens[at + 2].kind != Token::Kind::String)
+            continue;
+        if (tokens[at].text == "context")
+            occurrence.context = tokens[at + 2].text;
+        if (tokens[at].text == "note")
+            occurrence.translator_note = tokens[at + 2].text;
+    }
+}
+
+std::optional<std::vector<std::string>> runtime_names(const std::vector<Token>& tokens,
+                                                      Argument arg)
+{
+    if (arg.first == arg.last || (arg.first + 1 == arg.last && tokens[arg.first].text == "nil"))
+        return std::vector<std::string>{};
+    if (tokens[arg.first].text != "{" || tokens[arg.last - 1].text != "}")
+        return std::nullopt;
+    std::vector<std::string> names;
+    auto cursor = arg.first + 1;
+    while (cursor < arg.last - 1) {
+        if (tokens[cursor].text == "," || tokens[cursor].text == ";") {
+            ++cursor;
+            continue;
+        }
+        if (cursor + 2 >= arg.last || tokens[cursor].kind != Token::Kind::Identifier ||
+            tokens[cursor + 1].text != "=")
+            return std::nullopt;
+        names.push_back(tokens[cursor].text);
+        cursor += 2;
+        std::vector<std::string> closers;
+        while (cursor < arg.last - 1) {
+            const auto& token = tokens[cursor].text;
+            if (closers.empty() && (token == "," || token == ";"))
+                break;
+            if (token == "(" || token == "[" || token == "{")
+                closers.push_back(token == "(" ? ")" : token == "[" ? "]" : "}");
+            else if (!closers.empty() && token == closers.back())
+                closers.pop_back();
+            ++cursor;
+        }
+        if (cursor < arg.last - 1)
+            ++cursor;
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::set<std::string> literal_placeholders(std::string_view source)
+{
+    std::set<std::string> result;
+    for (std::size_t at = 0; at < source.size(); ++at) {
+        if (source[at] != '{')
+            continue;
+        if (at + 1 < source.size() && source[at + 1] == '{') {
+            ++at;
+            continue;
+        }
+        const auto end = source.find('}', at + 1);
+        if (end == std::string_view::npos)
+            continue;
+        const auto name = source.substr(at + 1, end - at - 1);
+        if (!name.empty() &&
+            (std::isalpha(static_cast<unsigned char>(name[0])) || name[0] == '_') &&
+            std::all_of(name.begin() + 1, name.end(), [](char ch) {
+                return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-';
+            }))
+            result.insert(std::string(name));
+        at = end;
+    }
+    return result;
+}
+
 std::pair<std::size_t, std::size_t> region_location(std::string_view text, std::size_t offset,
                                                     std::size_t base_line, std::size_t base_column)
 {
@@ -296,7 +486,7 @@ std::pair<std::size_t, std::size_t> region_location(std::string_view text, std::
 }
 
 void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t base_line,
-                 std::size_t base_column)
+                 std::size_t base_column, std::size_t base_utf16_offset = 0)
 {
     if (source.size() > 4 * 1024 * 1024) {
         output.complete = false;
@@ -306,6 +496,15 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
         return;
     }
     const auto tokens = lua_tokens(source, output, base_line, base_column);
+    const auto utf16_at = [&](std::size_t offset) {
+        std::size_t length = base_utf16_offset;
+        for (std::size_t j = 0; j < offset && j < source.size(); ++j) {
+            const auto byte = static_cast<unsigned char>(source[j]);
+            if (byte < 0x80 || byte >= 0xc0)
+                length += byte >= 0xf0 && byte < 0xf8 ? 2 : 1;
+        }
+        return length;
+    };
     for (std::size_t i = 0; i + 3 < tokens.size(); ++i) {
         if (tokens[i].kind != Token::Kind::Identifier || tokens[i].text != "Text" ||
             tokens[i + 1].text != "." || tokens[i + 2].kind != Token::Kind::Identifier ||
@@ -324,6 +523,20 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
         const auto fail = [&](std::string code, std::string message) {
             diagnostic(output, "authoring.localization.lua_" + code, std::move(message), "error",
                        line, column);
+        };
+        const auto span = [&](Argument arg) {
+            return std::pair{utf16_at(tokens[arg.first].begin), utf16_at(tokens[arg.last - 1].end)};
+        };
+        const auto fill_offsets = [&](ManagedSourceOccurrence& occurrence) {
+            occurrence.call_start_utf16 = utf16_at(tokens[i].begin);
+            occurrence.call_end_utf16 = utf16_at(tokens[parsed->second].end);
+            occurrence.member_start_utf16 = utf16_at(tokens[i + 2].begin);
+            occurrence.member_end_utf16 = utf16_at(tokens[i + 2].end);
+            if (args.size() >= 3 && args[2].first < args[2].last) {
+                const auto [start, end] = span(args[2]);
+                occurrence.metadata_start_utf16 = start;
+                occurrence.metadata_end_utf16 = end;
+            }
         };
         const bool selector = member == "plural" || member == "select";
         if (args.size() < (selector ? 2U : 1U) || args.size() > (member == "msg" ? 2U : 3U)) {
@@ -362,8 +575,33 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
                                             "containing only literal context/note values.");
                 continue;
             }
-            output.messages.push_back({member, cases->at("other"), output.source_path,
-                                       output.source_revision, line, column});
+            ManagedSourceOccurrence occurrence{
+                member, cases->at("other"), output.source_path, output.source_revision, line,
+                column};
+            occurrence.lua_call = true;
+            fill_offsets(occurrence);
+            const auto [selector_start, selector_end] = span(args[0]);
+            const auto [cases_start, cases_end] = span(args[1]);
+            occurrence.selector_start_utf16 = selector_start;
+            occurrence.selector_end_utf16 = selector_end;
+            occurrence.cases_start_utf16 = cases_start;
+            occurrence.cases_end_utf16 = cases_end;
+            occurrence.cases = *cases;
+            occurrence.runtime_argument_names = std::vector<std::string>{"value"};
+            if (args.size() >= 3)
+                capture_metadata(occurrence, tokens, args[2]);
+            for (const auto& [branch, value] : *cases) {
+                const auto names = literal_placeholders(value);
+                if (std::any_of(names.begin(), names.end(),
+                                [](const auto& name) { return name != "value"; })) {
+                    fail("selector_placeholder_invalid",
+                         "Text." + member + " branches may only interpolate '{value}'.");
+                    occurrence.kind.clear();
+                    break;
+                }
+            }
+            if (!occurrence.kind.empty())
+                output.messages.push_back(std::move(occurrence));
             continue;
         }
         const auto& first = args[0];
@@ -378,8 +616,45 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
                                     "containing only literal context/note values.");
             continue;
         }
-        output.messages.push_back({member == "tr" ? "local" : "named", tokens[first.first].text,
-                                   output.source_path, output.source_revision, line, column});
+        ManagedSourceOccurrence occurrence{member == "tr" ? "local" : "named",
+                                           tokens[first.first].text,
+                                           output.source_path,
+                                           output.source_revision,
+                                           line,
+                                           column};
+        occurrence.lua_call = true;
+        fill_offsets(occurrence);
+        occurrence.source_start_utf16 = utf16_at(tokens[first.first].begin);
+        occurrence.source_end_utf16 = utf16_at(tokens[first.first].end);
+        if (args.size() >= 2 && args[1].first < args[1].last) {
+            const auto [start, end] = span(args[1]);
+            occurrence.runtime_args_start_utf16 = start;
+            occurrence.runtime_args_end_utf16 = end;
+        }
+        if (member == "tr" && args.size() >= 3)
+            capture_metadata(occurrence, tokens, args[2]);
+        occurrence.has_runtime_arguments =
+            args.size() >= 2 && args[1].first != args[1].last &&
+            !(args[1].first + 1 == args[1].last && tokens[args[1].first].text == "nil");
+        occurrence.runtime_argument_names =
+            occurrence.has_runtime_arguments
+                ? runtime_names(tokens, args[1])
+                : std::optional<std::vector<std::string>>{std::vector<std::string>{}};
+        if (member == "tr") {
+            const auto names = literal_placeholders(occurrence.source);
+            if (!names.empty() && !occurrence.has_runtime_arguments) {
+                fail("message_arguments_missing", "Text.tr source requires runtime arguments.");
+                continue;
+            }
+            if (occurrence.runtime_argument_names &&
+                std::vector<std::string>(names.begin(), names.end()) !=
+                    *occurrence.runtime_argument_names) {
+                fail("message_arguments_mismatch",
+                     "Text.tr literal argument table must match the source placeholder names.");
+                continue;
+            }
+        }
+        output.messages.push_back(std::move(occurrence));
     }
 }
 
@@ -551,7 +826,8 @@ void analyze_rml(SourceAnalysis& output, std::string_view source)
             }
             if (!closing && key.size() > 2 && key.starts_with("on")) {
                 const auto [line, col] = location(source, value_start);
-                analyze_lua(output, source.substr(value_start, end - value_start), line, col);
+                analyze_lua(output, source.substr(value_start, end - value_start), line, col,
+                            utf16_offset(source.substr(0, value_start)));
             }
             cursor = end + 1;
         }
@@ -616,7 +892,7 @@ void analyze_rml(SourceAnalysis& output, std::string_view source)
             }
             const auto body = source.substr(cursor, closing_tag);
             const auto [body_line, body_col] = location(source, cursor);
-            analyze_lua(output, body, body_line, body_col);
+            analyze_lua(output, body, body_line, body_col, utf16_offset(source.substr(0, cursor)));
             pos = cursor + closing_tag;
         }
         if (!closing && tag == "style" && !self_closing) {

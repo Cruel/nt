@@ -3,6 +3,8 @@
 #include "contracts.hpp"
 
 #include <cstddef>
+#include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +20,28 @@ struct ManagedSourceOccurrence {
     std::string source_revision;
     std::size_t line = 1;
     std::size_t column = 1;
+    std::map<std::string, std::string> cases;
+    std::optional<std::string> context;
+    std::optional<std::string> translator_note;
+    bool has_runtime_arguments = false;
+    // Nullopt means dynamically computed table keys; an empty vector denotes
+    // a statically known empty table (or absent arguments).
+    std::optional<std::vector<std::string>> runtime_argument_names;
+    bool lua_call = false;
+    std::size_t call_start_utf16 = 0;
+    std::size_t call_end_utf16 = 0;
+    std::size_t member_start_utf16 = 0;
+    std::size_t member_end_utf16 = 0;
+    std::optional<std::size_t> source_start_utf16;
+    std::optional<std::size_t> source_end_utf16;
+    std::optional<std::size_t> selector_start_utf16;
+    std::optional<std::size_t> selector_end_utf16;
+    std::optional<std::size_t> cases_start_utf16;
+    std::optional<std::size_t> cases_end_utf16;
+    std::optional<std::size_t> runtime_args_start_utf16;
+    std::optional<std::size_t> runtime_args_end_utf16;
+    std::optional<std::size_t> metadata_start_utf16;
+    std::optional<std::size_t> metadata_end_utf16;
 };
 
 struct SourceReference {

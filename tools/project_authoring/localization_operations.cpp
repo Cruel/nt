@@ -254,6 +254,31 @@ void pattern_contract(const Json& node, const std::string& locale, std::set<std:
         pattern_contract(branch.value(), locale, names, selectors, gaps);
 }
 
+std::vector<std::string> selector_signatures(const Json& root)
+{
+    std::vector<std::string> result;
+    const auto walk = [&](const auto& self, const Json& node) -> void {
+        if (node.at("kind") == "text")
+            return;
+        std::string signature =
+            node.at("kind").as<std::string>() + ":" + node.at("argument").as<std::string>();
+        if (node.at("kind") == "select") {
+            std::vector<std::string> keys;
+            for (const auto& branch : node.at("cases").object_range())
+                keys.emplace_back(branch.key());
+            std::sort(keys.begin(), keys.end());
+            for (const auto& key : keys)
+                signature += ":" + key;
+        }
+        result.push_back(std::move(signature));
+        for (const auto& branch : node.at("cases").object_range())
+            self(self, branch.value());
+    };
+    walk(walk, root);
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
 const std::set<std::string>& system_keys()
 {
     static const std::set<std::string> keys{"noveltea.shell.game_menu",
@@ -436,6 +461,72 @@ void validate_localization(const Json& model, const std::string& prefix,
         if (locale == source)
             report(errors, prefix + "/translations/" + token(locale), id,
                    "Source locale text is stored on Messages, not as target translations.");
+    }
+    // A translation is not valid just because its YAML matches its schema:
+    // source Message identity, placeholders, selectors, and Dialogue Cues
+    // impose cross-fragment requirements owned by the target locale file.
+    std::set<std::string> known_message_ids;
+    for (const auto& message : model.at("messages").object_range())
+        known_message_ids.insert(std::string(message.key()));
+    for (const auto& tracking : model.at("sourceMessageTracking").object_range())
+        for (const auto& occurrence : tracking.value().at("occurrences").array_range())
+            known_message_ids.insert(occurrence.at("messageId").as<std::string>());
+    for (const auto& locales_entry : model.at("translations").object_range()) {
+        const auto locale = std::string(locales_entry.key());
+        for (const auto& translated : locales_entry.value().object_range()) {
+            const auto message_id = std::string(translated.key());
+            const auto path = prefix + "/translations/" + token(locale) + "/" + token(message_id);
+            const auto& translation = translated.value();
+            if (!known_message_ids.contains(message_id)) {
+                report(errors, path, id,
+                       "Translation references unknown Message '" + message_id + "'.");
+                continue;
+            }
+            if (!model.at("messages").contains(message_id) ||
+                (translation.contains("useSource") && translation.at("useSource") == true))
+                continue;
+            const auto& message = model.at("messages").at(message_id);
+            const bool source_pattern = message.contains("pattern");
+            const bool target_pattern = translation.contains("pattern");
+            if (source_pattern != target_pattern)
+                report(errors, path, id,
+                       source_pattern ? "Translation must provide the Message selector pattern."
+                                      : "Translation cannot introduce selector grammar absent from "
+                                        "the source Message.");
+            std::set<std::string> source_names;
+            std::set<std::string> target_names;
+            std::map<std::string, Selector> source_selectors, target_selectors;
+            std::vector<std::pair<std::string, std::string>> gaps;
+            if (source_pattern)
+                pattern_contract(message.at("pattern"), source, source_names, source_selectors,
+                                 gaps);
+            else
+                source_names = placeholders(message.at("source").as<std::string>());
+            gaps.clear();
+            if (target_pattern) {
+                pattern_contract(translation.at("pattern"), locale, target_names, target_selectors,
+                                 gaps);
+                for (const auto& [argument, category] : gaps)
+                    report(errors, path + "/pattern", id,
+                           "Plural selector '" + argument + "' requires '" + category +
+                               "' for locale '" + locale + "'.");
+            } else
+                target_names = placeholders(translation.at("text").as<std::string>());
+            if (source_pattern && target_pattern) {
+                if (selector_signatures(message.at("pattern")) !=
+                    selector_signatures(translation.at("pattern")))
+                    report(errors, path + "/pattern", id,
+                           "Translation must preserve the source Message selector contract.");
+            }
+            for (const auto& name : source_names)
+                if (!target_names.contains(name))
+                    report(errors, path + "/text", id,
+                           "Translation must preserve required placeholder '{" + name + "}'.");
+            for (const auto& name : target_names)
+                if (!source_names.contains(name))
+                    report(errors, path + "/text", id,
+                           "Translation introduces undeclared placeholder '{" + name + "}'.");
+        }
     }
     for (const auto& entry : model.at("assets").object_range()) {
         const auto locale = std::string(entry.key());

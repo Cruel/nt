@@ -450,6 +450,39 @@ napi_value call(napi_env env, napi_callback_info info)
                     item["sourceRevision"] = message.source_revision;
                     item["line"] = message.line;
                     item["column"] = message.column;
+                    item["cases"] = Json::object();
+                    for (const auto& [branch, value] : message.cases)
+                        item["cases"][branch] = value;
+                    if (message.context)
+                        item["context"] = *message.context;
+                    if (message.translator_note)
+                        item["translatorNote"] = *message.translator_note;
+                    item["hasRuntimeArguments"] = message.has_runtime_arguments;
+                    item["luaCall"] = message.lua_call;
+                    item["callStartUtf16"] = message.call_start_utf16;
+                    item["callEndUtf16"] = message.call_end_utf16;
+                    item["memberStartUtf16"] = message.member_start_utf16;
+                    item["memberEndUtf16"] = message.member_end_utf16;
+                    const auto optional_offset = [&](std::string_view key,
+                                                     const std::optional<std::size_t>& value) {
+                        if (value)
+                            item[std::string(key)] = *value;
+                    };
+                    optional_offset("sourceStartUtf16", message.source_start_utf16);
+                    optional_offset("sourceEndUtf16", message.source_end_utf16);
+                    optional_offset("selectorStartUtf16", message.selector_start_utf16);
+                    optional_offset("selectorEndUtf16", message.selector_end_utf16);
+                    optional_offset("casesStartUtf16", message.cases_start_utf16);
+                    optional_offset("casesEndUtf16", message.cases_end_utf16);
+                    optional_offset("runtimeArgsStartUtf16", message.runtime_args_start_utf16);
+                    optional_offset("runtimeArgsEndUtf16", message.runtime_args_end_utf16);
+                    optional_offset("metadataStartUtf16", message.metadata_start_utf16);
+                    optional_offset("metadataEndUtf16", message.metadata_end_utf16);
+                    if (message.runtime_argument_names) {
+                        item["runtimeArgumentNames"] = Json::array();
+                        for (const auto& name : *message.runtime_argument_names)
+                            item["runtimeArgumentNames"].push_back(name);
+                    }
                     entry["messages"].push_back(std::move(item));
                 }
                 entry["references"] = Json::array();

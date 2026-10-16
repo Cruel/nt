@@ -63,6 +63,9 @@ void certify(const std::filesystem::path& source)
     const auto policy = fixture.root / "i18n/project.yaml";
     const auto saved_policy = contents(policy);
     auto initial = validate_project_localization(fixture.root);
+    if (!initial.accepted)
+        for (const auto& issue : initial.diagnostics)
+            std::cerr << issue.path << " " << issue.message << "\n";
     require(initial.accepted, "Existing split Feature Lab localization is valid");
     require(contents(policy) == saved_policy, "Validation does not rewrite YAML");
     const auto model = Json::parse(initial.effective_json);
@@ -123,6 +126,77 @@ void certify(const std::filesystem::path& source)
     require(!invalid_target.accepted &&
                 diagnostic(invalid_target, "/localization/translations/fr/not-a-message"),
             "Invalid translation identity points at its physical owner");
+    const auto saved_french = open_yaml_source(contents(fixture.root / "i18n/locales/fr.yaml"));
+    require(saved_french.accepted, "French locale fixture can be decoded");
+    const auto french = Json::parse(saved_french.source_json);
+    auto unknown_uuid = french;
+    unknown_uuid.insert_or_assign("ffffffff-ffff-4fff-8fff-ffffffffffff",
+                                  french.at("25700000-0000-4000-8000-000000000002"));
+    const auto missing_message = validate_project_localization(
+        fixture.root, {{"i18n/locales/fr.yaml", unknown_uuid.to_string()}});
+    require(!missing_message.accepted &&
+                diagnostic(missing_message,
+                           "/localization/translations/fr/ffffffff-ffff-4fff-8fff-ffffffffffff"),
+            "Structurally valid unknown translation Message UUID is rejected");
+    auto missing_placeholder = french;
+    missing_placeholder["25700000-0000-4000-8000-000000000001"]["text"] = "Bonjour";
+    const auto placeholder_error = validate_project_localization(
+        fixture.root, {{"i18n/locales/fr.yaml", missing_placeholder.to_string()}});
+    require(
+        !placeholder_error.accepted &&
+            diagnostic(placeholder_error,
+                       "/localization/translations/fr/25700000-0000-4000-8000-000000000001/text"),
+        "Target translation cannot drop source Message placeholders");
+    auto changed_selector = french;
+    changed_selector["25700000-0000-4000-8000-000000000004"]["pattern"]["argument"] = "otherArg";
+    const auto selector_error = validate_project_localization(
+        fixture.root, {{"i18n/locales/fr.yaml", changed_selector.to_string()}});
+    require(!selector_error.accepted &&
+                diagnostic(
+                    selector_error,
+                    "/localization/translations/fr/25700000-0000-4000-8000-000000000004/pattern"),
+            "Translated selector signatures must match the source Message contract");
+    {
+        Fixture cues_fixture(source);
+        const auto dialogue_file = cues_fixture.root / "records/dialogues/effects-camera.yaml";
+        const auto decoded = open_yaml_source(contents(dialogue_file));
+        require(decoded.accepted, "Dialogue Cue source fixture decodes");
+        auto dialogue = Json::parse(decoded.source_json);
+        Json localized = Json::object();
+        localized["kind"] = "localized";
+        localized["key"] = "lab.greeting";
+        dialogue["data"]["blocks"][0]["segments"][0]["text"]["source"] = localized;
+        std::ofstream(dialogue_file) << dialogue.to_string();
+        const auto cue_error = validate_project_localization(cues_fixture.root);
+        require(!cue_error.accepted &&
+                    diagnostic(cue_error, "/localization/translations/fr/"
+                                          "25700000-0000-4000-8000-000000000001/dialogueCues"),
+                "Target translation must preserve source Dialogue Cue identity");
+        auto corrected = french;
+        Json cues = Json::array();
+        Json cue = Json::object();
+        cue["id"] = "shake";
+        cue["position"] = Json::parse(R"({"offset":0,"order":0})");
+        cues.push_back(cue);
+        corrected["25700000-0000-4000-8000-000000000001"]["dialogueCues"] = std::move(cues);
+        std::map<std::string, std::string> corrected_locales{
+            {"i18n/locales/fr.yaml", corrected.to_string()}};
+        for (const auto* locale : {"ar", "ja"}) {
+            const auto path = std::string("i18n/locales/") + locale + ".yaml";
+            const auto opened = open_yaml_source(contents(cues_fixture.root / path));
+            require(opened.accepted, "Cue locale source can be decoded");
+            auto target = Json::parse(opened.source_json);
+            target["25700000-0000-4000-8000-000000000001"]["dialogueCues"] =
+                corrected["25700000-0000-4000-8000-000000000001"]["dialogueCues"];
+            corrected_locales.emplace(path, target.to_string());
+        }
+        const auto repaired = validate_project_localization(cues_fixture.root, corrected_locales);
+        if (!repaired.accepted)
+            for (const auto& issue : repaired.diagnostics)
+                std::cerr << "Repaired Cue diagnostic: " << issue.path << " [" << issue.code << "] "
+                          << issue.message << "\n";
+        require(repaired.accepted, "Correct Dialogue Cue translation clears native error");
+    }
 
     const auto changed_policy = validate_project_localization(
         fixture.root,
@@ -178,7 +252,31 @@ void certify(const std::filesystem::path& source)
     std::string error;
     auto project = ProjectSession::open(fixture.root, error);
     require(project != nullptr, error);
+    if (!project->snapshot().valid)
+        for (const auto& issue : project->snapshot().diagnostics)
+            std::cerr << issue.path << " [" << issue.code << "] " << issue.message << "\n";
     require(project->snapshot().valid, "Valid localization is admitted in Project snapshot");
+    auto dirty_assets = ProjectSession::open(fixture.root, error);
+    require(dirty_assets != nullptr, "Dirty Asset localization fixture opens");
+    const auto altered_asset = dirty_assets->patch(
+        0, {{RoomPatch::Operation::Replace, "/localization/assets/fr/ui-pattern/asset/$ref/id",
+             R"("missing-localized-asset")"}});
+    require(altered_asset.accepted && !altered_asset.snapshot.valid &&
+                std::any_of(altered_asset.snapshot.diagnostics.begin(),
+                            altered_asset.snapshot.diagnostics.end(),
+                            [](const Diagnostic& issue) {
+                                return issue.path == "/localization/assets/fr/ui-pattern/asset" &&
+                                       issue.code == "localization.asset.variant-missing";
+                            }) &&
+                contents(fixture.root / "i18n/assets/fr.yaml").find("missing-localized-asset") ==
+                    std::string::npos,
+            "Dirty locale mapping detects missing localized Asset without reading old disk values");
+    const auto repaired_asset = dirty_assets->patch(
+        altered_asset.snapshot.working_revision,
+        {{RoomPatch::Operation::Replace, "/localization/assets/fr/ui-pattern/asset/$ref/id",
+          R"("locale-pattern")"}});
+    require(repaired_asset.accepted && repaired_asset.snapshot.valid,
+            "Restoring dirty localized Asset mapping clears dependent diagnostics");
     require(contents(policy) == locked_policy, "Project open does not normalize source on disk");
 
     const auto inspected = project->inspect_record("i18n/messages.yaml");
