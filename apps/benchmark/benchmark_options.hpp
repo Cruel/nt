@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace noveltea::benchmark {
 
@@ -38,6 +39,9 @@ struct Options {
 };
 
 bool parse_options(int argc, const char* const argv[], Options& options, std::string& error);
+// Construct a canonical reference preset without changing run timing, output or platform settings.
+// Every scenario switch and Quick Suite host must use this instead of copying reset fields.
+[[nodiscard]] Options reference_scenario_options(const Options& base, std::string_view scenario);
 // App-specific reference selection; the portable runner accepts other Scenario IDs.
 [[nodiscard]] bool validate_reference_options(const Options& options, std::string& reason);
 

@@ -450,7 +450,17 @@ std::string encode_result(const Options& options, const Environment& environment
                         {"render_target_color_bytes", environment.raw_workload->target_color_bytes},
                         {"estimated_extra_msaa_bytes",
                          environment.raw_workload->estimated_msaa_bytes},
+                        // bgfx validates the texture format, but backend allocation may clamp
+                        // MSAA sample counts. Never present the request as effective GPU state.
                         {"msaa_samples", environment.raw_workload->msaa_samples},
+                        {"requested_msaa_samples", environment.raw_workload->msaa_samples},
+                        {"effective_msaa_samples",
+                         environment.raw_workload->msaa_samples == 0 ? Json(0) : Json(nullptr)},
+                        {"msaa_sample_count_verified", environment.raw_workload->msaa_samples == 0},
+                        {"estimated_extra_msaa_bytes_basis",
+                         environment.raw_workload->msaa_samples == 0
+                             ? "none"
+                             : "requested sample count; actual allocation/resolve unverified"},
                         {"covered_backbuffer_pixels_estimate",
                          environment.raw_workload->covered_pixels},
                         {"render_views", environment.raw_workload->view_count},

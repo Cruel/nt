@@ -334,6 +334,30 @@ int main()
             "raw GPU operation counters and actual framebuffer dimensions appear in report"))
         return 1;
 
+    Options msaa_options;
+    msaa_options.scenario = "raw-bgfx-composition";
+    msaa_options.composition_path = "offscreen";
+    msaa_options.composite_passes = 1;
+    msaa_options.msaa_samples = 4;
+    auto msaa_reference = noveltea::benchmark::raw_workload_reference(msaa_options, 640, 360);
+    noveltea::benchmark::Environment msaa_env;
+    msaa_env.width_pixels = 640;
+    msaa_env.height_pixels = 360;
+    msaa_env.raw_workload = *msaa_reference;
+    const auto msaa_report = nlohmann::json::parse(encode_result(msaa_options, msaa_env, suite));
+    const auto& msaa_reported = msaa_report["graphics"]["raw_workload"];
+    if (!check(
+            msaa_reference && msaa_reported["requested_msaa_samples"] == 4 &&
+                msaa_reported["msaa_samples"] == 4 &&
+                msaa_reported["effective_msaa_samples"].is_null() &&
+                msaa_reported["msaa_sample_count_verified"] == false &&
+                msaa_reported["estimated_extra_msaa_bytes_basis"].get<std::string>().find(
+                    "requested") != std::string::npos &&
+                offscreen_report["graphics"]["raw_workload"]["effective_msaa_samples"] == 0 &&
+                offscreen_report["graphics"]["raw_workload"]["msaa_sample_count_verified"] == true,
+            "MSAA requests and nominal memory budgets are not misreported as effective GPU state"))
+        return 1;
+
     noveltea::benchmark::Environment engine_env;
     engine_env.frame_path = "engine-tick";
     engine_env.engine_postprocess_active = false;

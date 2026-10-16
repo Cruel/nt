@@ -361,6 +361,16 @@ if(BUILD_TESTING AND NOT ANDROID)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "Quick Suite complete"
             TIMEOUT 180)
+        add_test(NAME noveltea_benchmark_quick_suite_after_composition_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario raw-bgfx-composition --composition-path offscreen
+                --composite-passes 2 --target-scale 0.5 --msaa-samples 2
+                --no-transparent-overlay --quick-suite --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-quick-suite-composition.json")
+        set_tests_properties(noveltea_benchmark_quick_suite_after_composition_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "Quick Suite complete"
+            TIMEOUT 180)
         add_test(NAME noveltea_benchmark_quick_suite_dashboard_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --dashboard-smoke --quick-suite

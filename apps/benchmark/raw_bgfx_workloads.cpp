@@ -109,10 +109,12 @@ bool RawBgfxWorkloads::initialize(const RawWorkloadReference& work, uint32_t wid
     }
 
     const uint32_t quads = work_.quads_per_draw;
-    uint32_t columns = 1;
-    while (columns * columns < quads)
-        ++columns;
-    const uint32_t rows = (quads + columns - 1) / columns;
+    const auto tiles = reference_quad_partition(quads);
+    if (tiles.size() != quads) {
+        reason = "invalid quad geometry partition";
+        shutdown();
+        return false;
+    }
     const float covered_width = 1280.0f * static_cast<float>(work_.coverage);
     const float covered_height = 720.0f * static_cast<float>(work_.coverage);
     const float start_x = (1280.0f - covered_width) * 0.5f;
@@ -121,10 +123,10 @@ bool RawBgfxWorkloads::initialize(const RawWorkloadReference& work, uint32_t wid
     std::vector<uint16_t> indices;
     vertices.reserve(static_cast<size_t>(quads) * 4);
     indices.reserve(static_cast<size_t>(quads) * 6);
-    for (uint32_t i = 0; i < quads; ++i) {
-        add_quad(vertices, indices, start_x + covered_width * (i % columns) / columns,
-                 start_y + covered_height * (i / columns) / rows, covered_width / columns,
-                 covered_height / rows, false, 1, 1, 1);
+    for (const auto& tile : tiles) {
+        add_quad(vertices, indices, start_x + covered_width * tile.x,
+                 start_y + covered_height * tile.y, covered_width * tile.width,
+                 covered_height * tile.height, false, 1, 1, 1);
     }
     const auto layout = quad_layout();
     vertices_ = bgfx::createVertexBuffer(

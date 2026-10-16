@@ -315,6 +315,25 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
         quick.scenarios[2].graphics.ui_render_path === null)
       throw new Error('Quick Suite scenario isolation/report failure: ' + JSON.stringify(quick.scenarios.map(s => ({id:s.id, outcome:s.outcome, frames:s.aggregate.measured_frames}))));
     console.log(name + ': Quick Suite serial reference runs + independent unsupported-host outcomes passed');
+
+    // Regression: selecting offscreen composition before Quick Suite must not
+    // leak composition-only knobs into raw, RmlUi, or Engine reference presets.
+    await page.goto(origin + '/benchmark.html?scenario=raw-bgfx-composition&compositionPath=offscreen&compositePasses=2&quickSuite=1&smoke=1&noUi=1');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
+                               {timeout: 60000});
+    const switched = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    if (switched.outcome !== 'partial' ||
+        switched.scenarios.map(s => s.id).join(',') !== referenceOrder.join(',') ||
+        switched.scenarios.slice(0, 3).some(s => s.outcome !== 'complete' ||
+          s.aggregate.measured_frames !== 30) ||
+        switched.configuration.parameters.composition_path !== 'direct' ||
+        switched.configuration.parameters.composite_passes !== 0 ||
+        switched.configuration.parameters.target_scale !== 1 ||
+        switched.configuration.parameters.msaa_samples !== 0 ||
+        switched.configuration.parameters.transparent_overlay !== true)
+      throw new Error('composition-to-Quick-Suite normalization failed: ' +
+        JSON.stringify(switched.scenarios.map(s => [s.id, s.outcome, s.trials[0]?.reason])));
+    console.log(name + ': composition-to-Quick-Suite scenario normalization passed');
     await page.close();
   } catch (error) {
     failures++;

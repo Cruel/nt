@@ -88,6 +88,9 @@ For the textured and offscreen cases, `--texture-size` (power of two,
 control texture allocation and quad coverage. `raw-bgfx-draw-calls` also
 accepts `--draw-calls` (1–1024) and `--quad-count` (1–512 quads per draw)
 to separate CPU draw submission pressure from indexed geometry volume.
+The quads partition the **same full covered rectangle** for every quad count,
+including incomplete final grid rows (e.g. 3 versus 4 quads); geometry count
+therefore does not implicitly change covered pixel area.
 The same controls are available in the dashboard; the fixed clear/single-quad
 references reject incompatible parameters. The stable default parameter
 set is 64 draws, 1 quad/draw, 256 texture pixels, coverage 1.0, even for
@@ -147,8 +150,14 @@ square); source-texture size is independent. Target scale changes the
 *actual allocated* intermediate dimensions, not the host window or
 backbuffer size; composite draws still cover the final full screen.
 Multi-pass composition maintains independent ping-pong targets and never
-samples from its active write target. Unsupported MSAA framebuffer formats
-fail preparation explicitly, with no silent fallback to single sampling.
+samples from its active write target. Unsupported MSAA framebuffer **formats**
+fail preparation. The bgfx API cannot portably confirm the exact effective
+sample count: a driver can clamp a supported format to fewer samples. The
+JSON therefore separates `requested_msaa_samples` from
+`effective_msaa_samples` (null for MSAA requests), sets
+`msaa_sample_count_verified` to false, and marks the extra-MSAA byte estimate
+as based on **requested** samples, not observed allocation. Do not treat a
+successful MSAA run as proof that the requested sample count was used.
 MSAA on the direct backbuffer is intentionally **unsupported** in this
 comparison: it would require a different host reset/swapchain setup.
 
@@ -200,11 +209,19 @@ order. Select **Quick Suite** in the dashboard, or launch without ImGui:
 ./scripts/run-benchmark-web.sh --no-build --quick-suite --smoke
 ```
 
-The suite freezes the selected run settings, using fixed geometry parameters
-so each comparison has a stable workload. It releases preview and ImGui GPU
+The suite freezes the selected run settings, using a shared canonical
+reference-preset normalizer for geometry, draw, texture, and **all composition**
+parameters, regardless of the previously selected scenario. This prevents an
+offscreen composition preview from invalidating the fixed Quick Suite cases.
+It releases preview and ImGui GPU
 resources once before the first trial and does not re-create the dashboard
 between scenarios. The raw bgfx and standalone RmlUi cases retain the shared
 SDL window/bgfx host but release each scenario's resources between runs.
+On Android, recoverable interruptions of shared-host Quick Suite trials now
+wait for foreground restoration and rebuild SDL/bgfx before a fresh warmup,
+with bounded retries; failed recovery blocks subsequent ownership changes.
+This is wired to the same recovery helper as single dashboard trials, but
+physical-device pause/resume still requires separate certification.
 On Linux, the benchmark destroys that host before an Engine-owned scenario
 initializes its own SDL window/bgfx device, and re-creates the dashboard host
 only after the suite completes. A cleanup failure blocks unsafe subsequent

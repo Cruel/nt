@@ -269,6 +269,25 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
     return true;
 }
 
+Options reference_scenario_options(const Options& base, std::string_view scenario)
+{
+    Options selected = base;
+    selected.scenario = scenario;
+    const Options defaults;
+    selected.rect_count = defaults.rect_count;
+    selected.rect_scale = defaults.rect_scale;
+    selected.draw_calls = defaults.draw_calls;
+    selected.quad_count = defaults.quad_count;
+    selected.texture_size = defaults.texture_size;
+    selected.coverage = defaults.coverage;
+    selected.composition_path = defaults.composition_path;
+    selected.composite_passes = defaults.composite_passes;
+    selected.target_scale = defaults.target_scale;
+    selected.msaa_samples = defaults.msaa_samples;
+    selected.transparent_overlay = defaults.transparent_overlay;
+    return selected;
+}
+
 bool validate_reference_options(const Options& options, std::string& reason)
 {
     if (options.scenario != "raw-bgfx-composition" &&
