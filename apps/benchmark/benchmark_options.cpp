@@ -1,5 +1,6 @@
 #include "benchmark_options.hpp"
 #include "reference_scene.hpp"
+#include "reference_workloads.hpp"
 
 #include <charconv>
 #include <cerrno>
@@ -88,10 +89,11 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             continue;
         }
         if (flag != "--scenario" && flag != "--rect-count" && flag != "--rect-scale" &&
-            flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
-            flag != "--seconds" && flag != "--frames" && flag != "--output" &&
-            flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
-            flag != "--config") {
+            flag != "--draw-calls" && flag != "--quad-count" && flag != "--texture-size" &&
+            flag != "--coverage" && flag != "--width" && flag != "--height" &&
+            flag != "--warmup-seconds" && flag != "--seconds" && flag != "--frames" &&
+            flag != "--output" && flag != "--repeats" && flag != "--ready-timeout-seconds" &&
+            flag != "--profile" && flag != "--config") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -111,6 +113,16 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         if (flag == "--scenario") {
             has_cli_settings = true;
             options.scenario = value;
+            continue;
+        }
+        if (flag == "--coverage") {
+            has_cli_settings = true;
+            double coverage = 0.0;
+            if (!parse_duration(value, coverage) || coverage < 0.125 || coverage > 1.0) {
+                error = "--coverage must be in 0.125..1.0";
+                return false;
+            }
+            options.coverage = coverage;
             continue;
         }
         if (flag == "--rect-scale") {
@@ -161,7 +173,25 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             error = "invalid positive integer for " + std::string(flag);
             return false;
         }
-        if (flag == "--rect-count") {
+        if (flag == "--draw-calls") {
+            if (number > 1024) {
+                error = "--draw-calls exceeds 1024";
+                return false;
+            }
+            options.draw_calls = static_cast<uint32_t>(number);
+        } else if (flag == "--quad-count") {
+            if (number > 512) {
+                error = "--quad-count exceeds 512";
+                return false;
+            }
+            options.quad_count = static_cast<uint32_t>(number);
+        } else if (flag == "--texture-size") {
+            if (number > 2048 || (number & (number - 1)) != 0) {
+                error = "--texture-size must be a power of two in 1..2048";
+                return false;
+            }
+            options.texture_size = static_cast<uint32_t>(number);
+        } else if (flag == "--rect-count") {
             if (number > kMaxReferenceRects) {
                 error = "--rect-count exceeds 256";
                 return false;
@@ -201,19 +231,30 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
 
 bool validate_reference_options(const Options& options, std::string& reason)
 {
+    if (is_extended_raw_scenario(options.scenario) && options.rect_count == kReferenceRectCount &&
+        options.rect_scale == kReferenceRectScale &&
+        raw_workload_reference(options, static_cast<uint32_t>(options.width),
+                               static_cast<uint32_t>(options.height))) {
+        reason.clear();
+        return true;
+    }
     if (options.scenario == "raw-bgfx-geometry" &&
-        valid_geometry_parameters(options.rect_count, options.rect_scale)) {
+        valid_geometry_parameters(options.rect_count, options.rect_scale) &&
+        options.draw_calls == 64 && options.quad_count == 1 && options.texture_size == 256 &&
+        options.coverage == 1.0) {
         reason.clear();
         return true;
     }
     if ((options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
          options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty") &&
-        options.rect_count == kReferenceRectCount && options.rect_scale == kReferenceRectScale) {
+        options.rect_count == kReferenceRectCount && options.rect_scale == kReferenceRectScale &&
+        options.draw_calls == 64 && options.quad_count == 1 && options.texture_size == 256 &&
+        options.coverage == 1.0) {
         reason.clear();
         return true;
     }
-    reason = "unsupported scenario or geometry parameters";
+    reason = "unsupported scenario or incompatible reference parameters";
     return false;
 }
 

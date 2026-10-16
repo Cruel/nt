@@ -1,4 +1,5 @@
 #include "reference_scene.hpp"
+#include "reference_workloads.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -76,6 +77,67 @@ int main()
                    !valid_geometry_parameters(3, 0.1) && !valid_geometry_parameters(3, 1.1) &&
                    !valid_geometry_parameters(3, std::numeric_limits<double>::quiet_NaN()),
                "valid parameter bounds"))
+        return 1;
+
+    Options raw;
+    raw.scenario = "raw-bgfx-clear";
+    const auto clear = raw_workload_reference(raw, 1280, 720);
+    raw.scenario = "raw-bgfx-single-quad";
+    const auto single = raw_workload_reference(raw, 1280, 720);
+    raw.scenario = "raw-bgfx-textured";
+    const auto textured = raw_workload_reference(raw, 1280, 720);
+    raw.scenario = "raw-bgfx-offscreen";
+    const auto offscreen = raw_workload_reference(raw, 1280, 720);
+    const auto small_offscreen = raw_workload_reference(raw, 640, 360);
+    raw.scenario = "raw-bgfx-draw-calls";
+    const auto variable = raw_workload_reference(raw, 1280, 720);
+    if (!check(clear && clear->id == "raw-bgfx-clear" && clear->draws_per_frame == 0 &&
+                   clear->vertices_per_frame == 0 && clear->view_count == 1 && single &&
+                   single->id == "raw-bgfx-single-quad" && single->draws_per_frame == 1 &&
+                   single->quads_per_draw == 1 && single->vertices_per_frame == 4 &&
+                   single->texture_bytes == 4 && textured && textured->id == "raw-bgfx-textured" &&
+                   textured->draws_per_frame == 1 && textured->coverage == 1.0 &&
+                   textured->texture_bytes == 256 * 256 * 4 && offscreen &&
+                   offscreen->id == "raw-bgfx-offscreen" && offscreen->draws_per_frame == 2 &&
+                   offscreen->view_count == 2 && offscreen->vertices_per_frame == 8 &&
+                   offscreen->triangles_per_frame == 4 && offscreen->offscreen &&
+                   offscreen->texture_bytes == 256 * 256 * 4 + 1280 * 720 * 4 && small_offscreen &&
+                   small_offscreen->texture_bytes == 256 * 256 * 4 + 640 * 360 * 4 && variable &&
+                   variable->id == "raw-bgfx-draw-calls" && variable->draws_per_frame == 64 &&
+                   variable->vertices_per_frame == 256 && variable->triangles_per_frame == 128 &&
+                   !variable->offscreen,
+               "stable real raw workload identities and operation counts"))
+        return 1;
+
+    raw.draw_calls = 7;
+    raw.quad_count = 9;
+    raw.texture_size = 64;
+    raw.coverage = 0.375;
+    const auto scaled = raw_workload_reference(raw, 1280, 720);
+    if (!check(scaled && scaled->draws_per_frame == 7 && scaled->quads_per_draw == 9 &&
+                   scaled->vertices_per_frame == 7 * 9 * 4 &&
+                   scaled->triangles_per_frame == 7 * 9 * 2 &&
+                   scaled->texture_bytes == 64 * 64 * 4 && scaled->coverage == 0.375,
+               "draw submissions, geometry, texture footprint and coverage scale independently"))
+        return 1;
+    raw.draw_calls = 1025;
+    const bool invalid_draws = !raw_workload_reference(raw, 1280, 720);
+    raw.draw_calls = 7;
+    raw.quad_count = 513;
+    const bool invalid_quads = !raw_workload_reference(raw, 1280, 720);
+    raw.quad_count = 9;
+    raw.texture_size = 63;
+    const bool invalid_texture = !raw_workload_reference(raw, 1280, 720);
+    raw.texture_size = 64;
+    raw.coverage = std::numeric_limits<double>::quiet_NaN();
+    const bool invalid_nan = !raw_workload_reference(raw, 1280, 720);
+    raw.coverage = 0.12;
+    const bool invalid_coverage = !raw_workload_reference(raw, 1280, 720);
+    raw.coverage = 0.375;
+    if (!check(invalid_draws && invalid_quads && invalid_texture && invalid_nan &&
+                   invalid_coverage && !raw_workload_reference(raw, 0, 720) &&
+                   !raw_workload_reference(raw, 8193, 720),
+               "invalid raw workload and render dimension boundaries"))
         return 1;
     return 0;
 }

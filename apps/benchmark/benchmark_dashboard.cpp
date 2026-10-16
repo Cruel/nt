@@ -1,6 +1,7 @@
 #include "benchmark_dashboard.hpp"
 #include "benchmark_view_order.hpp"
 #include "benchmark_assets.hpp"
+#include "reference_workloads.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -297,22 +298,31 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
 #if defined(__ANDROID__)
-                    for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
+                    for (const char* candidate :
+                         {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
+                          "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
+                          "raw-bgfx-draw-calls"}) {
 #elif defined(__EMSCRIPTEN__)
                     for (const char* candidate :
-                         {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple"}) {
+                         {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
+                          "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
+                          "raw-bgfx-draw-calls", "standalone-rmlui-simple"}) {
 #else
                     for (const char* candidate :
-                         {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple",
+                         {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
+                          "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
+                          "raw-bgfx-draw-calls", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
                           "engine-empty"}) {
 #endif
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options.scenario = candidate;
-                            if (options.scenario != "raw-bgfx-geometry") {
-                                options.rect_count = 3;
-                                options.rect_scale = 1.0;
-                            }
+                            options.rect_count = 3;
+                            options.rect_scale = 1.0;
+                            options.draw_calls = 64;
+                            options.quad_count = 1;
+                            options.texture_size = 256;
+                            options.coverage = 1.0;
                         }
                     }
                     ImGui::EndCombo();
@@ -329,10 +339,40 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.rect_scale = 1.0;
                     }
                 }
+                if (options.scenario == "raw-bgfx-draw-calls") {
+                    int draw_calls = static_cast<int>(options.draw_calls);
+                    if (ImGui::SliderInt("Draw submissions", &draw_calls, 1, 1024))
+                        options.draw_calls = static_cast<uint32_t>(draw_calls);
+                    int quads = static_cast<int>(options.quad_count);
+                    if (ImGui::SliderInt("Quads per draw", &quads, 1, 512))
+                        options.quad_count = static_cast<uint32_t>(quads);
+                }
+                if (options.scenario == "raw-bgfx-textured" ||
+                    options.scenario == "raw-bgfx-offscreen" ||
+                    options.scenario == "raw-bgfx-draw-calls") {
+                    if (ImGui::BeginCombo("Texture edge (px)",
+                                          std::to_string(options.texture_size).c_str())) {
+                        for (uint32_t edge : {1u, 16u, 64u, 256u, 512u, 1024u, 2048u}) {
+                            const auto label = std::to_string(edge);
+                            if (ImGui::Selectable(label.c_str(), options.texture_size == edge))
+                                options.texture_size = edge;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    float coverage = static_cast<float>(options.coverage);
+                    if (ImGui::SliderFloat("Linear coverage", &coverage, 0.125f, 1.0f))
+                        options.coverage = coverage;
+                    if (ImGui::Button("Restore raw reference")) {
+                        options.draw_calls = 64;
+                        options.quad_count = 1;
+                        options.texture_size = 256;
+                        options.coverage = 1.0;
+                    }
+                }
 #if defined(__ANDROID__)
-                ImGui::TextDisabled("Android Stage 1: strict raw bgfx references only.");
+                ImGui::TextDisabled("Android: raw bgfx references only.");
 #elif defined(__EMSCRIPTEN__)
-                ImGui::TextDisabled("Web Stage 1: raw bgfx and standalone RmlUi references.");
+                ImGui::TextDisabled("Web: raw bgfx and standalone RmlUi references.");
 #else
                 ImGui::TextDisabled("Engine-owned scenarios use the production Engine and a "
                                     "separate graphics host.");

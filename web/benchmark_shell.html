@@ -31,7 +31,9 @@ for (const [key, flag] of Object.entries({
   scenario: '--scenario', frames: '--frames', seconds: '--seconds',
   warmup: '--warmup-seconds', repeats: '--repeats', profile: '--profile',
   width: '--width', height: '--height', rectCount: '--rect-count',
-  rectScale: '--rect-scale', readyTimeout: '--ready-timeout-seconds',
+  rectScale: '--rect-scale', drawCalls: '--draw-calls', quadCount: '--quad-count',
+  textureSize: '--texture-size', coverage: '--coverage',
+  readyTimeout: '--ready-timeout-seconds',
   output: '--output'
 })) {
   if (params.has(key)) args.push(flag, params.get(key));

@@ -19,7 +19,7 @@ add_custom_target(noveltea-benchmark-source-identity
 
 add_library(noveltea-benchmark-runner STATIC
     benchmark_options.cpp benchmark_runner.cpp benchmark_frame_driven.cpp
-    benchmark_report.cpp reference_scene.cpp)
+    benchmark_report.cpp reference_scene.cpp reference_workloads.cpp)
 add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
 target_include_directories(noveltea-benchmark-runner PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -56,6 +56,7 @@ elseif(NOT TARGET imgui::imgui)
 endif()
 set(NOVELTEA_BENCHMARK_APP_SOURCES
     main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
+    raw_bgfx_workloads.cpp
     standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp)
 if(ANDROID)
     add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
@@ -275,6 +276,25 @@ if(BUILD_TESTING AND NOT ANDROID)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 45)
+        foreach(raw_workload clear single-quad textured offscreen draw-calls)
+            add_test(NAME "noveltea_benchmark_raw_${raw_workload}_graphics_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario "raw-bgfx-${raw_workload}" --smoke --repeats 2
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-raw-${raw_workload}.json")
+            set_tests_properties("noveltea_benchmark_raw_${raw_workload}_graphics_smoke"
+                PROPERTIES LABELS "benchmark;graphics;smoke"
+                PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+                TIMEOUT 120)
+        endforeach()
+        add_test(NAME noveltea_benchmark_raw_scaled_graphics_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario raw-bgfx-draw-calls --draw-calls 7 --quad-count 9
+                --texture-size 64 --coverage 0.375 --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-raw-scaled.json")
+        set_tests_properties(noveltea_benchmark_raw_scaled_graphics_smoke
+            PROPERTIES LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 30 frames"
+            TIMEOUT 120)
         add_test(NAME noveltea_benchmark_rmlui_graphics_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario standalone-rmlui-simple --smoke

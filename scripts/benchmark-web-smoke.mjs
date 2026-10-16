@@ -96,6 +96,13 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     if (emptyPreview.equals(geometryPreview))
       throw new Error('raw geometry preview pixels match the empty bgfx reference');
     console.log(name + ': raw geometry visibly differs from empty reference');
+    // Verify real textured and offscreen-composited output independently of
+    // the benchmark clock, so no screenshot or readback enters sampled frames.
+    const texturedPreview = await previewPixels('raw-bgfx-textured');
+    const offscreenPreview = await previewPixels('raw-bgfx-offscreen');
+    if (texturedPreview.equals(emptyPreview) || offscreenPreview.equals(emptyPreview))
+      throw new Error('raw textured or offscreen reference appears blank');
+    console.log(name + ': textured and offscreen composite produce visible pixels');
 
     const downloads = [];
     page.on('download', download => downloads.push(download));
@@ -129,6 +136,19 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     });
     if (alive < 3) throw new Error('browser event loop stalled after unattended run');
     console.log(name + ': no-UI geometry, JSON download, and live event loop passed');
+
+    await page.goto(origin + '/benchmark.html?scenario=raw-bgfx-draw-calls&drawCalls=7&quadCount=9&textureSize=64&coverage=0.375&frames=12&warmup=0&noUi=1');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
+                               {timeout: 45000});
+    const scaledRaw = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    const scaledWork = scaledRaw.scenarios[0]?.graphics?.raw_workload;
+    if (scaledRaw.outcome !== 'complete' ||
+        scaledWork?.draw_submissions_per_frame !== 7 ||
+        scaledWork?.vertices_submitted_per_frame !== 7 * 9 * 4 ||
+        scaledWork?.texture_edge_pixels !== 64 ||
+        scaledWork?.linear_coverage !== 0.375)
+      throw new Error('scaled real-WebGL workload metadata mismatch: ' + JSON.stringify(scaledWork));
+    console.log(name + ': scaled WebGL workload and draw/geometry/texture counters passed');
 
     // Simulate a tab being hidden then restored. The visibility event must
     // remain latched even if no rAF callback ran while the page was hidden.

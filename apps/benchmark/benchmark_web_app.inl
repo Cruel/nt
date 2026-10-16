@@ -7,7 +7,11 @@ struct WebBenchmarkApp {
     Graphics graphics;
     noveltea::benchmark::Dashboard dashboard;
     noveltea::benchmark::RawBgfxGeometry preview_geometry;
+    noveltea::benchmark::RawBgfxWorkloads preview_workload;
     noveltea::benchmark::StandaloneRmlUi preview_ui;
+    Options preview_raw_options;
+    int preview_raw_width = 0;
+    int preview_raw_height = 0;
     SteadyClock clock;
     std::optional<noveltea::benchmark::CompletedRun> completed_run;
     std::unique_ptr<Scenario> active_scenario;
@@ -50,6 +54,7 @@ struct WebBenchmarkApp {
     bool supported_scenario(const std::string& id) const
     {
         return id == "raw-bgfx-empty" || id == "raw-bgfx-geometry" ||
+               noveltea::benchmark::is_extended_raw_scenario(id) ||
                id == "standalone-rmlui-simple";
     }
 
@@ -57,6 +62,8 @@ struct WebBenchmarkApp {
     {
         if (options.scenario != "raw-bgfx-geometry")
             preview_geometry.shutdown();
+        if (!noveltea::benchmark::is_extended_raw_scenario(options.scenario))
+            preview_workload.shutdown();
         if (options.scenario != "standalone-rmlui-simple")
             preview_ui.shutdown();
         if (options.scenario == "standalone-rmlui-simple") {
@@ -83,6 +90,26 @@ struct WebBenchmarkApp {
                 preview_height = height;
             }
             (void)preview_geometry.submit(feedback);
+        } else if (noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
+            const int width = graphics.environment.width_pixels;
+            const int height = graphics.environment.height_pixels;
+            if (!preview_workload.initialized() ||
+                options.scenario != preview_raw_options.scenario ||
+                options.draw_calls != preview_raw_options.draw_calls ||
+                options.quad_count != preview_raw_options.quad_count ||
+                options.texture_size != preview_raw_options.texture_size ||
+                options.coverage != preview_raw_options.coverage ||
+                width != preview_raw_width || height != preview_raw_height) {
+                const auto spec = noveltea::benchmark::raw_workload_reference(
+                    options, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+                if (!spec || !preview_workload.initialize(*spec, static_cast<uint32_t>(width),
+                                                          static_cast<uint32_t>(height), feedback))
+                    return;
+                preview_raw_options = options;
+                preview_raw_width = width;
+                preview_raw_height = height;
+            }
+            (void)preview_workload.submit(feedback);
         }
     }
 
@@ -98,6 +125,7 @@ struct WebBenchmarkApp {
             deferred_scenario.reset();
         }
         preview_geometry.shutdown();
+        preview_workload.shutdown();
         preview_ui.shutdown();
         dashboard.shutdown();
         graphics.shutdown();
@@ -132,6 +160,10 @@ struct WebBenchmarkApp {
                 current_options.scenario = ids[quick_index];
                 current_options.rect_count = 3;
                 current_options.rect_scale = 1.0;
+                current_options.draw_calls = 64;
+                current_options.quad_count = 1;
+                current_options.texture_size = 256;
+                current_options.coverage = 1.0;
                 if (supported_scenario(current_options.scenario))
                     break;
                 noveltea::benchmark::append_failed_scenario(
@@ -161,6 +193,7 @@ struct WebBenchmarkApp {
         }
         const Options frozen = current_options;
         preview_geometry.shutdown();
+        preview_workload.shutdown();
         preview_ui.shutdown();
         dashboard.shutdown();
         // Drain dashboard GPU allocations and clear prior UI pixels, all untimed.
@@ -178,6 +211,8 @@ struct WebBenchmarkApp {
         }
         if (frozen.scenario == "raw-bgfx-geometry")
             active_scenario = std::make_unique<GeometryBgfxScenario>(&graphics);
+        else if (noveltea::benchmark::is_extended_raw_scenario(frozen.scenario))
+            active_scenario = std::make_unique<RawReferenceScenario>(&graphics, frozen.scenario);
         else if (frozen.scenario == "standalone-rmlui-simple")
             active_scenario = std::make_unique<RmlUiScenario>(&graphics);
         else
@@ -228,6 +263,10 @@ struct WebBenchmarkApp {
         if (quick_suite_active) {
             reported.rect_count = 3;
             reported.rect_scale = 1.0;
+            reported.draw_calls = 64;
+            reported.quad_count = 1;
+            reported.texture_size = 256;
+            reported.coverage = 1.0;
         }
         completed_run = noveltea::benchmark::CompletedRun{reported, collected, {}};
         quick_suite_active = false;
