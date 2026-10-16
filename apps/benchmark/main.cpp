@@ -230,12 +230,16 @@ struct EmptyBgfxScenario : Scenario {
     {
         diagnostic = options.profile == "diagnostic";
         host().environment.ui_backend.reset();
-        if (!shared_graphics)
-            return graphics.initialize(options, reason);
-        if (!shared_graphics->bgfx_ready) {
+        if (!shared_graphics) {
+            if (!graphics.initialize(options, reason))
+                return false;
+        } else if (!shared_graphics->bgfx_ready) {
             reason = "shared graphics host is unavailable";
             return false;
         }
+        // Only the opt-in Diagnostic host requests non-rendering per-view
+        // profiling. Clean samples and the dashboard never enable it.
+        bgfx::setDebug(diagnostic ? BGFX_DEBUG_PROFILER : BGFX_DEBUG_NONE);
         bgfx::setViewClear(0, BGFX_CLEAR_NONE);
         return true;
     }
@@ -276,7 +280,7 @@ struct EmptyBgfxScenario : Scenario {
         observation.submitted_frame = submitted_frame;
         observation.cpu_submission_ms = cpu_submission_ms;
         observation.bgfx_frame_cpu_ms = bgfx_frame_cpu_ms;
-        noveltea::benchmark::capture_bgfx_diagnostics(observation);
+        noveltea::benchmark::capture_bgfx_diagnostics(observation, diagnostic);
     }
     void
     diagnostic_completion(std::vector<noveltea::benchmark::DiagnosticObservation>& late) override
@@ -287,13 +291,15 @@ struct EmptyBgfxScenario : Scenario {
             bgfx::touch(0);
             bgfx::frame();
             noveltea::benchmark::DiagnosticObservation observation;
-            noveltea::benchmark::capture_bgfx_diagnostics(observation);
+            noveltea::benchmark::capture_bgfx_diagnostics(observation, diagnostic);
             late.push_back(observation);
         }
     }
     bool complete(std::string&) override { return true; }
     bool cleanup(std::string&) override
     {
+        if (host().bgfx_ready)
+            bgfx::setDebug(BGFX_DEBUG_NONE);
         if (!shared_graphics)
             graphics.shutdown();
         return true; // The interactive graphics host belongs to the app.

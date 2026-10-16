@@ -6,19 +6,21 @@
 
 namespace noveltea::benchmark {
 
-// Copy values immediately: bgfx owns and reuses the Stats buffer. This
-// diagnostic-only read does not call frame(), renderFrame(), or block for GPU
-// completion. Only GPU timings carry a completed-frame identifier.
-inline void capture_bgfx_diagnostics(DiagnosticObservation& observation)
+// bgfx owns the Stats and viewStats buffers. Copy values immediately.
+// View records require BGFX_DEBUG_PROFILER plus backend timer support;
+// an unpopulated numViews is *not* evidence that zero views were rendered.
+inline void capture_bgfx_diagnostics_from_stats(const bgfx::Stats* stats,
+                                                bool view_profiler_enabled,
+                                                DiagnosticObservation& observation)
 {
-    const bgfx::Stats* stats = bgfx::getStats();
     if (!stats)
         return;
 
     observation.draw_calls = stats->numDraw;
     observation.compute_calls = stats->numCompute;
     observation.blit_calls = stats->numBlit;
-    observation.view_count = stats->numViews;
+    if (view_profiler_enabled && stats->numViews > 0 && stats->viewStats)
+        observation.view_count = stats->numViews;
     observation.textures = stats->numTextures;
     observation.framebuffers = stats->numFrameBuffers;
     observation.programs = stats->numPrograms;
@@ -40,6 +42,14 @@ inline void capture_bgfx_diagnostics(DiagnosticObservation& observation)
             static_cast<double>(stats->gpuTimeEnd - stats->gpuTimeBegin) * 1000.0 /
             static_cast<double>(stats->gpuTimerFreq);
     }
+}
+
+// Diagnostic-only read: no frame(), renderFrame(), or GPU synchronization.
+// Only GPU timings carry a completed-frame identity.
+inline void capture_bgfx_diagnostics(DiagnosticObservation& observation,
+                                     bool view_profiler_enabled = false)
+{
+    capture_bgfx_diagnostics_from_stats(bgfx::getStats(), view_profiler_enabled, observation);
 }
 
 } // namespace noveltea::benchmark

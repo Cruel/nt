@@ -80,6 +80,8 @@ Json diagnostic_result(const DiagnosticSummary& value)
         {"compute_calls", counter_summary(value.compute_calls)},
         {"blit_calls", counter_summary(value.blit_calls)},
         {"view_count", counter_summary(value.view_count)},
+        {"view_scope", "number of per-view profiler records, only if "
+                       "BGFX_DEBUG_PROFILER produces valid records; otherwise unavailable"},
         {"resource_textures", counter_summary(value.textures)},
         {"resource_framebuffers", counter_summary(value.framebuffers)},
         {"resource_programs", counter_summary(value.programs)},

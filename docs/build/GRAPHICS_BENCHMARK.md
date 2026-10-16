@@ -118,7 +118,13 @@ retains the Clean wall and CPU operation boundaries and adds, when available:
 - CPU RmlUi Update and Render submission stages, raw geometry/draw submission,
   and CPU time blocked in `bgfx::frame()`, **never** called GPU execution time.
 - bgfx render-thread CPU duration, `waitRender`, `waitSubmit`, plus observed
-  draw/compute/blit/view counts and texture/framebuffer/program counts.
+  draw/compute/blit and texture/framebuffer/program counts. The dedicated
+  raw/standalone host enables `BGFX_DEBUG_PROFILER` **only** for Diagnostic runs
+  to collect the number of per-view profiler records where the backend supports
+  view timing; it is not an unconditional rendered-view count. Unsupported or
+  absent view records are `null`, not zero. Clean and dashboard frames keep
+  profiler instrumentation off. Engine-owned scenarios retain their production
+  debug settings and report unavailable view counts.
 - Actual GPU timestamp durations only for unique `gpuFrameNum` values that
   match the benchmark's measured `bgfx::frame()` submission IDs.
 
