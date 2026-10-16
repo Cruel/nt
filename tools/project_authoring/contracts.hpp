@@ -29,6 +29,7 @@ ValidationResult validate_map_source(std::string_view source_json);
 ValidationResult validate_character_source(std::string_view source_json);
 ValidationResult validate_archetype_source(std::string_view source_json);
 ValidationResult validate_animation_source(std::string_view source_json);
+ValidationResult validate_asset_source(std::string_view source_json);
 ValidationResult validate_material_source(std::string_view source_json);
 // Local domain invariants that do not require the rest of the Project.
 // Input is an already-normalized Room or Map record; paths are record-relative.

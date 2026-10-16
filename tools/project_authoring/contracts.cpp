@@ -86,6 +86,9 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "lua.dependencies.unique",
                                                    "lua.dependencies.empty",
                                                    "animation.loop-range",
+                                                   "animation.source-range",
+                                                   "asset.attachment-path",
+                                                   "asset.validate",
                                                    "hotspot.bounds",
                                                    "hotspot.motion-track",
                                                    "material.application-parameter",
@@ -399,6 +402,35 @@ class Validator {
                 value->at("repeat") != "loop")
                 issue(errors, path + "/loopRange", "semantic." + id,
                       "A loop range requires loop playback.");
+        } else if (id == "animation.source-range") {
+            if (value && value->is_object() &&
+                value->at("endMs").as<std::int64_t>() <= value->at("startMs").as<std::int64_t>())
+                issue(errors, path + "/endMs", "semantic." + id,
+                      "Video source range end must be after its start.");
+        } else if (id == "asset.attachment-path") {
+            if (value && value->is_string() && !safe_notice_path(value->as<std::string>()))
+                issue(errors, path, "semantic." + id,
+                      "Attachment must be a portable Project-contained path.");
+        } else if (id == "asset.validate") {
+            if (!value || !value->is_object())
+                return;
+            const auto& data = *value;
+            if (data.contains("attachments") && data.at("attachments").is_array()) {
+                std::set<std::string> seen;
+                for (std::size_t i = 0; i < data.at("attachments").size(); ++i) {
+                    const auto& attachment = data.at("attachments").at(i);
+                    if (!seen.insert(attachment.at("path").as<std::string>()).second)
+                        issue(errors, path + "/attachments/" + std::to_string(i) + "/path",
+                              "semantic." + id,
+                              "Attachment file is already associated with this Asset.");
+                }
+            }
+            const auto image = data.at("kind") == "image";
+            const auto has_metadata = !data.at("imageMetadata").is_null();
+            if (image != has_metadata)
+                issue(errors, path + "/imageMetadata", "semantic." + id,
+                      image ? "Image metadata is required."
+                            : "Only image assets may have image metadata.");
         } else if (id == "hotspot.bounds") {
             if (!value || !value->is_object())
                 return;
@@ -1023,6 +1055,12 @@ ValidationResult validate_animation_source(std::string_view source_json)
 {
     return validate_sparse_record_source(source_json, "animations", "AnimationsRecord",
                                          "animation");
+}
+
+ValidationResult validate_asset_source(std::string_view source_json)
+{
+    // Unlike Animations, Asset kind is explicit physical metadata, not an inferred record kind.
+    return validate_record("AssetsRecord", source_json);
 }
 
 ValidationResult validate_material_source(std::string_view source_json)

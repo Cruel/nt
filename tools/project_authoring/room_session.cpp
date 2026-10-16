@@ -1,6 +1,7 @@
 #include "room_session.hpp"
 #include "property_semantics.hpp"
 #include "character_archetype_semantics.hpp"
+#include "asset_animation_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -915,7 +916,11 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             const auto record = edited->second->snapshot();
             if (record.valid)
                 value = record.normalized_json;
-            else
+            else if (family == "assets") {
+                const auto structural = validate_asset_source(record.source_json);
+                if (structural.accepted)
+                    value = structural.effective_json;
+            } else
                 value = character_reference_resource_source(family, record.source_json,
                                                             record.diagnostics);
         } else if (record_contracts().contains(std::string(family)) && is_id(id)) {
@@ -926,7 +931,11 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 const auto snapshot = record->snapshot();
                 if (snapshot.valid)
                     value = snapshot.normalized_json;
-                else
+                else if (family == "assets") {
+                    const auto structural = validate_asset_source(snapshot.source_json);
+                    if (structural.accepted)
+                        value = structural.effective_json;
+                } else
                     value = character_reference_resource_source(family, snapshot.source_json,
                                                                 snapshot.diagnostics);
             }
@@ -944,6 +953,15 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         }
         const auto slash = owner.find('/');
         const auto family = owner.substr(0, slash);
+        if (record.valid && family == "animations") {
+            const auto dependencies =
+                validate_animation_dependencies(record.normalized_json, resolve_record);
+            state.valid &= dependencies.accepted;
+            for (auto diagnostic : dependencies.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
         std::string effective_for_traits = record.normalized_json;
         if (record.valid && slash != std::string::npos &&
             (family == "rooms" || family == "characters" || family == "interactables" ||
@@ -1013,6 +1031,20 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 state.diagnostics.push_back(std::move(diagnostic));
             }
         }
+    }
+    // Locale variants are separate tracked YAML sources; inspect their semantic
+    // Asset targets when an Asset owner or manifest enters the working session.
+    if (manifest_dirty || std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
+            return entry.first.starts_with("assets/");
+        })) {
+        const auto aliases = validate_project_asset_aliases(root_, resolve_record);
+        state.valid &= aliases.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), aliases.diagnostics.begin(),
+                                 aliases.diagnostics.end());
+        const auto locales = validate_asset_localizations(root_, resolve_record);
+        state.valid &= locales.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), locales.diagnostics.begin(),
+                                 locales.diagnostics.end());
     }
     // An Instance is owned by the manifest rather than by a separate YAML
     // record. Validate only changed Instances and Instances whose Definition
@@ -1624,6 +1656,18 @@ RoomSessionSnapshot RoomSession::snapshot() const
         if (!state.valid)
             state.normalized_json.clear();
     }
+    if (result.accepted && (record_family_ == "assets" || record_family_ == "animations")) {
+        const auto semantic =
+            record_family_ == "assets"
+                ? validate_asset_local(result.effective_json,
+                                       path_.parent_path().parent_path().parent_path())
+                : validate_animation_local(result.effective_json);
+        state.valid &= semantic.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
+                                 semantic.diagnostics.end());
+        if (!state.valid)
+            state.normalized_json.clear();
+    }
     if (result.accepted && (record_family_ == "characters" || record_family_ == "archetypes")) {
         const auto normalized = Json::parse(result.effective_json);
         const bool inherits = record_family_ == "characters" && normalized.contains("archetype") &&
@@ -1675,6 +1719,8 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_archetype_source(source_json);
     if (record_family_ == "animations")
         return validate_animation_source(source_json);
+    if (record_family_ == "assets")
+        return validate_asset_source(source_json);
     if (record_family_ == "materials")
         return validate_material_source(source_json);
     if (!validation_contract_.empty())
@@ -1998,7 +2044,11 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
                 (record_family_ == "characters" && (!attached || attached->is_null()) &&
                  !validate_character_local(normalized.effective_json).accepted) ||
                 (record_family_ == "archetypes" &&
-                 !validate_archetype_local(normalized.effective_json).accepted))
+                 !validate_archetype_local(normalized.effective_json).accepted) ||
+                (record_family_ == "assets" &&
+                 !validate_asset_local(normalized.effective_json, project_root).accepted) ||
+                (record_family_ == "animations" &&
+                 !validate_animation_local(normalized.effective_json).accepted))
                 return result(false, "Rebased Project record failed native validation.");
         }
         const auto committed = writer.commit(preflight, TransactionDecision::UseEditDecisions);

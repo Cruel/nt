@@ -31,6 +31,12 @@ drafts with a warning, omitted from compiled resources, and rejected when select
 Adding an Image frame in the timeline makes the draft usable; partially empty multi-motion resources
 remain validation errors.
 
+The parallel native Project authoring certification (#488) uses the generated
+Animation contract and verifies motion IDs, frame and video Asset kind references,
+marker identities/times, source ranges, empty-draft warnings, and default motion
+selection. It tests sparse timeline edits and source-preserving Save/reopen through
+the native Project-session seam without changing production compilation behavior.
+
 Generic video Animation is visual-only. Embedded audio in a referenced video is ignored during
 canonical preparation and produces a warning rather than becoming synchronized Animation audio.
 Movie/cutscene A/V synchronization remains a separate future layer.
