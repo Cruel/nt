@@ -158,6 +158,11 @@ public:
     void begin_frame();
     void end_frame();
     void resize(const PresentationMetrics& presentation);
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // Rebind a newly created Android ANativeWindow without dropping game state or GPU resources.
+    [[nodiscard]] bool rebind_android_surface(void* native_window);
+    [[nodiscard]] bool matches_android_surface(void* native_window) const noexcept;
+#endif
     void shutdown();
     [[nodiscard]] bool request_screenshot_capture(RendererScreenshotRequest request);
     [[nodiscard]] std::optional<RendererScreenshotCapture> take_screenshot_capture();
@@ -296,6 +301,9 @@ private:
     ShaderStandardInputs m_shader_standard_inputs{};
     RendererDeviceDiagnostics m_device_diagnostics;
     bool m_initialized = false;
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    void* m_android_native_window = nullptr;
+#endif
     bool m_vsync = true;
     PresentationMetrics m_presentation{};
     IntegerSize m_backbuffer_size{};
