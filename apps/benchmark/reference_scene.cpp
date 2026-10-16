@@ -88,8 +88,88 @@ std::string simple_ui_reference_markup(const ReferenceScene& scene, float refere
                << "px;line-height:" << (scaling_text ? 11.0f : 40.0f) * reference_scale
                << "px;color:" << css_color(item.color) << ";'>" << item.content << "</p>";
     }
+    if (scene.id == "ui-effects-reference") {
+        // Each column exercises one effect dimension; never substitute another
+        // effect when the requested one cannot be compiled by RmlUi.
+        const uint32_t counts[] = {scene.effects.clipping,  scene.effects.transforms,
+                                   scene.effects.gradients, scene.effects.filters,
+                                   scene.effects.masks,     scene.effects.nested_layers};
+        for (uint32_t kind = 0; kind < 6; ++kind) {
+            for (uint32_t index = 0; index < counts[kind]; ++index) {
+                const float left = (26.0f + kind * 207.0f) * reference_scale;
+                const float top = (165.0f + index * 31.0f) * reference_scale;
+                source << "<div id='effect-" << kind << "-" << index << "' style='left:" << left
+                       << "px;top:" << top << "px;width:" << 178.0f * reference_scale
+                       << "px;height:" << 25.0f * reference_scale
+                       << "px;background-color:rgb(80,165,218);";
+                switch (kind) {
+                case 0:
+                    source << "overflow:hidden;border-radius:" << 8.0f * reference_scale << "px;";
+                    break;
+                case 1:
+                    source << "transform:rotate(12deg);";
+                    break;
+                case 2:
+                    source << "decorator:linear-gradient(90deg, #ec5e67, #437cdc);";
+                    break;
+                case 3:
+                    source << "filter:drop-shadow(#171c32ff 2px 2px 3px);";
+                    break;
+                case 4:
+                    source << "mask-image:radial-gradient(circle closest-side at center, black "
+                              "25%, transparent 80%);";
+                    break;
+                case 5:
+                    source << "filter:blur(1px);opacity:0.75;";
+                    break;
+                }
+                source << "'>";
+                if (kind == 0) {
+                    source << "<div style='left:" << 40.0f * reference_scale
+                           << "px;top:0px;width:" << 175.0f * reference_scale
+                           << "px;height:" << 25.0f * reference_scale
+                           << "px;background-color:#f5bb56;'></div>";
+                } else if (kind == 5) {
+                    source << "<div style='left:0px;top:0px;width:100%;height:100%;"
+                              "filter:blur(1px);opacity:0.7;background-color:#f5bb56;'>"
+                              "<div style='left:0px;top:0px;width:80%;height:100%;"
+                              "opacity:0.6;background-color:#437cdc;'></div></div>";
+                }
+                source << "</div>";
+            }
+        }
+    }
     source << "</body></rml>";
     return source.str();
+}
+
+bool is_ui_effects_scenario(std::string_view id)
+{
+    return id == "standalone-rmlui-effects" || id == "integrated-rmlui-effects";
+}
+
+bool valid_ui_effects_parameters(const UiEffectCounts& effects)
+{
+    // A deterministic safety budget for the smallest supported standalone
+    // view range (61 views). Filter/mask/nested-layer operations can consume
+    // several passes each. Reject excessive mixes instead of sampling frames
+    // after upstream rmlui-bgfx silently exhausts its pass scheduler.
+    const uint32_t estimated_pass_cost = effects.clipping + effects.transforms +
+                                         effects.gradients * 2 + effects.filters * 5 +
+                                         effects.masks * 7 + effects.nested_layers * 7;
+    return effects.clipping <= 16 && effects.transforms <= 16 && effects.gradients <= 16 &&
+           effects.filters <= 16 && effects.masks <= 16 && effects.nested_layers <= 16 &&
+           (effects.clipping + effects.transforms + effects.gradients + effects.filters +
+            effects.masks + effects.nested_layers) > 0 &&
+           estimated_pass_cost <= 54;
+}
+
+ReferenceScene ui_effects_reference_scene(const UiEffectCounts& effects)
+{
+    auto scene = simple_ui_reference_scene();
+    scene.id = "ui-effects-reference";
+    scene.effects = effects;
+    return scene;
 }
 
 bool is_ui_scaling_scenario(std::string_view id)

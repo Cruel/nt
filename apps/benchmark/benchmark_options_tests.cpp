@@ -224,6 +224,42 @@ int main()
         reset_ui.ui_redraw != "continuous" ||
         !noveltea::benchmark::validate_reference_options(reset_ui, error))
         return 1;
+    const char* const effects_cli[] = {"benchmark",
+                                       "--scenario",
+                                       "standalone-rmlui-effects",
+                                       "--ui-clipping",
+                                       "0",
+                                       "--ui-transforms",
+                                       "2",
+                                       "--ui-gradients",
+                                       "3",
+                                       "--ui-filters",
+                                       "1",
+                                       "--ui-masks",
+                                       "1",
+                                       "--ui-nested-layers",
+                                       "2"};
+    if (!noveltea::benchmark::parse_options(15, effects_cli, options, error) ||
+        !noveltea::benchmark::validate_reference_options(options, error) ||
+        options.ui_clipping != 0 || options.ui_transforms != 2 || options.ui_gradients != 3 ||
+        options.ui_filters != 1 || options.ui_masks != 1 || options.ui_nested_layers != 2)
+        return 1;
+    options.scenario = "integrated-rmlui-effects";
+    if (!noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.ui_filters = 17;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.ui_filters = 0;
+    options.ui_transforms = options.ui_gradients = options.ui_masks = options.ui_nested_layers = 0;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    const auto restored =
+        noveltea::benchmark::reference_scenario_options(options, "standalone-rmlui-effects");
+    if (restored.ui_clipping != 2 || restored.ui_transforms != 2 || restored.ui_gradients != 2 ||
+        restored.ui_filters != 2 || restored.ui_masks != 2 || restored.ui_nested_layers != 2 ||
+        !noveltea::benchmark::validate_reference_options(restored, error))
+        return 1;
     options = reset_ui;
     options.scenario = "raw-bgfx-empty";
     options.ui_elements = 513;

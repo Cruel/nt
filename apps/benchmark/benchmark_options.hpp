@@ -1,5 +1,7 @@
 #pragma once
 
+#include "reference_scene.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -31,6 +33,12 @@ struct Options {
     uint32_t ui_hidden_contexts = 0;
     std::string ui_text_mode = "static";
     std::string ui_redraw = "continuous";
+    uint32_t ui_clipping = 2;
+    uint32_t ui_transforms = 2;
+    uint32_t ui_gradients = 2;
+    uint32_t ui_filters = 2;
+    uint32_t ui_masks = 2;
+    uint32_t ui_nested_layers = 2;
     double rect_scale = 1.0;
     uint32_t draw_calls = 64;
     uint32_t quad_count = 1;
@@ -45,6 +53,7 @@ struct Options {
     std::string config_path;
 };
 
+[[nodiscard]] UiEffectCounts ui_effect_counts(const Options& options);
 bool parse_options(int argc, const char* const argv[], Options& options, std::string& error);
 // Construct a canonical reference preset without changing run timing, output or platform settings.
 // Every scenario switch and Quick Suite host must use this instead of copying reset fields.

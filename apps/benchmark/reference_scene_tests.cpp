@@ -1,5 +1,6 @@
 #include "reference_scene.hpp"
 #include "reference_workloads.hpp"
+#include "ui_effect_verification.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -90,6 +91,62 @@ int main()
                    !valid_ui_scaling_parameters(1, 1, 1, 0, 0, "static", "once"),
                "RmlUi scaling invalid modes and independent bounds rejected"))
         return 1;
+    const UiEffectCounts effects{2, 1, 3, 2, 2, 2};
+    const auto advanced = ui_effects_reference_scene(effects);
+    const auto advanced_markup = simple_ui_reference_markup(advanced);
+    const auto engine_effects_markup = simple_ui_reference_markup(advanced, 1.5f);
+    if (!check(is_ui_effects_scenario("standalone-rmlui-effects") &&
+                   is_ui_effects_scenario("integrated-rmlui-effects") &&
+                   !is_ui_effects_scenario("integrated-rmlui-scaling") &&
+                   valid_ui_effects_parameters(effects) && !valid_ui_effects_parameters({}) &&
+                   !valid_ui_effects_parameters({17, 0, 0, 0, 0, 0}) &&
+                   !valid_ui_effects_parameters({4, 4, 4, 4, 4, 4}) &&
+                   valid_ui_effects_parameters({0, 16, 0, 0, 0, 0}),
+               "advanced effect scenarios and count bounds") ||
+        !check(advanced_markup.find("id='effect-0-1'") != std::string::npos &&
+                   advanced_markup.find("id='effect-0-2'") == std::string::npos &&
+                   advanced_markup.find("id='effect-1-0'") != std::string::npos &&
+                   advanced_markup.find("id='effect-2-2'") != std::string::npos &&
+                   advanced_markup.find("id='effect-3-1'") != std::string::npos &&
+                   advanced_markup.find("id='effect-4-1'") != std::string::npos &&
+                   advanced_markup.find("id='effect-5-1'") != std::string::npos &&
+                   advanced_markup.find("overflow:hidden") != std::string::npos &&
+                   advanced_markup.find("transform:rotate") != std::string::npos &&
+                   advanced_markup.find("decorator:linear-gradient") != std::string::npos &&
+                   advanced_markup.find("filter:drop-shadow") != std::string::npos &&
+                   advanced_markup.find("mask-image:radial-gradient") != std::string::npos &&
+                   advanced_markup.find("opacity:0.6") != std::string::npos &&
+                   engine_effects_markup.find("width:267px;height:37.5px") != std::string::npos &&
+                   advanced_markup ==
+                       simple_ui_reference_markup(ui_effects_reference_scene(effects)),
+               "effect controls generate deterministic distinct CSS and scaled geometry"))
+        return 1;
+
+    noveltea::UiEffectActivity callbacks{
+        .clipping_calls = 1,
+        .transforms = 1,
+        .gradient_draws = 1,
+        .filtered_composites = 1,
+        .mask_saves = 1,
+        .layer_pushes = 2,
+        .max_layer_depth = 2,
+    };
+    std::string unsupported;
+    if (!check(verify_ui_effect_activity(effects, callbacks, unsupported),
+               "all requested effects require observed callbacks"))
+        return 1;
+    callbacks.mask_saves = 0;
+    if (!check(!verify_ui_effect_activity(effects, callbacks, unsupported) &&
+                   unsupported.find("masks") != std::string::npos,
+               "unsupported masks must produce an explicit failed result"))
+        return 1;
+    callbacks.mask_saves = 1;
+    callbacks.backend_errors = 1;
+    if (!check(!verify_ui_effect_activity(effects, callbacks, unsupported) &&
+                   unsupported.find("errors") != std::string::npos,
+               "adapter failures cannot report success"))
+        return 1;
+
     const auto exploratory = geometry_reference_scene(12, 0.5);
     const auto repeated = geometry_reference_scene(12, 0.5);
     if (!check(exploratory.rects.size() == 12 && exploratory.rects[0].x == 785 &&

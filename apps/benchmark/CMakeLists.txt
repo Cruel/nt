@@ -21,8 +21,9 @@ add_library(noveltea-benchmark-runner STATIC
     benchmark_options.cpp benchmark_runner.cpp benchmark_frame_driven.cpp
     benchmark_report.cpp reference_scene.cpp reference_workloads.cpp)
 add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
-target_include_directories(noveltea-benchmark-runner PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+target_include_directories(noveltea-benchmark-runner
+    PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated"
+    PUBLIC "${PROJECT_SOURCE_DIR}/engine/include")
 target_link_libraries(noveltea-benchmark-runner PUBLIC nlohmann_json::nlohmann_json)
 target_compile_definitions(noveltea-benchmark-runner PUBLIC
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
@@ -136,6 +137,10 @@ if(EMSCRIPTEN)
         -sUSE_WEBGL2=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 -sFORCE_FILESYSTEM=1
         -sSTACK_SIZE=131072
         "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
+        # Debug Web Engine builds can include the ImGui debug frontend, whose
+        # export helper calls this symbol. The benchmark does not initialize
+        # that frontend, but the linker must still resolve the reference.
+        "SHELL:--js-library ${PROJECT_SOURCE_DIR}/web/persistent_fs.js"
         "SHELL:--preload-file ${NOVELTEA_WEB_BENCHMARK_ASSETS}@/assets")
     # --preload-file is consumed at link time. Track changes to the complete
     # production Engine system asset tree, not just the dashboard shaders.
@@ -149,6 +154,7 @@ if(EMSCRIPTEN)
     set_property(TARGET noveltea-benchmark-app APPEND PROPERTY
         LINK_DEPENDS
             "${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
+            "${PROJECT_SOURCE_DIR}/web/persistent_fs.js"
             ${NOVELTEA_WEB_BENCHMARK_SYSTEM_ASSETS}
             ${NOVELTEA_WEB_BENCHMARK_SHADERS})
     if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -358,6 +364,22 @@ if(BUILD_TESTING AND NOT ANDROID)
                 --smoke --repeats 2
                 --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-scaling.json")
         set_tests_properties(noveltea_benchmark_integrated_rmlui_scaling_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 180)
+        add_test(NAME noveltea_benchmark_standalone_rmlui_effects_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario standalone-rmlui-effects --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-rmlui-effects.json")
+        set_tests_properties(noveltea_benchmark_standalone_rmlui_effects_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_integrated_rmlui_effects_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario integrated-rmlui-effects --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-effects.json")
+        set_tests_properties(noveltea_benchmark_integrated_rmlui_effects_smoke PROPERTIES
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
             TIMEOUT 180)

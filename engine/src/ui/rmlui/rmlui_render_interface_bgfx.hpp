@@ -106,6 +106,8 @@ public:
     reserve_external_pass(bool continue_view_range = false);
     void end_frame();
     void set_perf_logging_enabled(bool enabled);
+    void set_effect_observation(bool enabled);
+    [[nodiscard]] UiEffectActivity effect_activity() const;
     void set_base_direct_compatibility(bool enabled);
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
@@ -163,6 +165,11 @@ private:
     RmlUiRenderSurface m_surface = RmlUiRenderSurface::GameViewport;
     std::unordered_set<Rml::TextureHandle> m_generated_textures;
     UiRenderConfiguration m_render_configuration{};
+    bool m_capture_effects = false;
+    UiEffectActivity m_effect_activity;
+    uint32_t m_effect_layer_depth = 0;
+    std::unordered_set<Rml::CompiledShaderHandle> m_effect_gradient_shaders;
+    std::unordered_set<Rml::CompiledFilterHandle> m_effect_shadow_filters;
     bool m_geometry_raster_snapping = true;
     bool m_text_raster_snapping = true;
 };

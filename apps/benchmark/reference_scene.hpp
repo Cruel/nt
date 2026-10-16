@@ -27,6 +27,15 @@ struct ReferenceTexture {
     ReferenceColor color{255, 255, 255, 255};
     bool linear_filter = false;
 };
+struct UiEffectCounts {
+    uint32_t clipping = 0;
+    uint32_t transforms = 0;
+    uint32_t gradients = 0;
+    uint32_t filters = 0;
+    uint32_t masks = 0;
+    uint32_t nested_layers = 0;
+};
+
 struct ReferenceScene {
     std::string id;
     uint32_t width = 1280, height = 720;
@@ -34,6 +43,7 @@ struct ReferenceScene {
     std::vector<ReferenceRect> rects;
     std::vector<ReferenceText> texts;
     ReferenceTexture texture;
+    UiEffectCounts effects;
 };
 
 constexpr uint32_t kReferenceRectCount = 3;
@@ -49,6 +59,9 @@ constexpr double kReferenceRectScale = 1.0;
                                                std::string_view text_mode, std::string_view redraw);
 [[nodiscard]] ReferenceScene ui_scaling_reference_scene(uint32_t elements, uint32_t text_lines);
 [[nodiscard]] bool is_ui_scaling_scenario(std::string_view id);
+[[nodiscard]] bool is_ui_effects_scenario(std::string_view id);
+[[nodiscard]] bool valid_ui_effects_parameters(const UiEffectCounts& effects);
+[[nodiscard]] ReferenceScene ui_effects_reference_scene(const UiEffectCounts& effects);
 // Fixed-width content for per-frame text mutation; allocation/markup updates are workload work.
 [[nodiscard]] std::string ui_dynamic_text(uint32_t frame);
 // One exact markup generator feeds both the independent and integrated RmlUi hosts.

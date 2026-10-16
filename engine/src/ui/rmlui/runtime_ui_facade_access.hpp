@@ -25,6 +25,9 @@ public:
     [[nodiscard]] static host::CursorInspection cursor_inspection(const RuntimeUI& runtime_ui);
     [[nodiscard]] static std::optional<UiRenderConfiguration>
     game_ui_render_configuration(const RuntimeUI& runtime_ui);
+    static void set_game_ui_effect_observation(RuntimeUI& runtime_ui, bool enabled);
+    [[nodiscard]] static std::optional<UiEffectActivity>
+    game_ui_effect_activity(const RuntimeUI& runtime_ui);
     static void set_benchmark_timing(RuntimeUI& runtime_ui, bool enabled);
     [[nodiscard]] static std::optional<std::pair<double, double>>
     benchmark_frame_timing(const RuntimeUI& runtime_ui);

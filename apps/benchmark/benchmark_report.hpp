@@ -1,6 +1,7 @@
 #pragma once
 
 #include "benchmark_runner.hpp"
+#include "noveltea/ui_render_configuration.hpp"
 #include "reference_workloads.hpp"
 
 #include <optional>
@@ -38,6 +39,7 @@ struct Environment {
     int world_raster_height = 0;
     std::optional<bool> engine_postprocess_active;
     std::optional<UiBackendSettings> ui_backend;
+    std::optional<UiEffectActivity> ui_effect_activity;
     std::optional<RawWorkloadReference> raw_workload;
 };
 

@@ -130,6 +130,8 @@ public:
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;
     [[nodiscard]] std::optional<UiRenderConfiguration> game_ui_render_configuration() const;
+    void set_game_ui_effect_observation(bool enabled);
+    [[nodiscard]] std::optional<UiEffectActivity> game_ui_effect_activity() const;
     [[nodiscard]] Rml::Context* context_for(ContextKey key);
     [[nodiscard]] Rml::Context* find_context(ContextKey key) const noexcept;
     [[nodiscard]] const std::vector<ContextRecord>& contexts() const noexcept;

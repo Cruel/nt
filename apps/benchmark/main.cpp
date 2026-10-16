@@ -56,6 +56,7 @@ void print_usage()
         "raw-bgfx-single-quad|raw-bgfx-textured|raw-bgfx-offscreen|raw-bgfx-draw-calls|"
         "raw-bgfx-composition|"
         "standalone-rmlui-simple|standalone-rmlui-scaling|integrated-rmlui-scaling|"
+        "standalone-rmlui-effects|integrated-rmlui-effects|"
         "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty] [--rect-count N]");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
@@ -66,6 +67,9 @@ void print_usage()
     std::puts("       [--ui-visible-contexts 1..8] [--ui-empty-contexts 0..16]");
     std::puts("       [--ui-hidden-contexts 0..16] [--ui-text-mode static|dynamic]");
     std::puts("       [--ui-redraw continuous|dirty-only] (RmlUi scaling only)");
+    std::puts("       [--ui-clipping 0..16] [--ui-transforms 0..16]");
+    std::puts("       [--ui-gradients 0..16] [--ui-filters 0..16]");
+    std::puts("       [--ui-masks 0..16] [--ui-nested-layers 0..16] (effects; combined budget)");
     std::puts(
         "       [--ui-preset balanced|elements-heavy|text-heavy|contexts-heavy|dirty-static]");
     std::puts("       [--config PATH] [--output PATH]");
@@ -676,30 +680,36 @@ struct RawReferenceScenario final : EmptyBgfxScenario {
 };
 
 struct RmlUiScenario final : EmptyBgfxScenario {
-    explicit RmlUiScenario(Graphics* shared = nullptr, bool scaling = false)
-        : EmptyBgfxScenario(shared), scaling(scaling)
+    explicit RmlUiScenario(Graphics* shared = nullptr, bool scaling = false, bool effects = false)
+        : EmptyBgfxScenario(shared), scaling(scaling), effects(effects)
     {
     }
     noveltea::benchmark::StandaloneRmlUi ui;
     bool scaling = false;
+    bool effects = false;
 
     const char* id() const override
     {
-        return scaling ? "standalone-rmlui-scaling" : "standalone-rmlui-simple";
+        return effects   ? "standalone-rmlui-effects"
+               : scaling ? "standalone-rmlui-scaling"
+                         : "standalone-rmlui-simple";
     }
     const char* description() const override
     {
-        return scaling ? "standalone RmlUi scaling: elements, text and lifecycle contexts"
-                       : "standalone RmlUi context + rmlui-bgfx colored rectangles and text";
+        return effects   ? "standalone RmlUi advanced styling and nested layers"
+               : scaling ? "standalone RmlUi scaling: elements, text and lifecycle contexts"
+                         : "standalone RmlUi context + rmlui-bgfx colored rectangles and text";
     }
     bool prepare(const Options& options, std::string& reason) override
     {
         if (!EmptyBgfxScenario::prepare(options, reason))
             return false;
         diagnostic = options.profile == "diagnostic";
-        const auto scene = scaling ? noveltea::benchmark::ui_scaling_reference_scene(
-                                         options.ui_elements, options.ui_text_lines)
-                                   : noveltea::benchmark::simple_ui_reference_scene();
+        const auto scene = effects ? noveltea::benchmark::ui_effects_reference_scene(
+                                         noveltea::benchmark::ui_effect_counts(options))
+                           : scaling ? noveltea::benchmark::ui_scaling_reference_scene(
+                                           options.ui_elements, options.ui_text_lines)
+                                     : noveltea::benchmark::simple_ui_reference_scene();
         if (!ui.initialize(scene, host().environment.width_pixels, host().environment.height_pixels,
                            reason, scaling ? &options : nullptr))
             return false;
@@ -710,6 +720,11 @@ struct RmlUiScenario final : EmptyBgfxScenario {
                 return false;
             bgfx::frame();
         }
+        if (effects) {
+            host().environment.ui_effect_activity = ui.effect_activity();
+            if (!ui.verify_effects(reason))
+                return false;
+        }
         return true;
     }
     bool frame(std::string& reason) override
@@ -717,6 +732,17 @@ struct RmlUiScenario final : EmptyBgfxScenario {
         if (!poll(reason))
             return false;
         return submit_frame([&]() { return ui.submit(diagnostic, reason); });
+    }
+    bool complete(std::string& reason) override
+    {
+        if (!effects)
+            return true;
+        host().environment.ui_effect_activity = ui.effect_activity();
+        if (host().environment.ui_effect_activity->backend_errors > 0) {
+            reason = "standalone RmlUi backend reported errors during measured effects";
+            return false;
+        }
+        return true;
     }
     void diagnostic_frame(noveltea::benchmark::DiagnosticObservation& observation) override
     {
@@ -903,6 +929,7 @@ int run_dashboard(Options options)
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_scaling_scenario(options.scenario) &&
+        !noveltea::benchmark::is_ui_effects_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
         options.scenario != "integrated-rmlui-production" && options.scenario != "engine-empty") {
@@ -944,9 +971,10 @@ int run_dashboard(Options options)
         if (!noveltea::benchmark::is_extended_raw_scenario(options.scenario))
             preview_workload.shutdown();
         const bool scaling_preview = options.scenario == "standalone-rmlui-scaling";
-        if (options.scenario != "standalone-rmlui-simple" && !scaling_preview)
+        const bool effects_preview = options.scenario == "standalone-rmlui-effects";
+        if (options.scenario != "standalone-rmlui-simple" && !scaling_preview && !effects_preview)
             preview_ui.shutdown();
-        if (options.scenario == "standalone-rmlui-simple" || scaling_preview) {
+        if (options.scenario == "standalone-rmlui-simple" || scaling_preview || effects_preview) {
             if (preview_ui.initialized() &&
                 (options.scenario != preview_ui_options.scenario ||
                  options.ui_elements != preview_ui_options.ui_elements ||
@@ -955,13 +983,21 @@ int run_dashboard(Options options)
                  options.ui_empty_contexts != preview_ui_options.ui_empty_contexts ||
                  options.ui_hidden_contexts != preview_ui_options.ui_hidden_contexts ||
                  options.ui_text_mode != preview_ui_options.ui_text_mode ||
-                 options.ui_redraw != preview_ui_options.ui_redraw))
+                 options.ui_redraw != preview_ui_options.ui_redraw ||
+                 options.ui_clipping != preview_ui_options.ui_clipping ||
+                 options.ui_transforms != preview_ui_options.ui_transforms ||
+                 options.ui_gradients != preview_ui_options.ui_gradients ||
+                 options.ui_filters != preview_ui_options.ui_filters ||
+                 options.ui_masks != preview_ui_options.ui_masks ||
+                 options.ui_nested_layers != preview_ui_options.ui_nested_layers))
                 preview_ui.shutdown();
             if (!preview_ui.initialized()) {
-                const auto scene = scaling_preview
-                                       ? noveltea::benchmark::ui_scaling_reference_scene(
-                                             options.ui_elements, options.ui_text_lines)
-                                       : noveltea::benchmark::simple_ui_reference_scene();
+                const auto scene =
+                    effects_preview ? noveltea::benchmark::ui_effects_reference_scene(
+                                          noveltea::benchmark::ui_effect_counts(options))
+                    : scaling_preview ? noveltea::benchmark::ui_scaling_reference_scene(
+                                            options.ui_elements, options.ui_text_lines)
+                                      : noveltea::benchmark::simple_ui_reference_scene();
                 if (!preview_ui.initialize(scene, graphics.environment.width_pixels,
                                            graphics.environment.height_pixels, feedback,
                                            scaling_preview ? &options : nullptr))
@@ -1048,7 +1084,8 @@ int run_dashboard(Options options)
         bgfx::frame();
         const bool integrated = run_options.scenario == "integrated-rmlui-controlled" ||
                                 run_options.scenario == "integrated-rmlui-production" ||
-                                run_options.scenario == "integrated-rmlui-scaling";
+                                run_options.scenario == "integrated-rmlui-scaling" ||
+                                run_options.scenario == "integrated-rmlui-effects";
         const bool engine_owned = integrated || run_options.scenario == "engine-empty";
         bool ran = false;
         if (quick) {
@@ -1080,7 +1117,8 @@ int run_dashboard(Options options)
             graphics.shutdown();
             noveltea::benchmark::IntegratedRmlUi engine_ui(
                 run_options.scenario == "integrated-rmlui-controlled",
-                run_options.scenario == "integrated-rmlui-scaling");
+                run_options.scenario == "integrated-rmlui-scaling",
+                run_options.scenario == "integrated-rmlui-effects");
             noveltea::benchmark::EmptyEngine empty_engine;
             Scenario* selected = integrated ? static_cast<Scenario*>(&engine_ui)
                                             : static_cast<Scenario*>(&empty_engine);
@@ -1123,6 +1161,7 @@ int run_dashboard(Options options)
             RawReferenceScenario raw(&graphics, run_options.scenario);
             RmlUiScenario rmlui(&graphics);
             RmlUiScenario scaling_ui(&graphics, true);
+            RmlUiScenario effects_ui(&graphics, false, true);
             Scenario* selected =
                 run_options.scenario == "raw-bgfx-geometry" ? static_cast<Scenario*>(&geometry)
                 : noveltea::benchmark::is_extended_raw_scenario(run_options.scenario)
@@ -1130,6 +1169,8 @@ int run_dashboard(Options options)
                 : run_options.scenario == "standalone-rmlui-simple" ? static_cast<Scenario*>(&rmlui)
                 : run_options.scenario == "standalone-rmlui-scaling"
                     ? static_cast<Scenario*>(&scaling_ui)
+                : run_options.scenario == "standalone-rmlui-effects"
+                    ? static_cast<Scenario*>(&effects_ui)
                     : static_cast<Scenario*>(&empty);
             noveltea::benchmark::Recovery recover;
 #if defined(__ANDROID__)
@@ -1338,6 +1379,7 @@ int run(const Options& options)
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_scaling_scenario(options.scenario) &&
+        !noveltea::benchmark::is_ui_effects_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
         options.scenario != "integrated-rmlui-production" && options.scenario != "engine-empty") {
@@ -1372,7 +1414,9 @@ int run(const Options& options)
     RawReferenceScenario raw(nullptr, options.scenario);
     RmlUiScenario rmlui;
     RmlUiScenario scaling_ui(nullptr, true);
+    RmlUiScenario effects_ui(nullptr, false, true);
     noveltea::benchmark::IntegratedRmlUi scaling_engine(false, true);
+    noveltea::benchmark::IntegratedRmlUi effects_engine(false, false, true);
     noveltea::benchmark::IntegratedRmlUi controlled(true);
     noveltea::benchmark::IntegratedRmlUi production(false);
     noveltea::benchmark::EmptyEngine empty_engine;
@@ -1382,6 +1426,8 @@ int run(const Options& options)
             ? static_cast<Scenario*>(&raw)
         : options.scenario == "standalone-rmlui-simple"  ? static_cast<Scenario*>(&rmlui)
         : options.scenario == "standalone-rmlui-scaling" ? static_cast<Scenario*>(&scaling_ui)
+        : options.scenario == "standalone-rmlui-effects" ? static_cast<Scenario*>(&effects_ui)
+        : options.scenario == "integrated-rmlui-effects" ? static_cast<Scenario*>(&effects_engine)
         : options.scenario == "integrated-rmlui-scaling" ? static_cast<Scenario*>(&scaling_engine)
         : options.scenario == "integrated-rmlui-controlled" ? static_cast<Scenario*>(&controlled)
         : options.scenario == "integrated-rmlui-production" ? static_cast<Scenario*>(&production)
@@ -1391,7 +1437,8 @@ int run(const Options& options)
 #if defined(__ANDROID__)
     if (options.scenario == "engine-empty" || options.scenario == "integrated-rmlui-controlled" ||
         options.scenario == "integrated-rmlui-production" ||
-        options.scenario == "integrated-rmlui-scaling")
+        options.scenario == "integrated-rmlui-scaling" ||
+        options.scenario == "integrated-rmlui-effects")
         recover = android_engine_recovery();
 #endif
     const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock, recover);
@@ -1400,6 +1447,8 @@ int run(const Options& options)
         : options.scenario == "integrated-rmlui-controlled" ? controlled.environment()
         : options.scenario == "integrated-rmlui-production" ? production.environment()
         : options.scenario == "integrated-rmlui-scaling"    ? scaling_engine.environment()
+        : options.scenario == "integrated-rmlui-effects"    ? effects_engine.environment()
+        : options.scenario == "standalone-rmlui-effects"    ? effects_ui.graphics.environment
         : options.scenario == "standalone-rmlui-simple"     ? rmlui.graphics.environment
         : options.scenario == "standalone-rmlui-scaling"    ? scaling_ui.graphics.environment
         : options.scenario == "raw-bgfx-geometry"           ? geometry.graphics.environment

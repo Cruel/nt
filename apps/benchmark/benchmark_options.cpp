@@ -34,6 +34,12 @@ bool parse_duration(const char* text, double& value)
 
 } // namespace
 
+UiEffectCounts ui_effect_counts(const Options& options)
+{
+    return {options.ui_clipping, options.ui_transforms, options.ui_gradients,
+            options.ui_filters,  options.ui_masks,      options.ui_nested_layers};
+}
+
 bool parse_options(int argc, const char* const argv[], Options& options, std::string& error)
 {
     options = {};
@@ -111,6 +117,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--ui-text-lines" && flag != "--ui-visible-contexts" &&
             flag != "--ui-empty-contexts" && flag != "--ui-hidden-contexts" &&
             flag != "--ui-preset" && flag != "--ui-text-mode" && flag != "--ui-redraw" &&
+            flag != "--ui-clipping" && flag != "--ui-transforms" && flag != "--ui-gradients" &&
+            flag != "--ui-filters" && flag != "--ui-masks" && flag != "--ui-nested-layers" &&
             flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
             flag != "--seconds" && flag != "--frames" && flag != "--output" &&
             flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
@@ -166,11 +174,16 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         }
         if (flag == "--ui-elements" || flag == "--ui-text-lines" ||
             flag == "--ui-visible-contexts" || flag == "--ui-empty-contexts" ||
-            flag == "--ui-hidden-contexts") {
+            flag == "--ui-hidden-contexts" || flag == "--ui-clipping" ||
+            flag == "--ui-transforms" || flag == "--ui-gradients" || flag == "--ui-filters" ||
+            flag == "--ui-masks" || flag == "--ui-nested-layers") {
             has_cli_settings = true;
             uint64_t number = 0;
-            if (!parse_integer(value, number) || number > 2048) {
-                error = "invalid RmlUi scaling count";
+            const bool effects = flag == "--ui-clipping" || flag == "--ui-transforms" ||
+                                 flag == "--ui-gradients" || flag == "--ui-filters" ||
+                                 flag == "--ui-masks" || flag == "--ui-nested-layers";
+            if (!parse_integer(value, number) || number > (effects ? 16u : 2048u)) {
+                error = "invalid RmlUi workload count";
                 return false;
             }
             if (flag == "--ui-elements")
@@ -181,8 +194,20 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 ui_visible_override = options.ui_visible_contexts = static_cast<uint32_t>(number);
             else if (flag == "--ui-empty-contexts")
                 ui_empty_override = options.ui_empty_contexts = static_cast<uint32_t>(number);
-            else
+            else if (flag == "--ui-hidden-contexts")
                 ui_hidden_override = options.ui_hidden_contexts = static_cast<uint32_t>(number);
+            else if (flag == "--ui-clipping")
+                options.ui_clipping = static_cast<uint32_t>(number);
+            else if (flag == "--ui-transforms")
+                options.ui_transforms = static_cast<uint32_t>(number);
+            else if (flag == "--ui-gradients")
+                options.ui_gradients = static_cast<uint32_t>(number);
+            else if (flag == "--ui-filters")
+                options.ui_filters = static_cast<uint32_t>(number);
+            else if (flag == "--ui-masks")
+                options.ui_masks = static_cast<uint32_t>(number);
+            else
+                options.ui_nested_layers = static_cast<uint32_t>(number);
             continue;
         }
         if (flag == "--composition-path") {
@@ -395,6 +420,12 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.ui_hidden_contexts = defaults.ui_hidden_contexts;
     selected.ui_text_mode = defaults.ui_text_mode;
     selected.ui_redraw = defaults.ui_redraw;
+    selected.ui_clipping = defaults.ui_clipping;
+    selected.ui_transforms = defaults.ui_transforms;
+    selected.ui_gradients = defaults.ui_gradients;
+    selected.ui_filters = defaults.ui_filters;
+    selected.ui_masks = defaults.ui_masks;
+    selected.ui_nested_layers = defaults.ui_nested_layers;
     selected.rect_scale = defaults.rect_scale;
     selected.draw_calls = defaults.draw_calls;
     selected.quad_count = defaults.quad_count;
@@ -411,6 +442,43 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
 bool validate_reference_options(const Options& options, std::string& reason)
 {
     const Options defaults;
+    const bool effects_scenario = is_ui_effects_scenario(options.scenario);
+    const auto effects = ui_effect_counts(options);
+    const auto default_effects = ui_effect_counts(defaults);
+    if (!effects_scenario &&
+        (effects.clipping != default_effects.clipping ||
+         effects.transforms != default_effects.transforms ||
+         effects.gradients != default_effects.gradients ||
+         effects.filters != default_effects.filters || effects.masks != default_effects.masks ||
+         effects.nested_layers != default_effects.nested_layers)) {
+        reason = "RmlUi effect settings require an effects scenario";
+        return false;
+    }
+    if (effects_scenario) {
+        if (valid_ui_effects_parameters(effects) && options.rect_count == defaults.rect_count &&
+            options.rect_scale == defaults.rect_scale &&
+            options.draw_calls == defaults.draw_calls &&
+            options.quad_count == defaults.quad_count &&
+            options.texture_size == defaults.texture_size &&
+            options.coverage == defaults.coverage &&
+            options.composition_path == defaults.composition_path &&
+            options.composite_passes == defaults.composite_passes &&
+            options.target_scale == defaults.target_scale &&
+            options.msaa_samples == defaults.msaa_samples &&
+            options.transparent_overlay == defaults.transparent_overlay &&
+            options.ui_elements == defaults.ui_elements &&
+            options.ui_text_lines == defaults.ui_text_lines &&
+            options.ui_visible_contexts == defaults.ui_visible_contexts &&
+            options.ui_empty_contexts == defaults.ui_empty_contexts &&
+            options.ui_hidden_contexts == defaults.ui_hidden_contexts &&
+            options.ui_text_mode == defaults.ui_text_mode &&
+            options.ui_redraw == defaults.ui_redraw) {
+            reason.clear();
+            return true;
+        }
+        reason = "invalid RmlUi effects parameters";
+        return false;
+    }
     if (is_ui_scaling_scenario(options.scenario)) {
         if (options.rect_count == defaults.rect_count &&
             options.rect_scale == defaults.rect_scale &&
