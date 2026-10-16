@@ -1836,6 +1836,11 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
 #if defined(_WIN32)
     std::fprintf(stderr, "[engine] resolving native window handles\n");
 #endif
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // Asset setup can span an Activity pause/surface replacement. Recheck
+    // after SDL_CreateWindow and before obtaining the window for EGL.
+    sdl_platform::wait_for_android_player_graphics();
+#endif
     const NativeWindowHandles handles = m_platform.native_window_handles();
 #if defined(_WIN32)
     std::fprintf(stderr, "[engine] native window handle resolution returned\n");
@@ -2051,6 +2056,38 @@ bool Engine::Impl::tick()
     if (measure_perf)
         perf_checkpoints[0] = SDL_GetPerformanceCounter();
     handle_events();
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // The UI thread may destroy the Android surface when the device sleeps.
+    // Do not submit bgfx work against the old EGL surface. Keep the same
+    // Engine, game session, assets and UI state alive across the suspension.
+    if (!sdl_platform::android_player_graphics_ready()) {
+        m_android_surface_suspended = true;
+        if (m_game_host.suspend_host())
+            m_audio.pause();
+        SDL_Delay(50);
+        return true;
+    }
+    const auto android_window = m_platform.native_window_handles().window;
+    if (!android_window) {
+        m_android_surface_suspended = true;
+        SDL_Delay(50);
+        return true;
+    }
+    if (m_android_surface_suspended || !m_renderer.matches_android_surface(android_window)) {
+        if (!m_renderer.rebind_android_surface(android_window)) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "[player] Android EGL surface rebind failed");
+            m_android_surface_suspended = true;
+            SDL_Delay(50);
+            return true;
+        }
+        m_android_surface_suspended = false;
+        m_platform.refresh_surface_metrics();
+        resize(m_platform.surface());
+        if (m_game_host.resume_host())
+            m_audio.resume();
+    }
+#endif
     if (measure_perf)
         perf_checkpoints[1] = SDL_GetPerformanceCounter();
     const auto asset_urgency = m_asset_progress.urgency_on_owner();
@@ -2660,6 +2697,17 @@ void Engine::Impl::handle_events()
     m_platform.poll_events();
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+        // Android may deliver pause and resume (or a surface resize) in the
+        // same SDL event batch, so capture the invalidation even if the
+        // Activity is focused again by the time tick() checks readiness.
+        if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+            event.type == SDL_EVENT_WINDOW_MINIMIZED || event.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
+            event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
+            event.type == SDL_EVENT_WINDOW_RESIZED) {
+            m_android_surface_suspended = true;
+        }
+#endif
         const auto layout_input = m_game_host.runtime_layouts().evaluate_input_policy();
         const auto normalized = host::normalize_host_event(event, m_platform.surface());
         auto routed = m_input_router.route(
@@ -2730,6 +2778,12 @@ void Engine::Impl::handle_events()
                         if (m_game_host.resume_host())
                             m_audio.resume();
                     } else if constexpr (std::is_same_v<T, host::RefreshHostSurfaceAction>) {
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+                        // A stale EGL surface must be rebound before any bgfx
+                        // resize, including a resize delivered during pause.
+                        if (m_android_surface_suspended)
+                            return;
+#endif
                         m_platform.refresh_surface_metrics();
                         resize(m_platform.surface());
                     }

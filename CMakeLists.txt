@@ -371,6 +371,19 @@ if(NOVELTEA_FETCH_BGFX)
     endif()
 
     FetchContent_MakeAvailable(bgfx.cmake)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+        # Apply on every configure as well as first fetch: an existing Gradle
+        # .cxx source cache may predate this Android-only EGL lifecycle fix.
+        FetchContent_GetProperties(bgfx.cmake SOURCE_DIR NOVELTEA_BGFX_ANDROID_SOURCE_DIR)
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-android-surface-rebind.cmake
+            WORKING_DIRECTORY "${NOVELTEA_BGFX_ANDROID_SOURCE_DIR}"
+            RESULT_VARIABLE NOVELTEA_BGFX_ANDROID_PATCH_RESULT
+        )
+        if(NOT NOVELTEA_BGFX_ANDROID_PATCH_RESULT EQUAL 0)
+            message(FATAL_ERROR "Cannot apply pinned bgfx Android surface lifecycle fix")
+        endif()
+    endif()
     if(NOT EMSCRIPTEN)
         target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MAX_VIEWS=512)
     endif()

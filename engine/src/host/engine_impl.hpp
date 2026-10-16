@@ -209,6 +209,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     std::optional<core::RuntimeLocaleChangeResultView> m_runtime_locale_change_result;
     bool m_initialized = false;
     bool m_running = false;
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    bool m_android_surface_suspended = false;
+#endif
     bool m_job_shutdown_started = false;
     bool m_shutdown_release_started = false;
     bool m_shutdown_finalized = false;
