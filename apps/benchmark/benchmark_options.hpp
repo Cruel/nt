@@ -22,6 +22,11 @@ struct Options {
     std::string clock_policy = "realtime"; // Full Engine workloads may use fixed 60 Hz steps.
     std::string feature_lab_package;       // Optional exported .ntpkg, staged before warmup.
     bool vsync = false;
+    bool native_resolution = false; // Use display pixel dimensions instead of explicit window size.
+    std::string capacity_dimension; // Empty disables search; geometry, ui, pixels.
+    std::string capacity_target = "cpu-ms"; // cpu-ms, gpu-ms, presented-fps.
+    double capacity_threshold = 16.67;
+    std::string capacity_mode = "presented"; // presented or bounded offscreen units.
     bool help = false;
     bool dashboard_smoke = false;
     bool quick_suite = false;

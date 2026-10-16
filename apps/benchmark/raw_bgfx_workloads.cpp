@@ -147,10 +147,8 @@ bool RawBgfxWorkloads::initialize(const RawWorkloadReference& work, uint32_t wid
             flags |= BGFX_TEXTURE_RT_MSAA_X2;
         if (work_.msaa_samples == 4)
             flags |= BGFX_TEXTURE_RT_MSAA_X4;
-        const uint16_t target_width =
-            work_.composition ? static_cast<uint16_t>(work_.target_width) : width_;
-        const uint16_t target_height =
-            work_.composition ? static_cast<uint16_t>(work_.target_height) : height_;
+        const uint16_t target_width = static_cast<uint16_t>(work_.target_width);
+        const uint16_t target_height = static_cast<uint16_t>(work_.target_height);
         if (!bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8, flags)) {
             reason = "requested offscreen color/MSAA format is unsupported by this bgfx device";
             shutdown();
@@ -222,7 +220,7 @@ bool RawBgfxWorkloads::initialize(const RawWorkloadReference& work, uint32_t wid
     return true;
 }
 
-bool RawBgfxWorkloads::submit(std::string& reason)
+bool RawBgfxWorkloads::submit(std::string& reason, bool composite_to_backbuffer)
 {
     if (!initialized_) {
         reason = "raw workload not prepared";
@@ -232,11 +230,8 @@ bool RawBgfxWorkloads::submit(std::string& reason)
         bgfx::setViewFrameBuffer(0, framebuffer_);
     else
         bgfx::setViewFrameBuffer(0, BGFX_INVALID_HANDLE);
-    bgfx::setViewRect(
-        0, 0, 0,
-        work_.composition && work_.offscreen ? static_cast<uint16_t>(work_.target_width) : width_,
-        work_.composition && work_.offscreen ? static_cast<uint16_t>(work_.target_height)
-                                             : height_);
+    bgfx::setViewRect(0, 0, 0, work_.offscreen ? static_cast<uint16_t>(work_.target_width) : width_,
+                      work_.offscreen ? static_cast<uint16_t>(work_.target_height) : height_);
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x111924ff);
     bgfx::touch(0);
     if (work_.draws_per_frame == 0)
@@ -249,7 +244,7 @@ bool RawBgfxWorkloads::submit(std::string& reason)
         bgfx::setIndexBuffer(indices_);
         bgfx::submit(0, program_);
     }
-    if (work_.offscreen) {
+    if (work_.offscreen && composite_to_backbuffer) {
         const uint32_t passes = work_.composition ? work_.composite_passes : 1;
         for (uint32_t i = 0; i < passes; ++i) {
             const bool final = i + 1 == passes;
@@ -272,7 +267,7 @@ bool RawBgfxWorkloads::submit(std::string& reason)
             bgfx::submit(view, program_);
         }
     }
-    if (work_.transparent_overlay) {
+    if (work_.transparent_overlay && composite_to_backbuffer) {
         constexpr bgfx::ViewId kOverlayView = 6;
         bgfx::setViewFrameBuffer(kOverlayView, BGFX_INVALID_HANDLE);
         bgfx::setViewRect(kOverlayView, 0, 0, width_, height_);

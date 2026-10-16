@@ -133,7 +133,28 @@ struct InstrumentationControl {
     double incremental_ns = 0.0;
 };
 
+struct CapacityProbe {
+    uint32_t workload = 0;
+    std::string outcome;
+    std::optional<double> observed;
+    uint64_t completed_batches = 0;
+    uint64_t completed_work_units = 0;
+    std::optional<double> work_units_per_cpu_second;
+};
+
+struct CapacityResult {
+    std::string dimension;
+    std::string target;
+    double threshold = 0.0;
+    std::string mode;
+    std::string status = "inconclusive";
+    std::string reason;
+    std::optional<uint32_t> maximum_passing_workload;
+    std::vector<CapacityProbe> probes;
+};
+
 struct SuiteResult {
+    std::optional<CapacityResult> capacity;
     std::vector<ScenarioResult> scenarios;
     std::string outcome = "failed";
     std::optional<InstrumentationControl> instrumentation_control;

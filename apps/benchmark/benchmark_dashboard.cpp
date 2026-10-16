@@ -420,6 +420,12 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.rect_scale = 1.0;
                     }
                 }
+                if (options.scenario == "raw-bgfx-offscreen") {
+                    float scale = static_cast<float>(options.target_scale);
+                    if (ImGui::SliderFloat("Offscreen render scale", &scale, 0.25f, 1.0f))
+                        options.target_scale = scale;
+                    ImGui::TextDisabled("Host framebuffer retains native physical dimensions.");
+                }
                 if (options.scenario == "raw-bgfx-composition") {
                     if (ImGui::BeginCombo("Composition path", options.composition_path.c_str())) {
                         for (const char* path : {"direct", "offscreen"}) {
@@ -508,14 +514,76 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
 #if defined(__ANDROID__)
                 ImGui::TextDisabled("Using Android's native fullscreen framebuffer.");
 #else
+                ImGui::Checkbox("Use native display resolution", &options.native_resolution);
                 int width = options.width;
                 int height = options.height;
+                ImGui::BeginDisabled(options.native_resolution);
                 if (ImGui::InputInt("Window width", &width))
                     options.width = std::clamp(width, 1, 8192);
                 if (ImGui::InputInt("Window height", &height))
                     options.height = std::clamp(height, 1, 8192);
+                ImGui::EndDisabled();
 #endif
                 ImGui::Checkbox("VSync", &options.vsync);
+                ImGui::SeparatorText("Automatic capacity search");
+                if (ImGui::BeginCombo("Search dimension",
+                                      options.capacity_dimension.empty()
+                                          ? "Disabled"
+                                          : options.capacity_dimension.c_str())) {
+                    if (ImGui::Selectable("Disabled", options.capacity_dimension.empty()))
+                        options.capacity_dimension.clear();
+                    if ((options.scenario == "raw-bgfx-geometry" ||
+                         options.scenario == "raw-bgfx-draw-calls") &&
+                        ImGui::Selectable("geometry", options.capacity_dimension == "geometry"))
+                        options.capacity_dimension = "geometry";
+                    if (is_ui_scaling_scenario(options.scenario) &&
+                        ImGui::Selectable("ui", options.capacity_dimension == "ui"))
+                        options.capacity_dimension = "ui";
+                    if ((options.scenario == "raw-bgfx-offscreen" ||
+                         (options.scenario == "raw-bgfx-composition" &&
+                          options.composition_path == "offscreen")) &&
+                        ImGui::Selectable("pixels", options.capacity_dimension == "pixels")) {
+                        options.capacity_dimension = "pixels";
+                        options.target_scale = 1.0;
+                    }
+                    ImGui::EndCombo();
+                }
+                if (!options.capacity_dimension.empty()) {
+                    if (ImGui::BeginCombo("Budget metric", options.capacity_target.c_str())) {
+                        for (const char* target : {"cpu-ms", "gpu-ms", "presented-fps"}) {
+                            if (ImGui::Selectable(target, options.capacity_target == target)) {
+                                options.capacity_target = target;
+                                if (options.capacity_target == "gpu-ms")
+                                    options.profile = "diagnostic";
+                                if (options.capacity_target == "presented-fps")
+                                    options.capacity_mode = "presented";
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::InputDouble("Budget threshold", &options.capacity_threshold, 0.5, 1.0,
+                                       "%.2f");
+                    if (options.scenario == "raw-bgfx-offscreen" &&
+                        options.capacity_target != "presented-fps") {
+                        if (ImGui::BeginCombo("Measurement mode", options.capacity_mode.c_str())) {
+                            for (const char* mode : {"presented", "offscreen"}) {
+                                if (ImGui::Selectable(mode, options.capacity_mode == mode)) {
+                                    options.capacity_mode = mode;
+                                    if (options.capacity_mode == "offscreen")
+                                        options.vsync = false;
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                    } else {
+                        options.capacity_mode = "presented";
+                    }
+                    ImGui::TextWrapped(
+                        "Each candidate is a fresh trial. GPU time requires valid Diagnostic "
+                        "completions. Presented mode is paced by the host, not uncapped FPS. "
+                        "Offscreen mode issues at most four work units per callback and "
+                        "reports them separately from displayed frames.");
+                }
                 ImGui::InputDouble("Warmup seconds", &options.warmup_seconds, 0.5, 1.0, "%.2f");
                 ImGui::InputDouble("Measurement seconds", &options.duration_seconds, 1.0, 5.0,
                                    "%.2f");
@@ -548,12 +616,39 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     const std::string identity = completed_run_identity(*last_run);
                     ImGui::TextWrapped("Completed run: %s", identity.c_str());
                     ImGui::Text("Outcome: %s", last_run->result.outcome.c_str());
+                    if (last_run->result.capacity) {
+                        const auto& search = *last_run->result.capacity;
+                        ImGui::SeparatorText("Capacity search");
+                        ImGui::Text("Dimension: %s | metric: %s | mode: %s",
+                                    search.dimension.c_str(), search.target.c_str(),
+                                    search.mode.c_str());
+                        ImGui::Text("Budget: %.2f | status: %s", search.threshold,
+                                    search.status.c_str());
+                        ImGui::TextWrapped("%s", search.reason.c_str());
+                        if (search.maximum_passing_workload)
+                            ImGui::Text("Highest passing tested workload: %u",
+                                        *search.maximum_passing_workload);
+                        else
+                            ImGui::TextUnformatted("Maximum passing workload: unavailable");
+                        for (const auto& probe : search.probes) {
+                            ImGui::Text("Load %u: %s, observed %s", probe.workload,
+                                        probe.outcome.c_str(),
+                                        probe.observed ? std::to_string(*probe.observed).c_str()
+                                                       : "unavailable");
+                            if (search.mode == "offscreen")
+                                ImGui::TextDisabled(
+                                    "%llu offscreen work units over %llu host callbacks "
+                                    "(not displayed frames)",
+                                    static_cast<unsigned long long>(probe.completed_work_units),
+                                    static_cast<unsigned long long>(probe.completed_batches));
+                        }
+                    }
                     if (!last_run->report_path.empty())
                         ImGui::TextWrapped("Report: %s", last_run->report_path.c_str());
                     for (const auto& scenario : last_run->result.scenarios) {
                         ImGui::Separator();
                         ImGui::Text("%s: %s", scenario.scenario.c_str(), scenario.outcome.c_str());
-                        ImGui::Text("%llu measured work units in %.3f s",
+                        ImGui::Text("%llu measured host callbacks in %.3f s",
                                     static_cast<unsigned long long>(scenario.measured_frames),
                                     scenario.measured_wall_seconds);
                         if (scenario.measured_wall_seconds > 0)

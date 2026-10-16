@@ -95,7 +95,8 @@ raw_workload_reference(const Options& options, uint32_t render_width, uint32_t r
         return work;
     }
     if (options.composition_path != "direct" || options.composite_passes != 0 ||
-        options.target_scale != 1.0 || options.msaa_samples != 0 || !options.transparent_overlay)
+        (work.id != "raw-bgfx-offscreen" && options.target_scale != 1.0) ||
+        options.msaa_samples != 0 || !options.transparent_overlay)
         return std::nullopt;
     if (work.id == "raw-bgfx-clear") {
         if (options.draw_calls != 64 || options.quad_count != 1 || options.texture_size != 256 ||
@@ -122,8 +123,14 @@ raw_workload_reference(const Options& options, uint32_t render_width, uint32_t r
         return std::nullopt;
     }
     work.offscreen = work.id == "raw-bgfx-offscreen";
-    work.target_width = work.offscreen ? render_width : 0;
-    work.target_height = work.offscreen ? render_height : 0;
+    if (work.offscreen && (!std::isfinite(options.target_scale) || options.target_scale < 0.25 ||
+                           options.target_scale > 1.0))
+        return std::nullopt;
+    work.target_scale = work.offscreen ? options.target_scale : 1.0;
+    work.target_width =
+        work.offscreen ? static_cast<uint32_t>(std::lround(render_width * work.target_scale)) : 0;
+    work.target_height =
+        work.offscreen ? static_cast<uint32_t>(std::lround(render_height * work.target_scale)) : 0;
     work.target_count = work.offscreen ? 1 : 0;
     work.target_color_bytes = uint64_t(work.target_width) * work.target_height * 4;
     work.covered_pixels = static_cast<uint64_t>(
@@ -134,8 +141,8 @@ raw_workload_reference(const Options& options, uint32_t render_width, uint32_t r
         uint64_t(work.draw_calls) * work.quads_per_draw * 4 + (work.offscreen ? 4 : 0);
     work.triangles_per_frame =
         uint64_t(work.draw_calls) * work.quads_per_draw * 2 + (work.offscreen ? 2 : 0);
-    work.texture_bytes = uint64_t(work.texture_size) * work.texture_size * 4 +
-                         (work.offscreen ? uint64_t(render_width) * render_height * 4 : 0);
+    work.texture_bytes =
+        uint64_t(work.texture_size) * work.texture_size * 4 + work.target_color_bytes;
     return work;
 }
 
