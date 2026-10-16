@@ -247,6 +247,23 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
       throw new Error('dashboard results were not visibly restored after benchmark cycles');
     if (errors.length) throw new Error('page errors: ' + errors.join('; '));
     console.log(name + ': dashboard teardown/recreate + scenario switches passed: ' + names.join(', '));
+
+    await page.goto(origin + '/benchmark.html?quickSuite=1&smoke=1&noUi=1');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 60000});
+    const quick = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    const referenceOrder = [
+      'raw-bgfx-empty', 'raw-bgfx-geometry', 'standalone-rmlui-simple',
+      'engine-empty', 'integrated-rmlui-controlled', 'integrated-rmlui-production'
+    ];
+    if (quick.outcome !== 'partial' ||
+        quick.scenarios.map(s => s.id).join(',') !== referenceOrder.join(',') ||
+        quick.scenarios.slice(0, 3).some(s => s.outcome !== 'complete' || s.aggregate.measured_frames !== 30) ||
+        quick.scenarios.slice(3).some(s => s.outcome !== 'failed' || !s.trials[0].reason) ||
+        quick.graphics !== null ||
+        quick.scenarios[0].graphics.frame_path !== 'bgfx-frame' ||
+        quick.scenarios[2].graphics.ui_render_path === null)
+      throw new Error('Quick Suite scenario isolation/report failure: ' + JSON.stringify(quick.scenarios.map(s => ({id:s.id, outcome:s.outcome, frames:s.aggregate.measured_frames}))));
+    console.log(name + ': Quick Suite serial reference runs + independent unsupported-host outcomes passed');
     await page.close();
   } catch (error) {
     failures++;

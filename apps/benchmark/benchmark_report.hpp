@@ -43,6 +43,7 @@ struct Environment {
 [[nodiscard]] bool decode_configuration(std::string_view source, Options& options,
                                         std::string& reason);
 [[nodiscard]] std::string encode_result(const Options& options, const Environment& environment,
-                                        const SuiteResult& result);
+                                        const SuiteResult& result,
+                                        const std::vector<Environment>& scenario_environments = {});
 
 } // namespace noveltea::benchmark

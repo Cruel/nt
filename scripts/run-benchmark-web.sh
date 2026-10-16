@@ -61,7 +61,7 @@ const keys = {
 };
 const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",
   "--vsync":"vsync", "--raw-samples":"rawSamples",
-  "--dashboard-smoke":"dashboardSmoke"};
+  "--dashboard-smoke":"dashboardSmoke", "--quick-suite":"quickSuite"};
 const args = process.argv.slice(1);
 for (let i=0; i<args.length; ++i) {
   const key = args[i];

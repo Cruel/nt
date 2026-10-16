@@ -62,5 +62,14 @@ int main()
                    clean.find("Diagnostic") == std::string::npos,
                "next run replaces profile and workload identity"))
         return 1;
+    editable.quick_suite = true;
+    result.scenarios.push_back(ScenarioResult{});
+    result.scenarios.back().scenario = "engine-empty";
+    completed = CompletedRun{editable, result, "quick-suite.json"};
+    const auto quick = completed_run_identity(completed);
+    if (!check(quick.find("Quick Suite (2 scenarios)") != std::string::npos &&
+                   quick.find("raw-bgfx-empty") == std::string::npos,
+               "the Results header identifies the completed suite, not the input selection"))
+        return 1;
     return 0;
 }

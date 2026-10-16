@@ -43,6 +43,7 @@ int main()
     const char* const invalid_geometry[] = {"benchmark", "--rect-count", "257"};
     const char* const invalid_scale[] = {"benchmark", "--rect-scale", "0.1"};
     const char* const lifecycle[] = {"benchmark", "--dashboard-smoke"};
+    const char* const quick[] = {"benchmark", "--quick-suite", "--smoke"};
     const char* const config_only[] = {"benchmark", "--config", "run.json", "--output",
                                        "other.json"};
     const char* const mixed_config[] = {"benchmark", "--config", "run.json", "--smoke"};
@@ -54,10 +55,10 @@ int main()
         !expect_options(repeats, 5, true) || !expect_options(invalid_repeats, 3, false) ||
         !expect_options(invalid_large_frames, 3, false) || !expect_options(diagnostic, 3, true) ||
         !expect_options(ui, 4, true, 30) || !expect_options(lifecycle, 2, true, 30) ||
-        !expect_options(invalid_profile, 3, false) || !expect_options(geometry, 7, true) ||
-        !expect_options(ui_reference, 3, true) || !expect_options(invalid_geometry, 3, false) ||
-        !expect_options(invalid_scale, 3, false) || !expect_options(config_only, 5, true) ||
-        !expect_options(mixed_config, 4, false))
+        !expect_options(quick, 3, true, 30) || !expect_options(invalid_profile, 3, false) ||
+        !expect_options(geometry, 7, true) || !expect_options(ui_reference, 3, true) ||
+        !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
+        !expect_options(config_only, 5, true) || !expect_options(mixed_config, 4, false))
         return 1;
 
     noveltea::benchmark::Options options;
@@ -68,6 +69,9 @@ int main()
         options.profile != "diagnostic" ||
         !noveltea::benchmark::parse_options(2, lifecycle, options, error) ||
         !options.dashboard_smoke || options.no_ui)
+        return 1;
+    if (!noveltea::benchmark::parse_options(3, quick, options, error) || !options.quick_suite ||
+        !options.no_ui)
         return 1;
     if (!noveltea::benchmark::parse_options(7, geometry, options, error) ||
         options.scenario != "raw-bgfx-geometry" || options.rect_count != 12 ||

@@ -11,6 +11,50 @@ The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
 
+## Scenario switching and Quick Suite (#432)
+
+**Quick Suite** runs `raw-bgfx-empty`, `raw-bgfx-geometry` (the fixed
+three-rectangle reference), `standalone-rmlui-simple`, `engine-empty`,
+`integrated-rmlui-controlled`, and `integrated-rmlui-production` in that
+order. Select **Quick Suite** in the dashboard, or launch without ImGui:
+
+```sh
+./scripts/run-benchmark.sh --no-build --quick-suite --smoke
+./scripts/run-benchmark.sh --debug --dashboard-smoke --quick-suite
+./scripts/run-benchmark-web.sh --no-build --quick-suite --smoke
+```
+
+The suite freezes the selected run settings, using fixed geometry parameters
+so each comparison has a stable workload. It releases preview and ImGui GPU
+resources once before the first trial and does not re-create the dashboard
+between scenarios. The raw bgfx and standalone RmlUi cases retain the shared
+SDL window/bgfx host but release each scenario's resources between runs.
+On Linux, the benchmark destroys that host before an Engine-owned scenario
+initializes its own SDL window/bgfx device, and re-creates the dashboard host
+only after the suite completes. A cleanup failure blocks unsafe subsequent
+ownership transfers. A failed preparation or unsupported scenario records
+its own failed trial and does not discard successful independent cases.
+
+A mixed-host JSON report contains the ordered `scenarios[]` with per-scenario
+`graphics` metadata, measured trials, and failures. Top-level `graphics`
+is `null` when different hosts were used; no single renderer or framebuffer
+describes the collection. The outcome is `complete` only if every case
+completed, otherwise `partial` when some measurements succeeded, or
+`failed` when none succeeded. On Web and Android, the Engine-owned cases
+still lack a safe supported renderer-host transition and are explicitly
+marked failed (rather than assigned fabricated samples). Web executes its
+three supported references on successive animation callbacks while keeping
+the browser event loop responsive; Android executes the two supported raw
+references and reports the other cases as unsupported. Linux is the currently
+complete six-scenario platform.
+
+`noveltea_benchmark_suite` tests ordering, cleanup-before-next-preparation
+and independent failures. The two Linux Quick Suite GPU smoke tests run the
+collection unattended and through three dashboard teardown/recreate cycles,
+respectively. Web browser smoke checks its three supported measured cases
+and separate unsupported-host results; these are correctness tests without
+performance thresholds.
+
 ## Standalone Web benchmark (#431)
 
 Run the optimized WebGL2 benchmark using Emscripten's SDK environment:
@@ -21,6 +65,7 @@ Run the optimized WebGL2 benchmark using Emscripten's SDK environment:
 ./scripts/run-benchmark-web.sh --no-build --no-ui --scenario raw-bgfx-geometry --frames 300
 ./scripts/run-benchmark-web.sh --no-build --ui --scenario raw-bgfx-geometry
 ./scripts/run-benchmark-web.sh --no-build --dashboard-smoke --smoke
+./scripts/run-benchmark-web.sh --no-build --quick-suite --smoke
 ```
 
 The launcher configures and builds only `noveltea-benchmark-app` using the

@@ -57,6 +57,11 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.measurement_frames = 30;
             continue;
         }
+        if (flag == "--quick-suite") {
+            has_cli_settings = true;
+            options.quick_suite = true;
+            continue;
+        }
         if (flag == "--smoke") {
             has_cli_settings = true;
             options.warmup_seconds = 0.0;

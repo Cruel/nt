@@ -15,6 +15,11 @@ struct WebBenchmarkApp {
     // abandoned scenario alive until the restored context can release it.
     std::unique_ptr<Scenario> deferred_scenario;
     std::unique_ptr<noveltea::benchmark::FrameDrivenSuite> active;
+    Options current_options;
+    SuiteResult collected;
+    std::vector<Environment> collected_environments;
+    bool quick_suite_active = false;
+    size_t quick_index = 0;
     std::string feedback;
     bool stopped = false;
     int smoke_cycle = 0;
@@ -26,7 +31,8 @@ struct WebBenchmarkApp {
     bool initialize()
     {
         std::string error;
-        if (!supported_scenario() || !graphics.initialize(options, error)) {
+        if ((!options.quick_suite && !supported_scenario(options.scenario)) ||
+            !graphics.initialize(options, error)) {
             std::fprintf(stderr, "[benchmark] Web initialization: %s\n",
                          error.empty() ? "unsupported Web scenario" : error.c_str());
             return false;
@@ -37,14 +43,14 @@ struct WebBenchmarkApp {
         }
         EM_ASM({ window.NovelTeaBenchmark.ready = true; });
         if (options.no_ui || options.dashboard_smoke)
-            start();
+            start(options.quick_suite);
         return true;
     }
 
-    bool supported_scenario() const
+    bool supported_scenario(const std::string& id) const
     {
-        return options.scenario == "raw-bgfx-empty" || options.scenario == "raw-bgfx-geometry" ||
-               options.scenario == "standalone-rmlui-simple";
+        return id == "raw-bgfx-empty" || id == "raw-bgfx-geometry" ||
+               id == "standalone-rmlui-simple";
     }
 
     void draw_preview()
@@ -104,19 +110,56 @@ struct WebBenchmarkApp {
         return true;
     }
 
-    void start()
+    void start(bool suite = false)
     {
+        quick_suite_active = suite;
+        quick_index = 0;
+        collected = {};
+        collected_environments.clear();
+        completed_run.reset();
+        feedback.clear();
+        start_next();
+    }
+
+    void start_next()
+    {
+        current_options = options;
+        current_options.quick_suite = quick_suite_active;
         std::string error;
-        if (!supported_scenario() || !noveltea::benchmark::validate_run_options(options, error) ||
-            !noveltea::benchmark::validate_reference_options(options, error)) {
-            feedback = error.empty() ? "Web supports raw bgfx and standalone RmlUi only" : error;
+        if (quick_suite_active) {
+            const auto& ids = noveltea::benchmark::quick_suite_scenarios();
+            while (quick_index < ids.size()) {
+                current_options.scenario = ids[quick_index];
+                current_options.rect_count = 3;
+                current_options.rect_scale = 1.0;
+                if (supported_scenario(current_options.scenario))
+                    break;
+                noveltea::benchmark::append_failed_scenario(
+                    collected, ids[quick_index],
+                    "Engine-owned graphics transitions are not supported by the Web host");
+                collected_environments.emplace_back();
+                ++quick_index;
+            }
+            if (quick_index == ids.size()) {
+                finish_collection();
+                return;
+            }
+        }
+        if (!supported_scenario(current_options.scenario) ||
+            !noveltea::benchmark::validate_run_options(current_options, error) ||
+            !noveltea::benchmark::validate_reference_options(current_options, error) ||
+            !graphics.reconfigure(current_options, error)) {
+            feedback = error.empty() ? "unsupported Web scenario" : error;
+            if (quick_suite_active) {
+                noveltea::benchmark::append_failed_scenario(
+                    collected, current_options.scenario, feedback);
+                collected_environments.emplace_back();
+                ++quick_index;
+                start_next();
+            }
             return;
         }
-        if (!graphics.reconfigure(options, error)) {
-            feedback = error;
-            return;
-        }
-        const Options frozen = options;
+        const Options frozen = current_options;
         preview_geometry.shutdown();
         preview_ui.shutdown();
         dashboard.shutdown();
@@ -158,14 +201,38 @@ struct WebBenchmarkApp {
 
     void finish(bool graphics_unavailable = false)
     {
-        completed_run = noveltea::benchmark::CompletedRun{options, active->result(), {}};
+        const auto latest = active->result();
         active.reset();
         if (graphics_unavailable)
             deferred_scenario = std::move(active_scenario);
         else
             active_scenario.reset();
+        if (quick_suite_active) {
+            collected_environments.push_back(graphics.environment);
+            noveltea::benchmark::append_suite_result(collected, latest);
+            if (!graphics_unavailable && latest.outcome != "cancelled") {
+                ++quick_index;
+                start_next();
+                return;
+            }
+        } else {
+            collected = latest;
+        }
+        finish_collection(graphics_unavailable);
+    }
+
+    void finish_collection(bool graphics_unavailable = false)
+    {
+        Options reported = options;
+        reported.quick_suite = quick_suite_active;
+        if (quick_suite_active) {
+            reported.rect_count = 3;
+            reported.rect_scale = 1.0;
+        }
+        completed_run = noveltea::benchmark::CompletedRun{reported, collected, {}};
+        quick_suite_active = false;
         if (!write_report(completed_run->configuration, graphics.environment, completed_run->result,
-                          completed_run->report_path))
+                          completed_run->report_path, collected_environments))
             feedback = "failed to save or download benchmark report";
         else
             feedback.clear();
@@ -278,7 +345,7 @@ struct WebBenchmarkApp {
                 emscripten_cancel_main_loop();
             } else if (action == noveltea::benchmark::DashboardAction::Run ||
                        action == noveltea::benchmark::DashboardAction::QuickSuite) {
-                start();
+                start(action == noveltea::benchmark::DashboardAction::QuickSuite);
             }
         } else {
             // Keep the browser's rAF callback live after unattended completion.
