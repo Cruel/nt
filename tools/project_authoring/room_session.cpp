@@ -6,6 +6,7 @@
 #include "interactable_inventory_semantics.hpp"
 #include "dialogue_scene_semantics.hpp"
 #include "verb_interaction_semantics.hpp"
+#include "test_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -1057,6 +1058,30 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 state.diagnostics.push_back(std::move(diagnostic));
             }
         }
+        if (!record.normalized_json.empty() && family == "tests" &&
+            !state.normalized_json.empty() && !traits_json.empty()) {
+            const auto exists = [&](std::string_view collection, std::string_view id) {
+                if (!is_id(id))
+                    return false;
+                const auto owner = std::string(collection) + "/" + std::string(id);
+                if (collection == "layouts")
+                    return records_.contains(owner) ||
+                           std::filesystem::is_regular_file(root_ / "records" / "layouts" /
+                                                            std::string(id) / "layout.yaml");
+                return record_contracts().contains(std::string(collection)) &&
+                       (records_.contains(owner) ||
+                        std::filesystem::is_regular_file(root_ / "records" /
+                                                         std::string(collection) /
+                                                         (std::string(id) + ".yaml")));
+            };
+            const auto dependent = validate_test_dependencies(
+                record.normalized_json, state.normalized_json, traits_json, resolve_record, exists);
+            state.valid &= dependent.accepted;
+            for (auto diagnostic : dependent.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
         std::string effective_for_traits = record.normalized_json;
         if (record.valid && slash != std::string::npos &&
             (family == "rooms" || family == "characters" || family == "interactables" ||
@@ -1306,6 +1331,59 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                                      interaction_resolver_cache_->diagnostics.end());
         }
     }
+    // A dirty referenced record can invalidate an unopened Test. Preserve the
+    // full dependency answer without admitting those Tests as editable owners.
+    const bool inspect_test_dependents =
+        changed_subjects || changed_features ||
+        std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
+            if (!entry.second->snapshot().dirty)
+                return false;
+            const auto slash = entry.first.find('/');
+            const auto family = entry.first.substr(0, slash);
+            return family == "traits" || family == "verbs" || family == "rooms" ||
+                   family == "characters" || family == "interactables" || family == "variables" ||
+                   family == "dialogues" || family == "scenes" || family == "layouts";
+        });
+    if (inspect_test_dependents && !state.normalized_json.empty() && !traits_json.empty()) {
+        if (!test_sources_) {
+            test_sources_.emplace();
+            const auto dir = root_ / "records" / "tests";
+            if (std::filesystem::is_directory(dir))
+                for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                    if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+                        continue;
+                    const auto id = entry.path().stem().string();
+                    if (!is_id(id))
+                        continue;
+                    if (const auto record = resolve_record("tests", id))
+                        test_sources_->emplace_back(id, *record);
+                }
+        }
+        const auto exists = [&](std::string_view collection, std::string_view id) {
+            if (!is_id(id))
+                return false;
+            const auto owner = std::string(collection) + "/" + std::string(id);
+            if (collection == "layouts")
+                return records_.contains(owner) ||
+                       std::filesystem::is_regular_file(root_ / "records" / "layouts" /
+                                                        std::string(id) / "layout.yaml");
+            return record_contracts().contains(std::string(collection)) &&
+                   (records_.contains(owner) ||
+                    std::filesystem::is_regular_file(root_ / "records" / std::string(collection) /
+                                                     (std::string(id) + ".yaml")));
+        };
+        for (const auto& [id, source] : *test_sources_) {
+            if (records_.contains("tests/" + id))
+                continue;
+            const auto dependent = validate_test_dependencies(source, state.normalized_json,
+                                                              traits_json, resolve_record, exists);
+            state.valid &= dependent.accepted;
+            for (auto diagnostic : dependent.diagnostics) {
+                diagnostic.path = "/tests/" + id + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
+    }
     // Locale variants are separate tracked YAML sources; inspect their semantic
     // Asset targets when an Asset owner or manifest enters the working session.
     if (manifest_dirty || std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
@@ -1406,6 +1484,13 @@ SourceObservation ProjectSession::observe_sources()
         interaction_sources_.reset();
         interaction_resolver_cache_.reset();
     }
+    const auto changed_tests = [](const std::vector<std::string>& paths) {
+        return std::any_of(paths.begin(), paths.end(),
+                           [](const auto& path) { return path.starts_with("records/tests/"); });
+    };
+    if (!observed.authoritative || changed_tests(observed.delta.changed) ||
+        changed_tests(observed.delta.added) || changed_tests(observed.delta.removed))
+        test_sources_.reset();
     if (!observed.authoritative)
         material_compiler_results_.clear();
     else {
@@ -2209,6 +2294,14 @@ RoomSessionSnapshot RoomSession::snapshot() const
         if (!state.valid)
             state.normalized_json.clear();
     }
+    if (result.accepted && record_family_ == "tests") {
+        const auto local = validate_test_local(result.effective_json);
+        state.valid &= local.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), local.diagnostics.begin(),
+                                 local.diagnostics.end());
+        // Preserve structurally normalized Test data for additional reference
+        // diagnostics; a local semantic error still blocks native Save.
+    }
     if (result.accepted && !is_project_ && !is_editor_ && !is_traits_ &&
         validation_contract_.empty()) {
         const auto local =
@@ -2248,6 +2341,8 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_verb_source(source_json);
     if (record_family_ == "interactions")
         return validate_interaction_source(source_json);
+    if (record_family_ == "tests")
+        return validate_test_source(source_json);
     if (record_family_ == "characters")
         return validate_character_source(source_json);
     if (record_family_ == "archetypes")

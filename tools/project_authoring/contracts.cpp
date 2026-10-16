@@ -992,18 +992,22 @@ class SparseSourceProjection {
         return std::nullopt;
     }
 
-    std::optional<std::string> reference_collection(const Json& definition) const
+    std::optional<std::pair<std::string, std::string>>
+    reference_target(const Json& definition) const
     {
         if (definition.at("type") != "object" || !definition.at("children").contains("$ref"))
             return std::nullopt;
         const auto& ref = node(unwrap(definition.at("children").at("$ref").as<std::string>()));
-        if (ref.at("type") != "object" || !ref.at("children").contains("collection"))
+        if (ref.at("type") != "object")
             return std::nullopt;
-        const auto& collection =
-            node(unwrap(ref.at("children").at("collection").as<std::string>()));
-        if (collection.at("type") == "literal" && collection.at("values").size() == 1 &&
-            collection.at("values").at(0).is_string())
-            return collection.at("values").at(0).as<std::string>();
+        for (const auto* key : {"collection", "registry"}) {
+            if (!ref.at("children").contains(key))
+                continue;
+            const auto& target = node(unwrap(ref.at("children").at(key).as<std::string>()));
+            if (target.at("type") == "literal" && target.at("values").size() == 1 &&
+                target.at("values").at(0).is_string())
+                return std::pair{std::string(key), target.at("values").at(0).as<std::string>()};
+        }
         return std::nullopt;
     }
 
@@ -1039,10 +1043,9 @@ class SparseSourceProjection {
             project(value, children.at("in").as<std::string>(), path, depth + 1);
             return;
         }
-        if (const auto collection = reference_collection(current);
-            collection && value->is_string()) {
+        if (const auto target = reference_target(current); target && value->is_string()) {
             Json reference = Json::object();
-            reference["collection"] = *collection;
+            reference[target->first] = target->second;
             reference["id"] = *value;
             Json expanded = Json::object();
             expanded["$ref"] = std::move(reference);
@@ -1277,6 +1280,154 @@ ValidationResult validate_interaction_source(std::string_view source_json)
 {
     return validate_sparse_record_source(source_json, "interactions", "InteractionsRecord",
                                          "interaction");
+}
+
+namespace {
+// These requirements are generated from test-source-intent.ts, not the Zod
+// editor-form defaults. An omitted selected payload cannot become an authored
+// command simply because its normalized schema supplies a placeholder.
+struct TestSourceIntent {
+    const Json& rules;
+    ValidationResult& result;
+
+    const Json* field(const Json* value, std::string_view key) const
+    {
+        return value && value->is_object() && value->contains(key) ? &value->at(key) : nullptr;
+    }
+
+    std::string str(const Json* value, std::string_view key) const
+    {
+        const auto* item = field(value, key);
+        return item && item->is_string() ? item->as<std::string>() : std::string{};
+    }
+
+    void require(const Json* value, std::string_view key, const std::string& path)
+    {
+        if (field(value, key))
+            return;
+        result.accepted = false;
+        const auto location = path + "/" + pointer_token(key);
+        result.diagnostics.push_back(
+            {location, "source.test.required",
+             "Required Test YAML field " + location + " must be authored explicitly."});
+    }
+
+    void require_fields(const Json* value, const Json& fields, const std::string& path)
+    {
+        if (!value || !value->is_object())
+            return; // Normalized contract handles malformed payload shapes.
+        for (const auto& key : fields.array_range())
+            require(value, key.as<std::string>(), path);
+    }
+
+    void address(const Json* value, const std::string& path)
+    {
+        if (!value || !value->is_object() || field(value, "documentId") ||
+            field(value, "mountInstanceId"))
+            return;
+        result.accepted = false;
+        result.diagnostics.push_back(
+            {path, "source.test.address",
+             "Required Test YAML field " + path +
+                 "/documentId or mountInstanceId must be authored explicitly."});
+    }
+
+    void expectations(const Json* values, const std::string& path)
+    {
+        if (!values || !values->is_array())
+            return;
+        for (std::size_t index = 0; index < values->size(); ++index) {
+            const auto* expectation = &values->at(index);
+            if (!expectation->is_object())
+                continue;
+            const auto base = path + "/" + std::to_string(index);
+            require(expectation, "type", base);
+            require(expectation, "operator", base);
+            const auto type = str(expectation, "type");
+            const auto& specs = rules.at("expectations");
+            if (!specs.contains(type))
+                continue;
+            const auto& spec = specs.at(type);
+            const auto payload = spec.at("key").as<std::string>();
+            require(expectation, payload, base);
+            const auto* detail = field(expectation, payload);
+            if (!detail || !detail->is_object())
+                continue;
+            const auto nested = base + "/" + payload;
+            require_fields(detail, spec.at("fields"), nested);
+            const auto op = str(expectation, "operator");
+            const bool comparison = op != "present" && op != "absent";
+            if (comparison)
+                for (const auto& entry : rules.at("valueTypes").array_range())
+                    if (entry == type)
+                        require(detail, "value", nested);
+            if (type == "property" && str(detail, "scope") != "global")
+                require(detail, "ownerId", nested);
+            if (type == "location") {
+                if (str(detail, "locationKind") == "room")
+                    require(detail, "roomId", nested);
+                if (str(detail, "locationKind") == "inventory") {
+                    require(detail, "inventoryOwnerKind", nested);
+                    require(detail, "inventoryId", nested);
+                    if (str(detail, "inventoryOwnerKind") != "project")
+                        require(detail, "inventoryOwnerId", nested);
+                }
+            }
+            if (type == "layout" && str(detail, "field") == "state" && comparison)
+                require(detail, "value", nested);
+            if (type == "ui-element") {
+                address(detail, nested);
+                if (str(detail, "field") == "visible" && comparison)
+                    require(detail, "value", nested);
+            }
+        }
+    }
+
+    void check(const Json& source)
+    {
+        const auto* data = field(&source, "data");
+        if (!data || !data->is_object())
+            return;
+        const auto* steps = field(data, "steps");
+        if (steps && steps->is_array())
+            for (std::size_t index = 0; index < steps->size(); ++index) {
+                const auto* step = &steps->at(index);
+                if (!step->is_object())
+                    continue;
+                const auto location = "/data/steps/" + std::to_string(index);
+                require(step, "input", location);
+                const auto input = str(step, "input");
+                const auto& specs = rules.at("steps");
+                if (specs.contains(input)) {
+                    const auto& spec = specs.at(input);
+                    const auto payload = spec.at("key").as<std::string>();
+                    require(step, payload, location);
+                    const auto* detail = field(step, payload);
+                    require_fields(detail, spec.at("fields"), location + "/" + payload);
+                    if (input == "ui-click")
+                        address(detail, location + "/uiClick");
+                }
+                expectations(field(step, "expectations"), location + "/expectations");
+            }
+        expectations(field(data, "finalExpectations"), "/data/finalExpectations");
+    }
+};
+} // namespace
+
+ValidationResult validate_test_source(std::string_view source_json)
+{
+    ValidationResult intent{true};
+    try {
+        static const Contracts contracts;
+        TestSourceIntent{contracts.document.at("testSourceIntent"), intent}.check(
+            Json::parse(source_json));
+    } catch (const std::exception& error) {
+        intent.accepted = false;
+        intent.diagnostics.push_back({"", "source.test.failure", error.what()});
+    }
+    if (!intent.accepted)
+        return intent;
+    return validate_sparse_record_source(source_json, "tests", "TestsRecord", "test");
 }
 
 ValidationResult validate_layout_source(std::string_view source_json,
