@@ -185,6 +185,13 @@ void apply_patch(Json& value, const RoomPatch& patch)
 {
     check_pointer(patch.path);
     const jsoncons::jsonpointer::json_pointer pointer(patch.path);
+    const auto last_slash = patch.path.rfind('/');
+    const auto parent = jsoncons::jsonpointer::json_pointer(patch.path.substr(0, last_slash));
+    const auto key = parse_pointer_token(patch.path.substr(last_slash + 1));
+    const auto& container = jsoncons::jsonpointer::get(value, parent);
+    if (patch.operation == RoomPatch::Operation::Add && container.is_object() &&
+        container.contains(key))
+        throw std::runtime_error("Object key already exists for add operation.");
     if (patch.operation == RoomPatch::Operation::Remove) {
         if (!patch.value_json.empty())
             throw std::runtime_error("Remove must not include a value.");
@@ -585,11 +592,199 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
         if (!authority->initialize(error))
             return nullptr;
         return std::unique_ptr<ProjectSession>(
-            new ProjectSession(std::move(source), std::move(authority)));
+            new ProjectSession(std::move(source), std::move(authority), root));
     } catch (const std::exception& e) {
         error = e.what();
         return nullptr;
     }
+}
+
+RoomSessionSnapshot ProjectSession::snapshot() const
+{
+    auto state = source_->snapshot();
+    state.working_revision = working_revision_;
+    for (const auto& [owner, session] : records_) {
+        const auto record = session->snapshot();
+        state.dirty |= record.dirty;
+        state.valid &= record.valid;
+        for (auto diagnostic : record.diagnostics) {
+            diagnostic.path = "/" + owner + diagnostic.path;
+            state.diagnostics.push_back(std::move(diagnostic));
+        }
+    }
+    return state;
+}
+
+std::map<std::string, RoomSessionSnapshot> ProjectSession::record_snapshots() const
+{
+    std::map<std::string, RoomSessionSnapshot> result;
+    for (const auto& [owner, session] : records_)
+        result.emplace(owner, session->snapshot());
+    return result;
+}
+
+RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
+{
+    RoomSessionResult result;
+    try {
+        const auto name = std::string(owner);
+        const auto slash = name.find('/');
+        const auto family = name.substr(0, slash);
+        const auto id = slash == std::string::npos ? std::string() : name.substr(slash + 1);
+        if ((family != "rooms" && family != "maps") || !is_id(id)) {
+            result.error = "Unsupported native record owner.";
+        } else if (const auto found = records_.find(name); found != records_.end()) {
+            if (exact_source_revision(read_bytes(found->second->source_path())) !=
+                found->second->snapshot().disk_source_revision)
+                result.error = "External source conflict for " + name;
+            else
+                result.accepted = true;
+        } else {
+            std::string error;
+            auto record = family == "rooms" ? RoomSession::open(root_, id, error)
+                                            : RoomSession::open_map(root_, id, error);
+            if (!record)
+                result.error = error;
+            else {
+                records_.emplace(name, std::move(record));
+                result.accepted = true;
+            }
+        }
+        if (result.accepted)
+            result.affected_records.push_back(name);
+    } catch (const std::exception& error) {
+        result.error = error.what();
+    }
+    result.snapshot = snapshot();
+    return result;
+}
+
+RoomSessionResult
+ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
+                      const std::map<std::string, std::string>& disk_preconditions)
+{
+    RoomSessionResult response;
+    response.snapshot = snapshot();
+    if (revision != working_revision_) {
+        response.error = "Stale working revision.";
+        return response;
+    }
+    if (patches.empty()) {
+        response.accepted = true;
+        return response;
+    }
+    try {
+        for (const auto& [owner, expected] : disk_preconditions) {
+            std::filesystem::path path;
+            if (owner == "project")
+                path = root_ / "project.yaml";
+            else {
+                const auto slash = owner.find('/');
+                if (slash == std::string::npos)
+                    throw std::runtime_error("Invalid disk precondition owner.");
+                const auto family = owner.substr(0, slash);
+                const auto id = owner.substr(slash + 1);
+                if ((family != "rooms" && family != "maps") || !is_id(id))
+                    throw std::runtime_error("Invalid disk precondition owner.");
+                path = root_ / "records" / family / (id + ".yaml");
+            }
+            if (exact_source_revision(read_bytes(path)) != expected)
+                throw std::runtime_error("Recovery source conflict for " + owner);
+        }
+    } catch (const std::exception& error) {
+        response.error = error.what();
+        return response;
+    }
+    // Copy-on-write for the complete batch. A failure in any owner leaves every
+    // source, diagnostic, and revision exactly as it was before the command.
+    auto manifest = source_->clone();
+    std::map<std::string, std::unique_ptr<RoomSession>> staged;
+    for (const auto& [owner, session] : records_)
+        staged.emplace(owner, session->clone());
+    std::set<std::string> affected;
+    try {
+        for (const auto& operation : patches) {
+            const auto first = operation.path.find('/', 1);
+            const auto family =
+                operation.path.substr(1, first == std::string::npos ? first : first - 1);
+            if (family != "rooms" && family != "maps") {
+                // The remaining top-level paths must belong to the admitted
+                // manifest; a record-family edit must never become an unknown
+                // manifest field by accident.
+                if (!Json::parse(manifest->snapshot().source_json).contains(family))
+                    throw std::runtime_error("Unsupported native working Project owner.");
+                if (exact_source_revision(read_bytes(manifest->source_path())) !=
+                    manifest->snapshot().disk_source_revision)
+                    throw std::runtime_error("External source conflict for project");
+                const auto updated =
+                    manifest->patch(manifest->snapshot().working_revision, {operation});
+                if (!updated.accepted)
+                    throw std::runtime_error(updated.error);
+                for (const auto& owner : updated.affected_records)
+                    affected.insert(owner);
+                continue;
+            }
+            if (first == std::string::npos)
+                throw std::runtime_error("Record patch requires an ID and field path.");
+            const auto field = operation.path.find('/', first + 1);
+            if (field == std::string::npos || field == first + 1)
+                throw std::runtime_error("Record patch requires a non-root field path.");
+            const auto id = operation.path.substr(first + 1, field - first - 1);
+            const auto owner = family + "/" + id;
+            auto it = staged.find(owner);
+            if (it == staged.end()) {
+                std::string error;
+                auto record = family == "rooms" ? RoomSession::open(root_, id, error)
+                                                : RoomSession::open_map(root_, id, error);
+                if (!record)
+                    throw std::runtime_error("Cannot admit " + owner + ": " + error);
+                it = staged.emplace(owner, std::move(record)).first;
+            }
+            // A source that changed on disk cannot silently receive a dirty edit
+            // based on the old record. Recovery must explicitly rebase it instead.
+            if (exact_source_revision(read_bytes(it->second->source_path())) !=
+                it->second->snapshot().disk_source_revision)
+                throw std::runtime_error("External source conflict for " + owner);
+            auto relative = operation;
+            relative.path = operation.path.substr(field);
+            const auto updated =
+                it->second->patch(it->second->snapshot().working_revision, {relative});
+            if (!updated.accepted)
+                throw std::runtime_error(updated.error);
+            if (!updated.affected_records.empty())
+                affected.insert(owner);
+        }
+    } catch (const std::exception& error) {
+        response.error = error.what();
+        return response;
+    }
+    // A multi-step editor action can modify and restore a field in one batch.
+    // Only the final working values, not transient intermediate steps, count.
+    affected.clear();
+    if (manifest->snapshot().source_json != source_->snapshot().source_json)
+        affected.insert("project");
+    for (const auto& [owner, record] : staged) {
+        const auto previous = records_.find(owner);
+        if (previous == records_.end()) {
+            if (record->snapshot().dirty)
+                affected.insert(owner);
+        } else if (record->snapshot().source_json != previous->second->snapshot().source_json) {
+            affected.insert(owner);
+        }
+    }
+    if (affected.empty()) {
+        response.accepted = true;
+        return response;
+    }
+    const auto before = response.snapshot;
+    source_ = std::move(manifest);
+    records_ = std::move(staged);
+    ++working_revision_;
+    response.accepted = true;
+    response.affected_records.assign(affected.begin(), affected.end());
+    response.snapshot = snapshot();
+    diagnostic_delta(response, before);
+    return response;
 }
 
 RoomSessionSnapshot RoomSession::snapshot() const

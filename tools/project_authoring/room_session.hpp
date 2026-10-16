@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -75,6 +76,10 @@ public:
     // admitted source; physical content is also compared exactly before replacement.
     RoomSessionResult save(std::string_view expected_disk_revision,
                            const std::vector<std::string>& invalid_source_paths = {});
+    std::unique_ptr<RoomSession> clone() const
+    {
+        return std::unique_ptr<RoomSession>(new RoomSession(*this));
+    }
     const std::filesystem::path& source_path() const { return path_; }
     const std::vector<ProjectFile>& file_inventory() const { return file_inventory_; }
 
@@ -96,31 +101,43 @@ private:
     std::vector<ProjectFile> file_inventory_;
 };
 
-// Public Project Workspace root API. The source owner is project.yaml; all other
-// files are admitted/classified but never rewritten by its scoped Save.
+// Certification-only resident working model: manifest and touched Room/Map owners
+// use one revision and one atomic generic patch batch. Production still uses TS.
 class ProjectSession {
 public:
     static std::unique_ptr<ProjectSession> open(const std::filesystem::path& root,
                                                 std::string& error);
-    RoomSessionSnapshot snapshot() const { return source_->snapshot(); }
-    RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches)
-    {
-        return source_->patch(revision, patches);
-    }
+    RoomSessionSnapshot snapshot() const;
+    RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
+                            const std::map<std::string, std::string>& disk_preconditions = {});
+    RoomSessionResult inspect_record(std::string_view owner);
+    std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     RoomSessionResult save(std::string_view disk_revision)
     {
+        for (const auto& [owner, record] : records_) {
+            if (record->snapshot().dirty) {
+                RoomSessionResult blocked;
+                blocked.error = "Cannot partially save dirty native Project owner: " + owner;
+                blocked.snapshot = snapshot();
+                return blocked;
+            }
+        }
         if (source_authority_->uncertain()) {
             RoomSessionResult blocked;
             blocked.error = "Cannot save while Project source watcher authority is uncertain.";
-            blocked.snapshot = source_->snapshot();
+            blocked.snapshot = snapshot();
             return blocked;
         }
         const auto prior_revision = source_->snapshot().disk_source_revision;
+        const auto prior_working_json = source_->snapshot().source_json;
         auto result = source_->save(disk_revision, source_authority_->invalid_source_paths());
         if (result.accepted && result.snapshot.disk_source_revision != prior_revision &&
             !source_authority_->acknowledge_own_write("project.yaml",
                                                       result.snapshot.disk_source_revision))
             source_authority_->coverage_lost();
+        if (result.accepted && source_->snapshot().source_json != prior_working_json)
+            ++working_revision_;
+        result.snapshot = snapshot();
         return result;
     }
     const std::vector<ProjectFile>& file_inventory() const { return source_->file_inventory(); }
@@ -133,12 +150,16 @@ public:
 
 private:
     ProjectSession(std::unique_ptr<RoomSession> source,
-                   std::unique_ptr<SourceAuthority> source_authority)
-        : source_(std::move(source)), source_authority_(std::move(source_authority))
+                   std::unique_ptr<SourceAuthority> source_authority, std::filesystem::path root)
+        : source_(std::move(source)), source_authority_(std::move(source_authority)),
+          root_(std::move(root))
     {
     }
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
+    std::filesystem::path root_;
+    std::map<std::string, std::unique_ptr<RoomSession>> records_;
+    std::uint64_t working_revision_ = 0;
 };
 
 } // namespace noveltea::authoring
