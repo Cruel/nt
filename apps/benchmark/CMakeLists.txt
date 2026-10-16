@@ -295,6 +295,24 @@ if(BUILD_TESTING AND NOT ANDROID)
             PROPERTIES LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_composition_direct_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario raw-bgfx-composition --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-composition-direct.json")
+        set_tests_properties(noveltea_benchmark_composition_direct_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_composition_offscreen_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario raw-bgfx-composition --composition-path offscreen
+                --composite-passes 4 --target-scale 0.5 --coverage 0.375
+                --no-transparent-overlay --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-composition-offscreen.json")
+        set_tests_properties(noveltea_benchmark_composition_offscreen_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 120)
         add_test(NAME noveltea_benchmark_rmlui_graphics_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario standalone-rmlui-simple --smoke
@@ -357,6 +375,14 @@ if(BUILD_TESTING AND NOT ANDROID)
         find_program(NOVELTEA_XWININFO NAMES xwininfo)
         find_package(Python3 COMPONENTS Interpreter QUIET)
         if(NOVELTEA_IMAGEMAGICK_IMPORT AND NOVELTEA_XWININFO AND Python3_Interpreter_FOUND)
+            add_test(NAME noveltea_benchmark_composition_visual_smoke
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/composition_visual_smoke.py"
+                    "$<TARGET_FILE:noveltea-benchmark-app>")
+            set_tests_properties(noveltea_benchmark_composition_visual_smoke PROPERTIES
+                LABELS "benchmark;graphics;visual"
+                PASS_REGULAR_EXPRESSION "composition: direct/offscreen mismatches"
+                TIMEOUT 65)
             add_test(NAME noveltea_benchmark_dashboard_visual_smoke
                 COMMAND "${NOVELTEA_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
                     "${CMAKE_CURRENT_SOURCE_DIR}/dashboard_visual_smoke.py"

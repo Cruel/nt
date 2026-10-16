@@ -120,6 +120,39 @@ int main()
                    scaled->texture_bytes == 64 * 64 * 4 && scaled->coverage == 0.375,
                "draw submissions, geometry, texture footprint and coverage scale independently"))
         return 1;
+    raw = {};
+    raw.scenario = "raw-bgfx-composition";
+    const auto direct = raw_workload_reference(raw, 1280, 720);
+    raw.composition_path = "offscreen";
+    raw.composite_passes = 1;
+    const auto composed = raw_workload_reference(raw, 1280, 720);
+    raw.composite_passes = 4;
+    raw.target_scale = 0.5;
+    raw.msaa_samples = 4;
+    const auto stacked = raw_workload_reference(raw, 1280, 720);
+    if (!check(direct && direct->composition && !direct->offscreen &&
+                   direct->equivalent_to_direct && direct->draws_per_frame == 2 &&
+                   direct->view_count == 2 && composed && composed->offscreen &&
+                   composed->equivalent_to_direct && composed->draws_per_frame == 3 &&
+                   composed->target_count == 1 && composed->target_width == 1280 && stacked &&
+                   stacked->composite_passes == 4 && stacked->view_count == 6 &&
+                   stacked->target_count == 3 && stacked->target_width == 640 &&
+                   stacked->target_height == 360 && !stacked->equivalent_to_direct &&
+                   stacked->estimated_msaa_bytes == 640 * 360 * 4 * 4 &&
+                   stacked->target_color_bytes == 640 * 360 * 4 * 3,
+               "composition path, target sizes, pass counts and MSAA budget are explicit"))
+        return 1;
+    raw.composition_path = "direct";
+    if (!check(!raw_workload_reference(raw, 1280, 720),
+               "direct path rejects intermediate passes, scaling and MSAA"))
+        return 1;
+    raw.composition_path = "offscreen";
+    raw.target_scale = 0.25;
+    if (!check(!raw_workload_reference(raw, 1, 1),
+               "composition rejects rounded-to-zero framebuffer dimensions"))
+        return 1;
+    raw = {};
+    raw.scenario = "raw-bgfx-draw-calls";
     raw.draw_calls = 1025;
     const bool invalid_draws = !raw_workload_reference(raw, 1280, 720);
     raw.draw_calls = 7;

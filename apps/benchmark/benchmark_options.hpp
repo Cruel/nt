@@ -28,6 +28,11 @@ struct Options {
     uint32_t quad_count = 1;
     uint32_t texture_size = 256;
     double coverage = 1.0;
+    std::string composition_path = "direct";
+    uint32_t composite_passes = 0;
+    double target_scale = 1.0;
+    uint32_t msaa_samples = 0;
+    bool transparent_overlay = true;
     std::string output_path;
     std::string config_path;
 };

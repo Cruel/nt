@@ -301,17 +301,18 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     for (const char* candidate :
                          {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
                           "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
-                          "raw-bgfx-draw-calls"}) {
+                          "raw-bgfx-draw-calls", "raw-bgfx-composition"}) {
 #elif defined(__EMSCRIPTEN__)
                     for (const char* candidate :
                          {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
                           "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
-                          "raw-bgfx-draw-calls", "standalone-rmlui-simple"}) {
+                          "raw-bgfx-draw-calls", "raw-bgfx-composition",
+                          "standalone-rmlui-simple"}) {
 #else
                     for (const char* candidate :
                          {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
                           "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
-                          "raw-bgfx-draw-calls", "standalone-rmlui-simple",
+                          "raw-bgfx-draw-calls", "raw-bgfx-composition", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
                           "engine-empty"}) {
 #endif
@@ -323,6 +324,11 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                             options.quad_count = 1;
                             options.texture_size = 256;
                             options.coverage = 1.0;
+                            options.composition_path = "direct";
+                            options.composite_passes = 0;
+                            options.target_scale = 1.0;
+                            options.msaa_samples = 0;
+                            options.transparent_overlay = true;
                         }
                     }
                     ImGui::EndCombo();
@@ -339,6 +345,42 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.rect_scale = 1.0;
                     }
                 }
+                if (options.scenario == "raw-bgfx-composition") {
+                    if (ImGui::BeginCombo("Composition path", options.composition_path.c_str())) {
+                        for (const char* path : {"direct", "offscreen"}) {
+                            if (ImGui::Selectable(path, options.composition_path == path)) {
+                                options.composition_path = path;
+                                options.composite_passes =
+                                    options.composition_path == "offscreen" ? 1u : 0u;
+                                options.msaa_samples = 0;
+                                options.target_scale = 1.0;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::Checkbox("Transparent overlay over world", &options.transparent_overlay);
+                    if (options.composition_path == "offscreen") {
+                        int passes = static_cast<int>(options.composite_passes);
+                        if (ImGui::SliderInt("Fullscreen composites", &passes, 1, 4))
+                            options.composite_passes = static_cast<uint32_t>(passes);
+                        float scale = static_cast<float>(options.target_scale);
+                        if (ImGui::SliderFloat("Offscreen target scale", &scale, 0.25f, 1.0f))
+                            options.target_scale = scale;
+                        if (ImGui::BeginCombo("Offscreen MSAA samples",
+                                              std::to_string(options.msaa_samples).c_str())) {
+                            for (uint32_t samples : {0u, 2u, 4u}) {
+                                if (ImGui::Selectable(std::to_string(samples).c_str(),
+                                                      options.msaa_samples == samples))
+                                    options.msaa_samples = samples;
+                            }
+                            ImGui::EndCombo();
+                        }
+                    }
+                    ImGui::TextWrapped(
+                        "Comparable direct/offscreen visuals require target scale 1.0, "
+                        "MSAA 0, identical coverage and overlay. Additional passes replay "
+                        "the same fullscreen image; downscaling and MSAA change raster output.");
+                }
                 if (options.scenario == "raw-bgfx-draw-calls") {
                     int draw_calls = static_cast<int>(options.draw_calls);
                     if (ImGui::SliderInt("Draw submissions", &draw_calls, 1, 1024))
@@ -349,7 +391,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                 }
                 if (options.scenario == "raw-bgfx-textured" ||
                     options.scenario == "raw-bgfx-offscreen" ||
-                    options.scenario == "raw-bgfx-draw-calls") {
+                    options.scenario == "raw-bgfx-draw-calls" ||
+                    options.scenario == "raw-bgfx-composition") {
                     if (ImGui::BeginCombo("Texture edge (px)",
                                           std::to_string(options.texture_size).c_str())) {
                         for (uint32_t edge : {1u, 16u, 64u, 256u, 512u, 1024u, 2048u}) {

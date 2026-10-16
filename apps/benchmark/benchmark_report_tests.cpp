@@ -58,6 +58,35 @@ int main()
                "Quick Suite is encoded in the canonical run configuration"))
         return 1;
 
+    Options composition;
+    composition.scenario = "raw-bgfx-composition";
+    composition.composition_path = "offscreen";
+    composition.composite_passes = 3;
+    composition.target_scale = 0.5;
+    composition.msaa_samples = 2;
+    composition.transparent_overlay = false;
+    composition.coverage = 0.375;
+    const auto composition_json = nlohmann::json::parse(encode_configuration(composition));
+    Options composition_decoded;
+    if (!check(decode_configuration(composition_json.dump(), composition_decoded, error) &&
+                   composition_decoded.composition_path == "offscreen" &&
+                   composition_decoded.composite_passes == 3 &&
+                   composition_decoded.target_scale == 0.5 &&
+                   composition_decoded.msaa_samples == 2 &&
+                   !composition_decoded.transparent_overlay &&
+                   nlohmann::json::parse(encode_configuration(composition_decoded)) ==
+                       composition_json,
+               "composition configuration roundtrips with all independent controls"))
+        return 1;
+    auto bad_composition = composition_json;
+    bad_composition["parameters"]["msaa_samples"] = 3;
+    auto bad_keys = composition_json;
+    bad_keys["parameters"]["unknown"] = 1;
+    auto invalid_direct = composition_json;
+    invalid_direct["parameters"]["composition_path"] = "direct";
+    if (!check(rejected(bad_composition) && rejected(bad_keys) && rejected(invalid_direct),
+               "composition rejects invalid MSAA, keys and non-equivalent direct settings"))
+        return 1;
     auto old_version = configured;
     old_version["version"] = 0;
     auto wrong_scenario_version = configured;

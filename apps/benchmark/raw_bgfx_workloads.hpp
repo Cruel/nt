@@ -4,6 +4,7 @@
 
 #include <bgfx/bgfx.h>
 
+#include <array>
 #include <string>
 
 namespace noveltea::benchmark {
@@ -34,8 +35,12 @@ private:
     bgfx::IndexBufferHandle indices_ = BGFX_INVALID_HANDLE;
     bgfx::VertexBufferHandle composite_vertices_ = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle composite_indices_ = BGFX_INVALID_HANDLE;
+    bgfx::VertexBufferHandle overlay_vertices_ = BGFX_INVALID_HANDLE;
+    bgfx::IndexBufferHandle overlay_indices_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle texture_ = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle framebuffer_ = BGFX_INVALID_HANDLE;
+    std::array<bgfx::FrameBufferHandle, 2> intermediate_{
+        {{bgfx::kInvalidHandle}, {bgfx::kInvalidHandle}}};
 };
 
 } // namespace noveltea::benchmark

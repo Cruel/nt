@@ -61,11 +61,14 @@ const keys = {
   "--width":"width", "--height":"height", "--rect-count":"rectCount",
   "--rect-scale":"rectScale", "--draw-calls":"drawCalls", "--quad-count":"quadCount",
   "--texture-size":"textureSize", "--coverage":"coverage",
+  "--composition-path":"compositionPath", "--composite-passes":"compositePasses",
+  "--target-scale":"targetScale", "--msaa-samples":"msaaSamples",
   "--ready-timeout-seconds":"readyTimeout",
   "--output":"output"
 };
 const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",
   "--vsync":"vsync", "--raw-samples":"rawSamples",
+  "--no-transparent-overlay":"noTransparentOverlay",
   "--dashboard-smoke":"dashboardSmoke", "--quick-suite":"quickSuite"};
 const args = process.argv.slice(1);
 for (let i=0; i<args.length; ++i) {

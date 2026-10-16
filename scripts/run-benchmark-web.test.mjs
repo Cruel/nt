@@ -35,6 +35,17 @@ test('Web launcher transports exact canonical JSON and rejects mixed run flags',
   assert.deepEqual(Buffer.from(url.searchParams.get('configB64'), 'base64'), canonical);
   assert.equal(url.searchParams.has('scenario'), false);
   assert.equal(url.searchParams.has('noUi'), false);
+  const composition = run('--scenario', 'raw-bgfx-composition',
+    '--composition-path', 'offscreen', '--composite-passes', '3',
+    '--target-scale', '0.5', '--msaa-samples', '2', '--no-transparent-overlay');
+  assert.equal(composition.status, 0, composition.stderr);
+  const compositionParams = new URL(composition.stdout.match(/ at (\S+)/)[1]).searchParams;
+  assert.equal(compositionParams.get('scenario'), 'raw-bgfx-composition');
+  assert.equal(compositionParams.get('compositionPath'), 'offscreen');
+  assert.equal(compositionParams.get('compositePasses'), '3');
+  assert.equal(compositionParams.get('targetScale'), '0.5');
+  assert.equal(compositionParams.get('msaaSamples'), '2');
+  assert.equal(compositionParams.get('noTransparentOverlay'), '1');
   const overridden = run('--config', filename, '--output', 'selected.json');
   assert.equal(overridden.status, 0, overridden.stderr);
   assert.equal(new URL(overridden.stdout.match(/ at (\S+)/)[1]).searchParams.get('output'), 'selected.json');
