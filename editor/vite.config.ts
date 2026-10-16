@@ -355,6 +355,17 @@ export default defineConfig({
     },
     {
       ...commonNodePack,
+      name: 'native-authoring-worker',
+      entry: { 'native-authoring-worker': 'src/main/services/native-authoring-worker.ts' },
+      format: 'cjs',
+      outDir: 'dist-electron/authoring-worker',
+      fixedExtension: true,
+      clean: true,
+      checks: { legacyCjs: false },
+      outputOptions: { codeSplitting: false },
+    },
+    {
+      ...commonNodePack,
       name: 'electron-preload',
       deps: {
         ...commonNodePack.deps,

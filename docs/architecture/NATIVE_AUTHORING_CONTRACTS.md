@@ -123,6 +123,11 @@ second gameplay or presentation compiler. These boundaries remain **parallel
 and certification-only**: the editor, CLI, runtime and TypeScript semantic
 validator have not cut over to them.
 
+The certification-only Node-API worker adapter of #496 is documented in
+`docs/editor/project/NATIVE_AUTHORING_WORKER.md`. It consumes the native
+`ProjectSession` and its verified physical source observations without
+replacing the authoritative TypeScript editor Project session or CLI daemon.
+
 ## Native physical source authority (#494)
 
 The certification-only `ProjectSession` now owns its own `SourceAuthority` under
