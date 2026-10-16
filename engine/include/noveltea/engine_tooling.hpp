@@ -81,6 +81,9 @@ public:
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
     [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;
+    // True only when the host explicitly requested quit (Escape/close), not
+    // for arbitrary Engine tick or renderer failures. Read-only lifecycle probe.
+    [[nodiscard]] static bool host_quit_requested(const Engine& engine) noexcept;
 #if NOVELTEA_ENABLE_DEVTOOLS
     [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
     [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>

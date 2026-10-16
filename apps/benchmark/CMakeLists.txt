@@ -217,9 +217,11 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_test(NAME noveltea_benchmark_app_help COMMAND noveltea-benchmark-app --help)
 
     add_executable(noveltea-benchmark-empty-engine-tests
-        empty_engine_tests.cpp empty_engine.cpp)
+        empty_engine_tests.cpp empty_engine.cpp integrated_rmlui.cpp)
     target_link_libraries(noveltea-benchmark-empty-engine-tests PRIVATE
         noveltea_engine noveltea-benchmark-runner SDL3::SDL3 bgfx::bgfx)
+    target_compile_definitions(noveltea-benchmark-empty-engine-tests PRIVATE
+        NOVELTEA_BENCHMARK_RESULTS_DIR="${NOVELTEA_BENCHMARK_RESULT_ROOT}")
     add_dependencies(noveltea-benchmark-empty-engine-tests noveltea-benchmark-stage-assets)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-empty-engine-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-empty-engine-tests)

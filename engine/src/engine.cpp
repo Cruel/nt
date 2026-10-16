@@ -4006,6 +4006,11 @@ void Engine::shutdown()
 
 void Engine::request_stop() { m_impl->request_stop(); }
 
+bool EngineTooling::host_quit_requested(const Engine& engine) noexcept
+{
+    return engine.m_impl->m_platform.should_quit();
+}
+
 bool EngineTooling::request_screenshot(Engine& engine, std::string path,
                                        ToolingScreenshotOptions options)
 {

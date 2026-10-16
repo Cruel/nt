@@ -502,9 +502,15 @@ std::string encode_result(const Options& options, const Environment& environment
             scenarios[i]["graphics"] = nullptr;
     }
     // A mixed-host suite has no single truthful renderer or framebuffer.
-    const Json graphics = result.scenarios.size() == 1 || scenario_environments.empty()
-                              ? encode_graphics(environment)
-                              : Json(nullptr);
+    // The scenario's observed graphics host takes precedence over the caller's
+    // fallback (which may still describe the Web dashboard after an Engine run).
+    // A mixed-host collection has no truthful single top-level graphics owner.
+    const Json graphics =
+        result.scenarios.size() == 1
+            ? encode_graphics(scenario_environments.empty() ? environment
+                                                            : scenario_environments.front())
+        : scenario_environments.empty() ? encode_graphics(environment)
+                                        : Json(nullptr);
     const Json report = {
         {"format", kResultFormat},
         {"version", 1},
