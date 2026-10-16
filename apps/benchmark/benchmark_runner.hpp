@@ -185,6 +185,10 @@ public:
     [[nodiscard]] bool step(); // true when results and cleanup are complete
     void interrupt(std::string reason);
     void cancel(std::string reason);
+    // For hosts whose graphics context is unavailable: produce a terminal
+    // cancelled result without calling Scenario::cleanup(). The caller must
+    // retain the scenario and dispose of its GPU resources after restoration.
+    void cancel_without_cleanup(std::string reason);
     [[nodiscard]] const SuiteResult& result() const { return suite_; }
 
 private:
