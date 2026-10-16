@@ -59,7 +59,9 @@ const keys = {
   "--scenario":"scenario", "--frames":"frames", "--seconds":"seconds",
   "--warmup-seconds":"warmup", "--repeats":"repeats", "--profile":"profile",
   "--width":"width", "--height":"height", "--rect-count":"rectCount",
-  "--rect-scale":"rectScale", "--ready-timeout-seconds":"readyTimeout",
+  "--rect-scale":"rectScale", "--draw-calls":"drawCalls", "--quad-count":"quadCount",
+  "--texture-size":"textureSize", "--coverage":"coverage",
+  "--ready-timeout-seconds":"readyTimeout",
   "--output":"output"
 };
 const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",

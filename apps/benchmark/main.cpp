@@ -21,6 +21,8 @@
 #include "empty_engine.hpp"
 #include "integrated_rmlui.hpp"
 #include "raw_bgfx_geometry.hpp"
+#include "raw_bgfx_workloads.hpp"
+#include "reference_workloads.hpp"
 #include "reference_scene.hpp"
 #include "standalone_rmlui.hpp"
 
@@ -50,9 +52,13 @@ void print_usage()
     std::puts(
         "       [--width N] [--height N] [--vsync] [--profile clean|diagnostic] [--no-ui|--ui]");
     std::puts(
-        "       [--scenario raw-bgfx-empty|raw-bgfx-geometry|standalone-rmlui-simple|"
+        "       [--scenario raw-bgfx-empty|raw-bgfx-geometry|raw-bgfx-clear|"
+        "raw-bgfx-single-quad|raw-bgfx-textured|raw-bgfx-offscreen|raw-bgfx-draw-calls|"
+        "standalone-rmlui-simple|"
         "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty] [--rect-count N]");
-    std::puts("       [--rect-scale 0.25..1.0] [--raw-samples] [--config PATH] [--output PATH]");
+    std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
+    std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
+    std::puts("       [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
     std::puts("  --quick-suite   Run all six reference comparisons with independent outcomes");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
@@ -433,6 +439,7 @@ struct EmptyBgfxScenario : Scenario {
         last_interruption = noveltea::benchmark::Interruption::None;
         diagnostic = options.profile == "diagnostic";
         host().environment.ui_backend.reset();
+        host().environment.raw_workload.reset();
         if (!shared_graphics) {
             if (!graphics.initialize(options, reason))
                 return false;
@@ -571,6 +578,62 @@ struct GeometryBgfxScenario final : EmptyBgfxScenario {
     }
 };
 
+struct RawReferenceScenario final : EmptyBgfxScenario {
+    RawReferenceScenario(Graphics* shared, std::string name)
+        : EmptyBgfxScenario(shared), name_(std::move(name))
+    {
+    }
+    std::string name_;
+    noveltea::benchmark::RawBgfxWorkloads workload;
+
+    const char* id() const override { return name_.c_str(); }
+    const char* description() const override
+    {
+        if (name_ == "raw-bgfx-clear")
+            return "backbuffer clear and present, with no geometry";
+        if (name_ == "raw-bgfx-single-quad")
+            return "one indexed quad over a cleared backbuffer";
+        if (name_ == "raw-bgfx-textured")
+            return "full-screen texture lookup with adjustable footprint and coverage";
+        if (name_ == "raw-bgfx-offscreen")
+            return "render textured quad to an offscreen target, then composite to backbuffer";
+        return "independent draw submissions, geometry, texture footprint and coverage";
+    }
+    bool prepare(const Options& options, std::string& reason) override
+    {
+        if (!EmptyBgfxScenario::prepare(options, reason))
+            return false;
+        const auto spec = noveltea::benchmark::raw_workload_reference(
+            options, static_cast<uint32_t>(host().environment.width_pixels),
+            static_cast<uint32_t>(host().environment.height_pixels));
+        if (!spec) {
+            reason = "invalid raw workload parameters";
+            return false;
+        }
+        if (!workload.initialize(*spec, static_cast<uint32_t>(host().environment.width_pixels),
+                                 static_cast<uint32_t>(host().environment.height_pixels), reason))
+            return false;
+        host().environment.raw_workload = *spec;
+        for (int i = 0; i < 4; ++i) {
+            if (!workload.submit(reason))
+                return false;
+            bgfx::frame();
+        }
+        return true;
+    }
+    bool frame(std::string& reason) override
+    {
+        if (!poll(reason))
+            return false;
+        return submit_frame([&]() { return workload.submit(reason); });
+    }
+    bool cleanup(std::string& reason) override
+    {
+        workload.shutdown();
+        return EmptyBgfxScenario::cleanup(reason);
+    }
+};
+
 struct RmlUiScenario final : EmptyBgfxScenario {
     explicit RmlUiScenario(Graphics* shared = nullptr) : EmptyBgfxScenario(shared) {}
     noveltea::benchmark::StandaloneRmlUi ui;
@@ -703,6 +766,10 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
         selected.scenario = id;
         selected.rect_count = 3;
         selected.rect_scale = 1.0;
+        selected.draw_calls = 64;
+        selected.quad_count = 1;
+        selected.texture_size = 256;
+        selected.coverage = 1.0;
         std::string reason;
         const bool engine_owned = id == "engine-empty" || id == "integrated-rmlui-controlled" ||
                                   id == "integrated-rmlui-production";
@@ -787,12 +854,14 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
 int run_dashboard(Options options)
 {
 #if defined(__ANDROID__)
-    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry") {
+    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
+        !noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
         std::fprintf(stderr, "[benchmark] Android Stage 1 supports raw-bgfx only\n");
         return 2;
     }
 #endif
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
+        !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
         options.scenario != "integrated-rmlui-production" && options.scenario != "engine-empty") {
@@ -818,7 +887,11 @@ int run_dashboard(Options options)
     bool needs_surface_recreation = false;
 #endif
     noveltea::benchmark::RawBgfxGeometry preview_geometry;
+    noveltea::benchmark::RawBgfxWorkloads preview_workload;
     noveltea::benchmark::StandaloneRmlUi preview_ui;
+    Options preview_raw_options;
+    int preview_raw_width = 0;
+    int preview_raw_height = 0;
     uint32_t preview_count = 0;
     double preview_scale = 0;
     int preview_width = 0;
@@ -826,6 +899,8 @@ int run_dashboard(Options options)
     const auto draw_preview = [&]() {
         if (options.scenario != "raw-bgfx-geometry")
             preview_geometry.shutdown();
+        if (!noveltea::benchmark::is_extended_raw_scenario(options.scenario))
+            preview_workload.shutdown();
         if (options.scenario != "standalone-rmlui-simple")
             preview_ui.shutdown();
         if (options.scenario == "standalone-rmlui-simple") {
@@ -835,6 +910,28 @@ int run_dashboard(Options options)
                                        graphics.environment.height_pixels, feedback))
                 return;
             (void)preview_ui.submit(false, feedback);
+            return;
+        }
+        if (noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
+            const int width = graphics.environment.width_pixels;
+            const int height = graphics.environment.height_pixels;
+            if (!preview_workload.initialized() ||
+                options.scenario != preview_raw_options.scenario ||
+                options.draw_calls != preview_raw_options.draw_calls ||
+                options.quad_count != preview_raw_options.quad_count ||
+                options.texture_size != preview_raw_options.texture_size ||
+                options.coverage != preview_raw_options.coverage || width != preview_raw_width ||
+                height != preview_raw_height) {
+                const auto spec = noveltea::benchmark::raw_workload_reference(
+                    options, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+                if (!spec || !preview_workload.initialize(*spec, static_cast<uint32_t>(width),
+                                                          static_cast<uint32_t>(height), feedback))
+                    return;
+                preview_raw_options = options;
+                preview_raw_width = width;
+                preview_raw_height = height;
+            }
+            (void)preview_workload.submit(feedback);
             return;
         }
         if (options.scenario != "raw-bgfx-geometry")
@@ -871,19 +968,25 @@ int run_dashboard(Options options)
         if (quick) {
             run_options.rect_count = 3;
             run_options.rect_scale = 1.0;
+            run_options.draw_calls = 64;
+            run_options.quad_count = 1;
+            run_options.texture_size = 256;
+            run_options.coverage = 1.0;
         }
 #if defined(__ANDROID__)
         if (run_options.scenario != "raw-bgfx-empty" &&
-            run_options.scenario != "raw-bgfx-geometry") {
-            feedback = "Android Stage 1 supports raw-bgfx-empty and raw-bgfx-geometry only";
+            run_options.scenario != "raw-bgfx-geometry" &&
+            !noveltea::benchmark::is_extended_raw_scenario(run_options.scenario)) {
+            feedback = "Android supports raw bgfx scenarios only";
             return;
         }
         EmptyBenchmarkCover cover;
         if (!quick && run_options.scenario == "raw-bgfx-empty" && !cover.show(feedback))
             return;
 #endif
-        // Preview GPU geometry also has to be released before the strict run.
+        // Preview GPU resources are released before the strict run.
         preview_geometry.shutdown();
+        preview_workload.shutdown();
         preview_ui.shutdown();
         // No context, ImGui CPU frame, backend, atlas, shader or draw submissions
         // exist while the runner enters Preparation, Warmup or Measurement.
@@ -959,12 +1062,15 @@ int run_dashboard(Options options)
             }
             EmptyBgfxScenario empty(&graphics);
             GeometryBgfxScenario geometry(&graphics);
+            RawReferenceScenario raw(&graphics, run_options.scenario);
             RmlUiScenario rmlui(&graphics);
-            Scenario* selected = run_options.scenario == "raw-bgfx-geometry"
-                                     ? static_cast<Scenario*>(&geometry)
-                                 : run_options.scenario == "standalone-rmlui-simple"
-                                     ? static_cast<Scenario*>(&rmlui)
-                                     : static_cast<Scenario*>(&empty);
+            Scenario* selected =
+                run_options.scenario == "raw-bgfx-geometry" ? static_cast<Scenario*>(&geometry)
+                : noveltea::benchmark::is_extended_raw_scenario(run_options.scenario)
+                    ? static_cast<Scenario*>(&raw)
+                : run_options.scenario == "standalone-rmlui-simple"
+                    ? static_cast<Scenario*>(&rmlui)
+                    : static_cast<Scenario*>(&empty);
             noveltea::benchmark::Recovery recover;
 #if defined(__ANDROID__)
             recover = [&](std::string& reason) {
@@ -1150,6 +1256,7 @@ int run_dashboard(Options options)
             // Android may replace its ANativeWindow while the Activity is paused.
             // Do not reuse bgfx's old EGL surface or the old ImGui GPU resources.
             preview_geometry.shutdown();
+            preview_workload.shutdown();
             preview_ui.shutdown();
             dashboard.shutdown();
             graphics.shutdown();
@@ -1171,6 +1278,7 @@ int run_dashboard(Options options)
         SDL_Delay(10);
     }
     preview_geometry.shutdown();
+    preview_workload.shutdown();
     preview_ui.shutdown();
     return 0;
 }
@@ -1178,6 +1286,7 @@ int run_dashboard(Options options)
 int run(const Options& options)
 {
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
+        !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
         options.scenario != "integrated-rmlui-production" && options.scenario != "engine-empty") {
@@ -1185,7 +1294,8 @@ int run(const Options& options)
         return 2;
     }
 #if defined(__ANDROID__)
-    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry") {
+    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
+        !noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
         std::fprintf(stderr, "[benchmark] Android Stage 1 supports raw-bgfx only\n");
         return 2;
     }
@@ -1196,6 +1306,10 @@ int run(const Options& options)
         Options suite_options = options;
         suite_options.rect_count = 3;
         suite_options.rect_scale = 1.0;
+        suite_options.draw_calls = 64;
+        suite_options.quad_count = 1;
+        suite_options.texture_size = 256;
+        suite_options.coverage = 1.0;
         std::vector<Environment> environments;
         const SuiteResult suite =
             run_native_quick_suite(suite_options, graphics, clock, environments);
@@ -1216,12 +1330,15 @@ int run(const Options& options)
     }
     EmptyBgfxScenario empty;
     GeometryBgfxScenario geometry;
+    RawReferenceScenario raw(nullptr, options.scenario);
     RmlUiScenario rmlui;
     noveltea::benchmark::IntegratedRmlUi controlled(true);
     noveltea::benchmark::IntegratedRmlUi production(false);
     noveltea::benchmark::EmptyEngine empty_engine;
     Scenario* selected =
-        options.scenario == "raw-bgfx-geometry"             ? static_cast<Scenario*>(&geometry)
+        options.scenario == "raw-bgfx-geometry" ? static_cast<Scenario*>(&geometry)
+        : noveltea::benchmark::is_extended_raw_scenario(options.scenario)
+            ? static_cast<Scenario*>(&raw)
         : options.scenario == "standalone-rmlui-simple"     ? static_cast<Scenario*>(&rmlui)
         : options.scenario == "integrated-rmlui-controlled" ? static_cast<Scenario*>(&controlled)
         : options.scenario == "integrated-rmlui-production" ? static_cast<Scenario*>(&production)
@@ -1234,7 +1351,9 @@ int run(const Options& options)
         : options.scenario == "integrated-rmlui-production" ? production.environment()
         : options.scenario == "standalone-rmlui-simple"     ? rmlui.graphics.environment
         : options.scenario == "raw-bgfx-geometry"           ? geometry.graphics.environment
-                                                            : empty.graphics.environment;
+        : noveltea::benchmark::is_extended_raw_scenario(options.scenario)
+            ? raw.graphics.environment
+            : empty.graphics.environment;
     std::string output;
     if (!write_report(options, environment, result, output))
         return 3;

@@ -24,6 +24,10 @@ struct Options {
     std::string scenario = "raw-bgfx-empty";
     uint32_t rect_count = 3;
     double rect_scale = 1.0;
+    uint32_t draw_calls = 64;
+    uint32_t quad_count = 1;
+    uint32_t texture_size = 256;
+    double coverage = 1.0;
     std::string output_path;
     std::string config_path;
 };

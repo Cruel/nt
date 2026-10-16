@@ -77,6 +77,42 @@ int main()
                        geometry_config,
                "geometry scenario canonical config roundtrip"))
         return 1;
+    for (const char* id : {"raw-bgfx-clear", "raw-bgfx-single-quad", "raw-bgfx-textured",
+                           "raw-bgfx-offscreen", "raw-bgfx-draw-calls"}) {
+        Options raw_options;
+        raw_options.scenario = id;
+        raw_options.draw_calls = id == std::string("raw-bgfx-draw-calls") ? 7 : 64;
+        raw_options.quad_count = id == std::string("raw-bgfx-draw-calls") ? 9 : 1;
+        raw_options.texture_size =
+            (id == std::string("raw-bgfx-draw-calls") || id == std::string("raw-bgfx-offscreen") ||
+             id == std::string("raw-bgfx-textured"))
+                ? 64
+                : 256;
+        raw_options.coverage = (raw_options.texture_size == 64) ? 0.5 : 1.0;
+        const auto json = nlohmann::json::parse(encode_configuration(raw_options));
+        Options decoded;
+        if (!check(decode_configuration(json.dump(), decoded, error) && decoded.scenario == id &&
+                       decoded.draw_calls == raw_options.draw_calls &&
+                       decoded.quad_count == raw_options.quad_count &&
+                       decoded.texture_size == raw_options.texture_size &&
+                       decoded.coverage == raw_options.coverage &&
+                       nlohmann::json::parse(encode_configuration(decoded)) == json,
+                   "every raw bgfx scenario retains a strict canonical identity"))
+            return 1;
+        auto extra_parameters = json;
+        extra_parameters["parameters"]["unknown"] = true;
+        if (!check(rejected(extra_parameters), "raw workload rejects unexpected parameter keys"))
+            return 1;
+        if (json["parameters"].contains("texture_size")) {
+            auto bad_texture = json;
+            bad_texture["parameters"]["texture_size"] = 63;
+            auto bad_coverage = json;
+            bad_coverage["parameters"]["coverage"] = 2.0;
+            if (!check(rejected(bad_texture) && rejected(bad_coverage),
+                       "raw texture and coverage bounds are enforced"))
+                return 1;
+        }
+    }
     Options ui_options;
     ui_options.scenario = "standalone-rmlui-simple";
     const auto ui_config = nlohmann::json::parse(encode_configuration(ui_options));
@@ -245,6 +281,28 @@ int main()
                    result["scenarios"][0]["trials"][0]["raw_samples"].size() == 2 &&
                    result["scenarios"][0]["trials"][0]["phases"].size() == 7,
                "result identity, timing, metadata and raw samples"))
+        return 1;
+
+    Options offscreen_options;
+    offscreen_options.scenario = "raw-bgfx-offscreen";
+    auto offscreen_work = noveltea::benchmark::raw_workload_reference(offscreen_options, 640, 360);
+    noveltea::benchmark::Environment raw_offscreen_env;
+    raw_offscreen_env.width_pixels = 640;
+    raw_offscreen_env.height_pixels = 360;
+    raw_offscreen_env.raw_workload = *offscreen_work;
+    const auto offscreen_report =
+        nlohmann::json::parse(encode_result(offscreen_options, raw_offscreen_env, suite));
+    if (!check(
+            offscreen_work &&
+                offscreen_report["graphics"]["raw_workload"]["id"] == "raw-bgfx-offscreen" &&
+                offscreen_report["graphics"]["raw_workload"]["render_views"] == 2 &&
+                offscreen_report["graphics"]["raw_workload"]["draw_submissions_per_frame"] == 2 &&
+                offscreen_report["graphics"]["raw_workload"]["vertices_submitted_per_frame"] == 8 &&
+                offscreen_report["graphics"]["raw_workload"]["texture_and_target_bytes"] ==
+                    256 * 256 * 4 + 640 * 360 * 4 &&
+                offscreen_report["graphics"]["render_width_pixels"] == 640 &&
+                result["graphics"]["raw_workload"].is_null(),
+            "raw GPU operation counters and actual framebuffer dimensions appear in report"))
         return 1;
 
     noveltea::benchmark::Environment engine_env;

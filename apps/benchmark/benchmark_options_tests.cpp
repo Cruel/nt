@@ -40,6 +40,14 @@ int main()
                                     "--rect-count", "12",         "--rect-scale",
                                     "0.75"};
     const char* const ui_reference[] = {"benchmark", "--scenario", "standalone-rmlui-simple"};
+    const char* const raw_scaled[] = {
+        "benchmark",    "--scenario", "raw-bgfx-draw-calls", "--draw-calls", "7",
+        "--quad-count", "9",          "--texture-size",      "64",           "--coverage",
+        "0.375"};
+    const char* const bad_draws[] = {"benchmark", "--draw-calls", "1025"};
+    const char* const bad_quads[] = {"benchmark", "--quad-count", "513"};
+    const char* const bad_texture[] = {"benchmark", "--texture-size", "63"};
+    const char* const bad_coverage[] = {"benchmark", "--coverage", "nan"};
     const char* const invalid_geometry[] = {"benchmark", "--rect-count", "257"};
     const char* const invalid_scale[] = {"benchmark", "--rect-scale", "0.1"};
     const char* const lifecycle[] = {"benchmark", "--dashboard-smoke"};
@@ -58,7 +66,10 @@ int main()
         !expect_options(quick, 3, true, 30) || !expect_options(invalid_profile, 3, false) ||
         !expect_options(geometry, 7, true) || !expect_options(ui_reference, 3, true) ||
         !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
-        !expect_options(config_only, 5, true) || !expect_options(mixed_config, 4, false))
+        !expect_options(raw_scaled, 11, true) || !expect_options(bad_draws, 3, false) ||
+        !expect_options(bad_quads, 3, false) || !expect_options(bad_texture, 3, false) ||
+        !expect_options(bad_coverage, 3, false) || !expect_options(config_only, 5, true) ||
+        !expect_options(mixed_config, 4, false))
         return 1;
 
     noveltea::benchmark::Options options;
@@ -102,5 +113,20 @@ int main()
     options.scenario = "synthetic";
     if (noveltea::benchmark::validate_reference_options(options, error) || error.empty())
         return 1;
+    if (!noveltea::benchmark::parse_options(11, raw_scaled, options, error) ||
+        options.scenario != "raw-bgfx-draw-calls" || options.draw_calls != 7 ||
+        options.quad_count != 9 || options.texture_size != 64 || options.coverage != 0.375 ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.scenario = "raw-bgfx-clear";
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options = {};
+    for (const char* id : {"raw-bgfx-clear", "raw-bgfx-single-quad", "raw-bgfx-textured",
+                           "raw-bgfx-offscreen", "raw-bgfx-draw-calls"}) {
+        options.scenario = id;
+        if (!noveltea::benchmark::validate_reference_options(options, error))
+            return 1;
+    }
     return 0;
 }

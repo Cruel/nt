@@ -1,6 +1,7 @@
 #pragma once
 
 #include "benchmark_runner.hpp"
+#include "reference_workloads.hpp"
 
 #include <optional>
 #include <string>
@@ -37,6 +38,7 @@ struct Environment {
     int world_raster_height = 0;
     std::optional<bool> engine_postprocess_active;
     std::optional<UiBackendSettings> ui_backend;
+    std::optional<RawWorkloadReference> raw_workload;
 };
 
 [[nodiscard]] std::string encode_configuration(const Options& options);

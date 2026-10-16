@@ -1,5 +1,6 @@
 #include "benchmark_report.hpp"
 #include "reference_scene.hpp"
+#include "reference_workloads.hpp"
 #include "benchmark_source_identity.hpp"
 
 #include <nlohmann/json.hpp>
@@ -25,10 +26,16 @@ constexpr const char* kWallFrameDescription =
 
 Json configuration(const Options& options)
 {
-    const Json parameters =
-        options.scenario == "raw-bgfx-geometry"
-            ? Json{{"rect_count", options.rect_count}, {"rect_scale", options.rect_scale}}
-            : Json::object();
+    Json parameters = Json::object();
+    if (options.scenario == "raw-bgfx-geometry")
+        parameters = {{"rect_count", options.rect_count}, {"rect_scale", options.rect_scale}};
+    else if (options.scenario == "raw-bgfx-textured" || options.scenario == "raw-bgfx-offscreen")
+        parameters = {{"texture_size", options.texture_size}, {"coverage", options.coverage}};
+    else if (options.scenario == "raw-bgfx-draw-calls")
+        parameters = {{"draw_calls", options.draw_calls},
+                      {"quad_count", options.quad_count},
+                      {"texture_size", options.texture_size},
+                      {"coverage", options.coverage}};
     return {{"format", kConfigFormat},
             {"version", 1},
             {"scenario", options.scenario},
@@ -177,6 +184,26 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             reason = "invalid geometry reference parameters";
             return false;
         }
+    } else if (is_extended_raw_scenario(scenario)) {
+        const bool textured = scenario == "raw-bgfx-textured" || scenario == "raw-bgfx-offscreen";
+        const bool variable = scenario == "raw-bgfx-draw-calls";
+        if (variable
+                ? !has_fields(parameters, {"draw_calls", "quad_count", "texture_size", "coverage"})
+            : textured ? !has_fields(parameters, {"texture_size", "coverage"})
+                       : !parameters.empty()) {
+            reason = "invalid raw workload parameter keys";
+            return false;
+        }
+        if ((variable && (!unsigned_integer(parameters, "draw_calls") ||
+                          !unsigned_integer(parameters, "quad_count") ||
+                          parameters["draw_calls"].get<uint64_t>() > 1024 ||
+                          parameters["quad_count"].get<uint64_t>() > 512)) ||
+            ((variable || textured) &&
+             (!unsigned_integer(parameters, "texture_size") || !numeric(parameters, "coverage") ||
+              parameters["texture_size"].get<uint64_t>() > 2048))) {
+            reason = "invalid raw workload parameter values";
+            return false;
+        }
     } else {
         reason = "unsupported benchmark scenario";
         return false;
@@ -210,6 +237,15 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         next.rect_count = static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>());
         next.rect_scale = parameters["rect_scale"].get<double>();
     }
+    if (scenario == "raw-bgfx-draw-calls") {
+        next.draw_calls = static_cast<uint32_t>(parameters["draw_calls"].get<uint64_t>());
+        next.quad_count = static_cast<uint32_t>(parameters["quad_count"].get<uint64_t>());
+    }
+    if (scenario == "raw-bgfx-draw-calls" || scenario == "raw-bgfx-textured" ||
+        scenario == "raw-bgfx-offscreen") {
+        next.texture_size = static_cast<uint32_t>(parameters["texture_size"].get<uint64_t>());
+        next.coverage = parameters["coverage"].get<double>();
+    }
     next.width = static_cast<int>(width);
     next.height = static_cast<int>(height);
     next.warmup_seconds = settings["warmup_seconds"].get<double>();
@@ -223,7 +259,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     next.quick_suite = settings["quick_suite"].get<bool>();
     next.vsync = settings["vsync"].get<bool>();
     next.output_path = settings["output"].get<std::string>();
-    if (!validate_run_options(next, reason))
+    if (!validate_run_options(next, reason) || !validate_reference_options(next, reason))
         return false;
     options = std::move(next);
     reason.clear();
@@ -358,6 +394,22 @@ std::string encode_result(const Options& options, const Environment& environment
             {"engine_postprocess_surface_active", environment.engine_postprocess_active
                                                       ? Json(*environment.engine_postprocess_active)
                                                       : Json(nullptr)},
+            {"raw_workload",
+             environment.raw_workload
+                 ? Json{{"id", environment.raw_workload->id},
+                        {"draw_calls", environment.raw_workload->draw_calls},
+                        {"quads_per_draw", environment.raw_workload->quads_per_draw},
+                        {"texture_edge_pixels", environment.raw_workload->texture_size},
+                        {"texture_and_target_bytes", environment.raw_workload->texture_bytes},
+                        {"linear_coverage", environment.raw_workload->coverage},
+                        {"offscreen", environment.raw_workload->offscreen},
+                        {"render_views", environment.raw_workload->view_count},
+                        {"draw_submissions_per_frame", environment.raw_workload->draws_per_frame},
+                        {"vertices_submitted_per_frame",
+                         environment.raw_workload->vertices_per_frame},
+                        {"triangles_submitted_per_frame",
+                         environment.raw_workload->triangles_per_frame}}
+                 : Json(nullptr)},
             {"ui_offscreen_rendering_observed", nullptr},
             {"internal_render_scale", environment.width_pixels > 0 && environment.height_pixels > 0
                                           ? Json(1.0)

@@ -63,6 +63,55 @@ certification does not assert or benchmark a minimum throughput.
 Native GPU performance remains hardware-specific; an emulator or software
 WebGL/Xvfb result is not a hardware baseline.
 
+## Expanded raw bgfx reference workloads (#434)
+
+In addition to the empty and fixed three-rectangle geometry baselines, the
+standalone application exposes five raw bgfx workloads on Linux, Android, and
+Web. All use real bgfx submission and actual SDL framebuffer dimensions; their
+reference settings are deterministic, and no Engine or RmlUi resources are
+created by these scenarios:
+
+- `raw-bgfx-clear`: clear the backbuffer then present, with no geometry.
+- `raw-bgfx-single-quad`: one indexed quad using a 1×1 reference texture.
+- `raw-bgfx-textured`: one textured quad; default 256×256 RGBA8 source,
+  full reference-scene coverage.
+- `raw-bgfx-offscreen`: the same textured quad into an RGBA8 framebuffer
+  matching the *actual* host pixel dimensions, then a second fullscreen
+  composite pass to the backbuffer (two bgfx views, two draw submissions).
+  This remains a **presented-frame** benchmark, not offscreen capacity mode.
+- `raw-bgfx-draw-calls`: 64 separate indexed draw submissions by default.
+  Each draw contains one quad. The texture and drawn region are shared;
+  repeated calls intentionally produce overdraw, not 64 unique textures.
+
+For the textured and offscreen cases, `--texture-size` (power of two,
+1–2048 pixels) and `--coverage` (linear fraction, 0.125–1) independently
+control texture allocation and quad coverage. `raw-bgfx-draw-calls` also
+accepts `--draw-calls` (1–1024) and `--quad-count` (1–512 quads per draw)
+to separate CPU draw submission pressure from indexed geometry volume.
+The same controls are available in the dashboard; the fixed clear/single-quad
+references reject incompatible parameters. The stable default parameter
+set is 64 draws, 1 quad/draw, 256 texture pixels, coverage 1.0, even for
+scenarios that do not use all four knobs.
+
+For example:
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-offscreen --smoke
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-draw-calls \
+  --draw-calls 7 --quad-count 9 --texture-size 64 --coverage 0.375 --smoke
+```
+
+Each scenario's result carries actual `graphics.width_pixels` and
+`height_pixels`, effective render dimensions, and `graphics.raw_workload`
+with the scenario identity, configured resource footprint, views, draw
+submissions, vertices, and triangles **per frame**. These counters describe
+the operations submitted by the workload, not GPU profiler readings,
+confirmed presentation counts, or exact driver memory residency. Preparation
+uploads buffers and compiles shaders outside timing; the inspection preview
+is visualized outside measurement, and all workload resources are released
+between trials. The Stage 1 Quick Suite intentionally retains its original
+six-item comparison order; run these extra workloads individually.
+
 ## Scenario switching and Quick Suite (#432)
 
 **Quick Suite** runs `raw-bgfx-empty`, `raw-bgfx-geometry` (the fixed
