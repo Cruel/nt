@@ -416,6 +416,85 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(working.snapshot()?.dirty).toBe(false);
   }, 45_000);
 
+  it('materializes an implicit normalized anchors array for add, and restores omission on undo', async () => {
+    const { root, bridge, working, roomPath } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const anchorsPath = `/rooms/${roomId}/data/anchors`;
+    const anchor = {
+      id: 'review-anchor',
+      bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.3 },
+    };
+    const initialSource = working.snapshot()?.recordSnapshots?.[owner]?.source as {
+      data: Record<string, unknown>;
+    };
+    expect(initialSource.data).not.toHaveProperty('anchors');
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.normalized).toMatchObject({
+      data: { anchors: [] },
+    });
+    const added = await working.applyAction(
+      [{ op: 'add', path: `${anchorsPath}/0`, value: anchor }],
+      [{ op: 'remove', path: `${anchorsPath}/0` }],
+    );
+    if (!added.accepted) throw new Error(added.error);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      data: { anchors: [anchor] },
+    });
+    const undone = await working.undo();
+    if (!undone.accepted) throw new Error(undone.error);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toEqual(initialSource);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(false);
+    const redone = await working.redo();
+    if (!redone.accepted) throw new Error(redone.error);
+    const saved = await working.saveOwners([owner]);
+    if (!saved.accepted) throw new Error(saved.error);
+    const physical = await readFile(roomPath, 'utf8');
+    expect(physical).toContain('anchors:');
+    expect(physical).toContain('review-anchor');
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(false);
+  }, 45_000);
+
+  it('uses authoritative Project Settings paths for asset-memory Save and Use Disk', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const manifest = path.join(root, 'project.yaml');
+    const policyPath = '/export/assetMemoryPolicies';
+    const policies = [
+      { id: 'review-memory', label: 'Review memory', basePreset: 'balanced', overrides: {} },
+    ];
+    const changed = await working.applyAction(
+      [{ op: 'replace', path: policyPath, value: policies }],
+      [{ op: 'replace', path: policyPath, value: [] }],
+    );
+    if (!changed.accepted) throw new Error(changed.error);
+    const saved = await working.saveUnit('project:settings');
+    if (!saved.accepted) throw new Error(saved.error);
+    const physical = await readFile(manifest, 'utf8');
+    expect(physical).toContain('review-memory');
+    expect(working.snapshot()?.dirty).toBe(false);
+
+    const dirty = await working.applyAction(
+      [
+        { op: 'replace', path: policyPath, value: [] },
+        { op: 'replace', path: '/export/profiles', value: [] },
+      ],
+      [],
+    );
+    if (!dirty.accepted) throw new Error(dirty.error);
+    const discarded = await working.useDiskUnit('project:settings');
+    if (!discarded.accepted) throw new Error(discarded.error);
+    expect(working.snapshot()?.source).toMatchObject({
+      export: { assetMemoryPolicies: policies, profiles: [] },
+    });
+    expect(working.snapshot()?.dirty).toBe(true);
+    expect(await readFile(manifest, 'utf8')).toBe(physical);
+  }, 45_000);
+
   it('projects expanded normalized references to sparse YAML IDs including nested editor edits', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {

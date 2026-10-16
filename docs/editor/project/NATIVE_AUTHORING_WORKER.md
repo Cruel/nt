@@ -157,6 +157,9 @@ Generic editor patch operations are projected from normalized to sparse
 source-space values for implicit optional fields (with baseline omission
 restored by undo) and compact references. Expanded `$ref` values and
 `$ref/id` edits are projected onto their physical scalar reference IDs.
+Adds into schema-defaulted, physically omitted collections materialize only
+the necessary empty source containers; removing the last element on undo
+restores omission when the baseline default is reached.
 Unsupported parent transformations are rejected without changing working
 data rather than silently replacing a different source shape.
 
@@ -168,6 +171,9 @@ same logical selection atomically across owners; scoped `saveOwners` uses
 one revision-checked journal transaction. Logical owners are lazily admitted
 before Save/Use Disk when not yet resident. Full-owner certification methods
 remain for independent source-owner tests.
+Project Settings Save/Use Disk imports the authoritative
+`PROJECT_SETTINGS_OWNED_PATHS` registry, including
+`/export/assetMemoryPolicies`, rather than duplicating that path list.
 
 Full production editor cutover, the existing renderer Save coordinator and
 watcher replacements, Project-wide dependency reconciliation, and durable

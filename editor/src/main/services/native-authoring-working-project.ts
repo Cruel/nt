@@ -1,5 +1,9 @@
 import type { JsonPatchOperation } from '../../renderer/project/json-patch';
 import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
+import {
+  PROJECT_SETTINGS_OWNED_PATHS,
+  PROJECT_SETTINGS_SAVE_UNIT_ID,
+} from '../../renderer/project/save-unit-registry';
 import type { JsonValue } from '../../renderer/project/json-value';
 import type { NativeAuthoringCommand } from './native-authoring-worker-contract';
 import type { NativeAuthoringSessionBridge } from './native-authoring-session-bridge';
@@ -83,10 +87,8 @@ function logicalSaveUnitPaths(saveUnitId: string): Record<string, string[]> {
   }
   if (saveUnitId === 'project:chapters') return { editor: ['/chapters'] };
   if (saveUnitId === 'project:tags') return { editor: ['/tags'] };
-  if (saveUnitId === 'project:settings')
-    return {
-      project: ['/project', '/settings', '/bootstrapModule', '/entrypoint', '/prefetchHints'],
-    };
+  if (saveUnitId === PROJECT_SETTINGS_SAVE_UNIT_ID)
+    return { project: [...PROJECT_SETTINGS_OWNED_PATHS] };
   throw new Error(`Unsupported native logical Save unit: ${saveUnitId}`);
 }
 
