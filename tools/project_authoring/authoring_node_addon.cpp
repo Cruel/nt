@@ -168,6 +168,13 @@ Json observation_json(Session& session, const SourceObservation& observed)
             for (const auto& error : validated.diagnostics)
                 diagnostics.push_back(
                     {base + error.path, error.code, error.message, error.severity});
+            if (validated.accepted) {
+                const auto local =
+                    noveltea::authoring::validate_room_map_local(family, validated.effective_json);
+                for (const auto& error : local.diagnostics)
+                    diagnostics.push_back(
+                        {base + error.path, error.code, error.message, error.severity});
+            }
         }
     }
     result["recordDiagnostics"] = Json::array();

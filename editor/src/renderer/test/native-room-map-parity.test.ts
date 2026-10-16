@@ -15,6 +15,8 @@ import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-ho
 import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 
 const executable = process.env.NOVELTEA_ROOM_MAP_CERTIFY;
 type NativeResult = {
@@ -162,6 +164,198 @@ describe.skipIf(!executable)('native Room/Map/Hotspot semantic differential', ()
     expect(ts.map((d) => d.path)).toContain(path);
     expect(native.diagnostics.map((d) => d.path)).toContain(path);
   });
+
+  it('agrees with TypeScript on cast selector fallback and invalid presentation references', () => {
+    const project = fixture();
+    project.characters.guard = {
+      id: 'guard',
+      label: 'Guard',
+      data: defaultCharacterData('Guard'),
+    };
+    const room = project.rooms.foyer!.data;
+    room.placements.push({
+      id: 'doorway',
+      bounds: { x: 0, y: 0, width: 0.5, height: 0.5 },
+      presentation: { label: null, layout: null },
+    });
+    room.cast.push({
+      id: 'guard',
+      character: { $ref: { collection: 'characters', id: 'guard' } },
+      condition: { kind: 'always' },
+      placementId: 'doorway',
+      profileId: null,
+      poseId: null,
+      expressionId: 'neutral',
+      appearanceId: null,
+      idleId: null,
+      visible: true,
+      order: 1,
+    });
+    const baseline = call('--project', JSON.stringify(project));
+    expect(baseline.valid, JSON.stringify(baseline.diagnostics)).toBe(true);
+    expect(
+      validateRoomData(project, 'foyer', project.rooms.foyer!).filter(
+        (d) => d.severity === 'error',
+      ),
+    ).toEqual([]);
+    for (const selector of [
+      'profileId',
+      'poseId',
+      'expressionId',
+      'appearanceId',
+      'idleId',
+    ] as const) {
+      room.cast[0]![selector] = 'not-in-character';
+      const target = `/rooms/foyer/data/cast/0/${selector}`;
+      const ts = validateRoomData(project, 'foyer', project.rooms.foyer!);
+      const native = call('--project', JSON.stringify(project));
+      expect(
+        ts.map((d) => d.path),
+        selector,
+      ).toContain(target);
+      expect(
+        native.diagnostics.map((d) => d.path),
+        selector,
+      ).toContain(target);
+      expect(native.valid, selector).toBe(false);
+      room.cast[0]![selector] = null;
+    }
+    // The default profile's default pose is used only if not explicitly overridden.
+    room.cast[0]!.poseId = 'default';
+    expect(call('--project', JSON.stringify(project)).valid).toBe(true);
+  });
+
+  it('matches missing environment Animation motions without rejecting null selection', () => {
+    const project = fixture();
+    project.materials.world = {
+      id: 'world',
+      label: 'World',
+      data: defaultMaterialData('World', 'engine-2d'),
+    };
+    project.animations.loop = {
+      id: 'loop',
+      label: 'Loop',
+      data: {
+        kind: 'animation',
+        canvas: { width: 100, height: 100 },
+        defaultMotionId: 'idle',
+        motions: [{ id: 'idle', kind: 'sprite-sequence', frames: [], markers: [] }],
+      },
+    };
+    project.rooms.foyer!.data.environments.push({
+      id: 'rain',
+      condition: { kind: 'always' },
+      visual: {
+        kind: 'animation',
+        animation: { $ref: { collection: 'animations', id: 'loop' } },
+        motionId: null,
+        playback: null,
+      },
+      materialApplication: emptyMaterialApplication('world'),
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+      plane: 'world-background',
+      order: 0,
+      clock: 'gameplay',
+      scrollPerSecond: { x: 0, y: 0 },
+      opacity: 1,
+      visible: true,
+    });
+    expect(call('--project', JSON.stringify(project)).valid).toBe(true);
+    project.rooms.foyer!.data.environments[0]!.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'loop' } },
+      motionId: 'unknown-motion',
+      playback: null,
+    };
+    const path = '/rooms/foyer/data/environments/0/visual/motionId';
+    expect(validateRoomData(project, 'foyer', project.rooms.foyer!).map((d) => d.path)).toContain(
+      path,
+    );
+    const native = call('--project', JSON.stringify(project));
+    expect(native.valid).toBe(false);
+    expect(native.diagnostics.map((d) => d.path)).toContain(path);
+  });
+
+  it('matches Variable comparison types across Room lifecycle and Map visibility Conditions', () => {
+    const project = fixture();
+    const values = [
+      { type: 'boolean', value: 'true', validValue: true },
+      { type: 'integer', value: 3.5, validValue: 3 },
+      { type: 'number', value: '3', validValue: 3 },
+      { type: 'string', value: false, validValue: 'text' },
+      { type: 'enum', value: 'forbidden', validValue: 'default' },
+      { type: 'message', value: 'text', validValue: null },
+    ] as const;
+    for (const { type, value, validValue } of values) {
+      project.variables.choice = {
+        id: 'choice',
+        label: 'Choice',
+        data: defaultVariableData(type),
+      };
+      const invalid = {
+        kind: 'variable-comparison' as const,
+        variable: { $ref: { collection: 'variables' as const, id: 'choice' } },
+        operator: 'equal' as const,
+        value,
+      };
+      project.rooms.foyer!.data.lifecycle.canEnter = invalid;
+      project.maps.world!.data.locations[0]!.visibility = invalid;
+      const roomPath = '/rooms/foyer/data/lifecycle/canEnter/value';
+      const mapPath = '/maps/world/data/locations/0/visibility/value';
+      expect(
+        validateRoomData(project, 'foyer', project.rooms.foyer!).map((d) => d.path),
+        type,
+      ).toContain(roomPath);
+      expect(
+        validateMapData(project, 'world', project.maps.world!).map((d) => d.path),
+        type,
+      ).toContain(mapPath);
+      const native = call('--project', JSON.stringify(project));
+      expect(native.valid, type).toBe(false);
+      for (const path of [roomPath, mapPath])
+        expect(native.diagnostics, type).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              path,
+              code: 'authoring.condition.variable-type-mismatch',
+            }),
+          ]),
+        );
+      project.rooms.foyer!.data.lifecycle.canEnter = { ...invalid, value: validValue };
+      project.maps.world!.data.locations[0]!.visibility = {
+        ...invalid,
+        value: validValue,
+      };
+      expect(
+        call('--project', JSON.stringify(project)).diagnostics.filter(
+          (d) => d.code === 'authoring.condition.variable-type-mismatch',
+        ),
+        type,
+      ).toEqual([]);
+    }
+    project.variables.choice!.data = { ...defaultVariableData('boolean'), nullable: true };
+    project.rooms.foyer!.data.lifecycle.canEnter = {
+      kind: 'variable-comparison',
+      variable: { $ref: { collection: 'variables', id: 'choice' } },
+      operator: 'equal',
+      value: null,
+    };
+    expect(
+      call('--project', JSON.stringify(project)).diagnostics.filter(
+        (d) => d.path === '/rooms/foyer/data/lifecycle/canEnter/value',
+      ),
+    ).toEqual([]);
+    project.variables.choice!.data.nullable = false;
+    const nonnullable = call('--project', JSON.stringify(project));
+    expect(nonnullable.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/rooms/foyer/data/lifecycle/canEnter/value',
+          code: 'authoring.condition.variable-type-mismatch',
+        }),
+      ]),
+    );
+  }, 30_000);
 
   it('matches Room and Interactable Hotspot target, image, and informational diagnostics', () => {
     const project = fixture();

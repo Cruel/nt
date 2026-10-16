@@ -3,6 +3,7 @@
 #include <jsoncons/json.hpp>
 
 #include <array>
+#include <cmath>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -225,6 +226,82 @@ private:
         return false;
     }
 
+    static const Json* find_id(const Json* entries, std::string_view id)
+    {
+        if (entries && entries->is_array())
+            for (const auto& entry : entries->array_range())
+                if (attribute(&entry, "id") == id)
+                    return &entry;
+        return nullptr;
+    }
+
+    void cast_selectors(const Json* entry, const std::string& path)
+    {
+        const auto character_id = reference(field(entry, "character"));
+        const auto* character = data("characters", character_id);
+        const auto* defaults = field(character, "defaults");
+        const auto selected_profile = attribute(entry, "profileId");
+        const auto effective_profile =
+            selected_profile.empty() ? attribute(defaults, "profileId") : selected_profile;
+        const auto* profile = find_id(field(character, "profiles"), effective_profile);
+        const auto selected_pose = attribute(entry, "poseId");
+        const auto effective_pose =
+            selected_pose.empty() ? attribute(profile, "defaultPoseId") : selected_pose;
+        if (!selected_profile.empty() && !profile)
+            report(path + "/profileId", "room.cast.profile-missing",
+                   "Missing profile '" + selected_profile + "'.");
+        if (!selected_pose.empty() && !find_id(field(profile, "poses"), effective_pose))
+            report(path + "/poseId", "room.cast.pose-missing",
+                   "Missing pose '" + selected_pose + "'.");
+        for (const auto& [selector, collection] :
+             std::array<std::pair<std::string_view, std::string_view>, 3>{
+                 {{"expressionId", "expressions"},
+                  {"appearanceId", "appearances"},
+                  {"idleId", "idles"}}}) {
+            const auto selected = attribute(entry, selector);
+            if (!selected.empty() && !find_id(field(character, collection), selected))
+                report(path + "/" + std::string(selector), "room.cast.selector-missing",
+                       "Missing " + std::string(selector.substr(0, selector.size() - 2)) + " '" +
+                           selected + "'.");
+        }
+    }
+
+    static bool variable_value_compatible(const Json& variable, const Json& value)
+    {
+        if (value.is_null())
+            return field(&variable, "nullable") && variable.at("nullable") == true;
+        const auto type = attribute(&variable, "type");
+        if (type == "boolean")
+            return value.is_bool();
+        if (type == "integer")
+            return value.is_number() && std::isfinite(value.as<double>()) &&
+                   std::trunc(value.as<double>()) == value.as<double>();
+        if (type == "number")
+            return value.is_number() && std::isfinite(value.as<double>());
+        if (type == "string")
+            return value.is_string();
+        if (type == "message")
+            return value.is_object() && value.size() == 1 && field(&value, "$message") &&
+                   value.at("$message").is_string();
+        if (type == "enum") {
+            const auto* choices = field(&variable, "enumValues");
+            if (!value.is_string() || !choices || !choices->is_array())
+                return false;
+            for (const auto& choice : choices->array_range()) {
+                if (!choice.is_string())
+                    continue;
+                auto text = choice.as<std::string>();
+                const auto first = text.find_first_not_of(" \t\r\n");
+                if (first == std::string::npos)
+                    continue;
+                const auto last = text.find_last_not_of(" \t\r\n");
+                if (text.substr(first, last - first + 1) == value.as<std::string>())
+                    return true;
+            }
+        }
+        return false;
+    }
+
     std::optional<MaterialPresetContract> resolve_material(std::string id) const
     {
         std::set<std::string> visited;
@@ -412,7 +489,15 @@ private:
         } else if (kind == "not") {
             condition(field(value, "condition"), path + "/condition", allow_current_room);
         } else if (kind == "variable-comparison") {
-            missing_ref(field(value, "variable"), "variables", path + "/variable", "Variable");
+            const auto id = reference(field(value, "variable"));
+            const auto* variable = data("variables", id);
+            if (!variable)
+                report(path + "/variable/$ref", "authoring.condition.variable-missing",
+                       "Missing variable '" + id + "'.");
+            else if (const auto* comparison = field(value, "value");
+                     comparison && !variable_value_compatible(*variable, *comparison))
+                report(path + "/value", "authoring.condition.variable-type-mismatch",
+                       "Value does not match variable '" + id + "'.");
         } else if (kind == "trait-presence") {
             missing_ref(field(value, "trait"), "traits", path + "/trait", "Trait");
             identity_condition(field(value, "owner"), path + "/owner", allow_current_room);
@@ -633,6 +718,7 @@ private:
                 if (std::string_view(name) == "cast") {
                     missing_ref(field(entry, "character"), "characters", path + "/character",
                                 "character");
+                    cast_selectors(entry, path);
                 } else if (std::string_view(name) == "props") {
                     const auto* asset = field(entry, "asset");
                     const auto* material = field(entry, "materialApplication");
@@ -661,9 +747,18 @@ private:
                             asset && attribute(asset, "kind") != "image")
                             report(path + "/visual/image/$ref", "room.visual.not-image",
                                    "Visual Asset '" + id + "' must be an image.");
-                    } else if (attribute(visual, "kind") == "animation")
+                    } else if (attribute(visual, "kind") == "animation") {
+                        const auto animation_id = reference(field(visual, "animation"));
                         missing_ref(field(visual, "animation"), "animations",
                                     path + "/visual/animation", "Animation");
+                        const auto selected_motion = attribute(visual, "motionId");
+                        const auto* animation = data("animations", animation_id);
+                        if (animation && !selected_motion.empty() &&
+                            !has_id(field(animation, "motions"), selected_motion))
+                            report(path + "/visual/motionId", "room.environment.motion-missing",
+                                   "Animation '" + animation_id + "' has no motion '" +
+                                       selected_motion + "'.");
+                    }
                     material_application(field(entry, "materialApplication"),
                                          path + "/materialApplication", "Room environment");
                 }
