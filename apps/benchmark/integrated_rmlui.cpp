@@ -4,6 +4,7 @@
 
 #include "reference_scene.hpp"
 #include "benchmark_assets.hpp"
+#include "benchmark_window_size.hpp"
 #include "ui_effect_verification.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
@@ -83,14 +84,6 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     last_interruption_ = Interruption::None;
     scaling_options_ = options;
     frame_index_ = 0;
-    // A different aspect ratio introduces production letterboxing. This
-    // Stage-1 fixed reference deliberately supports only comparable 16:9
-    // windows, rather than presenting misleading cross-host equivalence.
-    if (options.width * 9 != options.height * 16) {
-        reason = "integrated reference requires a 16:9 window for visual equivalence";
-        return false;
-    }
-
     // Use the exact same RML source as the standalone adapter, not a hand
     // maintained lookalike. Generation, disk I/O and Engine initialization
     // precede both warmup and measurement.
@@ -132,8 +125,14 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
 
     PlatformConfig platform;
     platform.title = "NovelTea Benchmark: Integrated RmlUi";
-    platform.width = options.width;
-    platform.height = options.height;
+    if (!requested_benchmark_window_size(options, nullptr, platform.width, platform.height, reason))
+        return false;
+    // Reject non-16:9 native modes explicitly rather than silently running a
+    // smaller configured window and claiming it was native resolution.
+    if (platform.width * 9 != platform.height * 16) {
+        reason = "integrated reference requires a 16:9 window for visual equivalence";
+        return false;
+    }
     platform.resizable = false;
     platform.vsync = options.vsync;
 
@@ -330,11 +329,10 @@ bool IntegratedRmlUi::frame(std::string& reason)
 #endif
     if (scaling_ &&
         (scaling_options_.ui_redraw == "continuous" ||
-         (scaling_options_.ui_text_mode == "dynamic" && scaling_options_.ui_text_lines > 0))) {
+         (scaling_options_.ui_text_mode == "dynamic" && scaling_options_.ui_dynamic_lines > 0))) {
         const bool dynamic =
-            scaling_options_.ui_text_mode == "dynamic" && scaling_options_.ui_text_lines > 0;
+            scaling_options_.ui_text_mode == "dynamic" && scaling_options_.ui_dynamic_lines > 0;
         const bool continuous = scaling_options_.ui_redraw == "continuous";
-        const auto replacement = dynamic ? ui_dynamic_text(frame_index_) : std::string{};
         // Every Engine-created lifecycle context is updated/rendered through the
         // production host; only the text mutation is driven by this fixture.
         for (int i = 0; i < Rml::GetNumContexts(); ++i) {
@@ -348,8 +346,12 @@ bool IntegratedRmlUi::frame(std::string& reason)
                                                                                         : "22.5px");
                             }
                             if (dynamic) {
-                                if (auto* text = document->GetElementById("ui-text-0"))
-                                    text->SetInnerRML(replacement);
+                                for (uint32_t line = 0; line < scaling_options_.ui_dynamic_lines;
+                                     ++line) {
+                                    if (auto* text = document->GetElementById("ui-text-" +
+                                                                              std::to_string(line)))
+                                        text->SetInnerRML(ui_dynamic_text(frame_index_, line));
+                                }
                             }
                         }
                     }

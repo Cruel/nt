@@ -99,6 +99,7 @@ struct WebBenchmarkApp {
             if (preview_ui.initialized() &&
                 (options.scenario != preview_ui_options.scenario || options.ui_elements != preview_ui_options.ui_elements ||
                  options.ui_text_lines != preview_ui_options.ui_text_lines ||
+                 options.ui_dynamic_lines != preview_ui_options.ui_dynamic_lines ||
                  options.ui_visible_contexts != preview_ui_options.ui_visible_contexts ||
                  options.ui_empty_contexts != preview_ui_options.ui_empty_contexts ||
                  options.ui_hidden_contexts != preview_ui_options.ui_hidden_contexts ||

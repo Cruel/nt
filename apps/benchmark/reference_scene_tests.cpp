@@ -79,6 +79,9 @@ int main()
                        std::string::npos,
                "standalone and Engine share dense but legible markup") ||
         !check(ui_dynamic_text(1) == "NovelTea dynamic 00000001" &&
+                   ui_dynamic_text(1, 1) == "NovelTea dynamic 00009974" &&
+                   ui_dynamic_text(1, 1) != ui_dynamic_text(1, 2) &&
+                   ui_dynamic_text(1, 2).size() == ui_dynamic_text(1).size() &&
                    ui_dynamic_text(12345678) == "NovelTea dynamic 12345678" &&
                    valid_ui_scaling_parameters(1, 0, 1, 0, 0, "static", "continuous") &&
                    valid_ui_scaling_parameters(2048, 256, 8, 8, 8, "dynamic", "dirty-only") &&

@@ -61,6 +61,7 @@ private:
     bool scaling_ = false;
     bool effects_ = false;
     bool dynamic_text_ = false;
+    uint32_t dynamic_lines_ = 1;
     bool dirty_only_ = false;
     uint32_t frame_index_ = 0;
     int framebuffer_width_ = 0;

@@ -346,8 +346,15 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     if (ImGui::SliderInt("UI elements", &count, 1, 2048))
                         options.ui_elements = static_cast<uint32_t>(count);
                     count = static_cast<int>(options.ui_text_lines);
-                    if (ImGui::SliderInt("Text lines", &count, 0, 256))
+                    if (ImGui::SliderInt("Text lines", &count, 0, 256)) {
                         options.ui_text_lines = static_cast<uint32_t>(count);
+                        options.ui_dynamic_lines =
+                            std::min(options.ui_dynamic_lines, options.ui_text_lines);
+                    }
+                    count = static_cast<int>(options.ui_dynamic_lines);
+                    if (ImGui::SliderInt("Changing text lines", &count, 0,
+                                         static_cast<int>(options.ui_text_lines)))
+                        options.ui_dynamic_lines = static_cast<uint32_t>(count);
                     count = static_cast<int>(options.ui_visible_contexts);
                     if (ImGui::SliderInt("Visible contexts", &count, 1, 8))
                         options.ui_visible_contexts = static_cast<uint32_t>(count);

@@ -35,6 +35,7 @@ struct Options {
     uint32_t rect_count = 3;
     uint32_t ui_elements = 512;
     uint32_t ui_text_lines = 64;
+    uint32_t ui_dynamic_lines = 1; // Number of lines changed per frame in dynamic mode.
     uint32_t ui_visible_contexts = 1;
     uint32_t ui_empty_contexts = 0;
     uint32_t ui_hidden_contexts = 0;
