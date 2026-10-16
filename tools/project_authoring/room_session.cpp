@@ -243,7 +243,11 @@ void source_diff(const Json* before, const Json* after, const std::string& point
 {
     if (before && after && *before == *after)
         return;
-    if (before && after && before->is_object() && after->is_object()) {
+    // Inserting children into a compact '{}' flow mapping is deliberately
+    // rejected by the YAML writer. Replace that empty mapping at its owned
+    // path instead, without rewriting any sibling YAML entries.
+    if (before && after && before->is_object() && after->is_object() &&
+        (pointer.empty() || !before->empty())) {
         for (const auto& member : before->object_range()) {
             const auto child = pointer + "/" + pointer_token(member.key());
             source_diff(&member.value(),
@@ -287,10 +291,65 @@ std::optional<Json> at_pointer(const Json& value, std::string_view pointer)
     }
 }
 
+void json_delta(const Json* base, const Json* next, const std::string& path,
+                std::vector<RoomPatch>& result)
+{
+    if (base && next && *base == *next)
+        return;
+    if (base && next && base->is_object() && next->is_object()) {
+        for (const auto& item : base->object_range()) {
+            const auto child = path + "/" + pointer_token(item.key());
+            json_delta(&item.value(), next->contains(item.key()) ? &next->at(item.key()) : nullptr,
+                       child, result);
+        }
+        for (const auto& item : next->object_range())
+            if (!base->contains(item.key()))
+                json_delta(nullptr, &item.value(), path + "/" + pointer_token(item.key()), result);
+        return;
+    }
+    if (path.empty())
+        throw std::runtime_error("Cannot replace the Project source root.");
+    RoomPatch patch;
+    patch.operation = !base   ? RoomPatch::Operation::Add
+                      : !next ? RoomPatch::Operation::Remove
+                              : RoomPatch::Operation::Replace;
+    patch.path = path;
+    patch.value_json = next ? next->to_string() : "";
+    result.push_back(std::move(patch));
+}
+
+bool paths_overlap(std::string_view a, std::string_view b)
+{
+    return a == b || (a.size() > b.size() && a.starts_with(b) && a[b.size()] == '/') ||
+           (b.size() > a.size() && b.starts_with(a) && b[a.size()] == '/');
+}
+
 bool is_id(std::string_view id)
 {
     static const std::regex pattern(R"(^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$)");
     return std::regex_match(id.begin(), id.end(), pattern);
+}
+
+const std::map<std::string, std::string>& record_contracts()
+{
+    static const std::map<std::string, std::string> contracts{
+        {"animations", "AnimationsRecord"},
+        {"archetypes", "ArchetypesRecord"},
+        {"assets", "AssetsRecord"},
+        {"characters", "CharactersRecord"},
+        {"dialogues", "DialoguesRecord"},
+        {"interactables", "InteractablesRecord"},
+        {"interactions", "InteractionsRecord"},
+        {"layouts", "LayoutsRecord"},
+        {"maps", "MapsRecord"},
+        {"materials", "MaterialsRecord"},
+        {"rooms", "RoomsRecord"},
+        {"scenes", "ScenesRecord"},
+        {"scripts", "ScriptsRecord"},
+        {"tests", "TestsRecord"},
+        {"variables", "VariablesRecord"},
+        {"verbs", "VerbsRecord"}};
+    return contracts;
 }
 
 bool tracked_fragment(std::string_view name)
@@ -544,10 +603,44 @@ std::unique_ptr<RoomSession> RoomSession::open_map(const std::filesystem::path& 
         auto result = std::unique_ptr<RoomSession>(
             new RoomSession(path, std::move(map_id), std::move(source), opened.source_json));
         result->is_map_ = true;
+        result->record_family_ = "maps";
         error.clear();
         return result;
     } catch (const std::exception& e) {
         error = e.what();
+        return nullptr;
+    }
+}
+
+std::unique_ptr<RoomSession> RoomSession::open_record(const std::filesystem::path& project_root,
+                                                      std::string family, std::string id,
+                                                      std::string& error)
+{
+    if (family == "rooms")
+        return open(project_root, std::move(id), error);
+    if (family == "maps")
+        return open_map(project_root, std::move(id), error);
+    try {
+        if (!is_id(id) || !record_contracts().contains(family))
+            throw std::runtime_error("Invalid native record owner.");
+        const auto path = family == "layouts"
+                              ? project_root / "records" / family / id / "layout.yaml"
+                              : project_root / "records" / family / (id + ".yaml");
+        auto source = read_bytes(path);
+        const auto opened = open_yaml_source(source);
+        if (!opened.accepted)
+            throw std::runtime_error("Invalid record YAML: " + opened.error);
+        const auto value = Json::parse(opened.source_json);
+        if (!value.is_object() || !value.contains("id") || value.at("id") != id)
+            throw std::runtime_error("Record ID must match its source filename.");
+        auto record = std::unique_ptr<RoomSession>(
+            new RoomSession(path, std::move(id), std::move(source), opened.source_json));
+        record->record_family_ = family;
+        record->validation_contract_ = record_contracts().at(family);
+        error.clear();
+        return record;
+    } catch (const std::exception& exception) {
+        error = exception.what();
         return nullptr;
     }
 }
@@ -577,6 +670,28 @@ RoomSession::open_project_source(const std::filesystem::path& project_root, std:
         return result;
     } catch (const std::exception& e) {
         error = e.what();
+        return nullptr;
+    }
+}
+
+std::unique_ptr<RoomSession>
+RoomSession::open_editor_source(const std::filesystem::path& project_root, std::string& error)
+{
+    try {
+        const auto path = project_root / "editor.yaml";
+        auto source = read_bytes(path);
+        const auto opened = open_yaml_source(source);
+        if (!opened.accepted)
+            throw std::runtime_error("Invalid tracked editor YAML: " + opened.error);
+        if (!validate_record("WorkspaceTrackedEditor", opened.source_json).accepted)
+            throw std::runtime_error("Invalid tracked editor metadata.");
+        auto result = std::unique_ptr<RoomSession>(
+            new RoomSession(path, "", std::move(source), opened.source_json));
+        result->is_editor_ = true;
+        error.clear();
+        return result;
+    } catch (const std::exception& exception) {
+        error = exception.what();
         return nullptr;
     }
 }
@@ -631,7 +746,7 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
         const auto slash = name.find('/');
         const auto family = name.substr(0, slash);
         const auto id = slash == std::string::npos ? std::string() : name.substr(slash + 1);
-        if ((family != "rooms" && family != "maps") || !is_id(id)) {
+        if (name != "editor" && (!record_contracts().contains(family) || !is_id(id))) {
             result.error = "Unsupported native record owner.";
         } else if (const auto found = records_.find(name); found != records_.end()) {
             if (exact_source_revision(read_bytes(found->second->source_path())) !=
@@ -641,8 +756,8 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
                 result.accepted = true;
         } else {
             std::string error;
-            auto record = family == "rooms" ? RoomSession::open(root_, id, error)
-                                            : RoomSession::open_map(root_, id, error);
+            auto record = name == "editor" ? RoomSession::open_editor_source(root_, error)
+                                           : RoomSession::open_record(root_, family, id, error);
             if (!record)
                 result.error = error;
             else {
@@ -657,6 +772,159 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
     }
     result.snapshot = snapshot();
     return result;
+}
+
+RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
+{
+    RoomSessionResult response;
+    const auto before = snapshot();
+    if (owner == "project") {
+        response = source_->reconcile_disk();
+    } else {
+        const auto name = std::string(owner);
+        if (!records_.contains(name)) {
+            response = inspect_record(owner);
+            return response;
+        }
+        response = records_.at(name)->reconcile_disk();
+    }
+    if (response.accepted && !response.affected_records.empty()) {
+        ++working_revision_;
+        response.affected_records = {std::string(owner)};
+    }
+    response.snapshot = snapshot();
+    diagnostic_delta(response, before);
+    return response;
+}
+
+RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_view owner)
+{
+    RoomSessionResult response;
+    const auto before = snapshot();
+    if (revision != working_revision_) {
+        response.error = "Stale working revision.";
+    } else if (owner == "project") {
+        response = source_->use_disk();
+    } else if (const auto found = records_.find(std::string(owner)); found != records_.end()) {
+        response = found->second->use_disk();
+    } else {
+        response.error = "Unknown native Project owner.";
+    }
+    if (response.accepted && !response.affected_records.empty()) {
+        ++working_revision_;
+        response.affected_records = {std::string(owner)};
+    }
+    response.snapshot = snapshot();
+    diagnostic_delta(response, before);
+    return response;
+}
+
+RoomSessionResult ProjectSession::save_owners(std::uint64_t revision,
+                                              const std::vector<std::string>& owners,
+                                              bool keep_mine, TransactionDecision comments)
+{
+    RoomSessionResult response;
+    response.snapshot = snapshot();
+    if (revision != working_revision_) {
+        response.error = "Stale working revision.";
+        return response;
+    }
+    if (source_authority_->uncertain()) {
+        response.error = "Cannot save with uncertain Project source authority.";
+        return response;
+    }
+    if (comments == TransactionDecision::Cancel) {
+        response.error = "Comment or deletion approval canceled.";
+        return response;
+    }
+    try {
+        std::map<std::string, RoomSession*> selected;
+        for (const auto& owner : owners) {
+            RoomSession* session = nullptr;
+            if (owner == "project")
+                session = source_.get();
+            else if (const auto found = records_.find(owner); found != records_.end())
+                session = found->second.get();
+            if (!session || !selected.emplace(owner, session).second)
+                throw std::runtime_error("Unknown or duplicate native Save owner: " + owner);
+        }
+        std::vector<YamlTransactionTarget> targets;
+        for (const auto& [owner, session] : selected) {
+            const auto state = session->snapshot();
+            if (!state.dirty)
+                continue;
+            if (!state.valid)
+                throw std::runtime_error("Cannot save invalid working source: " + owner);
+            if (!keep_mine && !session->conflicting_paths_.empty())
+                throw std::runtime_error("External changes conflict with unsaved edits in '" +
+                                         owner + "'. Choose Use Disk or Keep Mine.");
+            // Keep Mine is still tied to the newly reconciled exact baseline.
+            // Even a second external edit between Prepare and Commit is refused.
+            std::vector<YamlValueEdit> edits;
+            const auto base = Json::parse(session->disk_json_);
+            const auto working = Json::parse(session->working_json_);
+            source_diff(&base, &working, "", session->unsaved_patches_, edits);
+            targets.push_back({session->source_path().lexically_relative(root_).generic_string(),
+                               session->disk_revision_, session->disk_source_, std::move(edits)});
+        }
+        if (targets.empty()) {
+            response.accepted = true;
+            return response;
+        }
+        YamlTransactionService writer(root_);
+        writer.set_invalid_sources(source_authority_->invalid_source_paths(), false);
+        const auto prepared = writer.prepare(targets, comments);
+        if (!prepared.accepted)
+            throw std::runtime_error(prepared.error);
+        if (prepared.targets.size() != targets.size())
+            throw std::runtime_error(
+                "Native Save cannot treat an unapplied dirty owner as successfully persisted.");
+        for (const auto& proposed : prepared.targets) {
+            const auto reopened = open_yaml_source(proposed.after_source);
+            if (!reopened.accepted)
+                throw std::runtime_error("Proposed Save source cannot be reopened.");
+            auto found = std::find_if(selected.begin(), selected.end(), [&](const auto& item) {
+                return item.second->source_path().lexically_relative(root_).generic_string() ==
+                       proposed.path;
+            });
+            if (found == selected.end() ||
+                Json::parse(reopened.source_json) != Json::parse(found->second->working_json_))
+                throw std::runtime_error("Save projection differs from the working Project.");
+        }
+        const auto committed = writer.commit(prepared, comments);
+        if (!committed.accepted) {
+            source_authority_->coverage_lost();
+            throw std::runtime_error(committed.error);
+        }
+        for (const auto& [owner, session] : selected) {
+            const auto it = std::find_if(
+                prepared.targets.begin(), prepared.targets.end(),
+                [&](const PreparedYamlTarget& target) {
+                    return target.path ==
+                           session->source_path().lexically_relative(root_).generic_string();
+                });
+            if (it == prepared.targets.end())
+                continue;
+            session->disk_source_ = it->after_source;
+            session->disk_revision_ = it->after_revision;
+            session->disk_json_ = open_yaml_source(it->after_source).source_json;
+            session->working_json_ = session->disk_json_;
+            session->conflicting_paths_.clear();
+            session->unsaved_patches_.clear();
+            ++session->working_revision_;
+            response.affected_records.push_back(owner);
+            if (!source_authority_->acknowledge_own_write(it->path, it->after_revision))
+                source_authority_->coverage_lost();
+        }
+        ++working_revision_;
+        response.accepted = true;
+        const auto prior = response.snapshot;
+        response.snapshot = snapshot();
+        diagnostic_delta(response, prior);
+    } catch (const std::exception& exception) {
+        response.error = exception.what();
+    }
+    return response;
 }
 
 RoomSessionResult
@@ -678,15 +946,18 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             std::filesystem::path path;
             if (owner == "project")
                 path = root_ / "project.yaml";
+            else if (owner == "editor")
+                path = root_ / "editor.yaml";
             else {
                 const auto slash = owner.find('/');
                 if (slash == std::string::npos)
                     throw std::runtime_error("Invalid disk precondition owner.");
                 const auto family = owner.substr(0, slash);
                 const auto id = owner.substr(slash + 1);
-                if ((family != "rooms" && family != "maps") || !is_id(id))
+                if (!record_contracts().contains(family) || !is_id(id))
                     throw std::runtime_error("Invalid disk precondition owner.");
-                path = root_ / "records" / family / (id + ".yaml");
+                path = family == "layouts" ? root_ / "records" / family / id / "layout.yaml"
+                                           : root_ / "records" / family / (id + ".yaml");
             }
             if (exact_source_revision(read_bytes(path)) != expected)
                 throw std::runtime_error("Recovery source conflict for " + owner);
@@ -707,7 +978,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             const auto first = operation.path.find('/', 1);
             const auto family =
                 operation.path.substr(1, first == std::string::npos ? first : first - 1);
-            if (family != "rooms" && family != "maps") {
+            if (!record_contracts().contains(family) && family != "editor") {
                 // The remaining top-level paths must belong to the admitted
                 // manifest; a record-family edit must never become an unknown
                 // manifest field by accident.
@@ -724,18 +995,21 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                     affected.insert(owner);
                 continue;
             }
-            if (first == std::string::npos)
+            if (family != "editor" && first == std::string::npos)
                 throw std::runtime_error("Record patch requires an ID and field path.");
-            const auto field = operation.path.find('/', first + 1);
-            if (field == std::string::npos || field == first + 1)
+            const auto field = family == "editor" ? first : operation.path.find('/', first + 1);
+            if (field == std::string::npos || (family != "editor" && field == first + 1))
                 throw std::runtime_error("Record patch requires a non-root field path.");
-            const auto id = operation.path.substr(first + 1, field - first - 1);
-            const auto owner = family + "/" + id;
+            const auto id = family == "editor"
+                                ? std::string{}
+                                : operation.path.substr(first + 1, field - first - 1);
+            const auto owner = family == "editor" ? family : family + "/" + id;
             auto it = staged.find(owner);
             if (it == staged.end()) {
                 std::string error;
-                auto record = family == "rooms" ? RoomSession::open(root_, id, error)
-                                                : RoomSession::open_map(root_, id, error);
+                auto record = family == "editor"
+                                  ? RoomSession::open_editor_source(root_, error)
+                                  : RoomSession::open_record(root_, family, id, error);
                 if (!record)
                     throw std::runtime_error("Cannot admit " + owner + ": " + error);
                 it = staged.emplace(owner, std::move(record)).first;
@@ -793,14 +1067,19 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.working_revision = working_revision_;
     state.disk_source_revision = disk_revision_;
     state.source_json = working_json_;
+    state.baseline_json = disk_json_;
     state.dirty = Json::parse(disk_json_) != Json::parse(working_json_);
-    const auto result = is_project_ ? validate_record("WorkspaceManifest", working_json_)
-                        : is_map_   ? validate_map_source(working_json_)
-                                    : validate_room_source(working_json_);
+    state.conflicting_paths = conflicting_paths_;
+    const auto result = is_project_  ? validate_record("WorkspaceManifest", working_json_)
+                        : is_editor_ ? validate_record("WorkspaceTrackedEditor", working_json_)
+                        : !validation_contract_.empty()
+                            ? validate_record(validation_contract_, working_json_)
+                        : is_map_ ? validate_map_source(working_json_)
+                                  : validate_room_source(working_json_);
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
-    if (result.accepted && !is_project_) {
+    if (result.accepted && !is_project_ && !is_editor_ && validation_contract_.empty()) {
         const auto local =
             validate_room_map_local(is_map_ ? "maps" : "rooms", result.effective_json);
         state.valid = local.accepted;
@@ -810,7 +1089,7 @@ RoomSessionSnapshot RoomSession::snapshot() const
             state.normalized_json.clear();
     }
     const auto value = Json::parse(working_json_);
-    if (!is_project_ &&
+    if (!is_project_ && !is_editor_ &&
         (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
          value.at("id").as<std::string>() != room_id_)) {
         state.valid = false;
@@ -829,9 +1108,9 @@ RoomSessionResult RoomSession::result(bool accepted, std::string error, bool cha
     response.error = std::move(error);
     response.snapshot = snapshot();
     if (changed)
-        response.affected_records.push_back(is_project_ ? "project"
-                                            : is_map_   ? "maps/" + room_id_
-                                                        : "rooms/" + room_id_);
+        response.affected_records.push_back(is_project_  ? "project"
+                                            : is_editor_ ? "editor"
+                                                         : record_family_ + "/" + room_id_);
     return response;
 }
 
@@ -858,12 +1137,98 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
         unsaved_patches_.insert(unsaved_patches_.end(), resolved.begin(), resolved.end());
         if (Json::parse(working_json_) == Json::parse(disk_json_))
             unsaved_patches_.clear();
+        // A user may resolve a conflicting field by editing back to the
+        // verified disk value, without explicitly invoking Use Disk.
+        conflicting_paths_.erase(
+            std::remove_if(conflicting_paths_.begin(), conflicting_paths_.end(),
+                           [&](const std::string& path) {
+                               return at_pointer(Json::parse(working_json_), path) ==
+                                      at_pointer(Json::parse(disk_json_), path);
+                           }),
+            conflicting_paths_.end());
         ++working_revision_;
         auto response = result(true, {}, true);
         diagnostic_delta(response, previous);
         return response;
     } catch (const std::exception& e) {
         return result(false, e.what());
+    }
+}
+
+RoomSessionResult RoomSession::reconcile_disk()
+{
+    try {
+        const auto latest_source = read_bytes(path_);
+        const auto latest_revision = exact_source_revision(latest_source);
+        if (latest_revision == disk_revision_)
+            return result(true);
+        const auto opened = open_yaml_source(latest_source);
+        if (!opened.accepted)
+            return result(false, "Invalid external YAML source: " + opened.error);
+        const auto base = Json::parse(disk_json_);
+        const auto local = Json::parse(working_json_);
+        const auto external = Json::parse(opened.source_json);
+        if (!external.is_object() || (!is_project_ && !is_editor_ &&
+                                      (!external.contains("id") || external.at("id") != room_id_)))
+            return result(false, "External source ID or structure is invalid.");
+        std::vector<RoomPatch> local_diff;
+        std::vector<RoomPatch> external_diff;
+        json_delta(&base, &local, "", local_diff);
+        json_delta(&base, &external, "", external_diff);
+        Json merged = local;
+        std::vector<std::string> collisions;
+        for (const auto& change : external_diff) {
+            if (std::any_of(local_diff.begin(), local_diff.end(), [&](const RoomPatch& mine) {
+                    return paths_overlap(change.path, mine.path);
+                })) {
+                for (const auto& mine : local_diff)
+                    if (paths_overlap(change.path, mine.path))
+                        collisions.push_back(mine.path);
+                continue;
+            }
+            apply_patch(merged, change);
+        }
+        // Preserve earlier unresolved conflict state across further disjoint
+        // external modifications. A resolution is explicit and owner-scoped.
+        collisions.insert(collisions.end(), conflicting_paths_.begin(), conflicting_paths_.end());
+        std::sort(collisions.begin(), collisions.end());
+        collisions.erase(std::unique(collisions.begin(), collisions.end()), collisions.end());
+        const auto before = snapshot();
+        disk_source_ = latest_source;
+        disk_revision_ = latest_revision;
+        disk_json_ = opened.source_json;
+        working_json_ = merged.to_string();
+        conflicting_paths_ = std::move(collisions);
+        unsaved_patches_.clear();
+        std::vector<RoomPatch> remaining;
+        json_delta(&external, &merged, "", remaining);
+        unsaved_patches_ = std::move(remaining);
+        ++working_revision_;
+        auto response = result(true, {}, true);
+        diagnostic_delta(response, before);
+        return response;
+    } catch (const std::exception& exception) {
+        return result(false, exception.what());
+    }
+}
+
+RoomSessionResult RoomSession::use_disk()
+{
+    try {
+        if (exact_source_revision(read_bytes(path_)) != disk_revision_)
+            return result(false, "External source changed since conflict was reviewed.");
+        const auto before = snapshot();
+        const bool changed = before.dirty || !conflicting_paths_.empty();
+        working_json_ = disk_json_;
+        unsaved_patches_.clear();
+        conflicting_paths_.clear();
+        if (changed)
+            ++working_revision_;
+        auto response = result(true, {}, changed);
+        diagnostic_delta(response, before);
+        return response;
+    } catch (const std::exception& exception) {
+        return result(false, exception.what());
     }
 }
 

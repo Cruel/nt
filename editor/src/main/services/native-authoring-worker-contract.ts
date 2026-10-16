@@ -15,10 +15,12 @@ const workingSnapshotFields = {
   workingRevision: z.number().int().nonnegative(),
   diskSourceRevision: z.string(),
   source: z.unknown(),
+  baseline: z.unknown().optional(),
   normalized: z.unknown().nullable(),
   dirty: z.boolean(),
   valid: z.boolean(),
   diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+  conflictingPaths: z.array(z.string()).optional(),
 };
 
 export const nativeAuthoringRecordSnapshotSchema = z.object(workingSnapshotFields).strict();
@@ -100,6 +102,31 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       requestId: z.number().int().positive(),
       operation: z.literal('inspect'),
       owner: z.string().min(1).max(2048),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('reconcile'),
+      owner: z.string().min(1).max(2048),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('useDisk'),
+      owner: z.string().min(1).max(2048),
+      expectedRevision: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('saveOwners'),
+      owners: z.array(z.string().min(1).max(2048)).max(256),
+      expectedRevision: z.number().int().nonnegative(),
+      keepMine: z.boolean(),
+      comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']),
     })
     .strict(),
   z

@@ -1,0 +1,317 @@
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
+import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
+
+const addon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
+const roomId = 'room-lifecycle-roundtrip';
+const owner = `rooms/${roomId}`;
+const labelPath = `/rooms/${roomId}/label`;
+const descriptionPath = `/rooms/${roomId}/data/description/source/text`;
+const roomRelative = `records/rooms/${roomId}.yaml`;
+const fixture = path.resolve(process.cwd(), '../tests/projects/feature-lab');
+const workerScript = path.resolve(
+  process.cwd(),
+  'dist-electron/authoring-worker/native-authoring-worker.cjs',
+);
+
+async function testProject() {
+  const root = await mkdtemp(path.join(tmpdir(), 'noveltea-reconcile-'));
+  for (const file of [
+    'project.yaml',
+    'traits.yaml',
+    'editor.yaml',
+    'i18n/project.yaml',
+    'i18n/messages.yaml',
+    'i18n/usage-notes.yaml',
+    'i18n/tracking.yaml',
+    'i18n/orphans.yaml',
+    roomRelative,
+    'records/variables/board-ticket.yaml',
+  ]) {
+    await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+    await copyFile(path.join(fixture, file), path.join(root, file));
+  }
+  const bridge = new NativeAuthoringSessionBridge(
+    { requireActiveProjectRoot: () => root, isCurrent: () => true },
+    { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+  );
+  const working = new NativeAuthoringWorkingProject(bridge);
+  await working.open('native-reconcile-test');
+  await working.inspectRecord(owner);
+  return { root, bridge, working, roomPath: path.join(root, roomRelative) };
+}
+
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
+});
+
+describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('merges disjoint same-record changes, retains dirty recovery, and writes only selected owners', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const original = await readFile(roomPath, 'utf8');
+    const description = 'Edited while Room was open';
+    const watcherChanged: string[] = [];
+    const unsubscribe = bridge.subscribe((delta) =>
+      watcherChanged.push(...delta.changedSourcePaths),
+    );
+    expect(
+      (
+        await working.applyAction(
+          [{ op: 'replace', path: descriptionPath, value: description }],
+          [
+            {
+              op: 'replace',
+              path: descriptionPath,
+              value: 'Return to the lifecycle start, or enter the child-flow room.',
+            },
+          ],
+        )
+      ).accepted,
+    ).toBe(true);
+
+    // Real watcher delivers the file revision, then resident native Project
+    // reconciles its independently retained local working source.
+    await writeFile(
+      roomPath,
+      original.replace(
+        'label: Lifecycle Round Trip',
+        'label: Changed externally\n# keep room note',
+      ),
+    );
+    const observed = await bridge.request({ operation: 'observe' });
+    expect([
+      ...watcherChanged,
+      ...(observed && 'changed' in observed ? observed.changed : []),
+    ]).toContain(roomRelative);
+    unsubscribe();
+    const reconciled = await working.reconcile(owner);
+    expect(reconciled).toMatchObject({ accepted: true, affectedRecords: [owner] });
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      label: 'Changed externally',
+      data: { description: { source: { text: description } } },
+    });
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.conflictingPaths).toEqual([]);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(true);
+
+    bridge.close();
+    const recovered = await working.reopenAndReplay('native-reconcile-test');
+    expect(recovered.recordSnapshots?.[owner]?.source).toMatchObject({
+      label: 'Changed externally',
+      data: { description: { source: { text: description } } },
+    });
+    const saved = await working.saveOwners([owner], { comments: 'keep' });
+    expect(saved).toMatchObject({
+      accepted: true,
+      affectedRecords: [owner],
+      snapshot: { dirty: false, recordSnapshots: { [owner]: { dirty: false } } },
+    });
+    const physical = await readFile(roomPath, 'utf8');
+    expect(physical).toContain('label: Changed externally');
+    expect(physical).toContain('# keep room note');
+    expect(physical).toContain(description);
+    expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(
+      await readFile(path.join(fixture, 'project.yaml'), 'utf8'),
+    );
+  }, 45_000);
+
+  it('preserves conflicting local work, blocks Save, and validates Keep Mine against a second edit', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const original = await readFile(roomPath, 'utf8');
+    await working.applyAction(
+      [{ op: 'replace', path: labelPath, value: 'Mine' }],
+      [{ op: 'replace', path: labelPath, value: 'Lifecycle Round Trip' }],
+    );
+    await writeFile(roomPath, original.replace('label: Lifecycle Round Trip', 'label: Theirs'));
+    const conflict = await working.reconcile(owner);
+    expect(conflict).toMatchObject({
+      accepted: true,
+      snapshot: { recordSnapshots: { [owner]: { conflictingPaths: ['/label'] } } },
+    });
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({ label: 'Mine' });
+    expect(await working.saveOwners([owner])).toMatchObject({
+      accepted: false,
+      error: expect.stringContaining('Use Disk or Keep Mine'),
+    });
+    // A second external change after the conflict was reviewed cannot be overwritten.
+    await writeFile(
+      roomPath,
+      original.replace('label: Lifecycle Round Trip', 'label: Third Writer'),
+    );
+    const stale = await working.saveOwners([owner], { keepMine: true });
+    expect(stale).toMatchObject({
+      accepted: false,
+      error: expect.stringContaining('REVISION_CONFLICT'),
+    });
+    expect(await readFile(roomPath, 'utf8')).toContain('label: Third Writer');
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({ label: 'Mine' });
+    expect((await working.reconcile(owner)).accepted).toBe(true);
+    const saved = await working.saveOwners([owner], { keepMine: true });
+    expect(saved).toMatchObject({ accepted: true, snapshot: { dirty: false } });
+    expect(await readFile(roomPath, 'utf8')).toContain('label: Mine');
+  }, 45_000);
+
+  it('conservatively conflicts structural arrays and supports Use Disk and tracked editor metadata', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const original = await readFile(roomPath, 'utf8');
+    await working.applyAction(
+      [{ op: 'replace', path: `/rooms/${roomId}/data/exits/0/label`, value: 'My exit' }],
+      [
+        {
+          op: 'replace',
+          path: `/rooms/${roomId}/data/exits/0/label`,
+          value: 'Return to lifecycle start',
+        },
+      ],
+    );
+    await writeFile(
+      roomPath,
+      original.replace('label: Enter child flow', 'label: External exit change'),
+    );
+    const conflict = await working.reconcile(owner);
+    expect(conflict.snapshot.recordSnapshots?.[owner]?.conflictingPaths).toContain('/data/exits');
+    expect((await working.useDisk(owner)).snapshot.recordSnapshots?.[owner]).toMatchObject({
+      dirty: false,
+      conflictingPaths: [],
+    });
+    expect(working.historyCursor()).toBe(0);
+    const source = working.snapshot()?.recordSnapshots?.[owner]?.source;
+    if (!source) throw new Error('Missing Room source after Use Disk.');
+    const exits = (source as { data: { exits: Array<{ label: string }> } }).data.exits;
+    expect(exits.map((exit) => exit.label)).toEqual([
+      'Return to lifecycle start',
+      'External exit change',
+      'Self loop',
+    ]);
+
+    const editor = await working.inspectRecord('editor');
+    expect(editor).toMatchObject({
+      accepted: true,
+      snapshot: { recordSnapshots: { editor: { dirty: false } } },
+    });
+    const changedEditor = await working.applyAction(
+      [{ op: 'add', path: '/editor/recordMetadata/rooms', value: { [roomId]: { tags: [] } } }],
+      [{ op: 'remove', path: '/editor/recordMetadata/rooms' }],
+    );
+    if (!changedEditor.accepted) throw new Error(changedEditor.error);
+    expect((await working.inspectRecord('variables/board-ticket')).accepted).toBe(true);
+    const variablePath = '/variables/board-ticket/label';
+    expect(
+      (
+        await working.applyAction(
+          [{ op: 'replace', path: variablePath, value: 'Changed variable label' }],
+          [{ op: 'replace', path: variablePath, value: 'board-ticket' }],
+        )
+      ).accepted,
+    ).toBe(true);
+    expect(
+      (await working.saveOwners(['editor', 'variables/board-ticket'], { comments: 'cancel' }))
+        .accepted,
+    ).toBe(false);
+    const savedEditor = await working.saveOwners(['editor', 'variables/board-ticket']);
+    if (!savedEditor.accepted) throw new Error(savedEditor.error);
+    expect(await readFile(path.join(root, 'editor.yaml'), 'utf8')).toContain(roomId);
+    expect(
+      await readFile(path.join(root, 'records/variables/board-ticket.yaml'), 'utf8'),
+    ).toContain('Changed variable label');
+  }, 45_000);
+
+  it('blocks invalid source owners without discarding unrelated tracked metadata edits', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    await working.inspectRecord('editor');
+    const originalEditor = await readFile(path.join(root, 'editor.yaml'), 'utf8');
+    const changed = await working.applyAction(
+      [{ op: 'add', path: '/editor/recordMetadata/rooms', value: { [roomId]: { tags: [] } } }],
+      [{ op: 'remove', path: '/editor/recordMetadata/rooms' }],
+    );
+    expect(changed.accepted).toBe(true);
+    await working.applyAction(
+      [{ op: 'replace', path: descriptionPath, value: 'dirty Room field' }],
+      [
+        {
+          op: 'replace',
+          path: descriptionPath,
+          value: 'Return to the lifecycle start, or enter the child-flow room.',
+        },
+      ],
+    );
+    const invalidPaths: string[] = [];
+    const unsubscribe = bridge.subscribe((delta) => {
+      invalidPaths.push(...delta.observation.invalidSources.map((source) => source.path));
+    });
+    await writeFile(roomPath, 'id: [\n');
+    const observation = await bridge.request({ operation: 'observe' });
+    if (observation && 'invalidSources' in observation)
+      invalidPaths.push(...observation.invalidSources.map((source) => source.path));
+    expect(invalidPaths).toContain(roomRelative);
+    unsubscribe();
+    const mixed = await working.saveOwners(['editor', owner]);
+    expect(mixed.accepted).toBe(false);
+    expect(await readFile(path.join(root, 'editor.yaml'), 'utf8')).toBe(originalEditor);
+    const unaffected = await working.saveOwners(['editor']);
+    if (!unaffected.accepted) throw new Error(unaffected.error);
+    expect(await readFile(path.join(root, 'editor.yaml'), 'utf8')).toContain(roomId);
+    expect(await readFile(roomPath, 'utf8')).toBe('id: [\n');
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(true);
+  }, 45_000);
+
+  it('merges disjoint external edits to the shared tracked editor metadata source', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const editorPath = path.join(root, 'editor.yaml');
+    await working.inspectRecord('editor');
+    const changed = await working.applyAction(
+      [{ op: 'add', path: '/editor/recordMetadata/rooms', value: { [roomId]: { tags: [] } } }],
+      [{ op: 'remove', path: '/editor/recordMetadata/rooms' }],
+    );
+    expect(changed.accepted).toBe(true);
+    const baseline = await readFile(editorPath, 'utf8');
+    await writeFile(
+      editorPath,
+      baseline.replace('assignments: {}', 'assignments:\n    featured: []'),
+    );
+    const result = await working.reconcile('editor');
+    expect(result).toMatchObject({
+      accepted: true,
+      snapshot: {
+        recordSnapshots: {
+          editor: {
+            conflictingPaths: [],
+            dirty: true,
+            source: {
+              chapters: { assignments: { featured: [] } },
+              recordMetadata: { rooms: { [roomId]: { tags: [] } } },
+            },
+          },
+        },
+      },
+    });
+    const save = await working.saveOwners(['editor']);
+    if (!save.accepted) throw new Error(save.error);
+    const persisted = await readFile(editorPath, 'utf8');
+    expect(persisted).toContain('featured');
+    expect(persisted).toContain(roomId);
+  }, 45_000);
+});

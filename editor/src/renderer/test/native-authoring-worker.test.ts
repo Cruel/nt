@@ -532,12 +532,18 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       );
       const repairedMap = await bridge.request({ operation: 'observe' });
       expect(repairedMap).toMatchObject({ recordDiagnostics: [] });
-      // Malformed external source bytes are reported as record diagnostics,
-      // never promoted to normalized Project values.
+      // Malformed external source bytes remain attributable to this record:
+      // preserve diagnostic navigation while blocking writes to that owner.
       await writeFile(roomPath, 'invalid: [');
       const malformed = await bridge.request({ operation: 'observe' });
       expect(malformed).toMatchObject({
-        authoritative: true,
+        authoritative: false,
+        scopedAuthority: true,
+        invalidSources: [
+          expect.objectContaining({
+            path: 'records/rooms/room-lifecycle-roundtrip.yaml',
+          }),
+        ],
         recordDiagnostics: [
           {
             path: '/rooms/room-lifecycle-roundtrip',

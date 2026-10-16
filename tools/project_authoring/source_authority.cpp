@@ -226,8 +226,36 @@ SourceAuthority::Capture SourceAuthority::capture() const
             accept(entry, relative);
         }
     };
-    for (const auto* path : fixed_sources)
+    for (const auto* path : fixed_sources) {
         add(path);
+        const std::string relative(path);
+        if (!relative.ends_with(".yaml") || relative == "project.yaml")
+            continue; // the manifest controls global source ownership
+        const auto revision = result.revisions.at(relative);
+        if (const auto prior = baseline_.find(relative);
+            prior != baseline_.end() && prior->second == revision) {
+            if (const auto invalid = std::find_if(
+                    invalid_sources_.begin(), invalid_sources_.end(),
+                    [&](const InvalidSource& source) { return source.path == relative; });
+                invalid != invalid_sources_.end())
+                result.invalid_sources.push_back(*invalid);
+            continue;
+        }
+        std::string error;
+        if (revision == "absent") {
+            error = "Required tracked YAML source is absent.";
+        } else {
+            const auto source = read(relative);
+            const auto opened = open_yaml_source(source);
+            if (!opened.accepted) {
+                error = opened.error;
+            } else if (!Json::parse(opened.source_json).is_object()) {
+                error = "Tracked YAML source must be a mapping.";
+            }
+        }
+        if (!error.empty())
+            result.invalid_sources.push_back({relative, std::move(error)});
+    }
     for (const auto* directory : {"i18n/locales", "i18n/assets"})
         scan(directory, [&](const auto& entry, const std::string& relative) {
             if (entry.is_regular_file() &&
@@ -247,6 +275,35 @@ SourceAuthority::Capture SourceAuthority::capture() const
                 });
             } else if (entry.is_regular_file() && is_source_extension(entry.path())) {
                 add(record);
+                if (relative != "records/assets" && entry.path().extension() == ".yaml") {
+                    // Validate the changed physical owner only. Preserve an
+                    // already-known invalid owner across unchanged scans, but
+                    // never reparse all records on each warm watcher poll.
+                    const auto revision = result.revisions.at(record);
+                    const auto prior = baseline_.find(record);
+                    if (prior != baseline_.end() && prior->second == revision) {
+                        if (const auto invalid = std::find_if(
+                                invalid_sources_.begin(), invalid_sources_.end(),
+                                [&](const InvalidSource& source) { return source.path == record; });
+                            invalid != invalid_sources_.end())
+                            result.invalid_sources.push_back(*invalid);
+                    } else {
+                        const auto bytes = read(record);
+                        if (exact_source_revision(bytes) != revision)
+                            throw std::runtime_error("Record changed during observation: " +
+                                                     record);
+                        const auto opened = open_yaml_source(bytes);
+                        std::string error;
+                        if (!opened.accepted)
+                            error = opened.error;
+                        // Source authority tracks physical syntax failures.
+                        // Semantic mismatches (including a changed record ID)
+                        // are reported by record validation, not by turning
+                        // a valid physical observation non-authoritative.
+                        if (!error.empty())
+                            result.invalid_sources.push_back({record, std::move(error)});
+                    }
+                }
                 if (relative == "records/assets" && entry.path().extension() == ".yaml") {
                     // A malformed Asset YAML is attributable to this exact physical owner.
                     // Keep previously verified references watched until it is repaired, but

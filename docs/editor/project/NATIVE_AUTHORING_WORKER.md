@@ -108,3 +108,43 @@ open/Save, editor recovery, external reconciliation, daemon, CLI, and runtime
 authority remain TypeScript. Full source-record admission, other record
 families, durable native recovery and Project-wide native reconciliation are
 still cutover work, not permanent TypeScript/native fallback paths.
+
+## Parallel external reconciliation and scoped Save (#498)
+
+The native resident Project now retains explicit saved and dirty source values
+per loaded owner. `reconcile` opens the exact current physical source revision
+and computes a three-way diff against the admitted baseline. Disjoint changes
+within the same YAML record or shared tracked source are merged into the dirty
+working values, preserving the local edits and advancing the verified baseline.
+Overlapping fields and structural array changes remain locally edited and
+expose `conflictingPaths`. `useDisk` discards exactly one owner's unresolved
+local working edits after checking that its reviewed disk revision is still
+current; `saveOwners` blocks conflicts unless Keep Mine is explicitly selected.
+
+All generated-schema record families (including Layouts) are routed by their
+Project-relative owner and validated using the generated native contracts.
+Tracked `editor.yaml` state is supported as the `editor` owner; editor-only
+ignored recovery and preferences are not source transactions.
+
+Scoped multi-owner Save uses the same #495 journaled native YAML transaction
+writer, with Keep/Remove/Cancel comment decisions and exact source revisions
+verified at both preparation and commit. A second overlapping external writer
+cannot be silently overwritten. An invalid attributable source blocks its own
+Save target without blocking unrelated targets; unknown source authority
+uncertainty blocks every write. On success only committed owners have their
+baseline advanced. Failed Save and canceled comment decisions leave dirty
+working values intact. YAML inline empty mappings are replaced at their
+own source location when adding children rather than performing an unsafe
+flow-mapping peer insertion.
+
+The main-owned certification adapter offers `reconcile`, `useDisk` and
+`saveOwners` without adding renderer IPC or production authority. It rebuilds
+the in-memory crash-replay journal against the newly verified disk baselines
+after reconciliation, Use Disk and Save, and preserves unaffected undo/redo
+history and transient pending input. All worker messages remain typed and
+project-session/revision checked.
+
+Full production editor cutover, the existing renderer Save coordinator and
+watcher replacements, Project-wide dependency reconciliation, and durable
+restart recovery remain future coordinated migration work; the native
+certification operations do not invoke the TypeScript Project authoring engine.
