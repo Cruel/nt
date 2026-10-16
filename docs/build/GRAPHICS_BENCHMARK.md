@@ -66,9 +66,11 @@ For short functional probes, not hardware comparisons:
 
 The normal `--width`/`--height` controls determine the host window size on
 Linux/Web. Use `--native-resolution` or the dashboard checkbox to request the
-current display mode's pixel dimensions instead; Android always uses the
-actual fullscreen physical framebuffer. The report records the actual SDL
-window framebuffer size after setup, which can differ from the request.
+current display mode's pixel dimensions instead, including Engine-owned
+scenarios. Integrated RmlUi reference scenarios explicitly reject non-16:9
+native modes rather than falling back to the configured size. Android always
+uses the actual fullscreen physical framebuffer. The report records the actual
+SDL window framebuffer size after setup, which can differ from the request.
 The search's 100% baseline is the **actual framebuffer size after host setup**,
 rather than a hard-coded 1280×720 assumption. The JSON report contains
 per-candidate `scenarios[].graphics.width_pixels/height_pixels` (host) and
@@ -176,20 +178,22 @@ which are not counted as fixture contexts.
 The fixed, reproducible reference for both new IDs is **512 rectangles, 64
 text lines, one visible context, zero empty/hidden contexts, static text, and
 continuous redraw**. The named `--ui-preset` selections are `balanced`
-(the default), `elements-heavy` (2048 rectangles), `text-heavy` (256 lines
-with per-frame text changes), `contexts-heavy` (4 visible + 8 empty + 8 hidden
+(the default), `elements-heavy` (2048 rectangles), `text-heavy` (all 256 lines
+changed every frame), `contexts-heavy` (4 visible + 8 empty + 8 hidden
 contexts), and `dirty-static` (cached layout, static text). The dashboard
 exposes the same preset selector. The last named preset is applied first;
 explicit element/text/context/redraw flags override its individual values
 regardless of argument order, including through the Web URL transport.
 Independently change `--ui-elements` (1–2048),
-`--ui-text-lines` (0–256), `--ui-visible-contexts` (1–8),
+`--ui-text-lines` (0–256), `--ui-dynamic-lines` (0–256, no more than total
+lines in dynamic mode), `--ui-visible-contexts` (1–8),
 `--ui-empty-contexts` and `--ui-hidden-contexts` (0–16 each; 24 total at most),
 `--ui-text-mode static|dynamic`, and `--ui-redraw continuous|dirty-only`.
 The dashboard exposes the same independent controls and a Restore RmlUi
 reference action. The Web launcher forwards the matching flags as URL
 parameters; canonical JSON `--config` works on all three targets. The strict JSON `configuration.parameters` object records
-all seven settings, so arbitrary test runs are reproducible and not mistaken
+all eight settings (scaling scenario version 2); version 1 presets are read
+with the prior single-changing-line behavior. Arbitrary runs are reproducible and not mistaken
 for fixed reference comparisons. Out-of-bounds counts and incompatible flags
 are rejected rather than silently clamped by the runner.
 
@@ -206,9 +210,11 @@ For an equivalent pair of measured application-frame workloads:
   --ui-redraw continuous --frames 300 --profile diagnostic
 ```
 
-Static text never changes; dynamic text replaces the first real RmlUi text
-node in each visible document on every submitted frame with fixed-width
-changing content. In **continuous** mode the first rectangle's equivalent
+Static text never changes. Dynamic mode replaces the first `--ui-dynamic-lines`
+real text nodes in every visible document on each submitted frame with
+fixed-width, per-line deterministic changing content. The default changes one
+line (retaining the original experiment), while the text-heavy preset changes
+all 256. Changing 0 lines is allowed. Both adapters perform equivalent mutations. In **continuous** mode the first rectangle's equivalent
 CSS width spelling alternates each frame to force actual layout invalidation
 without changing its pixels. In **dirty-only** mode the application leaves
 static layout unmodified; dynamic text still invalidates its content. Both

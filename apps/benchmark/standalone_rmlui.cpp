@@ -129,6 +129,9 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
     }
     shaders_ = std::make_unique<Shaders>();
     effect_diagnostics_ = std::make_unique<EffectDiagnostics>();
+    // Backend diagnostics span preparation and measurement, unlike the short-lived
+    // preparation callback probe. A failed measured frame must fail completion.
+    effect_diagnostics_->capturing = scene.id == "ui-effects-reference";
     system_ = std::make_unique<System>();
     rmlui_bgfx::RendererConfig config;
     config.surface = {static_cast<int>(scene.width),
@@ -223,7 +226,8 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
     visible_documents_.push_back(document_);
     scaling_ = scaling != nullptr;
     if (scaling) {
-        dynamic_text_ = scaling->ui_text_mode == "dynamic" && scaling->ui_text_lines > 0;
+        dynamic_lines_ = scaling->ui_dynamic_lines;
+        dynamic_text_ = scaling->ui_text_mode == "dynamic" && dynamic_lines_ > 0;
         dirty_only_ = scaling->ui_redraw == "dirty-only";
         const uint32_t total =
             scaling->ui_visible_contexts + scaling->ui_empty_contexts + scaling->ui_hidden_contexts;
@@ -290,10 +294,11 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
                 ->SetProperty("width", frame_index_ % 2 == 0 ? "15.0px" : "15px");
     }
     if (dynamic_text_) {
-        const auto replacement = ui_dynamic_text(frame_index_);
         for (auto* document : visible_documents_) {
-            if (auto* text = document->GetElementById("ui-text-0"))
-                text->SetInnerRML(replacement);
+            for (uint32_t line = 0; line < dynamic_lines_; ++line) {
+                if (auto* text = document->GetElementById("ui-text-" + std::to_string(line)))
+                    text->SetInnerRML(ui_dynamic_text(frame_index_, line));
+            }
         }
     }
     ++frame_index_;
@@ -336,8 +341,6 @@ bool StandaloneRmlUi::verify_effects(std::string& reason)
         return false;
     const auto activity = effect_activity();
     effect_probe_->capture(false);
-    if (effect_diagnostics_)
-        effect_diagnostics_->capturing = false;
     return verify_ui_effect_activity(requested_effects_, activity, reason);
 }
 
@@ -350,6 +353,7 @@ void StandaloneRmlUi::shutdown()
     scaling_ = false;
     effects_ = false;
     dynamic_text_ = false;
+    dynamic_lines_ = 1;
     dirty_only_ = false;
     frame_index_ = 0;
     if (context_) {

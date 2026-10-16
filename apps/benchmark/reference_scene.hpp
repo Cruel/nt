@@ -63,7 +63,7 @@ constexpr double kReferenceRectScale = 1.0;
 [[nodiscard]] bool valid_ui_effects_parameters(const UiEffectCounts& effects);
 [[nodiscard]] ReferenceScene ui_effects_reference_scene(const UiEffectCounts& effects);
 // Fixed-width content for per-frame text mutation; allocation/markup updates are workload work.
-[[nodiscard]] std::string ui_dynamic_text(uint32_t frame);
+[[nodiscard]] std::string ui_dynamic_text(uint32_t frame, uint32_t line = 0);
 // One exact markup generator feeds both the independent and integrated RmlUi hosts.
 [[nodiscard]] std::string simple_ui_reference_markup(const ReferenceScene& scene,
                                                      float reference_scale = 1.0f);

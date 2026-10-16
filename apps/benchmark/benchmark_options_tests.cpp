@@ -69,6 +69,26 @@ int main()
     const char* const ui_bad_mode[] = {"benchmark", "--ui-text-mode", "unknown"};
     const char* const ui_bad_redraw[] = {"benchmark", "--ui-redraw", "once"};
     const char* const ui_bad_count[] = {"benchmark", "--ui-elements", "2049"};
+    const char* const ui_dynamic_custom[] = {"benchmark",
+                                             "--scenario",
+                                             "standalone-rmlui-scaling",
+                                             "--ui-text-mode",
+                                             "dynamic",
+                                             "--ui-text-lines",
+                                             "8",
+                                             "--ui-dynamic-lines",
+                                             "8"};
+    const char* const ui_dynamic_overflow[] = {
+        "benchmark", "--scenario", "integrated-rmlui-scaling", "--ui-dynamic-lines", "257"};
+    const char* const ui_dynamic_too_many[] = {"benchmark",
+                                               "--scenario",
+                                               "standalone-rmlui-scaling",
+                                               "--ui-text-mode",
+                                               "dynamic",
+                                               "--ui-text-lines",
+                                               "8",
+                                               "--ui-dynamic-lines",
+                                               "9"};
     const char* const raw_scaled[] = {
         "benchmark",    "--scenario", "raw-bgfx-draw-calls", "--draw-calls", "7",
         "--quad-count", "9",          "--texture-size",      "64",           "--coverage",
@@ -114,12 +134,12 @@ int main()
         !expect_options(ui_preset_last, 7, true) || !expect_options(ui_bad_preset, 3, false) ||
         !expect_options(ui_wrong_preset, 5, false) || !expect_options(ui_bad_mode, 3, false) ||
         !expect_options(ui_bad_redraw, 3, false) || !expect_options(ui_bad_count, 3, false) ||
-        !expect_options(raw_scaled, 11, true) || !expect_options(composed, 12, true) ||
-        !expect_options(bad_composites, 3, false) || !expect_options(bad_msaa, 3, false) ||
-        !expect_options(bad_target, 3, false) || !expect_options(bad_draws, 3, false) ||
-        !expect_options(bad_quads, 3, false) || !expect_options(bad_texture, 3, false) ||
-        !expect_options(bad_coverage, 3, false) || !expect_options(config_only, 5, true) ||
-        !expect_options(mixed_config, 4, false))
+        !expect_options(ui_dynamic_custom, 9, true) || !expect_options(raw_scaled, 11, true) ||
+        !expect_options(composed, 12, true) || !expect_options(bad_composites, 3, false) ||
+        !expect_options(bad_msaa, 3, false) || !expect_options(bad_target, 3, false) ||
+        !expect_options(bad_draws, 3, false) || !expect_options(bad_quads, 3, false) ||
+        !expect_options(bad_texture, 3, false) || !expect_options(bad_coverage, 3, false) ||
+        !expect_options(config_only, 5, true) || !expect_options(mixed_config, 4, false))
         return 1;
 
     noveltea::benchmark::Options options;
@@ -198,6 +218,8 @@ int main()
          {"balanced", "elements-heavy", "text-heavy", "contexts-heavy", "dirty-static"}) {
         options.scenario = "integrated-rmlui-scaling";
         if (!noveltea::benchmark::apply_ui_scaling_preset(options, preset) ||
+            (std::string(preset) == "text-heavy" &&
+             (options.ui_dynamic_lines != 256 || options.ui_text_lines != 256)) ||
             !noveltea::benchmark::validate_reference_options(options, error))
             return 1;
     }
@@ -210,8 +232,23 @@ int main()
         options.ui_hidden_contexts != 8 || options.ui_text_mode != "dynamic" ||
         options.ui_redraw != "dirty-only")
         return 1;
+    if (!noveltea::benchmark::parse_options(5, ui_dynamic_overflow, options, error))
+        return 1;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(9, ui_dynamic_custom, options, error) ||
+        options.ui_dynamic_lines != 8 ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(9, ui_dynamic_too_many, options, error))
+        return 1;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(17, ui_scaling, options, error))
+        return 1;
     options.scenario = "integrated-rmlui-scaling";
-    if (!noveltea::benchmark::validate_reference_options(options, error))
+    if (options.ui_dynamic_lines != 1 ||
+        !noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options.ui_empty_contexts = 16;
     if (noveltea::benchmark::validate_reference_options(options, error))
@@ -219,9 +256,9 @@ int main()
     const auto reset_ui =
         noveltea::benchmark::reference_scenario_options(options, "standalone-rmlui-scaling");
     if (reset_ui.ui_elements != 512 || reset_ui.ui_text_lines != 64 ||
-        reset_ui.ui_visible_contexts != 1 || reset_ui.ui_empty_contexts != 0 ||
-        reset_ui.ui_hidden_contexts != 0 || reset_ui.ui_text_mode != "static" ||
-        reset_ui.ui_redraw != "continuous" ||
+        reset_ui.ui_dynamic_lines != 1 || reset_ui.ui_visible_contexts != 1 ||
+        reset_ui.ui_empty_contexts != 0 || reset_ui.ui_hidden_contexts != 0 ||
+        reset_ui.ui_text_mode != "static" || reset_ui.ui_redraw != "continuous" ||
         !noveltea::benchmark::validate_reference_options(reset_ui, error))
         return 1;
     const char* const effects_cli[] = {"benchmark",

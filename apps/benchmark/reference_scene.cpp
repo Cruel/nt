@@ -187,9 +187,11 @@ bool valid_ui_scaling_parameters(uint32_t elements, uint32_t text_lines, uint32_
            (redraw == "continuous" || redraw == "dirty-only");
 }
 
-std::string ui_dynamic_text(uint32_t frame)
+std::string ui_dynamic_text(uint32_t frame, uint32_t line)
 {
     // Fixed-width digits keep geometry stable while invalidating text every frame.
+    // Vary every line deterministically without changing its character count.
+    frame += line * 9973u;
     char digits[9] = {};
     for (int i = 7; i >= 0; --i) {
         digits[i] = char('0' + frame % 10);

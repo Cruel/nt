@@ -17,6 +17,7 @@
 #include "benchmark_completed_run.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_options.hpp"
+#include "benchmark_window_size.hpp"
 #include "benchmark_report.hpp"
 #include "benchmark_runner.hpp"
 #include "empty_engine.hpp"
@@ -69,7 +70,8 @@ void print_usage()
     std::puts("       [--capacity-threshold N] [--capacity-mode presented|offscreen]");
     std::puts("       [--native-resolution] (use current display dimensions)");
     std::puts("       [--no-transparent-overlay] (composition scenario only)");
-    std::puts("       [--ui-elements 1..2048] [--ui-text-lines 0..256]");
+    std::puts("       [--ui-elements 1..2048] [--ui-text-lines 0..256]"
+              " [--ui-dynamic-lines 0..256]");
     std::puts("       [--ui-visible-contexts 1..8] [--ui-empty-contexts 0..16]");
     std::puts("       [--ui-hidden-contexts 0..16] [--ui-text-mode static|dynamic]");
     std::puts("       [--ui-redraw continuous|dirty-only] (RmlUi scaling only)");
@@ -231,25 +233,6 @@ struct Graphics {
 #endif
     Environment environment;
 
-    static bool requested_window_size(const Options& options, SDL_Window* existing, int& width,
-                                      int& height, std::string& reason)
-    {
-        width = options.width;
-        height = options.height;
-        if (!options.native_resolution)
-            return true;
-        const SDL_DisplayID display =
-            existing ? SDL_GetDisplayForWindow(existing) : SDL_GetPrimaryDisplay();
-        const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
-        if (!mode || mode->w < 1 || mode->h < 1 || mode->w > 8192 || mode->h > 8192) {
-            reason = "native display mode is unavailable or outside the 8192-pixel limit";
-            return false;
-        }
-        width = mode->w;
-        height = mode->h;
-        return true;
-    }
-
     void shutdown()
     {
         if (bgfx_ready) {
@@ -285,7 +268,8 @@ struct Graphics {
 #if !defined(__ANDROID__)
         int requested_width = 0;
         int requested_height = 0;
-        if (!requested_window_size(options, window, requested_width, requested_height, reason))
+        if (!noveltea::benchmark::requested_benchmark_window_size(options, window, requested_width,
+                                                                  requested_height, reason))
             return false;
         if (logical_width != requested_width || logical_height != requested_height) {
             if (!SDL_SetWindowSize(window, requested_width, requested_height)) {
@@ -346,7 +330,8 @@ struct Graphics {
 #else
         int requested_width = 0;
         int requested_height = 0;
-        if (!requested_window_size(options, nullptr, requested_width, requested_height, reason))
+        if (!noveltea::benchmark::requested_benchmark_window_size(options, nullptr, requested_width,
+                                                                  requested_height, reason))
             return false;
         window = SDL_CreateWindow("NovelTea Graphics Benchmark: Empty bgfx", requested_width,
                                   requested_height, 0);
@@ -513,8 +498,7 @@ struct EmptyBgfxScenario : Scenario {
     {
         last_interruption = noveltea::benchmark::Interruption::None;
         diagnostic = options.profile == "diagnostic";
-        host().environment.ui_backend.reset();
-        host().environment.raw_workload.reset();
+        host().environment.clear_scenario_metadata();
         if (!shared_graphics) {
             if (!graphics.initialize(options, reason))
                 return false;
@@ -1061,6 +1045,7 @@ int run_dashboard(Options options)
                 (options.scenario != preview_ui_options.scenario ||
                  options.ui_elements != preview_ui_options.ui_elements ||
                  options.ui_text_lines != preview_ui_options.ui_text_lines ||
+                 options.ui_dynamic_lines != preview_ui_options.ui_dynamic_lines ||
                  options.ui_visible_contexts != preview_ui_options.ui_visible_contexts ||
                  options.ui_empty_contexts != preview_ui_options.ui_empty_contexts ||
                  options.ui_hidden_contexts != preview_ui_options.ui_hidden_contexts ||

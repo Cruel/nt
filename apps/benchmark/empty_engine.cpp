@@ -3,6 +3,7 @@
 #include "benchmark_assets.hpp"
 #include "benchmark_android_lifecycle.hpp"
 #include "benchmark_bgfx_diagnostics.hpp"
+#include "benchmark_window_size.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
@@ -124,8 +125,8 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     platform.title = workload_ == EngineWorkload::EmptyEngine
                          ? "NovelTea Benchmark: Empty Engine"
                          : "NovelTea Benchmark: Compiled Project";
-    platform.width = options.width;
-    platform.height = options.height;
+    if (!requested_benchmark_window_size(options, nullptr, platform.width, platform.height, reason))
+        return false;
     platform.resizable = false;
     platform.vsync = options.vsync;
 

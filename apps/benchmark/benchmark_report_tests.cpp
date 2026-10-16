@@ -28,6 +28,23 @@ bool rejected(nlohmann::json value)
 
 int main()
 {
+    noveltea::benchmark::Environment shared_environment;
+    shared_environment.platform = "Linux";
+    shared_environment.renderer = "OpenGL";
+    shared_environment.width_pixels = 1600;
+    shared_environment.height_pixels = 900;
+    shared_environment.ui_backend.emplace();
+    shared_environment.raw_workload.emplace();
+    shared_environment.ui_effect_activity = noveltea::UiEffectActivity{.clipping_calls = 8};
+    shared_environment.clear_scenario_metadata();
+    if (!check(
+            !shared_environment.ui_backend && !shared_environment.raw_workload &&
+                !shared_environment.ui_effect_activity && shared_environment.platform == "Linux" &&
+                shared_environment.renderer == "OpenGL" &&
+                shared_environment.width_pixels == 1600 && shared_environment.height_pixels == 900,
+            "scenario switch clears previous workload metadata but preserves device details"))
+        return 1;
+
     Options original;
     original.warmup_seconds = 0.5;
     original.measurement_frames = 41;
@@ -222,6 +239,7 @@ int main()
         scaling.scenario = id;
         scaling.ui_elements = 2048;
         scaling.ui_text_lines = 256;
+        scaling.ui_dynamic_lines = 256;
         scaling.ui_visible_contexts = 8;
         scaling.ui_empty_contexts = 8;
         scaling.ui_hidden_contexts = 8;
@@ -229,8 +247,10 @@ int main()
         scaling.ui_redraw = "dirty-only";
         const auto encoded = nlohmann::json::parse(encode_configuration(scaling));
         Options decoded;
-        if (!check(encoded["parameters"].size() == 7 && encoded["parameters"]["elements"] == 2048 &&
+        if (!check(encoded["scenario_version"] == 2 && encoded["parameters"].size() == 8 &&
+                       encoded["parameters"]["elements"] == 2048 &&
                        encoded["parameters"]["text_lines"] == 256 &&
+                       encoded["parameters"]["dynamic_lines"] == 256 &&
                        encoded["parameters"]["visible_contexts"] == 8 &&
                        encoded["parameters"]["empty_contexts"] == 8 &&
                        encoded["parameters"]["hidden_contexts"] == 8 &&
@@ -252,8 +272,28 @@ int main()
         bad_redraw["parameters"]["redraw"] = "skip";
         auto bad_type = encoded;
         bad_type["parameters"]["text_lines"] = "256";
+        auto legacy = encoded;
+        legacy["scenario_version"] = 1;
+        legacy["parameters"].erase("dynamic_lines");
+        Options migrated;
+        if (!check(decode_configuration(legacy.dump(), migrated, error) &&
+                       migrated.ui_dynamic_lines == 1 &&
+                       nlohmann::json::parse(encode_configuration(migrated))["scenario_version"] ==
+                           2,
+                   "scaling v1 configurations migrate to the original single-line behavior"))
+            return 1;
+        auto missing_dynamic = encoded;
+        missing_dynamic["parameters"].erase("dynamic_lines");
+        auto illegal_version = encoded;
+        illegal_version["scenario_version"] = 3;
+        auto excessive_dynamic = encoded;
+        excessive_dynamic["parameters"]["dynamic_lines"] = 257;
+        auto beyond_text = encoded;
+        beyond_text["parameters"]["text_lines"] = 8;
         if (!check(rejected(unknown) && rejected(negative) && rejected(too_many) &&
-                       rejected(bad_text) && rejected(bad_redraw) && rejected(bad_type),
+                       rejected(bad_text) && rejected(bad_redraw) && rejected(bad_type) &&
+                       rejected(missing_dynamic) && rejected(illegal_version) &&
+                       rejected(excessive_dynamic) && rejected(beyond_text),
                    "strict scaling schema rejects extra, malformed and out-of-bounds values"))
             return 1;
     }

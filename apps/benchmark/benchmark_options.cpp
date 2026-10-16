@@ -2,6 +2,7 @@
 #include "reference_scene.hpp"
 #include "reference_workloads.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cerrno>
 #include <cmath>
@@ -50,6 +51,7 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
     // The Web launcher serializes named and explicit knobs in canonical URL order.
     std::optional<uint32_t> ui_elements_override;
     std::optional<uint32_t> ui_text_lines_override;
+    std::optional<uint32_t> ui_dynamic_lines_override;
     std::optional<uint32_t> ui_visible_override;
     std::optional<uint32_t> ui_empty_override;
     std::optional<uint32_t> ui_hidden_override;
@@ -119,17 +121,18 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--draw-calls" && flag != "--quad-count" && flag != "--texture-size" &&
             flag != "--coverage" && flag != "--composition-path" && flag != "--composite-passes" &&
             flag != "--target-scale" && flag != "--msaa-samples" && flag != "--ui-elements" &&
-            flag != "--ui-text-lines" && flag != "--ui-visible-contexts" &&
-            flag != "--ui-empty-contexts" && flag != "--ui-hidden-contexts" &&
-            flag != "--ui-preset" && flag != "--ui-text-mode" && flag != "--ui-redraw" &&
-            flag != "--ui-clipping" && flag != "--ui-transforms" && flag != "--ui-gradients" &&
-            flag != "--ui-filters" && flag != "--ui-masks" && flag != "--ui-nested-layers" &&
-            flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
-            flag != "--seconds" && flag != "--frames" && flag != "--output" &&
-            flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
-            flag != "--config" && flag != "--clock-policy" && flag != "--feature-lab-package" &&
-            flag != "--capacity-dimension" && flag != "--capacity-target" &&
-            flag != "--capacity-threshold" && flag != "--capacity-mode") {
+            flag != "--ui-text-lines" && flag != "--ui-dynamic-lines" &&
+            flag != "--ui-visible-contexts" && flag != "--ui-empty-contexts" &&
+            flag != "--ui-hidden-contexts" && flag != "--ui-preset" && flag != "--ui-text-mode" &&
+            flag != "--ui-redraw" && flag != "--ui-clipping" && flag != "--ui-transforms" &&
+            flag != "--ui-gradients" && flag != "--ui-filters" && flag != "--ui-masks" &&
+            flag != "--ui-nested-layers" && flag != "--width" && flag != "--height" &&
+            flag != "--warmup-seconds" && flag != "--seconds" && flag != "--frames" &&
+            flag != "--output" && flag != "--repeats" && flag != "--ready-timeout-seconds" &&
+            flag != "--profile" && flag != "--config" && flag != "--clock-policy" &&
+            flag != "--feature-lab-package" && flag != "--capacity-dimension" &&
+            flag != "--capacity-target" && flag != "--capacity-threshold" &&
+            flag != "--capacity-mode") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -213,7 +216,7 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             }
             continue;
         }
-        if (flag == "--ui-elements" || flag == "--ui-text-lines" ||
+        if (flag == "--ui-elements" || flag == "--ui-text-lines" || flag == "--ui-dynamic-lines" ||
             flag == "--ui-visible-contexts" || flag == "--ui-empty-contexts" ||
             flag == "--ui-hidden-contexts" || flag == "--ui-clipping" ||
             flag == "--ui-transforms" || flag == "--ui-gradients" || flag == "--ui-filters" ||
@@ -231,6 +234,9 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 ui_elements_override = options.ui_elements = static_cast<uint32_t>(number);
             else if (flag == "--ui-text-lines")
                 ui_text_lines_override = options.ui_text_lines = static_cast<uint32_t>(number);
+            else if (flag == "--ui-dynamic-lines")
+                ui_dynamic_lines_override = options.ui_dynamic_lines =
+                    static_cast<uint32_t>(number);
             else if (flag == "--ui-visible-contexts")
                 ui_visible_override = options.ui_visible_contexts = static_cast<uint32_t>(number);
             else if (flag == "--ui-empty-contexts")
@@ -396,6 +402,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         error = "--config cannot be combined with run settings; --output is allowed";
         return false;
     }
+    if (named_ui_preset.empty() && ui_text_lines_override && !ui_dynamic_lines_override)
+        options.ui_dynamic_lines = std::min(options.ui_dynamic_lines, options.ui_text_lines);
     if (!named_ui_preset.empty()) {
         if (!is_ui_scaling_scenario(options.scenario)) {
             error = "--ui-preset requires an RmlUi scaling scenario";
@@ -404,8 +412,14 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         (void)apply_ui_scaling_preset(options, named_ui_preset);
         if (ui_elements_override)
             options.ui_elements = *ui_elements_override;
-        if (ui_text_lines_override)
+        if (ui_text_lines_override) {
             options.ui_text_lines = *ui_text_lines_override;
+            if (!ui_dynamic_lines_override)
+                options.ui_dynamic_lines =
+                    std::min(options.ui_dynamic_lines, options.ui_text_lines);
+        }
+        if (ui_dynamic_lines_override)
+            options.ui_dynamic_lines = *ui_dynamic_lines_override;
         if (ui_visible_override)
             options.ui_visible_contexts = *ui_visible_override;
         if (ui_empty_override)
@@ -428,6 +442,7 @@ bool apply_ui_scaling_preset(Options& options, std::string_view preset)
     const Options defaults;
     options.ui_elements = defaults.ui_elements;
     options.ui_text_lines = defaults.ui_text_lines;
+    options.ui_dynamic_lines = defaults.ui_dynamic_lines;
     options.ui_visible_contexts = defaults.ui_visible_contexts;
     options.ui_empty_contexts = defaults.ui_empty_contexts;
     options.ui_hidden_contexts = defaults.ui_hidden_contexts;
@@ -437,6 +452,7 @@ bool apply_ui_scaling_preset(Options& options, std::string_view preset)
         options.ui_elements = 2048;
     } else if (preset == "text-heavy") {
         options.ui_text_lines = 256;
+        options.ui_dynamic_lines = 256;
         options.ui_text_mode = "dynamic";
     } else if (preset == "contexts-heavy") {
         options.ui_visible_contexts = 4;
@@ -461,6 +477,7 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.rect_count = defaults.rect_count;
     selected.ui_elements = defaults.ui_elements;
     selected.ui_text_lines = defaults.ui_text_lines;
+    selected.ui_dynamic_lines = defaults.ui_dynamic_lines;
     selected.ui_visible_contexts = defaults.ui_visible_contexts;
     selected.ui_empty_contexts = defaults.ui_empty_contexts;
     selected.ui_hidden_contexts = defaults.ui_hidden_contexts;
@@ -529,6 +546,7 @@ bool validate_reference_options(const Options& options, std::string& reason)
             options.transparent_overlay == defaults.transparent_overlay &&
             options.ui_elements == defaults.ui_elements &&
             options.ui_text_lines == defaults.ui_text_lines &&
+            options.ui_dynamic_lines == defaults.ui_dynamic_lines &&
             options.ui_visible_contexts == defaults.ui_visible_contexts &&
             options.ui_empty_contexts == defaults.ui_empty_contexts &&
             options.ui_hidden_contexts == defaults.ui_hidden_contexts &&
@@ -552,6 +570,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
             options.target_scale == defaults.target_scale &&
             options.msaa_samples == defaults.msaa_samples &&
             options.transparent_overlay == defaults.transparent_overlay &&
+            options.ui_dynamic_lines <= 256 &&
+            (options.ui_text_mode != "dynamic" ||
+             options.ui_dynamic_lines <= options.ui_text_lines) &&
             valid_ui_scaling_parameters(options.ui_elements, options.ui_text_lines,
                                         options.ui_visible_contexts, options.ui_empty_contexts,
                                         options.ui_hidden_contexts, options.ui_text_mode,
@@ -564,6 +585,7 @@ bool validate_reference_options(const Options& options, std::string& reason)
     }
     if (options.ui_elements != defaults.ui_elements ||
         options.ui_text_lines != defaults.ui_text_lines ||
+        options.ui_dynamic_lines != defaults.ui_dynamic_lines ||
         options.ui_visible_contexts != defaults.ui_visible_contexts ||
         options.ui_empty_contexts != defaults.ui_empty_contexts ||
         options.ui_hidden_contexts != defaults.ui_hidden_contexts ||

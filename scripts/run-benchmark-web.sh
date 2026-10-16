@@ -61,7 +61,7 @@ const keys = {
   "--width":"width", "--height":"height", "--rect-count":"rectCount",
   "--rect-scale":"rectScale", "--draw-calls":"drawCalls", "--quad-count":"quadCount",
   "--ui-preset":"uiPreset", "--ui-elements":"uiElements",
-  "--ui-text-lines":"uiTextLines", "--ui-visible-contexts":"uiVisibleContexts",
+  "--ui-text-lines":"uiTextLines", "--ui-dynamic-lines":"uiDynamicLines", "--ui-visible-contexts":"uiVisibleContexts",
   "--ui-empty-contexts":"uiEmptyContexts", "--ui-hidden-contexts":"uiHiddenContexts",
   "--ui-text-mode":"uiTextMode", "--ui-redraw":"uiRedraw",
   "--ui-clipping":"uiClipping", "--ui-transforms":"uiTransforms",

@@ -1007,6 +1007,9 @@ void BgfxRenderInterface::set_effect_observation(bool enabled)
 {
     m_capture_effects = enabled;
     if (enabled) {
+        // Keep error capture active after the preparation-only callback probe
+        // is disabled. Measurement failures must remain observable.
+        m_adapter->capture_effect_errors = true;
         m_effect_activity = {};
         m_effect_layer_depth = 0;
         m_effect_gradient_shaders.clear();

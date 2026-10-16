@@ -41,6 +41,13 @@ struct Environment {
     std::optional<UiBackendSettings> ui_backend;
     std::optional<UiEffectActivity> ui_effect_activity;
     std::optional<RawWorkloadReference> raw_workload;
+
+    void clear_scenario_metadata()
+    {
+        ui_backend.reset();
+        ui_effect_activity.reset();
+        raw_workload.reset();
+    }
 };
 
 [[nodiscard]] std::string encode_configuration(const Options& options);
