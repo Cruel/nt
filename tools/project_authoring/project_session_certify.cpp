@@ -857,6 +857,77 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
     require(editor->snapshot().valid,
             "Restoring saved Lua re-admits its original native source diagnostics");
 }
+
+void working_preparation_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto editor = ProjectSession::open(temp.root, error);
+    require(editor != nullptr, "Cannot admit editor preparation: " + error);
+    const auto baseline = editor->prepare_working(0);
+    require(baseline.accepted && Json::parse(baseline.record_overrides_json).empty() &&
+                Json::parse(baseline.project_json).at("project").at("name") == "Feature Lab",
+            "Saved Project preview baseline has no dirty native record overrides");
+    const auto changed =
+        editor->patch(0, {{RoomPatch::Operation::Replace, "/project/name", R"("Dirty Project")"},
+                          {RoomPatch::Operation::Replace, "/rooms/room-lifecycle-roundtrip/label",
+                           R"("Dirty Room")"},
+                          {RoomPatch::Operation::Replace, "/tests/world-composition-flow/label",
+                           R"("Dirty Test")"}});
+    require(changed.accepted && changed.snapshot.valid,
+            "Native preview certification accepts dirty Manifest, Room and Test patches");
+    const auto script_path = std::string("scripts/notice-board.lua");
+    const auto saved_script = read(temp.root / script_path);
+    const auto script = editor->stage_text_source(changed.snapshot.working_revision, script_path,
+                                                  "local label = Text.tr('Working Message')\n");
+    require(script.accepted && script.snapshot.valid,
+            "Native working preparation accepts unsaved managed Lua source");
+    const auto rml_path = std::string("records/layouts/notice-board/layout.rml");
+    const auto saved_markup = read(temp.root / rml_path);
+    const auto markup =
+        editor->stage_text_source(script.snapshot.working_revision, rml_path,
+                                  "<rml><body><nt-tr>Working UI</nt-tr></body></rml>");
+    require(markup.accepted && markup.snapshot.valid,
+            "Native working preparation accepts unsaved RML source");
+    const auto prepared =
+        editor->prepare_working(markup.snapshot.working_revision, "world-composition-flow");
+    require(
+        prepared.accepted && prepared.working_revision == markup.snapshot.working_revision &&
+            Json::parse(prepared.project_json).at("project").at("name") == "Dirty Project" &&
+            Json::parse(prepared.record_overrides_json)
+                    .at("rooms")
+                    .at("room-lifecycle-roundtrip")
+                    .at("label") == "Dirty Room" &&
+            Json::parse(prepared.record_overrides_json)
+                    .at("tests")
+                    .at("world-composition-flow")
+                    .at("label") == "Dirty Test" &&
+            Json::parse(prepared.record_overrides_json)
+                    .at("layouts")
+                    .at("notice-board")
+                    .at("data")
+                    .at("rml")
+                    .at("sourceText") == "<rml><body><nt-tr>Working UI</nt-tr></body></rml>" &&
+            prepared.text_overlays.at(script_path).find("Working Message") != std::string::npos &&
+            prepared.source_revisions.contains("records/tests/world-composition-flow.yaml"),
+        "Preview and Test preparations capture only native dirty sources, revisions and owners");
+    require(!editor->prepare_working(changed.snapshot.working_revision).accepted &&
+                !editor->prepare_working(markup.snapshot.working_revision, "absent-test").accepted,
+            "Native preparation rejects stale generations and missing authored Tests");
+    require(read(temp.root / script_path) == saved_script &&
+                read(temp.root / rml_path) == saved_markup,
+            "Unsaved preview sources never rewrite physical Project files");
+    auto cli = ProjectSession::open(temp.root, error);
+    require(cli && cli->prepare_working(0).accepted &&
+                Json::parse(cli->prepare_working(0).project_json).at("project").at("name") ==
+                    "Feature Lab",
+            "Independent CLI admission sees only saved disk state, not editor preview");
+    const auto invalid = editor->stage_text_source(markup.snapshot.working_revision, script_path,
+                                                   "Text.tr(dynamic)\n");
+    require(invalid.accepted && !invalid.snapshot.valid &&
+                !editor->prepare_working(invalid.snapshot.working_revision).accepted,
+            "Dirty source validation failures block preview and authored Test preparation");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -905,6 +976,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--source-analysis") {
             source_analysis_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--working-preparation") {
+            working_preparation_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--properties") {

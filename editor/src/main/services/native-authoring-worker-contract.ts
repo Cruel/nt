@@ -8,6 +8,9 @@ export const nativeAuthoringDiagnosticSchema = z
     code: z.string(),
     message: z.string(),
     severity: z.enum(['error', 'warning', 'info']),
+    sourcePath: z.string().optional(),
+    line: z.number().int().positive().optional(),
+    column: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -61,6 +64,20 @@ export const nativeAuthoringResultSchema = z
   })
   .strict();
 
+export const nativeAuthoringPreparationSchema = z
+  .object({
+    accepted: z.boolean(),
+    error: z.string(),
+    workingRevision: z.number().int().nonnegative(),
+    project: z.unknown().nullable(),
+    recordOverrides: z.record(z.string(), z.record(z.string(), z.unknown())),
+    sourceRevisions: z.record(z.string(), z.string()),
+    textOverlays: z.record(z.string(), z.string()),
+    shaderOverlays: z.record(z.string(), z.string()),
+    diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+  })
+  .strict();
+
 const base = { sessionId: z.string(), generation: z.number().int().positive() };
 export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
   z
@@ -86,7 +103,12 @@ export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
       ...base,
       type: z.literal('response'),
       requestId: z.number().int().positive(),
-      result: z.union([nativeAuthoringResultSchema, nativeAuthoringObservationSchema, z.null()]),
+      result: z.union([
+        nativeAuthoringResultSchema,
+        nativeAuthoringObservationSchema,
+        nativeAuthoringPreparationSchema,
+        z.null(),
+      ]),
     })
     .strict(),
   z.object({ ...base, type: z.literal('failure'), error: z.string() }).strict(),
@@ -94,6 +116,23 @@ export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
 
 export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
   z.object({ requestId: z.number().int().positive(), operation: z.literal('observe') }).strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('prepareWorking'),
+      expectedRevision: z.number().int().nonnegative(),
+      testId: z.string().max(256).default(''),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('stageTextSource'),
+      expectedRevision: z.number().int().nonnegative(),
+      path: z.string().min(1).max(2048),
+      text: z.string().max(4 * 1024 * 1024),
+    })
+    .strict(),
   z
     .object({ requestId: z.number().int().positive(), operation: z.literal('coverageLost') })
     .strict(),
@@ -184,3 +223,4 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
 
 export type NativeAuthoringEvent = z.infer<typeof nativeAuthoringEventSchema>;
 export type NativeAuthoringCommand = z.infer<typeof nativeAuthoringCommandSchema>;
+export type NativeAuthoringPreparation = z.infer<typeof nativeAuthoringPreparationSchema>;

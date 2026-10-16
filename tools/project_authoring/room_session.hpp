@@ -157,6 +157,21 @@ public:
     {
         return text_source_overlays_;
     }
+    struct WorkingPreparation {
+        bool accepted = false;
+        std::string error;
+        std::uint64_t working_revision = 0;
+        std::string project_json;
+        std::string record_overrides_json;
+        std::map<std::string, std::string> source_revisions;
+        std::map<std::string, std::string> text_overlays;
+        std::map<std::string, std::string> shader_overlays;
+        std::vector<Diagnostic> diagnostics;
+    };
+    // The editor's opt-in preparation seam: capture one revision-consistent
+    // effective working Project, without persisting it or invoking the CLI.
+    WorkingPreparation prepare_working(std::uint64_t expected_revision,
+                                       std::string_view test_id = {}) const;
     RoomSessionResult publish_material_compiler_result(std::uint64_t revision,
                                                        std::string_view material_id,
                                                        std::string_view native_tool_result_json);

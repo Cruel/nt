@@ -4,6 +4,7 @@ import {
   nativeAuthoringCommandSchema,
   nativeAuthoringObservationSchema,
   nativeAuthoringResultSchema,
+  nativeAuthoringPreparationSchema,
   nativeAuthoringSnapshotSchema,
   type NativeAuthoringEvent,
 } from './native-authoring-worker-contract';
@@ -30,6 +31,8 @@ interface NativeBinding {
   coverageLost(handle: unknown): void;
   patch(handle: unknown, revision: number, operations: string, preconditions?: string): string;
   save(handle: unknown, revision: string): string;
+  prepareWorking(handle: unknown, revision: number, testId: string): string;
+  stageTextSource(handle: unknown, revision: number, path: string, text: string): string;
 }
 
 interface WorkerStartup {
@@ -122,6 +125,28 @@ parent.on('message', (raw: unknown) => {
     const command = nativeAuthoringCommandSchema.parse(raw);
     let result: NativeAuthoringEvent & { type: 'response' };
     switch (command.operation) {
+      case 'prepareWorking':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringPreparationSchema.parse(
+            JSON.parse(binding.prepareWorking(handle, command.expectedRevision, command.testId)),
+          ),
+        };
+        break;
+      case 'stageTextSource':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(
+              binding.stageTextSource(handle, command.expectedRevision, command.path, command.text),
+            ),
+          ),
+        };
+        break;
       case 'observe':
         result = { ...identity, type: 'response', requestId: command.requestId, result: observe() };
         break;

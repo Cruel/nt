@@ -6,6 +6,7 @@ import {
 } from '../../renderer/project/save-unit-registry';
 import type { JsonValue } from '../../renderer/project/json-value';
 import type { NativeAuthoringCommand } from './native-authoring-worker-contract';
+import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
 import type { NativeAuthoringSessionBridge } from './native-authoring-session-bridge';
 import type { z } from 'zod';
 import {
@@ -116,6 +117,10 @@ export class NativeAuthoringWorkingProject {
     return this.view;
   }
 
+  sessionId(): string | null {
+    return this.projectSessionId;
+  }
+
   historyCursor(): number {
     return this.cursor;
   }
@@ -156,6 +161,40 @@ export class NativeAuthoringWorkingProject {
         this.view = merged;
         return { ...result, snapshot: merged };
       }
+      return result;
+    });
+  }
+
+  /** Capture the native working generation for the certification-only
+   * preview/Test adapter. Neither this method nor the worker saves files. */
+  async prepareWorking(testId = ''): Promise<NativeAuthoringPreparation> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const result = await this.bridge.request({
+        operation: 'prepareWorking',
+        expectedRevision: this.view.workingRevision,
+        testId,
+      });
+      if (!result || !('sourceRevisions' in result))
+        throw new Error('Native Project did not return a preparation snapshot.');
+      if (result.workingRevision !== this.view.workingRevision)
+        throw new Error('Native Project preparation advanced past the active working generation.');
+      return result;
+    });
+  }
+
+  async stageTextSource(path: string, text: string): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const result = await this.bridge.request({
+        operation: 'stageTextSource',
+        expectedRevision: this.view.workingRevision,
+        path,
+        text,
+      });
+      if (!result || !('accepted' in result))
+        throw new Error('Native Project did not return a text-source result.');
+      if (result.accepted) this.view = this.mergeSnapshot(result.snapshot);
       return result;
     });
   }
