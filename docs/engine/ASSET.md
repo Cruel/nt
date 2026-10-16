@@ -230,6 +230,15 @@ Asset validation currently checks:
 
 Component validators perform kind-specific warnings. For example, character sprite refs and room background refs warn when the target asset is not an image, while RML/RCSS Layout Asset sources warn on unexpected extensions or non-text-like Asset kinds. Lua and shader source validation uses source-file path and compiler/source-analysis contracts instead of Asset-kind checks.
 
+The parallel native Project authoring certification (#488) additionally exercises the generated
+Asset schema refinements, attachment paths/duplicates, source-file presence and containment,
+alias uniqueness, and localized Asset target compatibility. These checks operate on tracked
+metadata and filesystem entries without decoding or hashing binary Asset payloads during an
+ordinary Project open or scoped YAML Save. The native physical-Asset watcher tracks filesystem
+metadata as a change hint, separate from exact tracked-YAML source revisions; authoring/import
+services remain responsible for explicit content-hash verification when media bytes matter.
+This certification path does not yet replace production TypeScript validation.
+
 ## Command Behavior
 
 Asset-specific commands are command-backed and produce JSON patches:

@@ -197,7 +197,7 @@ SourceAuthority::Capture SourceAuthority::capture() const
             throw std::runtime_error("Cannot observe Project source: " + relative);
         return read_exact_bytes(absolute);
     };
-    const auto add = [&](const std::string& relative) {
+    const auto add = [&](const std::string& relative, bool physical_asset = false) {
         const auto absolute = secure(relative);
         const auto parent = std::filesystem::path(relative).parent_path();
         if (!parent.empty() && std::filesystem::is_directory(root_ / parent))
@@ -211,7 +211,18 @@ SourceAuthority::Capture SourceAuthority::capture() const
         }
         if (ec || !std::filesystem::is_regular_file(status))
             throw std::runtime_error("Cannot observe Project source: " + relative);
-        result.revisions.emplace(relative, exact_source_revision(read_exact_bytes(absolute)));
+        if (physical_asset) {
+            // Binary Asset authority is distinct from tracked authoring YAML. A
+            // general watch/admission scan must not read potentially huge media.
+            // Physical identity is a change hint, not an Asset content hash.
+            const auto size = std::filesystem::file_size(absolute);
+            const auto modified = std::filesystem::last_write_time(absolute);
+            result.revisions.emplace(relative,
+                                     "physical:" + std::to_string(size) + ":" +
+                                         std::to_string(modified.time_since_epoch().count()));
+        } else {
+            result.revisions.emplace(relative, exact_source_revision(read_exact_bytes(absolute)));
+        }
     };
     const auto scan = [&](const std::string& directory, auto&& accept) {
         const auto absolute = secure(directory);
@@ -386,8 +397,24 @@ SourceAuthority::Capture SourceAuthority::capture() const
         (void)record;
         assets.insert(paths.begin(), paths.end());
     }
-    for (const auto& path : assets)
-        add(path);
+    for (const auto& path : assets) {
+        try {
+            add(path, true);
+        } catch (const std::exception&) {
+            // An invalid reference is attributable to the owning YAML source,
+            // not a reason to abandon observation of unrelated Project sources.
+            bool attributed = false;
+            for (const auto& [record, references] : result.asset_references)
+                if (references.contains(path)) {
+                    result.invalid_sources.push_back(
+                        {record, "Referenced Asset path is not contained in the Project."});
+                    attributed = true;
+                }
+            if (!attributed)
+                result.invalid_sources.push_back(
+                    {"project.yaml", "Distribution notice path is not contained in the Project."});
+        }
+    }
     return result;
 }
 
