@@ -80,6 +80,14 @@ tasks.register("stageBenchmarkAssets", Sync) {
         include "LiberationSans.ttf"
         into "fonts"
     }
+    // Real Engine-owned scenarios mount system:/ from the APK asset manager.
+    from(file("../../engine/assets/system")) {
+        into "system"
+    }
+    from(project(":app").file("build/generated/noveltea/shaders")) {
+        include "shaders/bgfx/essl-300/**"
+        into "system"
+    }
     into file("$buildDir/generated/benchmark-assets")
     doLast {
         ["shaders/bgfx/essl-300/imgui.vs.bin",

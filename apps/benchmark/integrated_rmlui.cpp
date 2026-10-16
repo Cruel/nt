@@ -1,5 +1,6 @@
 #include "integrated_rmlui.hpp"
 #include "benchmark_bgfx_diagnostics.hpp"
+#include "benchmark_android_lifecycle.hpp"
 
 #include "reference_scene.hpp"
 #include "benchmark_assets.hpp"
@@ -43,6 +44,7 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     std::string ignored;
     (void)cleanup(ignored);
     environment_ = {};
+    last_interruption_ = Interruption::None;
     // A different aspect ratio introduces production letterboxing. This
     // Stage-1 fixed reference deliberately supports only comparable 16:9
     // windows, rather than presenting misleading cross-host equivalence.
@@ -54,8 +56,19 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     // Use the exact same RML source as the standalone adapter, not a hand
     // maintained lookalike. Generation, disk I/O and Engine initialization
     // precede both warmup and measurement.
+#if defined(__ANDROID__)
+    // Android's APK assets are read-only; the generated reference document
+    // belongs in the benchmark application's private writable storage.
+    const char* pref_root = SDL_GetPrefPath("org.noveltea", "benchmark");
+    if (!pref_root) {
+        reason = "cannot resolve Android benchmark private storage";
+        return false;
+    }
+    const auto project_root = std::filesystem::path(pref_root) / "integrated-reference-project";
+#else
     const auto project_root =
         std::filesystem::path(NOVELTEA_BENCHMARK_RESULTS_DIR) / "integrated-reference-project";
+#endif
     std::error_code error;
     std::filesystem::create_directories(project_root, error);
     if (error) {
@@ -85,7 +98,9 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
 
     EngineConfig config;
     config.project_asset_root = project_root;
+#if !defined(__ANDROID__)
     config.system_asset_root = benchmark_asset_path("system");
+#endif
     config.load_title_screen = false;
     config.enable_audio = false;
 
@@ -116,9 +131,16 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     const auto size = engine_->backbuffer_size();
     const auto& presentation = engine_->presentation();
     if (presentation.reference.size.width != 1920 || presentation.reference.size.height != 1080 ||
-        presentation.viewport.host_framebuffer_rect.width != size.width ||
-        presentation.viewport.host_framebuffer_rect.height != size.height) {
-        reason = "unsupported Engine UI reference or letterboxed framebuffer configuration";
+        presentation.viewport.host_framebuffer_rect.width < 1 ||
+        presentation.viewport.host_framebuffer_rect.height < 1 ||
+        presentation.viewport.host_framebuffer_rect.width > size.width ||
+        presentation.viewport.host_framebuffer_rect.height > size.height) {
+        reason = "unsupported Engine UI reference or letterboxed framebuffer configuration: " +
+                 std::to_string(presentation.reference.size.width) + "x" +
+                 std::to_string(presentation.reference.size.height) + " ref, viewport " +
+                 std::to_string(presentation.viewport.host_framebuffer_rect.width) + "x" +
+                 std::to_string(presentation.viewport.host_framebuffer_rect.height) +
+                 ", backbuffer " + std::to_string(size.width) + "x" + std::to_string(size.height);
         (void)cleanup(ignored);
         return false;
     }
@@ -132,8 +154,10 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         environment_.gpu_vendor_id = caps->vendorId;
         environment_.gpu_device_id = caps->deviceId;
     }
-    environment_.width_pixels = size.width;
-    environment_.height_pixels = size.height;
+    // Engine::backbuffer_size() may be a padded allocation (e.g. 1280x768
+    // for a 1280x720 browser canvas). Report the actual presented viewport.
+    environment_.width_pixels = presentation.viewport.host_framebuffer_rect.width;
+    environment_.height_pixels = presentation.viewport.host_framebuffer_rect.height;
     environment_.ui_reference_width = presentation.reference.size.width;
     environment_.ui_reference_height = presentation.reference.size.height;
     environment_.ui_raster_width = presentation.ui_raster.size.width;
@@ -190,10 +214,24 @@ Readiness IntegratedRmlUi::readiness(std::string& reason)
 
 bool IntegratedRmlUi::frame(std::string& reason)
 {
+#if defined(__ANDROID__)
+    if (!android_benchmark_foreground()) {
+        last_interruption_ = Interruption::Recoverable;
+        reason = "Android Activity suspended during integrated RmlUi benchmark";
+        return false;
+    }
+#endif
     if (!engine_ || !engine_->is_running() || !engine_->tick()) {
         reason = "production Engine frame failed or was interrupted";
         return false;
     }
+#if defined(__ANDROID__)
+    if (!android_benchmark_foreground()) {
+        last_interruption_ = Interruption::Recoverable;
+        reason = "Android Activity suspended during integrated RmlUi frame";
+        return false;
+    }
+#endif
     return true; // One tick renders one full Engine frame, not context completions.
 }
 

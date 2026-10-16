@@ -51,11 +51,29 @@ struct WebBenchmarkApp {
         return true;
     }
 
+    static bool engine_owned(const std::string& id)
+    {
+        return id == "engine-empty" || id == "integrated-rmlui-controlled" ||
+               id == "integrated-rmlui-production";
+    }
+
     bool supported_scenario(const std::string& id) const
     {
-        return id == "raw-bgfx-empty" || id == "raw-bgfx-geometry" ||
+        return engine_owned(id) || id == "raw-bgfx-empty" || id == "raw-bgfx-geometry" ||
                noveltea::benchmark::is_extended_raw_scenario(id) ||
                id == "standalone-rmlui-simple";
+    }
+
+    Environment scenario_environment() const
+    {
+        if (current_options.scenario == "engine-empty")
+            return static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
+                .environment();
+        if (current_options.scenario == "integrated-rmlui-controlled" ||
+            current_options.scenario == "integrated-rmlui-production")
+            return static_cast<const noveltea::benchmark::IntegratedRmlUi&>(*active_scenario)
+                .environment();
+        return graphics.environment;
     }
 
     void draw_preview()
@@ -161,27 +179,35 @@ struct WebBenchmarkApp {
         std::string error;
         if (quick_suite_active) {
             const auto& ids = noveltea::benchmark::quick_suite_scenarios();
-            while (quick_index < ids.size()) {
+            if (quick_index < ids.size()) {
                 current_options = noveltea::benchmark::reference_scenario_options(
                     options, ids[quick_index]);
                 current_options.quick_suite = true;
-                if (supported_scenario(current_options.scenario))
-                    break;
-                noveltea::benchmark::append_failed_scenario(
-                    collected, ids[quick_index],
-                    "Engine-owned graphics transitions are not supported by the Web host");
-                collected_environments.emplace_back();
-                ++quick_index;
             }
             if (quick_index == ids.size()) {
                 finish_collection();
                 return;
             }
         }
-        if (!supported_scenario(current_options.scenario) ||
-            !noveltea::benchmark::validate_run_options(current_options, error) ||
-            !noveltea::benchmark::validate_reference_options(current_options, error) ||
-            !graphics.reconfigure(current_options, error)) {
+        const bool owns_engine = engine_owned(current_options.scenario);
+        const bool valid = supported_scenario(current_options.scenario) &&
+                           noveltea::benchmark::validate_run_options(current_options, error) &&
+                           noveltea::benchmark::validate_reference_options(current_options, error);
+        const bool graphics_ok =
+            !valid ? false
+            : owns_engine ? true
+            : (graphics.bgfx_ready || graphics.initialize(current_options, error)) &&
+                  graphics.reconfigure(current_options, error);
+        if (!valid || !graphics_ok) {
+            // A failed raw host transition may have partially initialized
+            // SDL or bgfx. Fully release it before another Engine takes over.
+            if (valid && !graphics_ok && !owns_engine) {
+                preview_geometry.shutdown();
+                preview_workload.shutdown();
+                preview_ui.shutdown();
+                dashboard.shutdown();
+                graphics.shutdown();
+            }
             feedback = error.empty() ? "unsupported Web scenario" : error;
             if (quick_suite_active) {
                 noveltea::benchmark::append_failed_scenario(
@@ -197,20 +223,34 @@ struct WebBenchmarkApp {
         preview_workload.shutdown();
         preview_ui.shutdown();
         dashboard.shutdown();
-        // Drain dashboard GPU allocations and clear prior UI pixels, all untimed.
-        for (int i = 0; i < 2; ++i)
-            bgfx::frame();
-        bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x000000ff);
-        for (int i = 0; i < 4; ++i) {
-            bgfx::touch(0);
-            bgfx::frame();
+        if (graphics.bgfx_ready) {
+            // Drain dashboard allocations and clear its pixels outside sampling.
+            for (int i = 0; i < 2; ++i)
+                bgfx::frame();
+            if (owns_engine) {
+                // The production Engine creates its own SDL window and bgfx device.
+                // Keep the page and its registered rAF callback alive.
+                graphics.shutdown();
+            } else {
+                bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x000000ff);
+                for (int i = 0; i < 4; ++i) {
+                    bgfx::touch(0);
+                    bgfx::frame();
+                }
+                bgfx::setViewClear(0, BGFX_CLEAR_NONE);
+                for (int i = 0; i < 2; ++i) {
+                    bgfx::touch(0);
+                    bgfx::frame();
+                }
+            }
         }
-        bgfx::setViewClear(0, BGFX_CLEAR_NONE);
-        for (int i = 0; i < 2; ++i) {
-            bgfx::touch(0);
-            bgfx::frame();
-        }
-        if (frozen.scenario == "raw-bgfx-geometry")
+        if (frozen.scenario == "engine-empty")
+            active_scenario = std::make_unique<noveltea::benchmark::EmptyEngine>();
+        else if (frozen.scenario == "integrated-rmlui-controlled" ||
+                 frozen.scenario == "integrated-rmlui-production")
+            active_scenario = std::make_unique<noveltea::benchmark::IntegratedRmlUi>(
+                frozen.scenario == "integrated-rmlui-controlled");
+        else if (frozen.scenario == "raw-bgfx-geometry")
             active_scenario = std::make_unique<GeometryBgfxScenario>(&graphics);
         else if (noveltea::benchmark::is_extended_raw_scenario(frozen.scenario))
             active_scenario = std::make_unique<RawReferenceScenario>(&graphics, frozen.scenario);
@@ -225,9 +265,15 @@ struct WebBenchmarkApp {
             frozen, *active_scenario, clock, [this](std::string& error) {
                 if (EM_ASM_INT({ return document.hidden || window.NovelTeaBenchmark.contextLost; }))
                     return noveltea::benchmark::RecoveryState::Pending;
-                if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; }) &&
-                    !restore_graphics(error))
-                    return noveltea::benchmark::RecoveryState::Failed;
+                if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; })) {
+                    if (engine_owned(current_options.scenario)) {
+                        // The interrupted Engine has already shut down its bgfx owner;
+                        // its next preparation creates a fresh Engine-owned device.
+                        EM_ASM({ window.NovelTeaBenchmark.contextRecoveryNeeded = false; });
+                    } else if (!restore_graphics(error)) {
+                        return noveltea::benchmark::RecoveryState::Failed;
+                    }
+                }
                 EM_ASM({ window.NovelTeaBenchmark.backgrounded = false; });
                 return noveltea::benchmark::RecoveryState::Ready;
             });
@@ -238,13 +284,14 @@ struct WebBenchmarkApp {
     void finish(bool graphics_unavailable = false)
     {
         const auto latest = active->result();
+        const Environment environment = scenario_environment();
         active.reset();
         if (graphics_unavailable)
             deferred_scenario = std::move(active_scenario);
         else
             active_scenario.reset();
         if (quick_suite_active) {
-            collected_environments.push_back(graphics.environment);
+            collected_environments.push_back(environment);
             noveltea::benchmark::append_suite_result(collected, latest);
             if (!graphics_unavailable && latest.outcome != "cancelled") {
                 ++quick_index;
@@ -253,6 +300,7 @@ struct WebBenchmarkApp {
             }
         } else {
             collected = latest;
+            collected_environments = {environment};
         }
         finish_collection(graphics_unavailable);
     }
@@ -283,16 +331,19 @@ struct WebBenchmarkApp {
                                  trial.reason.c_str());
             }
         }
-        // JSON reporting and application-state transitions require no GL.
-        // Rebuild the dashboard only when its WebGL context is usable.
-        if (!options.no_ui && !graphics_unavailable) {
+        // The terminal Engine's SDL/bgfx owner is gone. Restore the benchmark
+        // host before creating ImGui or continuing with idle rAF callbacks.
+        if (!graphics_unavailable) {
             std::string error;
-            if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; }) &&
-                !restore_graphics(error)) {
-                feedback = "graphics recreation after context loss: " + error;
-            } else if (!dashboard.initialize(graphics.window, options, error)) {
-                feedback = "dashboard recreation: " + error;
+            if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; })) {
+                if (!restore_graphics(error))
+                    feedback = "graphics recreation after context loss: " + error;
+            } else if (!graphics.bgfx_ready && !graphics.initialize(options, error)) {
+                feedback = "graphics recreation after Engine run: " + error;
             }
+            if (!options.no_ui && graphics.bgfx_ready &&
+                !dashboard.initialize(graphics.window, options, error))
+                feedback = "dashboard recreation: " + error;
         }
         if (options.dashboard_smoke && completed_run->result.outcome == "complete") {
             std::printf("[benchmark] web dashboard cycle %d complete\n", ++smoke_cycle);
@@ -383,7 +434,7 @@ struct WebBenchmarkApp {
                        action == noveltea::benchmark::DashboardAction::QuickSuite) {
                 start(action == noveltea::benchmark::DashboardAction::QuickSuite);
             }
-        } else {
+        } else if (graphics.bgfx_ready) {
             // Keep the browser's rAF callback live after unattended completion.
             bgfx::touch(0);
             bgfx::frame();

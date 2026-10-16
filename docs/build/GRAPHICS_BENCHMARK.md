@@ -217,14 +217,19 @@ It releases preview and ImGui GPU
 resources once before the first trial and does not re-create the dashboard
 between scenarios. The raw bgfx and standalone RmlUi cases retain the shared
 SDL window/bgfx host but release each scenario's resources between runs.
-On Android, recoverable interruptions of shared-host Quick Suite trials now
-wait for foreground restoration and rebuild SDL/bgfx before a fresh warmup,
+On Android, recoverable interruptions of shared-host Quick Suite trials
+wait for foreground restoration and rebuild SDL/bgfx before fresh warmup,
 with bounded retries; failed recovery blocks subsequent ownership changes.
-This is wired to the same recovery helper as single dashboard trials, but
-physical-device pause/resume still requires separate certification.
-On Linux, the benchmark destroys that host before an Engine-owned scenario
-initializes its own SDL window/bgfx device, and re-creates the dashboard host
-only after the suite completes. A cleanup failure blocks unsafe subsequent
+Engine-owned Android trials additionally detect Activity backgrounding and
+reject skipped production Engine ticks as valid benchmark samples. A physical
+Pixel 6a foreground/background/resume test of `engine-empty` completed a
+15-second trial with `interruption_retries: 1`, confirming fresh preparation
+and measurement after the interrupted attempt. Equivalent interruption testing
+of both integrated RmlUi modes remains a separate verification gap. On Linux and Android, the benchmark destroys the shared host
+before an Engine-owned scenario initializes its own SDL window/bgfx device.
+Web performs the same transfer between rAF callbacks, without unregistering
+the browser main loop. All three platforms restore the benchmark host before
+returning to dashboard rendering. A cleanup failure blocks unsafe subsequent
 ownership transfers. A failed preparation or unsupported scenario records
 its own failed trial and does not discard successful independent cases.
 
@@ -233,20 +238,21 @@ A mixed-host JSON report contains the ordered `scenarios[]` with per-scenario
 is `null` when different hosts were used; no single renderer or framebuffer
 describes the collection. The outcome is `complete` only if every case
 completed, otherwise `partial` when some measurements succeeded, or
-`failed` when none succeeded. On Web and Android, the Engine-owned cases
-still lack a safe supported renderer-host transition and are explicitly
-marked failed (rather than assigned fabricated samples). Web executes its
-three supported references on successive animation callbacks while keeping
-the browser event loop responsive; Android executes the two supported raw
-references and reports the other cases as unsupported. Linux is the currently
-complete six-scenario platform.
+`failed` when none succeeded. Linux, Android, Chromium and Firefox execute
+all six Stage 1 references with real, mutually exclusive renderer hosts.
+Web executes them on successive animation callbacks without blocking the
+browser event loop. Android keeps its Activity and native window lifecycle
+while Engine scenarios independently initialize and shut down their own
+bgfx device. If a host transition fails, that scenario records a failure
+rather than fabricated CPU/GPU samples.
 
 `noveltea_benchmark_suite` tests ordering, cleanup-before-next-preparation
 and independent failures. The two Linux Quick Suite GPU smoke tests run the
 collection unattended and through three dashboard teardown/recreate cycles,
-respectively. Web browser smoke checks its three supported measured cases
-and separate unsupported-host results; these are correctness tests without
-performance thresholds.
+respectively. Web browser smoke verifies all six scenario measurements,
+Engine-to-raw transitions, no-UI individual Engine runs, browser context-loss
+recovery, and canonical configuration normalization; these are correctness
+tests without performance thresholds.
 
 ## Standalone Web benchmark (#431)
 
@@ -275,9 +281,11 @@ retains the dashboard when scenario settings are supplied; otherwise CLI
 run settings follow the native no-UI default.
 The Debug build is **not** comparable to optimized performance results.
 
-Web Stage 1 supports `raw-bgfx-empty`, `raw-bgfx-geometry`, and
-`standalone-rmlui-simple`. Engine-owned scenarios are not exposed on Web
-at this stage. The Emscripten host uses SDL3 and bgfx OpenGLES/WebGL2;
+Web Stage 1 supports the full six-scenario reference suite, including
+`engine-empty`, `integrated-rmlui-controlled`, and
+`integrated-rmlui-production`. The Web package stages production Engine
+system assets alongside the independent dashboard assets. The Emscripten
+host uses SDL3 and bgfx OpenGLES/WebGL2;
 the ImGui dashboard is the real benchmark frontend, not a JavaScript
 replacement. Its resources and preview resources are destroyed and GPU
 deletion drained outside sampling, then reconstructed for the Results
@@ -320,8 +328,10 @@ The smoke runs in Chromium and Firefox, compares untimed reference-preview
 pixels to the empty reference, checks a no-ImGui geometry trial and browser
 JSON download, verifies that hidden-tab sampling fails, confirms event-loop
 progress, and exercises three dashboard teardown/recreate cycles crossing raw
-bgfx and standalone RmlUi scenes. It verifies completion and sample counts, never
-hardware FPS. A browser that does not expose WebGL2 fails the check
+bgfx and standalone RmlUi scenes, plus all Engine-owned scenarios and their
+exclusive renderer ownership transitions. It also interrupts an active
+Engine-owned trial with WebGL context loss, then checks fresh-warmup recovery.
+It verifies completion and sample counts, never hardware FPS. A browser that does not expose WebGL2 fails the check
 rather than being misrepresented as a performance result.
 
 ## Interactive Linux dashboard (#424)
@@ -682,9 +692,12 @@ adb -s DEVICE logcat -s 'SDL/APP:V' | grep '\[benchmark\]'
 ```
 
 The default launch opens the touch-scaled ImGui dashboard. Stage 1 Android
-supports `raw-bgfx-empty` and `raw-bgfx-geometry`: both render directly
-through a separate SDL3/bgfx OpenGLES host with the native fullscreen
-framebuffer; their shader binaries are packaged as `essl-300` APK assets.
+supports all six Quick Suite scenarios: raw bgfx, standalone RmlUi, empty
+production Engine, and both integrated production RmlUi reference paths.
+The APK stages its own independent shader/font assets and the real Engine's
+system assets. The standalone RmlUi font is loaded from APK bytes rather
+than a filesystem path. Raw scenarios render through the SDL3/bgfx
+OpenGLES host with the native fullscreen framebuffer.
 The dashboard releases ImGui, SDL input binding and associated bgfx objects
 before strict warmup/sampling, then recreates them afterwards. On Android,
 `raw-bgfx-empty` still swaps EGL buffers but intentionally submits no clear or
@@ -711,8 +724,15 @@ stale native window. The Android native-window reference is held until bgfx
 shutdown to prevent concurrent surface destruction from freeing the pointer
 mid-initialization. Device sleep does not run benchmarks in the background;
 after wake/unlock the app may initialize its dashboard normally.
-Standalone/integrated RmlUi and Engine-owned scenarios are **not**
-advertised as supported by this Android Stage 1 slice.
+The benchmark Activity also exposes the production Engine's foreground
+readiness contract so ownership transitions cannot initialize EGL on an
+unfocused Activity. Engine-owned trials check foreground state around each
+tick and discard an interrupted attempt rather than counting suspended ticks;
+recovery waits for foreground restoration and begins a new warmup. On
+non-16:9 Android displays, the production Engine applies its normal
+letterboxed presentation: compare actual reported viewport and UI raster
+settings before treating standalone and integrated frame times as visually
+equivalent.
 
 Run summaries appear once per completed run in logcat (not once per frame).
 Each run writes JSON under the benchmark app's `SDL_GetPrefPath`/results
@@ -726,8 +746,10 @@ shader outputs, not to build/install or export a player APK.
 OpenGL ES 3.0) completed repeated optimized unattended runs from the shared
 canonical JSON: two successful 60-frame trials (120 samples) per run, raw
 CPU samples, and a retrievable app-private JSON report validated by the
-same Stage 1 report checker as Linux/Web. The app also waited correctly
-when initially launched onto a sleeping device, then initialized after
+same Stage 1 report checker as Linux/Web. The Pixel 6a also completed a
+six-of-six 30-frame Quick Suite, including the two integrated Engine modes.
+The app waited correctly when initially launched onto a sleeping device,
+then initialized after
 Activity focus returned. An additional 5,000-frame physical run interrupted
 by Home and resumed the Activity, completed 5,000 valid frames with one
 recorded interruption retry. This verifies actual GPU-host execution,

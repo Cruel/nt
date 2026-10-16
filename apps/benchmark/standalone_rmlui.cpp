@@ -147,8 +147,20 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
         return false;
     }
     core_initialized_ = true;
+    // RmlUi's pathname loader uses ordinary fopen, which cannot read APK
+    // assets. SDL_LoadFile resolves both packaged Android assets and the
+    // regular Linux/Web benchmark paths. Retain the bytes until Shutdown.
     const std::string font_path = benchmark_asset_path(NOVELTEA_BENCHMARK_FONT_PATH).string();
-    const bool font_loaded = Rml::LoadFontFace(font_path);
+    size_t font_size = 0;
+    void* font_bytes = SDL_LoadFile(font_path.c_str(), &font_size);
+    if (font_bytes && font_size > 0) {
+        const auto* first = static_cast<const Rml::byte*>(font_bytes);
+        font_memory_.assign(first, first + font_size);
+    }
+    SDL_free(font_bytes);
+    const bool font_loaded = !font_memory_.empty() &&
+                             Rml::LoadFontFace(Rml::Span<const Rml::byte>(font_memory_),
+                                               "Liberation Sans", Rml::Style::FontStyle::Normal);
     if (!font_loaded) {
         reason = "cannot load standalone RmlUi common font";
         shutdown();
@@ -227,6 +239,7 @@ void StandaloneRmlUi::shutdown()
     if (core_initialized_)
         Rml::Shutdown();
     core_initialized_ = false;
+    font_memory_.clear();
     Rml::SetRenderInterface(nullptr);
     Rml::SetSystemInterface(nullptr);
     renderer_.reset();

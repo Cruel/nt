@@ -421,6 +421,14 @@ struct Graphics {
 // Shared-host trials release their scenario-owned GPU objects on interruption, but
 // intentionally retain Graphics. Rebuild that Android surface/EGL owner before
 // retrying after foreground restoration, just like a single dashboard run.
+noveltea::benchmark::Recovery android_engine_recovery()
+{
+    return [](std::string& reason) {
+        return wait_for_android_foreground(reason) ? noveltea::benchmark::RecoveryState::Ready
+                                                   : noveltea::benchmark::RecoveryState::Failed;
+    };
+}
+
 noveltea::benchmark::Recovery android_shared_graphics_recovery(Graphics& graphics,
                                                                const Options& selected)
 {
@@ -793,14 +801,6 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
         std::string reason;
         const bool engine_owned = id == "engine-empty" || id == "integrated-rmlui-controlled" ||
                                   id == "integrated-rmlui-production";
-#if defined(__ANDROID__)
-        if (engine_owned || id == "standalone-rmlui-simple") {
-            noveltea::benchmark::append_failed_scenario(
-                collection, id, "This reference renderer is not yet supported by the Android host");
-            environments.emplace_back();
-            continue;
-        }
-#endif
         SuiteResult item;
         if (engine_owned) {
             // Shutdown bgfx and SDL before EngineTooling takes ownership.
@@ -812,7 +812,12 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
                                : id == "integrated-rmlui-controlled"
                                    ? static_cast<Scenario*>(&controlled)
                                    : static_cast<Scenario*>(&production);
+#if defined(__ANDROID__)
+            item = noveltea::benchmark::run_suite(selected, {target}, clock,
+                                                  android_engine_recovery());
+#else
             item = noveltea::benchmark::run_suite(selected, {target}, clock);
+#endif
             environments.push_back(id == "engine-empty" ? empty.environment()
                                    : id == "integrated-rmlui-controlled"
                                        ? controlled.environment()
@@ -879,13 +884,6 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
 
 int run_dashboard(Options options)
 {
-#if defined(__ANDROID__)
-    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
-        !noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
-        std::fprintf(stderr, "[benchmark] Android Stage 1 supports raw-bgfx only\n");
-        return 2;
-    }
-#endif
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
@@ -999,12 +997,6 @@ int run_dashboard(Options options)
                   : options;
         run_options.quick_suite = quick;
 #if defined(__ANDROID__)
-        if (run_options.scenario != "raw-bgfx-empty" &&
-            run_options.scenario != "raw-bgfx-geometry" &&
-            !noveltea::benchmark::is_extended_raw_scenario(run_options.scenario)) {
-            feedback = "Android supports raw bgfx scenarios only";
-            return;
-        }
         EmptyBenchmarkCover cover;
         if (!quick && run_options.scenario == "raw-bgfx-empty" && !cover.show(feedback))
             return;
@@ -1055,7 +1047,11 @@ int run_dashboard(Options options)
             noveltea::benchmark::EmptyEngine empty_engine;
             Scenario* selected = integrated ? static_cast<Scenario*>(&engine_ui)
                                             : static_cast<Scenario*>(&empty_engine);
-            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock);
+            noveltea::benchmark::Recovery recover;
+#if defined(__ANDROID__)
+            recover = android_engine_recovery();
+#endif
+            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock, recover);
             ran = true;
             completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
             const auto& environment =
@@ -1308,13 +1304,6 @@ int run(const Options& options)
         std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
         return 2;
     }
-#if defined(__ANDROID__)
-    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
-        !noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
-        std::fprintf(stderr, "[benchmark] Android Stage 1 supports raw-bgfx only\n");
-        return 2;
-    }
-#endif
     SteadyClock clock;
     if (options.quick_suite) {
         Graphics graphics;
@@ -1354,7 +1343,13 @@ int run(const Options& options)
         : options.scenario == "integrated-rmlui-production" ? static_cast<Scenario*>(&production)
         : options.scenario == "engine-empty"                ? static_cast<Scenario*>(&empty_engine)
                                                             : static_cast<Scenario*>(&empty);
-    const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock);
+    noveltea::benchmark::Recovery recover;
+#if defined(__ANDROID__)
+    if (options.scenario == "engine-empty" || options.scenario == "integrated-rmlui-controlled" ||
+        options.scenario == "integrated-rmlui-production")
+        recover = android_engine_recovery();
+#endif
+    const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock, recover);
     const Environment environment =
         options.scenario == "engine-empty"                  ? empty_engine.environment()
         : options.scenario == "integrated-rmlui-controlled" ? controlled.environment()

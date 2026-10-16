@@ -121,6 +121,12 @@ if(EMSCRIPTEN)
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/essl-300"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/shaders/bgfx/essl-300"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${PROJECT_SOURCE_DIR}/engine/assets/system"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/system"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/system/shaders"
         VERBATIM)
     if(TARGET noveltea-shaders)
         add_dependencies(noveltea-benchmark-web-assets noveltea-shaders)
@@ -131,8 +137,10 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=131072
         "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
         "SHELL:--preload-file ${NOVELTEA_WEB_BENCHMARK_ASSETS}@/assets")
-    # --preload-file is consumed only during linking. A changed shader/font
-    # must regenerate benchmark.data even if no C++ source needs recompilation.
+    # --preload-file is consumed at link time. Track changes to the complete
+    # production Engine system asset tree, not just the dashboard shaders.
+    file(GLOB_RECURSE NOVELTEA_WEB_BENCHMARK_SYSTEM_ASSETS CONFIGURE_DEPENDS
+        "${PROJECT_SOURCE_DIR}/engine/assets/system/*")
     include("${PROJECT_SOURCE_DIR}/cmake/NovelTeaShaderManifest.cmake")
     noveltea_collect_shader_outputs(
         VARIANTS essl-300
@@ -141,7 +149,7 @@ if(EMSCRIPTEN)
     set_property(TARGET noveltea-benchmark-app APPEND PROPERTY
         LINK_DEPENDS
             "${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
-            "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
+            ${NOVELTEA_WEB_BENCHMARK_SYSTEM_ASSETS}
             ${NOVELTEA_WEB_BENCHMARK_SHADERS})
     if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
         target_compile_options(noveltea-benchmark-app PRIVATE -flto)

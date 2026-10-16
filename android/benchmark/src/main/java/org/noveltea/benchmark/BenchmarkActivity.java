@@ -35,6 +35,12 @@ public class BenchmarkActivity extends SDLActivity {
                 && !isFinishing() && !isDestroyed();
     }
 
+    /** The production Engine's Android Platform uses this readiness contract.
+     * Both the benchmark and Engine hosts share this Activity during transitions. */
+    public boolean isPlayerGraphicsReady() {
+        return isBenchmarkLaunchReady();
+    }
+
     /**
      * An empty bgfx frame deliberately has no clear or draws. EGL swap buffers need not
      * preserve their contents, so a static Android window cover prevents stale dashboard
