@@ -4,6 +4,7 @@
 
 #if defined(__ANDROID__)
 #include <SDL3/SDL_system.h>
+#include <android/native_window.h>
 #include <jni.h>
 #endif
 
@@ -70,6 +71,57 @@ struct SteadyClock final : Clock {
 };
 
 #if defined(__ANDROID__)
+// ADB can start SDL_main on a sleeping device after the Activity has already
+// paused. Do not create SDL/bgfx graphics against that transient ANativeWindow.
+// This wait happens only during graphics initialization, never while sampling.
+bool wait_for_android_foreground(std::string& reason)
+{
+    auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    if (!env) {
+        reason = "Android JNI environment unavailable during startup";
+        return false;
+    }
+    auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (!activity) {
+        reason = "Android benchmark Activity unavailable during startup";
+        return false;
+    }
+    auto activity_class = env->GetObjectClass(activity);
+    const jmethodID ready = activity_class
+                                ? env->GetMethodID(activity_class, "isBenchmarkLaunchReady", "()Z")
+                                : nullptr;
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (activity_class)
+        env->DeleteLocalRef(activity_class);
+    if (!ready) {
+        env->DeleteLocalRef(activity);
+        reason = "Android benchmark Activity lacks lifecycle readiness API";
+        return false;
+    }
+    bool waiting = false;
+    while (true) {
+        const bool foreground = env->CallBooleanMethod(activity, ready) == JNI_TRUE;
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+            env->DeleteLocalRef(activity);
+            reason = "Android lifecycle readiness check failed";
+            return false;
+        }
+        if (foreground)
+            break;
+        if (!waiting) {
+            SDL_Log("[benchmark] waiting for awake, focused Activity before graphics init");
+            waiting = true;
+        }
+        SDL_Delay(100);
+    }
+    if (waiting)
+        SDL_Log("[benchmark] Activity awake and focused; initializing graphics");
+    env->DeleteLocalRef(activity);
+    return true;
+}
+
 // Android EGL may present undefined old buffer contents when the empty reference
 // submits no clear/draw. Conceal those pixels outside the strict bgfx host, without
 // adding GPU work or Java calls to its measured frame loop.
@@ -142,6 +194,9 @@ struct Graphics {
     bool sdl_ready = false;
     bool bgfx_ready = false;
     bool vsync_enabled = false;
+#if defined(__ANDROID__)
+    ANativeWindow* held_native_window = nullptr;
+#endif
     Environment environment;
 
     void shutdown()
@@ -150,6 +205,12 @@ struct Graphics {
             bgfx::shutdown();
             bgfx_ready = false;
         }
+#if defined(__ANDROID__)
+        if (held_native_window) {
+            ANativeWindow_release(held_native_window);
+            held_native_window = nullptr;
+        }
+#endif
         if (window) {
             SDL_DestroyWindow(window);
             window = nullptr;
@@ -212,6 +273,10 @@ struct Graphics {
 
     bool initialize(const Options& options, std::string& reason)
     {
+#if defined(__ANDROID__)
+        if (!wait_for_android_foreground(reason))
+            return false;
+#endif
         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
             reason = std::string("SDL_Init: ") + SDL_GetError();
             return false;
@@ -228,6 +293,13 @@ struct Graphics {
             reason = std::string("SDL_CreateWindow: ") + SDL_GetError();
             return false;
         }
+#if defined(__ANDROID__)
+        // SDL_CreateWindow may change orientation and temporarily replace the
+        // Activity's surface. Wait through that transition before handing bgfx
+        // an EGL native window.
+        if (!wait_for_android_foreground(reason))
+            return false;
+#endif
         SDL_PropertiesID props = SDL_GetWindowProperties(window);
 #if defined(__ANDROID__)
         void* display = nullptr;
@@ -259,6 +331,11 @@ struct Graphics {
             reason = "Android surface is not ready";
             return false;
         }
+        // SDL owns the window, but its pointer property is borrowed. Retain
+        // the ANativeWindow across bgfx's EGL initialization and shutdown so
+        // a concurrent surfaceDestroyed callback cannot free it mid-init.
+        held_native_window = static_cast<ANativeWindow*>(native_window);
+        ANativeWindow_acquire(held_native_window);
 #endif
         int width = 0;
         int height = 0;

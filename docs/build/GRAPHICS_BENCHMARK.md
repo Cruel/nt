@@ -385,7 +385,15 @@ not a GPU timing instrument; use Clean CPU timings as specified and do not
 interpret the black screen as evidence of GPU clear or rendering.
 Backgrounding interrupts a measured trial instead of silently keeping stale
 frames. On foreground or surface resize the dashboard recreates its SDL/bgfx host and
-ImGui resources, rather than reusing an obsolete `ANativeWindow`.
+ImGui resources, rather than reusing an obsolete `ANativeWindow`. An ADB launch
+while the phone is asleep can start SDL's native thread after Android has
+already paused the Activity and invalidated its surface. Before SDL window
+creation (and again before bgfx initialization), the benchmark now waits for
+an interactive, focused Activity instead of initializing EGL against a
+stale native window. The Android native-window reference is held until bgfx
+shutdown to prevent concurrent surface destruction from freeing the pointer
+mid-initialization. Device sleep does not run benchmarks in the background;
+after wake/unlock the app may initialize its dashboard normally.
 Standalone/integrated RmlUi and Engine-owned scenarios are **not**
 advertised as supported by this Android Stage 1 slice.
 

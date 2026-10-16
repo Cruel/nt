@@ -3,6 +3,7 @@ package org.noveltea.benchmark;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -17,6 +18,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Independent SDL Activity for the developer benchmark APK. */
 public class BenchmarkActivity extends SDLActivity {
     private View emptyBenchmarkCover;
+
+    /** Never hand bgfx an Android window while the device is asleep or our
+     * Activity has lost focus. SDL_main can start after onPause when launched
+     * through ADB against an already sleeping device. */
+    public boolean isBenchmarkLaunchReady() {
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        return power != null && power.isInteractive() && hasWindowFocus()
+                && !isFinishing() && !isDestroyed();
+    }
 
     /**
      * An empty bgfx frame deliberately has no clear or draws. EGL swap buffers need not
