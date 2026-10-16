@@ -100,6 +100,7 @@ private:
     RoomSession(std::filesystem::path path, std::string room_id, std::string source,
                 std::string source_json);
     RoomSessionResult result(bool accepted, std::string error = {}, bool changed = false) const;
+    ValidationResult validate_source(std::string_view source_json) const;
 
     std::filesystem::path path_;
     std::string room_id_;

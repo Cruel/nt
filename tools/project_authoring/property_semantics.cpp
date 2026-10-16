@@ -386,6 +386,24 @@ ValidationResult validate_property_dependencies(std::string_view family,
     return result;
 }
 
+ValidationResult validate_reusable_trait_configuration(std::string_view kind,
+                                                       std::string_view configuration_json,
+                                                       std::string_view traits_json)
+{
+    ValidationResult result;
+    result.accepted = true;
+    try {
+        const auto configuration = Json::parse(configuration_json);
+        const auto traits = Json::parse(traits_json);
+        const auto owner_kind = std::string(kind);
+        validate_attachment(result, configuration, traits, owner_kind, "", false,
+                            "defaultProperties");
+    } catch (const std::exception& e) {
+        report(result, "", "archetype.traits.failure", e.what());
+    }
+    return result;
+}
+
 ValidationResult validate_interactable_instance(std::string_view instance_json,
                                                 std::string_view definition_json,
                                                 std::string_view traits_json)

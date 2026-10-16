@@ -44,6 +44,8 @@ const { generateNativeContracts, canonicalJson } = await import('./native-schema
 const { nativeSchemaSources } = await import('./native-schema/sources.ts');
 const { sparseRecordYamlSourceDefaults } =
   await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
+const { defaultArchetypeConfiguration } =
+  await import('../src/shared/project-schema/authoring-archetypes.ts');
 const { materialContractRegistry } =
   await import('../src/shared/project-schema/material-contract-registry.generated.ts');
 const { types, ...contracts } = generateNativeContracts(nativeSchemaSources);
@@ -64,7 +66,17 @@ const files = new Map([
       sourceDefaults: {
         rooms: sparseRecordYamlSourceDefaults('rooms'),
         maps: sparseRecordYamlSourceDefaults('maps'),
+        characters: sparseRecordYamlSourceDefaults('characters'),
+        archetypes: sparseRecordYamlSourceDefaults('archetypes'),
+        animations: sparseRecordYamlSourceDefaults('animations'),
+        materials: sparseRecordYamlSourceDefaults('materials'),
       },
+      archetypeTemplates: Object.fromEntries(
+        ['room', 'character', 'interactable'].map((kind) => [
+          kind,
+          defaultArchetypeConfiguration(kind),
+        ]),
+      ),
       materialPresets: Object.fromEntries(
         materialContractRegistry.presets.map((preset) => [
           preset.id,

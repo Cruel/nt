@@ -26,6 +26,10 @@ ValidationResult validate_record(std::string_view contract, std::string_view sou
 // source-to-effective projection before the generated structural/semantic validator.
 ValidationResult validate_room_source(std::string_view source_json);
 ValidationResult validate_map_source(std::string_view source_json);
+ValidationResult validate_character_source(std::string_view source_json);
+ValidationResult validate_archetype_source(std::string_view source_json);
+ValidationResult validate_animation_source(std::string_view source_json);
+ValidationResult validate_material_source(std::string_view source_json);
 // Local domain invariants that do not require the rest of the Project.
 // Input is an already-normalized Room or Map record; paths are record-relative.
 ValidationResult validate_room_map_local(std::string_view family, std::string_view record_json);
@@ -35,6 +39,8 @@ struct MaterialPresetContract {
     std::string hotspot_mask;
 };
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id);
+// Generated from the same defaults used by TypeScript Archetype inheritance.
+std::optional<std::string> archetype_template_json(std::string_view instance_kind);
 // Cross-record Room, Map, and Hotspot checks against a complete effective Project.
 // Diagnostics use Project-absolute JSON Pointers; warnings and info do not reject.
 ValidationResult validate_room_map_project(std::string_view effective_project_json);

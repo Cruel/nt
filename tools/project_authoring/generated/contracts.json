@@ -1,4 +1,163 @@
 {
+  "archetypeTemplates": {
+    "character": {
+      "data": {
+        "appearances": [],
+        "defaults": {
+          "appearanceId": null,
+          "expressionId": "neutral",
+          "idleId": null,
+          "profileId": "stage"
+        },
+        "dialogue": {
+          "name": "Character",
+          "nameColor": null,
+          "styleClass": "",
+          "textColor": null
+        },
+        "displayName": "Character",
+        "expressions": [
+          {
+            "id": "neutral",
+            "label": "Neutral",
+            "profiles": []
+          }
+        ],
+        "gestures": [],
+        "idles": [],
+        "inventories": [],
+        "kind": "character",
+        "profiles": [
+          {
+            "animationClips": [],
+            "automaticAnimations": {
+              "blink": null,
+              "speaking": null
+            },
+            "defaultPoseId": "default",
+            "id": "stage",
+            "label": "Stage",
+            "layers": [
+              {
+                "id": "body",
+                "label": "Body",
+                "role": "body"
+              }
+            ],
+            "poses": [
+              {
+                "id": "default",
+                "label": "Default",
+                "layers": [
+                  {
+                    "anchor": {
+                      "x": 0.5,
+                      "y": 1
+                    },
+                    "layerId": "body",
+                    "materialApplication": null,
+                    "offset": {
+                      "x": 0,
+                      "y": 0
+                    },
+                    "scale": 1,
+                    "visible": true,
+                    "visual": null
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "defaultProperties": [],
+      "traits": []
+    },
+    "interactable": {
+      "data": {
+        "displayName": "Interactable",
+        "features": [],
+        "inventories": [],
+        "kind": "interactable",
+        "presentation": {
+          "cursor": null,
+          "hotspots": {
+            "kind": "none"
+          },
+          "materialApplication": null,
+          "visual": null
+        },
+        "stackLimit": null,
+        "stackable": false
+      },
+      "defaultProperties": [],
+      "traits": []
+    },
+    "room": {
+      "data": {
+        "anchors": [],
+        "background": {
+          "asset": null,
+          "color": null,
+          "fit": "cover",
+          "materialApplication": null
+        },
+        "cast": [],
+        "description": {
+          "markup": "active-text",
+          "source": {
+            "kind": "inline",
+            "text": ""
+          }
+        },
+        "displayName": "Room",
+        "environments": [],
+        "exits": [],
+        "fallbackInteractablePlacementId": null,
+        "features": [],
+        "hotspots": [],
+        "interactables": [],
+        "kind": "room",
+        "lifecycle": {
+          "afterEnter": [],
+          "afterLeave": [],
+          "beforeEnter": [],
+          "beforeLeave": [],
+          "canEnter": {
+            "kind": "always"
+          },
+          "canLeave": {
+            "kind": "always"
+          },
+          "onEnterRejected": [],
+          "onLeaveRejected": []
+        },
+        "overlays": [],
+        "placements": [],
+        "presentationSpace": {
+          "bounds": null,
+          "defaultView": {
+            "center": {
+              "x": 960,
+              "y": 540
+            },
+            "rotationDegrees": 0,
+            "zoom": 1
+          },
+          "edgePolicy": "contain",
+          "size": {
+            "height": 1080,
+            "width": 1920
+          },
+          "views": []
+        },
+        "props": [],
+        "scriptHooks": []
+      },
+      "defaultProperties": [],
+      "traits": []
+    }
+  },
   "materialPresets": {
     "active-text": {
       "hotspotImage": null,
@@ -153350,6 +153509,76 @@
     }
   },
   "sourceDefaults": {
+    "animations": {},
+    "archetypes": {
+      "data.base": null,
+      "data.overrides": {}
+    },
+    "characters": {
+      "data.appearances": [],
+      "data.appearances.*.profiles": [],
+      "data.appearances.*.profiles.*.layers": [],
+      "data.defaults.appearanceId": null,
+      "data.defaults.idleId": null,
+      "data.dialogue": {
+        "name": "",
+        "nameColor": null,
+        "styleClass": "",
+        "textColor": null
+      },
+      "data.dialogue.name": "",
+      "data.dialogue.nameColor": null,
+      "data.dialogue.styleClass": "",
+      "data.dialogue.textColor": null,
+      "data.displayName": "",
+      "data.expressions": [],
+      "data.expressions.*.profiles": [],
+      "data.expressions.*.profiles.*.layers": [],
+      "data.gestures": [],
+      "data.gestures.*.profiles": [],
+      "data.gestures.*.profiles.*.cues": [],
+      "data.gestures.*.profiles.*.cues.*.gain": 1,
+      "data.gestures.*.profiles.*.cues.*.pan": 0,
+      "data.idles": [],
+      "data.initialWorldState": {
+        "enabled": true,
+        "location": {
+          "kind": "unplaced"
+        },
+        "visible": true
+      },
+      "data.initialWorldState.enabled": true,
+      "data.initialWorldState.location": {
+        "kind": "unplaced"
+      },
+      "data.initialWorldState.visible": true,
+      "data.inventories": [],
+      "data.profiles": [],
+      "data.profiles.*.animationClips": [],
+      "data.profiles.*.animationClips.*.frames.*.layers": [],
+      "data.profiles.*.automaticAnimations": {
+        "blink": null,
+        "speaking": null
+      },
+      "data.profiles.*.automaticAnimations.blink": null,
+      "data.profiles.*.automaticAnimations.speaking": null,
+      "data.profiles.*.layers": [],
+      "data.profiles.*.layers.*.role": null,
+      "data.profiles.*.poses": [],
+      "data.profiles.*.poses.*.layers": [],
+      "data.profiles.*.poses.*.layers.*.anchor": {
+        "x": 0.5,
+        "y": 1
+      },
+      "data.profiles.*.poses.*.layers.*.materialApplication": null,
+      "data.profiles.*.poses.*.layers.*.offset": {
+        "x": 0,
+        "y": 0
+      },
+      "data.profiles.*.poses.*.layers.*.scale": 1,
+      "data.profiles.*.poses.*.layers.*.visible": true,
+      "data.profiles.*.poses.*.layers.*.visual": null
+    },
     "maps": {
       "data.connections": [],
       "data.connections.*.hitRegions": [],
@@ -153380,6 +153609,7 @@
         "title": null
       }
     },
+    "materials": {},
     "rooms": {
       "data.anchors": [],
       "data.background": {
