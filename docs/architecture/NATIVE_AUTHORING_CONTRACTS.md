@@ -220,6 +220,38 @@ malformed journals. Runtime Feature Lab is not applicable to this
 host-only persistence invariant; the existing Feature Lab Project provides
 the full Project/Room source certification fixtures.
 
+## Recursive Conditions and Gameplay Commands (#484)
+
+The host-only contract generator exposes `Condition` and `GameplayCommand` as
+standalone roots from `authoring-flow.ts`. Native parsing traverses their
+recursive branches without executing a command. For ordinary `z.union` command
+variants, the generated literal `kind` (and `mode` when needed) determines the
+branch before validating its fields. This produces diagnostics on the actual
+nested field instead of reporting an unrelated union alternative. The same
+generated branch selection drives sparse Room YAML normalization; scalar
+`always` Conditions remain source shorthand only.
+
+`native_authoring_flow` compares accepted/invalid Condition and Command cases,
+all admitted Command variants, recursive `if` programs, selected diagnostic
+codes/paths and normalized values with the authoritative Zod schemas.
+`native_authoring_flow_contract_generation` fails the CTest gate when generated
+artifacts or native-operation registrations are stale. The Node-backed
+differential runs when Node is installed; the Node-independent
+`native_authoring_flow_operations` gate always checks both complete native
+contract graphs. Every operation reachable from either root is checked by the
+native validator before parsing, including operations on branches not exercised
+by a specific fixture. The Room/Project
+session certification exercises a nested authored command edit, invalid working
+diagnostics, recovery, comment-preserving Save/reopen and Project-absolute owner
+paths against the existing Feature Lab source.
+
+The #476 YAML codec continues to fail closed for unsafe wholesale multi-line
+mapping replacements; #484 certifies supported nested edits rather than
+introducing a second YAML rewrite path. No editor/CLI runtime cutover or native
+Gameplay Command execution is introduced. Feature Lab authoring coverage is
+already provided by its Room lifecycle and Interaction programs; these tests
+add validation coverage without changing runtime-visible fixtures.
+
 ## Generation
 
 Run from the repository root:

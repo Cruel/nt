@@ -1,7 +1,10 @@
 import { authoringProjectSchema } from '../../src/shared/project-schema/authoring-project';
 import { nativeCheck } from '../../src/shared/project-schema/native-schema-operations';
 import { authoringRecordSchemas } from '../../src/shared/project-schema/authoring-records';
-import { conditionSchema } from '../../src/shared/project-schema/authoring-flow';
+import {
+  conditionSchema,
+  gameplayCommandSchema,
+} from '../../src/shared/project-schema/authoring-flow';
 import { schemaSources } from '../../src/shared/project-schema/schema-reference';
 import { z } from 'zod';
 import { projectWorkspaceSourceSchemas } from '../../src/shared/project-workspace/project-workspace-service';
@@ -21,6 +24,7 @@ export const nativeSchemaSources: Readonly<Record<string, z.ZodType>> = {
   ZodRecordKeyCertification: certificationRecordKeysSchema,
   Project: authoringProjectSchema,
   Condition: conditionSchema,
+  GameplayCommand: gameplayCommandSchema,
   ...Object.fromEntries(
     Object.entries(authoringRecordSchemas).map(([family, schema]) => [
       `${title(family)}Record`,
