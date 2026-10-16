@@ -34,7 +34,7 @@ noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 find_package(imgui CONFIG REQUIRED)
 add_executable(noveltea-benchmark-app
     main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
-    standalone_rmlui.cpp integrated_rmlui.cpp)
+    standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp)
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
     imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
@@ -108,11 +108,40 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_options COMMAND noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_app_help COMMAND noveltea-benchmark-app --help)
+
+    add_executable(noveltea-benchmark-empty-engine-tests
+        empty_engine_tests.cpp empty_engine.cpp)
+    target_link_libraries(noveltea-benchmark-empty-engine-tests PRIVATE
+        noveltea_engine noveltea-benchmark-runner SDL3::SDL3 bgfx::bgfx)
+    add_dependencies(noveltea-benchmark-empty-engine-tests noveltea-benchmark-stage-assets)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-empty-engine-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-empty-engine-tests)
     set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_app_help
         PROPERTIES LABELS "benchmark;graphics")
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
+        add_test(NAME noveltea_benchmark_empty_engine_integration
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a
+                "$<TARGET_FILE:noveltea-benchmark-empty-engine-tests>")
+        set_tests_properties(noveltea_benchmark_empty_engine_integration PROPERTIES
+            LABELS "benchmark;graphics;integration" TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_empty_engine_graphics_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario engine-empty --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-engine-empty.json")
+        set_tests_properties(noveltea_benchmark_empty_engine_graphics_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_empty_engine_dashboard_lifecycle_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario engine-empty --dashboard-smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-empty-engine-lifecycle.json")
+        set_tests_properties(noveltea_benchmark_empty_engine_dashboard_lifecycle_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
+            TIMEOUT 120)
         add_test(NAME noveltea_benchmark_app_graphics_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --smoke --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-smoke.json")

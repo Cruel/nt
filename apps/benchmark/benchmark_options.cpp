@@ -203,7 +203,7 @@ bool validate_reference_options(const Options& options, std::string& reason)
     }
     if ((options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
-         options.scenario == "integrated-rmlui-controlled") &&
+         options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty") &&
         options.rect_count == kReferenceRectCount && options.rect_scale == kReferenceRectScale) {
         reason.clear();
         return true;

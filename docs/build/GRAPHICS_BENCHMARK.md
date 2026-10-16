@@ -1,10 +1,10 @@
 # Graphics Benchmark (Linux reference workloads, #422–#428)
 
-The dedicated `noveltea-benchmark-app` measures SDL3/bgfx and RmlUi
-reference workloads. Raw and standalone RmlUi **do not instantiate** the
-NovelTea Engine, while the integrated modes use the real Engine, RuntimeUI,
-RmlUiHost, and production Renderer. The binary links the Engine library
-for integrated scenarios; standalone scenarios remain separately owned.
+The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
+and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
+the NovelTea Engine, while `engine-empty` and the integrated RmlUi modes use
+the real Engine and production Renderer. The binary links the Engine library
+for Engine-owned scenarios; standalone scenarios remain separately owned.
 Interactive use adds a dedicated Dear ImGui frontend that is fully destroyed before
 sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
@@ -19,8 +19,8 @@ dashboard, or use `--ui` with CLI run settings or a configuration containing
 and Advanced tabs. Preview shows the selected reference content without contributing
 to measurements; Clean and Diagnostic runs are separate actions. The scenario
 selector includes `raw-bgfx-empty`, `raw-bgfx-geometry`,
-`standalone-rmlui-simple`, `integrated-rmlui-controlled`, and
-`integrated-rmlui-production`; other workloads are separate tickets.
+`standalone-rmlui-simple`, `integrated-rmlui-controlled`,
+`integrated-rmlui-production`, and `engine-empty`; other workloads are separate tickets.
 The **Inspect full scene** control hides the large dashboard panel and leaves a small **Return to dashboard** button at the
 top-right, so the fixed reference rectangles can be viewed unobscured.
 Inspection is outside timed sampling.
@@ -29,7 +29,7 @@ Changing resolution or VSync applies at the next run. Before the runner
 enters Preparation, the dashboard completely releases its ImGui context, SDL
 input binding, GPU font atlas, sampler, and shader program, then drains
 pending GPU deletion frames **outside** timing. Raw bgfx and standalone
-RmlUi trials retain the SDL/bgfx host between repeats. Integrated scenarios
+RmlUi trials retain the SDL/bgfx host between repeats. Engine-owned scenarios
 instead fully release the dashboard SDL/bgfx host, create and destroy a fresh
 Engine-owned host for every trial, then recreate the dashboard's SDL/bgfx host
 on completion. The application restores the dashboard after completion/failure,
@@ -95,7 +95,7 @@ Results, and Cleanup. It begins timing only after the scenario reports Ready.
 All scenarios clean up even if preparation, readiness, a frame, or completion
 fails, and independent suite scenarios continue after failure. A CPU-only
 scenario may implement the same interface without initializing graphics.
-The Linux app supports the raw bgfx, standalone RmlUi, and integrated NovelTea RmlUi scenarios, using the same runner in CLI and interactive modes.
+The Linux app supports the raw bgfx, standalone RmlUi, empty Engine, and integrated NovelTea RmlUi scenarios, using the same runner in CLI and interactive modes.
 
 CLI run-setting invocations still default to no-UI, with `--no-ui` explicit.
 An unqualified invocation opens the dashboard. The `--profile diagnostic`
@@ -145,6 +145,49 @@ The native smoke checks successful GPU execution and backend transitions,
 but do not inspect actual pixels. Visual equivalence should be inspected
 interactively until the later screenshot/readback stage. Xvfb functional
 tests are not authoritative GPU performance measurements.
+
+## Empty NovelTea Engine baseline (#427)
+
+`--scenario engine-empty` initializes the actual production Engine with its
+Renderer, SDL window, Lua bootstrap, empty RuntimeUI host, asset services, and
+regular frame/tick path. **It does not load a Compiled Project, gameplay session,
+title screen, or authored RmlUi document.** Audio, devtools UI, FPS counters,
+frame limiting and per-frame performance logging are disabled. The app uses
+`EngineTooling::initialize` with ordinary Engine-owned renderer initialization
+and a zero FPS cap; it does not bypass production frame orchestration or claim
+to be an SDL/bgfx-only workload. Four Engine ticks outside sampling settle
+initial work before Ready. Each repeated trial constructs a fresh Engine,
+calls `Engine::tick()` once per measured work unit, and verifies renderer
+shutdown before reusing bgfx.
+
+Compare it against the independent `raw-bgfx-empty` baseline using identical
+resolution, VSync, measurement duration/count, and build/hardware conditions:
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-empty --frames 300 --warmup-seconds 3 --output build/linux-benchmark-release/benchmarks/raw-empty.json
+./scripts/run-benchmark.sh --no-build --scenario engine-empty --frames 300 --warmup-seconds 3 --output build/linux-benchmark-release/benchmarks/engine-empty.json
+```
+
+Compare `scenarios[0].aggregate.cpu_operation_ms` and
+`scenarios[0].aggregate.frame_wall_ms` distributions and measured cadence,
+rather than comparing one FPS number. The reports record
+`graphics.frame_path` as `bgfx-frame` versus `engine-tick`, the actual bgfx
+renderer/device and framebuffer dimensions, and—when present—the Engine's
+effective UI/world raster metrics, RmlUi backend settings, and observed
+postprocess-surface state. These are **different workloads and rendering
+configurations**, not an apples-to-apples raw GPU draw comparison: the
+standalone path only touches a bgfx view; the Engine processes its host
+services, UI and renderer composition even with no gameplay. A difference in
+CPU operation time can indicate framework/frame-path overhead, but includes
+CPU-side waits and must never be called GPU execution time. No timing
+threshold is imposed in CI.
+
+`noveltea_benchmark_empty_engine_integration` runs real repeated Engine trials,
+a missing-bootstrap initialization failure, and recovery in one process.
+The empty-Engine graphics smoke checks repeated measured runs; the dashboard
+lifecycle smoke switches Engine → standalone bgfx → Engine, verifying exclusive
+graphics ownership. These are correctness tests under Xvfb, not performance
+claims. Feature Lab is not applicable: no authorable gameplay is loaded.
 
 ## Integrated NovelTea RmlUi (#428)
 
@@ -208,9 +251,9 @@ context; actual Engine content is visible when running the benchmark.
 
 Xvfb CTests exercise both UI modes, repeated Engine lifetimes, and an
 integrated → raw bgfx → integrated lifecycle for functional correctness only. Performance measurements require
-a verified accelerated GPU. The empty Engine baseline is tracked separately
-in #427; #428 uses the same production initialization/tick path without
-claiming the empty baseline ticket is complete.
+a verified accelerated GPU. The empty Engine baseline is available separately as `engine-empty` (#427);
+#428 uses the same production initialization/tick path while loading an
+RmlUi reference scene.
 
 ## Raw bgfx geometry and shared reference scenes (#425)
 
@@ -282,7 +325,7 @@ inventory (no legacy aliases or unknown fields):
 
 The `--config` file is validated before graphics init and cannot be mixed
 with run-setting flags; `--output` can override the file's destination.
-The raw empty workload has a fixed scenario version (1), no parameters,
+The raw and Engine-empty workloads have a fixed scenario version (1), no parameters,
 and real-time wall-clock policy. The geometry workload also has scenario
 version 1, with a strict `parameters` object containing `rect_count` (integer
 1..256, default 3) and `rect_scale` (finite number 0.25..1.0, default 1.0).
