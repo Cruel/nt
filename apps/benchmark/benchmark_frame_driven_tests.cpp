@@ -156,6 +156,23 @@ int main()
                 "cancelling pending recovery must not double-cleanup the graphics host"))
         return 1;
 
+    // Lost graphics contexts cannot safely execute GPU cleanup, but Escape
+    // must still finalize immediately. The host retains the scenario until
+    // context restoration, then performs the deferred resource destruction.
+    ClockStub lost_clock;
+    ScenarioStub lost_scenario(lost_clock);
+    FrameDrivenSuite lost_runner(single, lost_scenario, lost_clock);
+    (void)lost_runner.step(); // prepare
+    lost_runner.interrupt("WebGL context lost");
+    lost_runner.cancel_without_cleanup("Escape during context loss");
+    const bool cancelled_without_context = lost_runner.step();
+    if (!verify(cancelled_without_context && lost_runner.result().outcome == "cancelled" &&
+                    lost_runner.result().scenarios[0].trials[0].reason ==
+                        "Escape during context loss" &&
+                    lost_scenario.cleaned == 0,
+                "terminal cancellation publishes results without GPU cleanup or recovery"))
+        return 1;
+
     ClockStub sample_clock;
     ScenarioStub sample_scenario(sample_clock);
     sample_scenario.interrupt_first_attempt = true;

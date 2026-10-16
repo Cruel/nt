@@ -38,6 +38,14 @@ void FrameDrivenSuite::cancel(std::string reason)
     }
 }
 
+void FrameDrivenSuite::cancel_without_cleanup(std::string reason)
+{
+    cancel(std::move(reason));
+    // A terminal report is safe without GL; GPU cleanup belongs to the host
+    // after the context returns. Skip any second cleanup if already recovering.
+    cleanup_completed_ = true;
+}
+
 void FrameDrivenSuite::fail_frame(std::string fallback)
 {
     if (reason_.empty())

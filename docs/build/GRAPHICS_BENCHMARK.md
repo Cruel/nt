@@ -55,8 +55,10 @@ retried after fresh preparation and warmup (up to three retries per trial).
 Previously completed repeats remain in the report; `interruption_retries`
 records the retries on each logical trial. A persistent interruption or failed
 recovery produces an explicit incomplete result. Escape cancels an active
-collection instead of starting the remaining repeats. The Web runner
-records both callback-to-callback wall cadence and the CPU operation
+collection instead of starting the remaining repeats. Cancellation during
+WebGL context loss exports its terminal JSON immediately without waiting for
+restoration; GPU cleanup and dashboard recreation remain deferred until WebGL
+returns. The Web runner records both callback-to-callback wall cadence and the CPU operation
 duration; **rAF-paced cadence is not uncapped GPU throughput or
 independently verified presented FPS**.
 

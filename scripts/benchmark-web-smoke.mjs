@@ -167,6 +167,42 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
       throw new Error('context restoration included invalid samples: ' + JSON.stringify(restored.scenarios[0].trials));
     console.log(name + ': WebGL context loss discards affected samples and rebuilds graphics');
 
+    // Escape must generate a terminal report even if the browser never
+    // restores WebGL. Cleanup/destruction of GPU resources is deferred.
+    await page.goto(origin + '/benchmark.html?noUi=1&scenario=raw-bgfx-geometry&frames=300&repeats=3&warmup=0&rawSamples=1');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
+    await page.locator('#canvas').focus();
+    await page.evaluate(() => {
+      const ext = document.querySelector('#canvas').getContext('webgl2')?.getExtension('WEBGL_lose_context');
+      if (!ext) throw new Error('context-loss extension unavailable during cancellation');
+      window.__cancelLoss = ext;
+      ext.loseContext();
+    });
+    await page.waitForFunction(() => window.NovelTeaBenchmark.contextLost);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 15000});
+    const cancelledWhileLost = await page.evaluate(() => ({
+      lost: window.NovelTeaBenchmark.contextLost,
+      recoveryNeeded: window.NovelTeaBenchmark.contextRecoveryNeeded,
+      report: window.NovelTeaBenchmark.runs[0].report,
+      status: document.querySelector('#status').textContent
+    }));
+    if (!cancelledWhileLost.lost || !cancelledWhileLost.recoveryNeeded ||
+        cancelledWhileLost.report.outcome !== 'cancelled' ||
+        cancelledWhileLost.report.scenarios[0].trials.length !== 1 ||
+        cancelledWhileLost.report.scenarios[0].trials[0].outcome !== 'cancelled' ||
+        !cancelledWhileLost.status.includes('cancelled'))
+      throw new Error('cancellation did not finalize before WebGL restoration: ' +
+                      JSON.stringify(cancelledWhileLost));
+    await page.waitForTimeout(150);
+    if (await page.evaluate(() => window.NovelTeaBenchmark.runs.length) !== 1)
+      throw new Error('unrestored context re-exported a cancelled trial');
+    await page.evaluate(() => window.__cancelLoss.restoreContext());
+    await page.waitForFunction(() => !window.NovelTeaBenchmark.contextLost &&
+                                    !window.NovelTeaBenchmark.contextRecoveryNeeded, null,
+                               {timeout: 15000});
+    console.log(name + ': Escape exports cancellation before WebGL recovery; graphics cleanup deferred');
+
     await page.goto(origin + '/benchmark.html?noUi=1&frames=300&repeats=3&warmup=0');
     await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
     await page.locator('#canvas').focus();

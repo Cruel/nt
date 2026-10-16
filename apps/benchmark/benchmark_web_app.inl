@@ -11,6 +11,9 @@ struct WebBenchmarkApp {
     SteadyClock clock;
     std::optional<noveltea::benchmark::CompletedRun> completed_run;
     std::unique_ptr<Scenario> active_scenario;
+    // Cancelling while WebGL is lost must not run a GPU destructor. Keep the
+    // abandoned scenario alive until the restored context can release it.
+    std::unique_ptr<Scenario> deferred_scenario;
     std::unique_ptr<noveltea::benchmark::FrameDrivenSuite> active;
     std::string feedback;
     bool stopped = false;
@@ -79,6 +82,15 @@ struct WebBenchmarkApp {
 
     bool restore_graphics(std::string& error)
     {
+        // Executed only after webglcontextrestored: no GL/bgfx calls may
+        // touch deferred scenario resources while the context is lost.
+        if (deferred_scenario) {
+            std::string cleanup_error;
+            if (!deferred_scenario->cleanup(cleanup_error))
+                std::fprintf(stderr, "[benchmark] deferred WebGL cleanup: %s\n",
+                             cleanup_error.c_str());
+            deferred_scenario.reset();
+        }
         preview_geometry.shutdown();
         preview_ui.shutdown();
         dashboard.shutdown();
@@ -144,11 +156,14 @@ struct WebBenchmarkApp {
         feedback.clear();
     }
 
-    void finish()
+    void finish(bool graphics_unavailable = false)
     {
         completed_run = noveltea::benchmark::CompletedRun{options, active->result(), {}};
         active.reset();
-        active_scenario.reset();
+        if (graphics_unavailable)
+            deferred_scenario = std::move(active_scenario);
+        else
+            active_scenario.reset();
         if (!write_report(completed_run->configuration, graphics.environment, completed_run->result,
                           completed_run->report_path))
             feedback = "failed to save or download benchmark report";
@@ -166,7 +181,9 @@ struct WebBenchmarkApp {
                                  trial.reason.c_str());
             }
         }
-        if (!options.no_ui) {
+        // JSON reporting and application-state transitions require no GL.
+        // Rebuild the dashboard only when its WebGL context is usable.
+        if (!options.no_ui && !graphics_unavailable) {
             std::string error;
             if (EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded; }) &&
                 !restore_graphics(error)) {
@@ -175,7 +192,7 @@ struct WebBenchmarkApp {
                 feedback = "dashboard recreation: " + error;
             }
         }
-        if (options.dashboard_smoke) {
+        if (options.dashboard_smoke && completed_run->result.outcome == "complete") {
             std::printf("[benchmark] web dashboard cycle %d complete\n", ++smoke_cycle);
             if (smoke_cycle < 3) {
                 options.scenario =
@@ -210,6 +227,19 @@ struct WebBenchmarkApp {
         const bool context_changed =
             EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded ? 1 : 0; });
         if (active) {
+            if (context_lost) {
+                // Terminal cancellation is allowed during context loss. Avoid
+                // both runner cleanup and the scenario's GPU-owning destructor
+                // until the browser restores WebGL, but export JSON now.
+                if (should_exit || escape_pressed) {
+                    active->cancel_without_cleanup(should_exit
+                                                       ? "browser window closed during benchmark"
+                                                       : "benchmark cancelled with Escape");
+                    if (active->step())
+                        finish(true);
+                }
+                return;
+            }
             if (should_exit)
                 active->cancel("browser window closed during benchmark");
             else if (escape_pressed)
@@ -220,10 +250,6 @@ struct WebBenchmarkApp {
                          return window.NovelTeaBenchmark.backgrounded || document.hidden ? 1 : 0;
                      }))
                 active->interrupt("browser tab backgrounded; requestAnimationFrame throttled");
-            // No bgfx teardown, drawing, or sample advancement while the GL
-            // context is actually lost. Continue cleanup/recovery after restore.
-            if (context_lost)
-                return;
             if (active->step())
                 finish();
             return;
