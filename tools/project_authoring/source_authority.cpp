@@ -284,6 +284,28 @@ SourceAuthority::Capture SourceAuthority::capture() const
                     if (leaf.is_regular_file() && is_source_extension(leaf.path()))
                         add(file);
                 });
+                const auto metadata = record + "/layout.yaml";
+                const auto revision = result.revisions.contains(metadata)
+                                          ? result.revisions.at(metadata)
+                                          : std::string("absent");
+                const auto prior = baseline_.find(metadata);
+                if (prior != baseline_.end() && prior->second == revision) {
+                    if (const auto invalid = std::find_if(
+                            invalid_sources_.begin(), invalid_sources_.end(),
+                            [&](const InvalidSource& source) { return source.path == metadata; });
+                        invalid != invalid_sources_.end())
+                        result.invalid_sources.push_back(*invalid);
+                } else if (revision == "absent") {
+                    result.invalid_sources.push_back(
+                        {metadata, "Layout is missing its canonical layout.yaml metadata."});
+                } else {
+                    const auto bytes = read(metadata);
+                    if (exact_source_revision(bytes) != revision)
+                        throw std::runtime_error("Layout changed during observation: " + metadata);
+                    const auto opened = open_yaml_source(bytes);
+                    if (!opened.accepted)
+                        result.invalid_sources.push_back({metadata, opened.error});
+                }
             } else if (entry.is_regular_file() && is_source_extension(entry.path())) {
                 add(record);
                 if (relative != "records/assets" && entry.path().extension() == ".yaml") {

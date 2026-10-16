@@ -15,6 +15,15 @@ used by compiler/editor consumers; Lua Asset source is not a canonical path. It 
 script metadata, mount metadata, default layout assignment, validation diagnostics, and live engine
 preview.
 
+The parallel native Project authoring certification (#490) reads canonical
+`layout.yaml` selectors with the existing `layout.rml`, `layout.rcss`, and
+`layout.lua` companion ownership. It normalizes them into the generated
+Layout schema, validates nested input and State Shape defaults, and preserves
+physical source paths for companion diagnostics. Its generic working-session
+YAML Save uses the existing comment-preserving transaction service. This is
+certification-only; production editor validation and RmlUi processing remain
+unchanged until the coordinated native Project cutover.
+
 The engine has an RmlUi runtime UI integration with bgfx rendering, SDL3 input/system/file adapters,
 custom component hooks, document binding, and template resolution. Authoring Layout preview uses the
 same focused-document coordinator and native Layout realization path as Room preview; it does not

@@ -156249,6 +156249,7 @@
       "data.profiles.*.poses.*.layers.*.visible": true,
       "data.profiles.*.poses.*.layers.*.visual": null
     },
+    "layouts": {},
     "maps": {
       "data.connections": [],
       "data.connections.*.hitRegions": [],

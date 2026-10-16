@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <map>
 #include <optional>
 #include <vector>
 
@@ -32,6 +33,10 @@ ValidationResult validate_archetype_source(std::string_view source_json);
 ValidationResult validate_animation_source(std::string_view source_json);
 ValidationResult validate_asset_source(std::string_view source_json);
 ValidationResult validate_material_source(std::string_view source_json);
+// Layout YAML keeps file/asset/none selectors. Companion bytes are separate
+// physical owners; only the effective record contains inline source text.
+ValidationResult validate_layout_source(std::string_view source_json,
+                                        const std::map<std::string, std::string>& companions);
 // Local domain invariants that do not require the rest of the Project.
 // Input is an already-normalized Room or Map record; paths are record-relative.
 ValidationResult validate_room_map_local(std::string_view family, std::string_view record_json);

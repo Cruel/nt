@@ -33,6 +33,7 @@ const files = new Map([
         archetypes: sparseRecordYamlSourceDefaults('archetypes'),
         animations: sparseRecordYamlSourceDefaults('animations'),
         materials: sparseRecordYamlSourceDefaults('materials'),
+        layouts: sparseRecordYamlSourceDefaults('layouts'),
       },
       archetypeTemplates: Object.fromEntries(
         ['room', 'character', 'interactable'].map((kind) => [
