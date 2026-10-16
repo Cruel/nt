@@ -450,6 +450,12 @@ SourceObservation SourceAuthority::observe()
         for (const auto& [path, revision] : baseline_)
             if (!captured.revisions.contains(path) && revision != "absent")
                 observation.delta.removed.push_back(path);
+        for (const auto& path : observation.delta.added)
+            observation.delta_revisions[path] = captured.revisions.at(path);
+        for (const auto& path : observation.delta.changed)
+            observation.delta_revisions[path] = captured.revisions.at(path);
+        for (const auto& path : observation.delta.removed)
+            observation.delta_revisions[path] = "absent";
         observation.invalid_sources = std::move(captured.invalid_sources);
         observation.scoped_authority = true;
         observation.authoritative = observation.invalid_sources.empty();

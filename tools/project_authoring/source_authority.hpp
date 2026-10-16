@@ -34,6 +34,8 @@ struct SourceObservation {
     bool full_rescan = false;
     std::string error;
     SourceDelta delta;
+    // Exact physical identities for changed/added paths, or 'absent' for deletions.
+    std::map<std::string, std::string> delta_revisions;
     std::vector<InvalidSource> invalid_sources;
     std::vector<std::string> watch_paths;
 };

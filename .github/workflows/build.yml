@@ -81,7 +81,7 @@ jobs:
         run: node editor/scripts/generate-native-schema.mjs --check
       - name: Build committed host contracts without Node generation
         run: |
-          cmake -S tools/project_authoring -B build/native-authoring -DCMAKE_BUILD_TYPE=Release
+          cmake -S tools/project_authoring -B build/native-authoring -DCMAKE_BUILD_TYPE=Release -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON
           cmake --build build/native-authoring
           ctest --test-dir build/native-authoring --output-on-failure
       - name: Certify native and Zod Project contract parity
@@ -90,6 +90,12 @@ jobs:
           NOVELTEA_YAML_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-yaml-certify
           NOVELTEA_ROOM_MAP_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-room-map-certify
         run: pnpm -C editor exec vp test run src/renderer/test/native-schema-generation.test.ts src/renderer/test/native-schema-parity.test.ts src/renderer/test/native-yaml-parity.test.ts src/renderer/test/native-room-map-parity.test.ts
+      - name: Certify native Project worker and Node-API ownership
+        env:
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring/noveltea-authoring-node.node
+        run: |
+          pnpm -C editor exec vp pack
+          pnpm -C editor exec vp test run src/renderer/test/native-authoring-worker.test.ts
       - name: Set up coverage contract reporter
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
