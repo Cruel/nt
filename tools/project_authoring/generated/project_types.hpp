@@ -677,6 +677,229 @@ struct DialoguesRecordNode332;
 struct DialoguesRecordNode333;
 struct DialoguesRecordNode334;
 struct DialoguesRecordNode335;
+struct GameplayCommand;
+struct GameplayCommandNode1;
+struct GameplayCommandNode2;
+struct GameplayCommandNode3;
+struct GameplayCommandNode4;
+struct GameplayCommandNode5;
+struct GameplayCommandNode6;
+struct GameplayCommandNode7;
+struct GameplayCommandNode8;
+struct GameplayCommandNode9;
+struct GameplayCommandNode10;
+struct GameplayCommandNode11;
+struct GameplayCommandNode12;
+struct GameplayCommandNode13;
+struct GameplayCommandNode14;
+struct GameplayCommandNode15;
+struct GameplayCommandNode16;
+struct GameplayCommandNode17;
+struct GameplayCommandNode18;
+struct GameplayCommandNode19;
+struct GameplayCommandNode20;
+struct GameplayCommandNode21;
+struct GameplayCommandNode22;
+struct GameplayCommandNode23;
+struct GameplayCommandNode24;
+struct GameplayCommandNode25;
+struct GameplayCommandNode26;
+struct GameplayCommandNode27;
+struct GameplayCommandNode28;
+struct GameplayCommandNode29;
+struct GameplayCommandNode30;
+struct GameplayCommandNode31;
+struct GameplayCommandNode32;
+struct GameplayCommandNode33;
+struct GameplayCommandNode34;
+struct GameplayCommandNode35;
+struct GameplayCommandNode36;
+struct GameplayCommandNode37;
+struct GameplayCommandNode38;
+struct GameplayCommandNode39;
+struct GameplayCommandNode40;
+struct GameplayCommandNode41;
+struct GameplayCommandNode42;
+struct GameplayCommandNode43;
+struct GameplayCommandNode44;
+struct GameplayCommandNode45;
+struct GameplayCommandNode46;
+struct GameplayCommandNode47;
+struct GameplayCommandNode48;
+struct GameplayCommandNode49;
+struct GameplayCommandNode50;
+struct GameplayCommandNode51;
+struct GameplayCommandNode52;
+struct GameplayCommandNode53;
+struct GameplayCommandNode54;
+struct GameplayCommandNode55;
+struct GameplayCommandNode56;
+struct GameplayCommandNode57;
+struct GameplayCommandNode58;
+struct GameplayCommandNode59;
+struct GameplayCommandNode60;
+struct GameplayCommandNode61;
+struct GameplayCommandNode62;
+struct GameplayCommandNode63;
+struct GameplayCommandNode64;
+struct GameplayCommandNode65;
+struct GameplayCommandNode66;
+struct GameplayCommandNode67;
+struct GameplayCommandNode68;
+struct GameplayCommandNode69;
+struct GameplayCommandNode70;
+struct GameplayCommandNode71;
+struct GameplayCommandNode72;
+struct GameplayCommandNode73;
+struct GameplayCommandNode74;
+struct GameplayCommandNode75;
+struct GameplayCommandNode76;
+struct GameplayCommandNode77;
+struct GameplayCommandNode78;
+struct GameplayCommandNode79;
+struct GameplayCommandNode80;
+struct GameplayCommandNode81;
+struct GameplayCommandNode82;
+struct GameplayCommandNode83;
+struct GameplayCommandNode84;
+struct GameplayCommandNode85;
+struct GameplayCommandNode86;
+struct GameplayCommandNode87;
+struct GameplayCommandNode88;
+struct GameplayCommandNode89;
+struct GameplayCommandNode90;
+struct GameplayCommandNode91;
+struct GameplayCommandNode92;
+struct GameplayCommandNode93;
+struct GameplayCommandNode94;
+struct GameplayCommandNode95;
+struct GameplayCommandNode96;
+struct GameplayCommandNode97;
+struct GameplayCommandNode98;
+struct GameplayCommandNode99;
+struct GameplayCommandNode100;
+struct GameplayCommandNode101;
+struct GameplayCommandNode102;
+struct GameplayCommandNode103;
+struct GameplayCommandNode104;
+struct GameplayCommandNode105;
+struct GameplayCommandNode106;
+struct GameplayCommandNode107;
+struct GameplayCommandNode108;
+struct GameplayCommandNode109;
+struct GameplayCommandNode110;
+struct GameplayCommandNode111;
+struct GameplayCommandNode112;
+struct GameplayCommandNode113;
+struct GameplayCommandNode114;
+struct GameplayCommandNode115;
+struct GameplayCommandNode116;
+struct GameplayCommandNode117;
+struct GameplayCommandNode118;
+struct GameplayCommandNode119;
+struct GameplayCommandNode120;
+struct GameplayCommandNode121;
+struct GameplayCommandNode122;
+struct GameplayCommandNode123;
+struct GameplayCommandNode124;
+struct GameplayCommandNode125;
+struct GameplayCommandNode126;
+struct GameplayCommandNode127;
+struct GameplayCommandNode128;
+struct GameplayCommandNode129;
+struct GameplayCommandNode130;
+struct GameplayCommandNode131;
+struct GameplayCommandNode132;
+struct GameplayCommandNode133;
+struct GameplayCommandNode134;
+struct GameplayCommandNode135;
+struct GameplayCommandNode136;
+struct GameplayCommandNode137;
+struct GameplayCommandNode138;
+struct GameplayCommandNode139;
+struct GameplayCommandNode140;
+struct GameplayCommandNode141;
+struct GameplayCommandNode142;
+struct GameplayCommandNode143;
+struct GameplayCommandNode144;
+struct GameplayCommandNode145;
+struct GameplayCommandNode146;
+struct GameplayCommandNode147;
+struct GameplayCommandNode148;
+struct GameplayCommandNode149;
+struct GameplayCommandNode150;
+struct GameplayCommandNode151;
+struct GameplayCommandNode152;
+struct GameplayCommandNode153;
+struct GameplayCommandNode154;
+struct GameplayCommandNode155;
+struct GameplayCommandNode156;
+struct GameplayCommandNode157;
+struct GameplayCommandNode158;
+struct GameplayCommandNode159;
+struct GameplayCommandNode160;
+struct GameplayCommandNode161;
+struct GameplayCommandNode162;
+struct GameplayCommandNode163;
+struct GameplayCommandNode164;
+struct GameplayCommandNode165;
+struct GameplayCommandNode166;
+struct GameplayCommandNode167;
+struct GameplayCommandNode168;
+struct GameplayCommandNode169;
+struct GameplayCommandNode170;
+struct GameplayCommandNode171;
+struct GameplayCommandNode172;
+struct GameplayCommandNode173;
+struct GameplayCommandNode174;
+struct GameplayCommandNode175;
+struct GameplayCommandNode176;
+struct GameplayCommandNode177;
+struct GameplayCommandNode178;
+struct GameplayCommandNode179;
+struct GameplayCommandNode180;
+struct GameplayCommandNode181;
+struct GameplayCommandNode182;
+struct GameplayCommandNode183;
+struct GameplayCommandNode184;
+struct GameplayCommandNode185;
+struct GameplayCommandNode186;
+struct GameplayCommandNode187;
+struct GameplayCommandNode188;
+struct GameplayCommandNode189;
+struct GameplayCommandNode190;
+struct GameplayCommandNode191;
+struct GameplayCommandNode192;
+struct GameplayCommandNode193;
+struct GameplayCommandNode194;
+struct GameplayCommandNode195;
+struct GameplayCommandNode196;
+struct GameplayCommandNode197;
+struct GameplayCommandNode198;
+struct GameplayCommandNode199;
+struct GameplayCommandNode200;
+struct GameplayCommandNode201;
+struct GameplayCommandNode202;
+struct GameplayCommandNode203;
+struct GameplayCommandNode204;
+struct GameplayCommandNode205;
+struct GameplayCommandNode206;
+struct GameplayCommandNode207;
+struct GameplayCommandNode208;
+struct GameplayCommandNode209;
+struct GameplayCommandNode210;
+struct GameplayCommandNode211;
+struct GameplayCommandNode212;
+struct GameplayCommandNode213;
+struct GameplayCommandNode214;
+struct GameplayCommandNode215;
+struct GameplayCommandNode216;
+struct GameplayCommandNode217;
+struct GameplayCommandNode218;
+struct GameplayCommandNode219;
+struct GameplayCommandNode220;
+struct GameplayCommandNode221;
+struct GameplayCommandNode222;
 struct InteractablesRecord;
 struct InteractablesRecordNode1;
 struct InteractablesRecordNode2;
@@ -11153,6 +11376,973 @@ double field_y;
 };
 struct DialoguesRecordNode335 {
 enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommand {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode1>, std::shared_ptr<GameplayCommandNode2>, std::shared_ptr<GameplayCommandNode3>, std::shared_ptr<GameplayCommandNode4>, std::shared_ptr<GameplayCommandNode5>, std::shared_ptr<GameplayCommandNode6>, std::shared_ptr<GameplayCommandNode7>, std::shared_ptr<GameplayCommandNode8>, std::shared_ptr<GameplayCommandNode9>, std::shared_ptr<GameplayCommandNode10>, std::shared_ptr<GameplayCommandNode11>, std::shared_ptr<GameplayCommandNode12>, std::shared_ptr<GameplayCommandNode13>, std::shared_ptr<GameplayCommandNode14>, std::shared_ptr<GameplayCommandNode15>, std::shared_ptr<GameplayCommandNode16>, std::shared_ptr<GameplayCommandNode17>, std::shared_ptr<GameplayCommandNode18>, std::shared_ptr<GameplayCommandNode19>, std::shared_ptr<GameplayCommandNode20>, std::shared_ptr<GameplayCommandNode21>, std::shared_ptr<GameplayCommandNode22>, std::shared_ptr<GameplayCommandNode23>, std::shared_ptr<GameplayCommandNode24>, std::shared_ptr<GameplayCommandNode25>, std::shared_ptr<GameplayCommandNode26>, std::shared_ptr<GameplayCommandNode27>, std::shared_ptr<GameplayCommandNode28>>;
+Value value;
+};
+struct GameplayCommandNode1 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode29> field_kind;
+std::shared_ptr<GameplayCommandNode30> field_variable;
+std::shared_ptr<GameplayCommandNode31> field_value;
+};
+struct GameplayCommandNode2 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode32> field_kind;
+std::shared_ptr<GameplayCommandNode30> field_variable;
+};
+struct GameplayCommandNode3 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode33> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_owner;
+std::string field_propertyId;
+std::shared_ptr<GameplayCommandNode31> field_value;
+};
+struct GameplayCommandNode4 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode35> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_owner;
+std::string field_propertyId;
+};
+struct GameplayCommandNode5 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode36> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_owner;
+std::shared_ptr<GameplayCommandNode37> field_trait;
+};
+struct GameplayCommandNode6 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode38> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_owner;
+std::shared_ptr<GameplayCommandNode37> field_trait;
+};
+struct GameplayCommandNode7 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode39> field_kind;
+std::shared_ptr<GameplayCommandNode40> field_subject;
+bool field_enabled;
+};
+struct GameplayCommandNode8 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode41> field_kind;
+std::shared_ptr<GameplayCommandNode40> field_subject;
+bool field_visible;
+};
+struct GameplayCommandNode9 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode42> field_kind;
+std::shared_ptr<GameplayCommandNode40> field_subject;
+std::shared_ptr<GameplayCommandNode43> field_location;
+std::optional<std::shared_ptr<GameplayCommandNode44>> field_roomPresentation;
+};
+struct GameplayCommandNode10 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode45> field_kind;
+std::shared_ptr<GameplayCommandNode46> field_source;
+std::optional<std::string> field_result;
+};
+struct GameplayCommandNode11 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode47> field_kind;
+std::shared_ptr<GameplayCommandNode46> field_source;
+std::shared_ptr<GameplayCommandNode43> field_location;
+bool field_enabled;
+bool field_visible;
+std::optional<std::string> field_result;
+};
+struct GameplayCommandNode12 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode48> field_kind;
+std::shared_ptr<GameplayCommandNode49> field_definition;
+std::int64_t field_quantity;
+std::shared_ptr<GameplayCommandNode43> field_location;
+bool field_enabled;
+bool field_visible;
+std::optional<std::shared_ptr<GameplayCommandNode50>> field_roomPresentation;
+std::optional<std::string> field_result;
+};
+struct GameplayCommandNode13 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode51> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_instance;
+};
+struct GameplayCommandNode14 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode52> field_kind;
+std::shared_ptr<GameplayCommandNode53> field_source;
+std::int64_t field_quantity;
+std::optional<std::string> field_result;
+};
+struct GameplayCommandNode15 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode54> field_kind;
+std::shared_ptr<GameplayCommandNode53> field_receiver;
+std::shared_ptr<GameplayCommandNode53> field_donor;
+};
+struct GameplayCommandNode16 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode55> field_kind;
+std::shared_ptr<GameplayCommandNode56> field_mode;
+std::shared_ptr<GameplayCommandNode53> field_source;
+std::int64_t field_quantity;
+std::shared_ptr<GameplayCommandNode43> field_location;
+std::optional<std::string> field_result;
+};
+struct GameplayCommandNode17 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode57> field_kind;
+std::shared_ptr<GameplayCommandNode58> field_mode;
+std::shared_ptr<GameplayCommandNode59> field_matcher;
+std::optional<std::shared_ptr<GameplayCommandNode60>> field_sourceInventory;
+std::int64_t field_quantity;
+std::shared_ptr<GameplayCommandNode43> field_location;
+};
+struct GameplayCommandNode18 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode61> field_kind;
+std::shared_ptr<GameplayCommandNode49> field_definition;
+std::int64_t field_quantity;
+std::shared_ptr<GameplayCommandNode43> field_location;
+};
+struct GameplayCommandNode19 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode62> field_kind;
+std::shared_ptr<GameplayCommandNode63> field_mode;
+std::shared_ptr<GameplayCommandNode53> field_source;
+std::int64_t field_quantity;
+};
+struct GameplayCommandNode20 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode64> field_kind;
+std::shared_ptr<GameplayCommandNode65> field_mode;
+std::shared_ptr<GameplayCommandNode59> field_matcher;
+std::optional<std::shared_ptr<GameplayCommandNode60>> field_sourceInventory;
+std::int64_t field_quantity;
+};
+struct GameplayCommandNode21 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode66> field_kind;
+std::shared_ptr<GameplayCommandNode60> field_inventory;
+std::optional<std::shared_ptr<GameplayCommandNode67>> field_layout;
+std::optional<bool> field_useTriggerAnchor;
+std::optional<bool> field_parentToTriggeringLayout;
+std::optional<bool> field_coexist;
+};
+struct GameplayCommandNode22 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode68> field_kind;
+std::string field_exitId;
+};
+struct GameplayCommandNode23 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode69> field_kind;
+std::shared_ptr<GameplayCommandNode70> field_room;
+};
+struct GameplayCommandNode24 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode71> field_kind;
+std::shared_ptr<GameplayCommandNode72> field_scene;
+};
+struct GameplayCommandNode25 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode73> field_kind;
+std::shared_ptr<GameplayCommandNode74> field_dialogue;
+};
+struct GameplayCommandNode26 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode75> field_kind;
+std::shared_ptr<GameplayCommandNode76> field_message;
+};
+struct GameplayCommandNode27 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode77> field_kind;
+std::string field_source;
+};
+struct GameplayCommandNode28 {
+std::string field_id;
+std::shared_ptr<GameplayCommandNode78> field_kind;
+std::shared_ptr<GameplayCommandNode79> field_condition;
+std::shared_ptr<GameplayCommandNode80> field_then;
+std::shared_ptr<GameplayCommandNode81> field_else;
+};
+struct GameplayCommandNode29 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode30 {
+std::shared_ptr<GameplayCommandNode82> field__u24_ref;
+};
+struct GameplayCommandNode31 {
+using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+Value value;
+};
+struct GameplayCommandNode32 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode33 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode34 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode83>, std::shared_ptr<GameplayCommandNode84>, std::shared_ptr<GameplayCommandNode85>, std::shared_ptr<GameplayCommandNode86>, std::shared_ptr<GameplayCommandNode87>, std::shared_ptr<GameplayCommandNode88>, std::shared_ptr<GameplayCommandNode89>, std::shared_ptr<GameplayCommandNode90>>;
+Value value;
+};
+struct GameplayCommandNode35 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode36 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode37 {
+std::shared_ptr<GameplayCommandNode91> field__u24_ref;
+};
+struct GameplayCommandNode38 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode39 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode40 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode92>, std::shared_ptr<GameplayCommandNode93>, std::shared_ptr<GameplayCommandNode89>, std::shared_ptr<GameplayCommandNode90>>;
+Value value;
+};
+struct GameplayCommandNode41 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode42 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode43 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode94>, std::shared_ptr<GameplayCommandNode95>, std::shared_ptr<GameplayCommandNode96>>;
+Value value;
+};
+struct GameplayCommandNode44 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct GameplayCommandNode45 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode46 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode97>, std::shared_ptr<GameplayCommandNode98>, std::shared_ptr<GameplayCommandNode99>>;
+Value value;
+};
+struct GameplayCommandNode47 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode48 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode49 {
+std::shared_ptr<GameplayCommandNode100> field__u24_ref;
+};
+struct GameplayCommandNode50 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct GameplayCommandNode51 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode52 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode53 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode101>, std::shared_ptr<GameplayCommandNode89>, std::shared_ptr<GameplayCommandNode90>>;
+Value value;
+};
+struct GameplayCommandNode54 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode55 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode56 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode57 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode58 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode59 {
+std::optional<std::shared_ptr<GameplayCommandNode49>> field_definition;
+std::optional<std::shared_ptr<GameplayCommandNode102>> field_traits;
+std::optional<std::shared_ptr<GameplayCommandNode103>> field_properties;
+std::optional<std::shared_ptr<GameplayCommandNode53>> field_exact;
+};
+struct GameplayCommandNode60 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode104>, std::shared_ptr<GameplayCommandNode105>, std::shared_ptr<GameplayCommandNode106>, std::shared_ptr<GameplayCommandNode90>>;
+Value value;
+};
+struct GameplayCommandNode61 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode62 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode63 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode64 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode65 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode66 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode67 {
+std::shared_ptr<GameplayCommandNode107> field__u24_ref;
+};
+struct GameplayCommandNode68 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode69 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode70 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode108>, std::shared_ptr<GameplayCommandNode109>, std::shared_ptr<GameplayCommandNode90>>;
+Value value;
+};
+struct GameplayCommandNode71 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode72 {
+std::shared_ptr<GameplayCommandNode110> field__u24_ref;
+};
+struct GameplayCommandNode73 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode74 {
+std::shared_ptr<GameplayCommandNode111> field__u24_ref;
+};
+struct GameplayCommandNode75 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode76 {
+std::shared_ptr<GameplayCommandNode112> field_source;
+std::shared_ptr<GameplayCommandNode113> field_markup;
+};
+struct GameplayCommandNode77 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode78 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode79 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode114>, std::shared_ptr<GameplayCommandNode115>, std::shared_ptr<GameplayCommandNode116>, std::shared_ptr<GameplayCommandNode117>, std::shared_ptr<GameplayCommandNode118>, std::shared_ptr<GameplayCommandNode119>, std::shared_ptr<GameplayCommandNode120>, std::shared_ptr<GameplayCommandNode121>, std::shared_ptr<GameplayCommandNode122>, std::shared_ptr<GameplayCommandNode123>>;
+Value value;
+};
+struct GameplayCommandNode80 {
+std::vector<std::shared_ptr<GameplayCommand>> value;
+};
+struct GameplayCommandNode81 {
+std::vector<std::shared_ptr<GameplayCommand>> value;
+};
+struct GameplayCommandNode82 {
+std::shared_ptr<GameplayCommandNode124> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode83 {
+std::shared_ptr<GameplayCommandNode125> field_kind;
+std::shared_ptr<GameplayCommandNode126> field_room;
+};
+struct GameplayCommandNode84 {
+std::shared_ptr<GameplayCommandNode127> field_kind;
+std::shared_ptr<GameplayCommandNode128> field_character;
+};
+struct GameplayCommandNode85 {
+std::shared_ptr<GameplayCommandNode129> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+};
+struct GameplayCommandNode86 {
+std::shared_ptr<GameplayCommandNode131> field_kind;
+std::shared_ptr<GameplayCommandNode126> field_room;
+std::string field_featureId;
+};
+struct GameplayCommandNode87 {
+std::shared_ptr<GameplayCommandNode132> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+std::string field_featureId;
+};
+struct GameplayCommandNode88 {
+std::shared_ptr<GameplayCommandNode133> field_kind;
+};
+struct GameplayCommandNode89 {
+std::shared_ptr<GameplayCommandNode134> field_kind;
+std::string field_slotId;
+};
+struct GameplayCommandNode90 {
+std::shared_ptr<GameplayCommandNode135> field_kind;
+std::string field_bindingId;
+};
+struct GameplayCommandNode91 {
+std::shared_ptr<GameplayCommandNode136> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode92 {
+std::shared_ptr<GameplayCommandNode137> field_kind;
+std::shared_ptr<GameplayCommandNode128> field_character;
+};
+struct GameplayCommandNode93 {
+std::shared_ptr<GameplayCommandNode138> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+};
+struct GameplayCommandNode94 {
+std::shared_ptr<GameplayCommandNode139> field_kind;
+};
+struct GameplayCommandNode95 {
+std::shared_ptr<GameplayCommandNode140> field_kind;
+std::shared_ptr<GameplayCommandNode70> field_room;
+};
+struct GameplayCommandNode96 {
+std::shared_ptr<GameplayCommandNode141> field_kind;
+std::shared_ptr<GameplayCommandNode60> field_inventory;
+};
+struct GameplayCommandNode97 {
+std::shared_ptr<GameplayCommandNode142> field_kind;
+std::shared_ptr<GameplayCommandNode143> field_archetype;
+};
+struct GameplayCommandNode98 {
+std::shared_ptr<GameplayCommandNode144> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_instance;
+};
+struct GameplayCommandNode99 {
+std::shared_ptr<GameplayCommandNode145> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_instance;
+};
+struct GameplayCommandNode100 {
+std::shared_ptr<GameplayCommandNode146> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode101 {
+std::shared_ptr<GameplayCommandNode147> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+};
+struct GameplayCommandNode102 {
+std::vector<std::shared_ptr<GameplayCommandNode37>> value;
+};
+struct GameplayCommandNode103 {
+std::vector<std::shared_ptr<GameplayCommandNode148>> value;
+};
+struct GameplayCommandNode104 {
+std::shared_ptr<GameplayCommandNode149> field_kind;
+std::shared_ptr<GameplayCommandNode150> field_inventory;
+};
+struct GameplayCommandNode105 {
+std::shared_ptr<GameplayCommandNode151> field_kind;
+};
+struct GameplayCommandNode106 {
+std::shared_ptr<GameplayCommandNode152> field_kind;
+std::shared_ptr<GameplayCommandNode153> field_owner;
+std::string field_inventoryId;
+};
+struct GameplayCommandNode107 {
+std::shared_ptr<GameplayCommandNode154> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode108 {
+std::shared_ptr<GameplayCommandNode155> field_kind;
+std::shared_ptr<GameplayCommandNode126> field_room;
+};
+struct GameplayCommandNode109 {
+std::shared_ptr<GameplayCommandNode156> field_kind;
+};
+struct GameplayCommandNode110 {
+std::shared_ptr<GameplayCommandNode157> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode111 {
+std::shared_ptr<GameplayCommandNode158> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode112 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode159>, std::shared_ptr<GameplayCommandNode160>, std::shared_ptr<GameplayCommandNode161>>;
+Value value;
+};
+struct GameplayCommandNode113 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct GameplayCommandNode114 {
+std::shared_ptr<GameplayCommandNode162> field_kind;
+};
+struct GameplayCommandNode115 {
+std::shared_ptr<GameplayCommandNode163> field_kind;
+std::shared_ptr<GameplayCommandNode164> field_conditions;
+};
+struct GameplayCommandNode116 {
+std::shared_ptr<GameplayCommandNode165> field_kind;
+std::shared_ptr<GameplayCommandNode166> field_conditions;
+};
+struct GameplayCommandNode117 {
+std::shared_ptr<GameplayCommandNode167> field_kind;
+std::shared_ptr<GameplayCommandNode79> field_condition;
+};
+struct GameplayCommandNode118 {
+std::shared_ptr<GameplayCommandNode168> field_kind;
+std::shared_ptr<GameplayCommandNode30> field_variable;
+std::shared_ptr<GameplayCommandNode169> field_operator;
+std::optional<std::shared_ptr<GameplayCommandNode31>> field_value;
+};
+struct GameplayCommandNode119 {
+std::shared_ptr<GameplayCommandNode170> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_owner;
+std::string field_propertyId;
+std::shared_ptr<GameplayCommandNode169> field_operator;
+std::optional<std::shared_ptr<GameplayCommandNode31>> field_value;
+};
+struct GameplayCommandNode120 {
+std::shared_ptr<GameplayCommandNode171> field_kind;
+std::shared_ptr<GameplayCommandNode34> field_owner;
+std::shared_ptr<GameplayCommandNode37> field_trait;
+bool field_present;
+};
+struct GameplayCommandNode121 {
+std::shared_ptr<GameplayCommandNode172> field_kind;
+std::shared_ptr<GameplayCommandNode40> field_subject;
+std::shared_ptr<GameplayCommandNode173> field_operator;
+std::shared_ptr<GameplayCommandNode43> field_location;
+};
+struct GameplayCommandNode122 {
+std::shared_ptr<GameplayCommandNode174> field_kind;
+std::shared_ptr<GameplayCommandNode60> field_inventory;
+std::shared_ptr<GameplayCommandNode59> field_matcher;
+std::shared_ptr<GameplayCommandNode175> field_operator;
+std::int64_t field_quantity;
+};
+struct GameplayCommandNode123 {
+std::shared_ptr<GameplayCommandNode176> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<GameplayCommandNode177>> field_additionalDependencies;
+};
+struct GameplayCommandNode124 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode125 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode126 {
+std::shared_ptr<GameplayCommandNode178> field__u24_ref;
+};
+struct GameplayCommandNode127 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode128 {
+std::shared_ptr<GameplayCommandNode179> field__u24_ref;
+};
+struct GameplayCommandNode129 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode130 {
+std::shared_ptr<GameplayCommandNode180> field__u24_ref;
+};
+struct GameplayCommandNode131 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode132 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode133 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode134 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode135 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode136 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode137 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode138 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode139 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode140 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode141 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode142 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode143 {
+std::shared_ptr<GameplayCommandNode181> field__u24_ref;
+};
+struct GameplayCommandNode144 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode145 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode146 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode147 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode148 {
+std::string field_propertyId;
+std::shared_ptr<GameplayCommandNode31> field_value;
+};
+struct GameplayCommandNode149 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode150 {
+std::shared_ptr<GameplayCommandNode182> field_owner;
+std::string field_inventoryId;
+};
+struct GameplayCommandNode151 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode152 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode153 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode183>, std::shared_ptr<GameplayCommandNode184>, std::shared_ptr<GameplayCommandNode185>, std::shared_ptr<GameplayCommandNode186>, std::shared_ptr<GameplayCommandNode187>, std::shared_ptr<GameplayCommandNode89>, std::shared_ptr<GameplayCommandNode90>>;
+Value value;
+};
+struct GameplayCommandNode154 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode155 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode156 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode157 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode158 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode159 {
+std::shared_ptr<GameplayCommandNode188> field_kind;
+std::string field_text;
+};
+struct GameplayCommandNode160 {
+std::shared_ptr<GameplayCommandNode189> field_kind;
+std::string field_key;
+};
+struct GameplayCommandNode161 {
+std::shared_ptr<GameplayCommandNode190> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<GameplayCommandNode177>> field_additionalDependencies;
+};
+struct GameplayCommandNode162 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode163 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode164 {
+std::vector<std::shared_ptr<GameplayCommandNode79>> value;
+};
+struct GameplayCommandNode165 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode166 {
+std::vector<std::shared_ptr<GameplayCommandNode79>> value;
+};
+struct GameplayCommandNode167 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode168 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode169 {
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
+Value value;
+};
+struct GameplayCommandNode170 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode171 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode172 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode173 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct GameplayCommandNode174 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode175 {
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+Value value;
+};
+struct GameplayCommandNode176 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode177 {
+std::optional<std::shared_ptr<GameplayCommandNode191>> field_targets;
+};
+struct GameplayCommandNode178 {
+std::shared_ptr<GameplayCommandNode192> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode179 {
+std::shared_ptr<GameplayCommandNode193> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode180 {
+std::shared_ptr<GameplayCommandNode194> field_registry;
+std::string field_id;
+};
+struct GameplayCommandNode181 {
+std::shared_ptr<GameplayCommandNode195> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode182 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode196>, std::shared_ptr<GameplayCommandNode197>, std::shared_ptr<GameplayCommandNode198>, std::shared_ptr<GameplayCommandNode199>, std::shared_ptr<GameplayCommandNode200>>;
+Value value;
+};
+struct GameplayCommandNode183 {
+std::shared_ptr<GameplayCommandNode201> field_kind;
+};
+struct GameplayCommandNode184 {
+std::shared_ptr<GameplayCommandNode202> field_kind;
+std::shared_ptr<GameplayCommandNode128> field_character;
+};
+struct GameplayCommandNode185 {
+std::shared_ptr<GameplayCommandNode203> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+};
+struct GameplayCommandNode186 {
+std::shared_ptr<GameplayCommandNode204> field_kind;
+std::shared_ptr<GameplayCommandNode126> field_room;
+std::string field_featureId;
+};
+struct GameplayCommandNode187 {
+std::shared_ptr<GameplayCommandNode205> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+std::string field_featureId;
+};
+struct GameplayCommandNode188 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode189 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode190 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode191 {
+std::vector<std::shared_ptr<GameplayCommandNode206>> value;
+};
+struct GameplayCommandNode192 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode193 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode194 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode195 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode196 {
+std::shared_ptr<GameplayCommandNode207> field_kind;
+};
+struct GameplayCommandNode197 {
+std::shared_ptr<GameplayCommandNode208> field_kind;
+std::shared_ptr<GameplayCommandNode128> field_character;
+};
+struct GameplayCommandNode198 {
+std::shared_ptr<GameplayCommandNode209> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+};
+struct GameplayCommandNode199 {
+std::shared_ptr<GameplayCommandNode210> field_kind;
+std::shared_ptr<GameplayCommandNode126> field_room;
+std::string field_featureId;
+};
+struct GameplayCommandNode200 {
+std::shared_ptr<GameplayCommandNode211> field_kind;
+std::shared_ptr<GameplayCommandNode130> field_interactable;
+std::string field_featureId;
+};
+struct GameplayCommandNode201 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode202 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode203 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode204 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode205 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode206 {
+using Value = std::variant<std::shared_ptr<GameplayCommandNode212>, std::shared_ptr<GameplayCommandNode213>, std::shared_ptr<GameplayCommandNode214>, std::shared_ptr<GameplayCommandNode215>>;
+Value value;
+};
+struct GameplayCommandNode207 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode208 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode209 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode210 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode211 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode212 {
+std::shared_ptr<GameplayCommandNode216> field_kind;
+std::shared_ptr<GameplayCommandNode217> field_collection;
+std::string field_id;
+};
+struct GameplayCommandNode213 {
+std::shared_ptr<GameplayCommandNode218> field_kind;
+std::shared_ptr<GameplayCommandNode219> field_owner;
+std::string field_propertyId;
+};
+struct GameplayCommandNode214 {
+std::shared_ptr<GameplayCommandNode220> field_kind;
+std::string field_roomId;
+std::string field_placementId;
+};
+struct GameplayCommandNode215 {
+std::shared_ptr<GameplayCommandNode221> field_kind;
+std::string field_roomId;
+std::string field_exitId;
+};
+struct GameplayCommandNode216 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode217 {
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
+Value value;
+};
+struct GameplayCommandNode218 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode219 {
+std::shared_ptr<GameplayCommandNode222> field_kind;
+std::string field_id;
+};
+struct GameplayCommandNode220 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode221 {
+enum class Value { choice0 };
+Value value;
+};
+struct GameplayCommandNode222 {
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct InteractablesRecord {

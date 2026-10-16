@@ -45296,6 +45296,7 @@
     "CharactersRecord": "n132",
     "Condition": "n379",
     "DialoguesRecord": "n529",
+    "GameplayCommand": "n634",
     "InteractablesRecord": "n832",
     "InteractionsRecord": "n932",
     "LayoutsRecord": "n972",
@@ -54029,6 +54030,2675 @@
       ],
       "type": "object",
       "x-native-node": "n529"
+    },
+    "GameplayCommand": {
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "set-global-property",
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "variable": {
+                  "$ref": "#/$defs/__schema2"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "variable",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "unset-global-property",
+                  "type": "string"
+                },
+                "variable": {
+                  "$ref": "#/$defs/__schema2"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "variable"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "set-property",
+                  "type": "string"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "propertyId": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "value": {
+                  "$ref": "#/$defs/__schema4"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "owner",
+                "propertyId",
+                "value"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "unset-property",
+                  "type": "string"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "propertyId": {
+                  "$ref": "#/$defs/__schema1"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "owner",
+                "propertyId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "add-trait",
+                  "type": "string"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "trait": {
+                  "$ref": "#/$defs/__schema26"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "owner",
+                "trait"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "remove-trait",
+                  "type": "string"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "trait": {
+                  "$ref": "#/$defs/__schema26"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "owner",
+                "trait"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "set-enabled",
+                  "type": "string"
+                },
+                "subject": {
+                  "$ref": "#/$defs/__schema28"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "subject",
+                "enabled"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "set-visible",
+                  "type": "string"
+                },
+                "subject": {
+                  "$ref": "#/$defs/__schema28"
+                },
+                "visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "subject",
+                "visible"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "move-instance",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "roomPresentation": {
+                  "enum": [
+                    "resolve",
+                    "none"
+                  ],
+                  "type": "string"
+                },
+                "subject": {
+                  "$ref": "#/$defs/__schema28"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "subject",
+                "location"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "create-room",
+                  "type": "string"
+                },
+                "result": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "source": {
+                  "$ref": "#/$defs/__schema53"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "source"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "create-character",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "result": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "source": {
+                  "$ref": "#/$defs/__schema53"
+                },
+                "visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "source",
+                "location",
+                "enabled",
+                "visible"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "definition": {
+                  "$ref": "#/$defs/__schema58"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "create-interactable",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "result": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "roomPresentation": {
+                  "enum": [
+                    "resolve",
+                    "none"
+                  ],
+                  "type": "string"
+                },
+                "visible": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "definition",
+                "quantity",
+                "location",
+                "enabled",
+                "visible"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "instance": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "kind": {
+                  "const": "destroy-instance",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "instance"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "split-quantity",
+                  "type": "string"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "result": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "source": {
+                  "$ref": "#/$defs/__schema61"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "source",
+                "quantity"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "donor": {
+                  "$ref": "#/$defs/__schema61"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "merge-quantity",
+                  "type": "string"
+                },
+                "receiver": {
+                  "$ref": "#/$defs/__schema61"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "receiver",
+                "donor"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "transfer-quantity",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "mode": {
+                  "const": "exact",
+                  "type": "string"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "result": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "source": {
+                  "$ref": "#/$defs/__schema61"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "mode",
+                "source",
+                "quantity",
+                "location"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "transfer-quantity",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "matcher": {
+                  "$ref": "#/$defs/__schema63"
+                },
+                "mode": {
+                  "const": "aggregate",
+                  "type": "string"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "sourceInventory": {
+                  "$ref": "#/$defs/__schema38"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "mode",
+                "matcher",
+                "quantity",
+                "location"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "definition": {
+                  "$ref": "#/$defs/__schema58"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "add-quantity",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "definition",
+                "quantity",
+                "location"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "consume-quantity",
+                  "type": "string"
+                },
+                "mode": {
+                  "const": "exact",
+                  "type": "string"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "source": {
+                  "$ref": "#/$defs/__schema61"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "mode",
+                "source",
+                "quantity"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "consume-quantity",
+                  "type": "string"
+                },
+                "matcher": {
+                  "$ref": "#/$defs/__schema63"
+                },
+                "mode": {
+                  "const": "aggregate",
+                  "type": "string"
+                },
+                "quantity": {
+                  "$ref": "#/$defs/__schema60"
+                },
+                "sourceInventory": {
+                  "$ref": "#/$defs/__schema38"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "mode",
+                "matcher",
+                "quantity"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "coexist": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "inventory": {
+                  "$ref": "#/$defs/__schema38"
+                },
+                "kind": {
+                  "const": "present-inventory",
+                  "type": "string"
+                },
+                "layout": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "$ref": {
+                      "$ref": "#/$defs/__schema68"
+                    }
+                  },
+                  "required": [
+                    "$ref"
+                  ],
+                  "title": "LayoutRef",
+                  "type": "object",
+                  "x-native-node": "n713",
+                  "x-noveltea-documentation": {
+                    "name": "LayoutRef"
+                  }
+                },
+                "parentToTriggeringLayout": {
+                  "type": "boolean"
+                },
+                "useTriggerAnchor": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "inventory"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "exitId": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "navigate-exit",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "exitId"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "change-room",
+                  "type": "string"
+                },
+                "room": {
+                  "$ref": "#/$defs/__schema34"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "room"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "call-scene",
+                  "type": "string"
+                },
+                "scene": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "$ref": {
+                      "$ref": "#/$defs/__schema69"
+                    }
+                  },
+                  "required": [
+                    "$ref"
+                  ],
+                  "title": "SceneRef",
+                  "type": "object",
+                  "x-native-node": "n726",
+                  "x-noveltea-documentation": {
+                    "name": "SceneRef"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "scene"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "dialogue": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "$ref": {
+                      "$ref": "#/$defs/__schema70"
+                    }
+                  },
+                  "required": [
+                    "$ref"
+                  ],
+                  "title": "DialogueRef",
+                  "type": "object",
+                  "x-native-node": "n730",
+                  "x-noveltea-documentation": {
+                    "name": "DialogueRef"
+                  }
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "call-dialogue",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "dialogue"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "notify",
+                  "type": "string"
+                },
+                "message": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "markup": {
+                      "$ref": "#/$defs/__schema82"
+                    },
+                    "source": {
+                      "$ref": "#/$defs/__schema71"
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "markup"
+                  ],
+                  "title": "TextContent",
+                  "type": "object",
+                  "x-native-node": "n736",
+                  "x-noveltea-documentation": {
+                    "name": "TextContent"
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "message"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "run-lua",
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "x-native-utf16-length": {
+                    "maximum": null,
+                    "minimum": 1
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "source"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "condition": {
+                  "$ref": "#/$defs/__schema83"
+                },
+                "else": {
+                  "items": {
+                    "$ref": "#"
+                  },
+                  "type": "array"
+                },
+                "id": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "kind": {
+                  "const": "if",
+                  "type": "string"
+                },
+                "then": {
+                  "items": {
+                    "$ref": "#"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "condition",
+                "then",
+                "else"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "__schema1": {
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+          "title": "EntityId",
+          "type": "string",
+          "x-native-node": "n5"
+        },
+        "__schema10": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "room",
+              "type": "string",
+              "x-native-node": "n407"
+            },
+            "room": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object",
+          "x-native-node": "n406"
+        },
+        "__schema11": {
+          "additionalProperties": false,
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/__schema12"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "title": "RoomRef",
+          "type": "object",
+          "x-native-node": "n285",
+          "x-noveltea-documentation": {
+            "name": "RoomRef"
+          }
+        },
+        "__schema12": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "rooms",
+              "type": "string",
+              "x-native-node": "n287"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n286"
+        },
+        "__schema13": {
+          "additionalProperties": false,
+          "properties": {
+            "character": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "kind": {
+              "const": "character",
+              "type": "string",
+              "x-native-node": "n412"
+            }
+          },
+          "required": [
+            "kind",
+            "character"
+          ],
+          "type": "object",
+          "x-native-node": "n408"
+        },
+        "__schema14": {
+          "additionalProperties": false,
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/__schema15"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "title": "CharacterRef",
+          "type": "object",
+          "x-native-node": "n409",
+          "x-noveltea-documentation": {
+            "name": "CharacterRef"
+          }
+        },
+        "__schema15": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "characters",
+              "type": "string",
+              "x-native-node": "n411"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n410"
+        },
+        "__schema16": {
+          "additionalProperties": false,
+          "properties": {
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable",
+              "type": "string",
+              "x-native-node": "n417"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable"
+          ],
+          "type": "object",
+          "x-native-node": "n413"
+        },
+        "__schema17": {
+          "additionalProperties": false,
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/__schema18"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "title": "InteractableInstanceRef",
+          "type": "object",
+          "x-native-node": "n414",
+          "x-noveltea-documentation": {
+            "name": "InteractableInstanceRef"
+          }
+        },
+        "__schema18": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "registry": {
+              "const": "interactableInstances",
+              "type": "string",
+              "x-native-node": "n416"
+            }
+          },
+          "required": [
+            "registry",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n415"
+        },
+        "__schema19": {
+          "additionalProperties": false,
+          "properties": {
+            "featureId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "kind": {
+              "const": "room-feature",
+              "type": "string",
+              "x-native-node": "n419"
+            },
+            "room": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "featureId"
+          ],
+          "type": "object",
+          "x-native-node": "n418"
+        },
+        "__schema2": {
+          "additionalProperties": false,
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/__schema3"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "title": "VariableRef",
+          "type": "object",
+          "x-native-node": "n400",
+          "x-noveltea-documentation": {
+            "name": "VariableRef"
+          }
+        },
+        "__schema20": {
+          "additionalProperties": false,
+          "properties": {
+            "featureId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable-feature",
+              "type": "string",
+              "x-native-node": "n421"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable",
+            "featureId"
+          ],
+          "type": "object",
+          "x-native-node": "n420"
+        },
+        "__schema21": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "current-room",
+              "type": "string",
+              "x-native-node": "n423"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "x-native-node": "n422"
+        },
+        "__schema22": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/__schema23"
+            },
+            "slotId": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "kind",
+            "slotId"
+          ],
+          "title": "InteractionSlotOperand",
+          "type": "object",
+          "x-native-node": "n424",
+          "x-noveltea-documentation": {
+            "name": "InteractionSlotOperand"
+          }
+        },
+        "__schema23": {
+          "const": "interaction-slot",
+          "type": "string",
+          "x-native-node": "n425"
+        },
+        "__schema24": {
+          "additionalProperties": false,
+          "properties": {
+            "bindingId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "kind": {
+              "$ref": "#/$defs/__schema25"
+            }
+          },
+          "required": [
+            "kind",
+            "bindingId"
+          ],
+          "title": "CommandResultOperand",
+          "type": "object",
+          "x-native-node": "n426",
+          "x-noveltea-documentation": {
+            "name": "CommandResultOperand"
+          }
+        },
+        "__schema25": {
+          "const": "command-result",
+          "type": "string",
+          "x-native-node": "n427"
+        },
+        "__schema26": {
+          "additionalProperties": false,
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/__schema27"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "title": "TraitRef",
+          "type": "object",
+          "x-native-node": "n432",
+          "x-noveltea-documentation": {
+            "name": "TraitRef"
+          }
+        },
+        "__schema27": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "traits",
+              "type": "string",
+              "x-native-node": "n434"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n433"
+        },
+        "__schema28": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema29"
+            },
+            {
+              "$ref": "#/$defs/__schema30"
+            },
+            {
+              "$ref": "#/$defs/__schema22"
+            },
+            {
+              "$ref": "#/$defs/__schema24"
+            }
+          ],
+          "title": "LocationSubjectOperand",
+          "x-native-node": "n480",
+          "x-noveltea-documentation": {
+            "name": "LocationSubjectOperand"
+          }
+        },
+        "__schema29": {
+          "additionalProperties": false,
+          "properties": {
+            "character": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "kind": {
+              "const": "character",
+              "type": "string",
+              "x-native-node": "n482"
+            }
+          },
+          "required": [
+            "kind",
+            "character"
+          ],
+          "type": "object",
+          "x-native-node": "n481"
+        },
+        "__schema3": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "variables",
+              "type": "string",
+              "x-native-node": "n402"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n401"
+        },
+        "__schema30": {
+          "additionalProperties": false,
+          "properties": {
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable",
+              "type": "string",
+              "x-native-node": "n484"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable"
+          ],
+          "type": "object",
+          "x-native-node": "n483"
+        },
+        "__schema31": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema32"
+            },
+            {
+              "$ref": "#/$defs/__schema33"
+            },
+            {
+              "$ref": "#/$defs/__schema37"
+            }
+          ],
+          "title": "LocationOperand",
+          "x-native-node": "n437",
+          "x-noveltea-documentation": {
+            "name": "LocationOperand"
+          }
+        },
+        "__schema32": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "unplaced",
+              "type": "string",
+              "x-native-node": "n439"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "x-native-node": "n438"
+        },
+        "__schema33": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "room",
+              "type": "string",
+              "x-native-node": "n441"
+            },
+            "room": {
+              "$ref": "#/$defs/__schema34"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object",
+          "x-native-node": "n440"
+        },
+        "__schema34": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema35"
+            },
+            {
+              "$ref": "#/$defs/__schema36"
+            },
+            {
+              "$ref": "#/$defs/__schema24"
+            }
+          ],
+          "title": "RoomOperand",
+          "x-native-node": "n442",
+          "x-noveltea-documentation": {
+            "name": "RoomOperand"
+          }
+        },
+        "__schema35": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "room",
+              "type": "string",
+              "x-native-node": "n444"
+            },
+            "room": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "kind",
+            "room"
+          ],
+          "type": "object",
+          "x-native-node": "n443"
+        },
+        "__schema36": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "current-room",
+              "type": "string",
+              "x-native-node": "n446"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "x-native-node": "n445"
+        },
+        "__schema37": {
+          "additionalProperties": false,
+          "properties": {
+            "inventory": {
+              "$ref": "#/$defs/__schema38"
+            },
+            "kind": {
+              "const": "inventory",
+              "type": "string",
+              "x-native-node": "n478"
+            }
+          },
+          "required": [
+            "kind",
+            "inventory"
+          ],
+          "type": "object",
+          "x-native-node": "n447"
+        },
+        "__schema38": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema39"
+            },
+            {
+              "$ref": "#/$defs/__schema46"
+            },
+            {
+              "$ref": "#/$defs/__schema47"
+            },
+            {
+              "$ref": "#/$defs/__schema24"
+            }
+          ],
+          "title": "InventoryOperand",
+          "x-native-node": "n448",
+          "x-noveltea-documentation": {
+            "name": "InventoryOperand"
+          }
+        },
+        "__schema39": {
+          "additionalProperties": false,
+          "properties": {
+            "inventory": {
+              "additionalProperties": false,
+              "properties": {
+                "inventoryId": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema40"
+                }
+              },
+              "required": [
+                "owner",
+                "inventoryId"
+              ],
+              "title": "InventoryRef",
+              "type": "object",
+              "x-native-node": "n450",
+              "x-noveltea-documentation": {
+                "name": "InventoryRef"
+              }
+            },
+            "kind": {
+              "const": "inventory",
+              "type": "string",
+              "x-native-node": "n462"
+            }
+          },
+          "required": [
+            "kind",
+            "inventory"
+          ],
+          "type": "object",
+          "x-native-node": "n449"
+        },
+        "__schema4": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema5"
+            },
+            {
+              "$ref": "#/$defs/__schema6"
+            },
+            {
+              "$ref": "#/$defs/__schema7"
+            },
+            {
+              "$ref": "#/$defs/__schema8"
+            }
+          ],
+          "title": "RuntimeScalar",
+          "x-native-node": "n395",
+          "x-noveltea-documentation": {
+            "name": "RuntimeScalar"
+          }
+        },
+        "__schema40": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema41"
+            },
+            {
+              "$ref": "#/$defs/__schema42"
+            },
+            {
+              "$ref": "#/$defs/__schema43"
+            },
+            {
+              "$ref": "#/$defs/__schema44"
+            },
+            {
+              "$ref": "#/$defs/__schema45"
+            }
+          ],
+          "title": "InventoryOwner",
+          "x-native-node": "n451",
+          "x-noveltea-documentation": {
+            "name": "InventoryOwner"
+          }
+        },
+        "__schema41": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "project",
+              "type": "string",
+              "x-native-node": "n453"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "x-native-node": "n452"
+        },
+        "__schema42": {
+          "additionalProperties": false,
+          "properties": {
+            "character": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "kind": {
+              "const": "character",
+              "type": "string",
+              "x-native-node": "n455"
+            }
+          },
+          "required": [
+            "kind",
+            "character"
+          ],
+          "type": "object",
+          "x-native-node": "n454"
+        },
+        "__schema43": {
+          "additionalProperties": false,
+          "properties": {
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable",
+              "type": "string",
+              "x-native-node": "n457"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable"
+          ],
+          "type": "object",
+          "x-native-node": "n456"
+        },
+        "__schema44": {
+          "additionalProperties": false,
+          "properties": {
+            "featureId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "kind": {
+              "const": "room-feature",
+              "type": "string",
+              "x-native-node": "n459"
+            },
+            "room": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "featureId"
+          ],
+          "type": "object",
+          "x-native-node": "n458"
+        },
+        "__schema45": {
+          "additionalProperties": false,
+          "properties": {
+            "featureId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable-feature",
+              "type": "string",
+              "x-native-node": "n461"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable",
+            "featureId"
+          ],
+          "type": "object",
+          "x-native-node": "n460"
+        },
+        "__schema46": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "player-inventory",
+              "type": "string",
+              "x-native-node": "n464"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "x-native-node": "n463"
+        },
+        "__schema47": {
+          "additionalProperties": false,
+          "properties": {
+            "inventoryId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "kind": {
+              "const": "owner-inventory",
+              "type": "string",
+              "x-native-node": "n466"
+            },
+            "owner": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/__schema48"
+                },
+                {
+                  "$ref": "#/$defs/__schema49"
+                },
+                {
+                  "$ref": "#/$defs/__schema50"
+                },
+                {
+                  "$ref": "#/$defs/__schema51"
+                },
+                {
+                  "$ref": "#/$defs/__schema52"
+                },
+                {
+                  "$ref": "#/$defs/__schema22"
+                },
+                {
+                  "$ref": "#/$defs/__schema24"
+                }
+              ],
+              "title": "InventoryOwnerOperand",
+              "x-native-node": "n467",
+              "x-noveltea-documentation": {
+                "name": "InventoryOwnerOperand"
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "owner",
+            "inventoryId"
+          ],
+          "type": "object",
+          "x-native-node": "n465"
+        },
+        "__schema48": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "project",
+              "type": "string",
+              "x-native-node": "n469"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object",
+          "x-native-node": "n468"
+        },
+        "__schema49": {
+          "additionalProperties": false,
+          "properties": {
+            "character": {
+              "$ref": "#/$defs/__schema14"
+            },
+            "kind": {
+              "const": "character",
+              "type": "string",
+              "x-native-node": "n471"
+            }
+          },
+          "required": [
+            "kind",
+            "character"
+          ],
+          "type": "object",
+          "x-native-node": "n470"
+        },
+        "__schema5": {
+          "type": "null",
+          "x-native-node": "n396"
+        },
+        "__schema50": {
+          "additionalProperties": false,
+          "properties": {
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable",
+              "type": "string",
+              "x-native-node": "n473"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable"
+          ],
+          "type": "object",
+          "x-native-node": "n472"
+        },
+        "__schema51": {
+          "additionalProperties": false,
+          "properties": {
+            "featureId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "kind": {
+              "const": "room-feature",
+              "type": "string",
+              "x-native-node": "n475"
+            },
+            "room": {
+              "$ref": "#/$defs/__schema11"
+            }
+          },
+          "required": [
+            "kind",
+            "room",
+            "featureId"
+          ],
+          "type": "object",
+          "x-native-node": "n474"
+        },
+        "__schema52": {
+          "additionalProperties": false,
+          "properties": {
+            "featureId": {
+              "$ref": "#/$defs/__schema1"
+            },
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable-feature",
+              "type": "string",
+              "x-native-node": "n477"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable",
+            "featureId"
+          ],
+          "type": "object",
+          "x-native-node": "n476"
+        },
+        "__schema53": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema54"
+            },
+            {
+              "$ref": "#/$defs/__schema56"
+            },
+            {
+              "$ref": "#/$defs/__schema57"
+            }
+          ],
+          "title": "GameplayConfigurationSource",
+          "x-native-node": "n661",
+          "x-noveltea-documentation": {
+            "name": "GameplayConfigurationSource"
+          }
+        },
+        "__schema54": {
+          "additionalProperties": false,
+          "properties": {
+            "archetype": {
+              "additionalProperties": false,
+              "properties": {
+                "$ref": {
+                  "$ref": "#/$defs/__schema55"
+                }
+              },
+              "required": [
+                "$ref"
+              ],
+              "title": "ArchetypeRef",
+              "type": "object",
+              "x-native-node": "n663",
+              "x-noveltea-documentation": {
+                "name": "ArchetypeRef"
+              }
+            },
+            "kind": {
+              "const": "archetype",
+              "type": "string",
+              "x-native-node": "n666"
+            }
+          },
+          "required": [
+            "kind",
+            "archetype"
+          ],
+          "type": "object",
+          "x-native-node": "n662"
+        },
+        "__schema55": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "archetypes",
+              "type": "string",
+              "x-native-node": "n665"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n664"
+        },
+        "__schema56": {
+          "additionalProperties": false,
+          "properties": {
+            "instance": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "kind": {
+              "const": "compiled-instance",
+              "type": "string",
+              "x-native-node": "n668"
+            }
+          },
+          "required": [
+            "kind",
+            "instance"
+          ],
+          "type": "object",
+          "x-native-node": "n667"
+        },
+        "__schema57": {
+          "additionalProperties": false,
+          "properties": {
+            "instance": {
+              "$ref": "#/$defs/__schema9"
+            },
+            "kind": {
+              "const": "effective-instance",
+              "type": "string",
+              "x-native-node": "n670"
+            }
+          },
+          "required": [
+            "kind",
+            "instance"
+          ],
+          "type": "object",
+          "x-native-node": "n669"
+        },
+        "__schema58": {
+          "additionalProperties": false,
+          "properties": {
+            "$ref": {
+              "$ref": "#/$defs/__schema59"
+            }
+          },
+          "required": [
+            "$ref"
+          ],
+          "title": "InteractableRef",
+          "type": "object",
+          "x-native-node": "n489",
+          "x-noveltea-documentation": {
+            "name": "InteractableRef"
+          }
+        },
+        "__schema59": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "interactables",
+              "type": "string",
+              "x-native-node": "n491"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n490"
+        },
+        "__schema6": {
+          "type": "boolean",
+          "x-native-node": "n397"
+        },
+        "__schema60": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer",
+          "x-native-node": "n679"
+        },
+        "__schema61": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema62"
+            },
+            {
+              "$ref": "#/$defs/__schema22"
+            },
+            {
+              "$ref": "#/$defs/__schema24"
+            }
+          ],
+          "title": "InteractableOperand",
+          "x-native-node": "n493",
+          "x-noveltea-documentation": {
+            "name": "InteractableOperand"
+          }
+        },
+        "__schema62": {
+          "additionalProperties": false,
+          "properties": {
+            "interactable": {
+              "$ref": "#/$defs/__schema17"
+            },
+            "kind": {
+              "const": "interactable",
+              "type": "string",
+              "x-native-node": "n495"
+            }
+          },
+          "required": [
+            "kind",
+            "interactable"
+          ],
+          "type": "object",
+          "x-native-node": "n494"
+        },
+        "__schema63": {
+          "additionalProperties": false,
+          "properties": {
+            "definition": {
+              "$ref": "#/$defs/__schema64"
+            },
+            "exact": {
+              "$ref": "#/$defs/__schema67"
+            },
+            "properties": {
+              "$ref": "#/$defs/__schema66"
+            },
+            "traits": {
+              "$ref": "#/$defs/__schema65"
+            }
+          },
+          "title": "InteractableMatcher",
+          "type": "object",
+          "x-native-node": "n487",
+          "x-noveltea-documentation": {
+            "name": "InteractableMatcher"
+          }
+        },
+        "__schema64": {
+          "$ref": "#/$defs/__schema58",
+          "x-native-node": "n488"
+        },
+        "__schema65": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/__schema26"
+          },
+          "type": "array",
+          "x-native-node": "n499"
+        },
+        "__schema66": {
+          "default": [],
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "propertyId": {
+                "$ref": "#/$defs/__schema1"
+              },
+              "value": {
+                "$ref": "#/$defs/__schema4"
+              }
+            },
+            "required": [
+              "propertyId",
+              "value"
+            ],
+            "type": "object",
+            "x-native-node": "n498"
+          },
+          "type": "array",
+          "x-native-node": "n496"
+        },
+        "__schema67": {
+          "$ref": "#/$defs/__schema61",
+          "x-native-node": "n492"
+        },
+        "__schema68": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "layouts",
+              "type": "string",
+              "x-native-node": "n715"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n714"
+        },
+        "__schema69": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "scenes",
+              "type": "string",
+              "x-native-node": "n728"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n727"
+        },
+        "__schema7": {
+          "type": "number",
+          "x-native-node": "n398"
+        },
+        "__schema70": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "const": "dialogues",
+              "type": "string",
+              "x-native-node": "n732"
+            },
+            "id": {
+              "$ref": "#/$defs/__schema1"
+            }
+          },
+          "required": [
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n731"
+        },
+        "__schema71": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema72"
+            },
+            {
+              "$ref": "#/$defs/__schema73"
+            },
+            {
+              "$ref": "#/$defs/__schema74"
+            }
+          ],
+          "title": "TextSource",
+          "x-native-node": "n738",
+          "x-noveltea-documentation": {
+            "name": "TextSource"
+          }
+        },
+        "__schema72": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "inline",
+              "type": "string",
+              "x-native-node": "n740"
+            },
+            "text": {
+              "type": "string",
+              "x-native-node": "n741"
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "type": "object",
+          "x-native-node": "n739"
+        },
+        "__schema73": {
+          "additionalProperties": false,
+          "properties": {
+            "key": {
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]*(?:\\.[A-Za-z][A-Za-z0-9_-]*)+$",
+              "title": "NamedMessageKey",
+              "type": "string",
+              "x-native-node": "n376"
+            },
+            "kind": {
+              "const": "localized",
+              "type": "string",
+              "x-native-node": "n743"
+            }
+          },
+          "required": [
+            "kind",
+            "key"
+          ],
+          "type": "object",
+          "x-native-node": "n742"
+        },
+        "__schema74": {
+          "additionalProperties": false,
+          "properties": {
+            "additionalDependencies": {
+              "$ref": "#/$defs/__schema75"
+            },
+            "kind": {
+              "const": "lua-expression",
+              "type": "string",
+              "x-native-node": "n745"
+            },
+            "source": {
+              "type": "string",
+              "x-native-node": "n746",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "source"
+          ],
+          "type": "object",
+          "x-native-node": "n744"
+        },
+        "__schema75": {
+          "$ref": "#/$defs/__schema76",
+          "x-native-node": "n504"
+        },
+        "__schema76": {
+          "additionalProperties": false,
+          "properties": {
+            "targets": {
+              "$ref": "#/$defs/__schema77"
+            }
+          },
+          "title": "LuaExplicitDependencies",
+          "type": "object",
+          "x-native-node": "n505"
+        },
+        "__schema77": {
+          "default": [],
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/__schema78"
+              },
+              {
+                "$ref": "#/$defs/__schema79"
+              },
+              {
+                "$ref": "#/$defs/__schema80"
+              },
+              {
+                "$ref": "#/$defs/__schema81"
+              }
+            ],
+            "title": "LuaDependencyTarget",
+            "x-native-node": "n508"
+          },
+          "type": "array",
+          "x-native-node": "n506"
+        },
+        "__schema78": {
+          "additionalProperties": false,
+          "properties": {
+            "collection": {
+              "enum": [
+                "assets",
+                "animations",
+                "variables",
+                "materials",
+                "layouts",
+                "archetypes",
+                "characters",
+                "rooms",
+                "interactables",
+                "verbs",
+                "interactions",
+                "dialogues",
+                "scenes",
+                "maps",
+                "scripts",
+                "tests"
+              ],
+              "type": "string",
+              "x-native-node": "n510"
+            },
+            "id": {
+              "type": "string",
+              "x-native-node": "n511",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            },
+            "kind": {
+              "const": "record",
+              "type": "string",
+              "x-native-node": "n512"
+            }
+          },
+          "required": [
+            "kind",
+            "collection",
+            "id"
+          ],
+          "type": "object",
+          "x-native-node": "n509"
+        },
+        "__schema79": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "property-value",
+              "type": "string",
+              "x-native-node": "n514"
+            },
+            "owner": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "x-native-node": "n516",
+                  "x-native-utf16-length": {
+                    "maximum": null,
+                    "minimum": 1
+                  }
+                },
+                "kind": {
+                  "enum": [
+                    "room",
+                    "character",
+                    "interactable"
+                  ],
+                  "type": "string",
+                  "x-native-node": "n517"
+                }
+              },
+              "required": [
+                "kind",
+                "id"
+              ],
+              "type": "object",
+              "x-native-node": "n515"
+            },
+            "propertyId": {
+              "type": "string",
+              "x-native-node": "n518",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "owner",
+            "propertyId"
+          ],
+          "type": "object",
+          "x-native-node": "n513"
+        },
+        "__schema8": {
+          "type": "string",
+          "x-native-node": "n399"
+        },
+        "__schema80": {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "room-placement",
+              "type": "string",
+              "x-native-node": "n520"
+            },
+            "placementId": {
+              "type": "string",
+              "x-native-node": "n521",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            },
+            "roomId": {
+              "type": "string",
+              "x-native-node": "n522",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "roomId",
+            "placementId"
+          ],
+          "type": "object",
+          "x-native-node": "n519"
+        },
+        "__schema81": {
+          "additionalProperties": false,
+          "properties": {
+            "exitId": {
+              "type": "string",
+              "x-native-node": "n524",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            },
+            "kind": {
+              "const": "room-exit",
+              "type": "string",
+              "x-native-node": "n525"
+            },
+            "roomId": {
+              "type": "string",
+              "x-native-node": "n526",
+              "x-native-utf16-length": {
+                "maximum": null,
+                "minimum": 1
+              }
+            }
+          },
+          "required": [
+            "kind",
+            "roomId",
+            "exitId"
+          ],
+          "type": "object",
+          "x-native-node": "n523"
+        },
+        "__schema82": {
+          "enum": [
+            "plain",
+            "active-text"
+          ],
+          "type": "string",
+          "x-native-node": "n737"
+        },
+        "__schema83": {
+          "$ref": "#/$defs/__schema84",
+          "title": "Condition",
+          "x-native-node": "n379"
+        },
+        "__schema84": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "always",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "conditions": {
+                  "items": {
+                    "$ref": "#/$defs/__schema83"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "const": "all",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "conditions"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "conditions": {
+                  "items": {
+                    "$ref": "#/$defs/__schema83"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "const": "any",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "conditions"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "condition": {
+                  "$ref": "#/$defs/__schema83"
+                },
+                "kind": {
+                  "const": "not",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "condition"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "variable-comparison",
+                  "type": "string"
+                },
+                "operator": {
+                  "$ref": "#/$defs/__schema85"
+                },
+                "value": {
+                  "$ref": "#/$defs/__schema4"
+                },
+                "variable": {
+                  "$ref": "#/$defs/__schema2"
+                }
+              },
+              "required": [
+                "kind",
+                "variable",
+                "operator"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "property-comparison",
+                  "type": "string"
+                },
+                "operator": {
+                  "$ref": "#/$defs/__schema85"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "propertyId": {
+                  "$ref": "#/$defs/__schema1"
+                },
+                "value": {
+                  "$ref": "#/$defs/__schema4"
+                }
+              },
+              "required": [
+                "kind",
+                "owner",
+                "propertyId",
+                "operator"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "trait-presence",
+                  "type": "string"
+                },
+                "owner": {
+                  "$ref": "#/$defs/__schema9"
+                },
+                "present": {
+                  "type": "boolean"
+                },
+                "trait": {
+                  "$ref": "#/$defs/__schema26"
+                }
+              },
+              "required": [
+                "kind",
+                "owner",
+                "trait",
+                "present"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "location-comparison",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/__schema31"
+                },
+                "operator": {
+                  "enum": [
+                    "equal",
+                    "not-equal"
+                  ],
+                  "type": "string"
+                },
+                "subject": {
+                  "$ref": "#/$defs/__schema28"
+                }
+              },
+              "required": [
+                "kind",
+                "subject",
+                "operator",
+                "location"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "inventory": {
+                  "$ref": "#/$defs/__schema38"
+                },
+                "kind": {
+                  "const": "inventory-quantity-comparison",
+                  "type": "string"
+                },
+                "matcher": {
+                  "$ref": "#/$defs/__schema63"
+                },
+                "operator": {
+                  "enum": [
+                    "equal",
+                    "not-equal",
+                    "less",
+                    "less-equal",
+                    "greater",
+                    "greater-equal"
+                  ],
+                  "type": "string",
+                  "x-native-node": "n501"
+                },
+                "quantity": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "kind",
+                "inventory",
+                "matcher",
+                "operator",
+                "quantity"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "additionalDependencies": {
+                  "$ref": "#/$defs/__schema75"
+                },
+                "kind": {
+                  "const": "lua-predicate",
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string",
+                  "x-native-utf16-length": {
+                    "maximum": null,
+                    "minimum": 1
+                  }
+                }
+              },
+              "required": [
+                "kind",
+                "source"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "__schema85": {
+          "enum": [
+            "equal",
+            "not-equal",
+            "less",
+            "less-equal",
+            "greater",
+            "greater-equal",
+            "truthy",
+            "falsy"
+          ],
+          "type": "string",
+          "x-native-node": "n393"
+        },
+        "__schema9": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/__schema10"
+            },
+            {
+              "$ref": "#/$defs/__schema13"
+            },
+            {
+              "$ref": "#/$defs/__schema16"
+            },
+            {
+              "$ref": "#/$defs/__schema19"
+            },
+            {
+              "$ref": "#/$defs/__schema20"
+            },
+            {
+              "$ref": "#/$defs/__schema21"
+            },
+            {
+              "$ref": "#/$defs/__schema22"
+            },
+            {
+              "$ref": "#/$defs/__schema24"
+            }
+          ],
+          "title": "GameplayIdentityOperand",
+          "x-native-node": "n405",
+          "x-noveltea-documentation": {
+            "name": "GameplayIdentityOperand"
+          }
+        }
+      },
+      "$ref": "#/$defs/__schema0",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "GameplayCommand",
+      "x-native-node": "n634"
     },
     "InteractablesRecord": {
       "$defs": {

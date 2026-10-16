@@ -107,6 +107,26 @@ add_executable(noveltea-schema-certify certify.cpp types_compile.cpp)
 target_link_libraries(noveltea-schema-certify PRIVATE noveltea_project_authoring_contracts)
 if(BUILD_TESTING)
     add_test(NAME native_authoring_contracts COMMAND noveltea-schema-certify --self-test)
+    find_program(NOVELTEA_AUTHORING_TEST_NODE NAMES node)
+    add_executable(noveltea-flow-certify flow_certify.cpp)
+    target_include_directories(noveltea-flow-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_link_libraries(noveltea-flow-certify PRIVATE noveltea_project_authoring_contracts)
+    add_test(NAME native_authoring_flow_operations COMMAND noveltea-flow-certify --self-test)
+    if(NOVELTEA_AUTHORING_TEST_NODE)
+        add_test(NAME native_authoring_flow
+            COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-flow.mjs"
+                "$<TARGET_FILE:noveltea-flow-certify>")
+        add_test(NAME native_authoring_flow_contract_generation
+            COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/generate-native-schema.mjs"
+                --check)
+    endif()
+    add_executable(noveltea-flow-session-certify flow_session_certify.cpp)
+    target_include_directories(noveltea-flow-session-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_link_libraries(noveltea-flow-session-certify PRIVATE noveltea_project_authoring_session)
+    add_test(NAME native_authoring_flow_session COMMAND noveltea-flow-session-certify
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_executable(noveltea-yaml-certify yaml_certify.cpp)
     target_include_directories(noveltea-yaml-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
     target_link_libraries(noveltea-yaml-certify PRIVATE noveltea_project_authoring_yaml)

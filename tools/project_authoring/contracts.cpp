@@ -263,6 +263,76 @@ struct Contracts {
     }
 };
 
+// Select only tagged branches of an otherwise ordinary union. Gameplay Commands
+// use z.union (rather than z.discriminatedUnion), and transfer/consume have an
+// additional `mode` literal. Selecting by both tags is necessary to report an
+// error at the offending nested field instead of at an unrelated alternative.
+const Json& unwrapped_node(const Contracts& contracts, std::string id)
+{
+    for (unsigned int depth = 0; depth < 64; ++depth) {
+        const auto& current = contracts.document.at("nodes").at(id);
+        const auto type = current.at("type").as<std::string>();
+        if (type == "lazy" || type == "optional" || type == "nullable" || type == "default")
+            id = current.at("children").at("inner").as<std::string>();
+        else if (type == "pipe")
+            id = current.at("children").at("in").as<std::string>();
+        else
+            return current;
+    }
+    throw std::runtime_error("Union branch wrapper depth exceeded.");
+}
+
+struct UnionBranches {
+    std::vector<std::string> ids;
+    std::string invalid_tag;
+};
+
+UnionBranches tagged_union_branches(const Contracts& contracts, const Json& union_node,
+                                    const Json& value)
+{
+    UnionBranches result;
+    for (const auto& item : union_node.at("children").object_range())
+        result.ids.push_back(item.value().as<std::string>());
+    if (!value.is_object())
+        return result;
+    for (const auto* tag : {"kind", "mode"}) {
+        // `mode` is relevant only after matching `kind`, and only if every
+        // remaining branch supplies a literal for this field.
+        if (result.ids.empty())
+            return result;
+        bool all_tagged = true;
+        for (const auto& id : result.ids) {
+            const auto& branch = unwrapped_node(contracts, id);
+            if (branch.at("type") != "object" || !branch.at("children").contains(tag) ||
+                unwrapped_node(contracts, branch.at("children").at(tag).as<std::string>())
+                        .at("type") != "literal") {
+                all_tagged = false;
+                break;
+            }
+        }
+        if (!all_tagged)
+            continue;
+        std::vector<std::string> matched;
+        for (const auto& id : result.ids) {
+            const auto& branch = unwrapped_node(contracts, id);
+            const auto& literal =
+                unwrapped_node(contracts, branch.at("children").at(tag).as<std::string>());
+            for (const auto& option : literal.at("values").array_range())
+                if (value.contains(tag) && option == value.at(tag)) {
+                    matched.push_back(id);
+                    break;
+                }
+        }
+        if (matched.empty()) {
+            result.ids.clear();
+            result.invalid_tag = tag;
+            return result;
+        }
+        result.ids = std::move(matched);
+    }
+    return result;
+}
+
 class Validator {
     const Contracts& contracts_;
     std::size_t visits_ = 0;
@@ -468,14 +538,6 @@ class Validator {
         }
     }
 
-    const Json& unwrap(const Json& current) const
-    {
-        const auto type = current.at("type").as<std::string>();
-        if (type == "lazy" || type == "optional" || type == "default")
-            return unwrap(node(current.at("children").at("inner").as<std::string>()));
-        return current;
-    }
-
 public:
     explicit Validator(const Contracts& contracts) : contracts_(contracts) {}
 
@@ -533,37 +595,20 @@ public:
             for (const auto& op : current.at("operations").array_range())
                 operation(op, value, path, errors);
         } else if (type == "union") {
-            if (current.contains("discriminator") && value && value->is_object()) {
-                const auto key = current.at("discriminator").as<std::string>();
-                bool selected = false;
-                if (value->contains(key)) {
-                    for (const auto& child : children.object_range()) {
-                        const auto& branch = unwrap(node(child.value().as<std::string>()));
-                        const auto& tag =
-                            unwrap(node(branch.at("children").at(key).as<std::string>()));
-                        for (const auto& choice : tag.at("values").array_range()) {
-                            if (choice == value->at(key)) {
-                                parse(child.value().as<std::string>(), value, path, errors,
-                                      depth + 1);
-                                selected = true;
-                                break;
-                            }
-                        }
-                        if (selected)
-                            break;
-                    }
-                }
-                if (!selected)
-                    issue(errors, path + "/" + pointer_token(key), "schema.discriminator",
-                          "Unknown or missing union discriminator.");
+            const auto branches =
+                tagged_union_branches(contracts_, current, value ? *value : Json::null());
+            if (!branches.invalid_tag.empty()) {
+                issue(errors, path + "/" + pointer_token(branches.invalid_tag),
+                      "schema.discriminator", "Unknown or missing union discriminator.");
+            } else if (value && branches.ids.size() == 1) {
+                parse(branches.ids.front(), value, path, errors, depth + 1);
             } else {
                 std::vector<Diagnostic> best;
                 bool accepted = false;
-                for (const auto& child : children.object_range()) {
+                for (const auto& branch_id : branches.ids) {
                     auto candidate = value;
                     std::vector<Diagnostic> branch_errors;
-                    parse(child.value().as<std::string>(), candidate, path, branch_errors,
-                          depth + 1);
+                    parse(branch_id, candidate, path, branch_errors, depth + 1);
                     if (branch_errors.empty()) {
                         value = std::move(candidate);
                         accepted = true;
@@ -579,7 +624,10 @@ public:
             issue(errors, path, "schema.required", "Required value is missing.");
         } else {
             structural(id, *value, path, errors);
-            if (errors.size() != before)
+            // A strict object's unknown-key issue must not hide a missing or
+            // invalid *known* field. Zod reports both in one parse, and the
+            // actionable nested field is important for Gameplay Commands.
+            if (errors.size() != before && type != "object")
                 return;
             if (type == "object") {
                 for (const auto& child : children.object_range()) {
@@ -745,30 +793,9 @@ class SparseSourceProjection {
 
     std::optional<std::string> union_choice(const Json& definition, const Json& value) const
     {
-        if (!value.is_object())
-            return std::nullopt;
-        std::optional<std::string> selected;
-        for (const auto& option : definition.at("children").object_range()) {
-            const auto& branch = node(unwrap(option.value().as<std::string>()));
-            if (branch.at("type") != "object")
-                continue;
-            bool matches = false;
-            for (const auto& field : branch.at("children").object_range()) {
-                if (!value.contains(field.key()))
-                    continue;
-                const auto& candidate = node(unwrap(field.value().as<std::string>()));
-                if (candidate.at("type") != "literal")
-                    continue;
-                for (const auto& tag : candidate.at("values").array_range())
-                    matches |= tag == value.at(field.key());
-            }
-            if (matches) {
-                if (selected)
-                    return std::nullopt;
-                selected = option.value().as<std::string>();
-            }
-        }
-        return selected;
+        const auto branches = tagged_union_branches(contracts_, definition, value);
+        return branches.ids.size() == 1 ? std::optional<std::string>{branches.ids.front()}
+                                        : std::nullopt;
     }
 
     void project(Value& value, const std::string& id, std::vector<std::string>& path,
