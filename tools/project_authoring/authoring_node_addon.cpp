@@ -67,11 +67,13 @@ Json snapshot_json(const RoomSessionSnapshot& state)
     result["workingRevision"] = state.working_revision;
     result["diskSourceRevision"] = state.disk_source_revision;
     result["source"] = Json::parse(state.source_json);
+    result["baseline"] = Json::parse(state.baseline_json);
     result["dirty"] = state.dirty;
     result["valid"] = state.valid;
     result["normalized"] =
         state.normalized_json.empty() ? Json::null() : Json::parse(state.normalized_json);
     result["diagnostics"] = Json::array();
+    result["conflictingPaths"] = json_array(state.conflicting_paths);
     for (const auto& error : state.diagnostics) {
         Json entry = Json::object();
         entry["path"] = error.path;
@@ -224,8 +226,8 @@ Session& session_arg(napi_env env, napi_value value)
 napi_value call(napi_env env, napi_callback_info info)
 {
     void* callback_data = nullptr;
-    napi_value argv[4]{};
-    std::size_t argc = 4;
+    napi_value argv[5]{};
+    std::size_t argc = 5;
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
@@ -274,6 +276,47 @@ napi_value call(napi_env env, napi_callback_info info)
                 throw std::runtime_error("inspect requires a Project record owner.");
             const auto inspected = session.project->inspect_record(string_arg(env, argv[1]));
             return js_string(env, result_json(*session.project, inspected).to_string());
+        }
+        if (name == "reconcile") {
+            if (argc != 2)
+                throw std::runtime_error("reconcile requires a Project owner.");
+            const auto reconciled = session.project->reconcile_owner(string_arg(env, argv[1]));
+            return js_string(env, result_json(*session.project, reconciled).to_string());
+        }
+        if (name == "useDisk") {
+            if (argc != 3)
+                throw std::runtime_error("useDisk requires working revision and owner.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid working revision.");
+            const auto resolved = session.project->use_disk(static_cast<std::uint64_t>(revision),
+                                                            string_arg(env, argv[2]));
+            return js_string(env, result_json(*session.project, resolved).to_string());
+        }
+        if (name == "saveOwners") {
+            if (argc != 5)
+                throw std::runtime_error("saveOwners needs revision, owners, keepMine, comments.");
+            std::int64_t revision = -1;
+            bool keep_mine = false;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0 ||
+                napi_get_value_bool(env, argv[3], &keep_mine) != napi_ok)
+                throw std::runtime_error("Invalid scoped Save revision or conflict decision.");
+            const auto owners = Json::parse(string_arg(env, argv[2]));
+            if (!owners.is_array() || owners.size() > 256)
+                throw std::runtime_error("Invalid native Save owner list.");
+            std::vector<std::string> selected;
+            for (const auto& owner : owners.array_range())
+                selected.push_back(owner.as<std::string>());
+            const auto choice = string_arg(env, argv[4]);
+            const auto decision =
+                choice == "keep"      ? noveltea::authoring::TransactionDecision::KeepComments
+                : choice == "remove"  ? noveltea::authoring::TransactionDecision::RemoveComments
+                : choice == "cancel"  ? noveltea::authoring::TransactionDecision::Cancel
+                : choice == "perEdit" ? noveltea::authoring::TransactionDecision::UseEditDecisions
+                                      : throw std::runtime_error("Invalid comment decision.");
+            const auto saved = session.project->save_owners(static_cast<std::uint64_t>(revision),
+                                                            selected, keep_mine, decision);
+            return js_string(env, result_json(*session.project, saved).to_string());
         }
         if (name == "observe") {
             if (argc != 1)
@@ -349,8 +392,9 @@ napi_value call(napi_env env, napi_callback_info info)
 
 napi_value initialize(napi_env env, napi_value exports)
 {
-    static const char* operations[]{"open",         "close", "snapshot", "observe", "inspect",
-                                    "coverageLost", "hint",  "save",     "patch"};
+    static const char* operations[]{"open",         "close",     "snapshot", "observe",
+                                    "inspect",      "reconcile", "useDisk",  "saveOwners",
+                                    "coverageLost", "hint",      "save",     "patch"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;
         if (napi_create_function(env, name, NAPI_AUTO_LENGTH, call, const_cast<char*>(name),

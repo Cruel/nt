@@ -1,4 +1,6 @@
 import type { JsonPatchOperation } from '../../renderer/project/json-patch';
+import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
+import type { JsonValue } from '../../renderer/project/json-value';
 import type { NativeAuthoringCommand } from './native-authoring-worker-contract';
 import type { NativeAuthoringSessionBridge } from './native-authoring-session-bridge';
 import type { z } from 'zod';
@@ -35,6 +37,30 @@ function sourceRevisions(snapshot: Snapshot, owners: readonly string[]): Record<
     result[owner] = revision;
   }
   return result;
+}
+
+function patchOwner(path: string): string {
+  if (path.startsWith('/editor/')) return 'editor';
+  const match = /^\/([^/]+)\/([^/]+)\//.exec(path);
+  const recordFamilies = new Set([
+    'animations',
+    'archetypes',
+    'assets',
+    'characters',
+    'dialogues',
+    'interactables',
+    'interactions',
+    'layouts',
+    'maps',
+    'materials',
+    'rooms',
+    'scenes',
+    'scripts',
+    'tests',
+    'variables',
+    'verbs',
+  ]);
+  return match && recordFamilies.has(match[1]!) ? `${match[1]}/${match[2]}` : 'project';
 }
 
 /**
@@ -95,6 +121,83 @@ export class NativeAuthoringWorkingProject {
       if (result.accepted) {
         const merged = this.mergeSnapshot(result.snapshot);
         this.view = merged;
+        return { ...result, snapshot: merged };
+      }
+      return result;
+    });
+  }
+
+  /** Bring one verified external source into the dirty Project, without losing
+   * local fields. Conflicts remain unresolved until Use Disk or Keep Mine. */
+  async reconcile(owner: string): Promise<PatchResult> {
+    return this.serial(async () => {
+      const result = await this.bridge.request({ operation: 'reconcile', owner });
+      if (!result || !('accepted' in result))
+        throw new Error('Native Project did not return a reconciliation result.');
+      if (result.accepted) {
+        const merged = this.mergeSnapshot(result.snapshot);
+        this.view = merged;
+        this.checkpointDirtyWorkingState();
+        return { ...result, snapshot: merged };
+      }
+      return result;
+    });
+  }
+
+  /** Discard exactly one native Save owner's dirty edits and unresolved conflicts. */
+  async useDisk(owner: string): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const result = await this.bridge.request({
+        operation: 'useDisk',
+        owner,
+        expectedRevision: this.view.workingRevision,
+      });
+      if (!result || !('accepted' in result))
+        throw new Error('Native Project did not return a Use Disk result.');
+      if (result.accepted) {
+        const kept = this.history
+          .map((entry, index) => ({
+            entry: {
+              forward: entry.forward.filter((patch) => patchOwner(patch.path) !== owner),
+              inverse: entry.inverse.filter((patch) => patchOwner(patch.path) !== owner),
+            },
+            index,
+          }))
+          .filter(({ entry }) => entry.forward.length && entry.inverse.length);
+        this.cursor = kept.filter(({ index }) => index < this.cursor).length;
+        this.history = kept.map(({ entry }) => entry);
+        for (const path of this.pendingFields.keys())
+          if (patchOwner(path) === owner) this.pendingFields.delete(path);
+        const merged = this.mergeSnapshot(result.snapshot);
+        this.view = merged;
+        this.checkpointDirtyWorkingState();
+        return { ...result, snapshot: merged };
+      }
+      return result;
+    });
+  }
+
+  /** Scoped native Save: an exact-revision multi-owner YAML transaction. */
+  async saveOwners(
+    owners: readonly string[],
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
+  ): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const result = await this.bridge.request({
+        operation: 'saveOwners',
+        owners: [...owners],
+        expectedRevision: this.view.workingRevision,
+        keepMine: options.keepMine ?? false,
+        comments: options.comments ?? 'keep',
+      });
+      if (!result || !('accepted' in result))
+        throw new Error('Native Project did not return a scoped Save result.');
+      if (result.accepted) {
+        const merged = this.mergeSnapshot(result.snapshot);
+        this.view = merged;
+        this.checkpointDirtyWorkingState();
         return { ...result, snapshot: merged };
       }
       return result;
@@ -185,6 +288,35 @@ export class NativeAuthoringWorkingProject {
         ...incoming.recordSnapshots,
       },
     };
+  }
+
+  /** Recreate a minimal replayable journal from the current verified baselines.
+   * This is necessary after reconciliation or Save advances source revisions. */
+  private checkpointDirtyWorkingState(): void {
+    if (!this.view) return;
+    const batches: RetainedBatch[] = [];
+    const owners: Array<[string, Snapshot | NonNullable<Snapshot['recordSnapshots']>[string]]> = [
+      ['project', this.view],
+      ...Object.entries(this.view.recordSnapshots ?? {}),
+    ];
+    for (const [owner, state] of owners) {
+      if (!state.dirty) continue;
+      if (state.baseline === undefined)
+        throw new Error(`Native owner ${owner} has no saved baseline for recovery.`);
+      const prefix = owner === 'project' ? '' : `/${owner}`;
+      const patches = nativePatches(
+        diffJsonDocuments(state.baseline as JsonValue, state.source as JsonValue).map((patch) => ({
+          ...patch,
+          path: prefix + patch.path,
+        })),
+      );
+      if (patches.length)
+        batches.push({
+          patches,
+          diskPreconditions: sourceRevisions(this.view, [owner]),
+        });
+    }
+    this.retained = batches;
   }
 
   private async requestPatch(

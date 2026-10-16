@@ -13,6 +13,15 @@ interface NativeBinding {
   close(handle: unknown): void;
   snapshot(handle: unknown): string;
   inspect(handle: unknown, owner: string): string;
+  reconcile(handle: unknown, owner: string): string;
+  useDisk(handle: unknown, revision: number, owner: string): string;
+  saveOwners(
+    handle: unknown,
+    revision: number,
+    owners: string,
+    keepMine: boolean,
+    comments: string,
+  ): string;
   observe(handle: unknown): string;
   hint(handle: unknown, path: string): void;
   coverageLost(handle: unknown): void;
@@ -128,6 +137,44 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
             JSON.parse(binding.inspect(handle, command.owner)),
+          ),
+        };
+        break;
+      case 'reconcile':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(binding.reconcile(handle, command.owner)),
+          ),
+        };
+        break;
+      case 'useDisk':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(binding.useDisk(handle, command.expectedRevision, command.owner)),
+          ),
+        };
+        break;
+      case 'saveOwners':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(
+              binding.saveOwners(
+                handle,
+                command.expectedRevision,
+                JSON.stringify(command.owners),
+                command.keepMine,
+                command.comments,
+              ),
+            ),
           ),
         };
         break;

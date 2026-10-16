@@ -30,10 +30,12 @@ struct RoomSessionSnapshot {
     std::uint64_t working_revision = 0;
     std::string disk_source_revision; // content identity of the admitted source
     std::string source_json;          // explicit working fields (not implicit defaults)
+    std::string baseline_json;        // exact admitted saved semantic source values
     std::string normalized_json;      // only populated when native validation succeeds
     bool dirty = false;
     bool valid = false;
     std::vector<Diagnostic> diagnostics;
+    std::vector<std::string> conflicting_paths; // relative, unresolved local/external collisions
 };
 
 struct RoomSessionResult {
@@ -64,10 +66,15 @@ public:
                                              std::string room_id, std::string& error);
     static std::unique_ptr<RoomSession> open_map(const std::filesystem::path& project_root,
                                                  std::string map_id, std::string& error);
+    static std::unique_ptr<RoomSession> open_record(const std::filesystem::path& project_root,
+                                                    std::string family, std::string id,
+                                                    std::string& error);
     // The same generic patch/save boundary with a different admitted source owner.
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
     open_project_source(const std::filesystem::path& project_root, std::string& error);
+    static std::unique_ptr<RoomSession>
+    open_editor_source(const std::filesystem::path& project_root, std::string& error);
 
     RoomSessionSnapshot snapshot() const;
     RoomSessionResult patch(std::uint64_t expected_working_revision,
@@ -76,6 +83,8 @@ public:
     // admitted source; physical content is also compared exactly before replacement.
     RoomSessionResult save(std::string_view expected_disk_revision,
                            const std::vector<std::string>& invalid_source_paths = {});
+    RoomSessionResult reconcile_disk();
+    RoomSessionResult use_disk();
     std::unique_ptr<RoomSession> clone() const
     {
         return std::unique_ptr<RoomSession>(new RoomSession(*this));
@@ -84,6 +93,7 @@ public:
     const std::vector<ProjectFile>& file_inventory() const { return file_inventory_; }
 
 private:
+    friend class ProjectSession;
     RoomSession(std::filesystem::path path, std::string room_id, std::string source,
                 std::string source_json);
     RoomSessionResult result(bool accepted, std::string error = {}, bool changed = false) const;
@@ -97,7 +107,11 @@ private:
     std::vector<RoomPatch> unsaved_patches_;
     std::uint64_t working_revision_ = 0;
     bool is_project_ = false;
+    bool is_editor_ = false;
     bool is_map_ = false;
+    std::string record_family_ = "rooms";
+    std::string validation_contract_;
+    std::vector<std::string> conflicting_paths_;
     std::vector<ProjectFile> file_inventory_;
 };
 
@@ -111,6 +125,10 @@ public:
     RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
                             const std::map<std::string, std::string>& disk_preconditions = {});
     RoomSessionResult inspect_record(std::string_view owner);
+    RoomSessionResult reconcile_owner(std::string_view owner);
+    RoomSessionResult use_disk(std::uint64_t revision, std::string_view owner);
+    RoomSessionResult save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
+                                  bool keep_mine, TransactionDecision comments);
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     RoomSessionResult save(std::string_view disk_revision)
     {
