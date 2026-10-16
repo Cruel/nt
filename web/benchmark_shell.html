@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NovelTea Graphics Benchmark</title>
+<style>
+html,body{margin:0;width:100%;height:100%;background:#111620;color:#dae0e9;font:14px system-ui,sans-serif}
+main{min-height:100%;display:flex;align-items:center;flex-direction:column;gap:10px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;width:min(96vw,1280px)}
+canvas{display:block;max-width:96vw;max-height:calc(100vh - 110px);outline:1px solid #394150;aspect-ratio:16/9}
+pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:75px;width:min(96vw,1280px);font-size:12px}
+button{padding:6px 10px;background:#303c50;color:white;border:1px solid #66758b;cursor:pointer}
+</style>
+</head>
+<body>
+<main>
+<header><strong>NovelTea Graphics Benchmark</strong><span id="status">Loading WebGL2 benchmark…</span><button type="button" id="download" hidden>Download last JSON</button></header>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<pre id="log" aria-live="polite"></pre>
+</main>
+<script>
+const params = new URLSearchParams(location.search);
+const args = [];
+for (const [key, flag] of Object.entries({
+  scenario: '--scenario', frames: '--frames', seconds: '--seconds',
+  warmup: '--warmup-seconds', repeats: '--repeats', profile: '--profile',
+  width: '--width', height: '--height', rectCount: '--rect-count',
+  rectScale: '--rect-scale', readyTimeout: '--ready-timeout-seconds',
+  output: '--output'
+})) {
+  if (params.has(key)) args.push(flag, params.get(key));
+}
+if (params.has('smoke')) args.push('--smoke');
+if (params.has('noUi')) args.push('--no-ui');
+if (params.has('ui')) args.push('--ui');
+if (params.has('vsync')) args.push('--vsync');
+if (params.has('rawSamples')) args.push('--raw-samples');
+if (params.has('dashboardSmoke')) args.push('--dashboard-smoke');
+const status = document.querySelector('#status');
+const log = document.querySelector('#log');
+const canvas = document.querySelector('#canvas');
+canvas.width = Number(params.get('width') || 1280);
+canvas.height = Number(params.get('height') || 720);
+canvas.style.width = canvas.width + 'px';
+canvas.style.height = canvas.height + 'px';
+let lastReport = null;
+function downloadJson(report) {
+  const blob = new Blob([report.json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.download = report.name;
+  anchor.href = url;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+document.querySelector('#download').onclick = () => lastReport && downloadJson(lastReport);
+window.NovelTeaBenchmark = {
+  ready: false,
+  backgrounded: false,
+  runs: [],
+  report(name, json, outcome) {
+    lastReport = {name, json};
+    this.runs.push({name, report: JSON.parse(json)});
+    status.textContent = 'Run ' + outcome + ' · rAF-paced presentation (not uncapped GPU FPS)';
+    document.querySelector('#download').hidden = false;
+    downloadJson(lastReport);
+  }
+};
+// Visibility notifications still fire even when the browser suspends rAF.
+// Latch the interruption until C++ observes it after the page becomes visible.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) window.NovelTeaBenchmark.backgrounded = true;
+});
+var Module = {
+  canvas,
+  arguments: args,
+  print: (line) => { console.log(line); log.textContent = (log.textContent + line + '\n').slice(-3000); },
+  printErr: (line) => { console.error(line); log.textContent = (log.textContent + line + '\n').slice(-3000); },
+  onRuntimeInitialized: () => { status.textContent = 'Running · requestAnimationFrame-paced'; },
+  onAbort: (error) => { status.textContent = 'Benchmark initialization failed: ' + error; }
+};
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

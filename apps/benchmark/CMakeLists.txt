@@ -1,5 +1,5 @@
-if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Android)$")
-    message(FATAL_ERROR "NOVELTEA_BUILD_BENCHMARK_APP supports Linux and Android")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Android|Emscripten)$")
+    message(FATAL_ERROR "NOVELTEA_BUILD_BENCHMARK_APP supports Linux, Android, and Web")
 endif()
 
 if(NOT TARGET nlohmann_json::nlohmann_json)
@@ -18,7 +18,8 @@ add_custom_target(noveltea-benchmark-source-identity
     VERBATIM)
 
 add_library(noveltea-benchmark-runner STATIC
-    benchmark_options.cpp benchmark_runner.cpp benchmark_report.cpp reference_scene.cpp)
+    benchmark_options.cpp benchmark_runner.cpp benchmark_frame_driven.cpp
+    benchmark_report.cpp reference_scene.cpp)
 add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
 target_include_directories(noveltea-benchmark-runner PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -33,7 +34,7 @@ noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner)
 noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 
 # Benchmark ImGui is independent of engine devtools, including in optimized builds.
-if(ANDROID)
+if((ANDROID OR EMSCRIPTEN) AND NOT TARGET imgui::imgui)
     include(FetchContent)
     FetchContent_Declare(imgui
         URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8-docking.tar.gz
@@ -50,7 +51,7 @@ if(ANDROID)
     target_link_libraries(noveltea-benchmark-imgui PUBLIC SDL3::SDL3)
     noveltea_apply_runtime_dependency_policy(noveltea-benchmark-imgui)
     add_library(imgui::imgui ALIAS noveltea-benchmark-imgui)
-else()
+elseif(NOT TARGET imgui::imgui)
     find_package(imgui CONFIG REQUIRED)
 endif()
 set(NOVELTEA_BENCHMARK_APP_SOURCES
@@ -61,6 +62,11 @@ if(ANDROID)
     target_link_options(noveltea-benchmark-app PRIVATE "LINKER:-z,max-page-size=16384")
     set(NOVELTEA_BENCHMARK_SHADER_VARIANT "essl-300")
     set(NOVELTEA_BENCHMARK_RESULT_ROOT "")
+elseif(EMSCRIPTEN)
+    add_executable(noveltea-benchmark-app ${NOVELTEA_BENCHMARK_APP_SOURCES})
+    set_target_properties(noveltea-benchmark-app PROPERTIES OUTPUT_NAME "benchmark" SUFFIX ".html")
+    set(NOVELTEA_BENCHMARK_SHADER_VARIANT "essl-300")
+    set(NOVELTEA_BENCHMARK_RESULT_ROOT "/results")
 else()
     add_executable(noveltea-benchmark-app ${NOVELTEA_BENCHMARK_APP_SOURCES})
     set(NOVELTEA_BENCHMARK_SHADER_VARIANT "glsl-330")
@@ -77,7 +83,7 @@ target_compile_definitions(noveltea-benchmark-app PRIVATE
 )
 # The benchmark is relocatable: stage the same generated common system
 # shaders and font as the runtime, without its Engine asset-management graph.
-if(NOT ANDROID)
+if(NOT ANDROID AND NOT EMSCRIPTEN)
 add_custom_target(noveltea-benchmark-stage-assets
     COMMAND "${CMAKE_COMMAND}" -E make_directory
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts"
@@ -102,10 +108,55 @@ endif()
 # Run staging even when only shader assets change and C++ does not relink.
 add_dependencies(noveltea-benchmark-app noveltea-benchmark-stage-assets)
 endif()
+if(EMSCRIPTEN)
+    set(NOVELTEA_WEB_BENCHMARK_ASSETS "${CMAKE_CURRENT_BINARY_DIR}/assets")
+    add_custom_target(noveltea-benchmark-web-assets
+        COMMAND "${CMAKE_COMMAND}" -E make_directory
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/shaders/bgfx/essl-300"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts/LiberationSans.ttf"
+        COMMAND "${CMAKE_COMMAND}" -E copy_directory
+            "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/essl-300"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/shaders/bgfx/essl-300"
+        VERBATIM)
+    if(TARGET noveltea-shaders)
+        add_dependencies(noveltea-benchmark-web-assets noveltea-shaders)
+    endif()
+    add_dependencies(noveltea-benchmark-app noveltea-benchmark-web-assets)
+    target_link_options(noveltea-benchmark-app PRIVATE
+        -sUSE_WEBGL2=1 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=0 -sFORCE_FILESYSTEM=1
+        -sSTACK_SIZE=131072
+        "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
+        "SHELL:--preload-file ${NOVELTEA_WEB_BENCHMARK_ASSETS}@/assets")
+    # --preload-file is consumed only during linking. A changed shader/font
+    # must regenerate benchmark.data even if no C++ source needs recompilation.
+    include("${PROJECT_SOURCE_DIR}/cmake/NovelTeaShaderManifest.cmake")
+    noveltea_collect_shader_outputs(
+        VARIANTS essl-300
+        OUTPUT_ROOT "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}"
+        OUT_VAR NOVELTEA_WEB_BENCHMARK_SHADERS)
+    set_property(TARGET noveltea-benchmark-app APPEND PROPERTY
+        LINK_DEPENDS
+            "${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
+            "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
+            ${NOVELTEA_WEB_BENCHMARK_SHADERS})
+    if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
+        target_compile_options(noveltea-benchmark-app PRIVATE -flto)
+        target_link_options(noveltea-benchmark-app PRIVATE -flto)
+    endif()
+endif()
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark-app)
 noveltea_apply_policy_warnings(noveltea-benchmark-app)
 
 if(BUILD_TESTING AND NOT ANDROID)
+    add_executable(noveltea-benchmark-frame-driven-tests benchmark_frame_driven_tests.cpp)
+    target_link_libraries(noveltea-benchmark-frame-driven-tests PRIVATE noveltea-benchmark-runner)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-frame-driven-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-frame-driven-tests)
+    add_test(NAME noveltea_benchmark_frame_driven COMMAND noveltea-benchmark-frame-driven-tests)
+
     add_executable(noveltea-benchmark-runner-tests benchmark_runner_tests.cpp)
     target_link_libraries(noveltea-benchmark-runner-tests PRIVATE noveltea-benchmark-runner)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner-tests)

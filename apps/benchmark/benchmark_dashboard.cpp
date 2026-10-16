@@ -298,6 +298,9 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
 #if defined(__ANDROID__)
                     for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
+#elif defined(__EMSCRIPTEN__)
+                    for (const char* candidate :
+                         {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple"}) {
 #else
                     for (const char* candidate :
                          {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple",
@@ -328,6 +331,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                 }
 #if defined(__ANDROID__)
                 ImGui::TextDisabled("Android Stage 1: strict raw bgfx references only.");
+#elif defined(__EMSCRIPTEN__)
+                ImGui::TextDisabled("Web Stage 1: raw bgfx and standalone RmlUi references.");
 #else
                 ImGui::TextDisabled("Engine-owned scenarios use the production Engine and a "
                                     "separate graphics host.");

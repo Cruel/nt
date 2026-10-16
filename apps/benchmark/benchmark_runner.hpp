@@ -158,4 +158,36 @@ summarize_diagnostics(const std::vector<DiagnosticObservation>& observations,
 [[nodiscard]] SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios,
                                     Clock& clock);
 
+// Browser/event-loop runner: advance at most one workload frame per host callback.
+// Unlike run_suite, the caller owns pacing (requestAnimationFrame on Web).
+class FrameDrivenSuite {
+public:
+    FrameDrivenSuite(const Options& options, Scenario& scenario, Clock& clock);
+    [[nodiscard]] bool step(); // true when results and cleanup are complete
+    void interrupt(std::string reason);
+    [[nodiscard]] const SuiteResult& result() const { return suite_; }
+
+private:
+    void finish_trial();
+    Options options_;
+    Scenario& scenario_;
+    Clock& clock_;
+    SuiteResult suite_;
+    ScenarioResult scenario_result_;
+    TrialResult trial_;
+    std::vector<FrameSample> samples_;
+    std::vector<FrameSample> combined_;
+    std::vector<DiagnosticObservation> observations_;
+    std::vector<DiagnosticObservation> late_;
+    Phase phase_ = Phase::Preparation;
+    std::string reason_;
+    uint32_t trial_index_ = 0;
+    bool done_ = false;
+    bool results_ready_ = false;
+    double readiness_start_ = 0.0;
+    double warmup_start_ = 0.0;
+    double measurement_start_ = 0.0;
+    double previous_end_ = 0.0;
+};
+
 } // namespace noveltea::benchmark

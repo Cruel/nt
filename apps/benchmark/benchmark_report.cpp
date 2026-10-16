@@ -14,6 +14,14 @@ namespace {
 using Json = nlohmann::json;
 constexpr std::string_view kConfigFormat = "noveltea.benchmark.configuration";
 constexpr std::string_view kResultFormat = "noveltea.benchmark.result";
+#if defined(__EMSCRIPTEN__)
+constexpr const char* kWallFrameDescription =
+    "requestAnimationFrame-paced browser callback interval (includes scheduling and "
+    "presentation pacing); not uncapped GPU throughput or confirmed display FPS";
+#else
+constexpr const char* kWallFrameDescription =
+    "end-to-end CPU frame-loop interval; not confirmed presentation";
+#endif
 
 Json configuration(const Options& options)
 {
@@ -362,7 +370,7 @@ std::string encode_result(const Options& options, const Environment& environment
         {"timing",
          {{"clock", "steady_clock"},
           {"profile", options.profile},
-          {"frame_wall", "end-to-end CPU frame-loop interval; not confirmed presentation"},
+          {"frame_wall", kWallFrameDescription},
           {"cpu_operation", "CPU wall duration of scenario frame operation"},
           {"gpu_execution_ms", nullptr},
           {"gpu_timing_status", options.profile == "diagnostic"
