@@ -1,4 +1,4 @@
-# Graphics Benchmark (Linux reference workloads, #422–#429)
+# Graphics Benchmark (Linux and Android, #422–#430)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
@@ -347,6 +347,56 @@ CTest protects the Results identity against subsequent setting edits.
 The `noveltea_benchmark_reference_scene` CTest covers reference geometry and
 parameter bounds; additional geometry GPU CTTests cover direct drawing and
 dashboard resource lifetimes, not performance thresholds.
+
+## Android standalone benchmark APK (#430)
+
+The `android/benchmark` Gradle module packages `libnoveltea-benchmark-app.so`
+with its own `org.noveltea.benchmark` application ID and launcher. It is
+**not** the player, sandbox, game export template, or native JSON/Lua
+microbenchmark. It shares SDL3, bgfx, the NDK and compiler/link policy with
+the Android player without enabling NovelTea devtools. Release is optimized,
+debug-key signed and explicitly debuggable so `adb run-as` can retrieve
+reports from app-private storage without root access. Debug is opt-in.
+
+With an Android device connected (or select an emulator interactively):
+
+```sh
+./scripts/run-benchmark-android.sh
+./scripts/run-benchmark-android.sh --debug
+./scripts/run-benchmark-android.sh -- --scenario raw-bgfx-geometry --smoke --no-ui
+./scripts/run-benchmark-android.sh --no-build --pull
+adb -s DEVICE logcat -s SDL:V | grep '\[benchmark\]'
+```
+
+The default launch opens the touch-scaled ImGui dashboard. Stage 1 Android
+supports `raw-bgfx-empty` and `raw-bgfx-geometry`: both render directly
+through a separate SDL3/bgfx OpenGLES host with the native fullscreen
+framebuffer; their shader binaries are packaged as `essl-300` APK assets.
+The dashboard releases ImGui, SDL input binding and associated bgfx objects
+before strict warmup/sampling, then recreates them afterwards. Backgrounding
+interrupts a measured trial instead of silently keeping stale frames. On
+foreground or surface resize the dashboard recreates its SDL/bgfx host and
+ImGui resources, rather than reusing an obsolete `ANativeWindow`.
+Standalone/integrated RmlUi and Engine-owned scenarios are **not**
+advertised as supported by this Android Stage 1 slice.
+
+Run summaries appear once per completed run in logcat (not once per frame).
+Each run writes JSON under the benchmark app's `SDL_GetPrefPath`/results
+directory. `--pull` retrieves every report by `run-as` and writes it
+locally to `build/benchmark-android-results/DEVICE/`; it does not use
+shared Android storage or add storage permissions. The build uses
+`:app:compileNovelTeaShaderAssets` solely to produce the shared ESSL
+shader outputs, not to build/install or export a player APK.
+
+**Hardware verification gap:** An Android arm64 APK build and packaging
+inspection do not establish real GPU rendering or lifecycle correctness.
+On a physical device, verify the raw geometry is visibly rendered, a
+30-frame strict no-UI run produces nonzero measurements and retrievable
+JSON, the ImGui dashboard disappears completely during a Clean run and
+returns afterwards, and repeated home/return or rotate/resume cycles
+preserve surface recreation and work controls. Record actual device
+and driver metadata before making performance claims; emulator timings
+are not authoritative.
 
 ## Current JSON contracts
 

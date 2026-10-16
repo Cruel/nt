@@ -9,24 +9,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <iterator>
 #include <vector>
 
 namespace noveltea::benchmark {
 namespace {
-
-bgfx::ShaderHandle load_shader(const char* file)
-{
-    std::ifstream input(benchmark_asset_path(file), std::ios::binary);
-    if (!input)
-        return BGFX_INVALID_HANDLE;
-    const std::vector<char> data((std::istreambuf_iterator<char>(input)),
-                                 std::istreambuf_iterator<char>());
-    if (data.empty())
-        return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(data.data(), static_cast<uint32_t>(data.size())));
-}
 
 void show_distribution(const char* name, const Distribution& value)
 {
@@ -47,12 +33,12 @@ Dashboard::~Dashboard() { shutdown(); }
 
 bool Dashboard::create_resources(std::string& error)
 {
-    const auto vertex = load_shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/imgui.vs.bin");
+    const auto vertex = load_benchmark_shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/imgui.vs.bin");
     if (!bgfx::isValid(vertex)) {
         error = "missing/unloadable benchmark ImGui vertex shader";
         return false;
     }
-    const auto fragment = load_shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/imgui.fs.bin");
+    const auto fragment = load_benchmark_shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/imgui.fs.bin");
     if (!bgfx::isValid(fragment)) {
         bgfx::destroy(vertex);
         error = "missing/unloadable benchmark ImGui fragment shader";
@@ -105,6 +91,11 @@ bool Dashboard::initialize(SDL_Window* window, const Options& options, std::stri
     ImGui::GetIO().IniFilename = nullptr;
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
+#if defined(__ANDROID__)
+    // Touch targets must remain usable on high-density phone displays.
+    ImGui::GetStyle().ScaleAllSizes(1.7f);
+    ImGui::GetIO().FontGlobalScale = 1.7f;
+#endif
     if (!ImGui_ImplSDL3_InitForOther(window)) {
         error = "ImGui SDL3 input initialization failed";
         ImGui::DestroyContext();
@@ -305,10 +296,14 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         if (ImGui::BeginTabBar("benchmark-tabs")) {
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
+#if defined(__ANDROID__)
+                    for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
+#else
                     for (const char* candidate :
                          {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
                           "engine-empty"}) {
+#endif
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options.scenario = candidate;
                             if (options.scenario != "raw-bgfx-geometry") {
@@ -331,6 +326,9 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.rect_scale = 1.0;
                     }
                 }
+#if defined(__ANDROID__)
+                ImGui::TextDisabled("Android Stage 1: strict raw bgfx references only.");
+#else
                 ImGui::TextDisabled("Engine-owned scenarios use the production Engine and a "
                                     "separate graphics host.");
                 if (options.scenario == "integrated-rmlui-controlled" ||
@@ -339,6 +337,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     ImGui::TextWrapped("Engine preview requires exclusive graphics ownership. "
                                        "The actual Engine output is visible during a run; the "
                                        "dashboard does not substitute a fake Engine preview.");
+#endif
                 ImGui::Spacing();
                 ImGui::TextWrapped(
                     "Preview renders the selected reference outside sampling. "
@@ -346,12 +345,16 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Run Settings")) {
+#if defined(__ANDROID__)
+                ImGui::TextDisabled("Using Android's native fullscreen framebuffer.");
+#else
                 int width = options.width;
                 int height = options.height;
                 if (ImGui::InputInt("Window width", &width))
                     options.width = std::clamp(width, 1, 8192);
                 if (ImGui::InputInt("Window height", &height))
                     options.height = std::clamp(height, 1, 8192);
+#endif
                 ImGui::Checkbox("VSync", &options.vsync);
                 ImGui::InputDouble("Warmup seconds", &options.warmup_seconds, 0.5, 1.0, "%.2f");
                 ImGui::InputDouble("Measurement seconds", &options.duration_seconds, 1.0, 5.0,

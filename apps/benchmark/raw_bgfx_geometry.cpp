@@ -5,8 +5,6 @@
 
 #include <cmath>
 #include <cstring>
-#include <fstream>
-#include <iterator>
 #include <vector>
 
 namespace noveltea::benchmark {
@@ -15,18 +13,6 @@ namespace {
 struct QuadVertex {
     float x, y, u, v, r, g, b, a;
 };
-
-bgfx::ShaderHandle shader(const char* filename)
-{
-    std::ifstream file(benchmark_asset_path(filename), std::ios::binary);
-    if (!file)
-        return BGFX_INVALID_HANDLE;
-    const std::vector<char> bytes((std::istreambuf_iterator<char>(file)),
-                                  std::istreambuf_iterator<char>());
-    if (bytes.empty())
-        return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(bytes.data(), static_cast<uint32_t>(bytes.size())));
-}
 
 uint32_t rgba(ReferenceColor color)
 {
@@ -49,12 +35,13 @@ bool RawBgfxGeometry::initialize(const ReferenceScene& scene, int framebuffer_wi
         reason = "invalid reference scene or framebuffer dimensions";
         return false;
     }
-    const auto vertex_shader = shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/quad.vs.bin");
+    const auto vertex_shader = load_benchmark_shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/quad.vs.bin");
     if (!bgfx::isValid(vertex_shader)) {
         reason = "cannot load raw geometry vertex shader";
         return false;
     }
-    const auto fragment_shader = shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/quad.fs.bin");
+    const auto fragment_shader =
+        load_benchmark_shader(NOVELTEA_BENCHMARK_SHADER_ROOT "/quad.fs.bin");
     if (!bgfx::isValid(fragment_shader)) {
         bgfx::destroy(vertex_shader);
         reason = "cannot load raw geometry fragment shader";

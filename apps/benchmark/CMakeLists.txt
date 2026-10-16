@@ -1,8 +1,10 @@
-if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    message(FATAL_ERROR "NOVELTEA_BUILD_BENCHMARK_APP currently supports Linux only (#422)")
+if(NOT CMAKE_SYSTEM_NAME MATCHES "^(Linux|Android)$")
+    message(FATAL_ERROR "NOVELTEA_BUILD_BENCHMARK_APP supports Linux and Android")
 endif()
 
-find_package(nlohmann_json CONFIG REQUIRED)
+if(NOT TARGET nlohmann_json::nlohmann_json)
+    find_package(nlohmann_json CONFIG REQUIRED)
+endif()
 # Refresh source identity at every build, even if no C++ inputs changed. Only
 # change the generated header when identity changes, so ordinary builds stay incremental.
 set(NOVELTEA_BENCHMARK_IDENTITY_HEADER
@@ -31,21 +33,51 @@ noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner)
 noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 
 # Benchmark ImGui is independent of engine devtools, including in optimized builds.
-find_package(imgui CONFIG REQUIRED)
-add_executable(noveltea-benchmark-app
+if(ANDROID)
+    include(FetchContent)
+    FetchContent_Declare(imgui
+        URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8-docking.tar.gz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(imgui)
+    add_library(noveltea-benchmark-imgui STATIC
+        "${imgui_SOURCE_DIR}/imgui.cpp"
+        "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+        "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+        "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+        "${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp")
+    target_include_directories(noveltea-benchmark-imgui PUBLIC
+        "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
+    target_link_libraries(noveltea-benchmark-imgui PUBLIC SDL3::SDL3)
+    noveltea_apply_runtime_dependency_policy(noveltea-benchmark-imgui)
+    add_library(imgui::imgui ALIAS noveltea-benchmark-imgui)
+else()
+    find_package(imgui CONFIG REQUIRED)
+endif()
+set(NOVELTEA_BENCHMARK_APP_SOURCES
     main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp)
+if(ANDROID)
+    add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
+    target_link_options(noveltea-benchmark-app PRIVATE "LINKER:-z,max-page-size=16384")
+    set(NOVELTEA_BENCHMARK_SHADER_VARIANT "essl-300")
+    set(NOVELTEA_BENCHMARK_RESULT_ROOT "")
+else()
+    add_executable(noveltea-benchmark-app ${NOVELTEA_BENCHMARK_APP_SOURCES})
+    set(NOVELTEA_BENCHMARK_SHADER_VARIANT "glsl-330")
+    set(NOVELTEA_BENCHMARK_RESULT_ROOT "${CMAKE_BINARY_DIR}/benchmarks")
+endif()
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
     imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
 noveltea_attach_runtime_assets(noveltea-benchmark-app)
 target_compile_definitions(noveltea-benchmark-app PRIVATE
-    NOVELTEA_BENCHMARK_RESULTS_DIR="${CMAKE_BINARY_DIR}/benchmarks"
-    NOVELTEA_BENCHMARK_SHADER_ROOT="assets/shaders/bgfx/glsl-330"
-    NOVELTEA_BENCHMARK_FONT_PATH="assets/fonts/LiberationSans.ttf"
+    NOVELTEA_BENCHMARK_RESULTS_DIR="${NOVELTEA_BENCHMARK_RESULT_ROOT}"
+    NOVELTEA_BENCHMARK_SHADER_ROOT="shaders/bgfx/${NOVELTEA_BENCHMARK_SHADER_VARIANT}"
+    NOVELTEA_BENCHMARK_FONT_PATH="fonts/LiberationSans.ttf"
 )
 # The benchmark is relocatable: stage the same generated common system
 # shaders and font as the runtime, without its Engine asset-management graph.
+if(NOT ANDROID)
 add_custom_target(noveltea-benchmark-stage-assets
     COMMAND "${CMAKE_COMMAND}" -E make_directory
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts"
@@ -69,10 +101,11 @@ if(TARGET noveltea-shaders)
 endif()
 # Run staging even when only shader assets change and C++ does not relink.
 add_dependencies(noveltea-benchmark-app noveltea-benchmark-stage-assets)
+endif()
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark-app)
 noveltea_apply_policy_warnings(noveltea-benchmark-app)
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT ANDROID)
     add_executable(noveltea-benchmark-runner-tests benchmark_runner_tests.cpp)
     target_link_libraries(noveltea-benchmark-runner-tests PRIVATE noveltea-benchmark-runner)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner-tests)

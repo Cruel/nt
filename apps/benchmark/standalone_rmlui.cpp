@@ -48,18 +48,6 @@ const char* program_name(Program program)
     return nullptr;
 }
 
-bgfx::ShaderHandle load_shader(const std::string& filename)
-{
-    std::ifstream file(benchmark_asset_path(filename.c_str()), std::ios::binary);
-    if (!file)
-        return BGFX_INVALID_HANDLE;
-    const std::vector<char> bytes((std::istreambuf_iterator<char>(file)),
-                                  std::istreambuf_iterator<char>());
-    if (bytes.empty())
-        return BGFX_INVALID_HANDLE;
-    return bgfx::createShader(bgfx::copy(bytes.data(), static_cast<uint32_t>(bytes.size())));
-}
-
 uint32_t rgba(ReferenceColor value)
 {
     return (uint32_t(value.r) << 24) | (uint32_t(value.g) << 16) | (uint32_t(value.b) << 8) |
@@ -84,12 +72,12 @@ struct StandaloneRmlUi::Shaders final : rmlui_bgfx::ShaderProvider {
         if (program == Program::Copy)
             fragment = "rmlui_composite.fs.bin";
 
-        auto vertex_handle =
-            load_shader(std::string(NOVELTEA_BENCHMARK_SHADER_ROOT) + "/" + vertex);
+        auto vertex_handle = load_benchmark_shader(
+            (std::string(NOVELTEA_BENCHMARK_SHADER_ROOT) + "/" + vertex).c_str());
         if (!bgfx::isValid(vertex_handle))
             return BGFX_INVALID_HANDLE;
-        auto fragment_handle =
-            load_shader(std::string(NOVELTEA_BENCHMARK_SHADER_ROOT) + "/" + fragment);
+        auto fragment_handle = load_benchmark_shader(
+            (std::string(NOVELTEA_BENCHMARK_SHADER_ROOT) + "/" + fragment).c_str());
         if (!bgfx::isValid(fragment_handle)) {
             bgfx::destroy(vertex_handle);
             return BGFX_INVALID_HANDLE;

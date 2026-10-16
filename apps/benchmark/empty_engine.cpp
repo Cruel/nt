@@ -40,7 +40,7 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
 
     EngineConfig config;
     config.system_asset_root =
-        system_asset_root_.empty() ? benchmark_asset_path("assets/system") : system_asset_root_;
+        system_asset_root_.empty() ? benchmark_asset_path("system") : system_asset_root_;
     config.compiled_project.clear();
     config.load_title_screen = false;
     config.enable_audio = false;
