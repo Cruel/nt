@@ -318,6 +318,49 @@ void json_delta(const Json* base, const Json* next, const std::string& path,
     result.push_back(std::move(patch));
 }
 
+// Editor patches target an effective record: a container supplied by schema
+// defaults can be absent from its sparse YAML source. Materialize only the
+// missing container shells needed to reach an Add target. Never copy unrelated
+// normalized defaults into the authored source, and fail closed when the
+// requested parent is not a known implicit object or array.
+void materialize_implicit_parents(Json& working, const Json& effective, const RoomPatch& operation,
+                                  std::vector<RoomPatch>& resolved)
+{
+    const auto parent_end = operation.path.rfind('/');
+    for (std::size_t end = operation.path.find('/', 1);
+         end != std::string::npos && end <= parent_end; end = operation.path.find('/', end + 1)) {
+        const auto path = operation.path.substr(0, end);
+        if (at_pointer(working, path))
+            continue;
+        const auto normalized = at_pointer(effective, path);
+        if (!normalized || (!normalized->is_array() && !normalized->is_object()))
+            throw std::runtime_error("Normalized Add parent is not an implicit container.");
+        RoomPatch create{RoomPatch::Operation::Add, path, normalized->is_array() ? "[]" : "{}",
+                         operation.comments};
+        apply_patch(working, create);
+        resolved.push_back(std::move(create));
+    }
+}
+
+// When an inverse removes the last element of a defaulted collection, return
+// to the original omission instead of leaving a new explicit empty YAML key.
+void omit_restored_default_parents(Json& working, const Json& baseline_source,
+                                   const Json& baseline_effective, std::string_view operation_path)
+{
+    std::vector<std::string> ancestors;
+    for (std::size_t end = operation_path.find('/', 1); end != std::string_view::npos;
+         end = operation_path.find('/', end + 1))
+        ancestors.emplace_back(operation_path.substr(0, end));
+    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+        if (at_pointer(baseline_source, *it))
+            continue;
+        const auto effective = at_pointer(baseline_effective, *it);
+        const auto current = at_pointer(working, *it);
+        if (effective && current && *effective == *current)
+            jsoncons::jsonpointer::remove(working, jsoncons::jsonpointer::json_pointer(*it));
+    }
+}
+
 bool paths_overlap(std::string_view a, std::string_view b)
 {
     return a == b || (a.size() > b.size() && a.starts_with(b) && a[b.size()] == '/') ||
@@ -1291,6 +1334,17 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
         const auto previous = snapshot();
         Json next = Json::parse(working_json_);
         std::vector<RoomPatch> resolved;
+        const auto baseline = Json::parse(disk_json_);
+        const auto baseline_validation =
+            is_project_                     ? validate_record("WorkspaceManifest", disk_json_)
+            : is_editor_                    ? validate_record("WorkspaceTrackedEditor", disk_json_)
+            : !validation_contract_.empty() ? validate_record(validation_contract_, disk_json_)
+            : is_map_                       ? validate_map_source(disk_json_)
+                                            : validate_room_source(disk_json_);
+        const auto baseline_effective =
+            baseline_validation.accepted
+                ? std::optional<Json>{Json::parse(baseline_validation.effective_json)}
+                : std::nullopt;
         for (const auto& operation : operations) {
             auto concrete = operation;
             concrete.path = resolve_id_pointer(next, operation.path);
@@ -1330,6 +1384,16 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                     }
                 }
             }
+            if (concrete.operation == RoomPatch::Operation::Add && !is_editor_ && !is_project_) {
+                const auto current_validation =
+                    !validation_contract_.empty()
+                        ? validate_record(validation_contract_, next.to_string())
+                    : is_map_ ? validate_map_source(next.to_string())
+                              : validate_room_source(next.to_string());
+                if (current_validation.accepted)
+                    materialize_implicit_parents(
+                        next, Json::parse(current_validation.effective_json), concrete, resolved);
+            }
             // Editor commands refer to normalized effective records. If an
             // optional source field is supplied by normalization, project a
             // replace onto its sparse source owner as add; when the inverse
@@ -1364,6 +1428,8 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                 }
             }
             apply_patch(next, concrete);
+            if (baseline_effective && !is_editor_ && !is_project_)
+                omit_restored_default_parents(next, baseline, *baseline_effective, concrete.path);
             resolved.push_back(std::move(concrete));
         }
         if (next.to_string() == working_json_)
