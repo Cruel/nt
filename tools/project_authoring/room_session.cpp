@@ -7,6 +7,8 @@
 #include "dialogue_scene_semantics.hpp"
 #include "verb_interaction_semantics.hpp"
 #include "test_semantics.hpp"
+#include "localization_semantics.hpp"
+#include "localization_operations.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -495,6 +497,49 @@ bool tracked_fragment(std::string_view name)
     return false;
 }
 
+struct LocalizationPatchTarget {
+    std::string owner;
+    std::string relative_path;
+};
+
+std::optional<LocalizationPatchTarget> localization_patch_target(std::string_view path)
+{
+    if (!path.starts_with("/localization/"))
+        return std::nullopt;
+    const auto tail = path.substr(sizeof("/localization/") - 1);
+    const auto slash = tail.find('/');
+    const auto field = tail.substr(0, slash);
+    const auto suffix = slash == std::string_view::npos ? std::string_view{} : tail.substr(slash);
+    if (field == "messages" || field == "structuredMessageIds")
+        return LocalizationPatchTarget{"i18n/messages.yaml", "/" + std::string(tail)};
+    if (field == "usageNotes" || field == "sourceMessageTracking" || field == "orphanedMessages") {
+        if (suffix.empty())
+            return std::nullopt;
+        return LocalizationPatchTarget{field == "usageNotes"              ? "i18n/usage-notes.yaml"
+                                       : field == "sourceMessageTracking" ? "i18n/tracking.yaml"
+                                                                          : "i18n/orphans.yaml",
+                                       std::string(suffix)};
+    }
+    if (field == "translations" || field == "assets") {
+        if (suffix.empty())
+            return std::nullopt;
+        const auto end = suffix.find('/', 1);
+        if (end == std::string_view::npos)
+            return std::nullopt;
+        const auto locale = suffix.substr(1, end - 1);
+        if (!is_canonical_localization_locale(locale))
+            return std::nullopt;
+        return LocalizationPatchTarget{
+            "i18n/" + std::string(field == "translations" ? "locales" : "assets") + "/" +
+                std::string(locale) + ".yaml",
+            std::string(suffix.substr(end))};
+    }
+    if (field == "sourceLocale" || field == "sourceLocaleLock" || field == "defaultLocale" ||
+        field == "locales")
+        return LocalizationPatchTarget{"i18n/project.yaml", "/" + std::string(tail)};
+    return std::nullopt;
+}
+
 std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, const Json& manifest)
 {
     static const std::set<std::string> collections{
@@ -862,6 +907,44 @@ RoomSession::open_traits_source(const std::filesystem::path& project_root, std::
     }
 }
 
+std::unique_ptr<RoomSession>
+RoomSession::open_localization_source(const std::filesystem::path& project_root,
+                                      std::string_view relative_path, std::string& error)
+{
+    try {
+        if (!relative_path.starts_with("i18n/") || !tracked_fragment(relative_path))
+            throw std::runtime_error("Invalid localization source owner.");
+        const auto name = std::string(relative_path);
+        const auto dynamic = name.starts_with("i18n/locales/") || name.starts_with("i18n/assets/");
+        if (dynamic && !is_canonical_localization_locale(std::string_view(name).substr(
+                           name.find_last_of('/') + 1, name.size() - name.find_last_of('/') - 6)))
+            throw std::runtime_error("Invalid localization chunk locale.");
+        const auto contract = name == "i18n/project.yaml"       ? "WorkspaceLocalizationPolicy"
+                              : name == "i18n/messages.yaml"    ? "WorkspaceLocalizationMessages"
+                              : name == "i18n/usage-notes.yaml" ? "WorkspaceLocalizationUsageNotes"
+                              : name == "i18n/tracking.yaml"    ? "WorkspaceLocalizationTracking"
+                              : name == "i18n/orphans.yaml"     ? "WorkspaceLocalizationOrphans"
+                              : name.starts_with("i18n/locales/") ? "WorkspaceLocalizationLocale"
+                                                                  : "WorkspaceLocalizationAssets";
+        const auto path = project_root / name;
+        auto bytes = read_bytes(path);
+        const auto opened = open_yaml_source(bytes);
+        if (!opened.accepted)
+            throw std::runtime_error("Invalid localization YAML: " + opened.error);
+        auto result = std::unique_ptr<RoomSession>(
+            new RoomSession(path, "", std::move(bytes), opened.source_json));
+        result->is_localization_ = true;
+        result->validation_contract_ = contract;
+        if (!result->snapshot().valid)
+            throw std::runtime_error("Invalid localization source: " + name);
+        error.clear();
+        return result;
+    } catch (const std::exception& exception) {
+        error = exception.what();
+        return nullptr;
+    }
+}
+
 std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path& root,
                                                      std::string& error)
 {
@@ -880,8 +963,16 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
         // Check tracked source validity at Project admission, but keep their
         // working sessions lazy: opening a Project must not publish untouched
         // owners or change the worker's initial record-snapshot contract.
-        return std::unique_ptr<ProjectSession>(new ProjectSession(
+        auto project = std::unique_ptr<ProjectSession>(new ProjectSession(
             std::move(source), std::move(authority), root, traits->snapshot().normalized_json));
+        project->localization_cache_ = validate_project_localization(root);
+        if (project->localization_cache_->accepted) {
+            const auto effective = Json::parse(project->localization_cache_->effective_json);
+            if (!effective.at("sourceLocaleLock").is_null())
+                project->localization_source_lock_ =
+                    effective.at("sourceLocaleLock").as<std::string>();
+        }
+        return project;
     } catch (const std::exception& e) {
         error = e.what();
         return nullptr;
@@ -1467,12 +1558,38 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
                                  semantic.diagnostics.end());
     }
+    if (!localization_cache_) {
+        std::map<std::string, std::string> localization_sources;
+        for (const auto& [owner, record] : records_)
+            if (owner.starts_with("i18n/"))
+                localization_sources.emplace(owner, record->snapshot().source_json);
+        localization_cache_ = validate_project_localization(root_, localization_sources);
+    }
+    state.valid &= localization_cache_->accepted;
+    state.diagnostics.insert(state.diagnostics.end(), localization_cache_->diagnostics.begin(),
+                             localization_cache_->diagnostics.end());
+    if (localization_source_lock_ && localization_cache_->accepted &&
+        Json::parse(localization_cache_->effective_json).at("sourceLocale") !=
+            *localization_source_lock_) {
+        Diagnostic issue{"/localization/sourceLocale", "semantic.localization.lock-source",
+                         "Source locale cannot change after substantive localization work exists."};
+        issue.source_path = "i18n/project.yaml";
+        state.valid = false;
+        state.diagnostics.push_back(std::move(issue));
+    }
     return state;
 }
 
 SourceObservation ProjectSession::observe_sources()
 {
     auto observed = source_authority_->observe();
+    const auto changed_localization = [](const std::vector<std::string>& paths) {
+        return std::any_of(paths.begin(), paths.end(),
+                           [](const auto& path) { return path.starts_with("i18n/"); });
+    };
+    if (!observed.authoritative || changed_localization(observed.delta.changed) ||
+        changed_localization(observed.delta.added) || changed_localization(observed.delta.removed))
+        localization_cache_.reset();
     const auto changed_interactions = [](const std::vector<std::string>& paths) {
         return std::any_of(paths.begin(), paths.end(), [](const auto& path) {
             return path.starts_with("records/interactions/");
@@ -1634,7 +1751,7 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
         const auto slash = name.find('/');
         const auto family = name.substr(0, slash);
         const auto id = slash == std::string::npos ? std::string() : name.substr(slash + 1);
-        if (name != "editor" && name != "traits" &&
+        if (name != "editor" && name != "traits" && !name.starts_with("i18n/") &&
             (!record_contracts().contains(family) || !is_id(id))) {
             result.error = "Unsupported native record owner.";
         } else if (const auto found = records_.find(name); found != records_.end()) {
@@ -1647,11 +1764,15 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
             std::string error;
             auto record = name == "editor"   ? RoomSession::open_editor_source(root_, error)
                           : name == "traits" ? RoomSession::open_traits_source(root_, error)
-                                             : RoomSession::open_record(root_, family, id, error);
+                          : name.starts_with("i18n/")
+                              ? RoomSession::open_localization_source(root_, name, error)
+                              : RoomSession::open_record(root_, family, id, error);
             if (!record)
                 result.error = error;
             else {
                 records_.emplace(name, std::move(record));
+                if (name.starts_with("i18n/"))
+                    localization_cache_.reset();
                 result.accepted = true;
             }
         }
@@ -1679,6 +1800,8 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
         response = records_.at(name)->reconcile_disk();
     }
     if (response.accepted && !response.affected_records.empty()) {
+        if (owner.starts_with("i18n/"))
+            localization_cache_.reset();
         if (owner.starts_with("materials/"))
             material_compiler_results_.clear();
         if (owner.starts_with("interactions/")) {
@@ -1708,6 +1831,8 @@ RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_v
         response.error = "Unknown native Project owner.";
     }
     if (response.accepted && !response.affected_records.empty()) {
+        if (owner.starts_with("i18n/"))
+            localization_cache_.reset();
         ++working_revision_;
         response.affected_records = {std::string(owner)};
     }
@@ -1790,6 +1915,9 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
             const auto before = response.snapshot;
             source_ = std::move(manifest);
             records_ = std::move(staged);
+            if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
+                            [](const auto& owner) { return owner.starts_with("i18n/"); }))
+                localization_cache_.reset();
             ++working_revision_;
             response.snapshot = snapshot();
             diagnostic_delta(response, before);
@@ -1856,6 +1984,8 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                                                   return paths_overlap("/" + owner + path,
                                                                        diagnostic.path);
                                               }));
+                const bool invalid_localization =
+                    owner.starts_with("i18n/") && diagnostic.source_path == owner;
                 const bool trait_dependency =
                     owner == "traits" && (diagnostic.code.starts_with("authoring.trait.") ||
                                           diagnostic.code == "authoring.trait.missing_reference");
@@ -1948,9 +2078,10 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                         }
                     }
                 }
-                if (invalid_selected_record || trait_dependency || variable_dependency ||
-                    verb_dependency || scene_input_dependency || entrypoint_dependency ||
-                    interaction_fallback_dependency || instance_dependency || owner_dependency)
+                if (invalid_selected_record || invalid_localization || trait_dependency ||
+                    variable_dependency || verb_dependency || scene_input_dependency ||
+                    entrypoint_dependency || interaction_fallback_dependency ||
+                    instance_dependency || owner_dependency)
                     throw std::runtime_error("Cannot save invalid dependent Project record: " +
                                              diagnostic.path);
             }
@@ -2073,6 +2204,9 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
         ++working_revision_;
         response.accepted = true;
         const auto prior = response.snapshot;
+        if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
+                        [](const auto& owner) { return owner.starts_with("i18n/"); }))
+            localization_cache_.reset();
         response.snapshot = snapshot();
         diagnostic_delta(response, prior);
     } catch (const std::exception& exception) {
@@ -2104,6 +2238,8 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 path = root_ / "editor.yaml";
             else if (owner == "traits")
                 path = root_ / "traits.yaml";
+            else if (owner.starts_with("i18n/") && tracked_fragment(owner))
+                path = root_ / owner;
             else {
                 const auto slash = owner.find('/');
                 if (slash == std::string::npos)
@@ -2131,6 +2267,32 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     std::set<std::string> affected;
     try {
         for (const auto& operation : patches) {
+            if (operation.path.starts_with("/localization/")) {
+                const auto destination = localization_patch_target(operation.path);
+                if (!destination)
+                    throw std::runtime_error("Unsupported localization edit path.");
+                auto it = staged.find(destination->owner);
+                if (it == staged.end()) {
+                    std::string error;
+                    auto fragment =
+                        RoomSession::open_localization_source(root_, destination->owner, error);
+                    if (!fragment)
+                        throw std::runtime_error("Cannot admit localization source: " + error);
+                    it = staged.emplace(destination->owner, std::move(fragment)).first;
+                }
+                if (exact_source_revision(read_bytes(it->second->source_path())) !=
+                    it->second->snapshot().disk_source_revision)
+                    throw std::runtime_error("External localization source conflict.");
+                auto relative = operation;
+                relative.path = destination->relative_path;
+                const auto updated =
+                    it->second->patch(it->second->snapshot().working_revision, {relative});
+                if (!updated.accepted)
+                    throw std::runtime_error(updated.error);
+                if (!updated.affected_records.empty())
+                    affected.insert(destination->owner);
+                continue;
+            }
             const auto first = operation.path.find('/', 1);
             const auto family =
                 operation.path.substr(1, first == std::string::npos ? first : first - 1);
@@ -2221,12 +2383,20 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     source_ = std::move(manifest);
     records_ = std::move(staged);
     if (std::any_of(affected.begin(), affected.end(),
+                    [](const auto& owner) { return owner.starts_with("i18n/"); }))
+        localization_cache_.reset();
+    if (std::any_of(affected.begin(), affected.end(),
                     [](const auto& owner) { return owner.starts_with("materials/"); }))
         material_compiler_results_.clear();
     ++working_revision_;
     response.accepted = true;
     response.affected_records.assign(affected.begin(), affected.end());
     response.snapshot = snapshot();
+    if (!localization_source_lock_ && localization_cache_ && localization_cache_->accepted) {
+        const auto model = Json::parse(localization_cache_->effective_json);
+        if (!model.at("sourceLocaleLock").is_null())
+            localization_source_lock_ = model.at("sourceLocaleLock").as<std::string>();
+    }
     diagnostic_delta(response, before);
     return response;
 }
@@ -2313,7 +2483,7 @@ RoomSessionSnapshot RoomSession::snapshot() const
             state.normalized_json.clear();
     }
     const auto value = Json::parse(working_json_);
-    if (!is_project_ && !is_editor_ && !is_traits_ &&
+    if (!is_project_ && !is_editor_ && !is_traits_ && !is_localization_ &&
         (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
          value.at("id").as<std::string>() != room_id_)) {
         state.valid = false;

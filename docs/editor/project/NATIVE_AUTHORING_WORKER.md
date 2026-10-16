@@ -189,6 +189,36 @@ Project Settings Save/Use Disk imports the authoritative
 `PROJECT_SETTINGS_OWNED_PATHS` registry, including
 `/export/assetMemoryPolicies`, rather than duplicating that path list.
 
+## Split localization and managed Messages (#491)
+
+The certification-only Project session validates the complete split `i18n/`
+workspace through the generated `WorkspaceLocalization*` contracts and
+registered native locale, Message-pattern, Project-policy, and Source-lock
+operations. It assembles effective policy, explicit/named Messages, structured
+Message ownership overrides, usage notes, managed Lua/RML tracking, orphaned
+Messages, target translations and localized Asset targets without copying the
+normalized defaults or Source lock back to YAML. Fingerprints, provenance,
+review state, and optional translation acknowledgements remain source-owned;
+translation freshness is derived by the existing localization workflow rather
+than persisted as another enum.
+
+Native diagnostics have `/localization/...` logical pointers and identify the
+owning `i18n/*.yaml` file; invalid sparse chunks, Message arguments, selector
+fallbacks, locale inheritance, reserved/duplicate named keys, orphan identity,
+and tracking owner keys are reported without losing unrelated Project sources.
+Existing localization fragments can be inspected as individual native working
+owners, patched through `/localization/...`, and saved/reopened using the same
+revision-checked, comment-preserving YAML transaction service. File additions
+and removals for sparse locale chunks are not yet generic native working-session
+edits; the certification validator admits or rejects their physical presence.
+Untouched fragments are not rewritten on validation or unrelated Save.
+
+Repeated Project snapshots reuse the native localization validation generation
+until an `i18n/` owner changes or the native source watcher observes an
+`i18n/` change. Production localization sync/reconcile and the eventual
+single-authority cutover remain governed by the existing Project Workspace
+contract and the parent native migration specification.
+
 Full production editor cutover, the existing renderer Save coordinator and
 watcher replacements, Project-wide dependency reconciliation, and durable
 restart recovery remain future coordinated migration work; the native
