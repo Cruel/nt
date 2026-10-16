@@ -83,6 +83,11 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.no_ui = false;
             continue;
         }
+        if (flag == "--no-transparent-overlay") {
+            has_cli_settings = true;
+            options.transparent_overlay = false;
+            continue;
+        }
         if (flag == "--raw-samples") {
             has_cli_settings = true;
             options.raw_samples = true;
@@ -90,10 +95,11 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         }
         if (flag != "--scenario" && flag != "--rect-count" && flag != "--rect-scale" &&
             flag != "--draw-calls" && flag != "--quad-count" && flag != "--texture-size" &&
-            flag != "--coverage" && flag != "--width" && flag != "--height" &&
-            flag != "--warmup-seconds" && flag != "--seconds" && flag != "--frames" &&
-            flag != "--output" && flag != "--repeats" && flag != "--ready-timeout-seconds" &&
-            flag != "--profile" && flag != "--config") {
+            flag != "--coverage" && flag != "--composition-path" && flag != "--composite-passes" &&
+            flag != "--target-scale" && flag != "--msaa-samples" && flag != "--width" &&
+            flag != "--height" && flag != "--warmup-seconds" && flag != "--seconds" &&
+            flag != "--frames" && flag != "--output" && flag != "--repeats" &&
+            flag != "--ready-timeout-seconds" && flag != "--profile" && flag != "--config") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -113,6 +119,40 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         if (flag == "--scenario") {
             has_cli_settings = true;
             options.scenario = value;
+            continue;
+        }
+        if (flag == "--composition-path") {
+            has_cli_settings = true;
+            options.composition_path = value;
+            if (options.composition_path != "direct" && options.composition_path != "offscreen") {
+                error = "--composition-path must be direct or offscreen";
+                return false;
+            }
+            continue;
+        }
+        if (flag == "--target-scale") {
+            has_cli_settings = true;
+            double scale = 0.0;
+            if (!parse_duration(value, scale) || scale < 0.25 || scale > 1.0) {
+                error = "--target-scale must be in 0.25..1.0";
+                return false;
+            }
+            options.target_scale = scale;
+            continue;
+        }
+        if (flag == "--composite-passes" || flag == "--msaa-samples") {
+            has_cli_settings = true;
+            uint64_t number = 0;
+            if (!parse_integer(value, number) ||
+                (flag == "--composite-passes" ? number > 4
+                                              : number != 0 && number != 2 && number != 4)) {
+                error = "invalid composition count or MSAA sample count";
+                return false;
+            }
+            if (flag == "--composite-passes")
+                options.composite_passes = static_cast<uint32_t>(number);
+            else
+                options.msaa_samples = static_cast<uint32_t>(number);
             continue;
         }
         if (flag == "--coverage") {
@@ -231,6 +271,13 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
 
 bool validate_reference_options(const Options& options, std::string& reason)
 {
+    if (options.scenario != "raw-bgfx-composition" &&
+        (options.composition_path != "direct" || options.composite_passes != 0 ||
+         options.target_scale != 1.0 || options.msaa_samples != 0 ||
+         !options.transparent_overlay)) {
+        reason = "composition settings require raw-bgfx-composition";
+        return false;
+    }
     if (is_extended_raw_scenario(options.scenario) && options.rect_count == kReferenceRectCount &&
         options.rect_scale == kReferenceRectScale &&
         raw_workload_reference(options, static_cast<uint32_t>(options.width),

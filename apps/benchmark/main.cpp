@@ -54,10 +54,14 @@ void print_usage()
     std::puts(
         "       [--scenario raw-bgfx-empty|raw-bgfx-geometry|raw-bgfx-clear|"
         "raw-bgfx-single-quad|raw-bgfx-textured|raw-bgfx-offscreen|raw-bgfx-draw-calls|"
+        "raw-bgfx-composition|"
         "standalone-rmlui-simple|"
         "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty] [--rect-count N]");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
+    std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
+    std::puts("       [--target-scale 0.25..1.0] [--msaa-samples 0|2|4]");
+    std::puts("       [--no-transparent-overlay] (composition scenario only)");
     std::puts("       [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
     std::puts("  --quick-suite   Run all six reference comparisons with independent outcomes");
@@ -597,6 +601,9 @@ struct RawReferenceScenario final : EmptyBgfxScenario {
             return "full-screen texture lookup with adjustable footprint and coverage";
         if (name_ == "raw-bgfx-offscreen")
             return "render textured quad to an offscreen target, then composite to backbuffer";
+        if (name_ == "raw-bgfx-composition")
+            return "controlled direct/offscreen composition, MSAA, coverage and transparent "
+                   "overlay";
         return "independent draw submissions, geometry, texture footprint and coverage";
     }
     bool prepare(const Options& options, std::string& reason) override
@@ -920,8 +927,13 @@ int run_dashboard(Options options)
                 options.draw_calls != preview_raw_options.draw_calls ||
                 options.quad_count != preview_raw_options.quad_count ||
                 options.texture_size != preview_raw_options.texture_size ||
-                options.coverage != preview_raw_options.coverage || width != preview_raw_width ||
-                height != preview_raw_height) {
+                options.coverage != preview_raw_options.coverage ||
+                options.composition_path != preview_raw_options.composition_path ||
+                options.composite_passes != preview_raw_options.composite_passes ||
+                options.target_scale != preview_raw_options.target_scale ||
+                options.msaa_samples != preview_raw_options.msaa_samples ||
+                options.transparent_overlay != preview_raw_options.transparent_overlay ||
+                width != preview_raw_width || height != preview_raw_height) {
                 const auto spec = noveltea::benchmark::raw_workload_reference(
                     options, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
                 if (!spec || !preview_workload.initialize(*spec, static_cast<uint32_t>(width),

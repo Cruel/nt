@@ -150,6 +150,24 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
       throw new Error('scaled real-WebGL workload metadata mismatch: ' + JSON.stringify(scaledWork));
     console.log(name + ': scaled WebGL workload and draw/geometry/texture counters passed');
 
+    // Exercise the actual WebGL composition path, not merely its C++ build.
+    await page.goto(origin + '/benchmark.html?scenario=raw-bgfx-composition&compositionPath=offscreen&compositePasses=3&targetScale=0.5&msaaSamples=0&noTransparentOverlay=1&coverage=0.375&textureSize=64&frames=12&warmup=0&noUi=1');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
+                               {timeout: 45000});
+    const compositionReport = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    const compositionWork = compositionReport.scenarios[0]?.graphics?.raw_workload;
+    if (compositionReport.outcome !== 'complete' ||
+        compositionWork?.composition_path !== 'offscreen' ||
+        compositionWork?.composite_passes !== 3 ||
+        compositionWork?.target_scale !== 0.5 ||
+        compositionWork?.render_target_count !== 3 ||
+        compositionWork?.draw_submissions_per_frame !== 4 ||
+        compositionWork?.transparent_overlay !== false ||
+        compositionWork?.semantically_equivalent_to_direct !== false ||
+        compositionWork?.linear_coverage !== 0.375)
+      throw new Error('real-WebGL composition path/report mismatch: ' + JSON.stringify(compositionWork));
+    console.log(name + ': scaled multi-pass WebGL composition and metadata passed');
+
     // Simulate a tab being hidden then restored. The visibility event must
     // remain latched even if no rAF callback ran while the page was hidden.
     await page.goto(origin + '/benchmark.html?noUi=1&frames=60&repeats=3&warmup=0&rawSamples=1');

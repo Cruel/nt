@@ -99,6 +99,11 @@ struct WebBenchmarkApp {
                 options.quad_count != preview_raw_options.quad_count ||
                 options.texture_size != preview_raw_options.texture_size ||
                 options.coverage != preview_raw_options.coverage ||
+                options.composition_path != preview_raw_options.composition_path ||
+                options.composite_passes != preview_raw_options.composite_passes ||
+                options.target_scale != preview_raw_options.target_scale ||
+                options.msaa_samples != preview_raw_options.msaa_samples ||
+                options.transparent_overlay != preview_raw_options.transparent_overlay ||
                 width != preview_raw_width || height != preview_raw_height) {
                 const auto spec = noveltea::benchmark::raw_workload_reference(
                     options, static_cast<uint32_t>(width), static_cast<uint32_t>(height));

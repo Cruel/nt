@@ -44,6 +44,21 @@ int main()
         "benchmark",    "--scenario", "raw-bgfx-draw-calls", "--draw-calls", "7",
         "--quad-count", "9",          "--texture-size",      "64",           "--coverage",
         "0.375"};
+    const char* const composed[] = {"benchmark",
+                                    "--scenario",
+                                    "raw-bgfx-composition",
+                                    "--composition-path",
+                                    "offscreen",
+                                    "--composite-passes",
+                                    "3",
+                                    "--target-scale",
+                                    "0.5",
+                                    "--msaa-samples",
+                                    "2",
+                                    "--no-transparent-overlay"};
+    const char* const bad_composites[] = {"benchmark", "--composite-passes", "5"};
+    const char* const bad_msaa[] = {"benchmark", "--msaa-samples", "3"};
+    const char* const bad_target[] = {"benchmark", "--target-scale", "0.1"};
     const char* const bad_draws[] = {"benchmark", "--draw-calls", "1025"};
     const char* const bad_quads[] = {"benchmark", "--quad-count", "513"};
     const char* const bad_texture[] = {"benchmark", "--texture-size", "63"};
@@ -66,7 +81,9 @@ int main()
         !expect_options(quick, 3, true, 30) || !expect_options(invalid_profile, 3, false) ||
         !expect_options(geometry, 7, true) || !expect_options(ui_reference, 3, true) ||
         !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
-        !expect_options(raw_scaled, 11, true) || !expect_options(bad_draws, 3, false) ||
+        !expect_options(raw_scaled, 11, true) || !expect_options(composed, 12, true) ||
+        !expect_options(bad_composites, 3, false) || !expect_options(bad_msaa, 3, false) ||
+        !expect_options(bad_target, 3, false) || !expect_options(bad_draws, 3, false) ||
         !expect_options(bad_quads, 3, false) || !expect_options(bad_texture, 3, false) ||
         !expect_options(bad_coverage, 3, false) || !expect_options(config_only, 5, true) ||
         !expect_options(mixed_config, 4, false))
@@ -110,6 +127,11 @@ int main()
     options.scenario = "engine-empty";
     if (!noveltea::benchmark::validate_reference_options(options, error))
         return 1;
+    options.msaa_samples = 2;
+    if (noveltea::benchmark::validate_reference_options(options, error) ||
+        error != "composition settings require raw-bgfx-composition")
+        return 1;
+    options.msaa_samples = 0;
     options.scenario = "synthetic";
     if (noveltea::benchmark::validate_reference_options(options, error) || error.empty())
         return 1;
@@ -119,6 +141,14 @@ int main()
         !noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options.scenario = "raw-bgfx-clear";
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(12, composed, options, error) ||
+        options.composition_path != "offscreen" || options.composite_passes != 3 ||
+        options.target_scale != 0.5 || options.msaa_samples != 2 || options.transparent_overlay ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.composition_path = "direct";
     if (noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options = {};

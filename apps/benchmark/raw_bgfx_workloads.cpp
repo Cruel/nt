@@ -15,15 +15,15 @@ struct QuadVertex {
 };
 
 void add_quad(std::vector<QuadVertex>& vertices, std::vector<uint16_t>& indices, float x, float y,
-              float width, float height, bool flip_v, float r, float g, float b)
+              float width, float height, bool flip_v, float r, float g, float b, float a = 1.0f)
 {
     const auto first = static_cast<uint16_t>(vertices.size());
     const float top = flip_v ? 1.0f : 0.0f;
     const float bottom = flip_v ? 0.0f : 1.0f;
-    vertices.push_back({x, y, 0, top, r, g, b, 1});
-    vertices.push_back({x + width, y, 1, top, r, g, b, 1});
-    vertices.push_back({x + width, y + height, 1, bottom, r, g, b, 1});
-    vertices.push_back({x, y + height, 0, bottom, r, g, b, 1});
+    vertices.push_back({x, y, 0, top, r, g, b, a});
+    vertices.push_back({x + width, y, 1, top, r, g, b, a});
+    vertices.push_back({x + width, y + height, 1, bottom, r, g, b, a});
+    vertices.push_back({x, y + height, 0, bottom, r, g, b, a});
     for (uint16_t offset :
          {uint16_t(0), uint16_t(1), uint16_t(2), uint16_t(0), uint16_t(2), uint16_t(3)})
         indices.push_back(static_cast<uint16_t>(first + offset));
@@ -139,13 +139,41 @@ bool RawBgfxWorkloads::initialize(const RawWorkloadReference& work, uint32_t wid
     }
 
     if (work_.offscreen) {
-        framebuffer_ = bgfx::createFrameBuffer(width_, height_, bgfx::TextureFormat::RGBA8,
-                                               BGFX_TEXTURE_RT | BGFX_SAMPLER_MIN_POINT |
-                                                   BGFX_SAMPLER_MAG_POINT);
+        uint64_t flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT |
+                         BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+        if (work_.msaa_samples == 2)
+            flags |= BGFX_TEXTURE_RT_MSAA_X2;
+        if (work_.msaa_samples == 4)
+            flags |= BGFX_TEXTURE_RT_MSAA_X4;
+        const uint16_t target_width =
+            work_.composition ? static_cast<uint16_t>(work_.target_width) : width_;
+        const uint16_t target_height =
+            work_.composition ? static_cast<uint16_t>(work_.target_height) : height_;
+        if (!bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8, flags)) {
+            reason = "requested offscreen color/MSAA format is unsupported by this bgfx device";
+            shutdown();
+            return false;
+        }
+        framebuffer_ =
+            bgfx::createFrameBuffer(target_width, target_height, bgfx::TextureFormat::RGBA8, flags);
         if (!bgfx::isValid(framebuffer_) || !bgfx::isValid(bgfx::getTexture(framebuffer_))) {
             reason = "cannot allocate raw workload offscreen target";
             shutdown();
             return false;
+        }
+        if (work_.composition) {
+            for (uint32_t i = 1; i < work_.target_count; ++i) {
+                intermediate_[i - 1] = bgfx::createFrameBuffer(
+                    target_width, target_height, bgfx::TextureFormat::RGBA8,
+                    BGFX_TEXTURE_RT | BGFX_SAMPLER_MIN_POINT | BGFX_SAMPLER_MAG_POINT |
+                        BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP);
+                if (!bgfx::isValid(intermediate_[i - 1]) ||
+                    !bgfx::isValid(bgfx::getTexture(intermediate_[i - 1]))) {
+                    reason = "cannot allocate raw workload intermediate composite target";
+                    shutdown();
+                    return false;
+                }
+            }
         }
         std::vector<QuadVertex> composite;
         std::vector<uint16_t> composite_indices;
@@ -160,6 +188,22 @@ bool RawBgfxWorkloads::initialize(const RawWorkloadReference& work, uint32_t wid
                        static_cast<uint32_t>(composite_indices.size() * sizeof(uint16_t))));
         if (!bgfx::isValid(composite_vertices_) || !bgfx::isValid(composite_indices_)) {
             reason = "cannot allocate raw workload composite geometry";
+            shutdown();
+            return false;
+        }
+    }
+    if (work_.transparent_overlay) {
+        std::vector<QuadVertex> overlay;
+        std::vector<uint16_t> overlay_indices;
+        add_quad(overlay, overlay_indices, 160, 100, 960, 520, false, 0.3f, 0.9f, 1.0f, 0.45f);
+        overlay_vertices_ = bgfx::createVertexBuffer(
+            bgfx::copy(overlay.data(), static_cast<uint32_t>(overlay.size() * sizeof(QuadVertex))),
+            layout);
+        overlay_indices_ = bgfx::createIndexBuffer(
+            bgfx::copy(overlay_indices.data(),
+                       static_cast<uint32_t>(overlay_indices.size() * sizeof(uint16_t))));
+        if (!bgfx::isValid(overlay_vertices_) || !bgfx::isValid(overlay_indices_)) {
+            reason = "cannot allocate transparent overlay geometry";
             shutdown();
             return false;
         }
@@ -186,7 +230,11 @@ bool RawBgfxWorkloads::submit(std::string& reason)
         bgfx::setViewFrameBuffer(0, framebuffer_);
     else
         bgfx::setViewFrameBuffer(0, BGFX_INVALID_HANDLE);
-    bgfx::setViewRect(0, 0, 0, width_, height_);
+    bgfx::setViewRect(
+        0, 0, 0,
+        work_.composition && work_.offscreen ? static_cast<uint16_t>(work_.target_width) : width_,
+        work_.composition && work_.offscreen ? static_cast<uint16_t>(work_.target_height)
+                                             : height_);
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x111924ff);
     bgfx::touch(0);
     if (work_.draws_per_frame == 0)
@@ -200,27 +248,63 @@ bool RawBgfxWorkloads::submit(std::string& reason)
         bgfx::submit(0, program_);
     }
     if (work_.offscreen) {
-        bgfx::setViewFrameBuffer(2, BGFX_INVALID_HANDLE);
-        bgfx::setViewRect(2, 0, 0, width_, height_);
-        bgfx::setViewClear(2, BGFX_CLEAR_COLOR, 0x111924ff);
-        bgfx::setViewTransform(2, nullptr, ortho_);
-        bgfx::touch(2);
-        bgfx::setTexture(0, sampler_, bgfx::getTexture(framebuffer_));
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
-        bgfx::setVertexBuffer(0, composite_vertices_);
-        bgfx::setIndexBuffer(composite_indices_);
-        bgfx::submit(2, program_);
+        const uint32_t passes = work_.composition ? work_.composite_passes : 1;
+        for (uint32_t i = 0; i < passes; ++i) {
+            const bool final = i + 1 == passes;
+            const bgfx::ViewId view = static_cast<bgfx::ViewId>(2 + i);
+            const bgfx::FrameBufferHandle source =
+                i == 0 ? framebuffer_ : intermediate_[(i - 1) % intermediate_.size()];
+            const bgfx::FrameBufferHandle destination =
+                final ? bgfx::FrameBufferHandle{bgfx::kInvalidHandle}
+                      : intermediate_[i % intermediate_.size()];
+            bgfx::setViewFrameBuffer(view, destination);
+            bgfx::setViewRect(view, 0, 0,
+                              final ? width_ : static_cast<uint16_t>(work_.target_width),
+                              final ? height_ : static_cast<uint16_t>(work_.target_height));
+            bgfx::setViewClear(view, final ? BGFX_CLEAR_COLOR : BGFX_CLEAR_NONE, 0x111924ff);
+            bgfx::setViewTransform(view, nullptr, ortho_);
+            bgfx::setTexture(0, sampler_, bgfx::getTexture(source));
+            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
+            bgfx::setVertexBuffer(0, composite_vertices_);
+            bgfx::setIndexBuffer(composite_indices_);
+            bgfx::submit(view, program_);
+        }
+    }
+    if (work_.transparent_overlay) {
+        constexpr bgfx::ViewId kOverlayView = 6;
+        bgfx::setViewFrameBuffer(kOverlayView, BGFX_INVALID_HANDLE);
+        bgfx::setViewRect(kOverlayView, 0, 0, width_, height_);
+        bgfx::setViewClear(kOverlayView, BGFX_CLEAR_NONE);
+        bgfx::setViewTransform(kOverlayView, nullptr, ortho_);
+        bgfx::setTexture(0, sampler_, texture_);
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_BLEND_ALPHA);
+        bgfx::setVertexBuffer(0, overlay_vertices_);
+        bgfx::setIndexBuffer(overlay_indices_);
+        bgfx::submit(kOverlayView, program_);
     }
     return true;
 }
 
 void RawBgfxWorkloads::shutdown()
 {
-    if (bgfx::isValid(framebuffer_)) {
+    if (initialized_ || bgfx::isValid(framebuffer_) || bgfx::isValid(program_)) {
         bgfx::setViewFrameBuffer(0, BGFX_INVALID_HANDLE);
-        bgfx::setViewClear(2, BGFX_CLEAR_NONE);
-        bgfx::destroy(framebuffer_);
+        for (bgfx::ViewId view = 2; view <= 6; ++view) {
+            bgfx::setViewFrameBuffer(view, BGFX_INVALID_HANDLE);
+            bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+        }
     }
+    if (bgfx::isValid(framebuffer_))
+        bgfx::destroy(framebuffer_);
+    for (auto& target : intermediate_) {
+        if (bgfx::isValid(target))
+            bgfx::destroy(target);
+        target = BGFX_INVALID_HANDLE;
+    }
+    if (bgfx::isValid(overlay_indices_))
+        bgfx::destroy(overlay_indices_);
+    if (bgfx::isValid(overlay_vertices_))
+        bgfx::destroy(overlay_vertices_);
     if (bgfx::isValid(composite_indices_))
         bgfx::destroy(composite_indices_);
     if (bgfx::isValid(composite_vertices_))
@@ -238,6 +322,8 @@ void RawBgfxWorkloads::shutdown()
     framebuffer_ = BGFX_INVALID_HANDLE;
     composite_indices_ = BGFX_INVALID_HANDLE;
     composite_vertices_ = BGFX_INVALID_HANDLE;
+    overlay_indices_ = BGFX_INVALID_HANDLE;
+    overlay_vertices_ = BGFX_INVALID_HANDLE;
     indices_ = BGFX_INVALID_HANDLE;
     vertices_ = BGFX_INVALID_HANDLE;
     texture_ = BGFX_INVALID_HANDLE;

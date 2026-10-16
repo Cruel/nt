@@ -112,6 +112,81 @@ is visualized outside measurement, and all workload resources are released
 between trials. The Stage 1 Quick Suite intentionally retains its original
 six-item comparison order; run these extra workloads individually.
 
+## Controlled framebuffer composition (#435)
+
+`raw-bgfx-composition` is a benchmark-owned reference scene, available through
+Linux, Android, and Web raw-bgfx hosts. The **direct** path clears the
+backbuffer, draws the textured world quad, and optionally blends a translucent
+patterned overlay over the world. The **offscreen** path draws the *same* world
+into an RGBA8 render target, executes 1–4 actual fullscreen textured composite
+draws (with ping-pong intermediate targets as needed), and blends the *same*
+overlay onto the backbuffer *after* the final composite. Each stage has a
+separate ordered bgfx view. This preserves the background and alpha-blending
+semantics of the direct path; the overlay never replaces or discards world
+content. The controlled workload uses the existing benchmark-only shader and
+has no Engine or RmlUi side effects.
+
+Example controlled, like-content runs:
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-composition \
+  --texture-size 256 --coverage 0.75 --frames 300
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-composition \
+  --composition-path offscreen --composite-passes 1 \
+  --texture-size 256 --coverage 0.75 --frames 300
+```
+
+`--composition-path` is `direct` (the default) or `offscreen`; direct requires
+`--composite-passes 0`, `--target-scale 1.0`, and `--msaa-samples 0`.
+Offscreen requires 1–4 composites and permits target scales 0.25–1.0 and
+MSAA 0, 2, or 4 samples on the first target. `--no-transparent-overlay`
+removes the transparent blend draw from **both** paths; it is not an implicit
+optimization of just one path. `--coverage` controls the world quad’s
+linear screen-space extent (approximate covered pixel fraction is its
+square); source-texture size is independent. Target scale changes the
+*actual allocated* intermediate dimensions, not the host window or
+backbuffer size; composite draws still cover the final full screen.
+Multi-pass composition maintains independent ping-pong targets and never
+samples from its active write target. Unsupported MSAA framebuffer formats
+fail preparation explicitly, with no silent fallback to single sampling.
+MSAA on the direct backbuffer is intentionally **unsupported** in this
+comparison: it would require a different host reset/swapchain setup.
+
+The report records host dimensions separately from effective render-target
+dimensions, composite draw/view count, transparent overlay presence, MSAA
+sample count, target count, RGBA8 resolved-color bytes, and an *estimate* of
+additional MSAA storage. These numbers describe intended resources, not
+measured VRAM residency, GPU execution time, or actual transferred bandwidth.
+`semantically_equivalent_to_direct` is true for unscaled, non-MSAA offscreen
+runs and direct runs using otherwise identical scene settings. Downscaled
+or multisampled targets change rasterization, and the report explicitly marks
+them **not** like-content comparisons. Comparing multi-pass vs single-pass
+at native resolution still compares the same output scene, though the
+intermediate passes entail different GPU work. Do not use CPU `bgfx::frame()`
+wait as an estimate of GPU cost or treat the different pipelines as proof of
+a NovelTea Engine bottleneck.
+
+NovelTea production-path comparisons remain the separate
+`integrated-rmlui-controlled` and `integrated-rmlui-production` scenarios:
+those use actual Engine ticks, RmlUi MSAA/base-layer routing and Engine
+compositing, not the raw checkerboard reference scene. Their real backend
+configuration, raster snapping and postprocess metadata are reported
+separately. They are **not** semantically identical to raw bgfx composition
+samples, and this ticket does not change the production renderer to emulate
+the benchmark. For any A/B run, also confirm renderer, device, VSync,
+resolution, scene parameters and profile in the reports.
+
+`noveltea_benchmark_composition_direct_smoke` and
+`noveltea_benchmark_composition_offscreen_smoke` exercise repeated real bgfx
+resource creation, render and cleanup under Xvfb. The optional
+`noveltea_benchmark_composition_visual_smoke` captures the *presented X11
+window during warmup*, outside measurements, and compares direct versus
+two-pass offscreen output at equal dimensions while separately checking that
+transparent overlays visibly change world pixels. It is a functional visual
+regression, **not** a GPU performance measurement or proof of cross-driver
+pixel identity. Check visual output and capability support on actual Android
+and Web hardware before treating those platforms as visually certified.
+
 ## Scenario switching and Quick Suite (#432)
 
 **Quick Suite** runs `raw-bgfx-empty`, `raw-bgfx-geometry` (the fixed

@@ -31,6 +31,14 @@ Json configuration(const Options& options)
         parameters = {{"rect_count", options.rect_count}, {"rect_scale", options.rect_scale}};
     else if (options.scenario == "raw-bgfx-textured" || options.scenario == "raw-bgfx-offscreen")
         parameters = {{"texture_size", options.texture_size}, {"coverage", options.coverage}};
+    else if (options.scenario == "raw-bgfx-composition")
+        parameters = {{"composition_path", options.composition_path},
+                      {"composite_passes", options.composite_passes},
+                      {"target_scale", options.target_scale},
+                      {"msaa_samples", options.msaa_samples},
+                      {"transparent_overlay", options.transparent_overlay},
+                      {"texture_size", options.texture_size},
+                      {"coverage", options.coverage}};
     else if (options.scenario == "raw-bgfx-draw-calls")
         parameters = {{"draw_calls", options.draw_calls},
                       {"quad_count", options.quad_count},
@@ -184,6 +192,21 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             reason = "invalid geometry reference parameters";
             return false;
         }
+    } else if (scenario == "raw-bgfx-composition") {
+        if (!has_fields(parameters,
+                        {"composition_path", "composite_passes", "target_scale", "msaa_samples",
+                         "transparent_overlay", "texture_size", "coverage"}) ||
+            !parameters["composition_path"].is_string() ||
+            !unsigned_integer(parameters, "composite_passes") ||
+            !numeric(parameters, "target_scale") || !unsigned_integer(parameters, "msaa_samples") ||
+            !parameters["transparent_overlay"].is_boolean() ||
+            !unsigned_integer(parameters, "texture_size") || !numeric(parameters, "coverage") ||
+            parameters["composite_passes"].get<uint64_t>() > 4 ||
+            parameters["msaa_samples"].get<uint64_t>() > 4 ||
+            parameters["texture_size"].get<uint64_t>() > 2048) {
+            reason = "invalid composition reference parameters";
+            return false;
+        }
     } else if (is_extended_raw_scenario(scenario)) {
         const bool textured = scenario == "raw-bgfx-textured" || scenario == "raw-bgfx-offscreen";
         const bool variable = scenario == "raw-bgfx-draw-calls";
@@ -237,12 +260,20 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         next.rect_count = static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>());
         next.rect_scale = parameters["rect_scale"].get<double>();
     }
+    if (scenario == "raw-bgfx-composition") {
+        next.composition_path = parameters["composition_path"].get<std::string>();
+        next.composite_passes =
+            static_cast<uint32_t>(parameters["composite_passes"].get<uint64_t>());
+        next.target_scale = parameters["target_scale"].get<double>();
+        next.msaa_samples = static_cast<uint32_t>(parameters["msaa_samples"].get<uint64_t>());
+        next.transparent_overlay = parameters["transparent_overlay"].get<bool>();
+    }
     if (scenario == "raw-bgfx-draw-calls") {
         next.draw_calls = static_cast<uint32_t>(parameters["draw_calls"].get<uint64_t>());
         next.quad_count = static_cast<uint32_t>(parameters["quad_count"].get<uint64_t>());
     }
     if (scenario == "raw-bgfx-draw-calls" || scenario == "raw-bgfx-textured" ||
-        scenario == "raw-bgfx-offscreen") {
+        scenario == "raw-bgfx-offscreen" || scenario == "raw-bgfx-composition") {
         next.texture_size = static_cast<uint32_t>(parameters["texture_size"].get<uint64_t>());
         next.coverage = parameters["coverage"].get<double>();
     }
@@ -403,6 +434,25 @@ std::string encode_result(const Options& options, const Environment& environment
                         {"texture_and_target_bytes", environment.raw_workload->texture_bytes},
                         {"linear_coverage", environment.raw_workload->coverage},
                         {"offscreen", environment.raw_workload->offscreen},
+                        {"composition_path", environment.raw_workload->composition
+                                                 ? Json(environment.raw_workload->composition_path)
+                                                 : Json(nullptr)},
+                        {"composite_passes", environment.raw_workload->composite_passes},
+                        {"transparent_overlay", environment.raw_workload->transparent_overlay},
+                        {"semantically_equivalent_to_direct",
+                         environment.raw_workload->composition
+                             ? Json(environment.raw_workload->equivalent_to_direct)
+                             : Json(nullptr)},
+                        {"target_scale", environment.raw_workload->target_scale},
+                        {"target_width_pixels", environment.raw_workload->target_width},
+                        {"target_height_pixels", environment.raw_workload->target_height},
+                        {"render_target_count", environment.raw_workload->target_count},
+                        {"render_target_color_bytes", environment.raw_workload->target_color_bytes},
+                        {"estimated_extra_msaa_bytes",
+                         environment.raw_workload->estimated_msaa_bytes},
+                        {"msaa_samples", environment.raw_workload->msaa_samples},
+                        {"covered_backbuffer_pixels_estimate",
+                         environment.raw_workload->covered_pixels},
                         {"render_views", environment.raw_workload->view_count},
                         {"draw_submissions_per_frame", environment.raw_workload->draws_per_frame},
                         {"vertices_submitted_per_frame",
@@ -411,13 +461,27 @@ std::string encode_result(const Options& options, const Environment& environment
                          environment.raw_workload->triangles_per_frame}}
                  : Json(nullptr)},
             {"ui_offscreen_rendering_observed", nullptr},
-            {"internal_render_scale", environment.width_pixels > 0 && environment.height_pixels > 0
-                                          ? Json(1.0)
-                                          : Json(nullptr)},
+            {"internal_render_scale",
+             environment.width_pixels > 0 && environment.height_pixels > 0
+                 ? Json(environment.raw_workload && environment.raw_workload->composition &&
+                                environment.raw_workload->offscreen
+                            ? environment.raw_workload->target_scale
+                            : 1.0)
+                 : Json(nullptr)},
             {"render_width_pixels",
-             environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
+             environment.width_pixels > 0
+                 ? Json(environment.raw_workload && environment.raw_workload->composition &&
+                                environment.raw_workload->offscreen
+                            ? environment.raw_workload->target_width
+                            : environment.width_pixels)
+                 : Json(nullptr)},
             {"render_height_pixels",
-             environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)}};
+             environment.height_pixels > 0
+                 ? Json(environment.raw_workload && environment.raw_workload->composition &&
+                                environment.raw_workload->offscreen
+                            ? environment.raw_workload->target_height
+                            : environment.height_pixels)
+                 : Json(nullptr)}};
     };
     for (size_t i = 0; i < result.scenarios.size(); ++i) {
         if (i < scenario_environments.size())
