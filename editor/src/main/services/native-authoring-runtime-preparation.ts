@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -161,6 +161,20 @@ export class NativeWorkingRuntimePreparationCache {
     // A hit must still prove the new native snapshot is based on the active
     // saved Workspace generation; caching never bypasses source authority.
     projectFromNativeWorkingPreparation(options.saved, options.savedFiles, options.prepared);
+    // Shader files are physical compiler inputs, not tracked YAML workspace
+    // revisions. Recheck them at cache lookup, including on a cache hit, so
+    // an external edit after the native preparation cannot return stale GL
+    // artifacts under an otherwise unchanged key.
+    for (const [relative, revision] of Object.entries(options.prepared.sourceRevisions)) {
+      if (!relative.startsWith('shaders/')) continue;
+      const actual =
+        'sha256:' +
+        createHash('sha256')
+          .update(await readFile(path.join(options.projectRoot, relative)))
+          .digest('hex');
+      if (revision !== actual)
+        throw new Error('Native preview shader source changed during preparation: ' + relative);
+    }
     const key = this.key(options);
     let retained = this.entries.get(key);
     if (!retained) {

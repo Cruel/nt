@@ -15,6 +15,7 @@ ValidationResult validate_animation_dependencies(std::string_view normalized_rec
 ValidationResult validate_project_asset_aliases(const std::filesystem::path& project_root,
                                                 const AuthoringRecordResolver& resolve);
 ValidationResult validate_asset_localizations(const std::filesystem::path& project_root,
-                                              const AuthoringRecordResolver& resolve);
+                                              const AuthoringRecordResolver& resolve,
+                                              std::string_view working_localization_json = {});
 
 } // namespace noveltea::authoring

@@ -171,6 +171,20 @@ ProjectSession::WorkingPreparation ProjectSession::prepare_working(std::uint64_t
             }
             prepared.source_revisions.emplace(path, baseline);
         }
+        // Saved shader sources (including shared .sh includes) are runtime
+        // compiler inputs even when there is no dirty Material or shader
+        // overlay. Hash their current physical bytes on every preparation so
+        // an external shader edit cannot reuse a stale compiled artifact.
+        const auto shader_root = root_ / "shaders";
+        if (std::filesystem::is_directory(shader_root)) {
+            for (const auto& file : std::filesystem::recursive_directory_iterator(shader_root)) {
+                if (!file.is_regular_file())
+                    continue;
+                const auto path = file.path().lexically_relative(root_).generic_string();
+                prepared.source_revisions.insert_or_assign(
+                    path, exact_source_revision(bytes_at(file.path())));
+            }
+        }
         prepared.source_revisions.emplace("project.yaml", source_->snapshot().disk_source_revision);
         prepared.text_overlays = text_source_overlays_;
         prepared.shader_overlays = shader_overlays_;

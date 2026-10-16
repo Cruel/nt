@@ -222,15 +222,18 @@ contract and the parent native migration specification.
 ## Native Lua/RML source analysis and dirty buffers (#492)
 
 The certification-only native Project session independently indexes admitted
-Lua source files, Layout RML/RCSS companion files, and declared Layout script
-dependencies. The host-side analyzer scans Lua literals and managed Text.tr,
+Lua source files, Layout RML/RCSS companion files, inline Lua Script/gameplay
+sources, Asset-backed Layout RML/RCSS, and declared script/template dependencies.
+The host-side analyzer scans Lua literals and managed Text.tr,
 Text.msg, Text.plural, and Text.select calls, including inline RML scripts and
 event-handler attributes. RML external script/template references are also
 represented in source-analysis results. Invalid literal/case/metadata uses,
 unresolved named Messages, and undeclared RML script references produce
 authoring diagnostic codes with physical source paths and line/column
 locations. References and occurrences retain a source revision so dependency
-and localization adapters can reconcile their provenance. This is a static
+and localization adapters can reconcile their provenance. Managed occurrences
+also preserve selector branches, translator guidance, runtime argument names,
+and source spans; unsupported Lua escapes mark analysis incomplete. This is a static
 authoring adapter: it does not execute Lua or instantiate RmlUi.
 
 The resident session exposes sourceAnalyses, textSourceOverlays and
@@ -240,12 +243,12 @@ working revision and its admitted physical byte revision. Validation uses the
 buffer without Save; a separate disk-authoritative session sees only the file.
 Reverting to exact disk content discards the overlay. Content caches invalidate
 only the edited or externally observed source; contributions are attributed to
-consuming Script/Layout owners, not rewritten into YAML.
+consuming Script/Layout/gameplay owners, not rewritten into YAML.
 
 This slice does not replace the richer TypeScript source analyzer, authoring
 dependency graph, managed localization synchronization, or production editor
-source editor/CLI paths. Complete differential certification for RML templates
-and Asset-backed sources remains part of the atomic native cutover under #474.
+source editor/CLI paths. Complete RML template and Asset-backed dependency graph
+differential certification remains part of the atomic native cutover under #474.
 
 ## Dirty native preview and authored Tests (#499)
 
@@ -275,6 +278,10 @@ revisions/text overlays or other runtime-owned data invalidate that cache
 entry, leaving unrelated source-analysis contributions intact. Cache leases
 retain temporary source overlays until borrowers finish; the owning session
 clears its cache explicitly on close.
+
+Saved shader files and shared includes beneath the Project shaders directory
+contribute exact-byte revisions to cache identity. The main-process adapter
+also rechecks their physical bytes before returning a cached artifact.
 
 This is deliberately a parallel certification seam; the current renderer,
 editor Play/Test coordinator and CLI/export remain unchanged. Later migration

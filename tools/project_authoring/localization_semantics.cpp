@@ -7,7 +7,11 @@
 
 #include <algorithm>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
+#include <map>
+#include <regex>
+#include <sstream>
 #include <set>
 #include <stdexcept>
 #include <string_view>
@@ -60,6 +64,272 @@ std::string owner_for_path(std::string_view path)
     if (path.starts_with("/localization/orphanedMessages/"))
         return "i18n/orphans.yaml";
     return "i18n/project.yaml";
+}
+
+std::string derived_message_id(std::string_view path)
+{
+    // Same four seeded FNV-1a words as structuredMessageId() in the TS oracle.
+    // Source paths are semantic JSON pointers, not display text.
+    std::string raw;
+    for (const std::uint32_t seed : {0x811c9dc5u, 0x9e3779b9u, 0x85ebca6bu, 0xc2b2ae35u}) {
+        auto hash = seed;
+        for (const auto c : path) {
+            hash ^= static_cast<unsigned char>(c);
+            hash *= 0x01000193u;
+        }
+        std::ostringstream hex;
+        hex << std::hex << std::setfill('0') << std::setw(8) << hash;
+        raw += hex.str();
+    }
+    const auto version = raw.substr(0, 8) + "-" + raw.substr(8, 4) + "-5" + raw.substr(13, 3) + "-";
+    const auto variant = (std::stoul(raw.substr(16, 2), nullptr, 16) & 0x3fu) | 0x80u;
+    std::ostringstream result;
+    result << version << std::hex << std::setfill('0') << std::setw(2) << variant
+           << raw.substr(18, 2) << "-" << raw.substr(20, 12);
+    return result.str();
+}
+
+void collect_structured_sources(const Json& value, const std::string& path,
+                                std::map<std::string, std::string>& messages)
+{
+    if (value.is_object()) {
+        if (value.contains("markup") &&
+            (value.at("markup") == "plain" || value.at("markup") == "active-text") &&
+            value.contains("source") && value.at("source").is_object()) {
+            const auto& source = value.at("source");
+            if (source.contains("kind") && source.at("kind") == "inline" &&
+                source.contains("text") && source.at("text").is_string()) {
+                messages.emplace(path, source.at("text").as<std::string>());
+                return;
+            }
+        }
+        for (const auto& entry : value.object_range())
+            collect_structured_sources(entry.value(), path + "/" + escape(entry.key()), messages);
+    } else if (value.is_array()) {
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            const auto& child = value.at(i);
+            const auto key = child.is_object() && child.contains("id") &&
+                                     child.at("id").is_string() &&
+                                     !child.at("id").as<std::string>().empty()
+                                 ? "@" + escape(child.at("id").as<std::string>())
+                                 : std::to_string(i);
+            collect_structured_sources(child, path + "/" + key, messages);
+        }
+    }
+}
+
+void collect_top_level_strings(const Json& data, const std::string& base,
+                               std::map<std::string, std::string>& messages)
+{
+    if (!data.is_object())
+        return;
+    if (data.contains("displayName") && data.at("displayName").is_string())
+        messages.emplace(base + "/displayName", data.at("displayName").as<std::string>());
+    if (data.contains("dialogue") && data.at("dialogue").is_object() &&
+        data.at("dialogue").contains("name") && data.at("dialogue").at("name").is_string())
+        messages.emplace(base + "/dialogue/name", data.at("dialogue").at("name").as<std::string>());
+    if (data.contains("exits") && data.at("exits").is_array()) {
+        std::size_t index = 0;
+        for (const auto& exit : data.at("exits").array_range()) {
+            if (exit.is_object() && exit.contains("label") && exit.at("label").is_string()) {
+                const auto key = exit.contains("id") && exit.at("id").is_string()
+                                     ? "@" + escape(exit.at("id").as<std::string>())
+                                     : std::to_string(index);
+                messages.emplace(base + "/exits/" + key + "/label",
+                                 exit.at("label").as<std::string>());
+            }
+            ++index;
+        }
+    }
+}
+
+std::map<std::string, std::string> structured_sources(const std::filesystem::path& root)
+{
+    std::map<std::string, std::string> messages;
+    for (const auto* family : {"characters", "rooms", "interactables", "dialogues", "scenes",
+                               "verbs", "interactions", "maps"}) {
+        const auto dir = root / "records" / family;
+        if (!std::filesystem::is_directory(dir))
+            continue;
+        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+                continue;
+            std::ifstream file(entry.path(), std::ios::binary);
+            const auto bytes =
+                std::string(std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{});
+            const auto parsed = open_yaml_source(bytes);
+            if (!parsed.accepted)
+                continue;
+            const auto record = Json::parse(parsed.source_json);
+            if (!record.contains("data") || !record.at("data").is_object())
+                continue;
+            const auto base =
+                "/" + std::string(family) + "/" + escape(entry.path().stem().string()) + "/data";
+            collect_top_level_strings(record.at("data"), base, messages);
+            collect_structured_sources(record.at("data"), base, messages);
+        }
+    }
+    return messages;
+}
+
+std::map<std::string, Json> dialogue_cue_contracts(const std::filesystem::path& root,
+                                                   const Json& localization)
+{
+    std::map<std::string, std::string> named_ids;
+    for (const auto& message : localization.at("messages").object_range())
+        if (message.value().at("kind") == "named")
+            named_ids.emplace(message.value().at("key").as<std::string>(),
+                              std::string(message.key()));
+    std::vector<std::pair<std::string, std::pair<std::string, Json>>> usages;
+    const auto directory = root / "records/dialogues";
+    if (!std::filesystem::is_directory(directory))
+        return {};
+    const auto token = [](const Json& value, std::size_t index) {
+        return value.is_object() && value.contains("id") && value.at("id").is_string() &&
+                       !value.at("id").as<std::string>().empty()
+                   ? "@" + escape(value.at("id").as<std::string>())
+                   : std::to_string(index);
+    };
+    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+        if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+            continue;
+        std::ifstream stream(entry.path(), std::ios::binary);
+        const auto bytes =
+            std::string(std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{});
+        const auto parsed = open_yaml_source(bytes);
+        if (!parsed.accepted)
+            continue;
+        const auto data = Json::parse(parsed.source_json).at("data");
+        if (!data.contains("blocks") || !data.at("blocks").is_array())
+            continue;
+        const auto base = "/dialogues/" + escape(entry.path().stem().string()) + "/data";
+        std::size_t block_index = 0;
+        for (const auto& block : data.at("blocks").array_range()) {
+            const auto block_path = base + "/blocks/" + token(block, block_index++);
+            if (!block.is_object() || !block.contains("type") || block.at("type") != "sequence" ||
+                !block.contains("segments") || !block.at("segments").is_array())
+                continue;
+            std::size_t segment_index = 0;
+            for (const auto& segment : block.at("segments").array_range()) {
+                const auto path =
+                    block_path + "/segments/" + token(segment, segment_index++) + "/text";
+                if (!segment.is_object() || !segment.contains("type") ||
+                    segment.at("type") != "line" || !segment.contains("text") ||
+                    !segment.at("text").is_object())
+                    continue;
+                const auto& text = segment.at("text");
+                if (!text.contains("source") || !text.at("source").is_object())
+                    continue;
+                const auto& source = text.at("source");
+                std::string id;
+                if (source.at("kind") == "inline")
+                    id = localization.at("structuredMessageIds").contains(path)
+                             ? localization.at("structuredMessageIds").at(path).as<std::string>()
+                             : derived_message_id(path);
+                else if (source.at("kind") == "localized" && source.contains("key")) {
+                    const auto found = named_ids.find(source.at("key").as<std::string>());
+                    if (found != named_ids.end())
+                        id = found->second;
+                }
+                if (id.empty() || !segment.contains("cues") || !segment.at("cues").is_array())
+                    continue;
+                std::vector<Json> placements;
+                for (const auto& cue : segment.at("cues").array_range()) {
+                    if (!cue.is_object() || !cue.contains("kind") ||
+                        cue.at("kind") == "active-text" || cue.at("kind") == "invalid-markup")
+                        continue;
+                    if (!cue.contains("id") || !cue.contains("position"))
+                        continue;
+                    Json placement = Json::object();
+                    placement["id"] = cue.at("id");
+                    placement["position"] = cue.at("position");
+                    placements.push_back(std::move(placement));
+                }
+                if (placements.empty())
+                    continue;
+                std::sort(placements.begin(), placements.end(), [](const Json& a, const Json& b) {
+                    const auto& x = a.at("position");
+                    const auto& y = b.at("position");
+                    return x.at("offset") != y.at("offset")
+                               ? x.at("offset").as<std::size_t>() < y.at("offset").as<std::size_t>()
+                           : x.at("order") != y.at("order")
+                               ? x.at("order").as<std::size_t>() < y.at("order").as<std::size_t>()
+                               : a.at("id").as<std::string>() < b.at("id").as<std::string>();
+                });
+                Json ordered = Json::array();
+                for (const auto& placement : placements)
+                    ordered.push_back(placement);
+                usages.emplace_back(path, std::make_pair(id, std::move(ordered)));
+            }
+        }
+    }
+    std::sort(usages.begin(), usages.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::map<std::string, Json> contracts;
+    for (auto& [_, entry] : usages)
+        contracts.emplace(std::move(entry.first), std::move(entry.second));
+    return contracts;
+}
+
+void validate_dialogue_cue_translations(ValidationResult& result, const std::filesystem::path& root,
+                                        const Json& model)
+{
+    const auto contracts = dialogue_cue_contracts(root, model);
+    for (const auto& locale : model.at("translations").object_range())
+        for (const auto& entry : locale.value().object_range()) {
+            const auto& translation = entry.value();
+            if (translation.contains("useSource") && translation.at("useSource") == true)
+                continue;
+            const auto path = "/localization/translations/" + escape(locale.key()) + "/" +
+                              escape(entry.key()) + "/dialogueCues";
+            const auto emit = [&](std::string suffix, std::string code, std::string message) {
+                add(result, path + suffix, std::move(code), std::move(message),
+                    "i18n/locales/" + std::string(locale.key()) + ".yaml");
+            };
+            const auto source = contracts.find(std::string(entry.key()));
+            if (source == contracts.end()) {
+                if (translation.contains("dialogueCues"))
+                    emit("", "localization.translation.dialogue-cue-unexpected",
+                         "Translation cannot introduce Dialogue Cue placements for a Message "
+                         "without semantic Cues.");
+                continue;
+            }
+            const auto& required = source->second;
+            const auto& target = translation.contains("dialogueCues")
+                                     ? translation.at("dialogueCues")
+                                     : Json::array();
+            bool same = required.size() == target.size();
+            if (same)
+                for (std::size_t i = 0; i < required.size(); ++i)
+                    if (required.at(i).at("id") != target.at(i).at("id"))
+                        same = false;
+            if (!same)
+                emit("", "localization.translation.dialogue-cue-contract-mismatch",
+                     "Translation must preserve every required Dialogue Cue exactly once and in "
+                     "semantic order.");
+            std::size_t text_length = 0;
+            for (const auto c : translation.at("text").as<std::string>())
+                if ((static_cast<unsigned char>(c) & 0xc0) != 0x80)
+                    ++text_length;
+            std::size_t prior_offset = 0, prior_order = 0;
+            for (std::size_t i = 0; i < target.size(); ++i) {
+                const auto& placement = target.at(i).at("position");
+                const auto offset = placement.at("offset").as<std::size_t>();
+                const auto order = placement.at("order").as<std::size_t>();
+                const auto base = "/" + std::to_string(i) + "/position";
+                if (offset > text_length)
+                    emit(base + "/offset",
+                         "localization.translation.dialogue-cue-offset-out-of-range",
+                         "Dialogue Cue offset exceeds translated text length.");
+                if (i &&
+                    (offset < prior_offset || (offset == prior_offset && order <= prior_order)))
+                    emit(base, "localization.translation.dialogue-cue-placement-order",
+                         "Dialogue Cue placements must remain strictly ordered by offset and "
+                         "order.");
+                prior_offset = offset;
+                prior_order = order;
+            }
+        }
 }
 
 bool fragment(ValidationResult& result, const std::filesystem::path& root,
@@ -180,6 +450,30 @@ validate_project_localization(const std::filesystem::path& project_root,
         model.insert_or_assign("orphanedMessages", orphans);
         model.insert_or_assign("translations", translations);
         model.insert_or_assign("assets", assets);
+        // Structured source Messages are owned by gameplay records, not the
+        // split i18n/messages.yaml file. Resolve their semantic-path IDs before
+        // translation checking, then discard this validation-only projection.
+        const auto physical_messages = model.at("messages");
+        const auto physical_ids = model.at("structuredMessageIds");
+        static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
+        for (const auto& [path, source_text] : structured_sources(project_root)) {
+            const auto id = physical_ids.contains(path) ? physical_ids.at(path).as<std::string>()
+                                                        : derived_message_id(path);
+            model["structuredMessageIds"].insert_or_assign(path, id);
+            if (model["messages"].contains(id))
+                continue;
+            Json message = Json::object();
+            message["kind"] = "local";
+            message["source"] = source_text;
+            Json arguments = Json::object();
+            for (auto it =
+                     std::sregex_iterator(source_text.begin(), source_text.end(), placeholder);
+                 it != std::sregex_iterator(); ++it)
+                arguments.insert_or_assign((*it)[1].str(), "printable");
+            if (!arguments.empty())
+                message["arguments"] = std::move(arguments);
+            model["messages"].insert_or_assign(id, std::move(message));
+        }
         const auto validation = validate_record("WorkspaceLocalization", model.to_string());
         for (const auto& issue : validation.diagnostics) {
             auto diagnostic = issue;
@@ -187,9 +481,15 @@ validate_project_localization(const std::filesystem::path& project_root,
             diagnostic.source_path = owner_for_path(diagnostic.path);
             result.diagnostics.push_back(std::move(diagnostic));
         }
+        if (validation.accepted)
+            validate_dialogue_cue_translations(result, project_root, model);
         result.accepted = result.diagnostics.empty();
-        if (result.accepted)
-            result.effective_json = validation.effective_json;
+        if (result.accepted) {
+            auto effective = Json::parse(validation.effective_json);
+            effective.insert_or_assign("messages", physical_messages);
+            effective.insert_or_assign("structuredMessageIds", physical_ids);
+            result.effective_json = effective.to_string();
+        }
     } catch (const std::exception& error) {
         add(result, "/localization", "localization.source.failure", error.what(),
             "i18n/project.yaml");

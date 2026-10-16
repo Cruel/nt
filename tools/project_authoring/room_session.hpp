@@ -238,6 +238,8 @@ private:
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
     std::map<std::string, std::string> shader_overlays_;
     std::map<std::string, std::string> text_source_overlays_;
+    std::map<std::string, std::string> inline_text_sources_;
+    std::map<std::string, std::string> inline_source_diagnostic_paths_;
     std::set<std::string> text_source_paths_;
     std::map<std::string, std::string> text_disk_revisions_;
     std::map<std::string, std::set<std::string>> text_source_owners_;

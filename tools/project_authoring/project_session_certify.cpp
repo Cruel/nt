@@ -544,6 +544,20 @@ void property_semantics_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
     std::string error;
+    auto unopened = ProjectSession::open(temp.root, error);
+    require(unopened != nullptr, "Unopened dependency fixture can be admitted");
+    const auto dependent = unopened->patch(
+        0,
+        {{RoomPatch::Operation::Replace, "/traits/lab-layered/properties/0/type", "\"number\""},
+         {RoomPatch::Operation::Replace, "/traits/lab-layered/properties/0/defaultValue", "42"}});
+    require(dependent.accepted && !dependent.snapshot.valid &&
+                std::any_of(
+                    dependent.snapshot.diagnostics.begin(), dependent.snapshot.diagnostics.end(),
+                    [](const Diagnostic& issue) {
+                        return issue.path == "/interactables/lab-specimen/defaultProperties";
+                    }) &&
+                !unopened->record_snapshots().contains("interactables/lab-specimen"),
+            "Trait edits validate unopened dependent owners without inspecting them");
     auto project = ProjectSession::open(temp.root, error);
     require(project != nullptr, "Variable and Trait fixture opens: " + error);
     require(project->inspect_record("variables/board-stock").accepted &&
@@ -765,6 +779,35 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
                 invalid_cases.diagnostics[1].code == "authoring.localization.lua_cases_static" &&
                 invalid_cases.diagnostics[2].code == "authoring.localization.lua_metadata_static",
             "Invalid managed cases and dynamic metadata keep the TypeScript diagnostic codes");
+    const auto escaped =
+        analyze_project_text("scripts/probe.lua", "Text.msg(\"\\x67reeting\")\nText.tr(\"\\117\")\n"
+                                                  "Text.tr(\"\\u{1F600}\")\n");
+    require(escaped.complete && escaped.diagnostics.empty() && escaped.messages.size() == 3 &&
+                escaped.messages[0].source == "greeting" && escaped.messages[1].source == "u" &&
+                escaped.messages[2].source == "\xf0\x9f\x98\x80",
+            "Lua hex, decimal and Unicode escapes match the runtime and TypeScript analyzer");
+    const auto unrecognized = analyze_project_text("scripts/probe.lua", "Text.tr(\"\\q\")");
+    require(!unrecognized.complete && !unrecognized.diagnostics.empty(),
+            "Unknown Lua escapes mark source analysis incomplete");
+    const auto preserved = analyze_project_text(
+        "scripts/probe.lua", "Text.select(mode, { sealed = 'Closed', other = 'Open' }, { context = "
+                             "'Door', note = 'For translators' })\n"
+                             "Text.tr('Hello {name}', { name = user }, { note = 'Name' })\n");
+    require(preserved.complete && preserved.diagnostics.empty() && preserved.messages.size() == 2 &&
+                preserved.messages[0].cases.size() == 2 &&
+                preserved.messages[0].cases.at("sealed") == "Closed" &&
+                preserved.messages[0].context == "Door" &&
+                preserved.messages[0].translator_note == "For translators" &&
+                preserved.messages[1].runtime_argument_names &&
+                *preserved.messages[1].runtime_argument_names == std::vector<std::string>{"name"} &&
+                preserved.messages[1].translator_note == "Name",
+            "Managed occurrences preserve selector branches, guidance and runtime arguments");
+    const auto missing_args =
+        analyze_project_text("scripts/probe.lua", "Text.tr('Hello {name}')\n");
+    require(missing_args.diagnostics.size() == 1 &&
+                missing_args.diagnostics[0].code ==
+                    "authoring.localization.lua_message_arguments_missing",
+            "Missing managed runtime arguments fail native validation");
 
     TemporaryProject temp(fixture);
     std::string error;
@@ -856,6 +899,46 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
     editor->observe_sources();
     require(editor->snapshot().valid,
             "Restoring saved Lua re-admits its original native source diagnostics");
+    TemporaryProject inline_fixture(fixture);
+    write(inline_fixture.root / "records/scripts/notice-board.yaml",
+          "id: notice-board\nlabel: notice-board\ndata:\n  source:\n"
+          "    kind: inline-lua\n    source: \"Text.msg('missing.inline.message')\"\n");
+    auto inlined = ProjectSession::open(inline_fixture.root, error);
+    require(inlined != nullptr, "Inline Script can be admitted as a native Project");
+    const auto virtual_path = std::string("inline/scripts/notice-board/data/source/source.lua");
+    const auto inline_state = inlined->snapshot();
+    if (!inlined->source_analyses().contains(virtual_path) || inline_state.valid) {
+        for (const auto& [path, _] : inlined->source_analyses())
+            if (path.starts_with("inline/scripts/"))
+                std::cerr << "Inline analysis: " << path << "\n";
+        for (const auto& issue : inline_state.diagnostics)
+            std::cerr << "Inline diagnostic: " << issue.path << " " << issue.code << "\n";
+    }
+    require(inlined->source_analyses().contains(virtual_path) && !inline_state.valid &&
+                std::any_of(inline_state.diagnostics.begin(), inline_state.diagnostics.end(),
+                            [](const auto& entry) {
+                                return entry.code ==
+                                           "authoring.localization.lua_named_message_missing" &&
+                                       entry.path == "/scripts/notice-board/data/source/source";
+                            }),
+            "Inline Lua Script contributes managed Message diagnostics to its logical owner");
+    const auto asset_rml = std::string("assets/ui/counter.rml");
+    const auto saved_asset_rml = read(temp.root / asset_rml);
+    const auto asset_overlay = editor->stage_text_source(
+        editor->snapshot().working_revision, asset_rml,
+        "<rml><body><button "
+        "onclick=\"Text.msg('missing.asset.message')\">Click</button></body></rml>");
+    require(asset_overlay.accepted && !asset_overlay.snapshot.valid &&
+                std::any_of(asset_overlay.snapshot.diagnostics.begin(),
+                            asset_overlay.snapshot.diagnostics.end(),
+                            [&](const Diagnostic& issue) {
+                                return issue.code ==
+                                           "authoring.localization.lua_named_message_missing" &&
+                                       issue.source_path == asset_rml &&
+                                       issue.path.starts_with("/layouts/");
+                            }) &&
+                read(temp.root / asset_rml) == saved_asset_rml,
+            "Asset-backed Layout RML is indexed and validated without disk writes");
 }
 
 void working_preparation_roundtrip(const std::filesystem::path& fixture)
@@ -865,9 +948,26 @@ void working_preparation_roundtrip(const std::filesystem::path& fixture)
     auto editor = ProjectSession::open(temp.root, error);
     require(editor != nullptr, "Cannot admit editor preparation: " + error);
     const auto baseline = editor->prepare_working(0);
+    if (!baseline.accepted) {
+        std::cerr << "Baseline preparation rejected: " << baseline.error << "\n";
+        for (const auto& issue : baseline.diagnostics)
+            std::cerr << issue.path << " [" << issue.code << "] " << issue.message << "\n";
+    }
     require(baseline.accepted && Json::parse(baseline.record_overrides_json).empty() &&
                 Json::parse(baseline.project_json).at("project").at("name") == "Feature Lab",
             "Saved Project preview baseline has no dirty native record overrides");
+    const auto shader = std::string("shaders/lab-grade.fs.sc");
+    const auto original_shader = read(temp.root / shader);
+    require(baseline.source_revisions.contains(shader),
+            "Saved shader sources participate in runtime preparation identity");
+    write(temp.root / shader, original_shader + "\n// native-cache-invalidation\n");
+    editor->observe_sources();
+    const auto after_shader = editor->prepare_working(0);
+    require(after_shader.accepted &&
+                baseline.source_revisions.at(shader) != after_shader.source_revisions.at(shader),
+            "Saved shader changes invalidate preview and Test runtime cache inputs");
+    write(temp.root / shader, original_shader);
+    editor->observe_sources();
     const auto changed =
         editor->patch(0, {{RoomPatch::Operation::Replace, "/project/name", R"("Dirty Project")"},
                           {RoomPatch::Operation::Replace, "/rooms/room-lifecycle-roundtrip/label",
