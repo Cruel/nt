@@ -23,6 +23,26 @@
 #include <string>
 
 namespace noveltea::benchmark {
+namespace {
+
+// Vary only CSS spelling, not reference geometry or pixels. Engine RmlUi can
+// skip cached static UI submissions; the effects workload explicitly exercises
+// actual effect rendering every frame, in warmup as well as measurement.
+void invalidate_effect_reference(uint32_t frame)
+{
+    for (int i = 0; i < Rml::GetNumContexts(); ++i) {
+        if (auto* context = Rml::GetContext(i)) {
+            for (int j = 0; j < context->GetNumDocuments(); ++j) {
+                if (auto* document = context->GetDocument(j); document && document->IsVisible()) {
+                    if (auto* background = document->GetElementById("reference-background"))
+                        background->SetProperty("width", frame % 2 == 0 ? "1920.0px" : "1920px");
+                }
+            }
+        }
+    }
+}
+
+} // namespace
 
 IntegratedRmlUi::IntegratedRmlUi(bool controlled, bool scaling, bool effects)
     : controlled_(controlled), scaling_(scaling), effects_(effects)
@@ -221,9 +241,14 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     if (effects_)
         EngineTooling::set_ui_effect_observation(*engine_, true);
 
-    // First rendered frames exercise the real UI compilation and font atlas
-    // outside any timed samples, including --smoke / zero-warmup runs.
-    for (int i = 0; i < 4; ++i) {
+    // Prime the production renderer outside any timed samples. Under host
+    // contention the first few Engine ticks may not submit the runtime UI,
+    // even though its document has loaded. Do not misdiagnose those frames as
+    // unsupported CSS. Allow bounded additional preparation frames until
+    // all requested backend callbacks have actually appeared.
+    for (int i = 0; i < (effects_ ? 48 : 4); ++i) {
+        if (effects_)
+            invalidate_effect_reference(frame_index_++);
         const bool ticked = engine_->is_running() && engine_->tick();
         if (EngineTooling::host_quit_requested(*engine_)) {
             last_interruption_ = Interruption::Cancelled;
@@ -235,6 +260,13 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
             reason = "production Engine stopped during integrated UI preparation";
             (void)cleanup(ignored);
             return false;
+        }
+        if (effects_ && i >= 3) {
+            const auto observed = EngineTooling::ui_effect_activity(*engine_);
+            std::string ignored_reason;
+            if (observed &&
+                verify_ui_effect_activity(ui_effect_counts(options), *observed, ignored_reason))
+                break;
         }
     }
     if (effects_) {
@@ -325,6 +357,8 @@ bool IntegratedRmlUi::frame(std::string& reason)
             }
         }
     }
+    if (effects_)
+        invalidate_effect_reference(frame_index_);
     ++frame_index_;
     const bool ticked = engine_ && engine_->is_running() && engine_->tick();
     if (engine_ && EngineTooling::host_quit_requested(*engine_)) {

@@ -16,6 +16,10 @@ namespace noveltea::benchmark {
 {
     if (observed.backend_errors > 0)
         reason = "RmlUi backend reported errors while rendering requested effects";
+    else if (observed.clipping_calls == 0 && observed.transforms == 0 &&
+             observed.gradient_draws == 0 && observed.filtered_composites == 0 &&
+             observed.mask_saves == 0 && observed.layer_pushes == 0)
+        reason = "RmlUi effects fixture produced no backend effect callbacks during preparation";
     else if (requested.clipping && observed.clipping_calls == 0)
         reason = "unsupported RmlUi feature: clipping generated no backend calls";
     else if (requested.transforms && observed.transforms == 0)

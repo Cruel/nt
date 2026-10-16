@@ -353,6 +353,28 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     }
     console.log(name + ': individual no-UI production Engine and integrated RmlUi trials passed');
 
+    // Exercise the same advanced RML fixture through both WebGL2 hosts. Check
+    // actual RmlUi backend activity, not just requested CSS or run success.
+    for (const scenario of ['standalone-rmlui-effects', 'integrated-rmlui-effects']) {
+      await page.goto(origin + '/benchmark.html?scenario=' + scenario +
+        '&uiClipping=1&uiTransforms=1&uiGradients=1&uiFilters=1&uiMasks=1&uiNestedLayers=1' +
+        '&frames=12&warmup=0&noUi=1');
+      await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
+                                 {timeout: 60000});
+      const report = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+      const actual = report.scenarios[0]?.graphics?.ui_effect_backend_callbacks;
+      if (report.outcome !== 'complete' || report.scenarios[0]?.aggregate.measured_frames !== 12 ||
+          !actual || actual.backend_errors !== 0 || actual.clipping_calls < 1 ||
+          actual.transforms < 1 || actual.gradient_draws < 1 ||
+          actual.filtered_composites < 1 || actual.mask_saves < 1 ||
+          actual.max_layer_depth < 2 ||
+          JSON.stringify(report.graphics) !== JSON.stringify(report.scenarios[0].graphics))
+        throw new Error('Web advanced RmlUi effects failed: ' +
+          JSON.stringify({scenario, outcome: report.outcome, actual,
+            trials: report.scenarios[0]?.trials.map(t => t.reason)}));
+    }
+    console.log(name + ': standalone and integrated advanced RmlUi effects passed');
+
     // Regression: selecting offscreen composition before Quick Suite must not
     // leak composition-only knobs into raw, RmlUi, or Engine reference presets.
     await page.goto(origin + '/benchmark.html?scenario=raw-bgfx-composition&compositionPath=offscreen&compositePasses=2&quickSuite=1&smoke=1&noUi=1');

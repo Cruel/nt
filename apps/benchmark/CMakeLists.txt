@@ -225,7 +225,7 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_executable(noveltea-benchmark-empty-engine-tests
         empty_engine_tests.cpp empty_engine.cpp integrated_rmlui.cpp)
     target_link_libraries(noveltea-benchmark-empty-engine-tests PRIVATE
-        noveltea_engine noveltea-benchmark-runner SDL3::SDL3 bgfx::bgfx)
+        noveltea_engine noveltea-benchmark-runner SDL3::SDL3 bgfx::bgfx RmlUi::Core)
     target_compile_definitions(noveltea-benchmark-empty-engine-tests PRIVATE
         NOVELTEA_BENCHMARK_RESULTS_DIR="${NOVELTEA_BENCHMARK_RESULT_ROOT}")
     add_dependencies(noveltea-benchmark-empty-engine-tests noveltea-benchmark-stage-assets)
@@ -373,6 +373,7 @@ if(BUILD_TESTING AND NOT ANDROID)
                 --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-rmlui-effects.json")
         set_tests_properties(noveltea_benchmark_standalone_rmlui_effects_smoke PROPERTIES
             LABELS "benchmark;graphics;smoke"
+            RUN_SERIAL TRUE
             PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
             TIMEOUT 120)
         add_test(NAME noveltea_benchmark_integrated_rmlui_effects_smoke
@@ -381,6 +382,7 @@ if(BUILD_TESTING AND NOT ANDROID)
                 --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-effects.json")
         set_tests_properties(noveltea_benchmark_integrated_rmlui_effects_smoke PROPERTIES
             LABELS "benchmark;graphics;smoke"
+            RUN_SERIAL TRUE
             PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
             TIMEOUT 180)
         add_test(NAME noveltea_benchmark_integrated_rmlui_repeat_smoke

@@ -59,6 +59,7 @@ private:
     std::vector<Rml::Context*> extra_contexts_;
     std::vector<Rml::ElementDocument*> visible_documents_;
     bool scaling_ = false;
+    bool effects_ = false;
     bool dynamic_text_ = false;
     bool dirty_only_ = false;
     uint32_t frame_index_ = 0;
