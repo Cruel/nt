@@ -8,6 +8,18 @@
 
 namespace noveltea::benchmark {
 
+struct UiBackendSettings {
+    std::uint8_t reference_msaa_samples = 0;
+    bool base_direct_compatibility_requested = false;
+    bool preserve_backbuffer = false;
+    bool optimized_render_path = false;
+    bool output_framebuffer_bound = false;
+    bool geometry_raster_snapping = false;
+    bool text_raster_snapping = false;
+    int viewport_width = 0;
+    int viewport_height = 0;
+};
+
 struct Environment {
     std::string platform;
     std::string video_driver;
@@ -23,6 +35,7 @@ struct Environment {
     int world_raster_width = 0;
     int world_raster_height = 0;
     std::optional<bool> engine_postprocess_active;
+    std::optional<UiBackendSettings> ui_backend;
 };
 
 [[nodiscard]] std::string encode_configuration(const Options& options);

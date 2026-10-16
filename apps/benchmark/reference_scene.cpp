@@ -63,6 +63,7 @@ std::string simple_ui_reference_markup(const ReferenceScene& scene, float refere
     source << "<rml><head><title>Benchmark reference</title>"
            << "<style>body { margin: 0; padding: 0; background: transparent; }"
            << "div, p { position: absolute; margin: 0; padding: 0; }"
+           << "p { display: block; white-space: nowrap; font-weight: normal; font-style: normal; }"
            << "</style></head><body>";
     // An opaque scene background makes the visible reference independent of
     // the different backbuffer and Engine world surface clear policies.
@@ -78,8 +79,10 @@ std::string simple_ui_reference_markup(const ReferenceScene& scene, float refere
     }
     for (const auto& item : scene.texts) {
         source << "<p id='" << item.id << "' style='left:" << item.x * reference_scale
-               << "px;top:" << item.y * reference_scale
+               << "px;top:" << item.y * reference_scale << "px;width:" << 600.0f * reference_scale
+               << "px;height:" << 52.0f * reference_scale
                << "px;font-family:Liberation Sans;font-size:" << item.font_size * reference_scale
+               << "px;line-height:" << 40.0f * reference_scale
                << "px;color:" << css_color(item.color) << ";'>" << item.content << "</p>";
     }
     source << "</body></rml>";

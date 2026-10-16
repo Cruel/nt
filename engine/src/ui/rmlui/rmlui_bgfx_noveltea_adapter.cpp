@@ -834,6 +834,12 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
     config.render_path = render_path_from_env();
     config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
     config.preserve_backbuffer = true;
+    m_render_configuration.reference_msaa_samples = config.reference_msaa_samples;
+    m_render_configuration.preserve_backbuffer = config.preserve_backbuffer;
+    m_render_configuration.optimized_render_path =
+        config.render_path == rmlui_bgfx::RenderPath::Optimized;
+    m_render_configuration.viewport_width = m_viewport.width;
+    m_render_configuration.viewport_height = m_viewport.height;
     config.route_transient_geometry_to_active_renderer =
         m_surface == RmlUiRenderSurface::HostSurface;
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
@@ -864,6 +870,8 @@ void BgfxRenderInterface::configure_context(const PresentationMetrics& presentat
     if (!m_core || !surface)
         return;
     m_context_metrics = context;
+    m_render_configuration.viewport_width = m_viewport.width;
+    m_render_configuration.viewport_height = m_viewport.height;
     m_adapter->set_presentation(presentation, context);
     m_core->resize(*surface, m_viewport);
 }
@@ -899,11 +907,14 @@ void BgfxRenderInterface::set_perf_logging_enabled(bool enabled)
 }
 void BgfxRenderInterface::set_base_direct_compatibility(bool enabled)
 {
+    m_render_configuration.base_direct_compatibility_requested = enabled;
     m_core->set_base_direct_compatibility(enabled);
 }
 
 void BgfxRenderInterface::set_raster_snapping(bool geometry_enabled, bool text_enabled)
 {
+    m_render_configuration.geometry_raster_snapping = geometry_enabled;
+    m_render_configuration.text_raster_snapping = text_enabled;
     m_geometry_raster_snapping = geometry_enabled;
     m_text_raster_snapping = text_enabled;
 }
@@ -924,6 +935,7 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                                  const PresentationMetrics& presentation,
                                                  bool local_viewport)
 {
+    m_render_configuration.output_framebuffer_bound = bgfx::isValid(framebuffer);
     m_core->set_output_framebuffer(framebuffer);
     m_viewport =
         local_viewport ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,

@@ -2,6 +2,7 @@
 
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/presentation_contracts.hpp"
+#include "noveltea/ui_render_configuration.hpp"
 #include "noveltea/core/runtime_clock.hpp"
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/render/material.hpp"
@@ -92,6 +93,10 @@ public:
     ~BgfxRenderInterface() override;
 
     explicit operator bool() const;
+    [[nodiscard]] UiRenderConfiguration render_configuration() const noexcept
+    {
+        return m_render_configuration;
+    }
 
     void resize(const PresentationMetrics& presentation, const ResolvedContextMetrics& context);
     void configure_context(const PresentationMetrics& presentation,
@@ -157,6 +162,7 @@ private:
     rmlui_bgfx::FramebufferViewport m_viewport{};
     RmlUiRenderSurface m_surface = RmlUiRenderSurface::GameViewport;
     std::unordered_set<Rml::TextureHandle> m_generated_textures;
+    UiRenderConfiguration m_render_configuration{};
     bool m_geometry_raster_snapping = true;
     bool m_text_raster_snapping = true;
 };

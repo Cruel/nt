@@ -84,12 +84,31 @@ int main()
                        nlohmann::json::parse(encode_configuration(decoded)) == config,
                    "integrated Engine UI mode has a stable, parameter-free identity"))
             return 1;
-        const auto rendered = nlohmann::json::parse(encode_result(integrated, {}, {}));
+        const auto unavailable = nlohmann::json::parse(encode_result(integrated, {}, {}));
+        if (!check(unavailable["graphics"]["ui_base_direct_compat"].is_null() &&
+                       unavailable["graphics"]["ui_reference_msaa_samples"].is_null(),
+                   "missing live RmlUi adapter settings are not guessed from scenario names"))
+            return 1;
+        noveltea::benchmark::Environment env;
+        env.ui_backend = noveltea::benchmark::UiBackendSettings{
+            .reference_msaa_samples = 2,
+            .base_direct_compatibility_requested =
+                integrated.scenario == "integrated-rmlui-controlled",
+            .preserve_backbuffer = true,
+            .optimized_render_path = true,
+            .viewport_width = 1280,
+            .viewport_height = 720,
+        };
+        const auto rendered = nlohmann::json::parse(encode_result(integrated, env, {}));
         if (!check(rendered["graphics"]["ui_base_direct_compat"] ==
                            (integrated.scenario == "integrated-rmlui-controlled") &&
-                       rendered["graphics"]["ui_output_framebuffer"] ==
-                           "engine-managed-postprocess-and-composite",
-                   "integrated report records distinct real Engine render settings"))
+                       rendered["graphics"]["ui_reference_msaa_samples"] == 2 &&
+                       rendered["graphics"]["ui_base_presentation_policy"] ==
+                           "offscreen-required-by-msaa" &&
+                       rendered["graphics"]["ui_preserve_backbuffer"] == true &&
+                       rendered["graphics"]["ui_output_framebuffer"] == "backbuffer" &&
+                       rendered["graphics"]["ui_offscreen_rendering_observed"].is_null(),
+                   "render report preserves live backend settings without fabricated observations"))
             return 1;
     }
     auto invalid_ui_parameters = ui_config;

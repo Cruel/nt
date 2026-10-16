@@ -51,6 +51,9 @@ int main()
                    engine_markup.find("width:1920px;height:1080px") != std::string::npos &&
                    engine_markup.find("left:1050px;top:195px;width:510px;height:315px") !=
                        std::string::npos &&
+                   standalone_markup.find("white-space: nowrap") != std::string::npos &&
+                   standalone_markup.find("width:600px;height:52px") != std::string::npos &&
+                   engine_markup.find("width:900px;height:78px") != std::string::npos &&
                    standalone_markup.find("NovelTea UI reference") != std::string::npos &&
                    engine_markup.find("NovelTea UI reference") != std::string::npos,
                "RmlUi engines share semantic markup with correctly scaled visible geometry"))

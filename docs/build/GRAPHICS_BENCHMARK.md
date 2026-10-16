@@ -1,7 +1,11 @@
 # Graphics Benchmark (Linux reference workloads, #422–#428)
 
-The dedicated `noveltea-benchmark-app` measures SDL3/bgfx and RmlUi reference workloads. The raw and standalone RmlUi modes do not create NovelTea Engine, sandbox, or player instances; the integrated mode initializes the **real Engine, RuntimeUI, RmlUiHost, and production Renderer**. Interactive
-use adds a dedicated Dear ImGui frontend that is fully destroyed before
+The dedicated `noveltea-benchmark-app` measures SDL3/bgfx and RmlUi
+reference workloads. Raw and standalone RmlUi **do not instantiate** the
+NovelTea Engine, while the integrated modes use the real Engine, RuntimeUI,
+RmlUiHost, and production Renderer. The binary links the Engine library
+for integrated scenarios; standalone scenarios remain separately owned.
+Interactive use adds a dedicated Dear ImGui frontend that is fully destroyed before
 sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts now provide
@@ -16,17 +20,20 @@ and Advanced tabs. Preview shows the selected reference content without contribu
 to measurements; Clean and Diagnostic runs are separate actions. The scenario
 selector includes `raw-bgfx-empty`, `raw-bgfx-geometry`,
 `standalone-rmlui-simple`, `integrated-rmlui-controlled`, and
-`integrated-rmlui-production`; other workloads are separate tickets. The **Inspect full scene** control hides the large
-dashboard panel and leaves a small **Return to dashboard** button at the
+`integrated-rmlui-production`; other workloads are separate tickets.
+The **Inspect full scene** control hides the large dashboard panel and leaves a small **Return to dashboard** button at the
 top-right, so the fixed reference rectangles can be viewed unobscured.
 Inspection is outside timed sampling.
 
 Changing resolution or VSync applies at the next run. Before the runner
 enters Preparation, the dashboard completely releases its ImGui context, SDL
 input binding, GPU font atlas, sampler, and shader program, then drains
-pending GPU deletion frames **outside** timing. The SDL window and bgfx device
-remain alive throughout repeated trials. The application restores the
-dashboard after completion/failure, automatically showing the Results tab.
+pending GPU deletion frames **outside** timing. Raw bgfx and standalone
+RmlUi trials retain the SDL/bgfx host between repeats. Integrated scenarios
+instead fully release the dashboard SDL/bgfx host, create and destroy a fresh
+Engine-owned host for every trial, then recreate the dashboard's SDL/bgfx host
+on completion. The application restores the dashboard after completion/failure,
+automatically showing the Results tab.
 No ImGui frames, HUD, counters or dashboard rendering occur during strict
 Warmup or Measurement. Cleanup and results encoding happen afterward.
 
@@ -107,7 +114,8 @@ a standalone rmlui-bgfx RenderInterface (views 2–63), and a small document
 with the fixed shared reference rectangles and a text label. The common
 Liberation Sans font is staged next to the benchmark executable; the shader
 provider loads the same generated system shaders used by the runtime.
-Neither the NovelTea Engine, RuntimeUI, nor their asset manager is linked.
+The standalone adapter constructs neither Engine, RuntimeUI nor the Engine
+asset manager; the combined executable does link Engine for integrated modes.
 
 Preparation compiles shaders and rasterizes initial text before Ready.
 Measured frames submit RmlUi Update, Render and bgfx frame handoff.
@@ -115,6 +123,13 @@ Clean runs collect no RmlUi stage timings. Diagnostic runs have a separately
 accessible Update/Render timing sample for future reporting extensions.
 ImGui and the RmlUi debugger are absent during measurement.
 
+The dashboard orders all RmlUi preview views (2–63) before ImGui view 1,
+including the final UI composition pass, then restores default view order
+before measurement. An optional untimed X11/ImageMagick CTest verifies
+that normal dashboard controls and the return-from-inspection button
+remain visible above the preview. It also captures all three RmlUi variants
+during warmup, compares one-line text pixels, and verifies their live render
+settings in the output JSON.
 The dashboard previews and inspects the reference outside measurement.
 Its lifecycle smoke switches raw bgfx → standalone RmlUi → raw bgfx (or the
 reverse), destroying RmlUi context, RmlUi Core, backend and GPU resources
@@ -144,18 +159,30 @@ maps coordinates from the standalone 1280×720 reference into the Engine's
 visual-equivalence fixture; others fail with a diagnostic.
 
 Controlled mode requests the Engine's base-direct compatibility behavior
-and disables raster snapping, to more closely align with the standalone
-adapter. Production mode retains the Engine default compositor and raster
-snapping. **Neither mode bypasses or substitutes the real Engine renderer.**
+and disables raster snapping. Production mode retains the Engine default
+compositor and raster snapping. **Neither mode is actually direct-base with
+the current RmlUi backend: its effective reference MSAA request is two
+samples, which requires an offscreen base layer.** Standalone likewise
+uses two-sample MSAA and offscreen base presentation. These scenarios
+share the same fixed markup and now explicitly set text display, no-wrap,
+line height, width, font family and size, independent of production baseline
+styles. The controlled and standalone cases are still not rendering-path
+identical: Engine sets preserve-backbuffer while standalone leaves it off;
+production also enables raster snapping. **Neither mode bypasses or substitutes the real Engine renderer.**
 They are independent timing scenarios, not simultaneous contexts or samples
 derived from RmlUi context-render completion counts.
 
-The result `graphics` metadata identifies the UI path, base-direct request,
-effective framebuffer and Engine UI/world raster dimensions, and the observed
-Engine postprocess surface status after preparation. The RmlUi backend's
-internal offscreen routing is not currently exposed by production Engine
-tooling, so `ui_offscreen_rendering_observed` is explicitly `null`; no
-offscreen count is fabricated. The integrated scenario always runs the
+The result `graphics` metadata reads settings from the **initialized**
+standalone or Engine-owned RmlUi adapter: effective render-path selection,
+reference MSAA samples, requested base-direct compatibility, preserve-backbuffer,
+actual bound output target, viewport size and raster snapping. The report also
+records Engine UI/world raster sizes and observed postprocess-surface status.
+`ui_base_presentation_policy=offscreen-required-by-msaa` documents the
+deterministic backend decision for MSAA-enabled base layers. The backend does
+not expose an independently measured per-frame offscreen counter without
+activating diagnostic performance logging, so
+`ui_offscreen_rendering_observed` remains `null` rather than fabricating a
+measurement. The integrated scenario always runs the
 production Engine compositor. Its costs are **not identical** to a standalone
 backbuffer UI render. GPU time and independently verified displayed frames
 remain unavailable.

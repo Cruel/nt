@@ -1,4 +1,5 @@
 #include "benchmark_dashboard.hpp"
+#include "benchmark_view_order.hpp"
 #include "benchmark_assets.hpp"
 
 #include <imgui.h>
@@ -132,6 +133,8 @@ void Dashboard::shutdown()
     font_ = BGFX_INVALID_HANDLE;
     sampler_ = BGFX_INVALID_HANDLE;
     program_ = BGFX_INVALID_HANDLE;
+    // The custom preview ordering must not leak into Clean/Diagnostic runs.
+    reset_dashboard_view_order();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     window_ = nullptr;
@@ -407,7 +410,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             if (ImGui::BeginTabItem("Advanced")) {
                 ImGui::TextWrapped(
                     "Strict samples exclude ImGui allocations, context, events, "
-                    "rendering and GPU objects. The window and bgfx backend persist.");
+                    "rendering and GPU objects. Raw/standalone trials retain the host; "
+                    "integrated trials recreate the Engine-owned host.");
                 ImGui::TextUnformatted("GPU execution time: unavailable");
                 ImGui::TextUnformatted("GPU driver version: unavailable");
                 ImGui::TextUnformatted("Confirmed presented FPS: unavailable");
@@ -426,6 +430,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
     bgfx::touch(0);
     if (preview)
         preview();
+    // Default bgfx ID sorting would composite views 2..63 over ImGui view 1.
+    set_dashboard_view_order();
     render();
     bgfx::frame();
     return action;
