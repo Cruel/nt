@@ -1,4 +1,5 @@
 #include "benchmark_runner.hpp"
+#include "benchmark_capacity.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -268,7 +269,9 @@ bool validate_run_options(const Options& options, std::string& reason)
     } else if (options.profile != "clean" && options.profile != "diagnostic") {
         reason = "profile must be clean or diagnostic";
     }
-    return reason.empty();
+    if (!reason.empty())
+        return false;
+    return valid_capacity_options(options, reason);
 }
 
 Distribution summarize(const std::vector<FrameSample>& samples, bool wall)

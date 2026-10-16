@@ -24,6 +24,7 @@ struct WebBenchmarkApp {
     SuiteResult collected;
     std::vector<Environment> collected_environments;
     bool quick_suite_active = false;
+    std::unique_ptr<noveltea::benchmark::CapacitySearch> capacity_search;
     size_t quick_index = 0;
     std::string feedback;
     bool stopped = false;
@@ -197,6 +198,9 @@ struct WebBenchmarkApp {
     void start(bool suite = false)
     {
         quick_suite_active = suite;
+        capacity_search = !suite && !options.capacity_dimension.empty()
+                              ? std::make_unique<noveltea::benchmark::CapacitySearch>(options)
+                              : nullptr;
         quick_index = 0;
         collected = {};
         collected_environments.clear();
@@ -207,7 +211,7 @@ struct WebBenchmarkApp {
 
     void start_next()
     {
-        current_options = options;
+        current_options = capacity_search ? capacity_search->candidate_options() : options;
         current_options.quick_suite = quick_suite_active;
         std::string error;
         if (quick_suite_active) {
@@ -248,6 +252,14 @@ struct WebBenchmarkApp {
                 collected_environments.emplace_back();
                 ++quick_index;
                 start_next();
+            } else if (capacity_search) {
+                SuiteResult failed;
+                noveltea::benchmark::append_failed_scenario(
+                    failed, current_options.scenario, feedback);
+                capacity_search->observe(failed);
+                noveltea::benchmark::append_suite_result(collected, std::move(failed));
+                collected_environments.emplace_back();
+                finish_collection();
             }
             return;
         }
@@ -333,7 +345,15 @@ struct WebBenchmarkApp {
             deferred_scenario = std::move(active_scenario);
         else
             active_scenario.reset();
-        if (quick_suite_active) {
+        if (capacity_search) {
+            collected_environments.push_back(environment);
+            capacity_search->observe(latest);
+            noveltea::benchmark::append_suite_result(collected, latest);
+            if (!capacity_search->done() && !graphics_unavailable) {
+                start_next();
+                return;
+            }
+        } else if (quick_suite_active) {
             collected_environments.push_back(environment);
             noveltea::benchmark::append_suite_result(collected, latest);
             if (!graphics_unavailable && latest.outcome != "cancelled") {
@@ -359,6 +379,12 @@ struct WebBenchmarkApp {
             reported.feature_lab_package.clear();
         }
         reported.quick_suite = quick_suite_active;
+        if (capacity_search) {
+            collected.capacity = capacity_search->result();
+            if (collected.capacity->status == "inconclusive")
+                collected.outcome = "partial";
+            capacity_search.reset();
+        }
         completed_run = noveltea::benchmark::CompletedRun{reported, collected, {}};
         quick_suite_active = false;
         // Use the observed scenario host, not the dashboard host released

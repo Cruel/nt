@@ -13,6 +13,7 @@
 #endif
 
 #include "benchmark_bgfx_diagnostics.hpp"
+#include "benchmark_capacity.hpp"
 #include "benchmark_completed_run.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_options.hpp"
@@ -63,6 +64,10 @@ void print_usage()
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
     std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
     std::puts("       [--target-scale 0.25..1.0] [--msaa-samples 0|2|4]");
+    std::puts("       [--capacity-dimension geometry|ui|pixels] [--capacity-target "
+              "cpu-ms|gpu-ms|presented-fps]");
+    std::puts("       [--capacity-threshold N] [--capacity-mode presented|offscreen]");
+    std::puts("       [--native-resolution] (use current display dimensions)");
     std::puts("       [--no-transparent-overlay] (composition scenario only)");
     std::puts("       [--ui-elements 1..2048] [--ui-text-lines 0..256]");
     std::puts("       [--ui-visible-contexts 1..8] [--ui-empty-contexts 0..16]");
@@ -226,6 +231,25 @@ struct Graphics {
 #endif
     Environment environment;
 
+    static bool requested_window_size(const Options& options, SDL_Window* existing, int& width,
+                                      int& height, std::string& reason)
+    {
+        width = options.width;
+        height = options.height;
+        if (!options.native_resolution)
+            return true;
+        const SDL_DisplayID display =
+            existing ? SDL_GetDisplayForWindow(existing) : SDL_GetPrimaryDisplay();
+        const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(display);
+        if (!mode || mode->w < 1 || mode->h < 1 || mode->w > 8192 || mode->h > 8192) {
+            reason = "native display mode is unavailable or outside the 8192-pixel limit";
+            return false;
+        }
+        width = mode->w;
+        height = mode->h;
+        return true;
+    }
+
     void shutdown()
     {
         if (bgfx_ready) {
@@ -259,8 +283,12 @@ struct Graphics {
         int logical_height = 0;
         SDL_GetWindowSize(window, &logical_width, &logical_height);
 #if !defined(__ANDROID__)
-        if (logical_width != options.width || logical_height != options.height) {
-            if (!SDL_SetWindowSize(window, options.width, options.height)) {
+        int requested_width = 0;
+        int requested_height = 0;
+        if (!requested_window_size(options, window, requested_width, requested_height, reason))
+            return false;
+        if (logical_width != requested_width || logical_height != requested_height) {
+            if (!SDL_SetWindowSize(window, requested_width, requested_height)) {
                 reason = std::string("SDL_SetWindowSize: ") + SDL_GetError();
                 return false;
             }
@@ -316,8 +344,12 @@ struct Graphics {
         window = SDL_CreateWindow("NovelTea Graphics Benchmark", 0, 0,
                                   SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 #else
-        window = SDL_CreateWindow("NovelTea Graphics Benchmark: Empty bgfx", options.width,
-                                  options.height, 0);
+        int requested_width = 0;
+        int requested_height = 0;
+        if (!requested_window_size(options, nullptr, requested_width, requested_height, reason))
+            return false;
+        window = SDL_CreateWindow("NovelTea Graphics Benchmark: Empty bgfx", requested_width,
+                                  requested_height, 0);
 #endif
         if (!window) {
             reason = std::string("SDL_CreateWindow: ") + SDL_GetError();
@@ -628,6 +660,7 @@ struct RawReferenceScenario final : EmptyBgfxScenario {
     }
     std::string name_;
     noveltea::benchmark::RawBgfxWorkloads workload;
+    bool offscreen_capacity = false;
 
     const char* id() const override { return name_.c_str(); }
     const char* description() const override
@@ -649,6 +682,8 @@ struct RawReferenceScenario final : EmptyBgfxScenario {
     {
         if (!EmptyBgfxScenario::prepare(options, reason))
             return false;
+        offscreen_capacity =
+            options.capacity_mode == "offscreen" && !options.capacity_dimension.empty();
         const auto spec = noveltea::benchmark::raw_workload_reference(
             options, static_cast<uint32_t>(host().environment.width_pixels),
             static_cast<uint32_t>(host().environment.height_pixels));
@@ -660,8 +695,17 @@ struct RawReferenceScenario final : EmptyBgfxScenario {
                                  static_cast<uint32_t>(host().environment.height_pixels), reason))
             return false;
         host().environment.raw_workload = *spec;
+        if (offscreen_capacity) {
+            auto& recorded = *host().environment.raw_workload;
+            recorded.view_count = 1;
+            recorded.draws_per_frame =
+                recorded.draw_calls * noveltea::benchmark::kOffscreenWorkUnitsPerBatch;
+            recorded.vertices_per_frame = recorded.quads_per_draw * 4ull * recorded.draws_per_frame;
+            recorded.triangles_per_frame =
+                recorded.quads_per_draw * 2ull * recorded.draws_per_frame;
+        }
         for (int i = 0; i < 4; ++i) {
-            if (!workload.submit(reason))
+            if (!workload.submit(reason, !offscreen_capacity))
                 return false;
             bgfx::frame();
         }
@@ -671,7 +715,15 @@ struct RawReferenceScenario final : EmptyBgfxScenario {
     {
         if (!poll(reason))
             return false;
-        return submit_frame([&]() { return workload.submit(reason); });
+        return submit_frame([&]() {
+            const uint32_t units =
+                offscreen_capacity ? noveltea::benchmark::kOffscreenWorkUnitsPerBatch : 1u;
+            for (uint32_t i = 0; i < units; ++i) {
+                if (!workload.submit(reason, !offscreen_capacity))
+                    return false;
+            }
+            return true;
+        });
     }
     bool cleanup(std::string& reason) override
     {
@@ -824,6 +876,34 @@ bool write_report(const Options& options, const Environment& environment, const 
 }
 
 #if !defined(__EMSCRIPTEN__)
+SuiteResult run_native_capacity(const Options& base, Scenario& scenario, Clock& clock,
+                                std::vector<Environment>& environments,
+                                const std::function<Environment()>& environment,
+                                noveltea::benchmark::Recovery recovery = {})
+{
+    noveltea::benchmark::CapacitySearch search(base);
+    SuiteResult collection;
+    while (!search.done()) {
+        const Options candidate = search.candidate_options();
+        std::string error;
+        if (!noveltea::benchmark::validate_run_options(candidate, error) ||
+            !noveltea::benchmark::validate_reference_options(candidate, error)) {
+            noveltea::benchmark::append_failed_scenario(collection, scenario.id(), error);
+            search.observe(collection);
+            environments.emplace_back();
+            break;
+        }
+        SuiteResult item = noveltea::benchmark::run_suite(candidate, {&scenario}, clock, recovery);
+        environments.push_back(environment());
+        search.observe(item);
+        noveltea::benchmark::append_suite_result(collection, std::move(item));
+    }
+    collection.capacity = search.result();
+    if (collection.capacity->status == "inconclusive")
+        collection.outcome = "partial";
+    return collection;
+}
+
 // One suite collection keeps the ImGui host absent across all measurements.
 // Hosts with incompatible ownership never coexist: the Engine creates its own
 // SDL window and bgfx device, while the raw/standalone cases borrow Graphics.
@@ -1136,13 +1216,20 @@ int run_dashboard(Options options)
 #if defined(__ANDROID__)
             recover = android_engine_recovery();
 #endif
-            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock, recover);
+            std::vector<Environment> environments;
+            const auto current_environment = [&]() {
+                return integrated ? engine_ui.environment() : empty_engine.environment();
+            };
+            auto result =
+                run_options.capacity_dimension.empty()
+                    ? noveltea::benchmark::run_suite(run_options, {selected}, clock, recover)
+                    : run_native_capacity(run_options, *selected, clock, environments,
+                                          current_environment, recover);
             ran = true;
             completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
-            const auto& environment =
-                integrated ? engine_ui.environment() : empty_engine.environment();
+            const auto environment = current_environment();
             if (!write_report(run_options, environment, completed_run->result,
-                              completed_run->report_path)) {
+                              completed_run->report_path, environments)) {
                 feedback = "failed to write benchmark report";
             } else {
                 feedback.clear();
@@ -1186,11 +1273,17 @@ int run_dashboard(Options options)
 #if defined(__ANDROID__)
             recover = android_shared_graphics_recovery(graphics, run_options);
 #endif
-            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock, recover);
+            std::vector<Environment> environments;
+            auto result =
+                run_options.capacity_dimension.empty()
+                    ? noveltea::benchmark::run_suite(run_options, {selected}, clock, recover)
+                    : run_native_capacity(
+                          run_options, *selected, clock, environments,
+                          [&]() { return graphics.environment; }, recover);
             ran = true;
             completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
             if (!write_report(completed_run->configuration, graphics.environment,
-                              completed_run->result, completed_run->report_path)) {
+                              completed_run->result, completed_run->report_path, environments)) {
                 feedback = "failed to write benchmark report";
             } else {
                 feedback.clear();
@@ -1462,7 +1555,28 @@ int run(const Options& options)
         options.scenario == "integrated-rmlui-effects")
         recover = android_engine_recovery();
 #endif
-    const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock, recover);
+    std::vector<Environment> capacity_environments;
+    const auto measured_environment = [&]() -> Environment {
+        return options.scenario == "engine-empty" ||
+                       noveltea::benchmark::is_compiled_project_scenario(options.scenario)
+                   ? empty_engine.environment()
+               : options.scenario == "integrated-rmlui-controlled" ? controlled.environment()
+               : options.scenario == "integrated-rmlui-production" ? production.environment()
+               : options.scenario == "integrated-rmlui-scaling"    ? scaling_engine.environment()
+               : options.scenario == "integrated-rmlui-effects"    ? effects_engine.environment()
+               : options.scenario == "standalone-rmlui-effects"    ? effects_ui.graphics.environment
+               : options.scenario == "standalone-rmlui-simple"     ? rmlui.graphics.environment
+               : options.scenario == "standalone-rmlui-scaling"    ? scaling_ui.graphics.environment
+               : options.scenario == "raw-bgfx-geometry"           ? geometry.graphics.environment
+               : noveltea::benchmark::is_extended_raw_scenario(options.scenario)
+                   ? raw.graphics.environment
+                   : empty.graphics.environment;
+    };
+    const SuiteResult result =
+        options.capacity_dimension.empty()
+            ? noveltea::benchmark::run_suite(options, {selected}, clock, recover)
+            : run_native_capacity(options, *selected, clock, capacity_environments,
+                                  measured_environment, recover);
     const Environment environment =
         options.scenario == "engine-empty" ||
                 noveltea::benchmark::is_compiled_project_scenario(options.scenario)
@@ -1479,7 +1593,7 @@ int run(const Options& options)
             ? raw.graphics.environment
             : empty.graphics.environment;
     std::string output;
-    if (!write_report(options, environment, result, output))
+    if (!write_report(options, environment, result, output, capacity_environments))
         return 3;
     const auto& scenario_result = result.scenarios.front();
     if (scenario_result.outcome == "complete") {

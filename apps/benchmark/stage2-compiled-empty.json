@@ -18,6 +18,11 @@
     "quick_suite": false,
     "raw_samples": true,
     "vsync": false,
+    "native_resolution": false,
+    "capacity_dimension": "",
+    "capacity_target": "cpu-ms",
+    "capacity_threshold": 16.67,
+    "capacity_mode": "presented",
     "output": ""
   }
 }

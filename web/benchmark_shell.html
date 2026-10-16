@@ -42,6 +42,8 @@ for (const [key, flag] of Object.entries({
   textureSize: '--texture-size', coverage: '--coverage',
   compositionPath: '--composition-path', compositePasses: '--composite-passes',
   targetScale: '--target-scale', msaaSamples: '--msaa-samples',
+  capacityDimension: '--capacity-dimension', capacityTarget: '--capacity-target',
+  capacityThreshold: '--capacity-threshold', capacityMode: '--capacity-mode',
   readyTimeout: '--ready-timeout-seconds', clockPolicy: '--clock-policy',
   featureLabPackage: '--feature-lab-package',
   output: '--output'
@@ -52,6 +54,7 @@ if (params.has('smoke')) args.push('--smoke');
 if (params.has('noUi')) args.push('--no-ui');
 if (params.has('ui')) args.push('--ui');
 if (params.has('vsync')) args.push('--vsync');
+if (params.has('nativeResolution')) args.push('--native-resolution');
 if (params.has('rawSamples')) args.push('--raw-samples');
 if (params.has('noTransparentOverlay')) args.push('--no-transparent-overlay');
 if (params.has('dashboardSmoke')) args.push('--dashboard-smoke');

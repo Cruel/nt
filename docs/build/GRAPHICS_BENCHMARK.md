@@ -1,4 +1,4 @@
-# Graphics Benchmark (Linux, Android, and Web, #422–#438)
+# Graphics Benchmark (Linux, Android, and Web, #422–#439)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
@@ -10,6 +10,81 @@ sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## Automatic capacity search (#439)
+
+The benchmark can perform a **bounded search** for the largest tested workload
+under a specified target. Search candidates use ordinary isolated scenario
+trials: each candidate has its own preparation, warmup, repeated timed trials,
+and cleanup. The search doubles geometry/UI counts until it finds a failing
+candidate (or reaches the workload cap), then bisects the passing/failing
+interval; pixel search visits 25%, 50%, 75%, then 100% of the actual host
+framebuffer dimensions. The program never extrapolates beyond those bounds.
+
+Select a supported scenario, then configure the search in the dashboard's
+Run Settings tab, or pass four flags:
+
+- `--capacity-dimension geometry|ui|pixels`: geometry scales raw indexed
+  rectangles (1–256) or draw-call submissions (1–1024); UI scales RmlUi
+  elements (1–2048) in standalone or integrated scaling scenarios; pixels
+  scales the offscreen target of `raw-bgfx-offscreen` or offscreen
+  `raw-bgfx-composition`.
+- `--capacity-target cpu-ms|gpu-ms|presented-fps`: CPU and GPU budgets are
+  milliseconds **p95**, conservatively taking the worst completed trial at each
+  workload. FPS compares **observed host frame-loop cadence** against a minimum
+  frequency. It is paced by requestAnimationFrame on Web and potentially by the
+  compositor on Android; it is *not verified on-screen presentation FPS*.
+  The GPU target requires `--profile diagnostic` and at least two matched
+  completed GPU frame observations per trial; absent timestamps terminate as
+  **inconclusive**, not as CPU-inferred GPU time.
+- `--capacity-threshold N`: maximum milliseconds for CPU/GPU or minimum
+  host-callback Hz for the FPS target, in (0, 1000].
+- `--capacity-mode presented|offscreen`: the default measures the normal
+  application frame path. `offscreen` is a separate experimental mode for
+  `raw-bgfx-offscreen`, CPU/GPU budgets only, with VSync disabled. Each
+  iteration submits exactly four actual raw bgfx draw units into a render
+  target and advances bgfx once. The report distinguishes **work units** from
+  the single **host frame callback**; it records estimated units/CPU second
+  and amortized per-unit p95. It does not imply uncapped GPU frames, direct
+  GPU throughput, or observed display presentation.
+
+For short functional probes, not hardware comparisons:
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-draw-calls \
+  --capacity-dimension geometry --capacity-target cpu-ms \
+  --capacity-threshold 16.67 --frames 120 --warmup-seconds 0.25 \
+  --repeats 2 --no-ui
+./scripts/run-benchmark.sh --no-build --scenario integrated-rmlui-scaling \
+  --capacity-dimension ui --capacity-target presented-fps \
+  --capacity-threshold 60 --frames 120 --repeats 2 --no-ui
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-offscreen \
+  --capacity-dimension pixels --capacity-mode offscreen \
+  --capacity-target gpu-ms --profile diagnostic \
+  --capacity-threshold 16.67 --frames 120 --repeats 2 --no-ui
+```
+
+The normal `--width`/`--height` controls determine the host window size on
+Linux/Web. Use `--native-resolution` or the dashboard checkbox to request the
+current display mode's pixel dimensions instead; Android always uses the
+actual fullscreen physical framebuffer. The report records the actual SDL
+window framebuffer size after setup, which can differ from the request.
+The search's 100% baseline is the **actual framebuffer size after host setup**,
+rather than a hard-coded 1280×720 assumption. The JSON report contains
+per-candidate `scenarios[].graphics.width_pixels/height_pixels` (host) and
+`render_width_pixels/render_height_pixels` (offscreen), alongside requested
+`target_scale`, exact `capacity_search.probes`, status, and highest tested
+passing workload if known. With multiple candidates there is no single
+top-level graphics owner and `graphics` can be null; use each candidate's
+graphics. `bounded-maximum` means the configured maximum passed, **not**
+the GPU's actual capacity. Failed/incomplete candidates remain
+`inconclusive`; interrupted runs retain the runner's cancellation behavior.
+
+These experiments are **not** added to the six-scenario Quick Suite. Do not
+compare a Web rAF-limited result with Android presentation timing as if they
+were unpaced GPU benchmarks; use the same dimensions, scenario, profile,
+timing budget, and render path for paired comparisons. CPU and GPU diagnostic
+sources retain the instrumentation limitations described below.
 
 ## Production Compiled Project workloads (#438)
 

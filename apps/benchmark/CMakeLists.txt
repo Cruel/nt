@@ -19,7 +19,7 @@ add_custom_target(noveltea-benchmark-source-identity
 
 add_library(noveltea-benchmark-runner STATIC
     benchmark_options.cpp benchmark_runner.cpp benchmark_frame_driven.cpp
-    benchmark_report.cpp reference_scene.cpp reference_workloads.cpp)
+    benchmark_report.cpp benchmark_capacity.cpp reference_scene.cpp reference_workloads.cpp)
 add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
 target_include_directories(noveltea-benchmark-runner
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated"
@@ -184,6 +184,12 @@ if(BUILD_TESTING AND NOT ANDROID)
     noveltea_apply_policy_warnings(noveltea-benchmark-suite-tests)
     add_test(NAME noveltea_benchmark_suite COMMAND noveltea-benchmark-suite-tests)
 
+    add_executable(noveltea-benchmark-capacity-tests benchmark_capacity_tests.cpp)
+    target_link_libraries(noveltea-benchmark-capacity-tests PRIVATE noveltea-benchmark-runner)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-capacity-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-capacity-tests)
+    add_test(NAME noveltea_benchmark_capacity COMMAND noveltea-benchmark-capacity-tests)
+
     add_executable(noveltea-benchmark-runner-tests benchmark_runner_tests.cpp)
     target_link_libraries(noveltea-benchmark-runner-tests PRIVATE noveltea-benchmark-runner)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner-tests)
@@ -237,7 +243,7 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_dependencies(noveltea-benchmark-empty-engine-tests noveltea-benchmark-stage-assets)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-empty-engine-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-empty-engine-tests)
-    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_bgfx_diagnostics noveltea_benchmark_app_help
+    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_bgfx_diagnostics noveltea_benchmark_capacity noveltea_benchmark_app_help
         PROPERTIES LABELS "benchmark;graphics")
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)

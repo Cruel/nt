@@ -86,6 +86,11 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.measurement_frames = 30;
             continue;
         }
+        if (flag == "--native-resolution") {
+            has_cli_settings = true;
+            options.native_resolution = true;
+            continue;
+        }
         if (flag == "--vsync") {
             has_cli_settings = true;
             options.vsync = true;
@@ -122,7 +127,9 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
             flag != "--seconds" && flag != "--frames" && flag != "--output" &&
             flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
-            flag != "--config" && flag != "--clock-policy" && flag != "--feature-lab-package") {
+            flag != "--config" && flag != "--clock-policy" && flag != "--feature-lab-package" &&
+            flag != "--capacity-dimension" && flag != "--capacity-target" &&
+            flag != "--capacity-threshold" && flag != "--capacity-mode") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -142,6 +149,22 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         if (flag == "--scenario") {
             has_cli_settings = true;
             options.scenario = value;
+            continue;
+        }
+        if (flag == "--capacity-dimension" || flag == "--capacity-target" ||
+            flag == "--capacity-mode" || flag == "--capacity-threshold") {
+            has_cli_settings = true;
+            if (flag == "--capacity-dimension")
+                options.capacity_dimension = value;
+            else if (flag == "--capacity-target")
+                options.capacity_target = value;
+            else if (flag == "--capacity-mode")
+                options.capacity_mode = value;
+            else if (!parse_duration(value, options.capacity_threshold) ||
+                     options.capacity_threshold == 0.0) {
+                error = "invalid capacity threshold";
+                return false;
+            }
             continue;
         }
         if (flag == "--clock-policy") {
@@ -459,6 +482,11 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.target_scale = defaults.target_scale;
     selected.msaa_samples = defaults.msaa_samples;
     selected.transparent_overlay = defaults.transparent_overlay;
+    selected.capacity_dimension.clear();
+    selected.capacity_target = defaults.capacity_target;
+    selected.capacity_threshold = defaults.capacity_threshold;
+    selected.capacity_mode = defaults.capacity_mode;
+    selected.native_resolution = defaults.native_resolution;
     return selected;
 }
 
@@ -543,7 +571,7 @@ bool validate_reference_options(const Options& options, std::string& reason)
         reason = "RmlUi scaling settings require a scaling scenario";
         return false;
     }
-    if (options.scenario != "raw-bgfx-composition" &&
+    if (options.scenario != "raw-bgfx-composition" && options.scenario != "raw-bgfx-offscreen" &&
         (options.composition_path != "direct" || options.composite_passes != 0 ||
          options.target_scale != 1.0 || options.msaa_samples != 0 ||
          !options.transparent_overlay)) {

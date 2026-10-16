@@ -70,11 +70,14 @@ const keys = {
   "--texture-size":"textureSize", "--coverage":"coverage",
   "--composition-path":"compositionPath", "--composite-passes":"compositePasses",
   "--target-scale":"targetScale", "--msaa-samples":"msaaSamples",
+  "--capacity-dimension":"capacityDimension", "--capacity-target":"capacityTarget",
+  "--capacity-threshold":"capacityThreshold", "--capacity-mode":"capacityMode",
   "--ready-timeout-seconds":"readyTimeout", "--clock-policy":"clockPolicy",
   "--feature-lab-package":"featureLabPackage",
   "--output":"output"
 };
 const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",
+  "--native-resolution":"nativeResolution",
   "--vsync":"vsync", "--raw-samples":"rawSamples",
   "--no-transparent-overlay":"noTransparentOverlay",
   "--dashboard-smoke":"dashboardSmoke", "--quick-suite":"quickSuite"};

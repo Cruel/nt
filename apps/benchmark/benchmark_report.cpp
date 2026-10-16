@@ -1,4 +1,5 @@
 #include "benchmark_report.hpp"
+#include "benchmark_capacity.hpp"
 #include "reference_scene.hpp"
 #include "reference_workloads.hpp"
 #include "benchmark_source_identity.hpp"
@@ -29,8 +30,12 @@ Json configuration(const Options& options)
     Json parameters = Json::object();
     if (options.scenario == "raw-bgfx-geometry")
         parameters = {{"rect_count", options.rect_count}, {"rect_scale", options.rect_scale}};
-    else if (options.scenario == "raw-bgfx-textured" || options.scenario == "raw-bgfx-offscreen")
+    else if (options.scenario == "raw-bgfx-textured")
         parameters = {{"texture_size", options.texture_size}, {"coverage", options.coverage}};
+    else if (options.scenario == "raw-bgfx-offscreen")
+        parameters = {{"texture_size", options.texture_size},
+                      {"coverage", options.coverage},
+                      {"target_scale", options.target_scale}};
     else if (options.scenario == "raw-bgfx-composition")
         parameters = {{"composition_path", options.composition_path},
                       {"composite_passes", options.composite_passes},
@@ -78,6 +83,11 @@ Json configuration(const Options& options)
               {"quick_suite", options.quick_suite},
               {"raw_samples", options.raw_samples},
               {"vsync", options.vsync},
+              {"native_resolution", options.native_resolution},
+              {"capacity_dimension", options.capacity_dimension},
+              {"capacity_target", options.capacity_target},
+              {"capacity_threshold", options.capacity_threshold},
+              {"capacity_mode", options.capacity_mode},
               {"output", options.output_path}}}};
 }
 
@@ -279,11 +289,14 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         }
     } else if (is_extended_raw_scenario(scenario)) {
         const bool textured = scenario == "raw-bgfx-textured" || scenario == "raw-bgfx-offscreen";
+        const bool scaled = scenario == "raw-bgfx-offscreen";
         const bool variable = scenario == "raw-bgfx-draw-calls";
         if (variable
                 ? !has_fields(parameters, {"draw_calls", "quad_count", "texture_size", "coverage"})
-            : textured ? !has_fields(parameters, {"texture_size", "coverage"})
-                       : !parameters.empty()) {
+            : textured
+                ? (scaled ? !has_fields(parameters, {"texture_size", "coverage", "target_scale"})
+                          : !has_fields(parameters, {"texture_size", "coverage"}))
+                : !parameters.empty()) {
             reason = "invalid raw workload parameter keys";
             return false;
         }
@@ -293,7 +306,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
                           parameters["quad_count"].get<uint64_t>() > 512)) ||
             ((variable || textured) &&
              (!unsigned_integer(parameters, "texture_size") || !numeric(parameters, "coverage") ||
-              parameters["texture_size"].get<uint64_t>() > 2048))) {
+              parameters["texture_size"].get<uint64_t>() > 2048)) ||
+            (scaled && !numeric(parameters, "target_scale"))) {
             reason = "invalid raw workload parameter values";
             return false;
         }
@@ -304,7 +318,9 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     const auto& settings = root["settings"];
     if (!has_fields(settings, {"width", "height", "warmup_seconds", "measurement_seconds",
                                "measurement_frames", "repeats", "ready_timeout_seconds", "profile",
-                               "no_ui", "quick_suite", "raw_samples", "vsync", "output"}) ||
+                               "no_ui", "quick_suite", "raw_samples", "vsync", "native_resolution",
+                               "output", "capacity_dimension", "capacity_target",
+                               "capacity_threshold", "capacity_mode"}) ||
         !unsigned_integer(settings, "width") || !unsigned_integer(settings, "height") ||
         !numeric(settings, "warmup_seconds") || !numeric(settings, "measurement_seconds") ||
         !unsigned_integer(settings, "measurement_frames") ||
@@ -313,7 +329,9 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         (settings["profile"] != "clean" && settings["profile"] != "diagnostic") ||
         !settings["no_ui"].is_boolean() || !settings["quick_suite"].is_boolean() ||
         !settings["raw_samples"].is_boolean() || !settings["vsync"].is_boolean() ||
-        !settings["output"].is_string()) {
+        !settings["native_resolution"].is_boolean() || !settings["output"].is_string() ||
+        !settings["capacity_dimension"].is_string() || !settings["capacity_target"].is_string() ||
+        !numeric(settings, "capacity_threshold") || !settings["capacity_mode"].is_string()) {
         reason = "invalid benchmark configuration settings";
         return false;
     }
@@ -353,6 +371,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         next.rect_count = static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>());
         next.rect_scale = parameters["rect_scale"].get<double>();
     }
+    if (scenario == "raw-bgfx-offscreen")
+        next.target_scale = parameters["target_scale"].get<double>();
     if (scenario == "raw-bgfx-composition") {
         next.composition_path = parameters["composition_path"].get<std::string>();
         next.composite_passes =
@@ -382,7 +402,12 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     next.no_ui = settings["no_ui"].get<bool>();
     next.quick_suite = settings["quick_suite"].get<bool>();
     next.vsync = settings["vsync"].get<bool>();
+    next.native_resolution = settings["native_resolution"].get<bool>();
     next.output_path = settings["output"].get<std::string>();
+    next.capacity_dimension = settings["capacity_dimension"].get<std::string>();
+    next.capacity_target = settings["capacity_target"].get<std::string>();
+    next.capacity_threshold = settings["capacity_threshold"].get<double>();
+    next.capacity_mode = settings["capacity_mode"].get<std::string>();
     if (!validate_run_options(next, reason) || !validate_reference_options(next, reason))
         return false;
     options = std::move(next);
@@ -580,22 +605,19 @@ std::string encode_result(const Options& options, const Environment& environment
             {"ui_offscreen_rendering_observed", nullptr},
             {"internal_render_scale",
              environment.width_pixels > 0 && environment.height_pixels > 0
-                 ? Json(environment.raw_workload && environment.raw_workload->composition &&
-                                environment.raw_workload->offscreen
+                 ? Json(environment.raw_workload && environment.raw_workload->offscreen
                             ? environment.raw_workload->target_scale
                             : 1.0)
                  : Json(nullptr)},
             {"render_width_pixels",
              environment.width_pixels > 0
-                 ? Json(environment.raw_workload && environment.raw_workload->composition &&
-                                environment.raw_workload->offscreen
+                 ? Json(environment.raw_workload && environment.raw_workload->offscreen
                             ? environment.raw_workload->target_width
                             : environment.width_pixels)
                  : Json(nullptr)},
             {"render_height_pixels",
              environment.height_pixels > 0
-                 ? Json(environment.raw_workload && environment.raw_workload->composition &&
-                                environment.raw_workload->offscreen
+                 ? Json(environment.raw_workload && environment.raw_workload->offscreen
                             ? environment.raw_workload->target_height
                             : environment.height_pixels)
                  : Json(nullptr)}};
@@ -618,6 +640,42 @@ std::string encode_result(const Options& options, const Environment& environment
                                                             : scenario_environments.front())
         : scenario_environments.empty() ? encode_graphics(environment)
                                         : Json(nullptr);
+    Json capacity = nullptr;
+    if (result.capacity) {
+        Json probes = Json::array();
+        for (const auto& probe : result.capacity->probes) {
+            probes.push_back(
+                {{"workload", probe.workload},
+                 {"outcome", probe.outcome},
+                 {"observed", probe.observed ? Json(*probe.observed) : Json(nullptr)},
+                 {"measured_batches", probe.completed_batches},
+                 {"offscreen_work_units", result.capacity->mode == "offscreen"
+                                              ? Json(probe.completed_work_units)
+                                              : Json(nullptr)},
+                 {"work_units_per_cpu_second",
+                  result.capacity->mode == "offscreen" && probe.work_units_per_cpu_second
+                      ? Json(*probe.work_units_per_cpu_second)
+                      : Json(nullptr)}});
+        }
+        capacity = {
+            {"dimension", result.capacity->dimension},
+            {"target", result.capacity->target},
+            {"threshold", result.capacity->threshold},
+            {"mode", result.capacity->mode},
+            {"measurement", result.capacity->mode == "offscreen"
+                                ? "bounded GPU render-target draw work units per CPU operation; "
+                                  "no display FPS or inferred unpaced GPU throughput"
+                                : "application-frame observations, may be compositor/rAF paced; "
+                                  "not confirmed display FPS or uncapped GPU throughput"},
+            {"units_per_batch",
+             result.capacity->mode == "offscreen" ? kOffscreenWorkUnitsPerBatch : 1u},
+            {"status", result.capacity->status},
+            {"reason", result.capacity->reason},
+            {"maximum_passing_workload", result.capacity->maximum_passing_workload
+                                             ? Json(*result.capacity->maximum_passing_workload)
+                                             : Json(nullptr)},
+            {"probes", std::move(probes)}};
+    }
     const Json report = {
         {"format", kResultFormat},
         {"version", 1},
@@ -650,6 +708,7 @@ std::string encode_result(const Options& options, const Environment& environment
                       {"four_clock_reads_ns", result.instrumentation_control->four_clock_reads_ns},
                       {"incremental_ns", result.instrumentation_control->incremental_ns}}
                : Json(nullptr)}}},
+        {"capacity_search", std::move(capacity)},
         {"outcome", result.outcome},
         {"scenarios", std::move(scenarios)}};
     return report.dump(2);

@@ -19,7 +19,7 @@ public:
 
     bool initialize(const RawWorkloadReference& work, uint32_t width, uint32_t height,
                     std::string& reason);
-    bool submit(std::string& reason);
+    bool submit(std::string& reason, bool composite_to_backbuffer = true);
     void shutdown();
     [[nodiscard]] bool initialized() const { return initialized_; }
 
