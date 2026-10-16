@@ -39,6 +39,14 @@ Json configuration(const Options& options)
                       {"transparent_overlay", options.transparent_overlay},
                       {"texture_size", options.texture_size},
                       {"coverage", options.coverage}};
+    else if (is_ui_scaling_scenario(options.scenario))
+        parameters = {{"elements", options.ui_elements},
+                      {"text_lines", options.ui_text_lines},
+                      {"visible_contexts", options.ui_visible_contexts},
+                      {"empty_contexts", options.ui_empty_contexts},
+                      {"hidden_contexts", options.ui_hidden_contexts},
+                      {"text_mode", options.ui_text_mode},
+                      {"redraw", options.ui_redraw}};
     else if (options.scenario == "raw-bgfx-draw-calls")
         parameters = {{"draw_calls", options.draw_calls},
                       {"quad_count", options.quad_count},
@@ -182,6 +190,31 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             reason = "empty scenario does not take geometry parameters";
             return false;
         }
+    } else if (is_ui_scaling_scenario(scenario)) {
+        if (!has_fields(parameters, {"elements", "text_lines", "visible_contexts", "empty_contexts",
+                                     "hidden_contexts", "text_mode", "redraw"}) ||
+            !unsigned_integer(parameters, "elements") ||
+            !unsigned_integer(parameters, "text_lines") ||
+            !unsigned_integer(parameters, "visible_contexts") ||
+            !unsigned_integer(parameters, "empty_contexts") ||
+            !unsigned_integer(parameters, "hidden_contexts") ||
+            !parameters["text_mode"].is_string() || !parameters["redraw"].is_string() ||
+            parameters["elements"].get<uint64_t>() > 2048 ||
+            parameters["text_lines"].get<uint64_t>() > 256 ||
+            parameters["visible_contexts"].get<uint64_t>() > 8 ||
+            parameters["empty_contexts"].get<uint64_t>() > 16 ||
+            parameters["hidden_contexts"].get<uint64_t>() > 16 ||
+            !valid_ui_scaling_parameters(
+                static_cast<uint32_t>(parameters["elements"].get<uint64_t>()),
+                static_cast<uint32_t>(parameters["text_lines"].get<uint64_t>()),
+                static_cast<uint32_t>(parameters["visible_contexts"].get<uint64_t>()),
+                static_cast<uint32_t>(parameters["empty_contexts"].get<uint64_t>()),
+                static_cast<uint32_t>(parameters["hidden_contexts"].get<uint64_t>()),
+                parameters["text_mode"].get<std::string>(),
+                parameters["redraw"].get<std::string>())) {
+            reason = "invalid RmlUi scaling reference parameters";
+            return false;
+        }
     } else if (scenario == "raw-bgfx-geometry") {
         if (!has_fields(parameters, {"rect_count", "rect_scale"}) ||
             !unsigned_integer(parameters, "rect_count") || !numeric(parameters, "rect_scale") ||
@@ -256,6 +289,18 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     Options next;
     next.scenario = scenario;
+    if (is_ui_scaling_scenario(scenario)) {
+        next.ui_elements = static_cast<uint32_t>(parameters["elements"].get<uint64_t>());
+        next.ui_text_lines = static_cast<uint32_t>(parameters["text_lines"].get<uint64_t>());
+        next.ui_visible_contexts =
+            static_cast<uint32_t>(parameters["visible_contexts"].get<uint64_t>());
+        next.ui_empty_contexts =
+            static_cast<uint32_t>(parameters["empty_contexts"].get<uint64_t>());
+        next.ui_hidden_contexts =
+            static_cast<uint32_t>(parameters["hidden_contexts"].get<uint64_t>());
+        next.ui_text_mode = parameters["text_mode"].get<std::string>();
+        next.ui_redraw = parameters["redraw"].get<std::string>();
+    }
     if (scenario == "raw-bgfx-geometry") {
         next.rect_count = static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>());
         next.rect_scale = parameters["rect_scale"].get<double>();

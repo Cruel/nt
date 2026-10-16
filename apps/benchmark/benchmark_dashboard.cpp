@@ -2,6 +2,7 @@
 #include "benchmark_view_order.hpp"
 #include "benchmark_assets.hpp"
 #include "reference_workloads.hpp"
+#include "reference_scene.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -302,12 +303,55 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                           "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
                           "raw-bgfx-draw-calls", "raw-bgfx-composition", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
-                          "engine-empty"}) {
+                          "standalone-rmlui-scaling", "integrated-rmlui-scaling", "engine-empty"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options = reference_scenario_options(options, candidate);
                         }
                     }
                     ImGui::EndCombo();
+                }
+                if (is_ui_scaling_scenario(options.scenario)) {
+                    int count = static_cast<int>(options.ui_elements);
+                    if (ImGui::SliderInt("UI elements", &count, 1, 2048))
+                        options.ui_elements = static_cast<uint32_t>(count);
+                    count = static_cast<int>(options.ui_text_lines);
+                    if (ImGui::SliderInt("Text lines", &count, 0, 256))
+                        options.ui_text_lines = static_cast<uint32_t>(count);
+                    count = static_cast<int>(options.ui_visible_contexts);
+                    if (ImGui::SliderInt("Visible contexts", &count, 1, 8))
+                        options.ui_visible_contexts = static_cast<uint32_t>(count);
+                    count = static_cast<int>(options.ui_empty_contexts);
+                    if (ImGui::SliderInt("Empty contexts", &count, 0, 16))
+                        options.ui_empty_contexts = static_cast<uint32_t>(count);
+                    count = static_cast<int>(options.ui_hidden_contexts);
+                    if (ImGui::SliderInt("Hidden contexts", &count, 0, 16))
+                        options.ui_hidden_contexts = static_cast<uint32_t>(count);
+                    if (ImGui::BeginCombo("Text changes", options.ui_text_mode.c_str())) {
+                        for (const char* value : {"static", "dynamic"}) {
+                            if (ImGui::Selectable(value, options.ui_text_mode == value))
+                                options.ui_text_mode = value;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::BeginCombo("RmlUi redraw policy", options.ui_redraw.c_str())) {
+                        for (const char* value : {"continuous", "dirty-only"}) {
+                            if (ImGui::Selectable(value, options.ui_redraw == value))
+                                options.ui_redraw = value;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::TextWrapped("Counts are independent. The sum of visible, empty and "
+                                       "hidden contexts must not exceed 24.");
+                    if (ImGui::BeginCombo("Scaling reference presets", "Select preset")) {
+                        for (const char* preset : {"balanced", "elements-heavy", "text-heavy",
+                                                   "contexts-heavy", "dirty-static"}) {
+                            if (ImGui::Selectable(preset))
+                                (void)apply_ui_scaling_preset(options, preset);
+                        }
+                        ImGui::EndCombo();
+                    }
+                    if (ImGui::Button("Restore RmlUi reference"))
+                        (void)apply_ui_scaling_preset(options, "balanced");
                 }
                 if (options.scenario == "raw-bgfx-geometry") {
                     int rect_count = static_cast<int>(options.rect_count);

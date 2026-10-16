@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace noveltea {
 
@@ -107,6 +108,15 @@ public:
     // Read-only runtime document probe for host certification and integrations.
     // Never initializes UI or alters its renderer ownership.
     [[nodiscard]] static bool runtime_ui_document_ready(const Engine& engine, std::string_view id);
+    // Fixture-only layout contexts use the production RuntimeUI lifecycle and renderer.
+    // Unloading the empty case retains its context for subsequent Engine ticks.
+    // Optional UI-only stage clocks (Update/Render), never active in Clean frames.
+    static void set_ui_benchmark_timing(Engine& engine, bool enabled);
+    [[nodiscard]] static std::optional<std::pair<double, double>>
+    ui_benchmark_frame_timing(const Engine& engine);
+    [[nodiscard]] static bool load_ui_fixture_context(Engine& engine, std::string id,
+                                                      std::string markup, uint32_t group,
+                                                      bool visible, bool empty);
     [[nodiscard]] static std::optional<UiRenderConfiguration>
     runtime_ui_render_configuration(const Engine& engine);
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;

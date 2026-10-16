@@ -59,6 +59,37 @@ int main()
                    engine_markup.find("NovelTea UI reference") != std::string::npos,
                "RmlUi engines share semantic markup with correctly scaled visible geometry"))
         return 1;
+    const auto scale = ui_scaling_reference_scene(512, 64);
+    const auto same_scale = ui_scaling_reference_scene(512, 64);
+    const auto markup = simple_ui_reference_markup(scale);
+    if (!check(scale.id == "ui-scaling-reference" && scale.rects.size() == 512 &&
+                   scale.texts.size() == 64 && scale.rects[0].id == "ui-element-0" &&
+                   scale.rects[511].id == "ui-element-511" && scale.texts[0].id == "ui-text-0" &&
+                   scale.texts[0].content == ui_dynamic_text(0) &&
+                   scale.texts[63].id == "ui-text-63" &&
+                   scale.rects[127].x == same_scale.rects[127].x &&
+                   scale.rects[127].color.g == same_scale.rects[127].color.g &&
+                   scale.texts[53].content == same_scale.texts[53].content,
+               "bounded scaling scene is deterministic") ||
+        !check(markup.find("id='ui-element-511'") != std::string::npos &&
+                   markup.find("id='ui-text-63'") != std::string::npos &&
+                   markup.find("width:300px;height:12px") != std::string::npos &&
+                   simple_ui_reference_markup(scale, 1.5f).find("width:450px;height:18px") !=
+                       std::string::npos,
+               "standalone and Engine share dense but legible markup") ||
+        !check(ui_dynamic_text(1) == "NovelTea dynamic 00000001" &&
+                   ui_dynamic_text(12345678) == "NovelTea dynamic 12345678" &&
+                   valid_ui_scaling_parameters(1, 0, 1, 0, 0, "static", "continuous") &&
+                   valid_ui_scaling_parameters(2048, 256, 8, 8, 8, "dynamic", "dirty-only") &&
+                   !valid_ui_scaling_parameters(0, 1, 1, 0, 0, "static", "continuous") &&
+                   !valid_ui_scaling_parameters(2049, 1, 1, 0, 0, "static", "continuous") &&
+                   !valid_ui_scaling_parameters(1, 257, 1, 0, 0, "static", "continuous") &&
+                   !valid_ui_scaling_parameters(1, 1, 0, 0, 0, "static", "continuous") &&
+                   !valid_ui_scaling_parameters(1, 1, 8, 16, 1, "static", "continuous") &&
+                   !valid_ui_scaling_parameters(1, 1, 1, 0, 0, "animated", "continuous") &&
+                   !valid_ui_scaling_parameters(1, 1, 1, 0, 0, "static", "once"),
+               "RmlUi scaling invalid modes and independent bounds rejected"))
+        return 1;
     const auto exploratory = geometry_reference_scene(12, 0.5);
     const auto repeated = geometry_reference_scene(12, 0.5);
     if (!check(exploratory.rects.size() == 12 && exploratory.rects[0].x == 785 &&

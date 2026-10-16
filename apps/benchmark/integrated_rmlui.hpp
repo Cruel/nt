@@ -16,7 +16,7 @@ namespace noveltea::benchmark {
 // RuntimeUI, RmlUiHost, and renderer. Engine owns the SDL window and bgfx device.
 class IntegratedRmlUi final : public Scenario {
 public:
-    explicit IntegratedRmlUi(bool controlled);
+    explicit IntegratedRmlUi(bool controlled, bool scaling = false);
     ~IntegratedRmlUi() override;
 
     const char* id() const override;
@@ -34,6 +34,9 @@ public:
 
 private:
     bool controlled_;
+    bool scaling_ = false;
+    Options scaling_options_;
+    uint32_t frame_index_ = 0;
     std::unique_ptr<Engine> engine_;
     Environment environment_;
     Interruption last_interruption_ = Interruption::None;

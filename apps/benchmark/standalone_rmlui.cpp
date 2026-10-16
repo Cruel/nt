@@ -3,6 +3,7 @@
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Element.h>
 #include <RmlUi/Core/SystemInterface.h>
 #include <bgfx/bgfx.h>
 
@@ -99,7 +100,8 @@ StandaloneRmlUi::StandaloneRmlUi() = default;
 StandaloneRmlUi::~StandaloneRmlUi() { shutdown(); }
 
 bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_width,
-                                 int framebuffer_height, std::string& reason)
+                                 int framebuffer_height, std::string& reason,
+                                 const Options* scaling)
 {
     shutdown();
     if (framebuffer_width < 1 || framebuffer_height < 1 || framebuffer_width > 65535 ||
@@ -195,6 +197,41 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
         }
     }
     document_->Show();
+    visible_documents_.push_back(document_);
+    scaling_ = scaling != nullptr;
+    if (scaling) {
+        dynamic_text_ = scaling->ui_text_mode == "dynamic" && scaling->ui_text_lines > 0;
+        dirty_only_ = scaling->ui_redraw == "dirty-only";
+        const uint32_t total =
+            scaling->ui_visible_contexts + scaling->ui_empty_contexts + scaling->ui_hidden_contexts;
+        for (uint32_t index = 1; index < total; ++index) {
+            const std::string name = "benchmark-ui-" + std::to_string(index);
+            auto* context = Rml::CreateContext(
+                name, {static_cast<int>(scene.width), static_cast<int>(scene.height)});
+            if (!context) {
+                reason = "cannot create standalone scaling context " + name;
+                shutdown();
+                return false;
+            }
+            extra_contexts_.push_back(context);
+            const bool visible = index < scaling->ui_visible_contexts;
+            const bool hidden = index >= scaling->ui_visible_contexts + scaling->ui_empty_contexts;
+            if (visible || hidden) {
+                auto* document = context->LoadDocumentFromMemory(markup);
+                if (!document) {
+                    reason = "cannot load scaling context document " + name;
+                    shutdown();
+                    return false;
+                }
+                if (visible) {
+                    document->Show();
+                    visible_documents_.push_back(document);
+                } else {
+                    document->Hide();
+                }
+            }
+        }
+    }
     clear_rgba_ = rgba(scene.clear_color);
     framebuffer_width_ = framebuffer_width;
     framebuffer_height_ = framebuffer_height;
@@ -213,17 +250,43 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
     bgfx::touch(0);
 
     renderer_->begin_frame();
-    if (diagnostic) {
-        const auto start = std::chrono::steady_clock::now();
+    const auto start =
+        diagnostic ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    if (scaling_ && !dirty_only_) {
+        // Equivalent CSS spellings force a layout invalidation while the
+        // presented rectangle dimensions and all pixels stay unchanged.
+        for (auto* document : visible_documents_)
+            document->GetElementById("ui-element-0")
+                ->SetProperty("width", frame_index_ % 2 == 0 ? "15.0px" : "15px");
+    }
+    if (dynamic_text_) {
+        const auto replacement = ui_dynamic_text(frame_index_);
+        for (auto* document : visible_documents_) {
+            if (auto* text = document->GetElementById("ui-text-0"))
+                text->SetInnerRML(replacement);
+        }
+    }
+    ++frame_index_;
+    const auto update = [&]() {
         context_->Update();
-        const auto after_update = std::chrono::steady_clock::now();
+        for (auto* context : extra_contexts_)
+            context->Update();
+    };
+    const auto render = [&]() {
         context_->Render();
+        for (auto* context : extra_contexts_)
+            context->Render();
+    };
+    if (diagnostic) {
+        update();
+        const auto after_update = std::chrono::steady_clock::now();
+        render();
         const auto after_render = std::chrono::steady_clock::now();
         stages_.update_seconds = std::chrono::duration<double>(after_update - start).count();
         stages_.render_seconds = std::chrono::duration<double>(after_render - after_update).count();
     } else {
-        context_->Update();
-        context_->Render();
+        update();
+        render();
     }
     renderer_->end_frame();
     return true;
@@ -231,6 +294,14 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
 
 void StandaloneRmlUi::shutdown()
 {
+    visible_documents_.clear();
+    for (size_t i = 0; i < extra_contexts_.size(); ++i)
+        Rml::RemoveContext("benchmark-ui-" + std::to_string(i + 1));
+    extra_contexts_.clear();
+    scaling_ = false;
+    dynamic_text_ = false;
+    dirty_only_ = false;
+    frame_index_ = 0;
     if (context_) {
         Rml::RemoveContext("benchmark-standalone-ui");
         context_ = nullptr;

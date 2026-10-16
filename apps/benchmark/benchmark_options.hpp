@@ -24,6 +24,13 @@ struct Options {
     bool dashboard_visual_smoke = false;
     std::string scenario = "raw-bgfx-empty";
     uint32_t rect_count = 3;
+    uint32_t ui_elements = 512;
+    uint32_t ui_text_lines = 64;
+    uint32_t ui_visible_contexts = 1;
+    uint32_t ui_empty_contexts = 0;
+    uint32_t ui_hidden_contexts = 0;
+    std::string ui_text_mode = "static";
+    std::string ui_redraw = "continuous";
     double rect_scale = 1.0;
     uint32_t draw_calls = 64;
     uint32_t quad_count = 1;
@@ -42,6 +49,9 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
 // Construct a canonical reference preset without changing run timing, output or platform settings.
 // Every scenario switch and Quick Suite host must use this instead of copying reset fields.
 [[nodiscard]] Options reference_scenario_options(const Options& base, std::string_view scenario);
+// Named deterministic scaling profiles; the serialized configuration records their exact
+// underlying parameters so later manual tweaks never masquerade as a fixed preset.
+[[nodiscard]] bool apply_ui_scaling_preset(Options& options, std::string_view preset);
 // App-specific reference selection; the portable runner accepts other Scenario IDs.
 [[nodiscard]] bool validate_reference_options(const Options& options, std::string& reason);
 

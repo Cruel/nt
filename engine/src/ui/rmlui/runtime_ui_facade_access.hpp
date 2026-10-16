@@ -6,6 +6,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
+#include <utility>
 #include <string>
 
 namespace noveltea::ui::rmlui {
@@ -23,6 +25,9 @@ public:
     [[nodiscard]] static host::CursorInspection cursor_inspection(const RuntimeUI& runtime_ui);
     [[nodiscard]] static std::optional<UiRenderConfiguration>
     game_ui_render_configuration(const RuntimeUI& runtime_ui);
+    static void set_benchmark_timing(RuntimeUI& runtime_ui, bool enabled);
+    [[nodiscard]] static std::optional<std::pair<double, double>>
+    benchmark_frame_timing(const RuntimeUI& runtime_ui);
 
     [[nodiscard]] static bool load_document(RuntimeUI& runtime_ui, const std::string& id,
                                             const std::string& path, bool show = true);

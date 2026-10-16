@@ -2005,6 +2005,20 @@ ui::rmlui::RuntimeUiFacadeAccess::game_ui_render_configuration(const RuntimeUI& 
     return std::nullopt;
 }
 
+void ui::rmlui::RuntimeUiFacadeAccess::set_benchmark_timing(RuntimeUI& runtime_ui, bool enabled)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_benchmark_timing(enabled);
+}
+
+std::optional<std::pair<double, double>>
+ui::rmlui::RuntimeUiFacadeAccess::benchmark_frame_timing(const RuntimeUI& runtime_ui)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        return runtime_ui.m_state->host->benchmark_frame_timing();
+    return std::nullopt;
+}
+
 void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& runtime_ui,
                                                                      bool enabled)
 {

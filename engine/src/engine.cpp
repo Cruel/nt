@@ -4271,6 +4271,40 @@ void EngineTooling::record_debugger_console(Engine& engine, std::string message,
 }
 #endif
 
+void EngineTooling::set_ui_benchmark_timing(Engine& engine, bool enabled)
+{
+    ui::rmlui::RuntimeUiFacadeAccess::set_benchmark_timing(engine.m_impl->m_runtime_ui, enabled);
+}
+
+std::optional<std::pair<double, double>>
+EngineTooling::ui_benchmark_frame_timing(const Engine& engine)
+{
+    return ui::rmlui::RuntimeUiFacadeAccess::benchmark_frame_timing(engine.m_impl->m_runtime_ui);
+}
+
+bool EngineTooling::load_ui_fixture_context(Engine& engine, std::string id, std::string markup,
+                                            uint32_t group, bool visible, bool empty)
+{
+    if (!engine.m_impl->m_initialized || !engine.m_impl->m_runtime_ui.is_initialized() ||
+        group == 0 || group > 24)
+        return false;
+    const core::MountedLayoutPolicy policy{
+        .plane = core::PresentationPlane::GameUi,
+        .clock = core::LayoutClockDomain::Gameplay,
+        .input = core::LayoutInputMode::None,
+        .gameplay_pause = core::GameplayPausePolicy::Continue,
+        .visibility = visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden,
+        .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    auto& ui = engine.m_impl->m_runtime_ui;
+    if (!ui.load_document_from_memory_for_layout(id, markup, "benchmark://" + id + ".rml",
+                                                 visible && !empty, policy, group))
+        return false;
+    return !empty || ui.unload_document(id);
+}
+
 bool EngineTooling::runtime_ui_document_ready(const Engine& engine, std::string_view id)
 {
     return engine.m_impl->m_initialized && engine.m_impl->m_runtime_ui.is_initialized() &&

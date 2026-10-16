@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <optional>
 #include <string_view>
 
 namespace noveltea::benchmark {
@@ -38,6 +39,16 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
     options = {};
     error.clear();
     bool has_cli_settings = false;
+    std::string named_ui_preset;
+    // Explicit knobs take precedence over a named preset regardless of CLI order.
+    // The Web launcher serializes named and explicit knobs in canonical URL order.
+    std::optional<uint32_t> ui_elements_override;
+    std::optional<uint32_t> ui_text_lines_override;
+    std::optional<uint32_t> ui_visible_override;
+    std::optional<uint32_t> ui_empty_override;
+    std::optional<uint32_t> ui_hidden_override;
+    std::optional<std::string> ui_text_mode_override;
+    std::optional<std::string> ui_redraw_override;
     for (int i = 1; i < argc; ++i) {
         const std::string_view flag = argv[i];
         if (flag == "--help") {
@@ -96,10 +107,14 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         if (flag != "--scenario" && flag != "--rect-count" && flag != "--rect-scale" &&
             flag != "--draw-calls" && flag != "--quad-count" && flag != "--texture-size" &&
             flag != "--coverage" && flag != "--composition-path" && flag != "--composite-passes" &&
-            flag != "--target-scale" && flag != "--msaa-samples" && flag != "--width" &&
-            flag != "--height" && flag != "--warmup-seconds" && flag != "--seconds" &&
-            flag != "--frames" && flag != "--output" && flag != "--repeats" &&
-            flag != "--ready-timeout-seconds" && flag != "--profile" && flag != "--config") {
+            flag != "--target-scale" && flag != "--msaa-samples" && flag != "--ui-elements" &&
+            flag != "--ui-text-lines" && flag != "--ui-visible-contexts" &&
+            flag != "--ui-empty-contexts" && flag != "--ui-hidden-contexts" &&
+            flag != "--ui-preset" && flag != "--ui-text-mode" && flag != "--ui-redraw" &&
+            flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
+            flag != "--seconds" && flag != "--frames" && flag != "--output" &&
+            flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
+            flag != "--config") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -119,6 +134,55 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         if (flag == "--scenario") {
             has_cli_settings = true;
             options.scenario = value;
+            continue;
+        }
+        if (flag == "--ui-preset") {
+            has_cli_settings = true;
+            Options probe;
+            if (!apply_ui_scaling_preset(probe, value)) {
+                error = "unknown RmlUi scaling preset";
+                return false;
+            }
+            named_ui_preset = value;
+            continue;
+        }
+        if (flag == "--ui-text-mode" || flag == "--ui-redraw") {
+            has_cli_settings = true;
+            if (flag == "--ui-text-mode") {
+                options.ui_text_mode = value;
+                ui_text_mode_override = value;
+            } else {
+                options.ui_redraw = value;
+                ui_redraw_override = value;
+            }
+            if ((flag == "--ui-text-mode" && options.ui_text_mode != "static" &&
+                 options.ui_text_mode != "dynamic") ||
+                (flag == "--ui-redraw" && options.ui_redraw != "continuous" &&
+                 options.ui_redraw != "dirty-only")) {
+                error = "invalid RmlUi text or redraw mode";
+                return false;
+            }
+            continue;
+        }
+        if (flag == "--ui-elements" || flag == "--ui-text-lines" ||
+            flag == "--ui-visible-contexts" || flag == "--ui-empty-contexts" ||
+            flag == "--ui-hidden-contexts") {
+            has_cli_settings = true;
+            uint64_t number = 0;
+            if (!parse_integer(value, number) || number > 2048) {
+                error = "invalid RmlUi scaling count";
+                return false;
+            }
+            if (flag == "--ui-elements")
+                ui_elements_override = options.ui_elements = static_cast<uint32_t>(number);
+            else if (flag == "--ui-text-lines")
+                ui_text_lines_override = options.ui_text_lines = static_cast<uint32_t>(number);
+            else if (flag == "--ui-visible-contexts")
+                ui_visible_override = options.ui_visible_contexts = static_cast<uint32_t>(number);
+            else if (flag == "--ui-empty-contexts")
+                ui_empty_override = options.ui_empty_contexts = static_cast<uint32_t>(number);
+            else
+                ui_hidden_override = options.ui_hidden_contexts = static_cast<uint32_t>(number);
             continue;
         }
         if (flag == "--composition-path") {
@@ -266,6 +330,55 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         error = "--config cannot be combined with run settings; --output is allowed";
         return false;
     }
+    if (!named_ui_preset.empty()) {
+        if (!is_ui_scaling_scenario(options.scenario)) {
+            error = "--ui-preset requires an RmlUi scaling scenario";
+            return false;
+        }
+        (void)apply_ui_scaling_preset(options, named_ui_preset);
+        if (ui_elements_override)
+            options.ui_elements = *ui_elements_override;
+        if (ui_text_lines_override)
+            options.ui_text_lines = *ui_text_lines_override;
+        if (ui_visible_override)
+            options.ui_visible_contexts = *ui_visible_override;
+        if (ui_empty_override)
+            options.ui_empty_contexts = *ui_empty_override;
+        if (ui_hidden_override)
+            options.ui_hidden_contexts = *ui_hidden_override;
+        if (ui_text_mode_override)
+            options.ui_text_mode = *ui_text_mode_override;
+        if (ui_redraw_override)
+            options.ui_redraw = *ui_redraw_override;
+    }
+    return true;
+}
+
+bool apply_ui_scaling_preset(Options& options, std::string_view preset)
+{
+    if (preset != "balanced" && preset != "elements-heavy" && preset != "text-heavy" &&
+        preset != "contexts-heavy" && preset != "dirty-static")
+        return false;
+    const Options defaults;
+    options.ui_elements = defaults.ui_elements;
+    options.ui_text_lines = defaults.ui_text_lines;
+    options.ui_visible_contexts = defaults.ui_visible_contexts;
+    options.ui_empty_contexts = defaults.ui_empty_contexts;
+    options.ui_hidden_contexts = defaults.ui_hidden_contexts;
+    options.ui_text_mode = defaults.ui_text_mode;
+    options.ui_redraw = defaults.ui_redraw;
+    if (preset == "elements-heavy") {
+        options.ui_elements = 2048;
+    } else if (preset == "text-heavy") {
+        options.ui_text_lines = 256;
+        options.ui_text_mode = "dynamic";
+    } else if (preset == "contexts-heavy") {
+        options.ui_visible_contexts = 4;
+        options.ui_empty_contexts = 8;
+        options.ui_hidden_contexts = 8;
+    } else if (preset == "dirty-static") {
+        options.ui_redraw = "dirty-only";
+    }
     return true;
 }
 
@@ -275,6 +388,13 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.scenario = scenario;
     const Options defaults;
     selected.rect_count = defaults.rect_count;
+    selected.ui_elements = defaults.ui_elements;
+    selected.ui_text_lines = defaults.ui_text_lines;
+    selected.ui_visible_contexts = defaults.ui_visible_contexts;
+    selected.ui_empty_contexts = defaults.ui_empty_contexts;
+    selected.ui_hidden_contexts = defaults.ui_hidden_contexts;
+    selected.ui_text_mode = defaults.ui_text_mode;
+    selected.ui_redraw = defaults.ui_redraw;
     selected.rect_scale = defaults.rect_scale;
     selected.draw_calls = defaults.draw_calls;
     selected.quad_count = defaults.quad_count;
@@ -290,6 +410,38 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
 
 bool validate_reference_options(const Options& options, std::string& reason)
 {
+    const Options defaults;
+    if (is_ui_scaling_scenario(options.scenario)) {
+        if (options.rect_count == defaults.rect_count &&
+            options.rect_scale == defaults.rect_scale &&
+            options.draw_calls == defaults.draw_calls &&
+            options.quad_count == defaults.quad_count &&
+            options.texture_size == defaults.texture_size &&
+            options.coverage == defaults.coverage &&
+            options.composition_path == defaults.composition_path &&
+            options.composite_passes == defaults.composite_passes &&
+            options.target_scale == defaults.target_scale &&
+            options.msaa_samples == defaults.msaa_samples &&
+            options.transparent_overlay == defaults.transparent_overlay &&
+            valid_ui_scaling_parameters(options.ui_elements, options.ui_text_lines,
+                                        options.ui_visible_contexts, options.ui_empty_contexts,
+                                        options.ui_hidden_contexts, options.ui_text_mode,
+                                        options.ui_redraw)) {
+            reason.clear();
+            return true;
+        }
+        reason = "invalid RmlUi scaling parameters";
+        return false;
+    }
+    if (options.ui_elements != defaults.ui_elements ||
+        options.ui_text_lines != defaults.ui_text_lines ||
+        options.ui_visible_contexts != defaults.ui_visible_contexts ||
+        options.ui_empty_contexts != defaults.ui_empty_contexts ||
+        options.ui_hidden_contexts != defaults.ui_hidden_contexts ||
+        options.ui_text_mode != defaults.ui_text_mode || options.ui_redraw != defaults.ui_redraw) {
+        reason = "RmlUi scaling settings require a scaling scenario";
+        return false;
+    }
     if (options.scenario != "raw-bgfx-composition" &&
         (options.composition_path != "direct" || options.composite_passes != 0 ||
          options.target_scale != 1.0 || options.msaa_samples != 0 ||

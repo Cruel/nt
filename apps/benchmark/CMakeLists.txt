@@ -339,6 +339,28 @@ if(BUILD_TESTING AND NOT ANDROID)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 90)
+        add_test(NAME noveltea_benchmark_standalone_rmlui_scaling_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario standalone-rmlui-scaling --ui-elements 96 --ui-text-lines 12
+                --ui-visible-contexts 2 --ui-empty-contexts 2 --ui-hidden-contexts 2
+                --ui-text-mode dynamic --ui-redraw dirty-only --profile diagnostic
+                --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-rmlui-scaling.json")
+        set_tests_properties(noveltea_benchmark_standalone_rmlui_scaling_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_integrated_rmlui_scaling_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario integrated-rmlui-scaling --ui-elements 96 --ui-text-lines 12
+                --ui-visible-contexts 2 --ui-empty-contexts 2 --ui-hidden-contexts 2
+                --ui-text-mode dynamic --ui-redraw continuous --profile diagnostic
+                --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-scaling.json")
+        set_tests_properties(noveltea_benchmark_integrated_rmlui_scaling_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 180)
         add_test(NAME noveltea_benchmark_integrated_rmlui_repeat_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario integrated-rmlui-production --smoke --repeats 2
@@ -403,6 +425,15 @@ if(BUILD_TESTING AND NOT ANDROID)
                 LABELS "benchmark;graphics;visual"
                 PASS_REGULAR_EXPRESSION "composition: direct/offscreen mismatches"
                 TIMEOUT 65)
+            add_test(NAME noveltea_benchmark_rmlui_scaling_visual_smoke
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/rmlui_scaling_visual_smoke.py"
+                    "$<TARGET_FILE:noveltea-benchmark-app>")
+            set_tests_properties(noveltea_benchmark_rmlui_scaling_visual_smoke PROPERTIES
+                LABELS "benchmark;graphics;visual"
+                PASS_REGULAR_EXPRESSION
+                    "standalone/integrated scaling visible output equivalent"
+                TIMEOUT 110)
             add_test(NAME noveltea_benchmark_dashboard_visual_smoke
                 COMMAND "${NOVELTEA_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
                     "${CMAKE_CURRENT_SOURCE_DIR}/dashboard_visual_smoke.py"

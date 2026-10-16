@@ -29,7 +29,7 @@ public:
     StandaloneRmlUi& operator=(const StandaloneRmlUi&) = delete;
 
     bool initialize(const ReferenceScene& scene, int framebuffer_width, int framebuffer_height,
-                    std::string& reason);
+                    std::string& reason, const Options* scaling = nullptr);
     bool submit(bool diagnostic, std::string& reason);
     void shutdown();
     [[nodiscard]] bool initialized() const { return context_ != nullptr; }
@@ -48,6 +48,12 @@ private:
     // RmlUi retains memory-backed font bytes until Rml::Shutdown().
     std::vector<Rml::byte> font_memory_;
     Rml::ElementDocument* document_ = nullptr;
+    std::vector<Rml::Context*> extra_contexts_;
+    std::vector<Rml::ElementDocument*> visible_documents_;
+    bool scaling_ = false;
+    bool dynamic_text_ = false;
+    bool dirty_only_ = false;
+    uint32_t frame_index_ = 0;
     int framebuffer_width_ = 0;
     int framebuffer_height_ = 0;
     uint32_t clear_rgba_ = 0;
