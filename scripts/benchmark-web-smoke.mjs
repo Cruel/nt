@@ -4,8 +4,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, firefox } from 'playwright';
+import {validateStage1Report} from './benchmark-stage1-validate.mjs';
 
 const directory = path.resolve(process.argv[2] || 'build/web-benchmark-release/apps/benchmark');
+const canonicalBytes = await readFile(new URL('../apps/benchmark/stage1-unattended.json', import.meta.url));
+const canonical = JSON.parse(canonicalBytes.toString('utf8'));
 const mime = {'.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.data': 'application/octet-stream'};
 const server = createServer(async (request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
@@ -64,6 +67,16 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     const image = await page.screenshot();
     if (image.length < 10000) throw new Error('dashboard visual smoke is unexpectedly blank');
     console.log(name + ': dashboard responsive and screenshot ' + image.length + ' bytes');
+
+    // Launch the exact same JSON bytes as Linux/Android. No noUi or scenario
+    // URL flags are supplied: the native decoder alone determines the run.
+    await page.goto(origin + '/benchmark.html?configB64=' +
+                    encodeURIComponent(canonicalBytes.toString('base64')));
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
+                               {timeout: 60000});
+    const canonicalReport = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    validateStage1Report(canonicalReport, canonical, 'Emscripten');
+    console.log(name + ': unattended canonical JSON and measured report certified');
 
     // Inspect actual reference pixels outside any timed benchmark interval.
     const previewPixels = async scenario => {

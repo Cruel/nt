@@ -1,6 +1,8 @@
 package org.noveltea.benchmark;
 
 import android.graphics.Color;
+import android.util.Base64;
+import android.util.Log;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
@@ -11,6 +13,9 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import org.libsdl.app.SDLActivity;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -18,6 +23,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /** Independent SDL Activity for the developer benchmark APK. */
 public class BenchmarkActivity extends SDLActivity {
     private View emptyBenchmarkCover;
+    private String unattendedConfigPath;
+    private boolean unattendedConfigStaged;
 
     /** Never hand bgfx an Android window while the device is asleep or our
      * Activity has lost focus. SDL_main can start after onPause when launched
@@ -78,6 +85,33 @@ public class BenchmarkActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // SDLActivity calls getArguments during its onCreate. Publish an app-private
+        // configuration before that point, not in a native frame or from JNI.
+        String encoded = getIntent().getStringExtra("novelteaBenchmarkConfigBase64");
+        if (encoded != null) {
+            Log.i("NovelTeaBenchmark", "Received canonical config intent (bytes encoded="
+                    + encoded.length() + ")");
+            File config = new File(getFilesDir(), "unattended-config.json");
+            unattendedConfigPath = config.getAbsolutePath();
+            try {
+                if (config.exists() && !config.delete()) {
+                    throw new IOException("unable to discard stale unattended config");
+                }
+                byte[] bytes = Base64.decode(encoded, Base64.NO_WRAP);
+                if (bytes.length < 1 || bytes.length > 8192) {
+                    throw new IllegalArgumentException("configuration must contain 1..8192 bytes");
+                }
+                try (FileOutputStream stream = new FileOutputStream(config)) {
+                    stream.write(bytes);
+                }
+                unattendedConfigStaged = true;
+            } catch (IllegalArgumentException | IOException error) {
+                // Preserve --config even on failure: native startup must fail
+                // explicitly instead of silently opening the interactive UI.
+                config.delete();
+                Log.e("NovelTeaBenchmark", "Unable to stage canonical config", error);
+            }
+        }
         super.onCreate(savedInstanceState);
         enterImmersiveMode();
     }
@@ -100,8 +134,15 @@ public class BenchmarkActivity extends SDLActivity {
 
     @Override
     protected String[] getArguments() {
+        if (unattendedConfigPath != null) {
+            Log.i("NovelTeaBenchmark", "Passing --config to SDL_main");
+            // An empty path is rejected by the native argument parser. Never
+            // read a possibly stale file if staging failed.
+            return new String[]{"--config", unattendedConfigStaged ? unattendedConfigPath : ""};
+        }
         String arguments = getIntent().getStringExtra("novelteaBenchmarkArgs");
         if (arguments == null || arguments.trim().isEmpty()) {
+            Log.i("NovelTeaBenchmark", "Passing empty arguments to SDL_main");
             return new String[0];
         }
         // ADB script supplies flag/value tokens, without shell quoting.

@@ -219,6 +219,26 @@ if(BUILD_TESTING AND NOT ANDROID)
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
+        find_program(NOVELTEA_BENCHMARK_NODE NAMES node)
+        if(NOVELTEA_BENCHMARK_NODE)
+            set(NOVELTEA_BENCHMARK_CANONICAL_REPORT
+                "${CMAKE_BINARY_DIR}/benchmarks/ctest-stage1-canonical.json")
+            add_test(NAME noveltea_benchmark_stage1_configuration_smoke
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --config "${CMAKE_CURRENT_SOURCE_DIR}/stage1-unattended.json"
+                    --output "${NOVELTEA_BENCHMARK_CANONICAL_REPORT}")
+            set_tests_properties(noveltea_benchmark_stage1_configuration_smoke PROPERTIES
+                LABELS "benchmark;graphics;smoke"
+                FIXTURES_SETUP benchmark_stage1_report TIMEOUT 90)
+            add_test(NAME noveltea_benchmark_stage1_report_certification
+                COMMAND "${NOVELTEA_BENCHMARK_NODE}"
+                    "${PROJECT_SOURCE_DIR}/scripts/benchmark-stage1-validate.mjs"
+                    --config "${CMAKE_CURRENT_SOURCE_DIR}/stage1-unattended.json"
+                    --report "${NOVELTEA_BENCHMARK_CANONICAL_REPORT}" --platform Linux)
+            set_tests_properties(noveltea_benchmark_stage1_report_certification PROPERTIES
+                LABELS "benchmark;graphics;smoke"
+                FIXTURES_REQUIRED benchmark_stage1_report)
+        endif()
         add_test(NAME noveltea_benchmark_empty_engine_integration
             COMMAND "${NOVELTEA_XVFB_RUN}" -a
                 "$<TARGET_FILE:noveltea-benchmark-empty-engine-tests>")

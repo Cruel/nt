@@ -83,6 +83,8 @@ jobs:
           enable-cache: false
       - name: Test CI contracts
         run: node --test tests/ci/*.mjs
+      - name: Test benchmark launcher configuration transport
+        run: node --test scripts/run-benchmark-android.test.mjs scripts/run-benchmark-web.test.mjs
       - name: Verify compiler feature policy header
         run: |
           if c++ -std=c++20 -Iengine/include -x c++ -c engine/include/noveltea/core/compiler_policy.hpp -o /tmp/policy.o; then

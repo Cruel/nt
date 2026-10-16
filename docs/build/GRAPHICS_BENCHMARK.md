@@ -11,6 +11,58 @@ The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
 
+## Unattended Stage 1 certification (#433)
+
+The same byte-for-byte canonical configuration is checked in at
+`apps/benchmark/stage1-unattended.json`. It selects a Clean, fixed-geometry
+reference, a bounded warmup, two measured 60-frame trials, raw CPU samples,
+and **no ImGui**. To reproduce it:
+
+```sh
+./scripts/run-benchmark.sh --no-build --config apps/benchmark/stage1-unattended.json
+./scripts/run-benchmark-web.sh --no-build --config apps/benchmark/stage1-unattended.json
+./scripts/run-benchmark-android.sh --device DEVICE --no-build -- --config apps/benchmark/stage1-unattended.json
+./scripts/run-benchmark-android.sh --device DEVICE --no-build --pull
+```
+
+Linux reads `--config` directly. The Web launcher transports exact JSON
+bytes as a Base64 URL value; the shell stages them into Emscripten's virtual
+filesystem **before** the native configuration decoder runs. The Android
+launcher passes the same bytes in a bounded Activity intent extra; the
+Activity writes them into app-private storage **before SDL_main** and
+passes `--config` to the native binary. Both transports permit up to 8192
+bytes, reject conflicting run flags, and never parse, normalize, or silently
+replace invalid configuration. The Web URL contains the encoded settings,
+so these benchmark configurations should not contain secrets.
+
+Reports remain local: Linux writes beneath the benchmark build directory,
+Android uses app-private results retrievable with `--pull`, and Web offers
+the downloaded report through the page. An optional `--output` override is
+supported by Linux and Web; the Android launcher keeps the private default.
+Validate any resulting report without requiring or comparing GPU FPS:
+
+```sh
+node scripts/benchmark-stage1-validate.mjs \
+  --config apps/benchmark/stage1-unattended.json \
+  --report path/to/retrieved-report.json --platform Linux
+```
+
+Use `--platform Android` for the physical Android report or
+`--platform Emscripten` for Web. The validator checks the canonical run
+identity, renderer/framebuffer metadata, exact successful trial counts and
+raw-sample counts, available CPU metrics, and null GPU/presentation metrics
+for Clean mode. It checks correctness, **not minimum performance**.
+Linux CTest exercises the canonical launch and report validation under Xvfb;
+the Chromium/Firefox smoke executes the same JSON through the browser's
+actual WebGL2 renderer. Launcher unit tests cover exact transport and
+malformed/mixed flag handling. CI runs launcher transport tests without
+hardware thresholds. Optimized hardware smoke on WSLg's D3D12-backed
+NVIDIA GeForce RTX 5070 Ti also completed the 120-frame canonical run
+and all six Quick Suite reference cases (30 frames each). Functional
+certification does not assert or benchmark a minimum throughput.
+Native GPU performance remains hardware-specific; an emulator or software
+WebGL/Xvfb result is not a hardware baseline.
+
 ## Scenario switching and Quick Suite (#432)
 
 **Quick Suite** runs `raw-bgfx-empty`, `raw-bgfx-geometry` (the fixed
@@ -529,15 +581,20 @@ shared Android storage or add storage permissions. The build uses
 `:app:compileNovelTeaShaderAssets` solely to produce the shared ESSL
 shader outputs, not to build/install or export a player APK.
 
-**Hardware verification gap:** An Android arm64 APK build and packaging
-inspection do not establish real GPU rendering or lifecycle correctness.
-On a physical device, verify the raw geometry is visibly rendered, a
-30-frame strict no-UI run produces nonzero measurements and retrievable
-JSON, the ImGui dashboard disappears completely during a Clean run and
-returns afterwards, and repeated home/return or rotate/resume cycles
-preserve surface recreation and work controls. Record actual device
-and driver metadata before making performance claims; emulator timings
-are not authoritative.
+**Physical-device certification (#433):** The Pixel 6a (Android arm64,
+OpenGL ES 3.0) completed repeated optimized unattended runs from the shared
+canonical JSON: two successful 60-frame trials (120 samples) per run, raw
+CPU samples, and a retrievable app-private JSON report validated by the
+same Stage 1 report checker as Linux/Web. The app also waited correctly
+when initially launched onto a sleeping device, then initialized after
+Activity focus returned. An additional 5,000-frame physical run interrupted
+by Home and resumed the Activity, completed 5,000 valid frames with one
+recorded interruption retry. This verifies actual GPU-host execution,
+report retrieval, and that specific lifecycle transition, **not**
+screenshot-level visual equivalence or a general performance baseline.
+Independently verify geometry pixels, ImGui disappearance/return, and
+rotate/resume recovery before claiming those manual presentation checks.
+Debug/emulator timings are not authoritative.
 
 ## Current JSON contracts
 
@@ -563,6 +620,7 @@ inventory (no legacy aliases or unknown fields):
     "ready_timeout_seconds": 5,
     "profile": "clean",
     "no_ui": true,
+    "quick_suite": false,
     "raw_samples": false,
     "vsync": false,
     "output": ""
@@ -571,7 +629,9 @@ inventory (no legacy aliases or unknown fields):
 ```
 
 The `--config` file is validated before graphics init and cannot be mixed
-with run-setting flags; `--output` can override the file's destination.
+with run-setting flags; `--output` can override the file's destination on
+Linux and Web. The `quick_suite` field selects sequential reference scenarios
+when enabled, with fixed reference geometry and separately recorded outcomes.
 The raw and Engine-empty workloads have a fixed scenario version (1), no parameters,
 and real-time wall-clock policy. The geometry workload also has scenario
 version 1, with a strict `parameters` object containing `rect_count` (integer
