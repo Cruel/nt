@@ -17,6 +17,9 @@ struct ValidationResult {
     std::string effective_json;
     std::vector<Diagnostic> diagnostics;
 };
+// Shared ECMAScript String.prototype.trim whitespace semantics for native
+// schema normalization and domain validation (UTF-8 input/output).
+std::string trim_ecmascript(std::string value);
 // Certification boundary, not Project Workspace admission or cross-record validation.
 ValidationResult validate_record(std::string_view contract, std::string_view source_json);
 // Room-only sparse YAML source adapter for the parallel #477 session. Performs

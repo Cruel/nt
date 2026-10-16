@@ -186,6 +186,8 @@ bool uniform_value_compatible(std::string_view type, const Json& value)
     return false;
 }
 
+} // namespace
+
 std::string trim_ecmascript(std::string value)
 {
     // ECMAScript WhiteSpace + LineTerminator, not locale-dependent C isspace.
@@ -214,6 +216,8 @@ std::string trim_ecmascript(std::string value)
     }
     return value;
 }
+
+namespace {
 
 Json embedded_document()
 {
