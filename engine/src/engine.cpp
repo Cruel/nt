@@ -4320,6 +4320,17 @@ EngineTooling::runtime_ui_render_configuration(const Engine& engine)
         engine.m_impl->m_runtime_ui);
 }
 
+void EngineTooling::set_ui_effect_observation(Engine& engine, bool enabled)
+{
+    ui::rmlui::RuntimeUiFacadeAccess::set_game_ui_effect_observation(engine.m_impl->m_runtime_ui,
+                                                                     enabled);
+}
+
+std::optional<UiEffectActivity> EngineTooling::ui_effect_activity(const Engine& engine)
+{
+    return ui::rmlui::RuntimeUiFacadeAccess::game_ui_effect_activity(engine.m_impl->m_runtime_ui);
+}
+
 Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_impl->m_renderer; }
 
 assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept

@@ -277,6 +277,61 @@ regression, **not** a GPU performance measurement or proof of cross-driver
 pixel identity. Check visual output and capability support on actual Android
 and Web hardware before treating those platforms as visually certified.
 
+## Advanced RmlUi effects (#437)
+
+`standalone-rmlui-effects` and `integrated-rmlui-effects` exercise the
+**same deterministic RML/CSS fixture** through the standalone bgfx renderer
+and the production Engine/RuntimeUI renderer, respectively. They each have
+six independently adjustable counts: clipping, 2D rotation transforms,
+linear-gradient decorators, drop-shadow filters, radial-gradient mask images,
+and nested blur/opacity layers. Every dimension has its own visible column,
+so changing one dimension does not replace another with a cheaper effect.
+The integrated renderer applies the normal reference-to-raster scale; the
+strict frame-sampling lifecycle is unchanged.
+
+```sh
+./scripts/run-benchmark.sh --no-build --no-ui --scenario standalone-rmlui-effects \
+  --ui-clipping 2 --ui-transforms 2 --ui-gradients 2 \
+  --ui-filters 2 --ui-masks 2 --ui-nested-layers 2 --frames 300
+./scripts/run-benchmark.sh --no-build --no-ui --scenario integrated-rmlui-effects \
+  --ui-clipping 2 --ui-transforms 2 --ui-gradients 2 \
+  --ui-filters 2 --ui-masks 2 --ui-nested-layers 2 --frames 300
+```
+
+Each count is 0–16; at least one must be nonzero. The default is 2 per
+dimension. Combinations also obey a conservative, cross-renderer pass-range
+safety budget (units: clipping + transforms + 2×gradients + 5×filters +
+7×masks + 7×nested layers, maximum 54). An invalid or over-budget request
+is rejected, **not** silently reduced to a smaller workload. This guard
+protects the standalone renderer's smaller view range; it is a conservative
+estimate, not a claim to predict each backend pass. Select smaller counts
+when a platform or renderer cannot execute the requested workload.
+
+The canonical JSON configuration preserves the six counts as exact
+`parameters` for A/B comparisons. The report field
+`graphics.ui_effect_backend_callbacks` contains actual, preparation-time
+renderer callback activity: clipping operations, transform submissions,
+linear-gradient draws, **drop-shadow-specific** filter composites, mask
+saves, layer pushes and maximum nesting. This probe is **disabled before
+timed frames**; the strict timing samples do not include callback bookkeeping.
+Requested effects that generate no corresponding callbacks cause a failed
+trial with an explicit unsupported-feature reason. Adapter-reported errors
+are captured separately. These callback counts show that RmlUi reached
+the backend; they are **not** measurements of GPU time or conclusive proof
+that every submitted draw succeeded, and an upstream renderer may emit
+internal pass-scheduler errors directly to stderr without routing through
+its diagnostic callback. The pass budget avoids the reproducible overload
+of the default renderer view ranges, but backends should still be visually
+inspected on target hardware.
+
+Both scenarios work through the normal CLI, native dashboard, Android host
+and Web host. The Web launcher accepts the same six count flags. Tests
+`noveltea_benchmark_standalone_rmlui_effects_smoke` and
+`noveltea_benchmark_integrated_rmlui_effects_smoke` run repeated native
+frame collections to exercise resource creation and teardown. Like all
+extra Stage 2 workloads, they are run separately, not in the fixed
+six-scenario Stage 1 Quick Suite.
+
 ## Scenario switching and Quick Suite (#432)
 
 **Quick Suite** runs `raw-bgfx-empty`, `raw-bgfx-geometry` (the fixed

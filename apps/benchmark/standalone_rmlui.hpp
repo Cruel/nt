@@ -14,6 +14,8 @@
 
 namespace noveltea::benchmark {
 
+class RmlUiEffectProbe;
+
 // Owns only the standalone RmlUi stack. The SDL window and bgfx device belong
 // to the benchmark host; neither Engine nor RuntimeUI is constructed here.
 class StandaloneRmlUi final {
@@ -36,13 +38,19 @@ public:
     // Captured only for Diagnostic runs; Clean frames perform no stage timing.
     [[nodiscard]] DiagnosticStages last_diagnostic_stages() const { return stages_; }
     [[nodiscard]] UiBackendSettings backend_settings() const { return backend_settings_; }
+    [[nodiscard]] UiEffectActivity effect_activity() const;
+    bool verify_effects(std::string& reason);
 
 private:
     struct Shaders;
+    struct EffectDiagnostics;
     struct System;
     std::unique_ptr<Shaders> shaders_;
+    std::unique_ptr<EffectDiagnostics> effect_diagnostics_;
     std::unique_ptr<System> system_;
     std::unique_ptr<rmlui_bgfx::RenderInterface> renderer_;
+    std::unique_ptr<RmlUiEffectProbe> effect_probe_;
+    UiEffectCounts requested_effects_;
     Rml::Context* context_ = nullptr;
     bool core_initialized_ = false;
     // RmlUi retains memory-backed font bytes until Rml::Shutdown().

@@ -4,6 +4,7 @@
 
 #include "reference_scene.hpp"
 #include "benchmark_assets.hpp"
+#include "ui_effect_verification.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
@@ -23,8 +24,8 @@
 
 namespace noveltea::benchmark {
 
-IntegratedRmlUi::IntegratedRmlUi(bool controlled, bool scaling)
-    : controlled_(controlled), scaling_(scaling)
+IntegratedRmlUi::IntegratedRmlUi(bool controlled, bool scaling, bool effects)
+    : controlled_(controlled), scaling_(scaling), effects_(effects)
 {
 }
 IntegratedRmlUi::~IntegratedRmlUi()
@@ -35,13 +36,16 @@ IntegratedRmlUi::~IntegratedRmlUi()
 
 const char* IntegratedRmlUi::id() const
 {
-    return scaling_      ? "integrated-rmlui-scaling"
+    return effects_      ? "integrated-rmlui-effects"
+           : scaling_    ? "integrated-rmlui-scaling"
            : controlled_ ? "integrated-rmlui-controlled"
                          : "integrated-rmlui-production";
 }
 
 const char* IntegratedRmlUi::description() const
 {
+    if (effects_)
+        return "production Engine RmlUi advanced styling and nested layers";
     if (scaling_)
         return "production Engine/RmlUiHost scaling: elements, text and lifecycle contexts";
     return controlled_
@@ -55,6 +59,7 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     std::string ignored;
     (void)cleanup(ignored);
     environment_ = {};
+    effects_requested_ = effects_ ? ui_effect_counts(options) : UiEffectCounts{};
     last_interruption_ = Interruption::None;
     scaling_options_ = options;
     frame_index_ = 0;
@@ -94,8 +99,9 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         // Engine's reference canvas is 1920x1080. Convert the same
         // 1280x720 scene into that coordinate domain before loading RML.
         const auto scene =
-            scaling_ ? ui_scaling_reference_scene(options.ui_elements, options.ui_text_lines)
-                     : simple_ui_reference_scene();
+            effects_   ? ui_effects_reference_scene(ui_effect_counts(options))
+            : scaling_ ? ui_scaling_reference_scene(options.ui_elements, options.ui_text_lines)
+                       : simple_ui_reference_scene();
         constexpr float engine_reference_width = 1920.0f;
         const float scale = engine_reference_width / static_cast<float>(scene.width);
         if (!output || !(output << simple_ui_reference_markup(scene, scale))) {
@@ -212,6 +218,9 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     // No extra clock reads or stage accumulation in Clean-mode Engine ticks.
     EngineTooling::set_ui_benchmark_timing(*engine_, options.profile == "diagnostic");
 
+    if (effects_)
+        EngineTooling::set_ui_effect_observation(*engine_, true);
+
     // First rendered frames exercise the real UI compilation and font atlas
     // outside any timed samples, including --smoke / zero-warmup runs.
     for (int i = 0; i < 4; ++i) {
@@ -224,6 +233,18 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         }
         if (!ticked) {
             reason = "production Engine stopped during integrated UI preparation";
+            (void)cleanup(ignored);
+            return false;
+        }
+    }
+    if (effects_) {
+        environment_.ui_effect_activity = EngineTooling::ui_effect_activity(*engine_);
+        EngineTooling::set_ui_effect_observation(*engine_, false);
+        if (!environment_.ui_effect_activity ||
+            !verify_ui_effect_activity(ui_effect_counts(options), *environment_.ui_effect_activity,
+                                       reason)) {
+            if (reason.empty())
+                reason = "integrated RmlUi effect backend not available";
             (void)cleanup(ignored);
             return false;
         }
@@ -337,7 +358,17 @@ void IntegratedRmlUi::diagnostic_frame(DiagnosticObservation& observation)
     // No submitted-frame identity crosses the production Engine tick boundary.
 }
 
-bool IntegratedRmlUi::complete(std::string&) { return true; }
+bool IntegratedRmlUi::complete(std::string& reason)
+{
+    if (!effects_)
+        return true;
+    environment_.ui_effect_activity = EngineTooling::ui_effect_activity(*engine_);
+    if (!environment_.ui_effect_activity) {
+        reason = "integrated RmlUi effect backend unavailable after measured frames";
+        return false;
+    }
+    return verify_ui_effect_activity(effects_requested_, *environment_.ui_effect_activity, reason);
+}
 
 bool IntegratedRmlUi::cleanup(std::string& reason)
 {

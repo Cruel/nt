@@ -119,6 +119,8 @@ public:
                                                       bool visible, bool empty);
     [[nodiscard]] static std::optional<UiRenderConfiguration>
     runtime_ui_render_configuration(const Engine& engine);
+    static void set_ui_effect_observation(Engine& engine, bool enabled);
+    [[nodiscard]] static std::optional<UiEffectActivity> ui_effect_activity(const Engine& engine);
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
     [[nodiscard]] static core::Result<core::AssetProfilerSnapshot, core::Diagnostic>

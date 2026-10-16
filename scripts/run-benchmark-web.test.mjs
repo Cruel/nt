@@ -61,6 +61,17 @@ test('Web launcher transports exact canonical JSON and rejects mixed run flags',
   })) {
     assert.equal(scalingParams.get(key), expected, key);
   }
+  const effects = run('--scenario', 'standalone-rmlui-effects',
+    '--ui-clipping', '0', '--ui-transforms', '2', '--ui-gradients', '3',
+    '--ui-filters', '1', '--ui-masks', '1', '--ui-nested-layers', '2');
+  assert.equal(effects.status, 0, effects.stderr);
+  const effectsParams = new URL(effects.stdout.match(/ at (\S+)/)[1]).searchParams;
+  for (const [key, expected] of Object.entries({
+    scenario: 'standalone-rmlui-effects', uiClipping: '0', uiTransforms: '2',
+    uiGradients: '3', uiFilters: '1', uiMasks: '1', uiNestedLayers: '2',
+  })) {
+    assert.equal(effectsParams.get(key), expected, key);
+  }
   const overridden = run('--config', filename, '--output', 'selected.json');
   assert.equal(overridden.status, 0, overridden.stderr);
   assert.equal(new URL(overridden.stdout.match(/ at (\S+)/)[1]).searchParams.get('output'), 'selected.json');

@@ -4,6 +4,20 @@
 
 namespace noveltea {
 
+// Renderer callback activity sampled during benchmark preparation, before timed
+// frames. Counts describe real RmlUi -> bgfx-adapter calls, not confirmed GPU
+// pixels, shader execution time, or application presentation.
+struct UiEffectActivity {
+    uint32_t clipping_calls = 0;
+    uint32_t transforms = 0;
+    uint32_t gradient_draws = 0;
+    uint32_t filtered_composites = 0;
+    uint32_t mask_saves = 0;
+    uint32_t layer_pushes = 0;
+    uint32_t max_layer_depth = 0;
+    uint32_t backend_errors = 0;
+};
+
 // A read-only snapshot of options actually supplied to a live RmlUi bgfx
 // adapter. Does not claim to measure GPU operations or backend pass counts.
 struct UiRenderConfiguration {

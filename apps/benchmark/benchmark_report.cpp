@@ -39,6 +39,11 @@ Json configuration(const Options& options)
                       {"transparent_overlay", options.transparent_overlay},
                       {"texture_size", options.texture_size},
                       {"coverage", options.coverage}};
+    else if (is_ui_effects_scenario(options.scenario))
+        parameters = {
+            {"clipping", options.ui_clipping},   {"transforms", options.ui_transforms},
+            {"gradients", options.ui_gradients}, {"filters", options.ui_filters},
+            {"masks", options.ui_masks},         {"nested_layers", options.ui_nested_layers}};
     else if (is_ui_scaling_scenario(options.scenario))
         parameters = {{"elements", options.ui_elements},
                       {"text_lines", options.ui_text_lines},
@@ -190,6 +195,30 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             reason = "empty scenario does not take geometry parameters";
             return false;
         }
+    } else if (is_ui_effects_scenario(scenario)) {
+        if (!has_fields(parameters, {"clipping", "transforms", "gradients", "filters", "masks",
+                                     "nested_layers"}) ||
+            !unsigned_integer(parameters, "clipping") ||
+            !unsigned_integer(parameters, "transforms") ||
+            !unsigned_integer(parameters, "gradients") ||
+            !unsigned_integer(parameters, "filters") || !unsigned_integer(parameters, "masks") ||
+            !unsigned_integer(parameters, "nested_layers") ||
+            parameters["clipping"].get<uint64_t>() > 16 ||
+            parameters["transforms"].get<uint64_t>() > 16 ||
+            parameters["gradients"].get<uint64_t>() > 16 ||
+            parameters["filters"].get<uint64_t>() > 16 ||
+            parameters["masks"].get<uint64_t>() > 16 ||
+            parameters["nested_layers"].get<uint64_t>() > 16 ||
+            !valid_ui_effects_parameters(
+                {static_cast<uint32_t>(parameters["clipping"].get<uint64_t>()),
+                 static_cast<uint32_t>(parameters["transforms"].get<uint64_t>()),
+                 static_cast<uint32_t>(parameters["gradients"].get<uint64_t>()),
+                 static_cast<uint32_t>(parameters["filters"].get<uint64_t>()),
+                 static_cast<uint32_t>(parameters["masks"].get<uint64_t>()),
+                 static_cast<uint32_t>(parameters["nested_layers"].get<uint64_t>())})) {
+            reason = "invalid RmlUi effects reference parameters";
+            return false;
+        }
     } else if (is_ui_scaling_scenario(scenario)) {
         if (!has_fields(parameters, {"elements", "text_lines", "visible_contexts", "empty_contexts",
                                      "hidden_contexts", "text_mode", "redraw"}) ||
@@ -289,6 +318,14 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     Options next;
     next.scenario = scenario;
+    if (is_ui_effects_scenario(scenario)) {
+        next.ui_clipping = static_cast<uint32_t>(parameters["clipping"].get<uint64_t>());
+        next.ui_transforms = static_cast<uint32_t>(parameters["transforms"].get<uint64_t>());
+        next.ui_gradients = static_cast<uint32_t>(parameters["gradients"].get<uint64_t>());
+        next.ui_filters = static_cast<uint32_t>(parameters["filters"].get<uint64_t>());
+        next.ui_masks = static_cast<uint32_t>(parameters["masks"].get<uint64_t>());
+        next.ui_nested_layers = static_cast<uint32_t>(parameters["nested_layers"].get<uint64_t>());
+    }
     if (is_ui_scaling_scenario(scenario)) {
         next.ui_elements = static_cast<uint32_t>(parameters["elements"].get<uint64_t>());
         next.ui_text_lines = static_cast<uint32_t>(parameters["text_lines"].get<uint64_t>());
@@ -416,6 +453,20 @@ std::string encode_result(const Options& options, const Environment& environment
             // These are captured from the actual initialized RmlUi adapter,
             // not inferred from the scenario name. A multisampled reference
             // layer must use offscreen base presentation by backend policy.
+            {"ui_effect_backend_callbacks",
+             environment.ui_effect_activity
+                 ? Json{{"capture_scope",
+                         "preparation-only; observed renderer callbacks, not GPU timings"},
+                        {"clipping_calls", environment.ui_effect_activity->clipping_calls},
+                        {"transforms", environment.ui_effect_activity->transforms},
+                        {"gradient_draws", environment.ui_effect_activity->gradient_draws},
+                        {"filtered_composites",
+                         environment.ui_effect_activity->filtered_composites},
+                        {"mask_saves", environment.ui_effect_activity->mask_saves},
+                        {"layer_pushes", environment.ui_effect_activity->layer_pushes},
+                        {"max_layer_depth", environment.ui_effect_activity->max_layer_depth},
+                        {"backend_errors", environment.ui_effect_activity->backend_errors}}
+                 : Json(nullptr)},
             {"ui_render_path",
              environment.ui_backend
                  ? Json(environment.ui_backend->optimized_render_path ? "optimized" : "reference")

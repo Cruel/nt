@@ -372,6 +372,23 @@ std::optional<UiRenderConfiguration> RmlUiHost::game_ui_render_configuration() c
     return std::nullopt;
 }
 
+void RmlUiHost::set_game_ui_effect_observation(bool enabled)
+{
+    for (const auto& renderer : m_plane_renderers) {
+        if (renderer.plane == core::PresentationPlane::GameUi && renderer.bgfx)
+            renderer.bgfx->set_effect_observation(enabled);
+    }
+}
+
+std::optional<UiEffectActivity> RmlUiHost::game_ui_effect_activity() const
+{
+    for (const auto& renderer : m_plane_renderers) {
+        if (renderer.plane == core::PresentationPlane::GameUi && renderer.bgfx)
+            return renderer.bgfx->effect_activity();
+    }
+    return std::nullopt;
+}
+
 Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedContextMetrics& metrics)
 {
     const bool world_transition_source =

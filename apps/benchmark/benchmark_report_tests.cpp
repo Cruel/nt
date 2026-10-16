@@ -190,6 +190,33 @@ int main()
                    "render report preserves live backend settings without fabricated observations"))
             return 1;
     }
+    for (const char* id : {"standalone-rmlui-effects", "integrated-rmlui-effects"}) {
+        Options effects;
+        effects.scenario = id;
+        effects.ui_clipping = 0;
+        effects.ui_transforms = 2;
+        effects.ui_gradients = 3;
+        effects.ui_filters = 1;
+        effects.ui_masks = 1;
+        effects.ui_nested_layers = 2;
+        const auto encoded = nlohmann::json::parse(encode_configuration(effects));
+        Options roundtrip;
+        if (!check(decode_configuration(encoded.dump(), roundtrip, error) &&
+                       nlohmann::json::parse(encode_configuration(roundtrip)) == encoded &&
+                       roundtrip.ui_masks == 1 && roundtrip.ui_clipping == 0,
+                   "advanced effects configuration has exact cross-host roundtrip"))
+            return 1;
+        auto unknown = encoded;
+        unknown["parameters"]["unspecified"] = 3;
+        if (!check(!decode_configuration(unknown.dump(), roundtrip, error),
+                   "unknown effect parameter is rejected"))
+            return 1;
+        auto invalid = encoded;
+        invalid["parameters"]["masks"] = 17;
+        if (!check(!decode_configuration(invalid.dump(), roundtrip, error),
+                   "effect bound is rejected"))
+            return 1;
+    }
     for (const char* id : {"standalone-rmlui-scaling", "integrated-rmlui-scaling"}) {
         Options scaling;
         scaling.scenario = id;

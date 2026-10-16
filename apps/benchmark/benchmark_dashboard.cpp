@@ -303,7 +303,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                           "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
                           "raw-bgfx-draw-calls", "raw-bgfx-composition", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
-                          "standalone-rmlui-scaling", "integrated-rmlui-scaling", "engine-empty"}) {
+                          "standalone-rmlui-scaling", "integrated-rmlui-scaling",
+                          "standalone-rmlui-effects", "integrated-rmlui-effects", "engine-empty"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options = reference_scenario_options(options, candidate);
                         }
@@ -352,6 +353,30 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     }
                     if (ImGui::Button("Restore RmlUi reference"))
                         (void)apply_ui_scaling_preset(options, "balanced");
+                }
+                if (is_ui_effects_scenario(options.scenario)) {
+                    auto count_slider = [](const char* label, uint32_t& value) {
+                        int count = static_cast<int>(value);
+                        if (ImGui::SliderInt(label, &count, 0, 16))
+                            value = static_cast<uint32_t>(count);
+                    };
+                    count_slider("Clipping", options.ui_clipping);
+                    count_slider("Transforms", options.ui_transforms);
+                    count_slider("Gradients", options.ui_gradients);
+                    count_slider("Filters", options.ui_filters);
+                    count_slider("Masks", options.ui_masks);
+                    count_slider("Nested layers", options.ui_nested_layers);
+                    ImGui::TextWrapped("Each column independently repeats its own effect. "
+                                       "At least one effect must be enabled.");
+                    if (ImGui::Button("Restore effects reference")) {
+                        const Options defaults;
+                        options.ui_clipping = defaults.ui_clipping;
+                        options.ui_transforms = defaults.ui_transforms;
+                        options.ui_gradients = defaults.ui_gradients;
+                        options.ui_filters = defaults.ui_filters;
+                        options.ui_masks = defaults.ui_masks;
+                        options.ui_nested_layers = defaults.ui_nested_layers;
+                    }
                 }
                 if (options.scenario == "raw-bgfx-geometry") {
                     int rect_count = static_cast<int>(options.rect_count);

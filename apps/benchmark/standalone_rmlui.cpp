@@ -1,5 +1,7 @@
 #include "standalone_rmlui.hpp"
 #include "benchmark_assets.hpp"
+#include "rmlui_effect_probe.hpp"
+#include "ui_effect_verification.hpp"
 
 #include <RmlUi/Core/Context.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -88,6 +90,20 @@ struct StandaloneRmlUi::Shaders final : rmlui_bgfx::ShaderProvider {
     }
 };
 
+struct StandaloneRmlUi::EffectDiagnostics final : rmlui_bgfx::Diagnostics {
+    uint32_t errors = 0;
+    void warning(std::string_view message) override
+    {
+        std::fprintf(stderr, "[rmlui] %.*s\n", int(message.size()), message.data());
+    }
+    void error(std::string_view message) override
+    {
+        if (capturing)
+            ++errors;
+        std::fprintf(stderr, "[rmlui] %.*s\n", int(message.size()), message.data());
+    }
+};
+
 struct StandaloneRmlUi::System final : Rml::SystemInterface {
     std::chrono::steady_clock::time_point origin = std::chrono::steady_clock::now();
     double GetElapsedTime() override
@@ -111,6 +127,7 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
         return false;
     }
     shaders_ = std::make_unique<Shaders>();
+    effect_diagnostics_ = std::make_unique<EffectDiagnostics>();
     system_ = std::make_unique<System>();
     rmlui_bgfx::RendererConfig config;
     config.surface = {static_cast<int>(scene.width),
@@ -122,6 +139,7 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
     config.viewport = {0, 0, framebuffer_width, framebuffer_height};
     config.views = {2, 63}; // View 0 clears; preview remaps view 1 (ImGui) to last.
     config.shaders = shaders_.get();
+    config.diagnostics = effect_diagnostics_.get();
     config.enable_perf_logging = false;
     config.render_path = rmlui_bgfx::RenderPath::Optimized;
     // Capture *effective constructor inputs*, not a label guessed from
@@ -142,7 +160,10 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
         return false;
     }
     Rml::SetSystemInterface(system_.get());
-    Rml::SetRenderInterface(renderer_.get());
+    requested_effects_ = scene.effects;
+    effect_probe_ = std::make_unique<RmlUiEffectProbe>(*renderer_);
+    effect_probe_->capture(scene.id == "ui-effects-reference");
+    Rml::SetRenderInterface(effect_probe_.get());
     if (!Rml::Initialise()) {
         reason = "RmlUi initialization failed";
         shutdown();
@@ -292,6 +313,23 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
     return true;
 }
 
+UiEffectActivity StandaloneRmlUi::effect_activity() const
+{
+    auto activity = effect_probe_ ? effect_probe_->activity() : UiEffectActivity{};
+    if (effect_diagnostics_)
+        activity.backend_errors = effect_diagnostics_->errors;
+    return activity;
+}
+
+bool StandaloneRmlUi::verify_effects(std::string& reason)
+{
+    if (!effect_probe_)
+        return false;
+    const auto activity = effect_activity();
+    effect_probe_->capture(false);
+    return verify_ui_effect_activity(requested_effects_, activity, reason);
+}
+
 void StandaloneRmlUi::shutdown()
 {
     visible_documents_.clear();
@@ -313,7 +351,10 @@ void StandaloneRmlUi::shutdown()
     font_memory_.clear();
     Rml::SetRenderInterface(nullptr);
     Rml::SetSystemInterface(nullptr);
+    effect_probe_.reset();
     renderer_.reset();
+    requested_effects_ = {};
+    effect_diagnostics_.reset();
     shaders_.reset();
     system_.reset();
     framebuffer_width_ = 0;

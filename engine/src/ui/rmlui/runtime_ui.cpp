@@ -2005,6 +2005,21 @@ ui::rmlui::RuntimeUiFacadeAccess::game_ui_render_configuration(const RuntimeUI& 
     return std::nullopt;
 }
 
+void ui::rmlui::RuntimeUiFacadeAccess::set_game_ui_effect_observation(RuntimeUI& runtime_ui,
+                                                                      bool enabled)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_game_ui_effect_observation(enabled);
+}
+
+std::optional<UiEffectActivity>
+ui::rmlui::RuntimeUiFacadeAccess::game_ui_effect_activity(const RuntimeUI& runtime_ui)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        return runtime_ui.m_state->host->game_ui_effect_activity();
+    return std::nullopt;
+}
+
 void ui::rmlui::RuntimeUiFacadeAccess::set_benchmark_timing(RuntimeUI& runtime_ui, bool enabled)
 {
     if (runtime_ui.m_state && runtime_ui.m_state->host)
