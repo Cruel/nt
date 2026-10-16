@@ -92,7 +92,13 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     // Submit real Engine frames and allow initial renderer work to settle
     // before Ready, including --smoke's zero-duration warmup.
     for (int frame = 0; frame < 4; ++frame) {
-        if (!engine_->is_running() || !engine_->tick()) {
+        const bool ticked = engine_->is_running() && engine_->tick();
+        if (EngineTooling::host_quit_requested(*engine_)) {
+            last_interruption_ = Interruption::Cancelled;
+            reason = "empty Engine cancelled by host quit during preparation";
+            return false;
+        }
+        if (!ticked) {
             reason = "empty Engine stopped during preparation";
             return false;
         }
@@ -118,7 +124,12 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
 Readiness EmptyEngine::readiness(std::string& reason)
 {
     if (!engine_ || !engine_->is_running()) {
-        reason = "empty Engine is not running";
+        if (engine_ && EngineTooling::host_quit_requested(*engine_)) {
+            last_interruption_ = Interruption::Cancelled;
+            reason = "empty Engine cancelled by host quit before measurement";
+        } else {
+            reason = "empty Engine is not running";
+        }
         return Readiness::Failed;
     }
     return Readiness::Ready;
@@ -133,7 +144,13 @@ bool EmptyEngine::frame(std::string& reason)
         return false;
     }
 #endif
-    if (!engine_ || !engine_->is_running() || !engine_->tick()) {
+    const bool ticked = engine_ && engine_->is_running() && engine_->tick();
+    if (engine_ && EngineTooling::host_quit_requested(*engine_)) {
+        last_interruption_ = Interruption::Cancelled;
+        reason = "empty Engine cancelled by host quit (Escape/close)";
+        return false;
+    }
+    if (!ticked) {
         reason = "empty Engine frame failed or was interrupted";
         return false;
     }

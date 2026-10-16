@@ -314,7 +314,13 @@ struct WebBenchmarkApp {
         reported.quick_suite = quick_suite_active;
         completed_run = noveltea::benchmark::CompletedRun{reported, collected, {}};
         quick_suite_active = false;
-        if (!write_report(completed_run->configuration, graphics.environment, completed_run->result,
+        // Use the observed scenario host, not the dashboard host released
+        // before Engine-owned runs. Mixed suites retain per-scenario metadata.
+        const Environment& report_environment =
+            collected.scenarios.size() == 1 && collected_environments.size() == 1
+                ? collected_environments.front()
+                : graphics.environment;
+        if (!write_report(completed_run->configuration, report_environment, completed_run->result,
                           completed_run->report_path, collected_environments))
             feedback = "failed to save or download benchmark report";
         else

@@ -346,7 +346,8 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
       await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 60000});
       const report = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
       if (report.outcome !== 'complete' || report.scenarios[0]?.aggregate.measured_frames !== 30 ||
-          report.scenarios[0].graphics?.frame_path !== 'engine-tick')
+          report.scenarios[0].graphics?.frame_path !== 'engine-tick' ||
+          JSON.stringify(report.graphics) !== JSON.stringify(report.scenarios[0].graphics))
         throw new Error('Web Engine single-scenario failure: ' + JSON.stringify([scenario, report.outcome,
             report.scenarios[0]?.trials?.map(t => t.reason)]));
     }

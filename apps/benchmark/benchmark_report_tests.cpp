@@ -368,6 +368,30 @@ int main()
                    engine_result["configuration"]["parameters"].empty(),
                "empty Engine metadata differs from raw bgfx with observed renderer state"))
         return 1;
+    // Even when the host passed as fallback is stale (e.g. Web's bgfx
+    // dashboard), a one-scenario report must use the live Engine environment
+    // for both top-level and per-scenario graphics.
+    auto single_engine = suite;
+    single_engine.scenarios.front().scenario = "integrated-rmlui-production";
+    noveltea::benchmark::Environment stale_host;
+    stale_host.frame_path = "bgfx-frame";
+    stale_host.width_pixels = 1228;
+    stale_host.height_pixels = 610;
+    noveltea::benchmark::Environment measured_engine;
+    measured_engine.frame_path = "engine-tick";
+    measured_engine.width_pixels = 1280;
+    measured_engine.height_pixels = 720;
+    measured_engine.ui_backend =
+        noveltea::benchmark::UiBackendSettings{.reference_msaa_samples = 2};
+    const auto single_report = nlohmann::json::parse(
+        encode_result(ui_options, stale_host, single_engine, {measured_engine}));
+    if (!check(single_report["graphics"] == single_report["scenarios"][0]["graphics"] &&
+                   single_report["graphics"]["frame_path"] == "engine-tick" &&
+                   single_report["graphics"]["width_pixels"] == 1280 &&
+                   single_report["graphics"]["ui_reference_msaa_samples"] == 2,
+               "single Engine scenario metadata cannot inherit the old dashboard host"))
+        return 1;
+
     // A mixed renderer suite must not claim all entries ran with one host.
     auto mixed = suite;
     mixed.scenarios.push_back(scenario);

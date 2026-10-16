@@ -173,7 +173,14 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     // First rendered frames exercise the real UI compilation and font atlas
     // outside any timed samples, including --smoke / zero-warmup runs.
     for (int i = 0; i < 4; ++i) {
-        if (!engine_->is_running() || !engine_->tick()) {
+        const bool ticked = engine_->is_running() && engine_->tick();
+        if (EngineTooling::host_quit_requested(*engine_)) {
+            last_interruption_ = Interruption::Cancelled;
+            reason = "integrated Engine cancelled by host quit during preparation";
+            (void)cleanup(ignored);
+            return false;
+        }
+        if (!ticked) {
             reason = "production Engine stopped during integrated UI preparation";
             (void)cleanup(ignored);
             return false;
@@ -206,7 +213,12 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
 Readiness IntegratedRmlUi::readiness(std::string& reason)
 {
     if (!engine_ || !engine_->is_running()) {
-        reason = "integrated production Engine is not running";
+        if (engine_ && EngineTooling::host_quit_requested(*engine_)) {
+            last_interruption_ = Interruption::Cancelled;
+            reason = "integrated Engine cancelled by host quit before measurement";
+        } else {
+            reason = "integrated production Engine is not running";
+        }
         return Readiness::Failed;
     }
     return Readiness::Ready;
@@ -221,7 +233,13 @@ bool IntegratedRmlUi::frame(std::string& reason)
         return false;
     }
 #endif
-    if (!engine_ || !engine_->is_running() || !engine_->tick()) {
+    const bool ticked = engine_ && engine_->is_running() && engine_->tick();
+    if (engine_ && EngineTooling::host_quit_requested(*engine_)) {
+        last_interruption_ = Interruption::Cancelled;
+        reason = "integrated Engine cancelled by host quit (Escape/close)";
+        return false;
+    }
+    if (!ticked) {
         reason = "production Engine frame failed or was interrupted";
         return false;
     }
