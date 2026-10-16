@@ -67,7 +67,7 @@ target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRE
 target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
 # Native Room session remains independent of editor, CLI daemon, and runtime linkage.
-add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp source_authority.cpp yaml_transaction.cpp)
+add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp source_authority.cpp yaml_transaction.cpp)
 set_target_properties(noveltea_project_authoring_session PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(noveltea_project_authoring_session PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_session PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -184,6 +184,18 @@ if(BUILD_TESTING)
     target_include_directories(noveltea-interactable-inventory-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
     target_link_libraries(noveltea-interactable-inventory-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_interactable_inventory COMMAND noveltea-interactable-inventory-certify "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_executable(noveltea-verb-interaction-certify verb_interaction_certify.cpp)
+    target_include_directories(noveltea-verb-interaction-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_link_libraries(noveltea-verb-interaction-certify PRIVATE noveltea_project_authoring_session)
+    add_test(NAME native_authoring_verb_interaction COMMAND noveltea-verb-interaction-certify
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    if(NOVELTEA_AUTHORING_TEST_NODE)
+        add_test(NAME native_authoring_verb_interaction_differential
+            COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-verbs-interactions.mjs"
+                "$<TARGET_FILE:noveltea-verb-interaction-certify>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    endif()
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_interactable_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"

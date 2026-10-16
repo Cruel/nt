@@ -105,6 +105,8 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "property.local-value",
                                                    "trait.property",
                                                    "trait.definition",
+                                                   "verb.qualified-pattern",
+                                                   "verb.validate",
                                                    "workspace.trait-key",
                                                    "project.canonical-inventory",
                                                    "project.notice-path",
@@ -483,6 +485,84 @@ class Validator {
             if (value && value->is_string() && !safe_notice_path(value->as<std::string>()))
                 issue(errors, path, "semantic." + id,
                       "Attachment must be a portable Project-contained path.");
+        } else if (id == "verb.qualified-pattern") {
+            if (value && value->is_string()) {
+                const auto pattern = value->as<std::string>();
+                if (pattern.size() < 2 || pattern.back() != '*' ||
+                    pattern.find('*') != pattern.size() - 1)
+                    issue(errors, path, "semantic." + id,
+                          "Qualified subject patterns must contain exactly one trailing wildcard.");
+            }
+        } else if (id == "verb.validate") {
+            if (!value || !value->is_object())
+                return;
+            const auto& data = *value;
+            std::set<std::string> slot_ids;
+            const auto& slots = data.at("slots");
+            for (const auto& slot : slots.array_range())
+                if (!slot_ids.insert(slot.at("id").as<std::string>()).second) {
+                    issue(errors, path + "/slots", "semantic." + id,
+                          "Verb slot IDs must be unique.");
+                    break;
+                }
+            std::set<std::string> ordered;
+            const auto& order = data.at("bindingOrder");
+            bool valid_order = order.size() == slots.size();
+            for (const auto& entry : order.array_range()) {
+                const auto slot_id = entry.as<std::string>();
+                if (!ordered.insert(slot_id).second || !slot_ids.contains(slot_id))
+                    valid_order = false;
+            }
+            if (!valid_order)
+                issue(errors, path + "/bindingOrder", "semantic." + id,
+                      "Binding order must contain every Verb slot exactly once.");
+            std::set<std::string> offer_ids;
+            const auto& offers = data.at("offers");
+            for (std::size_t i = 0; i < offers.size(); ++i) {
+                const auto& offer = offers.at(i);
+                if (!offer_ids.insert(offer.at("id").as<std::string>()).second)
+                    issue(errors, path + "/offers", "semantic." + id,
+                          "Verb Offer IDs must be unique.");
+                if (!slot_ids.contains(offer.at("slotId").as<std::string>()))
+                    issue(errors, path + "/offers/" + std::to_string(i) + "/slotId",
+                          "semantic." + id, "Verb Offer slot must name a Verb slot.");
+            }
+            const auto validate_template = [&](const Json& text, const std::string& location,
+                                               std::string_view name) {
+                const auto& source = text.at("source");
+                if (source.at("kind") != "inline")
+                    return;
+                const auto contents = source.at("text").as<std::string>();
+                static const std::regex placeholder(R"(\{([^{}]*)\})");
+                static const std::regex slot_pattern(R"(^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$)");
+                std::string remainder;
+                std::size_t end = 0;
+                for (std::sregex_iterator it(contents.begin(), contents.end(), placeholder), last;
+                     it != last; ++it) {
+                    const auto& match = *it;
+                    remainder += contents.substr(end, match.position() - end);
+                    const auto name_id = match.str(1);
+                    if (!std::regex_match(name_id, slot_pattern) || !slot_ids.contains(name_id)) {
+                        issue(errors, location, "semantic." + id,
+                              std::string(name) + " placeholder '{" + name_id +
+                                  "}' must name a valid Verb slot ID.");
+                        return;
+                    }
+                    end = match.position() + match.length();
+                }
+                remainder += contents.substr(end);
+                if (remainder.find_first_of("{}") != std::string::npos)
+                    issue(errors, location, "semantic." + id,
+                          std::string(name) + " placeholders must use the form {slot-id}.");
+            };
+            validate_template(data.at("completedCommandText"),
+                              path + "/completedCommandText/source/text", "Completed-command");
+            for (std::size_t i = 0; i < slots.size(); ++i)
+                for (const auto* field : {"label", "prompt"})
+                    validate_template(slots.at(i).at(field),
+                                      path + "/slots/" + std::to_string(i) + "/" + field +
+                                          "/source/text",
+                                      "Slot text");
         } else if (id == "asset.validate") {
             if (!value || !value->is_object())
                 return;
@@ -1186,6 +1266,17 @@ ValidationResult validate_dialogue_source(std::string_view source_json)
 ValidationResult validate_scene_source(std::string_view source_json)
 {
     return validate_sparse_record_source(source_json, "scenes", "ScenesRecord", "scene");
+}
+
+ValidationResult validate_verb_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "verbs", "VerbsRecord", "verb");
+}
+
+ValidationResult validate_interaction_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "interactions", "InteractionsRecord",
+                                         "interaction");
 }
 
 ValidationResult validate_layout_source(std::string_view source_json,

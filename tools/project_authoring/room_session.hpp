@@ -208,6 +208,13 @@ private:
     std::map<std::string, std::string> shader_overlays_;
     std::map<std::string, ValidationResult> material_compiler_results_;
     std::uint64_t working_revision_ = 0;
+    // Full cross-record resolver analysis is immutable between Project edit
+    // generations and inspected-owner inventory changes.
+    mutable std::optional<ValidationResult> interaction_resolver_cache_;
+    mutable std::uint64_t interaction_resolver_revision_ = 0;
+    mutable std::size_t interaction_resolver_owner_count_ = 0;
+    mutable std::optional<std::vector<std::pair<std::string, std::string>>> interaction_sources_;
+    mutable std::vector<std::pair<std::string, std::string>> interaction_resolver_sources_;
 };
 
 } // namespace noveltea::authoring
