@@ -156304,6 +156304,28 @@
       "data.presentation.materialApplication": null,
       "data.presentation.visual": null
     },
+    "interactions": {
+      "data.rules": [],
+      "data.rules.*.guard": {
+        "kind": "always"
+      },
+      "data.rules.*.offer": null,
+      "data.rules.*.offer.primary": false,
+      "data.rules.*.offer.rank": 0,
+      "data.rules.*.priority": 0,
+      "data.rules.*.program": {
+        "completion": {
+          "kind": "return"
+        },
+        "instructions": [],
+        "outcome": "handled"
+      },
+      "data.rules.*.program.completion": {
+        "kind": "return"
+      },
+      "data.rules.*.program.instructions": [],
+      "data.rules.*.program.outcome": "handled"
+    },
     "layouts": {},
     "maps": {
       "data.connections": [],
@@ -156436,6 +156458,28 @@
       "data.events.*.waitForCompletion": false,
       "data.inputs": [],
       "data.outcomes": []
+    },
+    "verbs": {
+      "data.availability": {
+        "kind": "always"
+      },
+      "data.bindingOrder": [],
+      "data.defaultProgram": {
+        "completion": {
+          "kind": "return"
+        },
+        "instructions": [],
+        "outcome": "handled"
+      },
+      "data.defaultProgram.completion": {
+        "kind": "return"
+      },
+      "data.defaultProgram.instructions": [],
+      "data.defaultProgram.outcome": "handled",
+      "data.offers": [],
+      "data.offers.*.primary": false,
+      "data.offers.*.rank": 0,
+      "data.slots": []
     }
   }
 }

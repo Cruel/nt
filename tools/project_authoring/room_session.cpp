@@ -5,6 +5,7 @@
 #include "material_semantics.hpp"
 #include "interactable_inventory_semantics.hpp"
 #include "dialogue_scene_semantics.hpp"
+#include "verb_interaction_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -1030,6 +1031,32 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 state.diagnostics.push_back(std::move(diagnostic));
             }
         }
+        if (record.valid && (family == "verbs" || family == "interactions")) {
+            const auto exists = [&](std::string_view collection, std::string_view id) {
+                if (!is_id(id))
+                    return false;
+                if (collection == "interactableInstances") {
+                    const auto project = Json::parse(state.normalized_json);
+                    return project.contains("interactableInstances") &&
+                           project.at("interactableInstances").contains(id);
+                }
+                if (!record_contracts().contains(std::string(collection)))
+                    return false;
+                const auto key = std::string(collection) + "/" + std::string(id);
+                if (records_.contains(key))
+                    return true;
+                return std::filesystem::is_regular_file(
+                    root_ / "records" / std::string(collection) / (std::string(id) + ".yaml"));
+            };
+            const auto dependent = validate_verb_interaction_dependencies(
+                family, record.normalized_json, state.normalized_json, traits_json, resolve_record,
+                exists);
+            state.valid &= dependent.accepted;
+            for (auto diagnostic : dependent.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
         std::string effective_for_traits = record.normalized_json;
         if (record.valid && slash != std::string::npos &&
             (family == "rooms" || family == "characters" || family == "interactables" ||
@@ -1105,6 +1132,178 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 diagnostic.path = "/" + owner + diagnostic.path;
                 state.diagnostics.push_back(std::move(diagnostic));
             }
+        }
+    }
+    // The Manifest-owned fallback uses the same program rules as Verb and
+    // Interaction records, with Manifest-relative diagnostics.
+    if (!state.normalized_json.empty() && !traits_json.empty()) {
+        const auto exists = [&](std::string_view family, std::string_view id) {
+            if (!is_id(id) || !record_contracts().contains(std::string(family)))
+                return false;
+            const auto owner = std::string(family) + "/" + std::string(id);
+            return records_.contains(owner) ||
+                   std::filesystem::is_regular_file(root_ / "records" / std::string(family) /
+                                                    (std::string(id) + ".yaml"));
+        };
+        const auto fallback = validate_project_interaction_program(
+            state.normalized_json, traits_json, resolve_record, exists);
+        state.valid &= fallback.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), fallback.diagnostics.begin(),
+                                 fallback.diagnostics.end());
+    }
+    // An edited Verb can invalidate a Rule in a different (uninspected) source.
+    // Inspect the dependency closure without adding those sources to the editor's
+    // working-session owner list or publishing unrelated record snapshots.
+    const bool inspecting_resolver =
+        std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
+            return entry.first.starts_with("verbs/") || entry.first.starts_with("interactions/");
+        });
+    // A quantity, location, or presentation change does not alter the
+    // static subject/Feature lookup closure. Do not traverse every authored
+    // Interaction for those high-frequency Inventory edits.
+    bool changed_subjects = false;
+    if (manifest_dirty && !state.normalized_json.empty() && !state.baseline_json.empty()) {
+        const auto current = Json::parse(state.normalized_json).at("interactableInstances");
+        const auto baseline = Json::parse(state.baseline_json).at("interactableInstances");
+        changed_subjects = current.size() != baseline.size();
+        if (!changed_subjects)
+            for (const auto& entry : current.object_range()) {
+                if (!baseline.contains(entry.key()) ||
+                    entry.value().at("definition") != baseline.at(entry.key()).at("definition")) {
+                    changed_subjects = true;
+                    break;
+                }
+            }
+    }
+    const bool changed_features =
+        std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
+            if (entry.first != "traits" && !entry.first.starts_with("rooms/") &&
+                !entry.first.starts_with("interactables/"))
+                return false;
+            const auto record = entry.second->snapshot();
+            if (!record.dirty)
+                return false;
+            if (record.normalized_json.empty() || record.baseline_json.empty())
+                return true;
+            const auto before = Json::parse(record.baseline_json);
+            const auto after = Json::parse(record.normalized_json);
+            if (entry.first == "traits") {
+                if (before.size() != after.size())
+                    return true;
+                for (const auto& trait : after.object_range())
+                    if (!before.contains(trait.key()))
+                        return true;
+                return false;
+            }
+            const auto* old_features =
+                before.contains("data") && before.at("data").contains("features")
+                    ? &before.at("data").at("features")
+                    : nullptr;
+            const auto* new_features =
+                after.contains("data") && after.at("data").contains("features")
+                    ? &after.at("data").at("features")
+                    : nullptr;
+            if ((old_features == nullptr) != (new_features == nullptr))
+                return true;
+            if (!old_features)
+                return false;
+            const auto collect_ids = [](const Json& features) {
+                std::set<std::string> ids;
+                for (const auto& feature : features.array_range())
+                    ids.insert(feature.at("id").as<std::string>());
+                return ids;
+            };
+            return collect_ids(*old_features) != collect_ids(*new_features);
+        });
+    const bool changed_variable_types =
+        std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
+            if (!entry.first.starts_with("variables/"))
+                return false;
+            const auto record = entry.second->snapshot();
+            if (!record.dirty)
+                return false;
+            if (record.normalized_json.empty() || record.baseline_json.empty())
+                return true;
+            const auto prior_record = Json::parse(record.baseline_json);
+            const auto next_record = Json::parse(record.normalized_json);
+            const auto& before = prior_record.at("data");
+            const auto& after = next_record.at("data");
+            for (const auto* key : {"type", "nullable", "enumValues"})
+                if (before.contains(key) != after.contains(key) ||
+                    (before.contains(key) && before.at(key) != after.at(key)))
+                    return true;
+            return false;
+        });
+    const bool inspect_interactions =
+        changed_subjects || changed_features || changed_variable_types || inspecting_resolver;
+    if (inspect_interactions && !state.normalized_json.empty() && !traits_json.empty()) {
+        const auto exists = [&](std::string_view collection, std::string_view id) {
+            if (!is_id(id))
+                return false;
+            if (collection == "interactableInstances") {
+                const auto manifest = Json::parse(state.normalized_json);
+                return manifest.contains("interactableInstances") &&
+                       manifest.at("interactableInstances").contains(id);
+            }
+            if (!record_contracts().contains(std::string(collection)))
+                return false;
+            const auto owner = std::string(collection) + "/" + std::string(id);
+            return records_.contains(owner) ||
+                   std::filesystem::is_regular_file(root_ / "records" / std::string(collection) /
+                                                    (std::string(id) + ".yaml"));
+        };
+        if (!interaction_sources_) {
+            interaction_sources_.emplace();
+            const auto dir = root_ / "records" / "interactions";
+            if (std::filesystem::is_directory(dir))
+                for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+                    if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+                        continue;
+                    const auto id = entry.path().stem().string();
+                    if (!is_id(id))
+                        continue;
+                    if (const auto source = resolve_record("interactions", id))
+                        interaction_sources_->emplace_back(id, *source);
+                }
+            std::sort(interaction_sources_->begin(), interaction_sources_->end());
+        }
+        auto interactions = *interaction_sources_;
+        for (auto& [id, source] : interactions)
+            if (const auto edited = records_.find("interactions/" + id); edited != records_.end()) {
+                const auto snapshot = edited->second->snapshot();
+                if (snapshot.valid)
+                    source = snapshot.normalized_json;
+            }
+        const bool inspect_dependents =
+            changed_subjects || changed_features || changed_variable_types ||
+            std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
+                return entry.first.starts_with("verbs/") && entry.second->snapshot().dirty;
+            });
+        if (inspect_dependents)
+            for (const auto& [id, source] : interactions) {
+                if (records_.contains("interactions/" + id))
+                    continue;
+                const auto dependent = validate_verb_interaction_dependencies(
+                    "interactions", source, state.normalized_json, traits_json, resolve_record,
+                    exists);
+                state.valid &= dependent.accepted;
+                for (auto diagnostic : dependent.diagnostics) {
+                    diagnostic.path = "/interactions/" + id + diagnostic.path;
+                    state.diagnostics.push_back(std::move(diagnostic));
+                }
+            }
+        std::sort(interactions.begin(), interactions.end());
+        if (inspecting_resolver && state.valid) {
+            if (!interaction_resolver_cache_ || interaction_resolver_sources_ != interactions) {
+                interaction_resolver_cache_ = validate_interaction_resolver(interactions);
+                interaction_resolver_sources_ = interactions;
+                interaction_resolver_revision_ = working_revision_;
+                interaction_resolver_owner_count_ = records_.size();
+            }
+            state.valid &= interaction_resolver_cache_->accepted;
+            state.diagnostics.insert(state.diagnostics.end(),
+                                     interaction_resolver_cache_->diagnostics.begin(),
+                                     interaction_resolver_cache_->diagnostics.end());
         }
     }
     // Locale variants are separate tracked YAML sources; inspect their semantic
@@ -1196,6 +1395,17 @@ RoomSessionSnapshot ProjectSession::snapshot() const
 SourceObservation ProjectSession::observe_sources()
 {
     auto observed = source_authority_->observe();
+    const auto changed_interactions = [](const std::vector<std::string>& paths) {
+        return std::any_of(paths.begin(), paths.end(), [](const auto& path) {
+            return path.starts_with("records/interactions/");
+        });
+    };
+    if (!observed.authoritative || changed_interactions(observed.delta.changed) ||
+        changed_interactions(observed.delta.added) ||
+        changed_interactions(observed.delta.removed)) {
+        interaction_sources_.reset();
+        interaction_resolver_cache_.reset();
+    }
     if (!observed.authoritative)
         material_compiler_results_.clear();
     else {
@@ -1386,6 +1596,10 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
     if (response.accepted && !response.affected_records.empty()) {
         if (owner.starts_with("materials/"))
             material_compiler_results_.clear();
+        if (owner.starts_with("interactions/")) {
+            interaction_sources_.reset();
+            interaction_resolver_cache_.reset();
+        }
         ++working_revision_;
         response.affected_records = {std::string(owner)};
     }
@@ -1546,6 +1760,10 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             const bool all_paths =
                 filter == paths.end() || (filter->second.size() == 1 && filter->second[0] == "/");
             for (const auto& diagnostic : current.diagnostics) {
+                // Informational and uncertain resolver findings remain visible,
+                // but only errors can invalidate a scoped Save.
+                if (diagnostic.severity != "error")
+                    continue;
                 const bool invalid_selected_record =
                     diagnostic.path.starts_with("/" + owner + "/") &&
                     (all_paths || std::any_of(filter->second.begin(), filter->second.end(),
@@ -1560,6 +1778,14 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                     !variable_id.empty() &&
                     diagnostic.code == "authoring.condition.variable-type-mismatch" &&
                     diagnostic.message.find("'" + variable_id + "'") != std::string::npos;
+                const bool verb_dependency =
+                    owner.starts_with("verbs/") && diagnostic.path.starts_with("/interactions/") &&
+                    (diagnostic.code == "authoring.interaction.slots" ||
+                     diagnostic.code == "authoring.interaction.offer-slot" ||
+                     diagnostic.code == "authoring.interaction.verb-missing" ||
+                     diagnostic.code == "authoring.interaction.selector-disjoint") &&
+                    diagnostic.message.find("'" + owner.substr(std::string("verbs/").size()) +
+                                            "'") != std::string::npos;
                 const bool scene_input_dependency =
                     owner.starts_with("scenes/") && diagnostic.code.starts_with("scene.input.") &&
                     diagnostic.message.find("Scene '" +
@@ -1573,6 +1799,14 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                                               [&](const std::string& path) {
                                                   return paths_overlap(path, "/entrypoint");
                                               }));
+                const bool interaction_fallback_dependency =
+                    owner == "project" &&
+                    diagnostic.path.starts_with("/undefinedInteractionProgram") &&
+                    (all_paths ||
+                     std::any_of(filter->second.begin(), filter->second.end(),
+                                 [&](const std::string& path) {
+                                     return paths_overlap(path, "/undefinedInteractionProgram");
+                                 }));
                 const bool instance_dependency =
                     owner == "project" && diagnostic.path.starts_with("/interactableInstances/") &&
                     (diagnostic.code.starts_with("authoring.trait.") ||
@@ -1630,8 +1864,8 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                     }
                 }
                 if (invalid_selected_record || trait_dependency || variable_dependency ||
-                    scene_input_dependency || entrypoint_dependency || instance_dependency ||
-                    owner_dependency)
+                    verb_dependency || scene_input_dependency || entrypoint_dependency ||
+                    interaction_fallback_dependency || instance_dependency || owner_dependency)
                     throw std::runtime_error("Cannot save invalid dependent Project record: " +
                                              diagnostic.path);
             }
@@ -1967,6 +2201,14 @@ RoomSessionSnapshot RoomSession::snapshot() const
         if (!state.valid)
             state.normalized_json.clear();
     }
+    if (result.accepted && (record_family_ == "verbs" || record_family_ == "interactions")) {
+        const auto local = validate_verb_interaction_local(record_family_, result.effective_json);
+        state.valid &= local.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), local.diagnostics.begin(),
+                                 local.diagnostics.end());
+        if (!state.valid)
+            state.normalized_json.clear();
+    }
     if (result.accepted && !is_project_ && !is_editor_ && !is_traits_ &&
         validation_contract_.empty()) {
         const auto local =
@@ -2002,6 +2244,10 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_dialogue_source(source_json);
     if (record_family_ == "scenes")
         return validate_scene_source(source_json);
+    if (record_family_ == "verbs")
+        return validate_verb_source(source_json);
+    if (record_family_ == "interactions")
+        return validate_interaction_source(source_json);
     if (record_family_ == "characters")
         return validate_character_source(source_json);
     if (record_family_ == "archetypes")
