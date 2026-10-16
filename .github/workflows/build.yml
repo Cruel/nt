@@ -783,6 +783,14 @@ jobs:
         shell: pwsh
         run: ctest --test-dir build/windows-release --output-on-failure -L early-windows
 
+      - name: Build Windows native Project transaction certifications
+        shell: pwsh
+        run: cmake --build --preset windows-release --target noveltea-yaml-transaction-certify noveltea-room-session-certify noveltea-project-session-certify
+
+      - name: Certify Windows native Project transaction commit and recovery
+        shell: pwsh
+        run: ctest --test-dir build/windows-release --output-on-failure -R '^native_authoring_(yaml_transaction|room_session|project_session)$'
+
       - name: Build shipped Windows targets
         shell: pwsh
         run: cmake --build --preset windows-release --target noveltea-player noveltea-tooling-bridge

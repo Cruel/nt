@@ -248,11 +248,39 @@ SourceAuthority::Capture SourceAuthority::capture() const
             } else if (entry.is_regular_file() && is_source_extension(entry.path())) {
                 add(record);
                 if (relative == "records/assets" && entry.path().extension() == ".yaml") {
-                    const auto decoded = open_yaml_source(read(record));
-                    if (!decoded.accepted)
-                        throw std::runtime_error("Cannot discover Asset sources in " + record +
-                                                 ": " + decoded.error);
-                    referenced_paths(Json::parse(decoded.source_json), assets);
+                    // A malformed Asset YAML is attributable to this exact physical owner.
+                    // Keep previously verified references watched until it is repaired, but
+                    // do not treat its invalid source as an admitted semantic generation.
+                    const auto bytes = read(record);
+                    if (exact_source_revision(bytes) != result.revisions.at(record))
+                        throw std::runtime_error(
+                            "Asset source changed during physical observation: " + record);
+                    const auto decoded = open_yaml_source(bytes);
+                    std::string error;
+                    if (!decoded.accepted) {
+                        error = decoded.error;
+                    } else {
+                        try {
+                            const auto value = Json::parse(decoded.source_json);
+                            if (!value.is_object() || !value.contains("id") ||
+                                !value.at("id").is_string() ||
+                                value.at("id").as<std::string>() != entry.path().stem().string()) {
+                                error = "Asset record ID must match its physical filename.";
+                            } else {
+                                std::set<std::string> references;
+                                referenced_paths(value, references);
+                                result.asset_references.emplace(record, std::move(references));
+                            }
+                        } catch (const jsoncons::json_exception& e) {
+                            error = e.what();
+                        }
+                    }
+                    if (!error.empty()) {
+                        result.invalid_sources.push_back({record, std::move(error)});
+                        if (const auto known = asset_references_.find(record);
+                            known != asset_references_.end())
+                            result.asset_references.emplace(record, known->second);
+                    }
                 }
             }
         });
@@ -297,6 +325,10 @@ SourceAuthority::Capture SourceAuthority::capture() const
                         assets.insert(notice.at("path").as<std::string>());
         }
     }
+    for (const auto& [record, paths] : result.asset_references) {
+        (void)record;
+        assets.insert(paths.begin(), paths.end());
+    }
     for (const auto& path : assets)
         add(path);
     return result;
@@ -313,6 +345,12 @@ bool SourceAuthority::initialize(std::string& error)
     try {
         auto captured = capture();
         baseline_ = std::move(captured.revisions);
+        asset_references_ = std::move(captured.asset_references);
+        invalid_sources_ = std::move(captured.invalid_sources);
+        if (!invalid_sources_.empty()) {
+            error = "Project contains an invalid Asset source: " + invalid_sources_.front().path;
+            return false;
+        }
         initialized_ = true;
         uncertain_ = false;
         arm(captured.directories);
@@ -356,6 +394,15 @@ void SourceAuthority::hint(std::string_view relative_path)
 }
 
 void SourceAuthority::coverage_lost() { uncertain_ = true; }
+
+std::vector<std::string> SourceAuthority::invalid_source_paths() const
+{
+    std::vector<std::string> paths;
+    paths.reserve(invalid_sources_.size());
+    for (const auto& source : invalid_sources_)
+        paths.push_back(source.path);
+    return paths;
+}
 
 SourceObservation SourceAuthority::observe()
 {
@@ -403,11 +450,15 @@ SourceObservation SourceAuthority::observe()
         for (const auto& [path, revision] : baseline_)
             if (!captured.revisions.contains(path) && revision != "absent")
                 observation.delta.removed.push_back(path);
-        observation.unchanged = observation.delta.added.empty() &&
+        observation.invalid_sources = std::move(captured.invalid_sources);
+        observation.scoped_authority = true;
+        observation.authoritative = observation.invalid_sources.empty();
+        observation.unchanged = observation.authoritative && observation.delta.added.empty() &&
                                 observation.delta.changed.empty() &&
                                 observation.delta.removed.empty();
-        observation.authoritative = true;
         baseline_ = std::move(captured.revisions);
+        asset_references_ = std::move(captured.asset_references);
+        invalid_sources_ = observation.invalid_sources;
         if (uncertain_ && !native_->reset())
             observation.full_rescan = true;
         uncertain_ = false;

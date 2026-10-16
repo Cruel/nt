@@ -238,14 +238,48 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
                 "Changing an Asset reference rebuilds dynamic source membership");
         write(asset_record, "id: [\n");
         auto unprovable = project->observe_sources();
-        require(!unprovable.authoritative && !unprovable.unchanged && unprovable.full_rescan &&
-                    !unprovable.error.empty(),
-                "Invalid external Asset source cannot silently certify a stale snapshot");
+        require(!unprovable.authoritative && unprovable.scoped_authority &&
+                    unprovable.error.empty() && !unprovable.unchanged &&
+                    !unprovable.invalid_sources.empty() &&
+                    unprovable.invalid_sources.front().path == "records/assets/watch-asset.yaml" &&
+                    contains(unprovable.delta.changed, "records/assets/watch-asset.yaml") &&
+                    !contains(unprovable.delta.removed, "external/new.bin"),
+                "Known invalid Asset is an exact observed source, not globally proven valid");
+        write(asset_source.parent_path() / "new.bin", "new physical bytes\n");
+        const auto referenced_during_invalid = project->observe_sources();
+        require(referenced_during_invalid.scoped_authority &&
+                    contains(referenced_during_invalid.delta.changed, "external/new.bin"),
+                "An invalid Asset retains previous verified binary references for observation");
+        const auto source_name_before = project->snapshot();
+        const auto independent_project_edit = project->patch(
+            source_name_before.working_revision,
+            {{RoomPatch::Operation::Replace, "/project/name", "\"Saved With Invalid Asset\""}});
+        require(independent_project_edit.accepted,
+                "Unrelated manifest edit remains possible during attributable Asset invalidity");
+        const auto scoped_save = project->save(source_name_before.disk_source_revision);
+        require(scoped_save.accepted && !scoped_save.snapshot.dirty &&
+                    read(file).find("Saved With Invalid Asset") != std::string::npos &&
+                    read(asset_record) == "id: [\n",
+                "Attributable invalid Asset must not block independent scoped manifest Save");
+        const auto while_invalid = project->observe_sources();
+        require(while_invalid.scoped_authority && !while_invalid.authoritative &&
+                    !while_invalid.invalid_sources.empty() && !while_invalid.unchanged,
+                "Scoped invalidity remains visible after unrelated Save and a quiet watch pass");
+        const auto good_project_source = read(file);
+        write(file, "settings: [\n");
+        const auto globally_uncertain = project->observe_sources();
+        require(!globally_uncertain.authoritative && !globally_uncertain.scoped_authority &&
+                    globally_uncertain.full_rescan &&
+                    !project->save(scoped_save.snapshot.disk_source_revision).accepted,
+                "Malformed Project manifest remains a global source-authority failure");
+        write(file, good_project_source);
+        require(project->observe_sources().scoped_authority,
+                "Restored Project manifest permits scoped observation again");
         std::filesystem::remove(asset_record);
         auto recovered = project->observe_sources();
-        require(recovered.authoritative && recovered.full_rescan &&
+        require(recovered.authoritative && recovered.invalid_sources.empty() &&
                     contains(recovered.delta.removed, "records/assets/watch-asset.yaml"),
-                "Invalid source repair performs conservative authoritative recovery");
+                "Repair clears scoped invalidity and restores complete authority");
         std::filesystem::remove_all(asset_source.parent_path());
         require(project->observe_sources().unchanged,
                 "Removed unreferenced binary subtree is ignored");
@@ -272,18 +306,19 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
             "Removed source directory cannot retain a stale watched child");
 
         project->source_watch_coverage_lost();
+        const auto before_lost_watch = project->snapshot();
         const auto observer_patch =
-            project->patch(saved.snapshot.working_revision,
+            project->patch(before_lost_watch.working_revision,
                            {{RoomPatch::Operation::Replace, "/project/name", "\"Own Write\""}});
         require(observer_patch.accepted &&
-                    !project->save(saved.snapshot.disk_source_revision).accepted,
+                    !project->save(before_lost_watch.disk_source_revision).accepted,
                 "Uncertain watcher authority blocks a Save without losing dirty working values");
         auto resumed = project->observe_sources();
         require(resumed.authoritative && resumed.full_rescan && resumed.unchanged,
                 "Lost watcher or resume forces a complete revision proof without false deltas");
 
         require(project->snapshot().dirty, "Blocked Save retains dirty working source");
-        const auto own_saved = project->save(saved.snapshot.disk_source_revision);
+        const auto own_saved = project->save(before_lost_watch.disk_source_revision);
         require(own_saved.accepted && project->observe_sources().unchanged,
                 "Own-write matching exact source revision is a watcher no-op");
         require(contains(other_session->observe_sources().delta.changed, "project.yaml"),

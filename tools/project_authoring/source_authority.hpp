@@ -19,13 +19,22 @@ struct SourceDelta {
     std::vector<std::string> removed;
 };
 
+struct InvalidSource {
+    std::string path; // safely attributable physical YAML owner
+    std::string error;
+};
+
 struct SourceObservation {
     // False means no cache or admitted snapshot may be certified current.
     bool authoritative = false;
+    // The physical inventory was verified, but known invalid owned sources
+    // prevent whole-Project admission. Unrelated targets retain scoped proof.
+    bool scoped_authority = false;
     bool unchanged = false;
     bool full_rescan = false;
     std::string error;
     SourceDelta delta;
+    std::vector<InvalidSource> invalid_sources;
     std::vector<std::string> watch_paths;
 };
 
@@ -50,12 +59,15 @@ public:
     void hint(std::string_view relative_path);
     void coverage_lost(); // watcher errors, overflow, resume, or a replaced directory
     bool uncertain() const { return uncertain_; }
+    std::vector<std::string> invalid_source_paths() const;
 
 private:
     struct NativeWatch;
     struct Capture {
         std::map<std::string, std::string> revisions;
         std::set<std::string> directories;
+        std::map<std::string, std::set<std::string>> asset_references;
+        std::vector<InvalidSource> invalid_sources;
     };
     Capture capture() const;
     void arm(const std::set<std::string>& directories);
@@ -63,6 +75,8 @@ private:
     std::filesystem::path root_;
     std::filesystem::path canonical_root_;
     std::map<std::string, std::string> baseline_;
+    std::map<std::string, std::set<std::string>> asset_references_;
+    std::vector<InvalidSource> invalid_sources_;
     std::set<std::string> hinted_paths_;
     std::unique_ptr<NativeWatch> native_;
     bool initialized_ = false;

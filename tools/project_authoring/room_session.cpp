@@ -588,7 +588,8 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
     }
 }
 
-RoomSessionResult RoomSession::save(std::string_view expected_disk_revision)
+RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
+                                    const std::vector<std::string>& invalid_source_paths)
 {
     if (expected_disk_revision != disk_revision_)
         return result(false, "Stale disk source revision.");
@@ -618,6 +619,7 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision)
         const auto project_root =
             is_project_ ? path_.parent_path() : path_.parent_path().parent_path().parent_path();
         YamlTransactionService writer(project_root);
+        writer.set_invalid_sources(invalid_source_paths, false);
         YamlTransactionTarget target{path_.lexically_relative(project_root).generic_string(),
                                      disk_revision_, disk_source_, std::move(edits)};
         const auto preflight = writer.prepare({target}, TransactionDecision::UseEditDecisions);

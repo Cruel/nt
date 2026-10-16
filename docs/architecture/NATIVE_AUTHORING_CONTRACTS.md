@@ -113,6 +113,15 @@ overflow/lost coverage, system resume and directory replacement trigger
 conservative rescan. A failed or uncertain scan retains the previous authority
 baseline and cannot declare the old snapshot current.
 
+Known, malformed `records/assets/<id>.yaml` files are attributed to their
+physical Asset owner rather than promoting an otherwise provable source tree to
+global watcher uncertainty. The observer still hashes those exact invalid bytes
+and retains their last verified Asset source associations for watcher coverage.
+It reports `scoped_authority` and per-path invalid-source errors but does not
+claim full-Project `authoritative` or `unchanged` status while such errors exist.
+Structural/discovery failures without a safe owner still invalidate global
+authority; subsequent repair restores complete proof.
+
 This ticket publishes **physical path deltas only**. Reconciliation of those
 verified changes into the dirty native working Project, multi-file transaction
 coordination and CLI/editor production cutover remain separate follow-on work.
@@ -151,7 +160,11 @@ unknown concurrent revision remain in place for explicit intervention.
 Callers can attribute invalid sources to their affected save targets or report
 unattributable structural uncertainty to fail all writes closed. The Project
 manifest session also blocks Save while its owned watcher authority is
-uncertain. Normal Save performs neither a Project-wide open nor hashing of
+uncertain, but passes attributable invalid-source paths to the transaction
+writer so independent manifest edits remain savable and affected targets fail
+closed. Windows durability flush handles require write access; the Windows CI
+native authoring certification now exercises grouped commits and recovery.
+Normal Save performs neither a Project-wide open nor hashing of
 unrelated binary Assets. This is certification-only and does not cut over
 the production editor/CLI transaction or conflict-resolution code.
 
