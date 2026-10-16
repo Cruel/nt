@@ -14,14 +14,17 @@ interface NativeBinding {
   snapshot(handle: unknown): string;
   inspect(handle: unknown, owner: string): string;
   reconcile(handle: unknown, owner: string): string;
-  useDisk(handle: unknown, revision: number, owner: string): string;
+  useDisk(handle: unknown, revision: number, owner: string, paths?: string): string;
   saveOwners(
     handle: unknown,
     revision: number,
     owners: string,
     keepMine: boolean,
     comments: string,
+    paths?: string,
   ): string;
+  restoreConflicts(handle: unknown, revision: number, conflicts: string): string;
+  useDiskOwners(handle: unknown, revision: number, paths: string): string;
   observe(handle: unknown): string;
   hint(handle: unknown, path: string): void;
   coverageLost(handle: unknown): void;
@@ -156,7 +159,16 @@ parent.on('message', (raw: unknown) => {
           type: 'response',
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
-            JSON.parse(binding.useDisk(handle, command.expectedRevision, command.owner)),
+            JSON.parse(
+              command.paths
+                ? binding.useDisk(
+                    handle,
+                    command.expectedRevision,
+                    command.owner,
+                    JSON.stringify(command.paths),
+                  )
+                : binding.useDisk(handle, command.expectedRevision, command.owner),
+            ),
           ),
         };
         break;
@@ -173,6 +185,39 @@ parent.on('message', (raw: unknown) => {
                 JSON.stringify(command.owners),
                 command.keepMine,
                 command.comments,
+                ...(command.pathsByOwner ? [JSON.stringify(command.pathsByOwner)] : []),
+              ),
+            ),
+          ),
+        };
+        break;
+      case 'restoreConflicts':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(
+              binding.restoreConflicts(
+                handle,
+                command.expectedRevision,
+                JSON.stringify(command.conflicts),
+              ),
+            ),
+          ),
+        };
+        break;
+      case 'useDiskOwners':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(
+              binding.useDiskOwners(
+                handle,
+                command.expectedRevision,
+                JSON.stringify(command.pathsByOwner),
               ),
             ),
           ),

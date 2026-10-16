@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
+import type { JsonValue } from '../project/json-value';
 
 const addon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 const roomId = 'room-lifecycle-roundtrip';
@@ -313,5 +314,218 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const persisted = await readFile(editorPath, 'utf8');
     expect(persisted).toContain('featured');
     expect(persisted).toContain(roomId);
+  }, 45_000);
+
+  it('restores unresolved conflicts across worker restart so ordinary Save remains blocked', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const baseline = await readFile(roomPath, 'utf8');
+    await working.applyAction(
+      [{ op: 'replace', path: labelPath, value: 'Mine' }],
+      [{ op: 'replace', path: labelPath, value: 'Lifecycle Round Trip' }],
+    );
+    await writeFile(roomPath, baseline.replace('label: Lifecycle Round Trip', 'label: Theirs'));
+    expect(
+      (await working.reconcile(owner)).snapshot.recordSnapshots?.[owner]?.conflictingPaths,
+    ).toEqual(['/label']);
+    bridge.close();
+    const replayed = await working.reopenAndReplay('native-reconcile-test');
+    expect(replayed.recordSnapshots?.[owner]?.conflictingPaths).toEqual(['/label']);
+    const rejected = await working.saveOwners([owner]);
+    expect(rejected).toMatchObject({
+      accepted: false,
+      error: expect.stringContaining('Use Disk or Keep Mine'),
+    });
+    expect(await readFile(roomPath, 'utf8')).toContain('label: Theirs');
+    const accepted = await working.saveOwners([owner], { keepMine: true });
+    if (!accepted.accepted) throw new Error(accepted.error);
+    expect(await readFile(roomPath, 'utf8')).toContain('label: Mine');
+  }, 45_000);
+
+  it('invalidates an ancestor undo/redo action after merging an external descendant', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const source = working.snapshot()?.recordSnapshots?.[owner]?.source;
+    if (!source) throw new Error('No initial Room source.');
+    const data = (source as { data: Record<string, JsonValue> }).data;
+    await working.applyAction(
+      [
+        {
+          op: 'replace',
+          path: `/rooms/${roomId}/data`,
+          value: {
+            ...data,
+            description: { source: { kind: 'inline', text: 'Mine' } },
+          },
+        },
+      ],
+      [{ op: 'replace', path: `/rooms/${roomId}/data`, value: data }],
+    );
+    expect(working.historyCursor()).toBe(1);
+    const baseline = await readFile(roomPath, 'utf8');
+    await writeFile(
+      roomPath,
+      baseline.replace(
+        'displayName: Lifecycle Round Trip Destination',
+        'displayName: External Display',
+      ),
+    );
+    const merged = await working.reconcile(owner);
+    expect(merged.snapshot.recordSnapshots?.[owner]?.source).toMatchObject({
+      data: { displayName: 'External Display', description: { source: { text: 'Mine' } } },
+    });
+    expect(working.historyCursor()).toBe(0);
+    await expect(working.undo()).rejects.toThrow('No native Project command to undo');
+    await expect(working.redo()).rejects.toThrow('No native Project command to redo');
+  }, 45_000);
+
+  it('projects normalized default fields into sparse source and omits them on inverse', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const markup = `/rooms/${roomId}/data/description/markup`;
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      data: { description: { source: { kind: 'inline' } } },
+    });
+    const changed = await working.applyAction(
+      [{ op: 'replace', path: markup, value: 'plain' }],
+      [{ op: 'replace', path: markup, value: 'active-text' }],
+    );
+    if (!changed.accepted) throw new Error(changed.error);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      data: { description: { markup: 'plain' } },
+    });
+    const undone = await working.undo();
+    if (!undone.accepted) throw new Error(undone.error);
+    const undoneSource = working.snapshot()?.recordSnapshots?.[owner]?.source;
+    if (!undoneSource) throw new Error('Missing Room after inverse projection.');
+    const description = (
+      undoneSource as {
+        data: { description: Record<string, unknown> };
+      }
+    ).data.description;
+    expect(description).not.toHaveProperty('markup');
+    expect(working.snapshot()?.dirty).toBe(false);
+  }, 45_000);
+
+  it('projects expanded normalized references to sparse YAML IDs including nested editor edits', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const pathToAsset = `/rooms/${roomId}/data/background/asset`;
+    const reference = (id: string) => ({ $ref: { collection: 'assets', id } });
+    const changed = await working.applyAction(
+      [{ op: 'replace', path: pathToAsset, value: reference('pilot-guide') }],
+      [{ op: 'replace', path: pathToAsset, value: reference('pilot-room-backdrop') }],
+    );
+    if (!changed.accepted) throw new Error(changed.error);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      data: { background: { asset: 'pilot-guide' } },
+    });
+    expect((await working.undo()).accepted).toBe(true);
+    expect(working.snapshot()?.dirty).toBe(false);
+    const nested = await working.applyAction(
+      [{ op: 'replace', path: `${pathToAsset}/$ref/id`, value: 'pilot-guide' }],
+      [{ op: 'replace', path: `${pathToAsset}/$ref/id`, value: 'pilot-room-backdrop' }],
+    );
+    if (!nested.accepted) throw new Error(nested.error);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      data: { background: { asset: 'pilot-guide' } },
+    });
+    expect((await working.undo()).accepted).toBe(true);
+    expect(working.snapshot()?.dirty).toBe(false);
+  }, 45_000);
+
+  it('saves and discards one logical Room unit without affecting unrelated shared editor metadata', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    await working.inspectRecord('editor');
+    await working.applyAction(
+      [
+        { op: 'replace', path: labelPath, value: 'Room Unit' },
+        {
+          op: 'add',
+          path: '/editor/recordMetadata/rooms',
+          value: {
+            [roomId]: { tags: [] },
+          },
+        },
+        {
+          op: 'add',
+          path: '/editor/recordMetadata/characters',
+          value: {
+            unrelated: { tags: [] },
+          },
+        },
+      ],
+      [],
+    );
+    const saved = await working.saveUnit(`record:rooms:${roomId}`);
+    if (!saved.accepted) throw new Error(saved.error);
+    expect(await readFile(roomPath, 'utf8')).toContain('label: "Room Unit"');
+    const editorSaved = await readFile(path.join(root, 'editor.yaml'), 'utf8');
+    expect(editorSaved).toContain(roomId);
+    expect(editorSaved).not.toContain('unrelated');
+    expect(working.snapshot()?.recordSnapshots?.editor?.dirty).toBe(true);
+    const later = await working.applyAction(
+      [
+        { op: 'replace', path: labelPath, value: 'Unsaved Room label' },
+        { op: 'add', path: `/editor/recordMetadata/rooms/${roomId}/color`, value: '#123456' },
+      ],
+      [],
+    );
+    if (!later.accepted) throw new Error(later.error);
+    const discard = await working.useDiskUnit(`record:rooms:${roomId}`);
+    if (!discard.accepted) throw new Error(discard.error);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+      label: 'Room Unit',
+    });
+    expect(working.snapshot()?.recordSnapshots?.editor?.source).toMatchObject({
+      recordMetadata: {
+        rooms: { [roomId]: { tags: [] } },
+        characters: { unrelated: { tags: [] } },
+      },
+    });
+    const editorSource = working.snapshot()?.recordSnapshots?.editor?.source;
+    if (!editorSource) throw new Error('Missing editor metadata after logical Use Disk.');
+    const roomMetadata = (
+      editorSource as {
+        recordMetadata: { rooms: Record<string, Record<string, unknown>> };
+      }
+    ).recordMetadata.rooms[roomId];
+    expect(roomMetadata).not.toHaveProperty('color');
+    expect(working.snapshot()?.recordSnapshots?.editor?.dirty).toBe(true);
+  }, 45_000);
+
+  it('lazily admits a Room save unit metadata owner when only the Room has been edited', async () => {
+    const { root, roomPath, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    expect(working.snapshot()?.recordSnapshots?.editor).toBeUndefined();
+    const edited = await working.applyAction(
+      [{ op: 'replace', path: labelPath, value: 'Room only' }],
+      [{ op: 'replace', path: labelPath, value: 'Lifecycle Round Trip' }],
+    );
+    expect(edited.accepted).toBe(true);
+    const saved = await working.saveUnit(`record:rooms:${roomId}`);
+    if (!saved.accepted) throw new Error(saved.error);
+    expect(working.snapshot()?.recordSnapshots?.editor?.dirty).toBe(false);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(false);
+    expect(await readFile(roomPath, 'utf8')).toContain('Room only');
   }, 45_000);
 });

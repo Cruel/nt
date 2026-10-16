@@ -63,6 +63,33 @@ function patchOwner(path: string): string {
   return match && recordFamilies.has(match[1]!) ? `${match[1]}/${match[2]}` : 'project';
 }
 
+function overlaps(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+function ownerPath(owner: string, relative: string): string {
+  if (relative === '/') return owner === 'project' ? '/' : `/${owner}`;
+  return owner === 'project' ? relative : `/${owner}${relative}`;
+}
+
+function logicalSaveUnitPaths(saveUnitId: string): Record<string, string[]> {
+  const match = /^record:([a-z]+):([a-z][a-z0-9-]*)$/.exec(saveUnitId);
+  if (match) {
+    const [, collection, id] = match;
+    return {
+      [`${collection}/${id}`]: ['/'],
+      editor: [`/recordMetadata/${collection}/${id}`],
+    };
+  }
+  if (saveUnitId === 'project:chapters') return { editor: ['/chapters'] };
+  if (saveUnitId === 'project:tags') return { editor: ['/tags'] };
+  if (saveUnitId === 'project:settings')
+    return {
+      project: ['/project', '/settings', '/bootstrapModule', '/entrypoint', '/prefetchHints'],
+    };
+  throw new Error(`Unsupported native logical Save unit: ${saveUnitId}`);
+}
+
 /**
  * Certification-only mirror of existing editor command patches and undo/redo.
  * The production command bus remains authoritative until atomic Project cutover.
@@ -135,8 +162,18 @@ export class NativeAuthoringWorkingProject {
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a reconciliation result.');
       if (result.accepted) {
+        const prior = this.view;
         const merged = this.mergeSnapshot(result.snapshot);
         this.view = merged;
+        const previous = owner === 'project' ? prior : prior?.recordSnapshots?.[owner];
+        const current = owner === 'project' ? merged : merged.recordSnapshots?.[owner];
+        if (previous?.baseline !== undefined && current?.baseline !== undefined) {
+          const changed = diffJsonDocuments(
+            previous.baseline as JsonValue,
+            current.baseline as JsonValue,
+          ).map((patch) => ownerPath(owner, patch.path));
+          if (changed.length) this.invalidateHistoryPaths(changed);
+        }
         this.checkpointDirtyWorkingState();
         return { ...result, snapshot: merged };
       }
@@ -181,7 +218,11 @@ export class NativeAuthoringWorkingProject {
   /** Scoped native Save: an exact-revision multi-owner YAML transaction. */
   async saveOwners(
     owners: readonly string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
+    options: {
+      keepMine?: boolean;
+      comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
+      pathsByOwner?: Record<string, string[]>;
+    } = {},
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
@@ -191,6 +232,7 @@ export class NativeAuthoringWorkingProject {
         expectedRevision: this.view.workingRevision,
         keepMine: options.keepMine ?? false,
         comments: options.comments ?? 'keep',
+        ...(options.pathsByOwner ? { pathsByOwner: options.pathsByOwner } : {}),
       });
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a scoped Save result.');
@@ -199,6 +241,52 @@ export class NativeAuthoringWorkingProject {
         this.view = merged;
         this.checkpointDirtyWorkingState();
         return { ...result, snapshot: merged };
+      }
+      return result;
+    });
+  }
+
+  async saveUnit(
+    saveUnitId: string,
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
+  ): Promise<PatchResult> {
+    const pathsByOwner = logicalSaveUnitPaths(saveUnitId);
+    for (const owner of Object.keys(pathsByOwner))
+      if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
+        const inspected = await this.inspectRecord(owner);
+        if (!inspected.accepted)
+          throw new Error(`Native Save unit owner ${owner} is unavailable: ${inspected.error}`);
+      }
+    return this.saveOwners(Object.keys(pathsByOwner), { ...options, pathsByOwner });
+  }
+
+  async useDiskUnit(saveUnitId: string): Promise<PatchResult> {
+    const pathsByOwner = logicalSaveUnitPaths(saveUnitId);
+    for (const owner of Object.keys(pathsByOwner))
+      if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
+        const inspected = await this.inspectRecord(owner);
+        if (!inspected.accepted)
+          throw new Error(`Native Use Disk unit owner ${owner} is unavailable: ${inspected.error}`);
+      }
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const result = await this.bridge.request({
+        operation: 'useDiskOwners',
+        expectedRevision: this.view.workingRevision,
+        pathsByOwner,
+      });
+      if (!result || !('accepted' in result))
+        throw new Error('Native Project did not return a logical Use Disk result.');
+      if (result.accepted) {
+        this.view = this.mergeSnapshot(result.snapshot);
+        const paths = Object.entries(pathsByOwner).flatMap(([owner, fields]) =>
+          fields.map((field) => ownerPath(owner, field)),
+        );
+        this.invalidateHistoryPaths(paths);
+        for (const path of this.pendingFields.keys())
+          if (paths.some((selected) => overlaps(path, selected))) this.pendingFields.delete(path);
+        this.checkpointDirtyWorkingState();
+        return { ...result, snapshot: this.view };
       }
       return result;
     });
@@ -249,6 +337,12 @@ export class NativeAuthoringWorkingProject {
       // have a known semantic effect. Every replayed owner is pinned to the
       // original exact source identity, not the worker's new revision zero.
       const batches = [...this.retained];
+      const conflicts: Record<string, string[]> = {};
+      for (const [owner, source] of [
+        ...Object.entries(this.view?.recordSnapshots ?? {}),
+        ...(this.view ? [['project', this.view] as const] : []),
+      ])
+        if (source.conflictingPaths?.length) conflicts[owner] = [...source.conflictingPaths];
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
       try {
@@ -256,6 +350,18 @@ export class NativeAuthoringWorkingProject {
           const result = await this.requestPatch(batch.patches, batch.diskPreconditions);
           if (!result.accepted) throw new Error(`Native Project replay conflict: ${result.error}`);
           this.view = this.mergeSnapshot(result.snapshot);
+        }
+        if (Object.keys(conflicts).length) {
+          const restored = await this.bridge.request({
+            operation: 'restoreConflicts',
+            expectedRevision: this.view.workingRevision,
+            conflicts,
+          });
+          if (!restored || !('accepted' in restored) || !restored.accepted)
+            throw new Error(
+              `Native Project conflict recovery failed: ${restored && 'error' in restored ? restored.error : 'invalid response'}`,
+            );
+          this.view = this.mergeSnapshot(restored.snapshot);
         }
       } catch (error) {
         this.bridge.close();
@@ -288,6 +394,19 @@ export class NativeAuthoringWorkingProject {
         ...incoming.recordSnapshots,
       },
     };
+  }
+
+  private invalidateHistoryPaths(changedPaths: readonly string[]): void {
+    const kept = this.history
+      .map((entry, index) => ({ entry, index }))
+      .filter(
+        ({ entry }) =>
+          ![...entry.forward, ...entry.inverse].some((patch) =>
+            changedPaths.some((changed) => overlaps(patch.path, changed)),
+          ),
+      );
+    this.cursor = kept.filter(({ index }) => index < this.cursor).length;
+    this.history = kept.map(({ entry }) => entry);
   }
 
   /** Recreate a minimal replayable journal from the current verified baselines.

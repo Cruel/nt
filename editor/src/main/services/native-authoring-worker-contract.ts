@@ -117,6 +117,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       operation: z.literal('useDisk'),
       owner: z.string().min(1).max(2048),
       expectedRevision: z.number().int().nonnegative(),
+      paths: z.array(z.string().startsWith('/')).max(256).optional(),
     })
     .strict(),
   z
@@ -127,6 +128,23 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       expectedRevision: z.number().int().nonnegative(),
       keepMine: z.boolean(),
       comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']),
+      pathsByOwner: z.record(z.string(), z.array(z.string().startsWith('/'))).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('restoreConflicts'),
+      expectedRevision: z.number().int().nonnegative(),
+      conflicts: z.record(z.string(), z.array(z.string().startsWith('/'))),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('useDiskOwners'),
+      expectedRevision: z.number().int().nonnegative(),
+      pathsByOwner: z.record(z.string(), z.array(z.string().startsWith('/'))),
     })
     .strict(),
   z

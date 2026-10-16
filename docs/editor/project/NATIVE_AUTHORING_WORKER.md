@@ -84,7 +84,7 @@ Patch responses transmit only modified Room/Map snapshots; the main-owned
 adapter merges those deltas with its retained working view. Manifest-only Save
 does not silently commit a mixed dirty batch: it rejects while Room/Map
 working owners remain dirty. Net-zero patch batches do not advance revision.
-Other record families are not yet supported in this certification slice.
+Additional record families were admitted in the subsequent #498 certification.
 
 `native-authoring-working-project.ts` adapts the existing editor command
 bus's generic forward/inverse patches, without per-UI-action native methods.
@@ -143,6 +143,31 @@ the in-memory crash-replay journal against the newly verified disk baselines
 after reconciliation, Use Disk and Save, and preserves unaffected undo/redo
 history and transient pending input. All worker messages remain typed and
 project-session/revision checked.
+
+### Review hardening
+
+Worker replay also restores unresolved conflict paths as native resident
+state after replaying exact-baseline patches. This preserves the ordinary
+Save block until explicit Use Disk or Keep Mine, even after a worker restart.
+Reconciliation selectively invalidates undo/redo entries when an externally
+changed path overlaps any retained forward or inverse patch; an old ancestor
+inverse therefore cannot overwrite newly merged descendant fields.
+
+Generic editor patch operations are projected from normalized to sparse
+source-space values for implicit optional fields (with baseline omission
+restored by undo) and compact references. Expanded `$ref` values and
+`$ref/id` edits are projected onto their physical scalar reference IDs.
+Unsupported parent transformations are rejected without changing working
+data rather than silently replacing a different source shape.
+
+Logical Save units, such as `record:rooms:<id>`, select the complete record
+owner plus only its corresponding
+`/editor/recordMetadata/rooms/<id>` subtree in shared `editor.yaml`.
+Other metadata remains dirty and uncommitted. `useDiskOwners` applies the
+same logical selection atomically across owners; scoped `saveOwners` uses
+one revision-checked journal transaction. Logical owners are lazily admitted
+before Save/Use Disk when not yet resident. Full-owner certification methods
+remain for independent source-owner tests.
 
 Full production editor cutover, the existing renderer Save coordinator and
 watcher replacements, Project-wide dependency reconciliation, and durable
