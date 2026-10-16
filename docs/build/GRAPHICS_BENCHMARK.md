@@ -373,9 +373,18 @@ supports `raw-bgfx-empty` and `raw-bgfx-geometry`: both render directly
 through a separate SDL3/bgfx OpenGLES host with the native fullscreen
 framebuffer; their shader binaries are packaged as `essl-300` APK assets.
 The dashboard releases ImGui, SDL input binding and associated bgfx objects
-before strict warmup/sampling, then recreates them afterwards. Backgrounding
-interrupts a measured trial instead of silently keeping stale frames. On
-foreground or surface resize the dashboard recreates its SDL/bgfx host and
+before strict warmup/sampling, then recreates them afterwards. On Android,
+`raw-bgfx-empty` still swaps EGL buffers but intentionally submits no clear or
+draw. Since Android need not preserve contents across swaps, a static opaque
+Android Activity view covers previously presented dashboard pixels for this
+**empty-only** run, installed on the UI thread before the strict runner starts.
+No ImGui, bgfx clear, overlay updates, or JNI calls occur within measurement.
+The dashboard submits a fresh complete frame before the Activity cover is
+removed. The view is a display-only measure against stale swap-chain contents,
+not a GPU timing instrument; use Clean CPU timings as specified and do not
+interpret the black screen as evidence of GPU clear or rendering.
+Backgrounding interrupts a measured trial instead of silently keeping stale
+frames. On foreground or surface resize the dashboard recreates its SDL/bgfx host and
 ImGui resources, rather than reusing an obsolete `ANativeWindow`.
 Standalone/integrated RmlUi and Engine-owned scenarios are **not**
 advertised as supported by this Android Stage 1 slice.

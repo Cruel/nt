@@ -2,6 +2,11 @@
 #include <SDL3/SDL_main.h>
 #include <bgfx/bgfx.h>
 
+#if defined(__ANDROID__)
+#include <SDL3/SDL_system.h>
+#include <jni.h>
+#endif
+
 #include "benchmark_bgfx_diagnostics.hpp"
 #include "benchmark_completed_run.hpp"
 #include "benchmark_dashboard.hpp"
@@ -63,6 +68,74 @@ struct SteadyClock final : Clock {
             .count();
     }
 };
+
+#if defined(__ANDROID__)
+// Android EGL may present undefined old buffer contents when the empty reference
+// submits no clear/draw. Conceal those pixels outside the strict bgfx host, without
+// adding GPU work or Java calls to its measured frame loop.
+bool set_empty_benchmark_cover(bool visible, std::string& reason)
+{
+    auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    if (!env) {
+        reason = "Android JNI environment unavailable";
+        return false;
+    }
+    auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (!activity) {
+        reason = "Android benchmark Activity unavailable";
+        return false;
+    }
+    auto activity_class = env->GetObjectClass(activity);
+    jmethodID method = activity_class
+                           ? env->GetMethodID(activity_class, "setEmptyBenchmarkCover", "(Z)Z")
+                           : nullptr;
+    bool success = false;
+    if (method && !env->ExceptionCheck())
+        success = env->CallBooleanMethod(activity, method, visible ? JNI_TRUE : JNI_FALSE);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        success = false;
+    }
+    if (activity_class)
+        env->DeleteLocalRef(activity_class);
+    env->DeleteLocalRef(activity);
+    if (!success)
+        reason = visible ? "unable to cover undefined Android empty-frame presentation"
+                         : "unable to restore Android dashboard presentation";
+    return success;
+}
+
+struct EmptyBenchmarkCover {
+    bool visible = false;
+    bool show(std::string& reason)
+    {
+        if (!set_empty_benchmark_cover(true, reason)) {
+            // A timed-out UI-thread request may complete later; queue a hide
+            // behind it so a failed run cannot leave the dashboard covered.
+            std::string recovery_error;
+            if (!set_empty_benchmark_cover(false, recovery_error))
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[benchmark] %s",
+                             recovery_error.c_str());
+            return false;
+        }
+        visible = true;
+        // The Java view is installed on Android's UI thread. Allow its first
+        // composition before submitting the strict benchmark's frames.
+        SDL_Delay(80);
+        return true;
+    }
+    void hide()
+    {
+        if (visible) {
+            std::string error;
+            if (!set_empty_benchmark_cover(false, error))
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[benchmark] %s", error.c_str());
+            visible = false;
+        }
+    }
+    ~EmptyBenchmarkCover() { hide(); }
+};
+#endif
 
 struct Graphics {
     SDL_Window* window = nullptr;
@@ -572,6 +645,9 @@ int run_dashboard(Options options)
             feedback = "Android Stage 1 supports raw-bgfx-empty and raw-bgfx-geometry only";
             return;
         }
+        EmptyBenchmarkCover cover;
+        if (run_options.scenario == "raw-bgfx-empty" && !cover.show(feedback))
+            return;
 #endif
         // Preview GPU geometry also has to be released before the strict run.
         preview_geometry.shutdown();
@@ -686,6 +762,14 @@ int run_dashboard(Options options)
             feedback = "dashboard reinitialization: " + error;
             std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
         }
+#if defined(__ANDROID__)
+        if (cover.visible && dashboard.initialized()) {
+            // Present a fully recreated dashboard before exposing its surface.
+            (void)dashboard.frame(options, completed_run ? &*completed_run : nullptr, feedback,
+                                  draw_preview);
+        }
+        cover.hide();
+#endif
     };
 
     if (options.dashboard_visual_smoke) {
