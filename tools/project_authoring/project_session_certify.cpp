@@ -540,6 +540,161 @@ void traits_editor_roundtrip(const std::filesystem::path& fixture)
     require(!ProjectSession::open(temp.root, error),
             "Tracked record metadata rejects prototype keys as the TypeScript workspace does");
 }
+void property_semantics_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Variable and Trait fixture opens: " + error);
+    require(project->inspect_record("variables/board-stock").accepted &&
+                project->inspect_record("interactables/lab-specimen").accepted,
+            "Variable and attached Trait owner are lazily inspectable");
+    const auto valid = project->snapshot();
+    if (!valid.valid)
+        for (const auto& diagnostic : valid.diagnostics)
+            std::cerr << "Baseline property diagnostic: " << diagnostic.path << " "
+                      << diagnostic.code << " " << diagnostic.message << '\n';
+    require(valid.valid, "Baseline typed Variable and Trait owner validate");
+
+    const auto incompatible = project->patch(
+        0, {{RoomPatch::Operation::Replace, "/variables/board-stock/data/value", "\"wrong\""}});
+    require(incompatible.accepted && !incompatible.snapshot.valid &&
+                std::any_of(incompatible.snapshot.diagnostics.begin(),
+                            incompatible.snapshot.diagnostics.end(),
+                            [](const Diagnostic& item) {
+                                return item.path == "/variables/board-stock/data/value";
+                            }),
+            "Invalid Variable Value stays dirty and reports a precise diagnostic");
+    require(
+        !project
+             ->save_owners(1, {"variables/board-stock"}, false, TransactionDecision::KeepComments)
+             .accepted,
+        "Invalid Variable cannot be persisted");
+    const auto recovered = project->patch(
+        1, {{RoomPatch::Operation::Replace, "/variables/board-stock/data/value", "0"}});
+    require(recovered.accepted && recovered.snapshot.valid && !recovered.snapshot.dirty &&
+                !recovered.diagnostics_removed.empty(),
+            "Repairing Variable restores validity without rewriting disk");
+
+    const auto changed_trait = project->patch(
+        2,
+        {{RoomPatch::Operation::Replace, "/traits/lab-layered/properties/0/type", "\"number\""},
+         {RoomPatch::Operation::Replace, "/traits/lab-layered/properties/0/defaultValue", "42"}});
+    require(changed_trait.accepted && !changed_trait.snapshot.valid &&
+                std::any_of(changed_trait.snapshot.diagnostics.begin(),
+                            changed_trait.snapshot.diagnostics.end(),
+                            [](const Diagnostic& item) {
+                                return item.path == "/interactables/lab-specimen/defaultProperties";
+                            }),
+            "Changing a Trait contract revalidates previously inspected dependent owners");
+    require(!project->save_owners(3, {"traits"}, false, TransactionDecision::KeepComments).accepted,
+            "Saving a Trait cannot publish an incompatible inspected dependent owner");
+    const auto repaired_trait = project->patch(
+        3, {{RoomPatch::Operation::Replace, "/traits/lab-layered/properties/0/type", "\"string\""},
+            {RoomPatch::Operation::Replace, "/traits/lab-layered/properties/0/defaultValue",
+             "\"trait-default\""}});
+    require(repaired_trait.accepted && repaired_trait.snapshot.valid &&
+                !repaired_trait.snapshot.dirty && !repaired_trait.diagnostics_removed.empty(),
+            "Restoring a Trait clears dependent diagnostics without full Project reconstruction");
+
+    require(project->inspect_record("variables/policy-entry-allowed").accepted &&
+                project->inspect_record("rooms/room-lifecycle-start").accepted,
+            "Referenced Variable and Room can be inspected without opening other record owners");
+    const auto comparable =
+        project->patch(4, {{RoomPatch::Operation::Add,
+                            "/rooms/room-lifecycle-start/data/exits/1/condition/value", "true"}});
+    require(comparable.accepted && comparable.snapshot.valid,
+            "A typed comparison Value can be added without changing its referenced Variable");
+    const auto changed_variable = project->patch(
+        5,
+        {{RoomPatch::Operation::Replace, "/variables/policy-entry-allowed/data/type", "\"string\""},
+         {RoomPatch::Operation::Replace, "/variables/policy-entry-allowed/data/value",
+          "\"available\""}});
+    require(
+        changed_variable.accepted && !changed_variable.snapshot.valid &&
+            std::any_of(changed_variable.snapshot.diagnostics.begin(),
+                        changed_variable.snapshot.diagnostics.end(),
+                        [](const Diagnostic& item) {
+                            return item.path ==
+                                       "/rooms/room-lifecycle-start/data/exits/1/condition/value" &&
+                                   item.code == "authoring.condition.variable-type-mismatch";
+                        }),
+        "Variable type edits invalidate dependent Room comparison Values");
+    require(
+        !project
+             ->save_owners(6, {"variables/policy-entry-allowed"}, false,
+                           TransactionDecision::KeepComments)
+             .accepted,
+        "Cannot Save a valid Variable whose newly incompatible type breaks an inspected condition");
+    require(!project
+                 ->save_owners(6, {"rooms/room-lifecycle-start"}, false,
+                               TransactionDecision::KeepComments)
+                 .accepted,
+            "Cannot Save a structurally valid Room with an incompatible referenced Variable");
+    const auto fixed_variable = project->patch(
+        6,
+        {{RoomPatch::Operation::Replace, "/variables/policy-entry-allowed/data/type",
+          "\"boolean\""},
+         {RoomPatch::Operation::Replace, "/variables/policy-entry-allowed/data/value", "false"}});
+    require(fixed_variable.accepted && fixed_variable.snapshot.valid &&
+                !fixed_variable.diagnostics_removed.empty(),
+            "Dependent comparison diagnostics disappear when the referenced Variable is repaired");
+    const auto removed_comparison =
+        project->patch(7, {{RoomPatch::Operation::Remove,
+                            "/rooms/room-lifecycle-start/data/exits/1/condition/value", ""}});
+    require(
+        removed_comparison.accepted && removed_comparison.snapshot.valid &&
+            !removed_comparison.snapshot.dirty,
+        "Restoring the optional comparison Value returns the entire working Project to baseline");
+
+    const auto instance_override = project->patch(
+        8, {{RoomPatch::Operation::Replace,
+             "/interactableInstances/state-specimen-instance/localProperties/0/type", "\"enum\""},
+            {RoomPatch::Operation::Add,
+             "/interactableInstances/state-specimen-instance/localProperties/0/enumValues",
+             R"(["instance-value"])"}});
+    require(
+        instance_override.accepted && !instance_override.snapshot.valid &&
+            std::any_of(
+                instance_override.snapshot.diagnostics.begin(),
+                instance_override.snapshot.diagnostics.end(),
+                [](const Diagnostic& item) {
+                    return item.path ==
+                               "/interactableInstances/state-specimen-instance/localProperties/0" &&
+                           item.code == "authoring.interactable.instance_property_schema";
+                }),
+        "Valid local enum Value still diagnoses incompatibility with an inherited string Property");
+    require(
+        !project->save_owners(9, {"project"}, false, TransactionDecision::KeepComments).accepted,
+        "Cannot publish an invalid Instance-local schema through the manifest Save");
+    const auto fixed_override = project->patch(
+        9,
+        {{RoomPatch::Operation::Remove,
+          "/interactableInstances/state-specimen-instance/localProperties/0/enumValues", ""},
+         {RoomPatch::Operation::Replace,
+          "/interactableInstances/state-specimen-instance/localProperties/0/type", "\"string\""}});
+    require(fixed_override.accepted && fixed_override.snapshot.valid &&
+                !fixed_override.snapshot.dirty,
+            "Reverting an Instance override removes dependent errors and restores sparse source");
+
+    const auto variable_source = temp.root / "records/variables/board-stock.yaml";
+    const auto room_source = temp.root / "records/rooms/room-lifecycle-start.yaml";
+    const auto untouched_room = read(room_source);
+    const auto edited_variable = project->patch(
+        10, {{RoomPatch::Operation::Replace, "/variables/board-stock/data/value", "7"}});
+    require(edited_variable.accepted && edited_variable.snapshot.valid,
+            "Valid typed Variable changes are dirty without affecting unrelated owners");
+    const auto persisted = project->save_owners(11, {"variables/board-stock"}, false,
+                                                TransactionDecision::KeepComments);
+    require(persisted.accepted && read(room_source) == untouched_room &&
+                read(variable_source).find("value: 7") != std::string::npos,
+            "Source-aware Save publishes only the selected Variable YAML");
+    auto reopened = ProjectSession::open(temp.root, error);
+    require(reopened && reopened->inspect_record("variables/board-stock").accepted &&
+                reopened->record_snapshots().at("variables/board-stock").normalized_json ==
+                    project->record_snapshots().at("variables/board-stock").normalized_json,
+            "Reopened Variable retains the saved typed effective Value");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -586,9 +741,14 @@ int main(int argc, char** argv)
             traits_editor_roundtrip(argv[2]);
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[1]) == "--properties") {
+            property_semantics_roundtrip(argv[2]);
+            return 0;
+        }
         if (argc == 2) {
             roundtrip(argv[1], true);
             traits_editor_roundtrip(argv[1]);
+            property_semantics_roundtrip(argv[1]);
             return 0;
         }
         return 2;

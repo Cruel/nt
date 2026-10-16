@@ -193,3 +193,28 @@ Full production editor cutover, the existing renderer Save coordinator and
 watcher replacements, Project-wide dependency reconciliation, and durable
 restart recovery remain future coordinated migration work; the native
 certification operations do not invoke the TypeScript Project authoring engine.
+
+## Typed Variables, Properties, and Traits (#483)
+
+The parallel native Project session now applies the existing generated
+Property/Traits schemas and checks Variable enum declarations (including
+ECMAScript-trimmed choices), typed Values, nullability, and dirty working
+diagnostics. Its native cross-record checks compare attached Trait schemas and
+Defaults against owner-local/definition Properties, resolve typed Variable and
+Trait references from inspected records, and validate concrete Trait requirements.
+Interactable Instance Values take precedence over Definition and Trait Defaults;
+Instance Trait add/remove deltas and inherited Property-schema mismatches are
+diagnosed at manifest-absolute paths. An Interactable's sparse YAML omissions
+and compact authored references are projected to their typed effective shape,
+without rewriting or expanding source on read.
+
+Native snapshots recheck loaded dependents when a referenced Variable, Trait, or
+Definition changes; edited manifest Instances are checked independently, using
+their referenced Definition on demand. This certification slice does **not**
+construct the entire effective Project or eagerly load every uninspected record.
+Invalid dirty edits remain visible in the working session, and scoped Saves
+reject typed invalidity or known invalid dependents without publishing partial
+source. The Feature Lab Project-session certification exercises repair/diagnostic
+deltas, cross-owner reference invalidation, Instance overrides, and exact
+save/reopen behavior. Full-project dependency indexing and coordinated
+production cutover remain under the subsequent migration tickets.
