@@ -68,7 +68,7 @@ Json configuration(const Options& options)
     return {{"format", kConfigFormat},
             {"version", 1},
             {"scenario", options.scenario},
-            {"scenario_version", is_ui_scaling_scenario(options.scenario) ? 2 : 1},
+            {"scenario_version", 1},
             {"parameters", parameters},
             {"clock_policy", options.clock_policy},
             {"settings",
@@ -193,18 +193,13 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         !root["format"].is_string() || root["format"] != kConfigFormat ||
         !root["version"].is_number_integer() || root["version"] != 1 ||
         !root["scenario"].is_string() || root["scenario"].get<std::string>().empty() ||
-        !root["scenario_version"].is_number_integer() || !root["parameters"].is_object() ||
-        !root["clock_policy"].is_string() ||
+        !root["scenario_version"].is_number_integer() || root["scenario_version"] != 1 ||
+        !root["parameters"].is_object() || !root["clock_policy"].is_string() ||
         (root["clock_policy"] != "realtime" && root["clock_policy"] != "fixed-step")) {
         reason = "invalid or unsupported benchmark configuration schema";
         return false;
     }
     const std::string scenario = root["scenario"].get<std::string>();
-    const bool scaling_v2 = is_ui_scaling_scenario(scenario) && root["scenario_version"] == 2;
-    if (root["scenario_version"] != 1 && !scaling_v2) {
-        reason = "unsupported benchmark scenario version";
-        return false;
-    }
     const auto& parameters = root["parameters"];
     if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple" ||
         scenario == "integrated-rmlui-production" || scenario == "integrated-rmlui-controlled" ||
@@ -244,25 +239,21 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             return false;
         }
     } else if (is_ui_scaling_scenario(scenario)) {
-        if (!(scaling_v2 ? has_fields(parameters, {"elements", "text_lines", "dynamic_lines",
-                                                   "visible_contexts", "empty_contexts",
-                                                   "hidden_contexts", "text_mode", "redraw"})
-                         : has_fields(parameters, {"elements", "text_lines", "visible_contexts",
-                                                   "empty_contexts", "hidden_contexts", "text_mode",
-                                                   "redraw"})) ||
+        if (!has_fields(parameters, {"elements", "text_lines", "dynamic_lines", "visible_contexts",
+                                     "empty_contexts", "hidden_contexts", "text_mode", "redraw"}) ||
             !unsigned_integer(parameters, "elements") ||
             !unsigned_integer(parameters, "text_lines") ||
-            (scaling_v2 && !unsigned_integer(parameters, "dynamic_lines")) ||
+            !unsigned_integer(parameters, "dynamic_lines") ||
             !unsigned_integer(parameters, "visible_contexts") ||
             !unsigned_integer(parameters, "empty_contexts") ||
             !unsigned_integer(parameters, "hidden_contexts") ||
             !parameters["text_mode"].is_string() || !parameters["redraw"].is_string() ||
             parameters["elements"].get<uint64_t>() > 2048 ||
             parameters["text_lines"].get<uint64_t>() > 256 ||
-            (scaling_v2 && (parameters["dynamic_lines"].get<uint64_t>() > 256 ||
-                            (parameters["text_mode"] == "dynamic" &&
-                             parameters["dynamic_lines"].get<uint64_t>() >
-                                 parameters["text_lines"].get<uint64_t>()))) ||
+            parameters["dynamic_lines"].get<uint64_t>() > 256 ||
+            (parameters["text_mode"] == "dynamic" &&
+             parameters["dynamic_lines"].get<uint64_t>() >
+                 parameters["text_lines"].get<uint64_t>()) ||
             parameters["visible_contexts"].get<uint64_t>() > 8 ||
             parameters["empty_contexts"].get<uint64_t>() > 16 ||
             parameters["hidden_contexts"].get<uint64_t>() > 16 ||
@@ -373,9 +364,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     if (is_ui_scaling_scenario(scenario)) {
         next.ui_elements = static_cast<uint32_t>(parameters["elements"].get<uint64_t>());
         next.ui_text_lines = static_cast<uint32_t>(parameters["text_lines"].get<uint64_t>());
-        next.ui_dynamic_lines =
-            scaling_v2 ? static_cast<uint32_t>(parameters["dynamic_lines"].get<uint64_t>())
-                       : (next.ui_text_lines > 0 ? 1u : 0u);
+        next.ui_dynamic_lines = static_cast<uint32_t>(parameters["dynamic_lines"].get<uint64_t>());
         next.ui_visible_contexts =
             static_cast<uint32_t>(parameters["visible_contexts"].get<uint64_t>());
         next.ui_empty_contexts =

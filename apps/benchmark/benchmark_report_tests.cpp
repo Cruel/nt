@@ -247,7 +247,7 @@ int main()
         scaling.ui_redraw = "dirty-only";
         const auto encoded = nlohmann::json::parse(encode_configuration(scaling));
         Options decoded;
-        if (!check(encoded["scenario_version"] == 2 && encoded["parameters"].size() == 8 &&
+        if (!check(encoded["scenario_version"] == 1 && encoded["parameters"].size() == 8 &&
                        encoded["parameters"]["elements"] == 2048 &&
                        encoded["parameters"]["text_lines"] == 256 &&
                        encoded["parameters"]["dynamic_lines"] == 256 &&
@@ -272,18 +272,13 @@ int main()
         bad_redraw["parameters"]["redraw"] = "skip";
         auto bad_type = encoded;
         bad_type["parameters"]["text_lines"] = "256";
-        auto legacy = encoded;
-        legacy["scenario_version"] = 1;
-        legacy["parameters"].erase("dynamic_lines");
-        Options migrated;
-        if (!check(decode_configuration(legacy.dump(), migrated, error) &&
-                       migrated.ui_dynamic_lines == 1 &&
-                       nlohmann::json::parse(encode_configuration(migrated))["scenario_version"] ==
-                           2,
-                   "scaling v1 configurations migrate to the original single-line behavior"))
+        auto replaced_shape = encoded;
+        replaced_shape["parameters"].erase("dynamic_lines");
+        auto prohibited_version = encoded;
+        prohibited_version["scenario_version"] = 2;
+        if (!check(rejected(replaced_shape) && rejected(prohibited_version),
+                   "development scaling configurations reject replaced V1 shapes and V2 versions"))
             return 1;
-        auto missing_dynamic = encoded;
-        missing_dynamic["parameters"].erase("dynamic_lines");
         auto illegal_version = encoded;
         illegal_version["scenario_version"] = 3;
         auto excessive_dynamic = encoded;
@@ -292,8 +287,8 @@ int main()
         beyond_text["parameters"]["text_lines"] = 8;
         if (!check(rejected(unknown) && rejected(negative) && rejected(too_many) &&
                        rejected(bad_text) && rejected(bad_redraw) && rejected(bad_type) &&
-                       rejected(missing_dynamic) && rejected(illegal_version) &&
-                       rejected(excessive_dynamic) && rejected(beyond_text),
+                       rejected(illegal_version) && rejected(excessive_dynamic) &&
+                       rejected(beyond_text),
                    "strict scaling schema rejects extra, malformed and out-of-bounds values"))
             return 1;
     }

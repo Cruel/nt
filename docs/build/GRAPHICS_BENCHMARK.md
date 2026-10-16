@@ -191,11 +191,13 @@ lines in dynamic mode), `--ui-visible-contexts` (1–8),
 `--ui-text-mode static|dynamic`, and `--ui-redraw continuous|dirty-only`.
 The dashboard exposes the same independent controls and a Restore RmlUi
 reference action. The Web launcher forwards the matching flags as URL
-parameters; canonical JSON `--config` works on all three targets. The strict JSON `configuration.parameters` object records
-all eight settings (scaling scenario version 2); version 1 presets are read
-with the prior single-changing-line behavior. Arbitrary runs are reproducible and not mistaken
-for fixed reference comparisons. Out-of-bounds counts and incompatible flags
-are rejected rather than silently clamped by the runner.
+parameters; canonical JSON `--config` works on all three targets. The strict JSON
+`configuration.parameters` object records all eight settings, with both
+`version` and `scenario_version` remaining `1`. This is the sole current
+development shape: configurations missing `dynamic_lines` are rejected,
+not migrated. Arbitrary runs are reproducible and not mistaken for fixed
+reference comparisons. Out-of-bounds counts and incompatible flags are
+rejected rather than silently clamped by the runner.
 
 For an equivalent pair of measured application-frame workloads:
 
