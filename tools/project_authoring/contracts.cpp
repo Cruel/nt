@@ -92,6 +92,9 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "hotspot.bounds",
                                                    "hotspot.motion-track",
                                                    "material.application-parameter",
+                                                   "material.shader-override",
+                                                   "material.parameter-override",
+                                                   "material.texture-override",
                                                    "property.default-unique",
                                                    "property.default-value",
                                                    "property.local-unique",
@@ -458,6 +461,15 @@ class Validator {
                 !uniform_value_compatible(value->at("type").as<std::string>(), source.at("value")))
                 issue(errors, path + "/source/value", "semantic." + id,
                       "Literal value is incompatible with the Material parameter type.");
+        } else if (id == "material.shader-override" || id == "material.parameter-override" ||
+                   id == "material.texture-override") {
+            if (value && value->is_object() && value->empty())
+                issue(errors, path, "semantic." + id,
+                      id == "material.shader-override"
+                          ? "Custom shader override must select at least one source."
+                      : id == "material.parameter-override"
+                          ? "Material parameter override cannot be empty."
+                          : "Material texture override cannot be empty.");
         } else if (id == "property.default-unique" || id == "property.local-unique") {
             if (!value || !value->is_array())
                 return;
@@ -1101,6 +1113,9 @@ std::string validation_result_json(const ValidationResult& result)
         entry["path"] = error.path;
         entry["code"] = error.code;
         entry["message"] = error.message;
+        entry["severity"] = error.severity;
+        if (!error.source_path.empty())
+            entry["sourcePath"] = error.source_path;
         output["diagnostics"].push_back(std::move(entry));
     }
     if (result.accepted && !result.effective_json.empty())

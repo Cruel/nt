@@ -2,6 +2,7 @@
 #include "property_semantics.hpp"
 #include "character_archetype_semantics.hpp"
 #include "asset_animation_semantics.hpp"
+#include "material_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -875,6 +876,7 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     auto state = source_->snapshot();
     const bool manifest_dirty = state.dirty;
     state.working_revision = working_revision_;
+    state.dirty |= !shader_overlays_.empty();
     const auto trait_owner = records_.find("traits");
     const auto traits_json = trait_owner == records_.end()
                                  ? traits_baseline_json_
@@ -960,6 +962,22 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             for (auto diagnostic : dependencies.diagnostics) {
                 diagnostic.path = "/" + owner + diagnostic.path;
                 state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
+        if (record.valid && family == "materials") {
+            const auto material = resolve_material(owner.substr(slash + 1), record.normalized_json,
+                                                   resolve_record, root_, shader_overlays_);
+            state.valid &= material.accepted;
+            for (auto diagnostic : material.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+            if (const auto compiled = material_compiler_results_.find(owner.substr(slash + 1));
+                compiled != material_compiler_results_.end()) {
+                state.valid &= compiled->second.accepted;
+                state.diagnostics.insert(state.diagnostics.end(),
+                                         compiled->second.diagnostics.begin(),
+                                         compiled->second.diagnostics.end());
             }
         }
         std::string effective_for_traits = record.normalized_json;
@@ -1113,6 +1131,136 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     return state;
 }
 
+SourceObservation ProjectSession::observe_sources()
+{
+    auto observed = source_authority_->observe();
+    if (!observed.authoritative)
+        material_compiler_results_.clear();
+    else {
+        const auto changed_shader = [](const std::vector<std::string>& paths) {
+            return std::any_of(paths.begin(), paths.end(),
+                               [](const auto& path) { return path.starts_with("shaders/"); });
+        };
+        if (changed_shader(observed.delta.changed) || changed_shader(observed.delta.added) ||
+            changed_shader(observed.delta.removed))
+            material_compiler_results_.clear();
+    }
+    return observed;
+}
+
+std::optional<std::string> ProjectSession::resolved_material(std::string_view material_id) const
+{
+    const auto found = records_.find("materials/" + std::string(material_id));
+    if (found == records_.end() || !found->second->snapshot().valid)
+        return std::nullopt;
+    const AuthoringRecordResolver resolve = [&](std::string_view family,
+                                                std::string_view id) -> std::optional<std::string> {
+        const auto owner = std::string(family) + "/" + std::string(id);
+        if (const auto tracked = records_.find(owner); tracked != records_.end()) {
+            const auto snapshot = tracked->second->snapshot();
+            return snapshot.valid ? std::optional<std::string>{snapshot.normalized_json}
+                                  : std::nullopt;
+        }
+        std::string error;
+        auto record = RoomSession::open_record(root_, std::string(family), std::string(id), error);
+        if (!record)
+            return std::nullopt;
+        const auto snapshot = record->snapshot();
+        return snapshot.valid ? std::optional<std::string>{snapshot.normalized_json} : std::nullopt;
+    };
+    const auto result = resolve_material(material_id, found->second->snapshot().normalized_json,
+                                         resolve, root_, shader_overlays_);
+    return result.accepted ? std::optional<std::string>{result.effective_json} : std::nullopt;
+}
+
+std::optional<std::string> ProjectSession::material_compiler_request(std::string_view id) const
+{
+    const auto effective = resolved_material(id);
+    return effective ? std::optional<std::string>{material_shader_program_request(id, *effective)}
+                     : std::nullopt;
+}
+
+RoomSessionResult ProjectSession::stage_shader_source(std::uint64_t revision,
+                                                      std::string_view relative_path,
+                                                      std::string source_text)
+{
+    RoomSessionResult response;
+    const auto prior = snapshot();
+    response.snapshot = prior;
+    if (revision != working_revision_) {
+        response.error = "Stale working revision.";
+        return response;
+    }
+    const std::string path(relative_path);
+    const auto relative = std::filesystem::path(path);
+    if (!path.starts_with("shaders/") || relative != relative.lexically_normal() ||
+        path.find_first_of(":\\") != std::string::npos || path.find("//") != std::string::npos ||
+        !path.ends_with(".sc")) {
+        response.error = "Shader source overlay must have a canonical shaders/*.sc path.";
+        return response;
+    }
+    try {
+        const auto file = std::filesystem::weakly_canonical(root_ / relative);
+        const auto contained = file.lexically_relative(std::filesystem::canonical(root_));
+        if (contained.empty() || contained == "." || *contained.begin() == "..")
+            throw std::runtime_error("Shader overlay source escapes Project root.");
+        const bool exists = std::filesystem::exists(file);
+        if (exists && !std::filesystem::is_regular_file(file))
+            throw std::runtime_error("Shader overlay target is not a regular source file.");
+        const auto disk_source = exists ? read_bytes(file) : std::string{};
+        const auto current = shader_overlays_.find(path);
+        const auto was = current == shader_overlays_.end() ? disk_source : current->second;
+        if (was == source_text) {
+            response.accepted = true;
+            return response;
+        }
+        if (source_text == disk_source)
+            shader_overlays_.erase(path);
+        else
+            shader_overlays_.insert_or_assign(path, std::move(source_text));
+        material_compiler_results_.clear();
+        ++working_revision_;
+        response.accepted = true;
+        response.affected_records.push_back("shader-source:" + path);
+        response.snapshot = snapshot();
+        diagnostic_delta(response, prior);
+    } catch (const std::exception& error) {
+        response.error = error.what();
+    }
+    return response;
+}
+
+RoomSessionResult ProjectSession::publish_material_compiler_result(
+    std::uint64_t revision, std::string_view material_id, std::string_view native_tool_result_json)
+{
+    RoomSessionResult response;
+    const auto prior = snapshot();
+    response.snapshot = prior;
+    if (revision != working_revision_) {
+        response.error = "Stale shader compiler result.";
+        return response;
+    }
+    if (!is_id(material_id) || !records_.contains("materials/" + std::string(material_id))) {
+        response.error = "Shader compiler result requires an inspected Material owner.";
+        return response;
+    }
+    try {
+        const auto effective = resolved_material(material_id);
+        if (!effective)
+            throw std::runtime_error("Cannot accept compiler result for invalid Material source.");
+        auto validated = validate_material_shader_compiler_result(native_tool_result_json,
+                                                                  material_id, *effective);
+        material_compiler_results_.insert_or_assign(std::string(material_id), std::move(validated));
+        response.accepted = true;
+        response.affected_records.push_back("materials/" + std::string(material_id));
+        response.snapshot = snapshot();
+        diagnostic_delta(response, prior);
+    } catch (const std::exception& error) {
+        response.error = error.what();
+    }
+    return response;
+}
+
 std::map<std::string, RoomSessionSnapshot> ProjectSession::record_snapshots() const
 {
     std::map<std::string, RoomSessionSnapshot> result;
@@ -1174,6 +1322,8 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
         response = records_.at(name)->reconcile_disk();
     }
     if (response.accepted && !response.affected_records.empty()) {
+        if (owner.starts_with("materials/"))
+            material_compiler_results_.clear();
         ++working_revision_;
         response.affected_records = {std::string(owner)};
     }
@@ -1627,6 +1777,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     const auto before = response.snapshot;
     source_ = std::move(manifest);
     records_ = std::move(staged);
+    if (std::any_of(affected.begin(), affected.end(),
+                    [](const auto& owner) { return owner.starts_with("materials/"); }))
+        material_compiler_results_.clear();
     ++working_revision_;
     response.accepted = true;
     response.affected_records.assign(affected.begin(), affected.end());

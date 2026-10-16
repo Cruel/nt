@@ -11,6 +11,7 @@ struct Diagnostic {
     std::string code;
     std::string message;
     std::string severity = "error";
+    std::string source_path; // physical source provenance for compiler diagnostics
 };
 struct ValidationResult {
     bool accepted = false;

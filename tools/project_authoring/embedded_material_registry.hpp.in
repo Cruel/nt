@@ -1,0 +1,8 @@
+#pragma once
+
+#include <string_view>
+
+namespace noveltea::authoring {
+// Identical build-time registry as the native shader compiler and TypeScript projection.
+inline constexpr std::string_view material_registry_json = R"nt_material(@NOVELTEA_MATERIAL_REGISTRY_JSON@)nt_material";
+}

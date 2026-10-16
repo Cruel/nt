@@ -80,6 +80,8 @@ Json snapshot_json(const RoomSessionSnapshot& state)
         entry["code"] = error.code;
         entry["message"] = error.message;
         entry["severity"] = error.severity;
+        if (!error.source_path.empty())
+            entry["sourcePath"] = error.source_path;
         result["diagnostics"].push_back(std::move(entry));
     }
     return result;
@@ -117,6 +119,8 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
             value["code"] = entry.code;
             value["message"] = entry.message;
             value["severity"] = entry.severity;
+            if (!entry.source_path.empty())
+                value["sourcePath"] = entry.source_path;
             list.push_back(std::move(value));
         }
         return list;
@@ -398,6 +402,39 @@ napi_value call(napi_env env, napi_callback_info info)
             napi_get_undefined(env, &value);
             return value;
         }
+        if (name == "materialCompilerRequest") {
+            if (argc != 2)
+                throw std::runtime_error("Material compiler request requires a Material ID.");
+            const auto request =
+                session.project->material_compiler_request(string_arg(env, argv[1]));
+            return js_string(env, request ? *request : "null");
+        }
+        if (name == "shaderSourceOverlays") {
+            if (argc != 1)
+                throw std::runtime_error("Shader overlays require only the session handle.");
+            Json overlays = Json::object();
+            for (const auto& [path, content] : session.project->shader_source_overlays())
+                overlays[path] = content;
+            return js_string(env, overlays.to_string());
+        }
+        if (name == "stageShaderSource" || name == "publishMaterialCompilerResult") {
+            if (argc != 4)
+                throw std::runtime_error(
+                    "Shader source operation requires revision, owner and body.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid shader authoring revision.");
+            const auto owner = string_arg(env, argv[2]);
+            const auto content = string_arg(env, argv[3]);
+            if (content.size() > 16 * 1024 * 1024)
+                throw std::runtime_error("Shader authoring payload exceeds 16 MiB.");
+            const auto updated = name == "stageShaderSource"
+                                     ? session.project->stage_shader_source(
+                                           static_cast<std::uint64_t>(revision), owner, content)
+                                     : session.project->publish_material_compiler_result(
+                                           static_cast<std::uint64_t>(revision), owner, content);
+            return js_string(env, result_json(*session.project, updated).to_string());
+        }
         if (name == "save") {
             if (argc != 2)
                 throw std::runtime_error("save requires a disk source revision.");
@@ -452,10 +489,24 @@ napi_value call(napi_env env, napi_callback_info info)
 
 napi_value initialize(napi_env env, napi_value exports)
 {
-    static const char* operations[]{
-        "open",    "close",      "snapshot",         "observe",       "inspect",      "reconcile",
-        "useDisk", "saveOwners", "restoreConflicts", "useDiskOwners", "coverageLost", "hint",
-        "save",    "patch"};
+    static const char* operations[]{"open",
+                                    "close",
+                                    "snapshot",
+                                    "observe",
+                                    "inspect",
+                                    "reconcile",
+                                    "useDisk",
+                                    "saveOwners",
+                                    "restoreConflicts",
+                                    "useDiskOwners",
+                                    "coverageLost",
+                                    "hint",
+                                    "save",
+                                    "patch",
+                                    "materialCompilerRequest",
+                                    "shaderSourceOverlays",
+                                    "stageShaderSource",
+                                    "publishMaterialCompilerResult"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;
         if (napi_create_function(env, name, NAPI_AUTO_LENGTH, call, const_cast<char*>(name),

@@ -83,6 +83,14 @@ Built-in preset programs and custom programs use the same contract-certification
 
 Editor/native shader compilation consumes the canonical source-program request:
 
+The native Project authoring certification path introduced by #489 produces that
+same request from effective Material inheritance and the generated engine registry,
+then accepts compiler results only for its current working revision. Shader text
+overlays remain external to the Material record. Compiler diagnostics retain
+physical `sourcePath`, and reflected sampler/uniform ABI checks run on compiler
+output rather than guessing shader reflection from GLSL text. No runtime renderer
+or ShaderCompilerService implementation was changed by that certification slice.
+
 ```text
 noveltea.shader-source-programs
 ```

@@ -138,6 +138,18 @@ public:
     RoomSessionResult
     restore_conflicts(std::uint64_t revision,
                       const std::map<std::string, std::vector<std::string>>& conflicts);
+    // Dirty shader text is a distinct source owner; the existing native shader
+    // tool compiles it via an overlay root. Do not insert it into Material YAML.
+    RoomSessionResult stage_shader_source(std::uint64_t revision, std::string_view relative_path,
+                                          std::string source_text);
+    RoomSessionResult publish_material_compiler_result(std::uint64_t revision,
+                                                       std::string_view material_id,
+                                                       std::string_view native_tool_result_json);
+    std::optional<std::string> material_compiler_request(std::string_view material_id) const;
+    const std::map<std::string, std::string>& shader_source_overlays() const
+    {
+        return shader_overlays_;
+    }
     RoomSessionResult
     save_owners(std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
                 TransactionDecision comments,
@@ -175,7 +187,7 @@ public:
 
     // Certified physical changes are separate from working-state mutation; #495
     // will reconcile these paths into the resident editor/daemon Project model.
-    SourceObservation observe_sources() { return source_authority_->observe(); }
+    SourceObservation observe_sources();
     void source_watch_hint(std::string_view path) { source_authority_->hint(path); }
     void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
 
@@ -187,11 +199,14 @@ private:
           root_(std::move(root)), traits_baseline_json_(std::move(traits_baseline_json))
     {
     }
+    std::optional<std::string> resolved_material(std::string_view material_id) const;
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
     std::filesystem::path root_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
+    std::map<std::string, std::string> shader_overlays_;
+    std::map<std::string, ValidationResult> material_compiler_results_;
     std::uint64_t working_revision_ = 0;
 };
 
