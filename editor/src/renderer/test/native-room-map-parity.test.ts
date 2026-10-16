@@ -16,7 +16,10 @@ import { compileAuthoringProject } from '../../shared/authoring-compiler';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
-import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
+import {
+  defaultVariableData,
+  validateVariableData,
+} from '../../shared/project-schema/authoring-variables';
 
 const executable = process.env.NOVELTEA_ROOM_MAP_CERTIFY;
 type NativeResult = {
@@ -356,6 +359,55 @@ describe.skipIf(!executable)('native Room/Map/Hotspot semantic differential', ()
       ]),
     );
   }, 30_000);
+
+  it('uses ECMAScript whitespace trimming for enum comparisons in Rooms and Maps', () => {
+    const project = fixture();
+    const padded = '\u00a0\u2003\u2028\ufeffdefault\u2029\u202f\u1680\u3000';
+    project.variables.choice = {
+      id: 'choice',
+      label: 'Choice',
+      data: { ...defaultVariableData('enum'), enumValues: [padded] },
+    };
+    const condition = {
+      kind: 'variable-comparison' as const,
+      variable: { $ref: { collection: 'variables' as const, id: 'choice' } },
+      operator: 'equal' as const,
+      value: 'default',
+    };
+    project.rooms.foyer!.data.lifecycle.canEnter = condition;
+    project.maps.world!.data.locations[0]!.visibility = condition;
+
+    expect(padded.trim()).toBe('default');
+    expect(validateVariableData(project, 'choice', project.variables.choice!)).toEqual([]);
+    expect(
+      validateRoomData(project, 'foyer', project.rooms.foyer!).filter(
+        (d) => d.severity === 'error',
+      ),
+    ).toEqual([]);
+    expect(
+      validateMapData(project, 'world', project.maps.world!).filter((d) => d.severity === 'error'),
+    ).toEqual([]);
+    const native = call('--project', JSON.stringify(project));
+    expect(native.valid, JSON.stringify(native.diagnostics)).toBe(true);
+
+    // Trimming removes only boundary whitespace, not whitespace inside Enum values.
+    project.variables.choice!.data.enumValues = ['def\u00a0ault'];
+    project.variables.choice!.data.value = 'def\u00a0ault';
+    expect(validateVariableData(project, 'choice', project.variables.choice!)).toEqual([]);
+    const roomPath = '/rooms/foyer/data/lifecycle/canEnter/value';
+    const mapPath = '/maps/world/data/locations/0/visibility/value';
+    expect(validateRoomData(project, 'foyer', project.rooms.foyer!).map((d) => d.path)).toContain(
+      roomPath,
+    );
+    expect(validateMapData(project, 'world', project.maps.world!).map((d) => d.path)).toContain(
+      mapPath,
+    );
+    const invalidNative = call('--project', JSON.stringify(project));
+    expect(invalidNative.valid).toBe(false);
+    expect(invalidNative.diagnostics.map((d) => d.path)).toEqual(
+      expect.arrayContaining([roomPath, mapPath]),
+    );
+  });
 
   it('matches Room and Interactable Hotspot target, image, and informational diagnostics', () => {
     const project = fixture();

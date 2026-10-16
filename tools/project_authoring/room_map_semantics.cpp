@@ -290,12 +290,8 @@ private:
             for (const auto& choice : choices->array_range()) {
                 if (!choice.is_string())
                     continue;
-                auto text = choice.as<std::string>();
-                const auto first = text.find_first_not_of(" \t\r\n");
-                if (first == std::string::npos)
-                    continue;
-                const auto last = text.find_last_not_of(" \t\r\n");
-                if (text.substr(first, last - first + 1) == value.as<std::string>())
+                const auto text = trim_ecmascript(choice.as<std::string>());
+                if (!text.empty() && text == value.as<std::string>())
                     return true;
             }
         }
