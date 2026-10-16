@@ -11,16 +11,23 @@ export const nativeAuthoringDiagnosticSchema = z
   })
   .strict();
 
+const workingSnapshotFields = {
+  workingRevision: z.number().int().nonnegative(),
+  diskSourceRevision: z.string(),
+  source: z.unknown(),
+  normalized: z.unknown().nullable(),
+  dirty: z.boolean(),
+  valid: z.boolean(),
+  diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+};
+
+export const nativeAuthoringRecordSnapshotSchema = z.object(workingSnapshotFields).strict();
+
 export const nativeAuthoringSnapshotSchema = z
   .object({
-    workingRevision: z.number().int().nonnegative(),
-    diskSourceRevision: z.string(),
-    source: z.unknown(),
-    normalized: z.unknown().nullable(),
-    dirty: z.boolean(),
-    valid: z.boolean(),
-    diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+    ...workingSnapshotFields,
     inventory: z.array(z.string()).optional(),
+    recordSnapshots: z.record(z.string(), nativeAuthoringRecordSnapshotSchema).optional(),
   })
   .strict();
 
@@ -91,6 +98,13 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
   z
     .object({
       requestId: z.number().int().positive(),
+      operation: z.literal('inspect'),
+      owner: z.string().min(1).max(2048),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
       operation: z.literal('hint'),
       path: z.string().min(1).max(2048),
     })
@@ -111,6 +125,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
             .strict(),
         )
         .max(256),
+      diskPreconditions: z.record(z.string(), z.string()).optional(),
     })
     .strict(),
   z

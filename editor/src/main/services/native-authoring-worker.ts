@@ -12,10 +12,11 @@ interface NativeBinding {
   open(root: string): unknown;
   close(handle: unknown): void;
   snapshot(handle: unknown): string;
+  inspect(handle: unknown, owner: string): string;
   observe(handle: unknown): string;
   hint(handle: unknown, path: string): void;
   coverageLost(handle: unknown): void;
-  patch(handle: unknown, revision: number, operations: string): string;
+  patch(handle: unknown, revision: number, operations: string, preconditions?: string): string;
   save(handle: unknown, revision: string): string;
 }
 
@@ -120,6 +121,16 @@ parent.on('message', (raw: unknown) => {
         binding.coverageLost(handle);
         result = { ...identity, type: 'response', requestId: command.requestId, result: null };
         break;
+      case 'inspect':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(binding.inspect(handle, command.owner)),
+          ),
+        };
+        break;
       case 'patch':
         result = {
           ...identity,
@@ -127,7 +138,14 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
             JSON.parse(
-              binding.patch(handle, command.expectedRevision, JSON.stringify(command.patches)),
+              command.diskPreconditions
+                ? binding.patch(
+                    handle,
+                    command.expectedRevision,
+                    JSON.stringify(command.patches),
+                    JSON.stringify(command.diskPreconditions),
+                  )
+                : binding.patch(handle, command.expectedRevision, JSON.stringify(command.patches)),
             ),
           ),
         };

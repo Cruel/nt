@@ -3,7 +3,7 @@
 The host-only Node-API Project adapter lives in
 `tools/project_authoring/authoring_node_addon.cpp`. It owns the current
 `ProjectSession` on a dedicated Node worker thread and exposes only the native
-session handle plus `snapshot`, `observe`, `hint`, `coverageLost`,
+session handle plus `snapshot`, `inspect`, `observe`, `hint`, `coverageLost`,
 `patch`, `save`, and `close`. Native handles never cross worker IPC and
 all calls are serialized by the worker event loop.
 
@@ -66,3 +66,45 @@ the native binary. The Linux CI host-contract job builds and exercises the
 real addon. The binary is **not** installed into any shipped editor or
 runtime artifact; platform-specific addon distribution and production
 Project model cutover remain separate tasks.
+
+## Parallel dirty-working certification (#497)
+
+The native Project session accepts atomic batches of Project-absolute JSON
+Pointer `add` / `replace` / `remove` operations across the manifest, Rooms,
+and Maps. Its Project working revision advances **once per changed batch**,
+not once per file or field. Room/Map operations route through
+`/rooms/<id>/...` and `/maps/<id>/...`, validating unsaved source-space data.
+The read-only `inspect` operation lazily provides a record's initial native
+working snapshot before the first editor action without advancing revision.
+Malformed operations roll back every owner in the batch; representable but
+semantically invalid fields remain dirty working data with exact
+record-absolute diagnostics. Snapshots expose the touched record working and
+normalized values, plus targeted affected-record and diagnostic deltas.
+Patch responses transmit only modified Room/Map snapshots; the main-owned
+adapter merges those deltas with its retained working view. Manifest-only Save
+does not silently commit a mixed dirty batch: it rejects while Room/Map
+working owners remain dirty. Net-zero patch batches do not advance revision.
+Other record families are not yet supported in this certification slice.
+
+`native-authoring-working-project.ts` adapts the existing editor command
+bus's generic forward/inverse patches, without per-UI-action native methods.
+It mirrors undo/redo, history cursor and dirty status without replacing the
+production TypeScript history. Partially typed or otherwise unrepresentable
+form text is held separately in a main-owned pending-input map and cannot
+enter native JSON/YAML.
+
+The main-side journal retains **only acknowledged** batches. On worker
+termination, an authorized reopen replays them against saved sources with
+exact disk-revision preconditions per affected Room, Map and manifest owner.
+A changed source fails closed, rather than silently adopting or overwriting
+external edits. Replay is pinned to the original active Project session and
+cannot apply to a different Project merely because source hashes match.
+Replay never commits unsaved content to disk. The journal
+and pending-input map are certification-session memory only, not persistent
+editor recovery data, and cannot survive a terminated Electron main process.
+
+This adapter is opt-in for certification tests: renderer edits, Project
+open/Save, editor recovery, external reconciliation, daemon, CLI, and runtime
+authority remain TypeScript. Full source-record admission, other record
+families, durable native recovery and Project-wide native reconciliation are
+still cutover work, not permanent TypeScript/native fallback paths.

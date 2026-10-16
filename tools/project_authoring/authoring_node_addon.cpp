@@ -83,12 +83,29 @@ Json snapshot_json(const RoomSessionSnapshot& state)
     return result;
 }
 
-Json result_json(const RoomSessionResult& result)
+Json project_snapshot_json(const ProjectSession& project)
+{
+    auto value = snapshot_json(project.snapshot());
+    value["recordSnapshots"] = Json::object();
+    for (const auto& [owner, snapshot] : project.record_snapshots())
+        value["recordSnapshots"][owner] = snapshot_json(snapshot);
+    return value;
+}
+
+Json result_json(const ProjectSession& project, const RoomSessionResult& result)
 {
     Json value = Json::object();
     value["accepted"] = result.accepted;
     value["error"] = result.error;
-    value["snapshot"] = snapshot_json(result.snapshot);
+    auto current = snapshot_json(project.snapshot());
+    current["recordSnapshots"] = Json::object();
+    const auto records = project.record_snapshots();
+    for (const auto& owner : result.affected_records) {
+        const auto found = records.find(owner);
+        if (found != records.end())
+            current["recordSnapshots"][owner] = snapshot_json(found->second);
+    }
+    value["snapshot"] = std::move(current);
     value["affectedRecords"] = json_array(result.affected_records);
     auto diagnostics = [](const std::vector<noveltea::authoring::Diagnostic>& entries) {
         Json list = Json::array();
@@ -207,8 +224,8 @@ Session& session_arg(napi_env env, napi_value value)
 napi_value call(napi_env env, napi_callback_info info)
 {
     void* callback_data = nullptr;
-    napi_value argv[3]{};
-    std::size_t argc = 3;
+    napi_value argv[4]{};
+    std::size_t argc = 4;
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
@@ -245,12 +262,18 @@ napi_value call(napi_env env, napi_callback_info info)
         if (name == "snapshot") {
             if (argc != 1)
                 throw std::runtime_error("snapshot takes only the session handle.");
-            Json result = snapshot_json(session.project->snapshot());
+            Json result = project_snapshot_json(*session.project);
             result["inventory"] = Json::array();
             for (const auto& file : session.project->file_inventory())
                 if (file.kind == noveltea::authoring::ProjectFileKind::TrackedSource)
                     result["inventory"].push_back(file.path);
             return js_string(env, result.to_string());
+        }
+        if (name == "inspect") {
+            if (argc != 2)
+                throw std::runtime_error("inspect requires a Project record owner.");
+            const auto inspected = session.project->inspect_record(string_arg(env, argv[1]));
+            return js_string(env, result_json(*session.project, inspected).to_string());
         }
         if (name == "observe") {
             if (argc != 1)
@@ -276,10 +299,11 @@ napi_value call(napi_env env, napi_callback_info info)
             if (argc != 2)
                 throw std::runtime_error("save requires a disk source revision.");
             return js_string(
-                env, result_json(session.project->save(string_arg(env, argv[1]))).to_string());
+                env, result_json(*session.project, session.project->save(string_arg(env, argv[1])))
+                         .to_string());
         }
         if (name == "patch") {
-            if (argc != 3)
+            if (argc != 3 && argc != 4)
                 throw std::runtime_error("patch requires working revision and operations JSON.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
@@ -298,9 +322,20 @@ napi_value call(napi_env env, napi_callback_info info)
                 patches.push_back({kind, entry.at("path").as<std::string>(),
                                    entry.contains("value") ? entry.at("value").to_string() : ""});
             }
-            return js_string(env, result_json(session.project->patch(
-                                                  static_cast<std::uint64_t>(revision), patches))
-                                      .to_string());
+            std::map<std::string, std::string> disk_preconditions;
+            if (argc == 4) {
+                const auto preconditions = Json::parse(string_arg(env, argv[3]));
+                if (!preconditions.is_object() || preconditions.size() > 256)
+                    throw std::runtime_error("Invalid recovery source preconditions.");
+                for (const auto& entry : preconditions.object_range()) {
+                    if (!entry.value().is_string())
+                        throw std::runtime_error("Invalid recovery source revision.");
+                    disk_preconditions.emplace(entry.key(), entry.value().as<std::string>());
+                }
+            }
+            const auto updated = session.project->patch(static_cast<std::uint64_t>(revision),
+                                                        patches, disk_preconditions);
+            return js_string(env, result_json(*session.project, updated).to_string());
         }
         throw std::runtime_error("Unknown native Project operation.");
     } catch (const std::exception& error) {
@@ -314,7 +349,7 @@ napi_value call(napi_env env, napi_callback_info info)
 
 napi_value initialize(napi_env env, napi_value exports)
 {
-    static const char* operations[]{"open",         "close", "snapshot", "observe",
+    static const char* operations[]{"open",         "close", "snapshot", "observe", "inspect",
                                     "coverageLost", "hint",  "save",     "patch"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;

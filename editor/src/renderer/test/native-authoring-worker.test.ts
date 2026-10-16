@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
+import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
+import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
+import type { JsonValue } from '../project/json-value';
 
 const initial = {
   workingRevision: 0,
@@ -183,6 +186,213 @@ const compiledWorker = path.resolve(
   'dist-electron/authoring-worker/native-authoring-worker.cjs',
 );
 describe.skipIf(!addon)('native Node-API addon through real Electron-compatible worker', () => {
+  it('mirrors existing multi-owner editor actions, undo, invalid input and conflict-safe replay', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-working-'));
+    const fixture = path.resolve(process.cwd(), '../tests/projects/feature-lab');
+    const roomId = 'room-lifecycle-roundtrip';
+    const owner = `rooms/${roomId}`;
+    const roomPath = path.join(root, 'records/rooms', `${roomId}.yaml`);
+    let bridge: NativeAuthoringSessionBridge | undefined;
+    try {
+      for (const file of [
+        'project.yaml',
+        'traits.yaml',
+        'editor.yaml',
+        'i18n/project.yaml',
+        'i18n/messages.yaml',
+        'i18n/usage-notes.yaml',
+        'i18n/tracking.yaml',
+        'i18n/orphans.yaml',
+        `records/rooms/${roomId}.yaml`,
+      ]) {
+        await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+        await copyFile(path.join(fixture, file), path.join(root, file));
+      }
+      await mkdir(path.join(root, 'records/maps'), { recursive: true });
+      await writeFile(
+        path.join(root, 'records/maps/world.yaml'),
+        'id: world\nlabel: World\ndata:\n  locations:\n    - id: foyer\n      room: foyer\n    - id: hall\n      room: hall\n  connections: []\n',
+      );
+      bridge = new NativeAuthoringSessionBridge(
+        { requireActiveProjectRoot: () => root, isCurrent: () => true },
+        { addonPath: path.resolve(addon!), workerScript: compiledWorker, pollIntervalMs: 100 },
+      );
+      const working = new NativeAuthoringWorkingProject(bridge);
+      const initial = await working.open('working-certification');
+      expect(working.snapshot()?.recordSnapshots).toEqual({});
+      expect(await working.inspectRecord(owner)).toMatchObject({
+        accepted: true,
+        snapshot: {
+          workingRevision: 0,
+          dirty: false,
+          recordSnapshots: { [owner]: { source: { label: 'Lifecycle Round Trip' } } },
+        },
+      });
+      expect(await working.inspectRecord('maps/world')).toMatchObject({
+        accepted: true,
+        snapshot: {
+          recordSnapshots: { 'maps/world': { source: { label: 'World' } } },
+        },
+      });
+      const targeted = await bridge.request({ operation: 'inspect', owner });
+      expect(
+        targeted && 'accepted' in targeted && Object.keys(targeted.snapshot.recordSnapshots ?? {}),
+      ).toEqual([owner]);
+      expect(working.historyCursor()).toBe(0);
+      const projectName = (initial.source as { project: { name: string } }).project.name;
+      const originalRoomSource = await readFile(roomPath, 'utf8');
+      const roomLabel = '/rooms/room-lifecycle-roundtrip/label';
+      const projectLabel = '/project/name';
+      const mapLabel = '/maps/world/label';
+      const forward = [
+        { op: 'replace' as const, path: roomLabel, value: 'Changed in editor' },
+        { op: 'replace' as const, path: projectLabel, value: 'Changed project' },
+        { op: 'replace' as const, path: mapLabel, value: 'Changed Map' },
+      ];
+      const inverse = [
+        { op: 'replace' as const, path: mapLabel, value: 'World' },
+        { op: 'replace' as const, path: projectLabel, value: projectName },
+        { op: 'replace' as const, path: roomLabel, value: 'Lifecycle Round Trip' },
+      ];
+      const edited = await working.applyAction(forward, inverse);
+      expect(edited).toMatchObject({
+        accepted: true,
+        affectedRecords: ['maps/world', 'project', owner],
+        snapshot: { workingRevision: 1, dirty: true, valid: true },
+      });
+      expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+        label: 'Changed in editor',
+      });
+      expect(working.snapshot()?.recordSnapshots?.['maps/world']?.source).toMatchObject({
+        label: 'Changed Map',
+      });
+      const blockedSave = await bridge.request({
+        operation: 'save',
+        diskRevision: initial.diskSourceRevision,
+      });
+      expect(blockedSave).toMatchObject({
+        accepted: false,
+        error: expect.stringContaining('Cannot partially save dirty native Project owner'),
+      });
+      expect(await readFile(roomPath, 'utf8')).toBe(originalRoomSource);
+      expect((await working.undo()).snapshot.workingRevision).toBe(2);
+      expect(working.snapshot()?.dirty).toBe(false);
+      expect(working.historyCursor()).toBe(0);
+      expect((await working.redo()).snapshot.workingRevision).toBe(3);
+      expect(working.historyCursor()).toBe(1);
+      const duplicateAdd = await working.applyAction(
+        [{ op: 'add', path: roomLabel, value: 'Invalid duplicate add' }],
+        [],
+      );
+      expect(duplicateAdd.accepted).toBe(false);
+      expect(working.snapshot()?.workingRevision).toBe(3);
+      const netNoOp = await working.applyAction(
+        [
+          { op: 'replace', path: roomLabel, value: 'Temporary' },
+          { op: 'replace', path: roomLabel, value: 'Changed in editor' },
+        ],
+        [],
+      );
+      expect(netNoOp).toMatchObject({ accepted: true, affectedRecords: [] });
+      expect(working.snapshot()?.workingRevision).toBe(3);
+      expect(working.historyCursor()).toBe(1);
+
+      working.setPendingFieldText(
+        '/rooms/room-lifecycle-roundtrip/data/presentationSpace/size/width',
+        'not-a-number',
+      );
+      expect(
+        working.pendingFieldText(
+          '/rooms/room-lifecycle-roundtrip/data/presentationSpace/size/width',
+        ),
+      ).toBe('not-a-number');
+      expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+        data: { presentationSpace: { size: { width: 1920 } } },
+      });
+      const width = '/rooms/room-lifecycle-roundtrip/data/presentationSpace/size/width';
+      const invalid = await working.applyAction(
+        [{ op: 'replace', path: width, value: -1 }],
+        [{ op: 'replace', path: width, value: 1920 }],
+      );
+      expect(invalid).toMatchObject({ accepted: true, snapshot: { valid: false } });
+      expect(invalid.snapshot.diagnostics.some((entry) => entry.path === width)).toBe(true);
+      expect((await working.undo()).snapshot.valid).toBe(true);
+      const beforeRejected = working.snapshot();
+      const rejected = await working.applyAction(
+        [
+          { op: 'replace', path: projectLabel, value: 'Should roll back project' },
+          { op: 'replace', path: roomLabel, value: 'Should roll back' },
+          { op: 'replace', path: '/rooms/room-lifecycle-roundtrip/missing/field', value: 2 },
+        ],
+        [{ op: 'replace', path: roomLabel, value: 'Changed in editor' }],
+      );
+      expect(rejected.accepted).toBe(false);
+      expect(working.snapshot()).toEqual(beforeRejected);
+      expect(working.snapshot()?.recordSnapshots?.[owner]?.source).toMatchObject({
+        label: 'Changed in editor',
+      });
+      expect(working.snapshot()?.source).toMatchObject({
+        project: { name: 'Changed project' },
+      });
+
+      bridge.close();
+      const replayed = await working.reopenAndReplay('working-certification');
+      expect(replayed.workingRevision).toBe(5);
+      expect(replayed.recordSnapshots?.[owner]?.source).toMatchObject({
+        label: 'Changed in editor',
+        data: { presentationSpace: { size: { width: 1920 } } },
+      });
+      expect(replayed.recordSnapshots?.['maps/world']?.source).toMatchObject({
+        label: 'Changed Map',
+      });
+      expect(working.pendingFieldText(width)).toBe('not-a-number');
+      const effectiveRoom = working.snapshot()?.recordSnapshots?.[owner]?.normalized;
+      if (!effectiveRoom) throw new Error('Missing effective native Room for editor command test.');
+      const editorCommand = executeCommand(
+        createInitialCommandBusState({
+          rooms: { [roomId]: effectiveRoom },
+        } as unknown as JsonValue),
+        {
+          type: 'project.replaceAtPath',
+          payload: { path: roomLabel, value: 'Existing command handler' },
+          originSaveUnitId: `record:rooms:${roomId}`,
+          persistencePolicy: 'manual-save',
+        },
+      );
+      expect(editorCommand.ok).toBe(true);
+      expect(editorCommand.historyEntry?.inversePatches).toEqual([
+        { op: 'replace', path: roomLabel, value: 'Changed in editor' },
+      ]);
+      const fromExistingCommand = await working.applyAction(
+        editorCommand.historyEntry!.patches,
+        editorCommand.historyEntry!.inversePatches,
+      );
+      expect(fromExistingCommand).toMatchObject({
+        accepted: true,
+        affectedRecords: [owner],
+        snapshot: {
+          recordSnapshots: { [owner]: { source: { label: 'Existing command handler' } } },
+        },
+      });
+      expect((await working.undo()).snapshot.recordSnapshots?.[owner]?.source).toMatchObject({
+        label: 'Changed in editor',
+      });
+      bridge.close();
+      await expect(working.reopenAndReplay('different-session')).rejects.toThrow(
+        'different Project session',
+      );
+      await writeFile(roomPath, originalRoomSource + '\n# another process modified this source\n');
+      await expect(working.reopenAndReplay('working-certification')).rejects.toThrow(
+        'Recovery source conflict',
+      );
+      expect(working.snapshot()).toBeNull();
+      expect(await readFile(roomPath, 'utf8')).toContain('another process modified');
+    } finally {
+      bridge?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('opens Project snapshot, emits verified external deltas and restarts safely', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-worker-'));
     try {
