@@ -384,18 +384,179 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
     result.insert_or_assign("affectedRecords", std::move(affected));
     return result;
 }
+
+void traits_editor_roundtrip(const std::filesystem::path& fixture)
+{
+    {
+        TemporaryProject sparse(fixture);
+        const auto path = sparse.root / "editor.yaml";
+        write(path, "# tracked editor comment\nchapters: {} # chapter note\n"
+                    "tags: {} # tag note\nrecordMetadata: {} # metadata note\n");
+        std::string open_error;
+        auto session = ProjectSession::open(sparse.root, open_error);
+        require(session != nullptr, "Valid sparse editor metadata admits: " + open_error);
+        const std::vector<RoomPatch> populate{
+            {RoomPatch::Operation::Add, "/editor/tags/records/review",
+             R"({"name":"Review","color":"#00aacc"})"},
+            {RoomPatch::Operation::Add, "/editor/chapters/records/chapter-one",
+             R"({"id":"chapter-one","label":"Chapter One"})"},
+            {RoomPatch::Operation::Add,
+             "/editor/recordMetadata/rooms/room-lifecycle-roundtrip/tags/0", "\"review\""}};
+        const auto populated = session->patch(0, populate);
+        require(populated.accepted && populated.snapshot.valid,
+                "Generic Add materializes omitted editor defaults and record metadata namespace");
+        const auto undone = session->patch(
+            1, {{RoomPatch::Operation::Remove, "/editor/tags/records/review", ""},
+                {RoomPatch::Operation::Remove, "/editor/chapters/records/chapter-one", ""},
+                {RoomPatch::Operation::Remove,
+                 "/editor/recordMetadata/rooms/room-lifecycle-roundtrip/tags/0", ""}});
+        require(undone.accepted && !undone.snapshot.dirty,
+                "Undo of sparse editor Adds restores omitted parent containers exactly");
+        const auto redone = session->patch(2, populate);
+        require(redone.accepted && redone.snapshot.valid,
+                "Reapplying sparse editor additions yields a valid working Project");
+        const auto saved =
+            session->save_owners(3, {"editor"}, false, TransactionDecision::KeepComments,
+                                 {{"editor", {"/tags", "/recordMetadata"}}});
+        require(saved.accepted && session->record_snapshots().at("editor").dirty &&
+                    read(path).find("chapter-one") == std::string::npos &&
+                    read(path).starts_with("# tracked editor comment\n") &&
+                    read(path).find("# chapter note") != std::string::npos &&
+                    read(path).find("# tag note") != std::string::npos &&
+                    read(path).find("# metadata note") != std::string::npos,
+                "Scoped Save of sparse editor owners preserves unsaved Chapters and comments");
+    }
+    TemporaryProject temp(fixture);
+    const auto traits_path = temp.root / "traits.yaml";
+    const auto editor_path = temp.root / "editor.yaml";
+    const auto manifest_before = read(temp.root / "project.yaml");
+    const auto traits_before = read(traits_path);
+    const auto editor_before = read(editor_path);
+    write(traits_path, "# preserved Traits heading\n" + traits_before);
+    write(editor_path, "# preserved organization heading\n" + editor_before);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Tracked Traits and editor organization admit: " + error);
+    require(project->record_snapshots().empty(),
+            "Project admission does not eagerly materialize tracked working owners");
+    require(project->inspect_record("traits").accepted &&
+                project->inspect_record("editor").accepted,
+            "Traits and editor metadata can be inspected independently after Project admission");
+    const auto baseline = project->record_snapshots();
+    require(baseline.contains("traits") && baseline.contains("editor") &&
+                baseline.at("traits").valid && baseline.at("editor").valid &&
+                Json::parse(baseline.at("traits").normalized_json).contains("lab-layered") &&
+                Json::parse(baseline.at("editor").normalized_json).contains("recordMetadata"),
+            "Distinct tracked sources expose independently validated, normalized owners");
+    auto duplicates = Json::parse(baseline.at("traits").source_json);
+    auto& definition = duplicates.at("lab-layered");
+    definition.at("ownerKinds").push_back("interactable");
+    definition.at("properties").push_back(definition.at("properties").at(0));
+    const auto duplicate_check =
+        validate_record("WorkspaceTraitDeclarations", duplicates.to_string());
+    const auto has_diagnostic = [&](std::string_view code) {
+        return std::any_of(duplicate_check.diagnostics.begin(), duplicate_check.diagnostics.end(),
+                           [&](const Diagnostic& entry) { return entry.code == code; });
+    };
+    require(!duplicate_check.accepted && has_diagnostic("semantic.trait.definition"),
+            "Duplicate Trait owner kinds and Properties are rejected by native refinements");
+    auto invalid_default = Json::parse(baseline.at("traits").source_json);
+    invalid_default.at("lab-layered").at("properties").at(0).at("defaultValue") = 42;
+    const auto default_check =
+        validate_record("WorkspaceTraitDeclarations", invalid_default.to_string());
+    require(!default_check.accepted &&
+                std::any_of(default_check.diagnostics.begin(), default_check.diagnostics.end(),
+                            [](const Diagnostic& entry) {
+                                return entry.code == "semantic.trait.property";
+                            }),
+            "Incompatible Trait Property defaults diagnose at the native semantic boundary");
+
+    const auto local_state =
+        project->patch(0, {{RoomPatch::Operation::Add, "/editor/recovery", "{}"}});
+    require(!local_state.accepted && !project->snapshot().dirty,
+            "Ignored local editor recovery is not accepted into tracked editor.yaml");
+
+    const auto wrong_trait = project->patch(
+        0, {{RoomPatch::Operation::Replace, "/traits/lab-layered/id", "\"other-id\""}});
+    require(
+        wrong_trait.accepted && !wrong_trait.snapshot.valid &&
+            !project->save_owners(1, {"traits"}, false, TransactionDecision::KeepComments).accepted,
+        "Trait map-key mismatch is a diagnosable unsaved error, never a persisted value");
+    const auto repaired = project->patch(
+        1, {{RoomPatch::Operation::Replace, "/traits/lab-layered/id", "\"lab-layered\""}});
+    require(repaired.accepted && repaired.snapshot.valid && !repaired.snapshot.dirty,
+            "Restoring a Trait ID clears its semantic diagnostics");
+    const auto edited = project->patch(
+        2, {{RoomPatch::Operation::Replace, "/traits/lab-layered/label", "\"Native Trait\""},
+            {RoomPatch::Operation::Add, "/editor/tags/records/review",
+             R"({"name":"Review","color":"#00aacc"})"},
+            {RoomPatch::Operation::Add, "/editor/recordMetadata/rooms",
+             R"({"room-lifecycle-roundtrip":{"tags":["review"]}})"}});
+    require(edited.accepted && edited.snapshot.valid &&
+                edited.affected_records == std::vector<std::string>({"editor", "traits"}),
+            "Traits and tagged organization edit through one generic atomic Project batch");
+    const auto tags_saved = project->save_owners(
+        3, {"editor"}, false, TransactionDecision::KeepComments, {{"editor", {"/tags"}}});
+    require(tags_saved.accepted &&
+                tags_saved.affected_records == std::vector<std::string>{"editor"} &&
+                project->record_snapshots().at("editor").dirty &&
+                project->record_snapshots().at("traits").dirty,
+            "Tag Save leaves metadata in the same physical file and Traits independently dirty");
+    require(read(editor_path).find("review") != std::string::npos,
+            "Tag Save publishes the new Tag into editor.yaml");
+    require(read(editor_path).find("room-lifecycle-roundtrip") == std::string::npos,
+            "Tag Save does not publish independently dirty record metadata");
+    require(read(traits_path) == "# preserved Traits heading\n" + traits_before,
+            "Tag Save does not rewrite the independently dirty Traits source");
+
+    const auto remainder =
+        project->save_owners(4, {"editor", "traits"}, false, TransactionDecision::KeepComments,
+                             {{"editor", {"/recordMetadata"}}});
+    require(remainder.accepted && !remainder.snapshot.dirty,
+            "Remaining editor metadata and Traits commit together without rewriting tags");
+    require(read(editor_path).starts_with("# preserved organization heading\n") &&
+                read(traits_path).starts_with("# preserved Traits heading\n") &&
+                read(temp.root / "project.yaml") == manifest_before,
+            "Tracked source comments and unrelated Project manifest survive separate Save units");
+    auto reopened = ProjectSession::open(temp.root, error);
+    require(reopened != nullptr, "Saved tracked sources can be reopened: " + error);
+    require(reopened->inspect_record("traits").accepted &&
+                reopened->inspect_record("editor").accepted &&
+                reopened->record_snapshots().at("traits").normalized_json ==
+                    project->record_snapshots().at("traits").normalized_json &&
+                reopened->record_snapshots().at("editor").normalized_json ==
+                    project->record_snapshots().at("editor").normalized_json,
+            "Reopened Traits and editor metadata agree with saved native effective values");
+
+    write(traits_path, "invalid-key:\n  id: different\n");
+    require(!ProjectSession::open(temp.root, error),
+            "Invalid or structurally mismatched Traits cannot be admitted as tracked source");
+    write(traits_path, traits_before);
+    write(editor_path, editor_before + "recovery: {}\n");
+    require(!ProjectSession::open(temp.root, error),
+            "Tracked editor.yaml rejects an ignored local recovery field");
+    write(editor_path, "chapters:\n  records: {}\n  assignments: {}\ntags:\n  records: {}\n"
+                       "recordMetadata:\n  rooms:\n    __proto__:\n      tags: []\n");
+    require(!ProjectSession::open(temp.root, error),
+            "Tracked record metadata rejects prototype keys as the TypeScript workspace does");
+}
 } // namespace
 
 int main(int argc, char** argv)
 {
     try {
-        if (argc == 2 && std::string_view(argv[1]) == "--validate") {
+        if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||
+                          std::string_view(argv[1]) == "--validate-traits" ||
+                          std::string_view(argv[1]) == "--validate-editor")) {
             const std::string source{std::istreambuf_iterator<char>{std::cin},
                                      std::istreambuf_iterator<char>{}};
             const auto decoded = open_yaml_source(source);
-            const auto result = decoded.accepted
-                                    ? validate_record("WorkspaceManifest", decoded.source_json)
-                                    : ValidationResult{};
+            const auto contract =
+                std::string_view(argv[1]) == "--validate-traits"   ? "WorkspaceTraitDeclarations"
+                : std::string_view(argv[1]) == "--validate-editor" ? "WorkspaceTrackedEditor"
+                                                                   : "WorkspaceManifest";
+            const auto result = decoded.accepted ? validate_record(contract, decoded.source_json)
+                                                 : ValidationResult{};
             Json response = Json::object();
             response.insert_or_assign("valid", result.accepted);
             if (result.accepted)
@@ -421,8 +582,13 @@ int main(int argc, char** argv)
             std::cout << roundtrip(argv[2], false).to_string() << '\n';
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[1]) == "--traits-editor") {
+            traits_editor_roundtrip(argv[2]);
+            return 0;
+        }
         if (argc == 2) {
             roundtrip(argv[1], true);
+            traits_editor_roundtrip(argv[1]);
             return 0;
         }
         return 2;

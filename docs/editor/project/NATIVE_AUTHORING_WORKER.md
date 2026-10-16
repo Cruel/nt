@@ -125,6 +125,17 @@ All generated-schema record families (including Layouts) are routed by their
 Project-relative owner and validated using the generated native contracts.
 Tracked `editor.yaml` state is supported as the `editor` owner; editor-only
 ignored recovery and preferences are not source transactions.
+Native certification also admits `traits.yaml` as an independent `traits`
+owner. Its map-key identity, owner-kind and Property uniqueness, enum
+constraints, and declared Property defaults are validated through generated
+contracts and registered native refinements. Tracked editor source validates
+chapters, tags, and record metadata, rejecting prototype metadata keys and
+editor-local recovery/preferences. Both files are validated at admission,
+separate from the Project manifest, and support generic edits and scoped Save.
+Generic editor mutations also materialize omitted schema-defaulted Chapter/Tag
+containers and the explicitly addressed dynamic record-metadata mappings.
+Undo removes newly empty implicit containers again, so a reverted action does
+not leave a spurious dirty `editor.yaml` source.
 
 Scoped multi-owner Save uses the same #495 journaled native YAML transaction
 writer, with Keep/Remove/Cancel comment decisions and exact source revisions
@@ -171,6 +182,9 @@ same logical selection atomically across owners; scoped `saveOwners` uses
 one revision-checked journal transaction. Logical owners are lazily admitted
 before Save/Use Disk when not yet resident. Full-owner certification methods
 remain for independent source-owner tests.
+The Traits collection Save unit selects the `traits` owner. Chapters, tags,
+and record metadata remain independent logical paths within `editor.yaml`:
+saving Tags does not silently save dirty record metadata or Chapter changes.
 Project Settings Save/Use Disk imports the authoritative
 `PROJECT_SETTINGS_OWNED_PATHS` registry, including
 `/export/assetMemoryPolicies`, rather than duplicating that path list.

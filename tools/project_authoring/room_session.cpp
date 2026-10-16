@@ -342,6 +342,29 @@ void materialize_implicit_parents(Json& working, const Json& effective, const Ro
     }
 }
 
+// recordMetadata is a dynamic map, so its new collection/record keys do not
+// appear in the normalized baseline. Create only the explicitly addressed
+// mapping shells; other editor containers must be proven schema defaults.
+void materialize_editor_metadata_parents(Json& working, const RoomPatch& operation,
+                                         std::vector<RoomPatch>& resolved)
+{
+    constexpr std::string_view prefix = "/recordMetadata/";
+    if (!operation.path.starts_with(prefix))
+        return;
+    auto next_slash = operation.path.find('/', prefix.size());
+    if (next_slash == std::string::npos)
+        return;
+    for (int level = 0; level < 2 && next_slash != std::string::npos; ++level) {
+        const auto path = operation.path.substr(0, next_slash);
+        if (!at_pointer(working, path)) {
+            RoomPatch create{RoomPatch::Operation::Add, path, "{}", operation.comments};
+            apply_patch(working, create);
+            resolved.push_back(std::move(create));
+        }
+        next_slash = operation.path.find('/', next_slash + 1);
+    }
+}
+
 // When an inverse removes the last element of a defaulted collection, return
 // to the original omission instead of leaving a new explicit empty YAML key.
 void omit_restored_default_parents(Json& working, const Json& baseline_source,
@@ -357,6 +380,24 @@ void omit_restored_default_parents(Json& working, const Json& baseline_source,
         const auto effective = at_pointer(baseline_effective, *it);
         const auto current = at_pointer(working, *it);
         if (effective && current && *effective == *current)
+            jsoncons::jsonpointer::remove(working, jsoncons::jsonpointer::json_pointer(*it));
+    }
+}
+
+void omit_empty_editor_metadata_parents(Json& working, const Json& baseline_source,
+                                        std::string_view operation_path)
+{
+    constexpr std::string_view prefix = "/recordMetadata/";
+    if (!operation_path.starts_with(prefix))
+        return;
+    std::vector<std::string> ancestors;
+    for (auto end = operation_path.find('/', prefix.size()); end != std::string_view::npos;
+         end = operation_path.find('/', end + 1))
+        ancestors.emplace_back(operation_path.substr(0, end));
+    for (auto it = ancestors.rbegin(); it != ancestors.rend(); ++it) {
+        const auto current = at_pointer(working, *it);
+        if (!at_pointer(baseline_source, *it) && current && current->empty() &&
+            (current->is_object() || (it->ends_with("/tags") && current->is_array())))
             jsoncons::jsonpointer::remove(working, jsoncons::jsonpointer::json_pointer(*it));
     }
 }
@@ -772,6 +813,34 @@ RoomSession::open_editor_source(const std::filesystem::path& project_root, std::
     }
 }
 
+std::unique_ptr<RoomSession>
+RoomSession::open_traits_source(const std::filesystem::path& project_root, std::string& error)
+{
+    try {
+        const auto path = project_root / "traits.yaml";
+        auto source = read_bytes(path);
+        const auto opened = open_yaml_source(source);
+        if (!opened.accepted)
+            throw std::runtime_error("Invalid Traits YAML: " + opened.error);
+        const auto validation = validate_record("WorkspaceTraitDeclarations", opened.source_json);
+        if (!validation.accepted)
+            throw std::runtime_error("Invalid Traits declarations: " +
+                                     (validation.diagnostics.empty()
+                                          ? std::string("unknown error")
+                                          : validation.diagnostics.front().path + " " +
+                                                validation.diagnostics.front().message));
+        auto result = std::unique_ptr<RoomSession>(
+            new RoomSession(path, "", std::move(source), opened.source_json));
+        result->is_traits_ = true;
+        result->validation_contract_ = "WorkspaceTraitDeclarations";
+        error.clear();
+        return result;
+    } catch (const std::exception& exception) {
+        error = exception.what();
+        return nullptr;
+    }
+}
+
 std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path& root,
                                                      std::string& error)
 {
@@ -782,6 +851,13 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
         auto authority = std::make_unique<SourceAuthority>(root);
         if (!authority->initialize(error))
             return nullptr;
+        if (!RoomSession::open_traits_source(root, error))
+            return nullptr;
+        if (!RoomSession::open_editor_source(root, error))
+            return nullptr;
+        // Check tracked source validity at Project admission, but keep their
+        // working sessions lazy: opening a Project must not publish untouched
+        // owners or change the worker's initial record-snapshot contract.
         return std::unique_ptr<ProjectSession>(
             new ProjectSession(std::move(source), std::move(authority), root));
     } catch (const std::exception& e) {
@@ -822,7 +898,8 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
         const auto slash = name.find('/');
         const auto family = name.substr(0, slash);
         const auto id = slash == std::string::npos ? std::string() : name.substr(slash + 1);
-        if (name != "editor" && (!record_contracts().contains(family) || !is_id(id))) {
+        if (name != "editor" && name != "traits" &&
+            (!record_contracts().contains(family) || !is_id(id))) {
             result.error = "Unsupported native record owner.";
         } else if (const auto found = records_.find(name); found != records_.end()) {
             if (exact_source_revision(read_bytes(found->second->source_path())) !=
@@ -832,8 +909,9 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
                 result.accepted = true;
         } else {
             std::string error;
-            auto record = name == "editor" ? RoomSession::open_editor_source(root_, error)
-                                           : RoomSession::open_record(root_, family, id, error);
+            auto record = name == "editor"   ? RoomSession::open_editor_source(root_, error)
+                          : name == "traits" ? RoomSession::open_traits_source(root_, error)
+                                             : RoomSession::open_record(root_, family, id, error);
             if (!record)
                 result.error = error;
             else {
@@ -1159,6 +1237,8 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 path = root_ / "project.yaml";
             else if (owner == "editor")
                 path = root_ / "editor.yaml";
+            else if (owner == "traits")
+                path = root_ / "traits.yaml";
             else {
                 const auto slash = owner.find('/');
                 if (slash == std::string::npos)
@@ -1189,7 +1269,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             const auto first = operation.path.find('/', 1);
             const auto family =
                 operation.path.substr(1, first == std::string::npos ? first : first - 1);
-            if (!record_contracts().contains(family) && family != "editor") {
+            if (!record_contracts().contains(family) && family != "editor" && family != "traits") {
                 // The remaining top-level paths must belong to the admitted
                 // manifest; a record-family edit must never become an unknown
                 // manifest field by accident.
@@ -1208,18 +1288,29 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             }
             if (family != "editor" && first == std::string::npos)
                 throw std::runtime_error("Record patch requires an ID and field path.");
-            const auto field = family == "editor" ? first : operation.path.find('/', first + 1);
-            if (field == std::string::npos || (family != "editor" && field == first + 1))
+            const auto field = family == "editor" || family == "traits"
+                                   ? first
+                                   : operation.path.find('/', first + 1);
+            if (field == std::string::npos ||
+                (family != "editor" && family != "traits" && field == first + 1))
                 throw std::runtime_error("Record patch requires a non-root field path.");
-            const auto id = family == "editor"
+            const auto id = family == "editor" || family == "traits"
                                 ? std::string{}
                                 : operation.path.substr(first + 1, field - first - 1);
-            const auto owner = family == "editor" ? family : family + "/" + id;
+            const auto owner =
+                family == "editor" || family == "traits" ? family : family + "/" + id;
+            if (family == "editor") {
+                const auto end = operation.path.find('/', first + 1);
+                const auto section = operation.path.substr(first + 1, end - first - 1);
+                if (section != "chapters" && section != "tags" && section != "recordMetadata")
+                    throw std::runtime_error("Transient editor state is not tracked Project data.");
+            }
             auto it = staged.find(owner);
             if (it == staged.end()) {
                 std::string error;
-                auto record = family == "editor"
-                                  ? RoomSession::open_editor_source(root_, error)
+                auto record = family == "editor" ? RoomSession::open_editor_source(root_, error)
+                              : family == "traits"
+                                  ? RoomSession::open_traits_source(root_, error)
                                   : RoomSession::open_record(root_, family, id, error);
                 if (!record)
                     throw std::runtime_error("Cannot admit " + owner + ": " + error);
@@ -1290,7 +1381,8 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
-    if (result.accepted && !is_project_ && !is_editor_ && validation_contract_.empty()) {
+    if (result.accepted && !is_project_ && !is_editor_ && !is_traits_ &&
+        validation_contract_.empty()) {
         const auto local =
             validate_room_map_local(is_map_ ? "maps" : "rooms", result.effective_json);
         state.valid = local.accepted;
@@ -1300,7 +1392,7 @@ RoomSessionSnapshot RoomSession::snapshot() const
             state.normalized_json.clear();
     }
     const auto value = Json::parse(working_json_);
-    if (!is_project_ && !is_editor_ &&
+    if (!is_project_ && !is_editor_ && !is_traits_ &&
         (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
          value.at("id").as<std::string>() != room_id_)) {
         state.valid = false;
@@ -1321,6 +1413,7 @@ RoomSessionResult RoomSession::result(bool accepted, std::string error, bool cha
     if (changed)
         response.affected_records.push_back(is_project_  ? "project"
                                             : is_editor_ ? "editor"
+                                            : is_traits_ ? "traits"
                                                          : record_family_ + "/" + room_id_);
     return response;
 }
@@ -1384,9 +1477,12 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                     }
                 }
             }
-            if (concrete.operation == RoomPatch::Operation::Add && !is_editor_ && !is_project_) {
+            if (concrete.operation == RoomPatch::Operation::Add && !is_project_) {
+                if (is_editor_)
+                    materialize_editor_metadata_parents(next, concrete, resolved);
                 const auto current_validation =
-                    !validation_contract_.empty()
+                    is_editor_ ? validate_record("WorkspaceTrackedEditor", next.to_string())
+                    : !validation_contract_.empty()
                         ? validate_record(validation_contract_, next.to_string())
                     : is_map_ ? validate_map_source(next.to_string())
                               : validate_room_source(next.to_string());
@@ -1413,9 +1509,10 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                         throw std::runtime_error(
                             "Normalized patch requires unsupported source parent projection.");
                     concrete.operation = RoomPatch::Operation::Add;
-                } else if (!original && !is_project_ && !is_editor_) {
+                } else if (!original && !is_project_) {
                     const auto baseline_effective =
-                        !validation_contract_.empty()
+                        is_editor_ ? validate_record("WorkspaceTrackedEditor", disk_json_)
+                        : !validation_contract_.empty()
                             ? validate_record(validation_contract_, disk_json_)
                         : is_map_ ? validate_map_source(disk_json_)
                                   : validate_room_source(disk_json_);
@@ -1428,8 +1525,10 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                 }
             }
             apply_patch(next, concrete);
-            if (baseline_effective && !is_editor_ && !is_project_)
+            if (baseline_effective && !is_project_)
                 omit_restored_default_parents(next, baseline, *baseline_effective, concrete.path);
+            if (is_editor_ && concrete.operation == RoomPatch::Operation::Remove)
+                omit_empty_editor_metadata_parents(next, baseline, concrete.path);
             resolved.push_back(std::move(concrete));
         }
         if (next.to_string() == working_json_)
@@ -1471,7 +1570,7 @@ RoomSessionResult RoomSession::reconcile_disk()
         const auto base = Json::parse(disk_json_);
         const auto local = Json::parse(working_json_);
         const auto external = Json::parse(opened.source_json);
-        if (!external.is_object() || (!is_project_ && !is_editor_ &&
+        if (!external.is_object() || (!is_project_ && !is_editor_ && !is_traits_ &&
                                       (!external.contains("id") || external.at("id") != room_id_)))
             return result(false, "External source ID or structure is invalid.");
         std::vector<RoomPatch> local_diff;
@@ -1576,7 +1675,7 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
         return result(true);
     try {
         const auto working = Json::parse(working_json_);
-        if (!is_project_ &&
+        if (!is_project_ && !is_editor_ && !is_traits_ &&
             (!working.is_object() || !working.contains("id") || !working.at("id").is_string() ||
              working.at("id").as<std::string>() != room_id_))
             return result(false, "Cannot save a Room whose ID does not match its filename.");
@@ -1597,8 +1696,9 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
 
         // The same journaling writer handles both a standalone Room and Project manifest;
         // it never reopens or hashes unrelated workspace source/Asset files.
-        const auto project_root =
-            is_project_ ? path_.parent_path() : path_.parent_path().parent_path().parent_path();
+        const auto project_root = is_project_ || is_editor_ || is_traits_
+                                      ? path_.parent_path()
+                                      : path_.parent_path().parent_path().parent_path();
         YamlTransactionService writer(project_root);
         writer.set_invalid_sources(invalid_source_paths, false);
         YamlTransactionTarget target{path_.lexically_relative(project_root).generic_string(),
@@ -1621,10 +1721,11 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
                 return result(false, "Rebased YAML source does not preserve the local mutation.");
         if (is_project_ && !validate_record("WorkspaceManifest", merged.source_json).accepted)
             return result(false, "Rebased Project manifest failed validation.");
-        if (!is_project_ && (!merged_json.is_object() || !merged_json.contains("id") ||
-                             !merged_json.at("id").is_string() || merged_json.at("id") != room_id_))
+        if (!is_project_ && !is_editor_ && !is_traits_ &&
+            (!merged_json.is_object() || !merged_json.contains("id") ||
+             !merged_json.at("id").is_string() || merged_json.at("id") != room_id_))
             return result(false, "Rebased Room source ID does not match filename.");
-        if (!is_project_) {
+        if (!is_project_ && !is_editor_ && !is_traits_) {
             const auto normalized = is_map_ ? validate_map_source(merged.source_json)
                                             : validate_room_source(merged.source_json);
             if (!normalized.accepted ||
