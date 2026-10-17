@@ -105,6 +105,7 @@
     "codemirror": "^6.0.2",
     "electron": "catalog:",
     "electron-builder": "catalog:",
+    "node-gyp": "12.4.0",
     "fuse.js": "^7.5.0",
     "i18next": "^26.3.6",
     "jsdom": "^29.1.1",

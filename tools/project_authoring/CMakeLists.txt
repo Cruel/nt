@@ -75,13 +75,14 @@ target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_C
 target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
 target_include_directories(noveltea_project_authoring_session SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project_authoring_yaml noveltea_project_authoring_contracts)
-# Only an explicitly requested host certification build creates the Node-API module.
-# It is never linked into players, shipped editor packages or the CLI daemon.
+# Only an explicitly requested host build creates the Node-API module.
+# The editor packages it as a separate host-only resource for certification;
+# it is never linked into players or the CLI daemon.
 option(NOVELTEA_BUILD_AUTHORING_NODE_ADDON "Build certification-only Node-API Project session" OFF)
 if(NOVELTEA_BUILD_AUTHORING_NODE_ADDON)
-    find_program(NOVELTEA_AUTHORING_NODE NAMES node REQUIRED)
     set(NOVELTEA_NODE_API_INCLUDE_DIR "" CACHE PATH "Node-API headers for the host Node/Electron")
     if(NOT NOVELTEA_NODE_API_INCLUDE_DIR)
+        find_program(NOVELTEA_AUTHORING_NODE NAMES node REQUIRED)
         execute_process(COMMAND "${NOVELTEA_AUTHORING_NODE}" -p "require('path').resolve(process.execPath,'../../include/node')"
             OUTPUT_VARIABLE NOVELTEA_NODE_API_INCLUDE_DIR OUTPUT_STRIP_TRAILING_WHITESPACE
             RESULT_VARIABLE NOVELTEA_NODE_HEADERS_RESULT)
@@ -108,6 +109,7 @@ if(NOVELTEA_BUILD_AUTHORING_NODE_ADDON)
         target_link_libraries(noveltea-authoring-node PRIVATE "${NOVELTEA_NODE_API_IMPORT_LIBRARY}")
     endif()
     if(BUILD_TESTING)
+        find_program(NOVELTEA_AUTHORING_NODE NAMES node REQUIRED)
         add_test(NAME native_authoring_material_differential
             COMMAND "${NOVELTEA_AUTHORING_NODE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-materials.mjs"

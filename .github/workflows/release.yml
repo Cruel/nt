@@ -1302,6 +1302,59 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Set up MSVC for native Project authoring
+        if: runner.os == 'Windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Install macOS Ninja for native Project authoring
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Build native Project authoring Electron addon
+        if: runner.os != 'Linux'
+        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
+
+      - name: Audit native macOS Project authoring minimum
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          addon="build/native-authoring-host/noveltea-authoring-node.node"
+          minos="$(otool -l "$addon" | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
+          test "$minos" = "14.0"
+
+      - name: Prepare version-matched Linux Electron Node-API headers
+        if: runner.os == 'Linux'
+        run: node editor/scripts/build-native-authoring-addon.mjs --headers-only
+
+      - name: Build Linux authoring addon at the supported ABI floor
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag noveltea-linux-authoring-abi --file .github/containers/linux-player-glibc228.Dockerfile .
+          electron_version="$(node -p "require('./editor/node_modules/electron/package.json').version")"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env ELECTRON_VERSION="$electron_version" \
+            noveltea-linux-authoring-abi \
+            bash -lc '
+              set -euo pipefail
+              cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+                -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
+                -DNOVELTEA_NODE_API_INCLUDE_DIR="/workspace/build/electron-authoring-headers/$ELECTRON_VERSION/include/node" \
+                "-DCMAKE_MODULE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
+              cmake --build build/native-authoring-host --target noveltea-authoring-node
+              cmake -DNOVELTEA_BINARY=/workspace/build/native-authoring-host/noveltea-authoring-node.node \
+                -DNOVELTEA_MAX_GLIBC_VERSION=2.36 -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
+                -P cmake/AuditNovelTeaLinuxCompatibility.cmake
+            '
+
       - name: Download NovelTea host CLI
         uses: actions/download-artifact@v7
         with:
@@ -1316,10 +1369,14 @@ jobs:
             "${{ matrix.cli_path }}/noveltea-ui-test-runner" \
             "${{ matrix.cli_path }}/tools/ffmpeg/bin/ffmpeg"
 
+      - name: Certify standalone native CLI disk Project validation on this host
+        run: node editor/scripts/certify-native-daemon-validation.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
+
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:
           NOVELTEA_CLI_PATH: ${{ github.workspace }}/${{ matrix.cli_executable }}
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
         run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
 
       - name: Audit packaged Linux authoring ABI floor

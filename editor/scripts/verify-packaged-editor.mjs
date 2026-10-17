@@ -123,6 +123,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
   for (const required of [
     'package.json',
     'dist-electron/main/main.cjs',
+    'dist-electron/authoring-worker/native-authoring-worker.cjs',
     'dist-electron/preload/preload.cjs',
     'dist-electron/renderer/index.html',
     'node_modules/sharp/package.json',
@@ -210,6 +211,16 @@ export async function verifyPackagedEditor(outputOrApplication) {
   }
   await verifyStandaloneNovelTeaCli(cliPath);
   await verifyPrivateMediaTools(path.join(application.resources, 'tools', 'ffmpeg'));
+
+  const addonRoot = path.join(application.resources, 'authoring');
+  if (
+    JSON.stringify(await readdir(addonRoot)) !== JSON.stringify(['noveltea-authoring-node.node']) ||
+    !(await stat(path.join(addonRoot, 'noveltea-authoring-node.node'))).isFile()
+  ) {
+    throw new Error(
+      'Packaged native Project authoring addon is missing or has an unexpected closure.',
+    );
+  }
 
   for (const required of ['node_modules/sharp/package.json', 'node_modules/sharp/dist/index.cjs']) {
     if (!(await pathExists(path.join(unpackedRoot, ...required.split('/'))))) {

@@ -110,6 +110,56 @@ jobs:
           fi
           c++ -std=c++20 -fno-exceptions -fno-rtti -Iengine/include -x c++ -c engine/include/noveltea/core/compiler_policy.hpp -o /tmp/policy.o
 
+  native-authoring-hosts:
+    name: Native Project authoring (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2025
+          - platform: macos
+            runner: macos-26
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+      - name: Set up Linux Electron libraries
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-linux-native
+        with:
+          graphics: "true"
+          xvfb: "true"
+      - name: Install macOS Ninja
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - run: pnpm install --frozen-lockfile
+      - name: Build pinned native authoring host and Electron addon
+        run: node editor/scripts/build-native-authoring-addon.mjs
+      - name: Certify real native Project operations and source transactions
+        run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(contracts|yaml|room_session|room_map|yaml_transaction)$'
+      - name: Bundle dedicated Project worker
+        run: pnpm -C editor exec vp pack
+      - name: Certify native worker session / external watcher / revision / recovery
+        env:
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
+        run: pnpm -C editor exec vp test run src/renderer/test/native-authoring-worker.test.ts src/renderer/test/native-authoring-reconciliation.test.ts
+      - name: Certify addon inside Electron's worker runtime
+        env:
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
+        run: node editor/scripts/certify-native-authoring-electron.mjs
+
   shader-assets:
     name: Shader assets
     runs-on: ubuntu-24.04
