@@ -149,6 +149,11 @@ export default {
       to: 'bin',
       filter: ['**/*'],
     },
+    {
+      from: path.join(stageRoot, 'resources', 'authoring'),
+      to: 'authoring',
+      filter: ['**/*'],
+    },
   ],
   directories: {
     buildResources: buildResourcesRoot,

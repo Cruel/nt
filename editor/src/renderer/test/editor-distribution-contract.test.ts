@@ -90,13 +90,28 @@ describe('editor distribution stage manifest', () => {
   });
 
   it('accepts only the exact current manifest identity and version', () => {
-    expect(
-      assertCurrentEditorStageManifest({
-        schema: 'noveltea.editor-stage-manifest',
-        schemaVersion: 1,
-        files: [],
-      }),
-    ).toMatchObject({ schemaVersion: 1, files: [] });
+    const current = {
+      schema: 'noveltea.editor-stage-manifest',
+      schemaVersion: 1,
+      files: [],
+      resourceRoots: Object.fromEntries(
+        [
+          ['enginePreview', 'engine-preview'],
+          ['editorAssets', 'editor-assets'],
+          ['bin', 'bin'],
+          ['authoring', 'authoring'],
+        ].map(([key, folder]) => [key, { path: `resources/${folder}`, sha256: 'a'.repeat(64) }]),
+      ),
+    };
+    expect(assertCurrentEditorStageManifest(current)).toMatchObject({
+      schemaVersion: 1,
+      files: [],
+    });
+
+    const { authoring: _removed, ...replacedRoots } = current.resourceRoots;
+    expect(() =>
+      assertCurrentEditorStageManifest({ ...current, resourceRoots: replacedRoots }),
+    ).toThrow('Unsupported stage manifest');
 
     expect(() => assertCurrentEditorStageManifest({ schemaVersion: 1, files: [] })).toThrow(
       'Unsupported stage manifest',

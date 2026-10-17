@@ -117,6 +117,7 @@ stage/
   resources/
     engine-preview/
     editor-assets/
+    authoring/noveltea-authoring-node.node
     bin/
     tools/ffmpeg/
   stage-manifest.json
@@ -125,6 +126,28 @@ stage/
 `stage-manifest.json` uses the exact `noveltea.editor-stage-manifest` identity and version 1. Package
 verification rejects a missing or unsupported identity/version instead of treating an older stage as
 current.
+
+The native Project authoring addon is a **host-only, certification-only** Node-API module. Before
+staging, build it with `node editor/scripts/build-native-authoring-addon.mjs --addon-only`, then set
+`NOVELTEA_AUTHORING_NODE_ADDON` to `build/native-authoring-host/noveltea-authoring-node.node`.
+The builder obtains checksum-checked headers and (on Windows) the import library matching the exact
+lockfile Electron version through pinned node-gyp, and compiles pinned host-only libfyaml/jsoncons.
+Staging requires the addon, copies its exact bytes into the separate `resources/authoring` closure,
+and verifies its contents and resource hash on relocation. electron-builder includes that closure
+outside ASAR so a future production worker can load it by absolute resource path. This does **not**
+activate the native authoring worker in production or introduce a TypeScript/C++ fallback; the
+native worker remains a parallel certification path pending migration cutover.
+
+The `native-authoring-hosts` CI matrix builds and certifies the addon and real Project sessions on
+Linux x64, Windows x64, and macOS arm64. It runs the existing watcher, reconciliation, conflict,
+transaction, and revision tests against the host module, and launches the bundled worker under
+Electron's actual Node runtime to catch ABI/load failures. Release editor jobs build the matching
+native addon on the packaging host and require it in the produced application. For Linux releases,
+the source is compiled inside the pinned manylinux 2.28 compatibility image with a static GNU C++
+runtime and audited against the editor's glibc 2.36 / GLIBCXX 3.4.30 ceilings. This avoids raising
+the editor binary's compatibility floor to the Ubuntu runner's libc. macOS addons explicitly target
+macOS 14 and their Mach-O minimum is audited on the release runner. Players and exported packages
+never link or receive the authoring library.
 
 The application closure comes from the root lockfile through
 `pnpm -C editor --prod deploy`. The admitted top-level production dependencies are the exact `sharp`
