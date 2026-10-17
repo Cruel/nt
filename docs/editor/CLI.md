@@ -2,6 +2,28 @@
 
 NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing the shared TypeScript authoring/workspace implementation in an embedded QuickJS-ng island plus a narrow statically linked host/native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
 
+## Parallel native daemon validation certification (#500)
+
+The existing daemon's dedicated Project-owner worker can also retain a **separate,
+read-only native C++ Project validation graph**, keyed by the canonical physical
+Project root. It uses the native Project-session source authority and exact
+physical source revisions; warm calls retain unaffected record and diagnostic
+contributors, while physical edits, missing sources, and uncertain watcher
+coverage revoke previous proof. A newly admitted malformed disk Project is
+read through the certification-only cold validation entrypoint and cannot be
+admitted as mutable native state. No tracked Project files are written.
+
+For isolated daemon certification only, use
+`NOVELTEA_CLI_CERTIFICATION=1` together with
+`NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION=1`. Each Project-owner
+`noveltea validate` then emits a `[native-disk-validation]` JSON diagnostic
+observation to stderr, including the independent native result and the actual
+TypeScript CLI oracle. The flag never creates another daemon or a second public
+command. It is not a fallback: normal invocations, JSON protocol envelopes,
+diagnostic presentation, exit statuses, editor behavior, and `--no-daemon`
+continue to use the existing canonical CLI validator until the coordinated
+native cutover under #474. Certification-only diagnostics are not persisted.
+
 ## Private media-tool diagnosis
 
 `noveltea [--json] media-tool check` checks the installation-relative private FFmpeg tool without

@@ -1484,6 +1484,7 @@ function requestEnvironment(): Record<string, string> {
   // total record shape even when the caller did not set them.
   const result: Record<string, string> = {
     NOVELTEA_CLI_CERTIFICATION: '',
+    NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '',
     NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '',
@@ -1860,7 +1861,8 @@ function requestInvokeHost(
     if (
       operation === 'process-alive' ||
       operation === 'run-process' ||
-      operation === 'cli-executable-path'
+      operation === 'cli-executable-path' ||
+      operation === 'native-disk-project-validation'
     )
       return invokeHost(operation, requestText);
     const envelope = JSON.parse(
