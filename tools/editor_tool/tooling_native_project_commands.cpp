@@ -1,6 +1,10 @@
 #include "tooling_native_c.h"
 
 #include "../project_authoring/room_session.hpp"
+#include "tooling_native_project_fmt.hpp"
+#include "tooling_native_project_localization.hpp"
+#include "tooling_native_project_sync.hpp"
+#include "tooling_native_project_bundle.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -59,6 +63,10 @@ Json failure(std::string error) { return {{"ok", false}, {"error", std::move(err
 
 Json operate(const Json& request)
 {
+    if (!request.is_object() || !request.contains("action") || !request.at("action").is_string())
+        return failure("Native CLI Project action must be a string.");
+    if (request.at("action") == "project-import")
+        return native_project_bundle(request, nullptr, {});
     if (!request.is_object() || !request.contains("projectRoot") ||
         !request["projectRoot"].is_string())
         return failure("Native CLI Project operation requires projectRoot.");
@@ -69,8 +77,6 @@ Json operate(const Json& request)
     if (!requested.is_absolute())
         return failure("Native CLI Project operation requires an absolute root.");
     const auto root = std::filesystem::canonical(requested);
-    if (!request.contains("action") || !request.at("action").is_string())
-        return failure("Native CLI Project action is required.");
     const auto action = request.at("action").get<std::string>();
     // The isolated certification invocation deliberately opens a fresh disk
     // session. It never borrows the editor's unsaved working Project.
@@ -180,27 +186,15 @@ Json operate(const Json& request)
         return result;
     }
 
-    if (action == "export-preparation") {
-        // Export preparation may not consume an invalid or externally changed
-        // Project, even if the caller requested only its physical inventory.
-        const auto validated = session->validate_project();
-        if (!validated.valid)
-            return failure("Cannot prepare an invalid native Project for export.");
-        const auto prepared = session->prepare_working(session->snapshot().working_revision);
-        if (!prepared.accepted)
-            return failure(prepared.error);
-        Json files = Json::array();
-        for (const auto& source : session->file_inventory()) {
-            if (source.kind == ProjectFileKind::TrackedSource ||
-                source.kind == ProjectFileKind::ProjectSource)
-                files.push_back(source.path);
-        }
-        std::sort(files.begin(), files.end());
-        return {{"ok", true},
-                {"project", Json::parse(prepared.project_json)},
-                {"sourcePaths", std::move(files)},
-                {"sourceRevisions", prepared.source_revisions}};
-    }
+    if (action == "fmt-strip-defaults")
+        return native_project_strip_defaults(request, *session, root);
+    if (action == "localization-targets")
+        return native_project_localization(request, *session, root);
+    if (action == "localization-sync")
+        return native_project_localization_sync(request, *session, root);
+    if (action == "project-export" || action == "export-preparation")
+        return native_project_bundle(request, session.get(), root);
+
     return failure("Unknown native CLI Project operation.");
 }
 } // namespace
@@ -217,9 +211,35 @@ noveltea_tooling_native_project_commands_json(const std::uint8_t* request,
         const auto parsed = Json::parse(std::string_view(reinterpret_cast<const char*>(request),
                                                          static_cast<std::size_t>(request_size)),
                                         nullptr, false);
-        serialized = (parsed.is_discarded() ? failure("Malformed native CLI Project JSON request.")
-                                            : operate(parsed))
-                         .dump();
+        if (parsed.is_discarded())
+            serialized = failure("Malformed native CLI Project JSON request.").dump();
+        else {
+            // The native API may be used by a two-pass C caller. Such a size
+            // probe must never execute a filesystem mutation on its first
+            // call or execute with a buffer too small for the result.
+            const auto action =
+                parsed.is_object() && parsed.contains("action") && parsed.at("action").is_string()
+                    ? parsed.at("action").get<std::string>()
+                    : std::string{};
+            const auto boolean_flag = [&](std::string_view key, bool default_value) {
+                return parsed.is_object() && parsed.contains(std::string(key)) &&
+                               parsed.at(std::string(key)).is_boolean()
+                           ? parsed.at(std::string(key)).get<bool>()
+                           : default_value;
+            };
+            const bool mutating =
+                action == "project-import" || action == "project-export" ||
+                (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
+                (action == "fmt-strip-defaults" && !boolean_flag("check", true)) ||
+                (action == "localization-targets" && !boolean_flag("dryRun", true)) ||
+                (action == "localization-sync" && !boolean_flag("dryRun", true));
+            if (mutating && (!response || response_capacity < 8 * 1024 * 1024))
+                serialized = failure("Mutating native Project commands require a preallocated "
+                                     "8 MiB response buffer; probing is forbidden.")
+                                 .dump();
+            else
+                serialized = operate(parsed).dump();
+        }
     } catch (const std::exception& error) {
         serialized = failure(error.what()).dump();
     }

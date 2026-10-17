@@ -57,6 +57,9 @@ struct MaterialPresetContract {
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id);
 // Generated from the same defaults used by TypeScript Archetype inheritance.
 std::optional<std::string> archetype_template_json(std::string_view instance_kind);
+// Committed build-time Zod omission defaults for an authoring record family.
+// This metadata may guide source compaction, but never authorizes semantic change.
+std::optional<std::string> source_omission_defaults_json(std::string_view family);
 // Cross-record Room, Map, and Hotspot checks against a complete effective Project.
 // Diagnostics use Project-absolute JSON Pointers; warnings and info do not reject.
 ValidationResult validate_room_map_project(std::string_view effective_project_json);

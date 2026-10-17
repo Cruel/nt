@@ -1581,6 +1581,15 @@ std::optional<std::string> archetype_template_json(std::string_view instance_kin
     return templates.at(instance_kind).to_string();
 }
 
+std::optional<std::string> source_omission_defaults_json(std::string_view family)
+{
+    static const Contracts contracts;
+    const auto& families = contracts.document.at("sourceDefaults");
+    if (!families.contains(family))
+        return std::nullopt;
+    return families.at(family).to_string();
+}
+
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id)
 {
     static const Contracts contracts;

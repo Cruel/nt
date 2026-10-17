@@ -1,6 +1,8 @@
 #include "localization_semantics.hpp"
 
 #include "localization_operations.hpp"
+#include "character_archetype_semantics.hpp"
+#include "room_session.hpp"
 #include "yaml_codec.hpp"
 
 #include <jsoncons/json.hpp>
@@ -854,6 +856,115 @@ void append_locales(ValidationResult& result, const std::filesystem::path& root,
     }
 }
 } // namespace
+
+std::string native_localization_tracking_fingerprint(std::string_view text)
+{
+    return tracking_fingerprint(text);
+}
+
+std::size_t native_localization_structured_message_count(const std::filesystem::path& root)
+{
+    auto messages = structured_sources(root, {});
+    std::string error;
+    const auto manifest = RoomSession::open_project_source(root, error);
+    if (!manifest || !manifest->snapshot().valid)
+        throw std::runtime_error("Cannot count structured Messages in invalid Project manifest.");
+    const auto project = Json::parse(manifest->snapshot().normalized_json);
+    const auto& settings = project.at("settings").at("titleScreen");
+    messages.insert_or_assign("/settings/titleScreen/subtitle",
+                              settings.at("subtitle").as<std::string>());
+    messages.insert_or_assign("/settings/titleScreen/startLabel",
+                              settings.at("startLabel").as<std::string>());
+    collect_structured_sources(project.at("undefinedInteractionProgram"),
+                               "/undefinedInteractionProgram", messages);
+
+    std::map<std::string, std::string> records;
+    for (const auto* family : {"archetypes", "characters", "rooms", "interactables"}) {
+        const auto directory = root / "records" / family;
+        if (!std::filesystem::is_directory(directory))
+            continue;
+        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+                continue;
+            auto record =
+                RoomSession::open_record(root, family, entry.path().stem().string(), error);
+            if (!record || !record->snapshot().valid)
+                continue;
+            records.emplace(std::string(family) + "/" + entry.path().stem().string(),
+                            record->snapshot().normalized_json);
+        }
+    }
+    // Sparse TextContent omits declared markup defaults. Counting raw Room
+    // fragments without native schema normalization misses valid Messages.
+    for (const auto& [owner, raw] : records) {
+        if (!owner.starts_with("rooms/"))
+            continue;
+        const auto data = Json::parse(raw).at("data");
+        const auto base = "/" + owner + "/data";
+        collect_top_level_strings(data, base, messages);
+        collect_structured_sources(data, base, messages);
+    }
+    const AuthoringRecordResolver resolve = [&](std::string_view family,
+                                                std::string_view id) -> std::optional<std::string> {
+        const auto found = records.find(std::string(family) + "/" + std::string(id));
+        return found == records.end() ? std::nullopt : std::optional<std::string>(found->second);
+    };
+    for (const auto& [owner, raw] : records) {
+        if (owner.starts_with("archetypes/")) {
+            const auto id = owner.substr(sizeof("archetypes/") - 1);
+            const auto resolved = validate_archetype_dependencies(id, raw, resolve);
+            if (!resolved.accepted || resolved.effective_json.empty())
+                continue;
+            const auto data = Json::parse(resolved.effective_json).at("data");
+            const auto base = "/archetypes/" + escape(id) + "/configuration";
+            collect_top_level_strings(data, base, messages);
+            collect_structured_sources(data, base, messages);
+            continue;
+        }
+        if (!owner.starts_with("characters/") && !owner.starts_with("rooms/") &&
+            !owner.starts_with("interactables/"))
+            continue;
+        const auto value = Json::parse(raw);
+        if (!value.contains("archetype") || value.at("archetype").is_null())
+            continue;
+        const auto family = owner.substr(0, owner.find('/'));
+        const auto resolved = validate_archetype_owner(family, raw, resolve);
+        if (!resolved.accepted || resolved.effective_json.empty())
+            continue;
+        const auto base = "/" + owner + "/data";
+        for (auto it = messages.begin(); it != messages.end();) {
+            if (it->first.starts_with(base + "/"))
+                it = messages.erase(it);
+            else
+                ++it;
+        }
+        const auto data = Json::parse(resolved.effective_json).at("data");
+        collect_top_level_strings(data, base, messages);
+        collect_structured_sources(data, base, messages);
+    }
+    return messages.size();
+}
+
+NativeLocalizationTrackingSource native_localization_tracking_source(const SourceAnalysis& analysis,
+                                                                     std::string family,
+                                                                     std::string owner_key,
+                                                                     std::string source_path)
+{
+    NativeLocalizationTrackingSource source;
+    source.family = std::move(family);
+    source.owner_key = std::move(owner_key);
+    source.source_path = std::move(source_path);
+    source.source_snapshot_fingerprint = tracking_fingerprint(analysis.source_text);
+    const auto found = tracked_candidates(analysis, source.family);
+    for (std::size_t index = 0; index < found.size(); ++index) {
+        const auto& candidate = found[index];
+        const auto& original = *candidate.occurrence;
+        source.occurrences.push_back(NativeLocalizationTrackingOccurrence{
+            index, candidate.structural, candidate.anchor, tracking_fingerprint(original.source),
+            original.source, original.context, original.translator_note});
+    }
+    return source;
+}
 
 ValidationResult
 validate_project_localization(const std::filesystem::path& project_root,

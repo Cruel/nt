@@ -47,6 +47,40 @@ coordinated cutover. The host integration test is
 `editor/scripts/certify-native-cli-commands.mjs`; the direct native test target
 is `noveltea-cli-native-certify`.
 
+The native Project command C entrypoint requires a preallocated response buffer
+for mutating operations; a two-pass response-size probe must not execute a
+transaction or write an archive. The installed `--no-daemon` capture path
+reserves this buffer and invokes the command exactly once.
+
+The #501 certification adapter now additionally exercises a **fail-closed subset**
+of `fmt --strip-defaults` for single canonical record YAML sources, comparing the
+effective record before and after each safe unannotated omission and committing
+only after an exact physical source-revision check. Native named-Message
+`localization accept`/`review` certification uses source fingerprints and native
+multi-source-safe YAML transactions; unsupported ActiveText cue patterns are
+rejected rather than guessed. The native editable Project `.ntproject` exporter
+reconstructs all validated disk record contributors and uses the existing native
+ZIP archiver; the importer verifies ZIP headers, CRC, manifest hashes, canonical
+inventory, physical paths and workspace admission before activating the new
+directory. The standalone certification compares the portable bundle's complete
+bytes to the authoritative CLI export, and reopens the native-imported Project.
+
+The native adapter now also certifies free-form Lua/RML `localization sync` using
+the native source analyzer's shared structural/anchor fingerprints and six-stage
+deterministic one-to-one identity matching. Dry runs report materialized,
+preserved, and unresolved Message identities without writing; explicit sync
+commits are exact-revision checked and use the native Project transaction
+writer. Feature Lab tests include an unmodified tracked source and a newly
+authored inline Lua Message. The CLI `--dry-run` result is compared field for
+field to the installed-headless implementation in the same daemon's optional
+`[native-cli-localization-sync]` certification observation.
+
+The native adapter still does not replace the complete `fmt` surface,
+localization reconciliation planning/apply, all entity structural operations,
+or compiled runtime package publication. These must reach semantic parity before
+the coordinated native cutover. No production caller switches to a partial
+native implementation.
+
 ## Private media-tool diagnosis
 
 `noveltea [--json] media-tool check` checks the installation-relative private FFmpeg tool without
