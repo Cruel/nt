@@ -90,6 +90,58 @@ int main()
                "CPU configurations reject out-of-bounds, changed fixture and graphics settings"))
         return 1;
 
+    for (const char* id : {"asset-source-read", "asset-project-prepare", "asset-texture-realize"}) {
+        Options asset;
+        asset.scenario = id;
+        asset.asset_cache = "cold";
+        asset.cpu_work_units = 4;
+        asset.profile = "diagnostic";
+        auto encoded = nlohmann::json::parse(encode_configuration(asset));
+        Options restored;
+        if (!check(decode_configuration(encoded.dump(), restored, error) &&
+                       restored.scenario == asset.scenario && restored.asset_cache == "cold" &&
+                       restored.cpu_work_units == 4 &&
+                       nlohmann::json::parse(encode_configuration(restored)) == encoded,
+                   "asset workload roundtrip retains exact reference and cache identity"))
+            return 1;
+        auto invalid_cache = encoded;
+        invalid_cache["parameters"]["cache"] = "physical-disk-cold";
+        auto invalid_input = encoded;
+        invalid_input["parameters"]["input"] = "other.png";
+        auto invalid_count = encoded;
+        invalid_count["parameters"]["work_units"] = 65;
+        auto missing_cache = encoded;
+        missing_cache["parameters"].erase("cache");
+        auto invalid_ui = encoded;
+        invalid_ui["settings"]["no_ui"] = false;
+        if (!check(rejected(invalid_cache) && rejected(invalid_input) && rejected(invalid_count) &&
+                       rejected(missing_cache) && rejected(invalid_ui),
+                   "asset workload rejects incompatible cache, source, units and UI mode"))
+            return 1;
+        noveltea::benchmark::SuiteResult suite;
+        noveltea::benchmark::ScenarioResult scenario;
+        scenario.scenario = id;
+        scenario.outcome = "complete";
+        scenario.measured_frames = 4;
+        scenario.measured_wall_seconds = 0.1;
+        noveltea::benchmark::TrialResult trial;
+        trial.outcome = "complete";
+        trial.measured_frames = 4;
+        trial.measured_wall_seconds = 0.1;
+        scenario.trials.push_back(trial);
+        suite.scenarios.push_back(scenario);
+        suite.outcome = "complete";
+        auto result = nlohmann::json::parse(encode_result(asset, shared_environment, suite));
+        if (!check(
+                result["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
+                    result["scenarios"][0]["aggregate"].contains("asset_work_batches_per_second") &&
+                    result["graphics"]["asset_workload"]["manager_cache"] == "cold" &&
+                    result["graphics"]["asset_workload"]["os_page_cache"] == "uncontrolled" &&
+                    result["timing"]["gpu_execution_ms"].is_null(),
+                "asset reports have workload throughput and explicit cache/GPU limitations"))
+            return 1;
+    }
+
     for (const char* mode : {"video-decode", "video-upload", "video-present"}) {
         Options video;
         video.scenario = mode;

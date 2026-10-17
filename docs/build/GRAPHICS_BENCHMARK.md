@@ -1,4 +1,70 @@
-# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#447)
+# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#448)
+
+## Real asset loading, preparation and realization (#448)
+
+Three standalone benchmark workloads exercise NovelTea's production
+`AssetManager` and Compiled Project codec, rather than an artificial loader.
+Each accepts `--cpu-work-units 1..64` to scale the number of asset operations
+per timed runner batch. They share the normal readiness, warmup, repeated-trial,
+error and JSON report contracts:
+
+```sh
+./scripts/run-benchmark.sh --scenario asset-source-read --asset-cache warm --cpu-work-units 3 --frames 300
+./scripts/run-benchmark.sh --scenario asset-project-prepare --asset-cache cold --cpu-work-units 4 --frames 300
+./scripts/run-benchmark.sh --scenario asset-texture-realize --asset-cache cold --cpu-work-units 3 --frames 100
+```
+
+- `asset-source-read`: read the three shipped Feature Lab PNGs through
+  `AssetManager::read_binary` and the real directory/packaged source. This is
+  source I/O and copying, **not** image decode.
+- `asset-project-prepare`: read the fixed Compiled Project JSON through
+  `AssetManager` and validate/decode it with `decode_compiled_project_json`.
+  This is project-codec preparation, not full Engine initialization.
+- `asset-texture-realize`: issue production typed PNG texture requests,
+  drive the normal `InlineJobExecutor` preparation/finalization,
+  obtain real resident texture leases, and hand off to the production
+  bgfx `Renderer`. Shader/backend startup and initial warm residency
+  setup occur before timed samples; ordinary project rendering is excluded.
+
+The first two cases remain entirely **CPU-only**: they create neither an SDL
+video window nor bgfx. The last requires graphics. All three use the same
+authored Feature Lab images (staged for Linux, Web and the independent Android
+benchmark APK), and the same portable benchmark runner and report format.
+
+`--asset-cache warm` keeps manager state and, for textures, pinned leases;
+`--asset-cache cold` starts new logical source/asset generations before
+operations (or constructs a fresh CPU-only AssetManager). Neither setting
+flushes the operating system page cache, Web MEMFS or GPU driver caches:
+**cold means NovelTea asset-residency cold**, not disk-cold or driver-cold.
+Compare only like-for-like cache mode, work-unit count and backend. The JSON
+configuration stores the input reference, cache mode and batch count, while
+`graphics.asset_workload` records source and renderer backend, cache identity,
+uncontrolled OS cache and explicitly unavailable per-upload GPU time.
+`asset_work_batches_per_second` is a throughput measure, not presented FPS;
+frame-loop FPS is null. CPU-operation timings include whatever synchronous
+source I/O, preparation and resource handoff that scenario actually performs.
+bgfx completed-frame GPU timings cannot be attributed to a single upload,
+so the benchmark does not claim to measure per-upload GPU execution.
+Report failures instead of fabricated samples if an asset is missing or a
+typed request fails. Use optimized Clean builds for meaningful comparisons;
+Xvfb software GL and Debug runs establish correctness, not real-GPU baselines.
+
+On Web, CPU-only asset cases use the headless source/codec runner; GPU texture
+realization transfers SDL/bgfx ownership away from the dashboard and uses
+the browser's rAF-driven production Renderer lifecycle. The shell supports
+`cpuWorkUnits` and `assetCache` query parameters. After building the Web
+benchmark, run the browser functional regression (no throughput thresholds):
+
+```sh
+NOVELTEA_BENCHMARK_BROWSER=Chromium node scripts/benchmark-asset-web-smoke.mjs build/web-benchmark-debug/apps/benchmark
+```
+
+The script also supports Firefox when that host exposes WebGL2. A missing
+WebGL2 context is an environment capability failure, not evidence of an
+asset-pipeline performance regression. Native Linux CTest includes four
+CPU-only warm/cold repeated-run checks and two actual bgfx texture realization
+checks; the CPU cases explicitly disable SDL video to guard against accidental
+graphics initialization.
 
 ## Runtime video decode, upload and presentation (#447)
 

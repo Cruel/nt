@@ -56,7 +56,8 @@ struct WebBenchmarkApp {
 
     static bool engine_owned(const std::string& id)
     {
-        return noveltea::benchmark::is_video_scenario(id) || id == "engine-empty" ||
+        return noveltea::benchmark::is_video_scenario(id) ||
+               id == "asset-texture-realize" || id == "engine-empty" ||
                noveltea::benchmark::is_compiled_project_scenario(id) ||
                id == "integrated-rmlui-controlled" ||
                id == "integrated-rmlui-production" || id == "integrated-rmlui-scaling" ||
@@ -74,7 +75,10 @@ struct WebBenchmarkApp {
     Environment scenario_environment() const
     {
         Environment observed = graphics.environment;
-        if (noveltea::benchmark::is_video_scenario(current_options.scenario))
+        if (current_options.scenario == "asset-texture-realize")
+            observed = static_cast<const noveltea::benchmark::AssetScenario&>(*active_scenario)
+                           .environment();
+        else if (noveltea::benchmark::is_video_scenario(current_options.scenario))
             observed = static_cast<const noveltea::benchmark::VideoScenario&>(*active_scenario)
                            .environment();
         else if (current_options.scenario == "engine-empty" ||
@@ -306,7 +310,9 @@ struct WebBenchmarkApp {
                 }
             }
         }
-        if (noveltea::benchmark::is_video_scenario(frozen.scenario))
+        if (frozen.scenario == "asset-texture-realize")
+            active_scenario = std::make_unique<noveltea::benchmark::AssetScenario>(frozen.scenario);
+        else if (noveltea::benchmark::is_video_scenario(frozen.scenario))
             active_scenario = std::make_unique<noveltea::benchmark::VideoScenario>(frozen.scenario);
         else if (frozen.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(frozen.scenario))

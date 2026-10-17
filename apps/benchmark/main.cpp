@@ -16,6 +16,7 @@
 #include "benchmark_capacity.hpp"
 #include "benchmark_completed_run.hpp"
 #include "cpu_workloads.hpp"
+#include "asset_workloads.hpp"
 #include "native_2d_workloads.hpp"
 #include "video_workloads.hpp"
 #include "benchmark_dashboard.hpp"
@@ -69,9 +70,11 @@ void print_usage()
               "cpu-lua|cpu-runtime-session|cpu-flow-prediction|"
               "native-2d-geometry|native-2d-text-static|native-2d-text-dynamic|"
               "native-shader-material|native-postprocess|"
-              "video-decode|video-upload|video-present]");
+              "video-decode|video-upload|video-present|"
+              "asset-source-read|asset-project-prepare|asset-texture-realize]");
     std::puts("       [--clock-policy realtime|fixed-step] [--feature-lab-package FILE]");
-    std::puts("       [--cpu-work-units 1..4096] (CPU-only --no-ui batch size)");
+    std::puts("       [--cpu-work-units 1..4096] (CPU work size; asset scenarios 1..64)");
+    std::puts("       [--asset-cache cold|warm] (asset scenarios only; no OS-cache eviction)");
     std::puts("       [--native-quads 1..2048] [--native-glyphs 1..4096]");
     std::puts("       [--native-texture-size 0|64|128|256|512|1024] (native renderer --no-ui)");
     std::puts("       [--shader-scope world|full-game-viewport] [--shader-tint 0..1]");
@@ -989,6 +992,46 @@ int run_video(const Options& options)
     std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
     return result.outcome == "complete" ? 0 : 2;
 #endif
+}
+
+int run_asset(const Options& options)
+{
+    noveltea::benchmark::AssetScenario source("asset-source-read");
+    noveltea::benchmark::AssetScenario project("asset-project-prepare");
+    noveltea::benchmark::AssetScenario texture("asset-texture-realize");
+    auto* selected = options.scenario == "asset-source-read" ? static_cast<Scenario*>(&source)
+                     : options.scenario == "asset-project-prepare"
+                         ? static_cast<Scenario*>(&project)
+                         : static_cast<Scenario*>(&texture);
+    SteadyClock clock;
+#if defined(__ANDROID__)
+    const SuiteResult result =
+        noveltea::benchmark::run_suite(options, {selected}, clock, android_engine_recovery());
+#else
+    const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock);
+#endif
+    std::string output;
+    if (!write_report(options,
+                      selected == &source    ? source.environment()
+                      : selected == &project ? project.environment()
+                                             : texture.environment(),
+                      result, output))
+        return 3;
+    const auto& scenario = result.scenarios.front();
+    if (scenario.outcome == "complete") {
+        std::printf("[benchmark] complete: %llu asset operation batches across %zu trial(s), "
+                    "%u operations/batch, cache=%s, CPU mean %.3f ms (not GPU execution time)\n",
+                    static_cast<unsigned long long>(scenario.measured_frames),
+                    scenario.trials.size(), options.cpu_work_units, options.asset_cache.c_str(),
+                    scenario.cpu_operation.mean_ms);
+    } else {
+        for (const auto& trial : scenario.trials)
+            if (trial.outcome != "complete")
+                std::fprintf(stderr, "[benchmark] asset trial %s: %s\n", trial.outcome.c_str(),
+                             trial.reason.c_str());
+    }
+    std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
+    return result.outcome == "complete" ? 0 : 2;
 }
 
 int run_cpu(const Options& options)
@@ -1972,6 +2015,14 @@ int main(int argc, char* argv[])
     }
     if (noveltea::benchmark::is_cpu_scenario(options.scenario))
         return run_cpu(options);
+    if (noveltea::benchmark::is_asset_scenario(options.scenario)) {
+#if defined(__EMSCRIPTEN__)
+        // GPU-backed assets need rAF-driven ownership/recovery on Web.
+        if (options.scenario == "asset-texture-realize")
+            return run_web(options);
+#endif
+        return run_asset(options);
+    }
     if (noveltea::benchmark::is_video_scenario(options.scenario)) {
 #if defined(__EMSCRIPTEN__)
         return run_web(options);

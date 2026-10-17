@@ -139,9 +139,9 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--clock-policy" && flag != "--feature-lab-package" &&
             flag != "--capacity-dimension" && flag != "--capacity-target" &&
             flag != "--capacity-threshold" && flag != "--capacity-mode" &&
-            flag != "--cpu-work-units" && flag != "--native-quads" && flag != "--native-glyphs" &&
-            flag != "--native-texture-size" && flag != "--shader-tint" &&
-            flag != "--shader-scope") {
+            flag != "--cpu-work-units" && flag != "--asset-cache" && flag != "--native-quads" &&
+            flag != "--native-glyphs" && flag != "--native-texture-size" &&
+            flag != "--shader-tint" && flag != "--shader-scope") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -203,6 +203,15 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.shader_scope = value;
             if (options.shader_scope != "world" && options.shader_scope != "full-game-viewport") {
                 error = "--shader-scope must be world or full-game-viewport";
+                return false;
+            }
+            continue;
+        }
+        if (flag == "--asset-cache") {
+            has_cli_settings = true;
+            options.asset_cache = value;
+            if (options.asset_cache != "cold" && options.asset_cache != "warm") {
+                error = "--asset-cache must be cold or warm";
                 return false;
             }
             continue;
@@ -559,6 +568,7 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.ui_nested_layers = defaults.ui_nested_layers;
     selected.rect_scale = defaults.rect_scale;
     selected.cpu_work_units = defaults.cpu_work_units;
+    selected.asset_cache = defaults.asset_cache;
     selected.native_quads = defaults.native_quads;
     selected.native_glyphs = defaults.native_glyphs;
     selected.native_texture_size = defaults.native_texture_size;
@@ -644,6 +654,20 @@ bool validate_reference_options(const Options& options, std::string& reason)
                  "video-decode does not use presentation VSync";
         return false;
     }
+    if (is_asset_scenario(options.scenario)) {
+        if (options.cpu_work_units < 1 || options.cpu_work_units > 64 ||
+            (options.asset_cache != "cold" && options.asset_cache != "warm") ||
+            options.clock_policy != "realtime" || !options.feature_lab_package.empty() ||
+            !options.no_ui || options.quick_suite || !options.capacity_dimension.empty() ||
+            options.vsync || options.native_resolution) {
+            reason = "asset workloads require --no-ui, 1..64 work units, cold/warm cache, "
+                     "realtime clock and no capacity search or VSync";
+            return false;
+        }
+    } else if (options.asset_cache != defaults.asset_cache) {
+        reason = "--asset-cache requires an asset scenario";
+        return false;
+    }
     if (is_cpu_scenario(options.scenario)) {
         if (options.cpu_work_units < 1 || options.cpu_work_units > 4096 ||
             options.clock_policy != "realtime" || !options.feature_lab_package.empty() ||
@@ -653,8 +677,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
                      "and no graphics-only settings";
             return false;
         }
-    } else if (options.cpu_work_units != defaults.cpu_work_units) {
-        reason = "--cpu-work-units requires a CPU scenario";
+    } else if (!is_asset_scenario(options.scenario) &&
+               options.cpu_work_units != defaults.cpu_work_units) {
+        reason = "--cpu-work-units requires a CPU or asset scenario";
         return false;
     }
     const bool effects_scenario = is_ui_effects_scenario(options.scenario);
@@ -753,8 +778,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
         return true;
     }
     if ((is_native_2d_scenario(options.scenario) || is_shader_scenario(options.scenario) ||
-         is_cpu_scenario(options.scenario) || is_video_scenario(options.scenario) ||
-         options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
+         is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario) ||
+         is_video_scenario(options.scenario) || options.scenario == "raw-bgfx-empty" ||
+         options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
          options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty" ||
          project_scenario) &&

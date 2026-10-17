@@ -84,6 +84,10 @@ tasks.register("stageBenchmarkAssets", Sync) {
         include "minimal.json"
         rename "minimal.json", "compiled-project-minimal.json"
     }
+    from(file("../../tests/projects/feature-lab/assets/images")) {
+        include "stress-image-1.png", "stress-image-2.png", "stress-image-3.png"
+        into "images"
+    }
     from(file("../../tests/fixtures/media")) {
         include "opaque-vp9.webm"
         into "media"
