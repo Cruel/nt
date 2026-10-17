@@ -103,6 +103,54 @@ int main()
                    comparison.metrics[0].baseline_samples == 100,
                "identical configurations produce per-metric signed raw, percentage and samples"))
         return 1;
+    Options cpu;
+    cpu.scenario = "cpu-runtime-session";
+    cpu.cpu_work_units = 4;
+    Environment headless;
+    headless.platform = "Linux";
+    headless.frame_path = "cpu-work-batch-no-presentation";
+    const std::string cpu_json = example_report(cpu, headless, 0.3);
+    ImportedReport cpu_baseline, cpu_candidate;
+    std::string cpu_error;
+    const bool cpu_a = decode_imported_report(cpu_json, "cpu baseline", cpu_baseline, cpu_error);
+    if (!cpu_a)
+        std::fprintf(stderr, "CPU baseline decode failed: %s\n", cpu_error.c_str());
+    const bool cpu_b = decode_imported_report(example_report(cpu, headless, 0.2), "cpu candidate",
+                                              cpu_candidate, cpu_error);
+    if (!cpu_b)
+        std::fprintf(stderr, "CPU candidate decode failed: %s\n", cpu_error.c_str());
+    const auto cpu_comparison =
+        cpu_a && cpu_b ? compare_reports(cpu_baseline, cpu_candidate) : ReportComparison{};
+    if (cpu_a && cpu_b && !cpu_comparison.controlled)
+        for (const auto& warning : cpu_comparison.warnings)
+            std::fprintf(stderr, "CPU comparison warning: %s\n", warning.c_str());
+    if (!check(cpu_a && cpu_b && cpu_comparison.controlled,
+               "headless CPU reports import and compare with stable input and batch identity"))
+        return 1;
+    Options cpu_different_window = cpu;
+    cpu_different_window.width = 640;
+    cpu_different_window.height = 480;
+    if (!check(parse(example_report(cpu_different_window, headless, 0.2), cpu_candidate) &&
+                   compare_reports(cpu_baseline, cpu_candidate).controlled,
+               "CPU-only workloads ignore irrelevant window dimensions during comparison"))
+        return 1;
+    auto cpu_fps = Json::parse(cpu_json);
+    cpu_fps["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"] = 100;
+    ImportedReport rejected_cpu;
+    if (!check(!parse(cpu_fps.dump(), rejected_cpu),
+               "reject CPU reports that claim a presented-frame cadence"))
+        return 1;
+    cpu_fps = Json::parse(cpu_json);
+    cpu_fps["scenarios"][0]["graphics"]["renderer"] = "OpenGL";
+    if (!check(!parse(cpu_fps.dump(), rejected_cpu),
+               "reject CPU reports that invent a renderer identity"))
+        return 1;
+    cpu_fps = Json::parse(cpu_json);
+    cpu_fps["scenarios"][0]["trials"][0]["cpu_work_batches_per_second"] = "unknown";
+    if (!check(!parse(cpu_fps.dump(), rejected_cpu),
+               "reject CPU reports with invalid batch throughput metadata"))
+        return 1;
+
     Environment other = machine;
     other.browser = "Firefox";
     other.gpu_device_id = 456;

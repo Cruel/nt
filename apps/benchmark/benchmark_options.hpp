@@ -50,6 +50,7 @@ struct Options {
     uint32_t ui_masks = 2;
     uint32_t ui_nested_layers = 2;
     double rect_scale = 1.0;
+    uint32_t cpu_work_units = 1; // Repeated CPU operations in one timed runner batch.
     uint32_t draw_calls = 64;
     uint32_t quad_count = 1;
     uint32_t texture_size = 256;
@@ -64,6 +65,11 @@ struct Options {
     std::string alternate_config_path;  // CLI-only path; loaded before execution.
     std::shared_ptr<Options> alternate; // Candidate B for repeated A/B/A cycles.
 };
+
+[[nodiscard]] inline bool is_cpu_scenario(std::string_view id) noexcept
+{
+    return id == "cpu-lua" || id == "cpu-runtime-session" || id == "cpu-flow-prediction";
+}
 
 [[nodiscard]] UiEffectCounts ui_effect_counts(const Options& options);
 bool parse_options(int argc, const char* const argv[], Options& options, std::string& error);

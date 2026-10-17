@@ -342,6 +342,24 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             error = "invalid aggregate distribution";
             return false;
         }
+        if (is_cpu_scenario(id)) {
+            if (!scenario["graphics"].is_object() ||
+                scenario["graphics"].value("frame_path", Json(nullptr)) !=
+                    "cpu-work-batch-no-presentation" ||
+                !scenario["graphics"]["renderer"].is_null() ||
+                !scenario["graphics"]["video_driver"].is_null() ||
+                !scenario["graphics"]["gpu_vendor_id"].is_null() ||
+                !scenario["graphics"]["gpu_device_id"].is_null() ||
+                !scenario["graphics"]["width_pixels"].is_null() ||
+                !scenario["graphics"]["height_pixels"].is_null() ||
+                !aggregate["frame_loop_cadence_hz"].is_null() ||
+                !aggregate.contains("cpu_work_batches_per_second") ||
+                (!aggregate["cpu_work_batches_per_second"].is_null() &&
+                 !finite_nonnegative(aggregate["cpu_work_batches_per_second"]))) {
+                error = "CPU scenario requires headless batch timing metadata";
+                return false;
+            }
+        }
         const bool alternating = !root["configuration"]["alternate"].is_null();
         const bool repeated = !alternating && scenario["trials"].size() > 1;
         if (repeated != !scenario["repeated"].is_null()) {
@@ -426,6 +444,15 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                 return false;
             }
             const bool complete = trial["outcome"] == "complete";
+            if (is_cpu_scenario(id) &&
+                (!trial.contains("cpu_work_batches_per_second") ||
+                 !trial.contains("frame_loop_cadence_hz") ||
+                 !trial["frame_loop_cadence_hz"].is_null() ||
+                 (complete != !trial["cpu_work_batches_per_second"].is_null()) ||
+                 (complete && !finite_nonnegative(trial["cpu_work_batches_per_second"])))) {
+                error = "CPU trial must report batch throughput without frame cadence";
+                return false;
+            }
             const uint64_t count = complete ? trial["measured_frames"].get<uint64_t>() : 0;
             if ((complete && count == 0) || !count_matches(trial["frame_wall_ms"], count) ||
                 !count_matches(trial["cpu_operation_ms"], count) ||
@@ -520,8 +547,13 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
     // Ignore run duration, repeats, raw-sample export and output name when
     // checking workload identity. A Quick Suite's selection is per scenario.
     for (const auto* key : {"vsync", "native_resolution", "width", "height", "capacity_dimension",
-                            "capacity_target", "capacity_threshold", "capacity_mode"})
+                            "capacity_target", "capacity_threshold", "capacity_mode"}) {
+        // A CPU-only batch does not create a window; requested pixel dimensions have no effect.
+        if (is_cpu_scenario(a_options.scenario) && is_cpu_scenario(b_options.scenario) &&
+            (std::string_view(key) == "width" || std::string_view(key) == "height"))
+            continue;
         mismatch(result, key, ac["settings"], bc["settings"], key);
+    }
     for (const auto& scenario : a["scenarios"]) {
         const auto id = scenario["id"].get<std::string>();
         const auto* other = by_id(b["scenarios"], id);
@@ -562,8 +594,12 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
                   "world_raster_height_pixels", "raw_workload", "ui_render_path",
                   "ui_reference_msaa_samples"})
                 mismatch(result, (id + ": " + key).c_str(), ag, bg, key);
+            // Headless CPU reports legitimately lack graphics hardware and pixel dimensions.
+            // Requiring those fields would make every CPU comparison exploratory by definition.
             for (const auto* key : {"platform", "renderer", "gpu_vendor_id", "gpu_device_id",
                                     "width_pixels", "height_pixels"}) {
+                if (is_cpu_scenario(id) && std::string_view(key) != "platform")
+                    continue;
                 if (text_field(ag, key) == "<unavailable>" || text_field(ag, key) == "null" ||
                     text_field(bg, key) == "<unavailable>" || text_field(bg, key) == "null") {
                     result.controlled = false;

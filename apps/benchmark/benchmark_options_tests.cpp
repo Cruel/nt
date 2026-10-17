@@ -112,6 +112,10 @@ int main()
     const char* const bad_quads[] = {"benchmark", "--quad-count", "513"};
     const char* const bad_texture[] = {"benchmark", "--texture-size", "63"};
     const char* const bad_coverage[] = {"benchmark", "--coverage", "nan"};
+    const char* const cpu_units[] = {"benchmark", "--scenario", "cpu-lua", "--cpu-work-units",
+                                     "16"};
+    const char* const cpu_units_zero[] = {"benchmark", "--cpu-work-units", "0"};
+    const char* const cpu_units_excess[] = {"benchmark", "--cpu-work-units", "4097"};
     const char* const invalid_geometry[] = {"benchmark", "--rect-count", "257"};
     const char* const invalid_scale[] = {"benchmark", "--rect-scale", "0.1"};
     const char* const lifecycle[] = {"benchmark", "--dashboard-smoke"};
@@ -133,6 +137,8 @@ int main()
         !expect_options(ui, 4, true, 30) || !expect_options(lifecycle, 2, true, 30) ||
         !expect_options(quick, 3, true, 30) || !expect_options(invalid_profile, 3, false) ||
         !expect_options(geometry, 7, true) || !expect_options(ui_reference, 3, true) ||
+        !expect_options(cpu_units, 5, true) || !expect_options(cpu_units_zero, 3, false) ||
+        !expect_options(cpu_units_excess, 3, false) ||
         !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
         !expect_options(ui_scaling, 17, true) || !expect_options(ui_named_preset, 7, true) ||
         !expect_options(ui_preset_last, 7, true) || !expect_options(ui_bad_preset, 3, false) ||
@@ -159,6 +165,17 @@ int main()
         return 1;
     if (!noveltea::benchmark::parse_options(3, quick, options, error) || !options.quick_suite ||
         !options.no_ui)
+        return 1;
+    if (!noveltea::benchmark::parse_options(5, cpu_units, options, error) ||
+        options.cpu_work_units != 16 || !noveltea::benchmark::is_cpu_scenario(options.scenario) ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.no_ui = false;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.no_ui = true;
+    options.scenario = "raw-bgfx-empty";
+    if (noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     if (!noveltea::benchmark::parse_options(7, geometry, options, error) ||
         options.scenario != "raw-bgfx-geometry" || options.rect_count != 12 ||

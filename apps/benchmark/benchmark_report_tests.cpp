@@ -61,6 +61,35 @@ int main()
                "current config roundtrip"))
         return 1;
 
+    Options cpu;
+    cpu.scenario = "cpu-runtime-session";
+    cpu.cpu_work_units = 32;
+    cpu.profile = "diagnostic";
+    const auto cpu_config = nlohmann::json::parse(encode_configuration(cpu));
+    Options cpu_roundtrip;
+    if (!check(decode_configuration(cpu_config.dump(), cpu_roundtrip, error) &&
+                   cpu_roundtrip.scenario == cpu.scenario && cpu_roundtrip.cpu_work_units == 32 &&
+                   cpu_roundtrip.profile == "diagnostic" &&
+                   nlohmann::json::parse(encode_configuration(cpu_roundtrip)) == cpu_config,
+               "CPU workload configuration encodes stable project identity and batch size"))
+        return 1;
+    auto cpu_zero = cpu_config;
+    cpu_zero["parameters"]["work_units"] = 0;
+    auto cpu_excess = cpu_config;
+    cpu_excess["parameters"]["work_units"] = 4097;
+    auto cpu_mismatched_input = cpu_config;
+    cpu_mismatched_input["parameters"]["input"] = "unknown.json";
+    auto cpu_missing_input = cpu_config;
+    cpu_missing_input["parameters"].erase("input");
+    auto cpu_ui = cpu_config;
+    cpu_ui["settings"]["no_ui"] = false;
+    auto cpu_vsync = cpu_config;
+    cpu_vsync["settings"]["vsync"] = true;
+    if (!check(rejected(cpu_zero) && rejected(cpu_excess) && rejected(cpu_mismatched_input) &&
+                   rejected(cpu_missing_input) && rejected(cpu_ui) && rejected(cpu_vsync),
+               "CPU configurations reject out-of-bounds, changed fixture and graphics settings"))
+        return 1;
+
     auto missing_alternate = configured;
     missing_alternate.erase("alternate");
     if (!check(configured["alternate"].is_null() && rejected(missing_alternate),
@@ -481,6 +510,23 @@ int main()
                    result["scenarios"][0]["trials"][0]["raw_samples"].size() == 2 &&
                    result["scenarios"][0]["trials"][0]["phases"].size() == 7,
                "result identity, timing, metadata and raw samples"))
+        return 1;
+
+    noveltea::benchmark::Environment cpu_environment;
+    cpu_environment.platform = "Linux";
+    cpu_environment.frame_path = "cpu-work-batch-no-presentation";
+    auto cpu_suite = suite;
+    cpu_suite.scenarios[0].scenario = cpu.scenario;
+    const auto cpu_result = nlohmann::json::parse(encode_result(cpu, cpu_environment, cpu_suite));
+    if (!check(cpu_result["graphics"]["renderer"].is_null() &&
+                   cpu_result["graphics"]["gpu_device_id"].is_null() &&
+                   cpu_result["graphics"]["frame_path"] == "cpu-work-batch-no-presentation" &&
+                   cpu_result["timing"]["gpu_execution_ms"].is_null() &&
+                   cpu_result["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
+                   cpu_result["scenarios"][0]["aggregate"]["cpu_work_batches_per_second"] == 100 &&
+                   cpu_result["scenarios"][0]["trials"][0]["frame_loop_cadence_hz"].is_null() &&
+                   cpu_result["scenarios"][0]["trials"][0]["cpu_work_batches_per_second"] == 100,
+               "headless CPU results report batches per second and no graphics FPS or GPU time"))
         return 1;
 
     Options offscreen_options;

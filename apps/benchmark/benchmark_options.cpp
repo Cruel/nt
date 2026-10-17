@@ -138,7 +138,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--profile" && flag != "--config" && flag != "--alternate-config" &&
             flag != "--clock-policy" && flag != "--feature-lab-package" &&
             flag != "--capacity-dimension" && flag != "--capacity-target" &&
-            flag != "--capacity-threshold" && flag != "--capacity-mode") {
+            flag != "--capacity-threshold" && flag != "--capacity-mode" &&
+            flag != "--cpu-work-units") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -161,6 +162,16 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 return false;
             }
             options.alternate_config_path = value;
+            continue;
+        }
+        if (flag == "--cpu-work-units") {
+            has_cli_settings = true;
+            uint64_t number = 0;
+            if (!parse_integer(value, number) || number < 1 || number > 4096) {
+                error = "--cpu-work-units must be in 1..4096";
+                return false;
+            }
+            options.cpu_work_units = static_cast<uint32_t>(number);
             continue;
         }
         if (flag == "--scenario") {
@@ -504,6 +515,7 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.ui_masks = defaults.ui_masks;
     selected.ui_nested_layers = defaults.ui_nested_layers;
     selected.rect_scale = defaults.rect_scale;
+    selected.cpu_work_units = defaults.cpu_work_units;
     selected.draw_calls = defaults.draw_calls;
     selected.quad_count = defaults.quad_count;
     selected.texture_size = defaults.texture_size;
@@ -532,6 +544,19 @@ bool validate_reference_options(const Options& options, std::string& reason)
         (!options.feature_lab_package.empty() && options.scenario != "engine-feature-lab")) {
         reason = "fixed-step clock requires a Compiled Project scenario; package path requires "
                  "Feature Lab";
+        return false;
+    }
+    if (is_cpu_scenario(options.scenario)) {
+        if (options.cpu_work_units < 1 || options.cpu_work_units > 4096 ||
+            options.clock_policy != "realtime" || !options.feature_lab_package.empty() ||
+            !options.no_ui || options.quick_suite || !options.capacity_dimension.empty() ||
+            options.vsync || options.native_resolution) {
+            reason = "CPU scenarios require --no-ui, realtime clock, no capacity search, "
+                     "and no graphics-only settings";
+            return false;
+        }
+    } else if (options.cpu_work_units != defaults.cpu_work_units) {
+        reason = "--cpu-work-units requires a CPU scenario";
         return false;
     }
     const bool effects_scenario = is_ui_effects_scenario(options.scenario);
@@ -628,7 +653,8 @@ bool validate_reference_options(const Options& options, std::string& reason)
         reason.clear();
         return true;
     }
-    if ((options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
+    if ((is_cpu_scenario(options.scenario) || options.scenario == "raw-bgfx-empty" ||
+         options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
          options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty" ||
          project_scenario) &&

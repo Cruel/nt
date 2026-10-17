@@ -58,7 +58,7 @@ endif()
 set(NOVELTEA_BENCHMARK_APP_SOURCES
     main.cpp benchmark_dashboard.cpp benchmark_storage.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     raw_bgfx_workloads.cpp
-    standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp)
+    standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp cpu_workloads.cpp)
 if(ANDROID)
     add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
     target_link_options(noveltea-benchmark-app PRIVATE "LINKER:-z,max-page-size=16384")
@@ -249,6 +249,18 @@ if(BUILD_TESTING AND NOT ANDROID)
     noveltea_apply_policy_warnings(noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_options COMMAND noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_app_help COMMAND noveltea-benchmark-app --help)
+    # CPU-only work must execute without a video device or initialized bgfx host.
+    foreach(cpu_case lua runtime-session flow-prediction)
+        add_test(NAME "noveltea_benchmark_cpu_${cpu_case}_smoke"
+            COMMAND "${CMAKE_COMMAND}" -E env "SDL_VIDEODRIVER=unavailable"
+                "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario "cpu-${cpu_case}" --frames 8 --warmup-seconds 0
+                --cpu-work-units 2 --repeats 2 --profile diagnostic
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-cpu-${cpu_case}.json")
+        set_tests_properties("noveltea_benchmark_cpu_${cpu_case}_smoke"
+            PROPERTIES LABELS "benchmark;cpu;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 16 CPU work batches" TIMEOUT 60)
+    endforeach()
 
     add_executable(noveltea-benchmark-inspection-tests
         benchmark_inspection_tests.cpp benchmark_inspection.cpp integrated_rmlui.cpp)
