@@ -39,6 +39,8 @@ are:
 | Runtime User Settings Format | 1 | Player-side user settings that survive game/runtime updates. |
 | CLI JSON Protocol | 1 | Machine-readable `noveltea --json` interface. |
 | Daemon Protocol | 1 | Private standalone CLI client/broker/worker framing and compatibility identity. |
+| Benchmark Run Configuration | 1 | Portable standalone benchmark run/preset configuration consumed by the benchmark runner. |
+| Benchmark Result | 1 | Portable local benchmark report used for later reproducibility and comparisons. |
 
 The Web opaque-video realization (#406) establishes the private Prepared Media Manifest boundary.
 Its representation metadata may change independently of authored Animation and player bootstrap

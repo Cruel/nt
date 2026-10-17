@@ -91,6 +91,12 @@ cmake --build --preset web-release-no-threads --target noveltea-player
 cmake --preset web-profile
 cmake --build --preset web-profile
 pnpm run web:smoke:profile
+# Standalone SDL3/bgfx/ImGui Web benchmark (optimized or Debug):
+./scripts/run-benchmark-web.sh --no-browser --no-ui --smoke
+./scripts/run-benchmark-web.sh --debug --no-browser --no-ui --smoke
+# Real Chromium/Firefox rendering, JSON download, and dashboard lifecycle smoke:
+xvfb-run -a env NOVELTEA_BENCHMARK_FIREFOX_HEADFUL=1 \
+  node scripts/benchmark-web-smoke.mjs build/web-benchmark-release/apps/benchmark
 ```
 
 For C/C++ formatting, use the CMake targets rather than invoking `clang-format` directly:
@@ -171,6 +177,19 @@ The ScriptC standalone host CLI is certified on Linux x64 and Windows x64. The W
 native tooling/FFI closure with the MinGW GNU ABI and ScriptC targets `x86_64-windows-gnu`; this is
 separate from the MSVC-built Windows desktop player/editor. Platform player jobs still consume shader
 assets precompiled once by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`).
+The Android player defers SDL/bgfx initialization while its Activity is asleep or
+unfocused. When Android destroys/recreates the native surface on Home, lock/unlock,
+or rotation, the Engine suspends its normal frame path and rebinds a freshly
+acquired `ANativeWindow` to bgfx's main swap chain before rendering again.
+This preserves the existing Engine/gameplay and GPU resources (no full Engine
+restart). The pinned bgfx Android EGL source receives a guarded, idempotent
+CMake patch (`cmake/patch-bgfx-android-surface-rebind.cmake`) so its context
+actually uses the replacement window handle during reset. ADB launch while
+locked should wait safely until foreground rather than initializing a stale
+EGL window. Exercise initial lock-screen launch, Home/return, lock/unlock and
+repeat surface recreation on a physical device; Android compilation alone does
+not verify EGL lifecycle behavior.
+
 For repository-local Android development, `scripts/run-android.sh` builds the native player with the
 checked-in `android/` Gradle project, packages and installs an immutable player template in an
 isolated registry under `build/run-android`, and exports the selected Project through `noveltea

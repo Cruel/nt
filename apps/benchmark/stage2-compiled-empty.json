@@ -1,0 +1,29 @@
+{
+  "format": "noveltea.benchmark.configuration",
+  "version": 1,
+  "scenario": "engine-compiled-empty",
+  "scenario_version": 1,
+  "alternate": null,
+  "parameters": {},
+  "clock_policy": "fixed-step",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "warmup_seconds": 0.5,
+    "measurement_seconds": 2,
+    "measurement_frames": 60,
+    "repeats": 2,
+    "ready_timeout_seconds": 5,
+    "profile": "clean",
+    "no_ui": true,
+    "quick_suite": false,
+    "raw_samples": true,
+    "vsync": false,
+    "native_resolution": false,
+    "capacity_dimension": "",
+    "capacity_target": "cpu-ms",
+    "capacity_threshold": 16.67,
+    "capacity_mode": "presented",
+    "output": ""
+  }
+}

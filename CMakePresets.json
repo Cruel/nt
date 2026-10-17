@@ -22,6 +22,22 @@
             }
         },
         {
+            "name": "linux-benchmark-debug",
+            "displayName": "Linux Graphics Benchmark Debug",
+            "description": "Isolated debug configuration for the standalone graphics benchmark",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-benchmark-debug",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-benchmark-debug/vcpkg_installed",
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_PLAYER": "OFF",
+                "NOVELTEA_BUILD_HOST_TOOLS": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS": "OFF"
+            }
+        },
+        {
             "name": "linux-debug-no-threads",
             "displayName": "Linux Debug (No Threads)",
             "description": "Native cooperative-executor verification build",
@@ -90,6 +106,23 @@
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS": "ON",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
+            }
+        },
+        {
+            "name": "linux-benchmark-release",
+            "displayName": "Linux Graphics Benchmark Release",
+            "description": "Isolated optimized configuration for the standalone graphics benchmark",
+            "inherits": "linux-release",
+            "binaryDir": "${sourceDir}/build/linux-benchmark-release",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-benchmark-release/vcpkg_installed",
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_PLAYER": "OFF",
+                "NOVELTEA_BUILD_HOST_TOOLS": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS": "OFF",
+                "BUILD_TESTING": "OFF"
             }
         },
         {
@@ -250,6 +283,29 @@
             }
         },
         {
+            "name": "web-benchmark-release",
+            "displayName": "Web Benchmark (Optimized)",
+            "description": "Standalone WebGL2 graphics benchmark without the player",
+            "inherits": "web-release-no-threads",
+            "binaryDir": "${sourceDir}/build/web-benchmark-release",
+            "cacheVariables": {
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_PLAYER": "OFF"
+            }
+        },
+        {
+            "name": "web-benchmark-debug",
+            "displayName": "Web Benchmark (Debug)",
+            "description": "Debug WebGL2 graphics benchmark",
+            "inherits": "web-debug-no-threads",
+            "binaryDir": "${sourceDir}/build/web-benchmark-debug",
+            "cacheVariables": {
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_PLAYER": "OFF"
+            }
+        },
+        {
             "name": "web-release-no-threads",
             "displayName": "Web Release (No Threads)",
             "description": "Release Web compatibility build without pthread/shared memory",
@@ -296,6 +352,10 @@
             "configurePreset": "linux-debug"
         },
         {
+            "name": "linux-benchmark-debug",
+            "configurePreset": "linux-benchmark-debug"
+        },
+        {
             "name": "linux-debug-no-threads",
             "configurePreset": "linux-debug-no-threads"
         },
@@ -314,6 +374,10 @@
         {
             "name": "linux-release",
             "configurePreset": "linux-release"
+        },
+        {
+            "name": "linux-benchmark-release",
+            "configurePreset": "linux-benchmark-release"
         },
         {
             "name": "linux-authoring-release",
@@ -354,6 +418,14 @@
         {
             "name": "web-release",
             "configurePreset": "web-release"
+        },
+        {
+            "name": "web-benchmark-release",
+            "configurePreset": "web-benchmark-release"
+        },
+        {
+            "name": "web-benchmark-debug",
+            "configurePreset": "web-benchmark-debug"
         },
         {
             "name": "web-release-no-threads",

@@ -6,6 +6,7 @@
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
+#include "noveltea/ui_render_configuration.hpp"
 #include "noveltea/devtools_snapshot.hpp"
 #if NOVELTEA_ENABLE_DEVTOOLS
 #include "noveltea/devtools_console.hpp"
@@ -13,6 +14,7 @@
 #include "ui/rmlui/rmlui_lifecycle.hpp"
 
 #include <cstdint>
+#include <utility>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -127,6 +129,9 @@ public:
 #endif
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;
+    [[nodiscard]] std::optional<UiRenderConfiguration> game_ui_render_configuration() const;
+    void set_game_ui_effect_observation(bool enabled);
+    [[nodiscard]] std::optional<UiEffectActivity> game_ui_effect_activity() const;
     [[nodiscard]] Rml::Context* context_for(ContextKey key);
     [[nodiscard]] Rml::Context* find_context(ContextKey key) const noexcept;
     [[nodiscard]] const std::vector<ContextRecord>& contexts() const noexcept;
@@ -169,6 +174,14 @@ public:
     void reset_backend_state();
 
     void set_perf_logging_enabled(bool enabled);
+    // Optional benchmark-only stage clocks. Disabled in Clean and production runs.
+    void set_benchmark_timing(bool enabled) noexcept { m_benchmark_timing = enabled; }
+    [[nodiscard]] std::optional<std::pair<double, double>> benchmark_frame_timing() const noexcept
+    {
+        return m_benchmark_timing ? std::optional{std::pair{m_benchmark_update_seconds,
+                                                            m_benchmark_render_seconds}}
+                                  : std::nullopt;
+    }
     void set_base_direct_compatibility(bool enabled);
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_context_render_observer(ContextRenderObserver observer);
@@ -269,6 +282,10 @@ private:
     bool m_pointer_inside = false;
     bool m_headless_render = false;
     bool m_perf_logging = false;
+    bool m_benchmark_timing = false;
+    bool m_ui_effect_observation = false;
+    double m_benchmark_update_seconds = 0.0;
+    double m_benchmark_render_seconds = 0.0;
     bool m_base_direct_compatibility = false;
     bool m_geometry_raster_snapping = true;
     bool m_text_raster_snapping = true;
