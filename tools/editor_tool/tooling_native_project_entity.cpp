@@ -1,6 +1,7 @@
 #include "tooling_native_project_entity.hpp"
 
 #include "../project_authoring/contracts.hpp"
+#include "../project_authoring/localization_semantics.hpp"
 #include "../project_authoring/room_session.hpp"
 #include "../project_authoring/source_authority.hpp"
 #include "../project_authoring/yaml_codec.hpp"
@@ -58,8 +59,9 @@ std::string pointer_segment(std::string_view value)
 }
 
 void reference_rewrites(const Json& value, std::string pointer, const std::string& family,
-                        const std::string& from_id, const std::string& to_id,
-                        std::vector<YamlValueEdit>& edits, std::vector<std::string>& blockers)
+                        const std::string& owner_family, const std::string& from_id,
+                        const std::string& to_id, std::vector<YamlValueEdit>& edits,
+                        std::vector<std::string>& blockers)
 {
     if (value.is_object()) {
         if (value.contains("$ref")) {
@@ -88,15 +90,57 @@ void reference_rewrites(const Json& value, std::string pointer, const std::strin
             if (key.find(from_id) != std::string::npos)
                 blockers.push_back(pointer + "/" + pointer_segment(key));
             else
-                reference_rewrites(child, pointer + "/" + pointer_segment(key), family, from_id,
-                                   to_id, edits, blockers);
+                reference_rewrites(child, pointer + "/" + pointer_segment(key), family,
+                                   owner_family, from_id, to_id, edits, blockers);
         }
     } else if (value.is_array()) {
         for (std::size_t index = 0; index < value.size(); ++index)
             reference_rewrites(value.at(index), pointer + "/" + std::to_string(index), family,
-                               from_id, to_id, edits, blockers);
+                               owner_family, from_id, to_id, edits, blockers);
     } else if (value.is_string() && value.get<std::string>().find(from_id) != std::string::npos) {
-        blockers.push_back(pointer);
+        // Sparse source references are scalar IDs rather than `$ref` mappings.
+        // These declared structural paths are exact references, never lexical
+        // uncertainty that --allow-possible-source-references may override.
+        struct Rule {
+            std::string_view owner;
+            std::string_view target;
+            std::regex path;
+        };
+        static const std::vector<Rule> scalar_references{
+            {"rooms", "rooms", std::regex(R"(^/data/exits/[0-9]+/target$)")},
+            {"rooms", "characters", std::regex(R"(^/data/cast/[0-9]+/character$)")},
+            {"rooms", "layouts",
+             std::regex(
+                 R"(^/data/(overlays/[0-9]+/layout|placements/[0-9]+/presentation/layout)$)")},
+            {"rooms", "materials",
+             std::regex(
+                 R"(^/data/(background/material|props/[0-9]+/(material|materialApplication/material)|environments/[0-9]+/(material|materialApplication/material))$)")},
+            {"rooms", "assets",
+             std::regex(
+                 R"(^/data/(background/asset|props/[0-9]+/asset|environments/[0-9]+/asset)$)")},
+            {"rooms", "scripts",
+             std::regex(R"(^/data/(compose/script|scriptHooks/[0-9]+/handler/module)$)")},
+            {"interactables", "materials", std::regex(R"(^/data/presentation/material$)")},
+            {"interactables", "assets", std::regex(R"(^/data/presentation/visual/image$)")},
+            {"interactables", "animations", std::regex(R"(^/data/presentation/visual/animation$)")},
+            {"materials", "assets", std::regex(R"(^/data/textures/[^/]+/source$)")},
+            {"layouts", "assets", std::regex(R"(^/data/(rml|rcss)/sourceAsset$)")},
+            {"layouts", "materials", std::regex(R"(^/data/dependencies/materials/[0-9]+$)")},
+        };
+        const bool exact =
+            std::any_of(scalar_references.begin(), scalar_references.end(), [&](const Rule& rule) {
+                return rule.owner == owner_family && rule.target == family &&
+                       std::regex_match(pointer, rule.path);
+            });
+        if (exact && value == from_id) {
+            if (to_id.empty())
+                blockers.push_back(pointer + "/$ref");
+            else
+                edits.push_back({pointer, Json(to_id).dump(), YamlCommentDisposition::Keep,
+                                 std::nullopt, YamlEditOperation::Replace});
+        } else {
+            blockers.push_back(pointer);
+        }
     }
 }
 
@@ -117,6 +161,7 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         return failure("Malformed native entity mutation options.");
     const bool rename = action == "entity-rename";
     const bool dry_run = request.value("dryRun", true);
+    const bool allow_possible = request.value("allowPossibleSourceReferences", false);
     std::string to_id;
     if (rename) {
         if (!request.contains("toId") || !request.at("toId").is_string())
@@ -138,7 +183,26 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
 
     std::vector<YamlTransactionTarget> reference_targets;
     std::vector<std::string> blockers;
+    std::set<std::string> possible_sources;
     Json rewritten = Json::array();
+    const auto classify_uncertain = [&](const std::string& source,
+                                        const std::vector<std::string>& uncertain) {
+        static const std::set<std::string> textual_fields{
+            "label",   "displayName",    "text",      "source", "sourceText", "description",
+            "context", "translatorNote", "usageNote", "title",  "notes"};
+        for (const auto& path : uncertain) {
+            if (path.ends_with("/$ref") || path.ends_with("/$var")) {
+                blockers.push_back(source + path);
+                continue;
+            }
+            const auto tail_at = path.find_last_of('/');
+            const auto tail = path.substr(tail_at == std::string::npos ? 0 : tail_at + 1);
+            if (textual_fields.contains(tail))
+                possible_sources.insert(source);
+            else
+                blockers.push_back(source + path);
+        }
+    };
     // Only explicitly typed references may be rewritten. Unclassified source
     // strings and keys remain hard blockers, not user-overridable guesses.
     for (const auto& file : session.file_inventory()) {
@@ -156,7 +220,7 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         if (text.find(id) == std::string::npos)
             continue;
         if (!file.path.ends_with(".yaml")) {
-            blockers.push_back(file.path);
+            possible_sources.insert(file.path);
             continue;
         }
         const auto opened = open_yaml_source(text);
@@ -164,6 +228,10 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
             return failure("Native entity reference source is invalid: " + file.path);
         auto value = Json::parse(opened.source_json);
         std::vector<YamlValueEdit> edits;
+        if (file.path == "i18n/messages.yaml")
+            // Dedicated structured-Message remapping below owns these
+            // semantic-path mapping keys. They are not external references.
+            value.erase("structuredMessageIds");
         if (file.path == "editor.yaml" && value.is_object() && value.contains("recordMetadata") &&
             value.at("recordMetadata").is_object() && value.at("recordMetadata").contains(family) &&
             value.at("recordMetadata").at(family).is_object() &&
@@ -182,7 +250,13 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
                  YamlCommentDisposition::Keep, std::nullopt, YamlEditOperation::Remove});
             value["recordMetadata"][family].erase(id);
         }
-        reference_rewrites(value, "", family, id, rename ? to_id : std::string{}, edits, blockers);
+        std::vector<std::string> uncertain;
+        const auto owner_family = file.path.starts_with("records/")
+                                      ? file.path.substr(8, file.path.find('/', 8) - 8)
+                                      : std::string{};
+        reference_rewrites(value, "", family, owner_family, id, rename ? to_id : std::string{},
+                           edits, uncertain);
+        classify_uncertain(file.path, uncertain);
         if (edits.empty())
             continue;
         reference_targets.push_back({.path = file.path,
@@ -211,7 +285,9 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         own_record.erase("label");
         if (own_record.contains("data") && own_record.at("data").is_object())
             own_record["data"].erase("displayName");
-        reference_rewrites(own_record, "", family, id, to_id, edits, blockers);
+        std::vector<std::string> own_uncertain;
+        reference_rewrites(own_record, "", family, family, id, to_id, edits, own_uncertain);
+        classify_uncertain(from_path, own_uncertain);
         const auto next = edit_yaml_source(source, edits);
         if (!next.accepted)
             return failure(next.error);
@@ -224,6 +300,10 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
                        "references: " +
                        blockers.front());
     }
+    if (!possible_sources.empty() && !allow_possible)
+        return failure("Possible source reference requires "
+                       "--allow-possible-source-references: " +
+                       *possible_sources.begin());
     Json result{{"ok", true},
                 {"collection", family},
                 {"id", id},
@@ -232,11 +312,92 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
     if (rename)
         result["toId"] = to_id;
     result["rewrittenSources"] = rewritten;
+    result["possibleSourceReferences"] = Json::array();
+    for (const auto& source_path : possible_sources)
+        result["possibleSourceReferences"].push_back(source_path);
     if (dry_run)
         return result;
 
     std::vector<YamlTransactionTarget> targets;
     targets.insert(targets.end(), reference_targets.begin(), reference_targets.end());
+    // Structured Messages normally derive identity from semantic paths.
+    // A record rename changes those paths, so preserve *old* derived IDs
+    // explicitly at the destination; otherwise translations silently lose
+    // their owning Message despite successful record/schema validation.
+    const auto semantic_sources = native_localization_record_structured_sources(root, family, id);
+    const auto original_prefix = "/" + family + "/" + id + "/";
+    const auto new_prefix = rename ? "/" + family + "/" + to_id + "/" : std::string{};
+    const auto messages_path = std::string("i18n/messages.yaml");
+    const auto messages_source = read_text(root / messages_path);
+    const auto opened_messages = open_yaml_source(messages_source);
+    if (!opened_messages.accepted)
+        return failure("Cannot inspect structured Message identities before entity mutation.");
+    const auto document = Json::parse(opened_messages.source_json);
+    if (!document.contains("structuredMessageIds") ||
+        !document.at("structuredMessageIds").is_object())
+        return failure("Localization Message identity map is not a canonical mapping.");
+    const auto& identities = document.at("structuredMessageIds");
+    std::vector<YamlValueEdit> identity_edits;
+    Json next_identities = identities;
+    for (const auto& [path, _] : semantic_sources) {
+        if (!path.starts_with(original_prefix))
+            continue;
+        const auto new_path = rename ? new_prefix + path.substr(original_prefix.size()) : "";
+        const auto id_value = identities.contains(path)
+                                  ? identities.at(path).get<std::string>()
+                                  : native_localization_structured_message_id(path);
+        if (!rename) {
+            // Unlike a rename, deletion has no surviving semantic path to
+            // carry a translated Message. Until native orphan preparation
+            // owns that case, fail closed instead of discarding the history.
+            const auto locales = root / "i18n/locales";
+            for (const auto& locale_file : std::filesystem::directory_iterator(locales)) {
+                if (!locale_file.is_regular_file() || locale_file.path().extension() != ".yaml")
+                    continue;
+                const auto locale = open_yaml_source(read_text(locale_file.path()));
+                if (!locale.accepted)
+                    return failure("Cannot verify dependent translation before record deletion.");
+                if (Json::parse(locale.source_json).contains(id_value))
+                    return failure("Deletion would orphan translated structured Message " +
+                                   id_value + " without a native repair plan.");
+            }
+        }
+        if (rename) {
+            if (identities.contains(new_path))
+                return failure("Destination already claims a structured Message identity: " +
+                               new_path);
+            next_identities[new_path] = id_value;
+            identity_edits.push_back({"/structuredMessageIds/" + pointer_segment(new_path),
+                                      Json(id_value).dump(), YamlCommentDisposition::Keep,
+                                      std::nullopt, YamlEditOperation::Add});
+        }
+        if (identities.contains(path)) {
+            next_identities.erase(path);
+            identity_edits.push_back({"/structuredMessageIds/" + pointer_segment(path), "",
+                                      YamlCommentDisposition::Keep, std::nullopt,
+                                      YamlEditOperation::Remove});
+        }
+    }
+    // The canonical writer can encode this mapping as an inline flow object,
+    // which does not support surgical peer insertion. Replace that mapping
+    // exactly once, guarded by libfyaml's comment/subtree safety checks;
+    // retain per-key patches for block mappings to preserve annotated peers.
+    const bool flow_identities =
+        std::regex_search(messages_source, std::regex(R"((^|\n)structuredMessageIds:[ \t]*\{)"));
+    if (flow_identities) {
+        identity_edits.clear();
+        if (next_identities != identities)
+            identity_edits.push_back({"/structuredMessageIds", next_identities.dump(),
+                                      YamlCommentDisposition::Keep, std::nullopt,
+                                      YamlEditOperation::Replace});
+    }
+    if (!identity_edits.empty())
+        targets.push_back({.path = messages_path,
+                           .expected_revision = exact_source_revision(messages_source),
+                           .baseline_source = messages_source,
+                           .edits = std::move(identity_edits),
+                           .create_source = std::nullopt,
+                           .erase = false});
     targets.push_back({.path = from_path,
                        .expected_revision = revision,
                        .baseline_source = source,

@@ -1,5 +1,7 @@
 #include "tooling_native_c.h"
+#include "../project_authoring/localization_semantics.hpp"
 #include "../project_authoring/source_authority.hpp"
+#include "../project_authoring/yaml_codec.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -535,6 +537,149 @@ void certify(const std::filesystem::path& source)
         require(command(deleting).value("ok", false) && !std::filesystem::exists(renamed_path),
                 "Native reference-free deletion commits atomically.");
     }
+    const auto lexical_id = std::string("native-possible-probe");
+    const auto lexical_path = fixture.root / "records/variables/native-possible-probe.yaml";
+    require(command({{"action", "entity-create"},
+                     {"projectRoot", root},
+                     {"collection", "variables"},
+                     {"id", lexical_id},
+                     {"dryRun", false}})
+                .value("ok", false),
+            "Create lexical reference probe without external dependents.");
+    auto room_with_note = read(room_path);
+    const auto label_at = room_with_note.find("label: Lifecycle Round Trip\n");
+    require(label_at != std::string::npos, "Canonical Room label exists in the fixture.");
+    room_with_note.replace(label_at, std::string("label: Lifecycle Round Trip\n").size(),
+                           "label: Lifecycle native-possible-probe Round Trip\n");
+    room_with_note += "# Keep this unrelated source comment\n";
+    {
+        std::ofstream out(room_path, std::ios::binary | std::ios::trunc);
+        out << room_with_note;
+    }
+    const Json lexical_delete{
+        {"action", "entity-delete"},
+        {"projectRoot", root},
+        {"collection", "variables"},
+        {"id", lexical_id},
+        {"dryRun", false},
+        {"sourceRevision", noveltea::authoring::exact_source_revision(read(lexical_path))}};
+    const auto blocked_lexical = command(lexical_delete);
+    require(!blocked_lexical.value("ok", false) && std::filesystem::is_regular_file(lexical_path),
+            "Unacknowledged possible source references prevent structural deletion.");
+    auto acknowledged_lexical = lexical_delete;
+    acknowledged_lexical["allowPossibleSourceReferences"] = true;
+    const auto acknowledged = command(acknowledged_lexical);
+    require(acknowledged.value("ok", false) &&
+                acknowledged.at("possibleSourceReferences").is_array() &&
+                !acknowledged.at("possibleSourceReferences").empty() &&
+                !std::filesystem::exists(lexical_path) && read(room_path) == room_with_note,
+            "Explicit lexical acknowledgement permits a non-destructive, revision-checked "
+            "deletion while preserving unrelated source comments: " +
+                acknowledged.dump().substr(0, 650));
+
+    const std::string exit_room_id = "native-room-reference";
+    require(command({{"action", "entity-create"},
+                     {"projectRoot", root},
+                     {"collection", "rooms"},
+                     {"id", exit_room_id},
+                     {"dryRun", false}})
+                .value("ok", false),
+            "Create Room to certify native semantic reference rewriting.");
+    const auto child_path = fixture.root / "records/rooms/room-lifecycle-child.yaml";
+    const auto child_original = read(child_path);
+    const auto child_at = child_original.find("target: room-lifecycle-roundtrip");
+    require(child_at != std::string::npos, "Existing Room exit has a canonical scalar reference.");
+    auto child_modified = child_original;
+    child_modified.replace(child_at, std::string("target: room-lifecycle-roundtrip").size(),
+                           "target: " + exit_room_id);
+    {
+        std::ofstream out(child_path, std::ios::binary | std::ios::trunc);
+        out << child_modified;
+    }
+    const auto exit_room_path = fixture.root / "records/rooms/native-room-reference.yaml";
+    const Json referenced_delete{
+        {"action", "entity-delete"},
+        {"projectRoot", root},
+        {"collection", "rooms"},
+        {"id", exit_room_id},
+        {"dryRun", false},
+        {"force", true},
+        {"allowPossibleSourceReferences", true},
+        {"sourceRevision", noveltea::authoring::exact_source_revision(read(exit_room_path))}};
+    require(!command(referenced_delete).value("ok", false) && read(child_path) == child_modified,
+            "Even --force cannot delete a required Room exit without a replacement repair.");
+    const auto renamed_reference = command(
+        {{"action", "entity-rename"},
+         {"projectRoot", root},
+         {"collection", "rooms"},
+         {"id", exit_room_id},
+         {"toId", "native-room-renamed"},
+         {"dryRun", false},
+         {"sourceRevision", noveltea::authoring::exact_source_revision(read(exit_room_path))}});
+    require(renamed_reference.value("ok", false) &&
+                renamed_reference.at("rewrittenSources") ==
+                    Json::array({"records/rooms/room-lifecycle-child.yaml"}) &&
+                std::find(renamed_reference.at("writes").begin(),
+                          renamed_reference.at("writes").end(),
+                          "i18n/messages.yaml") != renamed_reference.at("writes").end() &&
+                read(child_path).find("target: native-room-renamed") != std::string::npos &&
+                !std::filesystem::exists(exit_room_path) &&
+                std::filesystem::is_regular_file(fixture.root /
+                                                 "records/rooms/native-room-renamed.yaml"),
+            "Native rename atomically rewrites a canonical Room exit target and its owner: " +
+                renamed_reference.dump().substr(0, 620));
+    const auto identities_opened =
+        noveltea::authoring::open_yaml_source(read(fixture.root / "i18n/messages.yaml"));
+    require(identities_opened.accepted, "Renamed structured Message source remains valid YAML.");
+    const auto identities_document = Json::parse(identities_opened.source_json);
+    const auto& identity_map = identities_document.at("structuredMessageIds");
+    for (const auto* leaf : {"displayName", "description"}) {
+        const auto old_path = "/rooms/" + exit_room_id + "/data/" + leaf;
+        const auto new_path = "/rooms/native-room-renamed/data/" + std::string(leaf);
+        require(identity_map.contains(new_path) &&
+                    identity_map.at(new_path) ==
+                        noveltea::authoring::native_localization_structured_message_id(old_path) &&
+                    !identity_map.contains(old_path),
+                "Structured Message UUIDs are preserved across a semantic Room owner rename.");
+    }
+
+    const std::string material_id = "native-material-reference";
+    require(command({{"action", "entity-create"},
+                     {"projectRoot", root},
+                     {"collection", "materials"},
+                     {"id", material_id},
+                     {"dryRun", false}})
+                .value("ok", false),
+            "Create Material for a Room material-application dependency.");
+    const auto composition_path = fixture.root / "records/rooms/world-composition.yaml";
+    const auto original_composition = read(composition_path);
+    const auto original_material = original_composition.find("material: engine2d-draw-contract");
+    require(original_material != std::string::npos, "Fixture has a Material application.");
+    auto material_reference = original_composition;
+    material_reference.replace(original_material,
+                               std::string("material: engine2d-draw-contract").size(),
+                               "material: " + material_id);
+    {
+        std::ofstream out(composition_path, std::ios::binary | std::ios::trunc);
+        out << material_reference;
+    }
+    const auto material_path = fixture.root / "records/materials/native-material-reference.yaml";
+    const auto rewritten_material = command(
+        {{"action", "entity-rename"},
+         {"projectRoot", root},
+         {"collection", "materials"},
+         {"id", material_id},
+         {"toId", "native-material-renamed"},
+         {"dryRun", false},
+         {"sourceRevision", noveltea::authoring::exact_source_revision(read(material_path))}});
+    require(rewritten_material.value("ok", false) &&
+                rewritten_material.at("rewrittenSources") ==
+                    Json::array({"records/rooms/world-composition.yaml"}) &&
+                read(composition_path).find("material: native-material-renamed") !=
+                    std::string::npos &&
+                !std::filesystem::exists(material_path),
+            "Native rename recognizes sparse Room Material application references: " +
+                rewritten_material.dump().substr(0, 620));
 }
 } // namespace
 

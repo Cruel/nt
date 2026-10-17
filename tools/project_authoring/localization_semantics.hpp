@@ -37,6 +37,12 @@ NativeLocalizationTrackingSource native_localization_tracking_source(const Sourc
                                                                      std::string source_path);
 std::string native_localization_tracking_fingerprint(std::string_view text);
 std::size_t native_localization_structured_message_count(const std::filesystem::path& root);
+// Disk-owned semantic Text paths used to preserve structured Message identity
+// across native structural record renames and deletions.
+std::map<std::string, std::string>
+native_localization_record_structured_sources(const std::filesystem::path& root,
+                                              std::string_view family, std::string_view id);
+std::string native_localization_structured_message_id(std::string_view semantic_path);
 
 // Assemble and validate the tracked split i18n sources as one effective Project
 // localization model. Overlays are JSON source values from dirty native owners;

@@ -862,6 +862,50 @@ std::string native_localization_tracking_fingerprint(std::string_view text)
     return tracking_fingerprint(text);
 }
 
+std::map<std::string, std::string>
+native_localization_record_structured_sources(const std::filesystem::path& root,
+                                              std::string_view family, std::string_view id)
+{
+    std::map<std::string, std::string> sources;
+    const auto authored = working_record(root, {}, family, id);
+    if (!authored || !authored->contains("data") || !authored->at("data").is_object())
+        return sources;
+    const auto base = "/" + std::string(family) + "/" + escape(id) + "/data";
+    collect_top_level_strings(authored->at("data"), base, sources);
+    collect_structured_sources(authored->at("data"), base, sources);
+    // The workspace projects schema defaults before scanning structured Text.
+    // For a sparse Room with no authored description, that still yields an
+    // inline empty TextContent at /data/description and therefore a stable
+    // source-Message ID that must survive identity remapping.
+    if (family == "rooms") {
+        const auto path = base + "/description";
+        if (!sources.contains(path)) {
+            std::string error;
+            auto record =
+                RoomSession::open_record(root, std::string(family), std::string(id), error);
+            if (record && record->snapshot().valid) {
+                const auto normalized = Json::parse(record->snapshot().normalized_json);
+                const auto& data = normalized.at("data");
+                if (data.contains("description") && data.at("description").is_object()) {
+                    const auto& description = data.at("description");
+                    if (description.contains("source") && description.at("source").is_object() &&
+                        description.at("source").at("kind") == "inline" &&
+                        description.at("source").contains("text") &&
+                        description.at("source").at("text").is_string())
+                        sources.emplace(path,
+                                        description.at("source").at("text").as<std::string>());
+                }
+            }
+        }
+    }
+    return sources;
+}
+
+std::string native_localization_structured_message_id(std::string_view semantic_path)
+{
+    return derived_message_id(semantic_path);
+}
+
 std::size_t native_localization_structured_message_count(const std::filesystem::path& root)
 {
     auto messages = structured_sources(root, {});
