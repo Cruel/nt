@@ -339,3 +339,43 @@ source. The Feature Lab Project-session certification exercises repair/diagnosti
 deltas, cross-owner reference invalidation, Instance overrides, and exact
 save/reopen behavior. Full-project dependency indexing and coordinated
 production cutover remain under the subsequent migration tickets.
+
+## Resident full-Project validation certification (#493)
+
+`ProjectSession::validate_project()` is a separate certification-only boundary
+from `snapshot()`: editor snapshots remain lazy, while a full check retains
+native sessions for every tracked record and fixed/sparse YAML fragment. The
+dedicated `validate_cold_project()` entrypoint inspects physically attributable
+malformed saved fragments for cold diagnostic comparison; normal mutable
+`ProjectSession::open()` retains its strict workspace admission contract.
+Its result is a read-only diagnostic snapshot; malformed sources cannot become
+editable or writable through this boundary.
+The resident generation observes verified physical source revisions, compares
+working record owners with their admitted baselines, and revokes local and
+cross-record diagnostic contributions for changed dependencies. Unchanged
+contributors retain their diagnostic codes, severities and navigation paths;
+changed Lua/RML/RCSS files reanalyze their indexed consumers. Changes to Asset
+sources and Layout companions also invalidate their physical-source-dependent
+validation; those two record families cannot use YAML-only local memoization.
+
+A full validation includes locally normalized record checks, referenced
+Property/Trait/Variable, Interaction/Verb, Material/Shader, Test, Localization,
+and the assembled Room/Map/Hotspot spatial graph. The spatial graph is reused
+when unrelated sources change and still reports independent findings when an
+unrelated tracked source is invalid. Malformed or missing current tracked sources
+revoke their previous record evidence rather than publishing the stale
+normalized value; missing declared Lua/RML files fail closed. Source-owner
+navigation uses Project-relative physical paths and sparse YAML source
+locations when the diagnostic has an attributable saved node. A general loss of
+watcher authority invalidates prior certified results until a new physical
+observation succeeds. The complete output remains diagnostic-only; it never
+writes source or becomes the editor/CLI's production validator before #474's
+coordinated cutover.
+
+The native Project-session CTest exercises Feature Lab cold/warm equality,
+unchanged contributor reuse, a single Room YAML edit, malformed and repaired
+YAML, and changed, missing and restored Lua source. The Project record
+normalization differential additionally compares native Feature Lab sparse
+records across families with the authoritative TypeScript/Zod reader before
+the compiler boundary. Other existing family-local and editor/CLI validation
+certifications remain necessary for the final cutover.

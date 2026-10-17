@@ -446,14 +446,14 @@ void SourceAuthority::arm(const std::set<std::string>& directories)
         uncertain_ = true;
 }
 
-bool SourceAuthority::initialize(std::string& error)
+bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
 {
     try {
         auto captured = capture();
         baseline_ = std::move(captured.revisions);
         asset_references_ = std::move(captured.asset_references);
         invalid_sources_ = std::move(captured.invalid_sources);
-        if (!invalid_sources_.empty()) {
+        if (!allow_invalid_sources && !invalid_sources_.empty()) {
             error = "Project contains an invalid Asset source: " + invalid_sources_.front().path;
             return false;
         }

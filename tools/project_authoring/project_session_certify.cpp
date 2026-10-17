@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <algorithm>
+#include <set>
 
 namespace {
 using namespace noveltea::authoring;
@@ -1072,6 +1073,161 @@ void working_preparation_roundtrip(const std::filesystem::path& fixture)
                 !editor->prepare_working(invalid.snapshot.working_revision).accepted,
             "Dirty source validation failures block preview and authored Test preparation");
 }
+
+void project_validation_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Cannot admit full native validation: " + error);
+    const auto cold = project->validate_project();
+    if (!cold.valid)
+        for (const auto& issue : cold.diagnostics)
+            std::cerr << "Full Project diagnostic: " << issue.path << " [" << issue.code << "] "
+                      << issue.message << '\n';
+    require(cold.valid, "Feature Lab must pass complete cold native Project validation");
+    require(project->validation_work().rechecked_records > 0,
+            "Cold Project validation checks tracked record sources");
+    const auto repeated = project->validate_project();
+    require(repeated.valid && project->validation_work().rechecked_records == 0 &&
+                project->validation_work().retained_records > 0,
+            "Unchanged native validation retains every source contribution");
+
+    const auto signature = [](const RoomSessionSnapshot& snapshot) {
+        std::multiset<std::string> result;
+        for (const auto& issue : snapshot.diagnostics)
+            result.insert(issue.code + "|" + issue.path + "|" + issue.severity + "|" +
+                          issue.source_path + "|" +
+                          (issue.line ? std::to_string(*issue.line) : "") + "|" +
+                          (issue.column ? std::to_string(*issue.column) : ""));
+        return result;
+    };
+    const std::string path = "scripts/notice-board.lua";
+    const auto original = read(temp.root / path);
+    write(temp.root / path, original + "\nText.tr(dynamic)\n");
+    const auto separately_observed = project->observe_sources();
+    require(std::find(separately_observed.delta.changed.begin(),
+                      separately_observed.delta.changed.end(),
+                      path) != separately_observed.delta.changed.end(),
+            "The independent native watcher observes the edited Lua source");
+    const auto after_invalid = project->validate_project();
+    require(!after_invalid.valid &&
+                std::any_of(after_invalid.diagnostics.begin(), after_invalid.diagnostics.end(),
+                            [](const Diagnostic& issue) {
+                                return issue.code == "authoring.localization.lua_source_literal";
+                            }),
+            "Changed Lua source revokes old valid diagnostic proof");
+    require(project->validation_work().rechecked_records == 0,
+            "Source-only edit does not reparse unrelated YAML records");
+    auto fresh = ProjectSession::open(temp.root, error);
+    require(fresh != nullptr && signature(fresh->validate_project()) == signature(after_invalid),
+            "Cold and warm invalid Lua diagnostics have identical codes and navigation");
+    write(temp.root / path, original);
+    const auto repaired = project->validate_project();
+    require(repaired.valid && signature(repaired) == signature(cold),
+            "Repairing one Lua source withdraws only its stale diagnostics");
+
+    const std::string record_path = "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto original_room = read(temp.root / record_path);
+    const auto label_position = original_room.find("label: ");
+    require(label_position != std::string::npos, "Room fixture needs a sparse label");
+    auto relabeled = original_room;
+    const auto label_end = relabeled.find('\n', label_position);
+    relabeled.replace(label_position, label_end - label_position, "label: Incremental Room");
+    write(temp.root / record_path, relabeled);
+    const auto changed_room = project->validate_project();
+    require(changed_room.valid && project->validation_work().rechecked_records == 1 &&
+                project->validation_work().retained_records > 0 &&
+                project->validation_work().rechecked_contributions == 1 &&
+                project->validation_work().retained_contributions > 0,
+            "One label edit rechecks only the owning semantic contribution");
+    fresh = ProjectSession::open(temp.root, error);
+    require(fresh && signature(fresh->validate_project()) == signature(changed_room),
+            "Changed Room cold/warm semantic diagnostics agree");
+    write(temp.root / record_path, original_room);
+    require(project->validate_project().valid, "Reverted Room returns to original valid state");
+
+    write(temp.root / record_path, "not: [valid\n");
+    const auto broken = project->validate_project();
+    require(!broken.valid && std::any_of(broken.diagnostics.begin(), broken.diagnostics.end(),
+                                         [&](const Diagnostic& issue) {
+                                             return issue.source_path == record_path &&
+                                                    issue.severity == "error";
+                                         }),
+            "Invalid edited YAML revokes its record and supplies a physical diagnostic");
+    require(!ProjectSession::open(temp.root, error),
+            "Mutable Project admission still rejects malformed saved YAML");
+    const auto cold_invalid = ProjectSession::validate_cold_project(temp.root, error);
+    require(cold_invalid.has_value(), "Cold invalid YAML Project must remain inspectable");
+    const auto cold_broken = signature(*cold_invalid);
+    const auto warm_broken = signature(broken);
+    if (cold_broken != warm_broken) {
+        std::vector<std::string> cold_only, warm_only;
+        std::set_difference(cold_broken.begin(), cold_broken.end(), warm_broken.begin(),
+                            warm_broken.end(), std::back_inserter(cold_only));
+        std::set_difference(warm_broken.begin(), warm_broken.end(), cold_broken.begin(),
+                            cold_broken.end(), std::back_inserter(warm_only));
+        for (const auto& issue : cold_only)
+            std::cerr << "Cold-only diagnostic: " << issue << '\n';
+        for (const auto& issue : warm_only)
+            std::cerr << "Warm-only diagnostic: " << issue << '\n';
+    }
+    require(cold_broken == warm_broken,
+            "Cold and warm invalid-YAML diagnostics agree including physical owner attribution");
+    const auto retained_invalid = project->validate_project();
+    require(!retained_invalid.valid && signature(retained_invalid) == warm_broken,
+            "Stable invalid physical evidence retains the complete diagnostic proof");
+    require(project->validation_work().rechecked_records == 0 &&
+                project->validation_work().retained_records > 0,
+            "Stable invalid physical evidence does not reparse unchanged YAML owners");
+    write(temp.root / record_path, original_room);
+    const auto restored = project->validate_project();
+    fresh = ProjectSession::open(temp.root, error);
+    require(restored.valid && fresh != nullptr &&
+                signature(fresh->validate_project()) == signature(restored),
+            "Cold and incremental Project diagnostics agree after YAML repair");
+    std::filesystem::remove(temp.root / path);
+    const auto missing = project->validate_project();
+    require(!missing.valid && std::any_of(missing.diagnostics.begin(), missing.diagnostics.end(),
+                                          [&](const Diagnostic& issue) {
+                                              return issue.source_path == path &&
+                                                     issue.severity == "error";
+                                          }),
+            "Missing declared physical Lua source revokes saved validation proof");
+    write(temp.root / path, original);
+    require(project->validate_project().valid,
+            "Reinstating a missing Lua source restores a complete valid generation");
+
+    const std::string optional_chunk = "i18n/assets/fr-CA.yaml";
+    const auto optional_source = read(temp.root / optional_chunk);
+    std::filesystem::remove(temp.root / optional_chunk);
+    const auto without_chunk = project->validate_project();
+    require(without_chunk.valid &&
+                std::none_of(without_chunk.diagnostics.begin(), without_chunk.diagnostics.end(),
+                             [&](const Diagnostic& issue) {
+                                 return issue.source_path == optional_chunk &&
+                                        issue.code == "source.yaml";
+                             }),
+            "Removing an optional localization chunk revokes its contribution, not its validity");
+    write(temp.root / optional_chunk, optional_source);
+    require(project->validate_project().valid,
+            "An added optional localization chunk is admitted in the same resident session");
+
+    const auto dirty = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Replace, "/rooms/room-lifecycle-roundtrip/label", "\"Mine\""}});
+    require(dirty.accepted, "A Room may retain unsaved changes beside full validation");
+    write(temp.root / record_path, relabeled);
+    const auto conflicted = project->validate_project();
+    require(!conflicted.valid &&
+                std::any_of(conflicted.diagnostics.begin(), conflicted.diagnostics.end(),
+                            [&](const Diagnostic& issue) {
+                                return issue.code == "source.conflict" &&
+                                       issue.source_path == record_path;
+                            }) &&
+                project->record_snapshots().at("rooms/room-lifecycle-roundtrip").dirty,
+            "External edits cannot replace an unsaved record's validation evidence");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1120,6 +1276,22 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--source-analysis") {
             source_analysis_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--project-validation") {
+            project_validation_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 5 && std::string_view(argv[1]) == "--normalized-record") {
+            std::string error;
+            auto record = RoomSession::open_record(argv[2], argv[3], argv[4], error);
+            if (!record)
+                throw std::runtime_error("Cannot open native record: " + error);
+            const auto value = record->snapshot();
+            if (!value.valid || value.normalized_json.empty())
+                throw std::runtime_error(
+                    "Native record failed normalization: " + std::string(argv[3]) + "/" + argv[4]);
+            std::cout << value.normalized_json << '\n';
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--working-preparation") {

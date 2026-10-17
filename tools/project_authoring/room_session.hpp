@@ -74,7 +74,8 @@ public:
     // The same generic patch/save boundary with a different admitted source owner.
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
-    open_project_source(const std::filesystem::path& project_root, std::string& error);
+    open_project_source(const std::filesystem::path& project_root, std::string& error,
+                        bool validation_only = false);
     static std::unique_ptr<RoomSession>
     open_editor_source(const std::filesystem::path& project_root, std::string& error);
     static std::unique_ptr<RoomSession>
@@ -124,6 +125,7 @@ private:
     std::string validation_contract_;
     std::vector<std::string> conflicting_paths_;
     std::vector<ProjectFile> file_inventory_;
+    mutable std::optional<RoomSessionSnapshot> snapshot_cache_;
 };
 
 // Certification-only resident working model: manifest and touched Room/Map owners
@@ -132,7 +134,22 @@ class ProjectSession {
 public:
     static std::unique_ptr<ProjectSession> open(const std::filesystem::path& root,
                                                 std::string& error);
+    // Cold diagnostics may inspect malformed saved fragments, but cannot
+    // expose such a Project as a mutable session.
+    static std::optional<RoomSessionSnapshot>
+    validate_cold_project(const std::filesystem::path& root, std::string& error);
     RoomSessionSnapshot snapshot() const;
+    // Complete certification-only Project validation. Unlike snapshot(), this
+    // includes every tracked record, not just editor-admitted working owners.
+    // Validation owners and their physical proofs stay resident across calls.
+    RoomSessionSnapshot validate_project();
+    struct ValidationWork {
+        std::size_t rechecked_records = 0;
+        std::size_t retained_records = 0;
+        std::size_t rechecked_contributions = 0;
+        std::size_t retained_contributions = 0;
+    };
+    ValidationWork validation_work() const { return validation_work_; }
     RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
                             const std::map<std::string, std::string>& disk_preconditions = {});
     RoomSessionResult inspect_record(std::string_view owner);
@@ -222,6 +239,8 @@ public:
     void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
 
 private:
+    static std::unique_ptr<ProjectSession> open_impl(const std::filesystem::path& root,
+                                                     std::string& error, bool validation_only);
     ProjectSession(std::unique_ptr<RoomSession> source,
                    std::unique_ptr<SourceAuthority> source_authority, std::filesystem::path root,
                    std::string traits_baseline_json)
@@ -238,6 +257,26 @@ private:
     std::filesystem::path root_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
+    std::map<std::string, std::unique_ptr<RoomSession>> validation_records_;
+    std::map<std::string, std::string> validation_source_revisions_;
+    // Source changes observed outside validation remain pending until the next
+    // diagnostic generation consumes their exact physical evidence.
+    std::map<std::string, std::string> validation_pending_source_revisions_;
+    bool validation_pending_uncertain_ = false;
+    std::map<std::string, std::string> validation_shader_overlays_;
+    std::map<std::string, Diagnostic> validation_source_errors_;
+    std::set<std::string> validation_source_paths_;
+    std::optional<RoomSessionSnapshot> validation_snapshot_;
+    mutable ValidationWork validation_work_;
+    mutable bool validation_view_active_ = false;
+    struct ValidationContribution {
+        bool valid = false;
+        bool dirty = false;
+        std::vector<Diagnostic> diagnostics;
+    };
+    mutable std::map<std::string, ValidationContribution> validation_contributions_;
+    std::set<std::string> validation_invalidated_owners_;
+    std::optional<ValidationResult> validation_room_map_cache_;
     std::map<std::string, std::string> shader_overlays_;
     std::map<std::string, std::string> text_source_overlays_;
     std::map<std::string, std::string> inline_text_sources_;

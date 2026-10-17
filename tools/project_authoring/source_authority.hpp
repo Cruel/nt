@@ -53,7 +53,7 @@ public:
 
     // Establish a baseline. This is separate from observe so initial sources do
     // not appear as externally added files.
-    bool initialize(std::string& error);
+    bool initialize(std::string& error, bool allow_invalid_sources = false);
     SourceObservation observe();
     // Adopt only a successfully persisted source whose current bytes still
     // prove the writer's revision. Other external changes remain observable.

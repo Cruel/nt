@@ -170,6 +170,15 @@ if(BUILD_TESTING)
     add_test(NAME native_authoring_project_session COMMAND noveltea-project-session-certify "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_source_analysis COMMAND noveltea-project-session-certify
         --source-analysis "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_project_validation COMMAND noveltea-project-session-certify
+        --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    if(NOVELTEA_AUTHORING_TEST_NODE)
+        add_test(NAME native_authoring_project_record_differential
+            COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-project-records.mjs"
+                "$<TARGET_FILE:noveltea-project-session-certify>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    endif()
     add_test(NAME native_authoring_working_preparation COMMAND noveltea-project-session-certify
         --working-preparation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_executable(noveltea-character-archetype-certify character_archetype_certify.cpp)
