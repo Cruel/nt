@@ -73,17 +73,19 @@ struct WebBenchmarkApp {
 
     Environment scenario_environment() const
     {
+        Environment observed = graphics.environment;
         if (current_options.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(current_options.scenario))
-            return static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
-                .environment();
-        if (current_options.scenario == "integrated-rmlui-controlled" ||
-            current_options.scenario == "integrated-rmlui-production" ||
-            current_options.scenario == "integrated-rmlui-scaling" ||
-            current_options.scenario == "integrated-rmlui-effects")
-            return static_cast<const noveltea::benchmark::IntegratedRmlUi&>(*active_scenario)
-                .environment();
-        return graphics.environment;
+            observed = static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
+                           .environment();
+        else if (current_options.scenario == "integrated-rmlui-controlled" ||
+                 current_options.scenario == "integrated-rmlui-production" ||
+                 current_options.scenario == "integrated-rmlui-scaling" ||
+                 current_options.scenario == "integrated-rmlui-effects")
+            observed = static_cast<const noveltea::benchmark::IntegratedRmlUi&>(*active_scenario)
+                           .environment();
+        observed.browser = graphics.environment.browser;
+        return observed;
     }
 
     void draw_preview()

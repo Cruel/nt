@@ -1155,8 +1155,8 @@ All configurations emitted in reports use exactly this shape.
 
 Results use `noveltea.benchmark.result` version 1, containing the full
 configuration, source commit, tracked-source dirty flag, source fingerprint SHA-256,
-build type/compiler, platform/SDL video driver, bgfx backend and available GPU
-identifiers, workload description and
+build type/compiler, platform/SDL video driver, Web browser user agent (empty for
+native platforms), bgfx backend and available GPU identifiers, workload description and
 per-trial phase/outcome/reason, measured counts and duration, and aggregate
 statistics. They distinguish `complete`, `partial`, and `failed` suites.
 Each successful trial and aggregate has mean/min/max/p50/p95/p99/standard
@@ -1192,12 +1192,55 @@ These fields identify the binary as built, not the checkout at report export
 time. Git-unavailable builds label their revision/fingerprint unavailable and
 the tracked-source dirty value `null`, rather than claiming a clean build.
 
+## Local result comparisons and named dashboard presets (#441)
+
+The **Results** tab accepts two previously exported JSON reports. On Linux and
+Android, enter each report's filesystem path and select **Import baseline** /
+**Import candidate**. Android paths are inside app-private storage; transfer
+additional report files using `adb run-as org.noveltea.benchmark` (the APK
+is debuggable), or compare pulled files on Linux. On Web, use **Choose baseline
+JSON** / **Choose candidate JSON** to select downloaded local files via the
+browser's file picker. Browser imports are never uploaded to a server.
+
+Only the current `noveltea.benchmark.result` V1 JSON format and canonical
+configuration are accepted. A malformed import leaves the previously
+successfully imported slot intact. Maximum report size is 16 MiB. Each matching
+scenario displays independent frame-wall and CPU-operation mean, p50, p95, and
+p99 deltas: candidate minus baseline, absolute milliseconds and percentage
+when the baseline is nonzero. The panel includes source/candidate standard
+deviations and sample counts, flags a high-coefficient-of-variation heuristic
+(above 15%) and never assigns a performance score or pass/fail threshold.
+
+Comparisons are explicitly **exploratory/uncontrolled** when known conditions
+differ or cannot be verified. Warnings cover device/GPU, browser, renderer,
+frame path, pixel dimensions, graphics settings, workload parameters and
+versions, build type, timing profile and clock policy. Different source
+fingerprints are reported as informational (expected when comparing code
+revisions). Physical power/thermal states, driver versions and actual
+presented frames are not available in ordinary reports and cannot be
+certified by the comparison panel. A matching configuration is not proof
+of identical hardware conditions.
+
+The **Run Settings** tab saves, loads, overwrites and deletes up to 32
+explicitly named presets. The last interactive run settings and these presets
+are stored together as `noveltea.benchmark.dashboard-state` V1, containing
+canonical benchmark configuration JSON. Linux and Android persist under
+`SDL_GetPrefPath("NovelTea", "Benchmark")/dashboard-v1.json`; on Web, the
+same state is stored in origin-scoped `localStorage`. Launching the app with
+no flags restores the last interactive settings. Explicit command-line/JSON
+launch configurations always take precedence. Named presets are **not** the
+built-in `--ui-preset` reference workloads. Invalid saved state is rejected
+rather than migrated; users may regenerate it by editing dashboard settings.
+Results and screenshots remain separately stored/exported, never tracked in
+the repository.
+
 ## Validation and GPU requirements
 
 ```sh
 cmake --preset linux-benchmark-debug -DBUILD_TESTING=ON
 cmake --build --preset linux-benchmark-debug --target noveltea-benchmark-app \
-  noveltea-benchmark-runner-tests noveltea-benchmark-report-tests noveltea-benchmark-options-tests
+  noveltea-benchmark-runner-tests noveltea-benchmark-report-tests noveltea-benchmark-options-tests \
+  noveltea-benchmark-comparison-tests noveltea-benchmark-storage-tests
 ctest --test-dir build/linux-benchmark-debug -R '^noveltea_benchmark_' --output-on-failure
 ```
 

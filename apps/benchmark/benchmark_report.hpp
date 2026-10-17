@@ -25,6 +25,7 @@ struct UiBackendSettings {
 struct Environment {
     std::string platform;
     std::string video_driver;
+    std::string browser; // Web user agent; empty on native hosts.
     std::string renderer;
     std::string frame_path;
     int gpu_vendor_id = -1;

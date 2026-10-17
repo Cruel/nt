@@ -19,7 +19,7 @@ add_custom_target(noveltea-benchmark-source-identity
 
 add_library(noveltea-benchmark-runner STATIC
     benchmark_options.cpp benchmark_runner.cpp benchmark_frame_driven.cpp
-    benchmark_report.cpp benchmark_capacity.cpp reference_scene.cpp reference_workloads.cpp)
+    benchmark_report.cpp benchmark_comparison.cpp benchmark_capacity.cpp reference_scene.cpp reference_workloads.cpp)
 add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
 target_include_directories(noveltea-benchmark-runner
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated"
@@ -56,7 +56,7 @@ elseif(NOT TARGET imgui::imgui)
     find_package(imgui CONFIG REQUIRED)
 endif()
 set(NOVELTEA_BENCHMARK_APP_SOURCES
-    main.cpp benchmark_dashboard.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
+    main.cpp benchmark_dashboard.cpp benchmark_storage.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     raw_bgfx_workloads.cpp
     standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp)
 if(ANDROID)
@@ -207,6 +207,22 @@ if(BUILD_TESTING AND NOT ANDROID)
         COMMAND "${CMAKE_COMMAND}"
             "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/source-identity-test"
             -P "${PROJECT_SOURCE_DIR}/cmake/TestBenchmarkSourceIdentity.cmake")
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(noveltea-benchmark-storage-tests
+            benchmark_storage_tests.cpp benchmark_storage.cpp)
+        target_link_libraries(noveltea-benchmark-storage-tests
+            PRIVATE noveltea-benchmark-runner SDL3::SDL3)
+        noveltea_apply_runtime_compiler_policy(noveltea-benchmark-storage-tests)
+        noveltea_apply_policy_warnings(noveltea-benchmark-storage-tests)
+        add_test(NAME noveltea_benchmark_storage COMMAND noveltea-benchmark-storage-tests)
+    endif()
+
+    add_executable(noveltea-benchmark-comparison-tests benchmark_comparison_tests.cpp)
+    target_link_libraries(noveltea-benchmark-comparison-tests PRIVATE noveltea-benchmark-runner)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-comparison-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-comparison-tests)
+    add_test(NAME noveltea_benchmark_comparison COMMAND noveltea-benchmark-comparison-tests)
 
     add_executable(noveltea-benchmark-report-tests benchmark_report_tests.cpp)
     target_link_libraries(noveltea-benchmark-report-tests PRIVATE noveltea-benchmark-runner)

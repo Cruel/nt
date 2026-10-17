@@ -69,6 +69,18 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     const image = await page.screenshot();
     if (image.length < 10000) throw new Error('dashboard visual smoke is unexpectedly blank');
     console.log(name + ': dashboard responsive and screenshot ' + image.length + ' bytes');
+    // Interactive settings are written to browser origin storage outside the
+    // strict runner. The saved state embeds the exact canonical run settings.
+    await page.waitForFunction(() =>
+      localStorage.getItem('noveltea.benchmark.dashboard-state.v1') !== null);
+    const browserSettings = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('noveltea.benchmark.dashboard-state.v1')));
+    if (browserSettings.format !== 'noveltea.benchmark.dashboard-state' ||
+        browserSettings.version !== 1 ||
+        browserSettings.last_configuration.settings.no_ui !== false ||
+        !Array.isArray(browserSettings.presets))
+      throw new Error('browser did not save canonical interactive dashboard settings');
+    console.log(name + ': browser-local last-used dashboard settings persisted');
 
     // Launch the exact same JSON bytes as Linux/Android. No noUi or scenario
     // URL flags are supplied: the native decoder alone determines the run.
@@ -79,6 +91,24 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     const canonicalReport = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
     validateStage1Report(canonicalReport, canonical, 'Emscripten');
     console.log(name + ': unattended canonical JSON and measured report certified');
+
+    // Exercise the real file-picker import transport without requiring any
+    // filesystem mount or a network upload.
+    await page.goto(origin + '/benchmark.html');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.ready, null, {timeout: 30000});
+    const restoredSettings = await page.evaluate(() =>
+      JSON.parse(localStorage.getItem('noveltea.benchmark.dashboard-state.v1')));
+    if (restoredSettings.format !== browserSettings.format ||
+        restoredSettings.last_configuration.scenario !== browserSettings.last_configuration.scenario)
+      throw new Error('dashboard state lost after Web page reload');
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.locator('#import-baseline').click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({name: 'baseline.json', mimeType: 'application/json',
+                            buffer: Buffer.from(JSON.stringify(canonicalReport))});
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.importText[0] === null, null,
+                               {timeout: 10000});
+    console.log(name + ': local JSON file picker and browser settings reload passed');
 
     // Inspect actual reference pixels outside any timed benchmark interval.
     const previewPixels = async scenario => {
