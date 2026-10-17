@@ -1019,6 +1019,30 @@ async function runNovelTeaScriptcIslandScoped(
     // Observe native record/provenance semantics without mutating disk or
     // introducing a second authoring command dispatcher for users.
     if (
+      family === 'usages' &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string' &&
+      bootstrap.globals.command.length === 3
+    ) {
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'entity-usages',
+            projectRoot: commandResult.envelope.projectRoot,
+            collection: bootstrap.globals.command[1],
+            id: bootstrap.globals.command[2],
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; usages?: unknown[] };
+      validationProfileText +=
+        '[native-cli-usages] ' +
+        JSON.stringify({ native, oracle: commandResult.envelope.usages }) +
+        '\n';
+    }
+    if (
       family === 'entity' &&
       operation === 'inspect' &&
       invocationContext.residentProjectSessionEpoch !== undefined &&

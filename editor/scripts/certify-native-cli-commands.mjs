@@ -58,6 +58,21 @@ function inspect(collection, id, provenance) {
   else assert.equal(Object.hasOwn(observed.native.fields, 'provenance'), false);
 }
 
+function verifyUsages(collection, id) {
+  const argv = ['--project', project, '--json', 'usages', collection, id];
+  const oracle = execute(['--no-daemon', ...argv]);
+  const actual = execute(argv);
+  assert.equal(actual.status, oracle.status);
+  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
+  const observations = actual.stderr
+    .split('\n')
+    .filter((line) => line.startsWith('[native-cli-usages] '));
+  assert.equal(observations.length, 1, 'Missing native usages observation: ' + actual.stderr);
+  const observed = JSON.parse(observations[0].slice('[native-cli-usages] '.length));
+  assert.equal(observed.native.ok, true, observed.native.error);
+  assert.deepEqual(observed.native.usages, observed.oracle);
+}
+
 function verifySync() {
   const argv = ['--project', project, '--json', 'localization', 'sync', '--dry-run'];
   const oracle = execute(['--no-daemon', ...argv]);
@@ -148,6 +163,11 @@ try {
   inspect('rooms', 'room-lifecycle-roundtrip', true);
   inspect('characters', 'studio-guide', true);
   inspect('rooms', 'room-lifecycle-roundtrip', false);
+  verifyUsages('rooms', 'room-lifecycle-roundtrip');
+  verifyUsages('materials', 'engine2d-draw-contract');
+  verifyUsages('variables', 'world-composition-enabled');
+  verifyUsages('assets', 'pilot-room-backdrop');
+  verifyUsages('animations', 'custom-board-loop');
   verifyEntityDryRun('variables', 'native-ci-parity-var', 'create');
   verifyEntityDryRun('layouts', 'native-ci-parity-layout', 'create');
   verifyFormatCheck('project.yaml');

@@ -486,7 +486,8 @@ std::pair<std::size_t, std::size_t> region_location(std::string_view text, std::
 }
 
 void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t base_line,
-                 std::size_t base_column, std::size_t base_utf16_offset = 0)
+                 std::size_t base_column, std::size_t base_utf16_offset = 0,
+                 bool collect_lexical_literals = false)
 {
     if (source.size() > 4 * 1024 * 1024) {
         output.complete = false;
@@ -496,6 +497,22 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
         return;
     }
     const auto tokens = lua_tokens(source, output, base_line, base_column);
+    if (collect_lexical_literals)
+        for (const auto& token : tokens) {
+            if (token.kind != Token::Kind::String)
+                continue;
+            const auto [line, column] = location(source, token.begin);
+            const auto [end_line, end_column] = location(source, token.end);
+            output.lua_literals.push_back(
+                {.value = token.text,
+                 .kind = source[token.begin] == '[' ? "long-bracket" : "quoted",
+                 .start_utf16 = base_utf16_offset + utf16_offset(source.substr(0, token.begin)),
+                 .end_utf16 = base_utf16_offset + utf16_offset(source.substr(0, token.end)),
+                 .line = base_line + line - 1,
+                 .column = line == 1 ? base_column + column - 1 : column,
+                 .end_line = base_line + end_line - 1,
+                 .end_column = end_line == 1 ? base_column + end_column - 1 : end_column});
+        }
     const auto utf16_at = [&](std::size_t offset) {
         std::size_t length = base_utf16_offset;
         for (std::size_t j = 0; j < offset && j < source.size(); ++j) {
@@ -950,14 +967,15 @@ void analyze_rml(SourceAnalysis& output, std::string_view source)
 }
 } // namespace
 
-SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_view text)
+SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_view text,
+                                    bool collect_lexical_literals)
 {
     SourceAnalysis result;
     result.source_path = std::string(relative_path);
     result.source_revision = exact_source_revision(text);
     result.source_text = std::string(text);
     if (relative_path.ends_with(".lua"))
-        analyze_lua(result, text, 1, 1);
+        analyze_lua(result, text, 1, 1, 0, collect_lexical_literals);
     else if (relative_path.ends_with(".rml"))
         analyze_rml(result, text);
     else if (relative_path.ends_with(".rcss"))

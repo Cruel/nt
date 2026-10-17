@@ -76,6 +76,62 @@ void certify(const std::filesystem::path& source)
     require(fields.at("record").at("id") == "room-lifecycle-roundtrip" &&
                 fields.at("provenance").at("id") == "explicit",
             "CLI inspect returns effective fields and sparse-source provenance.");
+    const auto usages = command({{"action", "entity-usages"},
+                                 {"projectRoot", root},
+                                 {"collection", "rooms"},
+                                 {"id", "room-lifecycle-roundtrip"}});
+    require(usages.value("ok", false) && usages.at("usages").size() == 5 &&
+                std::all_of(
+                    usages.at("usages").begin(), usages.at("usages").end(),
+                    [](const Json& item) {
+                        return item.at("role") == "room-exit-target" &&
+                               item.at("sourcePath").get<std::string>().ends_with("/target/$ref");
+                    }),
+            "Native read-only usages enumerates five exact Room exit edges.");
+    require(!command({{"action", "entity-usages"},
+                      {"projectRoot", root},
+                      {"collection", "rooms"},
+                      {"id", "absent-room"}})
+                 .value("ok", false),
+            "Native usages does not return a misleading empty graph for missing records.");
+    const auto material_usages = command({{"action", "entity-usages"},
+                                          {"projectRoot", root},
+                                          {"collection", "materials"},
+                                          {"id", "engine2d-draw-contract"}});
+    require(material_usages.value("ok", false) && material_usages.at("usages").size() == 18,
+            "Native uses match structured Material dependencies and lexical Lua candidates.");
+    const auto variable_usages = command({{"action", "entity-usages"},
+                                          {"projectRoot", root},
+                                          {"collection", "variables"},
+                                          {"id", "world-composition-enabled"}});
+    require(variable_usages.value("ok", false) && variable_usages.at("usages").size() == 6 &&
+                std::count_if(variable_usages.at("usages").begin(),
+                              variable_usages.at("usages").end(),
+                              [](const Json& usage) {
+                                  return usage.at("role") == "condition-variable";
+                              }) == 3,
+            "Native usages matches Condition references and external script lexical evidence.");
+    const auto asset_usages = command({{"action", "entity-usages"},
+                                       {"projectRoot", root},
+                                       {"collection", "assets"},
+                                       {"id", "pilot-room-backdrop"}});
+    require(asset_usages.value("ok", false) && asset_usages.at("usages").size() == 53 &&
+                std::count_if(asset_usages.at("usages").begin(), asset_usages.at("usages").end(),
+                              [](const Json& usage) {
+                                  return usage.at("role") == "hotspot-source-image";
+                              }) == 4,
+            "Native usages preserves nested hotspot background-Asset edges.");
+    const auto animation_usages = command({{"action", "entity-usages"},
+                                           {"projectRoot", root},
+                                           {"collection", "animations"},
+                                           {"id", "custom-board-loop"}});
+    require(animation_usages.value("ok", false) && animation_usages.at("usages").size() == 7 &&
+                std::count_if(animation_usages.at("usages").begin(),
+                              animation_usages.at("usages").end(),
+                              [](const Json& usage) {
+                                  return usage.at("role") == "hotspot-source-image";
+                              }) == 6,
+            "Native usages preserves Interactable visual and nested hotspot Animation edges.");
     const auto unknown = command({{"action", "entity-inspect"},
                                   {"projectRoot", root},
                                   {"collection", "rooms"},
@@ -602,12 +658,17 @@ void certify(const std::filesystem::path& source)
         {"projectRoot", root},
         {"collection", "rooms"},
         {"id", exit_room_id},
-        {"dryRun", false},
+        {"dryRun", true},
         {"force", true},
         {"allowPossibleSourceReferences", true},
         {"sourceRevision", noveltea::authoring::exact_source_revision(read(exit_room_path))}};
-    require(!command(referenced_delete).value("ok", false) && read(child_path) == child_modified,
-            "Even --force cannot delete a required Room exit without a replacement repair.");
+    require(command(referenced_delete).value("ok", false) && read(child_path) == child_modified &&
+                std::filesystem::exists(exit_room_path),
+            "Native forced deletion dry-run preserves the explicit CLI opt-out of graph repairs.");
+    auto safe_delete = referenced_delete;
+    safe_delete["force"] = false;
+    require(!command(safe_delete).value("ok", false) && std::filesystem::exists(exit_room_path),
+            "Unforced deletion must still reject a dangling required Room reference.");
     const auto renamed_reference = command(
         {{"action", "entity-rename"},
          {"projectRoot", root},
@@ -680,6 +741,63 @@ void certify(const std::filesystem::path& source)
                 !std::filesystem::exists(material_path),
             "Native rename recognizes sparse Room Material application references: " +
                 rewritten_material.dump().substr(0, 620));
+
+    const auto unannotated = noveltea::authoring::edit_yaml_source(
+        "data:\n  cast:\n    - id: first\n      character: a\n"
+        "    - id: second\n      character: b\n  label: keep\n",
+        {{"/data/cast/0", "", noveltea::authoring::YamlCommentDisposition::Keep, std::nullopt,
+          noveltea::authoring::YamlEditOperation::Remove}});
+    require(unannotated.accepted &&
+                unannotated.source.find("    - id: first") == std::string::npos &&
+                unannotated.source.find("    - id: second") != std::string::npos &&
+                unannotated.source.find("  label: keep") != std::string::npos,
+            "Native YAML sequence deletion removes one entire block item, preserving siblings.");
+    const auto annotated = noveltea::authoring::edit_yaml_source(
+        "data:\n  cast:\n    - id: protected # human context\n      character: a\n"
+        "    - id: other\n      character: b\n",
+        {{"/data/cast/0", "", noveltea::authoring::YamlCommentDisposition::Keep, std::nullopt,
+          noveltea::authoring::YamlEditOperation::Remove}});
+    require(!annotated.accepted,
+            "Native YAML sequence deletion refuses to silently discard item annotations.");
+
+    const auto original_character = read(fixture.root / "records/characters/pilot-guide.yaml");
+    auto cloned_character = original_character;
+    const auto original_id = cloned_character.find("id: pilot-guide\n");
+    require(original_id == 0, "Character Fixture source starts with its canonical ID.");
+    cloned_character.replace(0, std::string("id: pilot-guide").size(), "id: native-cast-target");
+    const auto cloned_path = fixture.root / "records/characters/native-cast-target.yaml";
+    {
+        std::ofstream out(cloned_path, std::ios::binary | std::ios::trunc);
+        out << cloned_character;
+    }
+    const auto cast_room_path = fixture.root / "records/rooms/runtime-workshop.yaml";
+    auto cast_room = read(cast_room_path);
+    const auto cast_at = cast_room.find("character: pilot-guide");
+    require(cast_at != std::string::npos, "Room Fixture contains a canonical cast reference.");
+    cast_room.replace(cast_at, std::string("character: pilot-guide").size(),
+                      "character: native-cast-target");
+    {
+        std::ofstream out(cast_room_path, std::ios::binary | std::ios::trunc);
+        out << cast_room;
+    }
+    const auto deleted_cast = command(
+        {{"action", "entity-delete"},
+         {"projectRoot", root},
+         {"collection", "characters"},
+         {"id", "native-cast-target"},
+         {"dryRun", false},
+         {"sourceRevision", noveltea::authoring::exact_source_revision(read(cloned_path))}});
+    require(deleted_cast.value("ok", false) &&
+                deleted_cast.at("plan").at("writes") ==
+                    Json::array({"records/rooms/runtime-workshop.yaml"}) &&
+                deleted_cast.at("plan").at("deletes") ==
+                    Json::array({"records/characters/native-cast-target.yaml"}) &&
+                read(cast_room_path).find("cast: []") != std::string::npos &&
+                !std::filesystem::exists(cloned_path),
+            "Native Character deletion atomically removes its cast item and source: " +
+                deleted_cast.dump().substr(0, 600));
+    require(command({{"action", "export-preparation"}, {"projectRoot", root}}).value("ok", false),
+            "Native Character repair transaction leaves the complete Project valid.");
 }
 } // namespace
 
