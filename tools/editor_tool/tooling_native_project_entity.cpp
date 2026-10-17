@@ -303,15 +303,17 @@ Json native_project_entity(const Json& request, ProjectSession& session,
     const auto id = request.at("id").get<std::string>();
     if (!canonical_id(id))
         return failure("Entity ID must be canonical lowercase kebab-case.");
+    // Check the collection before it is ever used as a physical path segment.
+    // In particular, a delete/rename must never construct records/../../...
+    // from a caller-supplied collection; the source template registry is the
+    // authoritative list of record-owned collections.
+    const auto template_json = default_entity_source_json(family);
+    if (!template_json)
+        return failure("Unknown or unsupported native entity collection.");
     if (action == "entity-rename" || action == "entity-delete")
         return relocate_or_remove(request, session, root, action, family, id);
     if (action != "entity-create")
         return failure("Unsupported native structural entity operation.");
-    if (family == "assets")
-        return failure("Generic Asset creation is not supported; use asset import.");
-    const auto template_json = default_entity_source_json(family);
-    if (!template_json)
-        return failure("Unknown or unsupported native entity collection.");
 
     const bool dry_run = request.value("dryRun", true);
     const auto validated = session.validate_project();
