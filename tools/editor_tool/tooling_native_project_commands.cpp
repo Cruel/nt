@@ -193,6 +193,8 @@ Json operate(const Json& request)
         return native_project_format(request, *session, root);
     if (action == "localization-targets")
         return native_project_localization(request, *session, root);
+    if (action == "localization-view")
+        return native_project_localization_view(request, *session);
     if (action == "localization-sync")
         return native_project_localization_sync(request, *session, root);
     if (action == "localization-reconcile")

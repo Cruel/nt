@@ -101,6 +101,31 @@ function verifySync() {
   return observed.native;
 }
 
+function verifyLocalizationView(status) {
+  const argv = [
+    '--project',
+    project,
+    '--json',
+    'localization',
+    'view',
+    'fr',
+    ...(status ? ['--status', status] : []),
+  ];
+  const oracle = execute(['--no-daemon', ...argv]);
+  const actual = execute(argv);
+  assert.equal(actual.status, oracle.status);
+  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
+  const rows = actual.stderr
+    .split('\n')
+    .filter((line) => line.startsWith('[native-cli-localization-view] '));
+  assert.equal(rows.length, 1, 'Expected native localization view: ' + actual.stderr);
+  const observed = JSON.parse(rows[0].slice('[native-cli-localization-view] '.length));
+  assert.equal(observed.native.ok, true, observed.native.error);
+  assert.equal(observed.native.locale, observed.oracle.locale);
+  assert.deepEqual(observed.native.messages, observed.oracle.messages);
+  assert.equal(observed.native.statusFilter, observed.oracle.statusFilter);
+}
+
 function verifyReconcile() {
   const argv = ['--project', project, '--json', 'localization', 'reconcile'];
   const oracle = execute(['--no-daemon', ...argv]);
@@ -171,6 +196,49 @@ try {
   verifyEntityDryRun('variables', 'native-ci-parity-var', 'create');
   verifyEntityDryRun('layouts', 'native-ci-parity-layout', 'create');
   verifyFormatCheck('project.yaml');
+  verifyLocalizationView();
+  verifyLocalizationView('current');
+  verifyLocalizationView('attention');
+  // A valid translation may acknowledge an older presentation/guidance
+  // generation without changing its semantic source fingerprint. Both native
+  // and installed-headless views must surface the same independent attention.
+  const frSource = path.join(project, 'i18n/locales/fr.yaml');
+  const fr = await readFile(frSource, 'utf8');
+  assert.ok(fr.includes('  origin: ai\n'), 'Expected Feature Lab locale entry');
+  await writeFile(
+    frSource,
+    fr.replace(
+      '  origin: ai\n',
+      '  acknowledgedPresentationFingerprint: fnv1a:00000000000000000000000000000000\n' +
+        '  acknowledgedGuidanceFingerprint: fnv1a:00000000000000000000000000000000\n' +
+        '  origin: ai\n',
+    ),
+  );
+  verifyLocalizationView();
+  verifyLocalizationView('attention');
+  const noteSource = path.join(project, 'i18n/usage-notes.yaml');
+  await writeFile(
+    noteSource,
+    '"structured:/rooms/feature-lab-home/data/description/source": "Named usage note"\n',
+  );
+  verifyLocalizationView();
+  const localMessageId = '88888888-8888-4888-8888-888888888888';
+  const messagesSource = path.join(project, 'i18n/messages.yaml');
+  const messages = await readFile(messagesSource, 'utf8');
+  assert.ok(messages.includes('structuredMessageIds: {}'));
+  await writeFile(
+    messagesSource,
+    messages.replace(
+      'structuredMessageIds: {}',
+      `  ${localMessageId}:\n    kind: local\n    source: Local Message with usage note\nstructuredMessageIds: {}`,
+    ),
+  );
+  await writeFile(
+    noteSource,
+    '"structured:/rooms/feature-lab-home/data/description/source": "Named usage note"\n' +
+      `${localMessageId}: Local usage note\n`,
+  );
+  verifyLocalizationView();
   assert.equal(verifySync().changed, false);
   assert.deepEqual(verifyReconcile().groups, []);
   const outputPath = path.join(root, 'oracle.ntproject');
@@ -213,6 +281,9 @@ try {
       `${anchor}; noveltea.notify(Text.tr('Native sync parity new marker'))`,
     ),
   );
+  // Read-only views expose new ephemeral Message identities before the
+  // explicit localization sync has materialized tracking for this Lua source.
+  verifyLocalizationView();
   assert.equal(verifySync().changed, true);
   const reconcile = verifyReconcile();
   assert.equal(reconcile.deterministicChanged, true);

@@ -1164,6 +1164,40 @@ async function runNovelTeaScriptcIslandScoped(
     }
     if (
       family === 'localization' &&
+      operation === 'view' &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string' &&
+      typeof bootstrap.globals.command[2] === 'string' &&
+      Array.isArray(commandResult.envelope.messages)
+    ) {
+      const statusIndex = bootstrap.globals.command.indexOf('--status');
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'localization-view',
+            projectRoot: commandResult.envelope.projectRoot,
+            locale: bootstrap.globals.command[2],
+            ...(statusIndex < 0 ? {} : { status: bootstrap.globals.command[statusIndex + 1] }),
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; locale?: string; messages?: unknown[] };
+      validationProfileText +=
+        '[native-cli-localization-view] ' +
+        JSON.stringify({
+          native,
+          oracle: {
+            locale: commandResult.envelope.locale,
+            statusFilter: commandResult.envelope.statusFilter,
+            messages: commandResult.envelope.messages,
+          },
+        }) +
+        '\n';
+    }
+    if (
+      family === 'localization' &&
       operation === 'reconcile' &&
       !bootstrap.globals.command.includes('--apply') &&
       !invocationContext.prepareResidentSnapshotOnly &&
