@@ -140,7 +140,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--capacity-dimension" && flag != "--capacity-target" &&
             flag != "--capacity-threshold" && flag != "--capacity-mode" &&
             flag != "--cpu-work-units" && flag != "--native-quads" && flag != "--native-glyphs" &&
-            flag != "--native-texture-size") {
+            flag != "--native-texture-size" && flag != "--shader-tint" &&
+            flag != "--shader-scope") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -186,6 +187,24 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 options.native_glyphs = static_cast<uint32_t>(count);
             else
                 options.native_texture_size = static_cast<uint32_t>(count);
+            continue;
+        }
+        if (flag == "--shader-tint") {
+            has_cli_settings = true;
+            if (!parse_duration(value, options.shader_tint) || options.shader_tint < 0.0 ||
+                options.shader_tint > 1.0) {
+                error = "--shader-tint must be in 0..1";
+                return false;
+            }
+            continue;
+        }
+        if (flag == "--shader-scope") {
+            has_cli_settings = true;
+            options.shader_scope = value;
+            if (options.shader_scope != "world" && options.shader_scope != "full-game-viewport") {
+                error = "--shader-scope must be world or full-game-viewport";
+                return false;
+            }
             continue;
         }
         if (flag == "--cpu-work-units") {
@@ -543,6 +562,8 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.native_quads = defaults.native_quads;
     selected.native_glyphs = defaults.native_glyphs;
     selected.native_texture_size = defaults.native_texture_size;
+    selected.shader_tint = defaults.shader_tint;
+    selected.shader_scope = defaults.shader_scope;
     selected.draw_calls = defaults.draw_calls;
     selected.quad_count = defaults.quad_count;
     selected.texture_size = defaults.texture_size;
@@ -573,8 +594,10 @@ bool validate_reference_options(const Options& options, std::string& reason)
                  "Feature Lab";
         return false;
     }
-    if (is_native_2d_scenario(options.scenario)) {
-        const bool geometry = options.scenario == "native-2d-geometry";
+    if (is_native_2d_scenario(options.scenario) || is_shader_scenario(options.scenario)) {
+        const bool shader = is_shader_scenario(options.scenario);
+        const bool postprocess = options.scenario == "native-postprocess";
+        const bool geometry = options.scenario == "native-2d-geometry" || shader;
         const auto edge = options.native_texture_size;
         const bool texture_valid =
             edge == 0 || (edge >= 64 && edge <= 1024 && (edge & (edge - 1u)) == 0);
@@ -582,16 +605,35 @@ bool validate_reference_options(const Options& options, std::string& reason)
             !options.capacity_dimension.empty() || options.clock_policy != "realtime" ||
             options.native_quads < 1 || options.native_quads > 2048 || options.native_glyphs < 1 ||
             options.native_glyphs > 4096 || !texture_valid ||
+            (shader &&
+             (!std::isfinite(options.shader_tint) || options.shader_tint < 0.0 ||
+              options.shader_tint > 1.0 || options.target_scale != 1.0 ||
+              options.msaa_samples != 0 || !options.transparent_overlay ||
+              (options.composition_path != "direct" && options.composition_path != "offscreen") ||
+              (postprocess && options.composition_path == "direct" &&
+               options.shader_scope != "world") ||
+              (options.shader_scope != "world" && options.shader_scope != "full-game-viewport") ||
+              (postprocess ? (options.composition_path == "direct"
+                                  ? options.composite_passes != 0 || options.shader_tint != 1.0
+                                  : options.composite_passes < 1 || options.composite_passes > 4)
+                           : options.composition_path != "direct" ||
+                                 options.composite_passes != 0 || options.shader_tint != 1.0))) ||
+            (!shader && (options.shader_tint != 1.0 || options.shader_scope != "world")) ||
+            (!postprocess && options.shader_scope != "world") ||
             (!geometry && (options.native_quads != defaults.native_quads || edge != 0)) ||
             (geometry && options.native_glyphs != defaults.native_glyphs)) {
-            reason = "native 2D workloads require --no-ui and realtime; geometry scales "
-                     "quads/texture, text scales glyphs; no capacity or Quick Suite yet";
+            reason = "native renderer workloads require --no-ui, realtime, quads 1..2048 and "
+                     "texture 0 or power-of-two 64..1024; native-postprocess direct requires "
+                     "zero passes, offscreen requires 1..4; Engine postprocess uses full-size "
+                     "non-MSAA targets; no capacity search or Quick Suite";
             return false;
         }
     } else if (options.native_quads != defaults.native_quads ||
                options.native_glyphs != defaults.native_glyphs ||
-               options.native_texture_size != defaults.native_texture_size) {
-        reason = "native 2D dimensions require native-2d-geometry or native-2d-text scenario";
+               options.native_texture_size != defaults.native_texture_size ||
+               options.shader_tint != defaults.shader_tint ||
+               options.shader_scope != defaults.shader_scope) {
+        reason = "native renderer or shader dimensions require a native 2D/shader scenario";
         return false;
     }
     if (is_cpu_scenario(options.scenario)) {
@@ -681,6 +723,7 @@ bool validate_reference_options(const Options& options, std::string& reason)
         return false;
     }
     if (options.scenario != "raw-bgfx-composition" && options.scenario != "raw-bgfx-offscreen" &&
+        options.scenario != "native-postprocess" &&
         (options.composition_path != "direct" || options.composite_passes != 0 ||
          options.target_scale != 1.0 || options.msaa_samples != 0 ||
          !options.transparent_overlay)) {
@@ -701,8 +744,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
         reason.clear();
         return true;
     }
-    if ((is_native_2d_scenario(options.scenario) || is_cpu_scenario(options.scenario) ||
-         options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
+    if ((is_native_2d_scenario(options.scenario) || is_shader_scenario(options.scenario) ||
+         is_cpu_scenario(options.scenario) || options.scenario == "raw-bgfx-empty" ||
+         options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
          options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty" ||
          project_scenario) &&

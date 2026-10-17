@@ -123,6 +123,19 @@ int main()
                                        "256"};
     const char* const native_text[] = {"benchmark", "--scenario", "native-2d-text-dynamic",
                                        "--native-glyphs", "512"};
+    const char* const shader_stack[] = {"benchmark",
+                                        "--scenario",
+                                        "native-postprocess",
+                                        "--composition-path",
+                                        "offscreen",
+                                        "--composite-passes",
+                                        "3",
+                                        "--shader-tint",
+                                        "0.75",
+                                        "--shader-scope",
+                                        "full-game-viewport"};
+    const char* const shader_bad_tint[] = {"benchmark", "--shader-tint", "1.1"};
+    const char* const shader_bad_scope[] = {"benchmark", "--shader-scope", "screen"};
     const char* const native_bad_texture[] = {"benchmark", "--native-texture-size", "70"};
     const char* const native_bad_glyphs[] = {"benchmark", "--native-glyphs", "4097"};
     const char* const cpu_units_zero[] = {"benchmark", "--cpu-work-units", "0"};
@@ -150,7 +163,9 @@ int main()
         !expect_options(geometry, 7, true) || !expect_options(ui_reference, 3, true) ||
         !expect_options(cpu_units, 5, true) || !expect_options(cpu_units_zero, 3, false) ||
         !expect_options(cpu_units_excess, 3, false) || !expect_options(native_geom, 7, true) ||
-        !expect_options(native_text, 5, true) || !expect_options(native_bad_texture, 3, false) ||
+        !expect_options(native_text, 5, true) || !expect_options(shader_stack, 11, true) ||
+        !expect_options(shader_bad_tint, 3, false) || !expect_options(shader_bad_scope, 3, false) ||
+        !expect_options(native_bad_texture, 3, false) ||
         !expect_options(native_bad_glyphs, 3, false) ||
         !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
         !expect_options(ui_scaling, 17, true) || !expect_options(ui_named_preset, 7, true) ||
@@ -192,6 +207,27 @@ int main()
         return 1;
     options.no_ui = false;
     if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(11, shader_stack, options, error) ||
+        !noveltea::benchmark::validate_reference_options(options, error) ||
+        options.shader_scope != "full-game-viewport" || options.shader_tint != 0.75 ||
+        options.composite_passes != 3)
+        return 1;
+    options.composite_passes = 5;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.composite_passes = 3;
+    options.target_scale = 0.5;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options = noveltea::benchmark::reference_scenario_options(options, "native-shader-material");
+    if (!noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.shader_tint = 0.7;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (noveltea::benchmark::reference_scenario_options(options, "raw-bgfx-empty").shader_tint !=
+        1.0)
         return 1;
     if (!noveltea::benchmark::parse_options(5, cpu_units, options, error) ||
         options.cpu_work_units != 16 || !noveltea::benchmark::is_cpu_scenario(options.scenario) ||

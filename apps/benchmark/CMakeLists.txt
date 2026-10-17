@@ -292,7 +292,8 @@ if(BUILD_TESTING AND NOT ANDROID)
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
-        foreach(native_case native-2d-geometry native-2d-text-static native-2d-text-dynamic)
+        foreach(native_case native-2d-geometry native-2d-text-static native-2d-text-dynamic
+                            native-shader-material native-postprocess)
             add_test(NAME "noveltea_benchmark_${native_case}_smoke"
                 COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                     --scenario "${native_case}" --smoke --width 640 --height 480
@@ -326,6 +327,29 @@ if(BUILD_TESTING AND NOT ANDROID)
         set_tests_properties(noveltea_benchmark_native_2d_texture_scaling_smoke
             PROPERTIES LABELS "benchmark;graphics;native-2d;smoke"
                 PASS_REGULAR_EXPRESSION "complete: 8 native 2D frames" TIMEOUT 90)
+        add_test(NAME noveltea_benchmark_native_postprocess_stack_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario native-postprocess --composition-path offscreen
+                --composite-passes 4 --shader-tint 0.75
+                --shader-scope full-game-viewport --native-quads 128
+                --native-texture-size 256 --smoke --profile diagnostic
+                --width 640 --height 480
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-native-postprocess-stack.json")
+        set_tests_properties(noveltea_benchmark_native_postprocess_stack_smoke
+            PROPERTIES LABELS "benchmark;graphics;shader;smoke"
+                PASS_REGULAR_EXPRESSION "complete: 30 native 2D frames" TIMEOUT 90)
+        find_program(NOVELTEA_BENCHMARK_CONVERT NAMES convert)
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        if(NOVELTEA_BENCHMARK_CONVERT AND Python3_Interpreter_FOUND)
+            add_test(NAME noveltea_benchmark_native_shader_visual_regression
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/shader_visual_smoke.py"
+                    "$<TARGET_FILE:noveltea-benchmark-app>")
+            set_tests_properties(noveltea_benchmark_native_shader_visual_regression
+                PROPERTIES LABELS "benchmark;graphics;shader;visual;smoke"
+                    PASS_REGULAR_EXPRESSION "shader visuals: material/direct/neutral scopes equivalent"
+                    TIMEOUT 120)
+        endif()
         foreach(inspection_scenario raw-bgfx-geometry standalone-rmlui-simple
                                     integrated-rmlui-controlled integrated-rmlui-production)
             add_test(NAME "noveltea_benchmark_inspection_${inspection_scenario}_smoke"

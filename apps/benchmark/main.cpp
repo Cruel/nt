@@ -66,11 +66,15 @@ void print_usage()
               "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty|"
               "engine-compiled-empty|engine-compiled-menu|engine-feature-lab|"
               "cpu-lua|cpu-runtime-session|cpu-flow-prediction|"
-              "native-2d-geometry|native-2d-text-static|native-2d-text-dynamic]");
+              "native-2d-geometry|native-2d-text-static|native-2d-text-dynamic|"
+              "native-shader-material|native-postprocess]");
     std::puts("       [--clock-policy realtime|fixed-step] [--feature-lab-package FILE]");
     std::puts("       [--cpu-work-units 1..4096] (CPU-only --no-ui batch size)");
     std::puts("       [--native-quads 1..2048] [--native-glyphs 1..4096]");
-    std::puts("       [--native-texture-size 0|64|128|256|512|1024] (native 2D --no-ui)");
+    std::puts("       [--native-texture-size 0|64|128|256|512|1024] (native renderer --no-ui)");
+    std::puts("       [--shader-scope world|full-game-viewport] [--shader-tint 0..1]");
+    std::puts("       native-postprocess: direct = 0 passes, offscreen = 1..4 passes;");
+    std::puts("       postprocess targets are production full-size/non-MSAA; Web unsupported");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
     std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
@@ -905,9 +909,11 @@ int run_native_2d(const Options& options)
         std::string reason;
         const bool prepared = native.prepare(options, reason);
         const bool inspected = prepared && native.inspect(options, reason);
+        const std::string inspection_reason = reason;
         const bool cleaned = native.cleanup(reason);
         if (!prepared || !inspected || !cleaned) {
-            std::fprintf(stderr, "[benchmark] native 2D inspection failed: %s\n", reason.c_str());
+            std::fprintf(stderr, "[benchmark] native 2D inspection failed: %s\n",
+                         prepared && inspected ? reason.c_str() : inspection_reason.c_str());
             return 3;
         }
         return 0;
@@ -1912,7 +1918,8 @@ int main(int argc, char* argv[])
     }
     if (noveltea::benchmark::is_cpu_scenario(options.scenario))
         return run_cpu(options);
-    if (noveltea::benchmark::is_native_2d_scenario(options.scenario))
+    if (noveltea::benchmark::is_native_2d_scenario(options.scenario) ||
+        noveltea::benchmark::is_shader_scenario(options.scenario))
         return run_native_2d(options);
 #if defined(__EMSCRIPTEN__)
     return run_web(options);
