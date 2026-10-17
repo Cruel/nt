@@ -170,7 +170,7 @@ std::string decode_quote(std::string_view source, bool& complete)
                 return static_cast<unsigned int>(
                     ch <= '9' ? ch - '0' : (ch <= 'F' ? ch - 'A' + 10 : ch - 'a' + 10));
             };
-            decoded += static_cast<char>((digit(source[i + 1]) << 4) | digit(source[i + 2]));
+            append_utf8(decoded, (digit(source[i + 1]) << 4) | digit(source[i + 2]));
             i += 2;
             break;
         }
@@ -216,7 +216,7 @@ std::string decode_quote(std::string_view source, bool& complete)
                 if (value > 255)
                     complete = false;
                 else
-                    decoded += static_cast<char>(value);
+                    append_utf8(decoded, value);
             } else if (source[i] == '\\' || source[i] == '\'' || source[i] == '"')
                 decoded += source[i];
             else {

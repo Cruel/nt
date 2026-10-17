@@ -544,6 +544,15 @@ void property_semantics_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
     std::string error;
+    // The canonical Trait ID is present only after decoding a quoted YAML
+    // escape. Searching raw physical bytes must never prune this dependent.
+    const auto escaped_source = temp.root / "records/interactables/lab-specimen.yaml";
+    auto escaped_bytes = read(escaped_source);
+    const auto escaped_at = escaped_bytes.find("  - lab-layered");
+    require(escaped_at != std::string::npos, "Trait dependency fixture is present");
+    escaped_bytes.replace(escaped_at, std::string("  - lab-layered").size(),
+                          R"(  - "lab-\u006cayered")");
+    write(escaped_source, escaped_bytes);
     auto unopened = ProjectSession::open(temp.root, error);
     require(unopened != nullptr, "Unopened dependency fixture can be admitted");
     const auto dependent = unopened->patch(
@@ -786,6 +795,11 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
                 escaped.messages[0].source == "greeting" && escaped.messages[1].source == "u" &&
                 escaped.messages[2].source == "\xf0\x9f\x98\x80",
             "Lua hex, decimal and Unicode escapes match the runtime and TypeScript analyzer");
+    const auto latin1 =
+        analyze_project_text("scripts/probe.lua", R"(Text.tr("\233"); Text.tr("\xE9"))");
+    require(latin1.complete && latin1.diagnostics.empty() && latin1.messages.size() == 2 &&
+                latin1.messages[0].source == "\xc3\xa9" && latin1.messages[1].source == "\xc3\xa9",
+            "Lua decimal and hexadecimal escapes produce Unicode scalar U+00E9 encoded as UTF-8");
     const auto unrecognized = analyze_project_text("scripts/probe.lua", "Text.tr(\"\\q\")");
     require(!unrecognized.complete && !unrecognized.diagnostics.empty(),
             "Unknown Lua escapes mark source analysis incomplete");
@@ -939,6 +953,36 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
                             }) &&
                 read(temp.root / asset_rml) == saved_asset_rml,
             "Asset-backed Layout RML is indexed and validated without disk writes");
+    {
+        TemporaryProject template_fixture(fixture);
+        auto linked = ProjectSession::open(template_fixture.root, error);
+        require(linked != nullptr, "Sparse Asset template indexing fixture opens");
+        const auto template_path = std::string("assets/ui/counter-template.rml");
+        const auto saved_template = read(template_fixture.root / template_path);
+        const auto changed_template = linked->stage_text_source(
+            0, template_path, "<rml><body><nt-tr>Unsaved template</nt-tr></body></rml>");
+        require(changed_template.accepted &&
+                    std::find(changed_template.affected_records.begin(),
+                              changed_template.affected_records.end(),
+                              "layouts/flow-counter") != changed_template.affected_records.end(),
+                "Sparse string template reference contributes to consuming Layout ownership");
+        const auto restored = linked->stage_text_source(changed_template.snapshot.working_revision,
+                                                        template_path, saved_template);
+        require(restored.accepted, "Template overlay restores before Asset retargeting");
+        const auto retargeted = linked->patch(
+            restored.snapshot.working_revision,
+            {{RoomPatch::Operation::Replace, "/assets/counter-template/data/source/path",
+              R"("assets/ui/counter.rml")"}});
+        require(retargeted.accepted, "Dirty Asset source retargeting is accepted");
+        const auto stale_template =
+            linked->stage_text_source(retargeted.snapshot.working_revision, template_path,
+                                      "<rml><body><nt-tr>Old Asset source</nt-tr></body></rml>");
+        require(stale_template.accepted &&
+                    std::find(stale_template.affected_records.begin(),
+                              stale_template.affected_records.end(),
+                              "layouts/flow-counter") == stale_template.affected_records.end(),
+                "Dirty Asset retargeting removes the old source-to-Layout association");
+    }
 }
 
 void working_preparation_roundtrip(const std::filesystem::path& fixture)

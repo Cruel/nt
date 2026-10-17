@@ -143,7 +143,28 @@ void collect_top_level_strings(const Json& data, const std::string& base,
     }
 }
 
-std::map<std::string, std::string> structured_sources(const std::filesystem::path& root)
+std::optional<Json> working_record(const std::filesystem::path& root,
+                                   const std::map<std::string, std::string>& overlays,
+                                   std::string_view family, std::string_view id)
+{
+    const auto name = "records/" + std::string(family) + "/" + std::string(id) + ".yaml";
+    if (const auto it = overlays.find(name); it != overlays.end())
+        return Json::parse(it->second);
+    const auto file = root / name;
+    if (!std::filesystem::is_regular_file(file))
+        return std::nullopt;
+    std::ifstream input(file, std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>{input},
+                            std::istreambuf_iterator<char>{}};
+    const auto decoded = open_yaml_source(bytes);
+    if (!decoded.accepted)
+        return std::nullopt;
+    return Json::parse(decoded.source_json);
+}
+
+std::map<std::string, std::string>
+structured_sources(const std::filesystem::path& root,
+                   const std::map<std::string, std::string>& record_overlays)
 {
     std::map<std::string, std::string> messages;
     for (const auto* family : {"characters", "rooms", "interactables", "dialogues", "scenes",
@@ -154,26 +175,147 @@ std::map<std::string, std::string> structured_sources(const std::filesystem::pat
         for (const auto& entry : std::filesystem::directory_iterator(dir)) {
             if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
                 continue;
-            std::ifstream file(entry.path(), std::ios::binary);
-            const auto bytes =
-                std::string(std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{});
-            const auto parsed = open_yaml_source(bytes);
-            if (!parsed.accepted)
+            const auto record =
+                working_record(root, record_overlays, family, entry.path().stem().string());
+            if (!record)
                 continue;
-            const auto record = Json::parse(parsed.source_json);
-            if (!record.contains("data") || !record.at("data").is_object())
+            if (!record->contains("data") || !record->at("data").is_object())
                 continue;
             const auto base =
                 "/" + std::string(family) + "/" + escape(entry.path().stem().string()) + "/data";
-            collect_top_level_strings(record.at("data"), base, messages);
-            collect_structured_sources(record.at("data"), base, messages);
+            collect_top_level_strings(record->at("data"), base, messages);
+            collect_structured_sources(record->at("data"), base, messages);
         }
     }
     return messages;
 }
 
-std::map<std::string, Json> dialogue_cue_contracts(const std::filesystem::path& root,
-                                                   const Json& localization)
+// A managed Message ID is stored in i18n/tracking.yaml rather than in
+// i18n/messages.yaml. Its source contract must be projected from the active
+// analyzed Lua/RML buffer, falling back to its tracked source snapshot.
+std::optional<std::string> record_source_at(const std::filesystem::path& root,
+                                            const std::map<std::string, std::string>& records,
+                                            std::string_view pointer)
+{
+    if (!pointer.starts_with('/'))
+        return std::nullopt;
+    const auto family_end = pointer.find('/', 1);
+    const auto id_end = family_end == std::string_view::npos ? std::string_view::npos
+                                                             : pointer.find('/', family_end + 1);
+    if (id_end == std::string_view::npos)
+        return std::nullopt;
+    const auto record = working_record(root, records, pointer.substr(1, family_end - 1),
+                                       pointer.substr(family_end + 1, id_end - family_end - 1));
+    if (!record)
+        return std::nullopt;
+    const Json* current = &*record;
+    for (auto pos = id_end + 1; pos < pointer.size();) {
+        const auto end = pointer.find('/', pos);
+        const auto token = pointer.substr(pos, end == std::string_view::npos ? end : end - pos);
+        if (current->is_object()) {
+            if (!current->contains(std::string(token)))
+                return std::nullopt;
+            current = &current->at(std::string(token));
+        } else if (current->is_array()) {
+            if (token.empty() || !std::all_of(token.begin(), token.end(),
+                                              [](unsigned char c) { return c >= '0' && c <= '9'; }))
+                return std::nullopt;
+            const auto index = std::stoul(std::string(token));
+            if (index >= current->size())
+                return std::nullopt;
+            current = &current->at(index);
+        } else
+            return std::nullopt;
+        if (end == std::string_view::npos)
+            break;
+        pos = end + 1;
+    }
+    return current->is_string() ? std::optional<std::string>(current->as<std::string>())
+                                : std::nullopt;
+}
+
+void add_tracked_messages(Json& model, const std::filesystem::path& root,
+                          const std::map<std::string, std::string>& record_overlays,
+                          const std::map<std::string, SourceAnalysis>& working_sources)
+{
+    const auto& tracking = model.at("sourceMessageTracking");
+    std::set<std::string> named_keys;
+    for (const auto& entry : model.at("messages").object_range())
+        if (entry.value().at("kind") == "named")
+            named_keys.insert(entry.value().at("key").as<std::string>());
+    static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
+    for (const auto& entry : tracking.object_range()) {
+        const auto& tracked = entry.value();
+        const auto owner = tracked.at("ownerKey").as<std::string>();
+        const auto pointer = tracked.at("sourcePath").as<std::string>();
+        std::string physical;
+        if (owner.starts_with("record:layouts:")) {
+            const auto id = owner.substr(sizeof("record:layouts:") - 1);
+            const auto channel = tracked.at("family") == "rml" ? "rml" : "lua";
+            physical = "records/layouts/" + id + "/layout." + channel;
+        } else if (pointer.starts_with('/')) {
+            physical = "inline/" + pointer.substr(1) + ".lua";
+        }
+        const auto analysis = working_sources.find(physical);
+        std::optional<SourceAnalysis> disk_analysis;
+        if (analysis == working_sources.end()) {
+            if (std::filesystem::is_regular_file(root / physical)) {
+                std::ifstream stream(root / physical, std::ios::binary);
+                const std::string source{std::istreambuf_iterator<char>{stream},
+                                         std::istreambuf_iterator<char>{}};
+                disk_analysis = analyze_project_text(physical, source);
+            } else if (const auto source = record_source_at(root, record_overlays, pointer))
+                disk_analysis = analyze_project_text(physical, *source);
+        }
+        const SourceAnalysis* active = analysis != working_sources.end()
+                                           ? &analysis->second
+                                           : (disk_analysis ? &*disk_analysis : nullptr);
+        const auto& occurrences = tracked.at("occurrences");
+        for (const auto& occurrence : occurrences.array_range()) {
+            const auto id = occurrence.at("messageId").as<std::string>();
+            if (model["messages"].contains(id))
+                continue;
+            std::string text = occurrence.at("sourceSnapshot").as<std::string>();
+            const ManagedSourceOccurrence* current = nullptr;
+            const auto ordinal = occurrence.at("ordinal").as<std::size_t>();
+            if (active && ordinal < active->messages.size())
+                current = &active->messages[ordinal];
+            if (current)
+                text = current->source;
+            if (named_keys.contains(text) || (current && current->kind == "named"))
+                continue;
+            Json message = Json::object();
+            message["kind"] = "local";
+            message["source"] = text;
+            Json arguments = Json::object();
+            for (auto it = std::sregex_iterator(text.begin(), text.end(), placeholder);
+                 it != std::sregex_iterator(); ++it)
+                arguments.insert_or_assign((*it)[1].str(), "printable");
+            if (current && !current->cases.empty()) {
+                Json pattern = Json::object();
+                pattern["kind"] = current->kind;
+                pattern["argument"] = "value";
+                pattern["cases"] = Json::object();
+                for (const auto& [branch, value] : current->cases) {
+                    Json node = Json::object();
+                    node["kind"] = "text";
+                    node["text"] = value;
+                    pattern["cases"][branch] = std::move(node);
+                }
+                message["pattern"] = std::move(pattern);
+                arguments.insert_or_assign("value",
+                                           current->kind == "plural" ? "plural-number" : "string");
+            }
+            if (!arguments.empty())
+                message["arguments"] = std::move(arguments);
+            model["messages"].insert_or_assign(id, std::move(message));
+        }
+    }
+}
+
+std::map<std::string, Json>
+dialogue_cue_contracts(const std::filesystem::path& root, const Json& localization,
+                       const std::map<std::string, std::string>& record_overlays)
 {
     std::map<std::string, std::string> named_ids;
     for (const auto& message : localization.at("messages").object_range())
@@ -193,13 +335,11 @@ std::map<std::string, Json> dialogue_cue_contracts(const std::filesystem::path& 
     for (const auto& entry : std::filesystem::directory_iterator(directory)) {
         if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
             continue;
-        std::ifstream stream(entry.path(), std::ios::binary);
-        const auto bytes =
-            std::string(std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{});
-        const auto parsed = open_yaml_source(bytes);
-        if (!parsed.accepted)
+        const auto record =
+            working_record(root, record_overlays, "dialogues", entry.path().stem().string());
+        if (!record || !record->contains("data"))
             continue;
-        const auto data = Json::parse(parsed.source_json).at("data");
+        const auto& data = record->at("data");
         if (!data.contains("blocks") || !data.at("blocks").is_array())
             continue;
         const auto base = "/dialogues/" + escape(entry.path().stem().string()) + "/data";
@@ -272,9 +412,10 @@ std::map<std::string, Json> dialogue_cue_contracts(const std::filesystem::path& 
 }
 
 void validate_dialogue_cue_translations(ValidationResult& result, const std::filesystem::path& root,
-                                        const Json& model)
+                                        const Json& model,
+                                        const std::map<std::string, std::string>& record_overlays)
 {
-    const auto contracts = dialogue_cue_contracts(root, model);
+    const auto contracts = dialogue_cue_contracts(root, model, record_overlays);
     for (const auto& locale : model.at("translations").object_range())
         for (const auto& entry : locale.value().object_range()) {
             const auto& translation = entry.value();
@@ -416,7 +557,9 @@ void append_locales(ValidationResult& result, const std::filesystem::path& root,
 
 ValidationResult
 validate_project_localization(const std::filesystem::path& project_root,
-                              const std::map<std::string, std::string>& source_overlays)
+                              const std::map<std::string, std::string>& source_overlays,
+                              const std::map<std::string, std::string>& record_overlays,
+                              const std::map<std::string, SourceAnalysis>& working_sources)
 {
     ValidationResult result;
     try {
@@ -456,7 +599,7 @@ validate_project_localization(const std::filesystem::path& project_root,
         const auto physical_messages = model.at("messages");
         const auto physical_ids = model.at("structuredMessageIds");
         static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
-        for (const auto& [path, source_text] : structured_sources(project_root)) {
+        for (const auto& [path, source_text] : structured_sources(project_root, record_overlays)) {
             const auto id = physical_ids.contains(path) ? physical_ids.at(path).as<std::string>()
                                                         : derived_message_id(path);
             model["structuredMessageIds"].insert_or_assign(path, id);
@@ -474,6 +617,7 @@ validate_project_localization(const std::filesystem::path& project_root,
                 message["arguments"] = std::move(arguments);
             model["messages"].insert_or_assign(id, std::move(message));
         }
+        add_tracked_messages(model, project_root, record_overlays, working_sources);
         const auto validation = validate_record("WorkspaceLocalization", model.to_string());
         for (const auto& issue : validation.diagnostics) {
             auto diagnostic = issue;
@@ -482,7 +626,7 @@ validate_project_localization(const std::filesystem::path& project_root,
             result.diagnostics.push_back(std::move(diagnostic));
         }
         if (validation.accepted)
-            validate_dialogue_cue_translations(result, project_root, model);
+            validate_dialogue_cue_translations(result, project_root, model, record_overlays);
         result.accepted = result.diagnostics.empty();
         if (result.accepted) {
             auto effective = Json::parse(validation.effective_json);

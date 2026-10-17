@@ -1,6 +1,7 @@
 #pragma once
 
 #include "contracts.hpp"
+#include "source_analysis.hpp"
 
 #include <filesystem>
 #include <map>
@@ -12,5 +13,7 @@ namespace noveltea::authoring {
 // they are never persisted by reading or validating this model.
 ValidationResult
 validate_project_localization(const std::filesystem::path& project_root,
-                              const std::map<std::string, std::string>& source_overlays = {});
+                              const std::map<std::string, std::string>& source_overlays = {},
+                              const std::map<std::string, std::string>& record_overlays = {},
+                              const std::map<std::string, SourceAnalysis>& working_sources = {});
 } // namespace noveltea::authoring
