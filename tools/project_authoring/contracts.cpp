@@ -1024,11 +1024,33 @@ class SparseSourceProjection {
         return std::nullopt;
     }
 
-    std::optional<std::string> union_choice(const Json& definition, const Json& value) const
+    std::optional<std::string> union_choice(const Json& definition, const Json& value,
+                                            const std::vector<std::string>& path,
+                                            unsigned int depth) const
     {
         const auto branches = tagged_union_branches(contracts_, definition, value);
-        return branches.ids.size() == 1 ? std::optional<std::string>{branches.ids.front()}
-                                        : std::nullopt;
+        if (!branches.invalid_tag.empty())
+            return std::nullopt;
+        if (branches.ids.size() == 1)
+            return branches.ids.front();
+        // Sparse source unions can contain a bare reference where the effective
+        // branch expects a $ref object. Validate the *projected* candidates,
+        // not the bare source, just as the workspace's sparse YAML reader does.
+        std::optional<std::string> selected;
+        for (const auto& id : branches.ids) {
+            Value candidate = value;
+            auto candidate_path = path;
+            project(candidate, id, candidate_path, depth + 1);
+            Validator validator(contracts_);
+            std::vector<Diagnostic> errors;
+            validator.parse(id, candidate, "", errors);
+            if (!errors.empty())
+                continue;
+            if (selected)
+                throw std::runtime_error("Ambiguous sparse YAML union variant.");
+            selected = id;
+        }
+        return selected;
     }
 
     void project(Value& value, const std::string& id, std::vector<std::string>& path,
@@ -1066,7 +1088,7 @@ class SparseSourceProjection {
             return;
         }
         if (kind == "union") {
-            if (const auto branch = union_choice(current, *value))
+            if (const auto branch = union_choice(current, *value, path, depth))
                 project(value, *branch, path, depth + 1);
             return;
         }
