@@ -1,4 +1,5 @@
 #include "tooling_native_project_localization.hpp"
+#include "../project_authoring/character_archetype_semantics.hpp"
 
 #include "../project_authoring/room_session.hpp"
 #include "../project_authoring/localization_semantics.hpp"
@@ -274,6 +275,7 @@ Json native_project_localization(const Json& request, ProjectSession& session,
     const bool dry_run = request.value("dryRun", true);
     if (!dry_run && !request.contains("sourceRevision"))
         return failure("Localization commit requires an exact source precondition.");
+    const auto generation = native_project_source_generation(session, root);
     const auto validated = session.validate_project();
     if (!validated.valid)
         return failure("Native localization workflow requires a valid disk Project.");
@@ -323,6 +325,7 @@ Json native_project_localization(const Json& request, ProjectSession& session,
                 {"locale", locale},
                 {"messageIds", request.at("messageIds")},
                 {"dryRun", dry_run},
+                {"sourceGeneration", generation},
                 {"fingerprints", std::move(fingerprints)},
                 {"writes", Json::array()}};
     if (operation == "inspect" || dry_run || patches.empty())
@@ -331,10 +334,16 @@ Json native_project_localization(const Json& request, ProjectSession& session,
         request.at("sourceRevision").get<std::string>() !=
             exact_source_revision(bytes_at(root / path)))
         return failure("Stale native localization source precondition.");
+    if (!request.contains("expectedSourceGeneration") ||
+        !request.at("expectedSourceGeneration").is_string() ||
+        request.at("expectedSourceGeneration") != generation)
+        return failure("Native localization acceptance requires its planned source generation.");
     const auto patched = session.patch(session.snapshot().working_revision, patches,
                                        {{owner, request.at("sourceRevision").get<std::string>()}});
     if (!patched.accepted)
         return failure(patched.error);
+    if (!native_project_source_generation_is_current(root, generation))
+        return failure("Native localization inputs changed before acceptance commit.");
     const auto saved = session.save_owners(patched.snapshot.working_revision, {owner}, false,
                                            TransactionDecision::KeepComments);
     if (!saved.accepted)
@@ -667,6 +676,13 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
     static const std::set<std::string> message_families{"characters",   "rooms",  "interactables",
                                                         "dialogues",    "scenes", "verbs",
                                                         "interactions", "maps"};
+    const AuthoringRecordResolver resolve_record = [&](std::string_view family, std::string_view id)
+        -> std::optional<std::string> {
+        const auto found = record_snapshots.find(std::string(family) + "/" + std::string(id));
+        return found == record_snapshots.end() || !found->second.valid
+                   ? std::nullopt
+                   : std::optional<std::string>(found->second.normalized_json);
+    };
     for (const auto& [owner, snapshot] : record_snapshots) {
         if (!snapshot.valid || snapshot.normalized_json.empty())
             return failure("Native localization view cannot inspect an invalid record.");
@@ -679,21 +695,14 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         named_usages(record, "/" + owner, named_keys, usages);
         if (!message_families.contains(family))
             continue;
-        if ((family == "rooms" || family == "characters" || family == "interactables") &&
-            record.contains("archetype") && record.at("archetype").is_object() &&
-            record.at("archetype").contains("$ref") &&
-            record.at("archetype").at("$ref").is_object()) {
-            const auto archetype_id = record.at("archetype").at("$ref").value("id", std::string{});
-            const auto candidate = record_snapshots.find("archetypes/" + archetype_id);
-            if (candidate == record_snapshots.end() || !candidate->second.valid)
-                return failure("Native localization cannot resolve an inherited source owner.");
-            const auto inherited = Json::parse(candidate->second.normalized_json);
-            for (const auto& [path, value] : inherited.at("data").at("overrides").items()) {
-                if (path == "/data/displayName" && value.is_string())
-                    record["data"]["displayName"] = value;
-                if (path == "/data/dialogue/name" && value.is_string())
-                    record["data"]["dialogue"]["name"] = value;
-            }
+        if (family == "rooms" || family == "characters" || family == "interactables") {
+            const auto resolved = validate_archetype_owner(family, snapshot.normalized_json,
+                                                            resolve_record);
+            if (!resolved.accepted)
+                return failure("Native localization cannot resolve effective Archetype owner: " +
+                               owner);
+            if (!resolved.effective_json.empty())
+                record = Json::parse(resolved.effective_json);
         }
         for (const auto& [path, source] :
              native_localization_effective_structured_sources(family, id, record.dump())) {
@@ -711,6 +720,19 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         const auto path = "/settings/titleScreen/" + std::string(name);
         add_structured(path, settings.at(name).get<std::string>(), &settings.at(name));
     }
+    if (!project.at("undefinedInteractionProgram").is_null()) {
+        const auto& program = project.at("undefinedInteractionProgram");
+        // A Project-level fallback is a schema-owned Message source, just like
+        // the program on a gameplay record.
+        Json wrapper{{"data", program}};
+        for (const auto& [path, source] :
+             native_localization_effective_structured_sources("project", "fallback",
+                                                              wrapper.dump())) {
+            const auto suffix = path.substr(std::string("/project/fallback/data").size());
+            const auto semantic_path = "/undefinedInteractionProgram" + suffix;
+            add_structured(semantic_path, source, semantic_value(program, suffix));
+        }
+    }
     // prepare_working() projects manifest/localization owners. Record sources
     // belong to the validated disk-record snapshot, not project_json.
     for (const auto& [owner, snapshot] : record_snapshots) {
@@ -718,21 +740,19 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
             continue;
         const auto archetype_id = owner.substr(sizeof("archetypes/") - 1);
         const auto archetype = Json::parse(snapshot.normalized_json);
-        const auto& data = archetype.at("data");
-        const auto& overrides = data.at("overrides");
+        const auto effective = validate_archetype_dependencies(archetype_id, snapshot.normalized_json,
+                                                               resolve_record);
+        if (!effective.accepted || effective.effective_json.empty())
+            return failure("Native localization cannot resolve Archetype configuration: " +
+                           archetype_id);
+        const auto effective_record = Json::parse(effective.effective_json);
+        const auto& data = effective_record.at("data");
+        const auto source_prefix = "/archetypes/" + semantic_segment(archetype_id) + "/data";
         const auto path_base = "/archetypes/" + semantic_segment(archetype_id) + "/configuration";
-        for (const auto& [path, value] : overrides.items()) {
-            if (!path.starts_with("/data/") || !value.is_string())
-                continue;
-            if (path != "/data/displayName" && path != "/data/dialogue/name")
-                continue;
-            add_structured(path_base + path.substr(5), value.get<std::string>(), &value);
-        }
-        if (data.value("instanceKind", std::string{}) == "room" &&
-            !overrides.contains("/data/description")) {
-            const auto text =
-                Json{{"source", {{"kind", "inline"}, {"text", ""}}}, {"markup", "plain"}};
-            add_structured(path_base + "/description", "", &text);
+        for (const auto& [source_path, source] : native_localization_effective_structured_sources(
+                 "archetypes", archetype_id, effective.effective_json)) {
+            const auto suffix = source_path.substr(source_prefix.size());
+            add_structured(path_base + suffix, source, semantic_value(data, suffix));
         }
     }
     // The read-only identity resolver must also expose unsynced occurrences.

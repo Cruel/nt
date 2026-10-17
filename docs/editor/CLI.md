@@ -128,6 +128,23 @@ headless `localization view` JSON, including a fixture with outdated
 presentation/guidance acknowledgements. The installed CLI continues to own
 the public response until the native cutover.
 
+The native view now uses native effective-Archetype validation (including
+instance overrides and inherited configurations), and traverses the Project's
+`undefinedInteractionProgram` for structured fallback Messages. The native
+sync, reconcile, accept, and review adapters return an internal
+`sourceGeneration` identity in their read-only planning responses; a write
+requires that value as `expectedSourceGeneration` in addition to any affected
+YAML owner's exact source revision. The native generation covers the complete
+physical tracked authoring-source inventory, including managed Lua/RML source
+owners, and is independently rechecked before publication. This is an
+internal native certification transaction precondition, not a new public CLI
+flag or a replacement for the canonical workspace revision at cutover.
+The test-only `noveltea-cli-native-certify --request-file` adapter enables
+`editor/scripts/certify-native-cli-mutations.mjs` to compare actual persisted
+files from two independent Project copies: installed-headless CLI mutations
+versus native create/rename/delete, formatting, sync, reconcile and review.
+The native certification executable is never shipped as a public CLI command.
+
 Full parity remains a cutover gate: rich free-form/localization workflow
 presentation and some semantic reference-repair/forced-delete cases still
 require the established CLI oracle. Until #474's coordinated cutover, no

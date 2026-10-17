@@ -478,6 +478,14 @@ jobs:
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
 
+      - name: Certify native CLI Project mutation parity
+        run: |
+          cmake --build --preset linux-authoring-release --target noveltea-cli-native-certify
+          node editor/scripts/certify-native-cli-mutations.mjs \
+            "$PWD/build/cli/linux/noveltea" \
+            "$PWD/build/linux-authoring-release/tools/editor_tool/noveltea-cli-native-certify" \
+            tests/projects/feature-lab
+
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
         with:

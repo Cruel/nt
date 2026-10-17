@@ -351,6 +351,7 @@ void certify(const std::filesystem::path& source)
                  {"locale", "ja"},
                  {"messageIds", Json::array({message_id})},
                  {"dryRun", false},
+                 {"expectedSourceGeneration", inspect_target.at("sourceGeneration")},
                  {"sourceRevision", noveltea::authoring::exact_source_revision(locale_before)}});
     require(review.value("ok", false) && read(locale_file) != locale_before &&
                 review.at("writes") == Json::array({"i18n/locales/ja.yaml"}),
@@ -483,10 +484,20 @@ void certify(const std::filesystem::path& source)
                                      {"sourceRevision", "sha256:stale"}});
     require(!stale_sync.value("ok", false) && read(tracking) == original_tracking,
             "Native sync write requires an exact tracking source revision.");
+    const auto stale_generation_sync = command(
+        {{"action", "localization-sync"},
+         {"projectRoot", root},
+         {"dryRun", false},
+         {"expectedSourceGeneration", clean_sync.at("sourceGeneration")},
+         {"sourceRevision", noveltea::authoring::exact_source_revision(original_tracking)}});
+    require(!stale_generation_sync.value("ok", false) && read(tracking) == original_tracking,
+            "Native sync rejects an unchanged YAML target when the managed Lua source generation "
+            "has changed since planning.");
     const auto updated_sync = command(
         {{"action", "localization-sync"},
          {"projectRoot", root},
          {"dryRun", false},
+         {"expectedSourceGeneration", dry_sync.at("sourceGeneration")},
          {"sourceRevision", noveltea::authoring::exact_source_revision(original_tracking)}});
     require(updated_sync.value("ok", false) &&
                 updated_sync.at("writes") == Json::array({"i18n/tracking.yaml"}) &&
@@ -534,6 +545,7 @@ void certify(const std::filesystem::path& source)
                                   {"dryRun", false},
                                   {"workspaceRevision", workspace_revision},
                                   {"expectedWorkspaceRevision", workspace_revision},
+                                  {"expectedSourceGeneration", plan_response.at("sourceGeneration")},
                                   {"expectedFingerprint", plan.at("expectedFingerprint")},
                                   {"resolutions", Json::object()},
                                   {"diskPreconditions", preconditions}};
@@ -542,6 +554,12 @@ void certify(const std::filesystem::path& source)
     const auto pre_apply_tracking = read(tracking);
     require(!command(stale_input).value("ok", false) && read(tracking) == pre_apply_tracking,
             "Reconciliation cannot commit with an outdated physical tracking revision.");
+    auto stale_generation_apply = apply_input;
+    stale_generation_apply["expectedSourceGeneration"] = clean_sync.at("sourceGeneration");
+    require(!command(stale_generation_apply).value("ok", false) &&
+                read(tracking) == pre_apply_tracking,
+            "Reconciliation rejects caller-supplied workspace revisions without a matching "
+            "native physical authoring generation.");
     const auto applied = command(apply_input);
     require(applied.value("ok", false) &&
                 applied.at("writes") == Json::array({"i18n/tracking.yaml"}) &&
@@ -815,6 +833,13 @@ void certify(const std::filesystem::path& source)
 int main(int argc, char** argv)
 {
     try {
+        // Test-only direct adapter seam for real two-root mutation comparison.
+        // This is not linked into the installed production CLI command parser.
+        if (argc == 3 && std::string_view(argv[1]) == "--request-file") {
+            const auto result = command(Json::parse(read(argv[2])));
+            std::cout << result.dump() << '\n';
+            return result.value("ok", false) ? 0 : 1;
+        }
         if (argc == 4 && std::string_view(argv[2]) == "--dump-localization-view") {
             const auto result = command(
                 {{"action", "localization-view"}, {"projectRoot", argv[1]}, {"locale", argv[3]}});
