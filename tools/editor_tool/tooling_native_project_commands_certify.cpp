@@ -331,6 +331,17 @@ void certify(const std::filesystem::path& source)
                     "fnv1a:0c1d0b3250f54a2e90d523bc96000de2",
             "Managed Lua and RML localization fingerprints match the installed CLI views: " +
                 managed.dump().substr(0, 500));
+    const auto structured =
+        command({{"action", "localization-targets"},
+                 {"projectRoot", root},
+                 {"operation", "inspect"},
+                 {"locale", "fr"},
+                 {"messageIds", Json::array({"07203395-f20c-5d69-8d8b-2547b934eaa5"})}});
+    require(structured.value("ok", false) &&
+                structured.at("fingerprints").at("07203395-f20c-5d69-8d8b-2547b934eaa5") ==
+                    "fnv1a:536441f154618d856ff8cf4743485301",
+            "Native translation acceptance includes structured semantic Messages: " +
+                structured.dump().substr(0, 480));
 
     const auto locale_before = read(locale_file);
     const auto review =
@@ -804,6 +815,12 @@ void certify(const std::filesystem::path& source)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 4 && std::string_view(argv[2]) == "--dump-localization-view") {
+            const auto result = command(
+                {{"action", "localization-view"}, {"projectRoot", argv[1]}, {"locale", argv[3]}});
+            std::cout << result.dump() << '\n';
+            return result.value("ok", false) ? 0 : 1;
+        }
         require(argc == 2, "Expected one Project fixture root.");
         certify(argv[1]);
         std::cout << "Native CLI Project certification passed.\n";

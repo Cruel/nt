@@ -119,6 +119,15 @@ paths and occurrence locations are compared against installed-headless CLI
 remain a graph-coverage gate for #501 and must not be silently treated as
 reference-free by mutating operations.
 
+The separate read-only `localization-view` adapter projects explicitly authored
+named/local, structured, and managed-source Messages from an admitted disk Project. Its source,
+presentation, and guidance fingerprints determine translation freshness and
+attention without mutating translation or tracking sources. Status filtering,
+locale inheritance, and per-usage notes are certified against the installed
+headless `localization view` JSON, including a fixture with outdated
+presentation/guidance acknowledgements. The installed CLI continues to own
+the public response until the native cutover.
+
 Full parity remains a cutover gate: rich free-form/localization workflow
 presentation and some semantic reference-repair/forced-delete cases still
 require the established CLI oracle. Until #474's coordinated cutover, no

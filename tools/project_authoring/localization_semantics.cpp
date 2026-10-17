@@ -906,6 +906,20 @@ std::string native_localization_structured_message_id(std::string_view semantic_
     return derived_message_id(semantic_path);
 }
 
+std::map<std::string, std::string>
+native_localization_effective_structured_sources(std::string_view family, std::string_view id,
+                                                 std::string_view normalized_record_json)
+{
+    std::map<std::string, std::string> sources;
+    const auto record = Json::parse(normalized_record_json);
+    if (!record.contains("data") || !record.at("data").is_object())
+        return sources;
+    const auto path = "/" + std::string(family) + "/" + escape(id) + "/data";
+    collect_top_level_strings(record.at("data"), path, sources);
+    collect_structured_sources(record.at("data"), path, sources);
+    return sources;
+}
+
 std::size_t native_localization_structured_message_count(const std::filesystem::path& root)
 {
     auto messages = structured_sources(root, {});
@@ -1005,7 +1019,8 @@ NativeLocalizationTrackingSource native_localization_tracking_source(const Sourc
         const auto& original = *candidate.occurrence;
         source.occurrences.push_back(NativeLocalizationTrackingOccurrence{
             index, candidate.structural, candidate.anchor, tracking_fingerprint(original.source),
-            original.source, original.context, original.translator_note});
+            original.source, original.context, original.translator_note, original.kind,
+            original.cases});
     }
     return source;
 }

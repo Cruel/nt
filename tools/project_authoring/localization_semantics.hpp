@@ -18,6 +18,8 @@ struct NativeLocalizationTrackingOccurrence {
     std::string source_snapshot;
     std::optional<std::string> context_snapshot;
     std::optional<std::string> translator_note_snapshot;
+    std::string kind;
+    std::map<std::string, std::string> cases;
 };
 
 struct NativeLocalizationTrackingSource {
@@ -42,6 +44,9 @@ std::size_t native_localization_structured_message_count(const std::filesystem::
 std::map<std::string, std::string>
 native_localization_record_structured_sources(const std::filesystem::path& root,
                                               std::string_view family, std::string_view id);
+std::map<std::string, std::string>
+native_localization_effective_structured_sources(std::string_view family, std::string_view id,
+                                                 std::string_view normalized_record_json);
 std::string native_localization_structured_message_id(std::string_view semantic_path);
 
 // Assemble and validate the tracked split i18n sources as one effective Project

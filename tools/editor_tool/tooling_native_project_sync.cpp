@@ -892,6 +892,12 @@ Json reconciliation_plan(const Json& original,
 
 } // namespace
 
+std::vector<NativeLocalizationTrackingSource>
+native_project_localization_sources(ProjectSession& session)
+{
+    return current_sources(session);
+}
+
 Json native_project_localization_sync(const Json& request, ProjectSession& session,
                                       const std::filesystem::path& root)
 {
