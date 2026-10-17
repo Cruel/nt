@@ -893,6 +893,13 @@ int run_native_2d(const Options& options)
     std::fprintf(stderr, "[benchmark] native 2D Web context ownership is unsupported\n");
     return 2;
 #else
+#if defined(__ANDROID__)
+    std::string startup_reason;
+    if (!wait_for_android_foreground(startup_reason)) {
+        std::fprintf(stderr, "[benchmark] native 2D startup failed: %s\n", startup_reason.c_str());
+        return 2;
+    }
+#endif
     noveltea::benchmark::Native2DScenario native(options.scenario);
     if (options.inspection_smoke) {
         std::string reason;
@@ -906,7 +913,12 @@ int run_native_2d(const Options& options)
         return 0;
     }
     SteadyClock clock;
+#if defined(__ANDROID__)
+    const SuiteResult result =
+        noveltea::benchmark::run_suite(options, {&native}, clock, android_engine_recovery());
+#else
     const SuiteResult result = noveltea::benchmark::run_suite(options, {&native}, clock);
+#endif
     std::string output;
     if (!write_report(options, native.environment(), result, output))
         return 3;

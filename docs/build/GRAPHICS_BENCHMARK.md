@@ -65,8 +65,28 @@ this additional owning renderer host. On Web, separate Renderer initialization
 would conflict with the dashboard-owned WebGL/bgfx host; the CLI explicitly
 rejects native 2D there until a Web-safe host handoff is implemented. Android
 uses its packaged `system:/` assets and production Platform/Renderer
-lifecycle; physical-device verification remains necessary. Existing player,
-sandbox and native microbenchmark behavior is unchanged.
+lifecycle. The benchmark app must compile with `NOVELTEA_PLATFORM_ANDROID`
+just like the Engine: `Renderer` embeds an Android-only native-window field.
+Without that definition, the mismatched object layout causes an actual SIGSEGV
+in `Renderer::submit_quad` on ARM64. Native startup uses the same
+awake-and-focused Activity gate as the other Android benchmark paths, waits
+again after SDL window creation before acquiring EGL, and permits recovery
+after a foreground interruption.
+
+**Pixel 6a physical-device qualification (Android 17, ARM64, OpenGL ES 3.0,
+October 17, 2026):** The optimized benchmark APK completed two 90-frame
+Diagnostic trials for each of the three native 2D scenarios (540 measured
+frames total), without retries or crashes. Geometry used 128 quads and a
+256px checkerboard texture; text used 512 glyphs each for both retained
+static layouts and per-frame dynamic shaping. Observed CPU-operation means
+were 2.55/2.81 ms (geometry), 2.86/2.69 ms (static text), and 2.99/2.86 ms
+(dynamic text), at a physical 2400x1080 backbuffer. These are Diagnostic
+CPU samples and **not GPU execution timings or portable device rankings**.
+Each mode also passed a separate real GPU inspection readback and produced
+a non-uniform 2400x1080 RGBA PNG. The Android launcher force-stops a prior
+benchmark Activity before passing fresh Intent extras, so a previously active
+dashboard cannot accidentally reuse stale command-line arguments. Existing
+player, sandbox and native microbenchmark behavior is unchanged.
 
 ## CPU-only Lua, Runtime Session, and Flow prediction (#444)
 
