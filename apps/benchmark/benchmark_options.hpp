@@ -82,6 +82,11 @@ struct Options {
            id == "native-2d-text-dynamic";
 }
 
+[[nodiscard]] inline bool is_video_scenario(std::string_view id) noexcept
+{
+    return id == "video-decode" || id == "video-upload" || id == "video-present";
+}
+
 [[nodiscard]] inline bool is_shader_scenario(std::string_view id) noexcept
 {
     return id == "native-shader-material" || id == "native-postprocess";

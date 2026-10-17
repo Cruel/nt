@@ -397,7 +397,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             options.scenario != "integrated-rmlui-production" &&
             options.scenario != "engine-empty" && options.scenario != "engine-compiled-empty" &&
             options.scenario != "engine-compiled-menu" &&
-            options.scenario != "engine-feature-lab") {
+            options.scenario != "engine-feature-lab" && !is_video_scenario(options.scenario)) {
             if (ImGui::Button("Inspect full scene"))
                 inspection_only_ = true;
         }
@@ -430,14 +430,28 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         if (ImGui::BeginTabBar("benchmark-tabs")) {
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
-                    for (const char* candidate :
-                         {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
-                          "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
-                          "raw-bgfx-draw-calls", "raw-bgfx-composition", "standalone-rmlui-simple",
-                          "integrated-rmlui-controlled", "integrated-rmlui-production",
-                          "standalone-rmlui-scaling", "integrated-rmlui-scaling",
-                          "standalone-rmlui-effects", "integrated-rmlui-effects", "engine-empty",
-                          "engine-compiled-empty", "engine-compiled-menu", "engine-feature-lab"}) {
+                    for (const char* candidate : {"raw-bgfx-empty",
+                                                  "raw-bgfx-geometry",
+                                                  "raw-bgfx-clear",
+                                                  "raw-bgfx-single-quad",
+                                                  "raw-bgfx-textured",
+                                                  "raw-bgfx-offscreen",
+                                                  "raw-bgfx-draw-calls",
+                                                  "raw-bgfx-composition",
+                                                  "standalone-rmlui-simple",
+                                                  "integrated-rmlui-controlled",
+                                                  "integrated-rmlui-production",
+                                                  "standalone-rmlui-scaling",
+                                                  "integrated-rmlui-scaling",
+                                                  "standalone-rmlui-effects",
+                                                  "integrated-rmlui-effects",
+                                                  "engine-empty",
+                                                  "engine-compiled-empty",
+                                                  "engine-compiled-menu",
+                                                  "engine-feature-lab",
+                                                  "video-decode",
+                                                  "video-upload",
+                                                  "video-present"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options = reference_scenario_options(options, candidate);
                             // Preserve the explicitly chosen optional package across scenario

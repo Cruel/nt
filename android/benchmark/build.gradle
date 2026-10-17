@@ -84,6 +84,10 @@ tasks.register("stageBenchmarkAssets", Sync) {
         include "minimal.json"
         rename "minimal.json", "compiled-project-minimal.json"
     }
+    from(file("../../tests/fixtures/media")) {
+        include "opaque-vp9.webm"
+        into "media"
+    }
     // Real Engine-owned scenarios mount system:/ from the APK asset manager.
     from(file("../../engine/assets/system")) {
         into "system"

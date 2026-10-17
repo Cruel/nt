@@ -113,6 +113,26 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
                       JSON.stringify(alternatingScenario));
     console.log(name + ': six independently measured A/B/A WebGL trials and report metadata passed');
 
+    // The Web video path is browser-owned: decoder readiness and texture upload
+    // advance on rAF, not by running native libvpx on the UI thread.
+    for (const scenario of ['video-upload', 'video-present']) {
+      await page.goto(origin + '/benchmark.html?' +
+        new URLSearchParams({scenario, noUi: '1', smoke: '1', repeats: '2',
+                             readyTimeout: '30', profile: 'diagnostic'}));
+      await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1,
+                                 null, {timeout: 90000});
+      const video = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+      if (video?.outcome !== 'complete' || video?.scenarios?.[0]?.id !== scenario ||
+          video?.scenarios?.[0]?.aggregate?.measured_frames !== 60 ||
+          video?.scenarios?.[0]?.trials?.length !== 2 ||
+          video?.graphics?.video_decode_backend !== 'browser-media-gpu' ||
+          video?.graphics?.video_hardware_decode_confirmed !== null)
+        throw new Error('production browser-media ' + scenario + ' failed: ' +
+                        JSON.stringify(video).slice(-6000));
+      console.log(name + ': production browser-media ' + scenario +
+                  ' two trials completed with opaque hardware decoder capabilities');
+    }
+
     // Exercise the real file-picker import transport without requiring any
     // filesystem mount or a network upload.
     await page.goto(origin + '/benchmark.html');

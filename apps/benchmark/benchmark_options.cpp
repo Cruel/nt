@@ -636,6 +636,14 @@ bool validate_reference_options(const Options& options, std::string& reason)
         reason = "native renderer or shader dimensions require a native 2D/shader scenario";
         return false;
     }
+    if (is_video_scenario(options.scenario) &&
+        (options.quick_suite || !options.capacity_dimension.empty() ||
+         options.clock_policy != "realtime" ||
+         (options.vsync && options.scenario == "video-decode"))) {
+        reason = "video workloads require realtime clock and no capacity search; "
+                 "video-decode does not use presentation VSync";
+        return false;
+    }
     if (is_cpu_scenario(options.scenario)) {
         if (options.cpu_work_units < 1 || options.cpu_work_units > 4096 ||
             options.clock_policy != "realtime" || !options.feature_lab_package.empty() ||
@@ -745,8 +753,8 @@ bool validate_reference_options(const Options& options, std::string& reason)
         return true;
     }
     if ((is_native_2d_scenario(options.scenario) || is_shader_scenario(options.scenario) ||
-         is_cpu_scenario(options.scenario) || options.scenario == "raw-bgfx-empty" ||
-         options.scenario == "standalone-rmlui-simple" ||
+         is_cpu_scenario(options.scenario) || is_video_scenario(options.scenario) ||
+         options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
          options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty" ||
          project_scenario) &&

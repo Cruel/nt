@@ -90,6 +90,34 @@ int main()
                "CPU configurations reject out-of-bounds, changed fixture and graphics settings"))
         return 1;
 
+    for (const char* mode : {"video-decode", "video-upload", "video-present"}) {
+        Options video;
+        video.scenario = mode;
+        const auto encoded = nlohmann::json::parse(encode_configuration(video));
+        Options restored;
+        if (!check(encoded["scenario_version"] == 1 &&
+                       encoded["parameters"]["codec"] == "vp9-profile0-webm" &&
+                       decode_configuration(encoded.dump(), restored, error) &&
+                       restored.scenario == mode &&
+                       nlohmann::json::parse(encode_configuration(restored)) == encoded,
+                   "video modes retain their exact production prepared-media identity"))
+            return 1;
+        auto replaced = encoded;
+        replaced["parameters"]["frame_durations_ms"] = {25, 25, 25, 25};
+        auto missing = encoded;
+        missing["parameters"].erase("source");
+        auto wrong_codec = encoded;
+        wrong_codec["parameters"]["codec"] = "h264";
+        auto ui = encoded;
+        ui["settings"]["no_ui"] = false;
+        Options dashboard_video;
+        if (!check(rejected(replaced) && rejected(missing) && rejected(wrong_codec) &&
+                       decode_configuration(ui.dump(), dashboard_video, error) &&
+                       !dashboard_video.no_ui && dashboard_video.scenario == mode,
+                   "video configuration rejects changed media but supports dashboard mode"))
+            return 1;
+    }
+
     Options native;
     native.scenario = "native-2d-geometry";
     native.native_quads = 128;
@@ -604,6 +632,37 @@ int main()
                    cpu_result["scenarios"][0]["trials"][0]["frame_loop_cadence_hz"].is_null() &&
                    cpu_result["scenarios"][0]["trials"][0]["cpu_work_batches_per_second"] == 100,
                "headless CPU results report batches per second and no graphics FPS or GPU time"))
+        return 1;
+
+    Options decode_options;
+    decode_options.scenario = "video-decode";
+    auto video_suite = suite;
+    video_suite.scenarios[0].scenario = decode_options.scenario;
+    noveltea::benchmark::Environment video_environment;
+    video_environment.video_codec_backend = "libvpx-vp9";
+    video_environment.video_codec_fallback = "no compatible hardware";
+    const auto decode_report =
+        nlohmann::json::parse(encode_result(decode_options, video_environment, video_suite));
+    if (!check(
+            decode_report["graphics"]["video_hardware_decode_confirmed"] == false &&
+                decode_report["graphics"]["video_decode_backend"] == "libvpx-vp9" &&
+                decode_report["graphics"]["video_decode_fallback"] == "no compatible hardware" &&
+                decode_report["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
+                decode_report["scenarios"][0]["aggregate"]["video_decode_work_units_per_second"] ==
+                    100 &&
+                decode_report["scenarios"][0]["trials"][0]["video_decode_work_units_per_second"] ==
+                    100,
+            "decoder-only VP9 rate is CPU throughput, and software fallback is explicit"))
+        return 1;
+    video_environment.video_codec_backend = "nvdec-vp9";
+    const auto hardware_report =
+        nlohmann::json::parse(encode_result(decode_options, video_environment, video_suite));
+    video_environment.video_codec_backend = "browser-media-gpu";
+    const auto browser_report =
+        nlohmann::json::parse(encode_result(decode_options, video_environment, video_suite));
+    if (!check(hardware_report["graphics"]["video_hardware_decode_confirmed"] == true &&
+                   browser_report["graphics"]["video_hardware_decode_confirmed"].is_null(),
+               "hardware backend is observed, browser-decoder acceleration remains unknown"))
         return 1;
 
     Options offscreen_options;

@@ -213,6 +213,14 @@ bool valid_graphics(const Json& value)
     for (const auto* key : {"video_driver", "renderer", "frame_path"})
         if (!value[key].is_null() && !value[key].is_string())
             return false;
+    for (const auto* key :
+         {"video_decode_backend", "video_decode_fallback", "video_upload_pipeline"})
+        if (value.contains(key) && !value[key].is_null() && !value[key].is_string())
+            return false;
+    if (value.contains("video_hardware_decode_confirmed") &&
+        !value["video_hardware_decode_confirmed"].is_null() &&
+        !value["video_hardware_decode_confirmed"].is_boolean())
+        return false;
     for (const auto* key : {"gpu_vendor_id", "gpu_device_id", "width_pixels", "height_pixels"})
         if (!value[key].is_null() && !value[key].is_number_integer())
             return false;

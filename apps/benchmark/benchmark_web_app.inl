@@ -56,7 +56,7 @@ struct WebBenchmarkApp {
 
     static bool engine_owned(const std::string& id)
     {
-        return id == "engine-empty" ||
+        return noveltea::benchmark::is_video_scenario(id) || id == "engine-empty" ||
                noveltea::benchmark::is_compiled_project_scenario(id) ||
                id == "integrated-rmlui-controlled" ||
                id == "integrated-rmlui-production" || id == "integrated-rmlui-scaling" ||
@@ -74,7 +74,10 @@ struct WebBenchmarkApp {
     Environment scenario_environment() const
     {
         Environment observed = graphics.environment;
-        if (current_options.scenario == "engine-empty" ||
+        if (noveltea::benchmark::is_video_scenario(current_options.scenario))
+            observed = static_cast<const noveltea::benchmark::VideoScenario&>(*active_scenario)
+                           .environment();
+        else if (current_options.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(current_options.scenario))
             observed = static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
                            .environment();
@@ -303,7 +306,9 @@ struct WebBenchmarkApp {
                 }
             }
         }
-        if (frozen.scenario == "engine-empty" ||
+        if (noveltea::benchmark::is_video_scenario(frozen.scenario))
+            active_scenario = std::make_unique<noveltea::benchmark::VideoScenario>(frozen.scenario);
+        else if (frozen.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(frozen.scenario))
             active_scenario = std::make_unique<noveltea::benchmark::EmptyEngine>(
                 std::filesystem::path{}, noveltea::benchmark::engine_workload(frozen.scenario));
