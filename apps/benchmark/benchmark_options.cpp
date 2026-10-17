@@ -135,10 +135,10 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--ui-nested-layers" && flag != "--width" && flag != "--height" &&
             flag != "--warmup-seconds" && flag != "--seconds" && flag != "--frames" &&
             flag != "--output" && flag != "--repeats" && flag != "--ready-timeout-seconds" &&
-            flag != "--profile" && flag != "--config" && flag != "--clock-policy" &&
-            flag != "--feature-lab-package" && flag != "--capacity-dimension" &&
-            flag != "--capacity-target" && flag != "--capacity-threshold" &&
-            flag != "--capacity-mode") {
+            flag != "--profile" && flag != "--config" && flag != "--alternate-config" &&
+            flag != "--clock-policy" && flag != "--feature-lab-package" &&
+            flag != "--capacity-dimension" && flag != "--capacity-target" &&
+            flag != "--capacity-threshold" && flag != "--capacity-mode") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -153,6 +153,14 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 return false;
             }
             options.config_path = value;
+            continue;
+        }
+        if (flag == "--alternate-config") {
+            if (!*value) {
+                error = "alternate config path must not be empty";
+                return false;
+            }
+            options.alternate_config_path = value;
             continue;
         }
         if (flag == "--scenario") {

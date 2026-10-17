@@ -605,6 +605,72 @@ Engine-to-raw transitions, no-UI individual Engine runs, browser context-loss
 recovery, and canonical configuration normalization; these are correctness
 tests without performance thresholds.
 
+## Repeated independent trials and A/B/A (#442)
+
+A normal run repeats the selected scenario's full **prepare → ready → warmup →
+measure → complete → cleanup** lifecycle `--repeats N` times (1–20). Each
+completed trial retains its own frame and CPU percentiles; incomplete trials do
+not contribute to aggregate measurements. An interrupted logical trial may
+retry up to three times with new resources and warmup. Its final trial record
+includes `interruption_retries` and `interrupted_attempts[]`, with the
+discarded attempt's reason and observed warmup/measured frame counts. Discarded
+frames never enter statistics, and cancellation stops remaining trials.
+
+For an alternating comparison, select a **named B preset** for the same scenario
+in Run Settings, or supply a complete current-V1 candidate configuration in
+`--alternate-config FILE` (alongside normal A command-line options or
+`--config FILE`). Canonical `configuration.alternate` is mandatory: null for
+a normal run, or a nested full V1 candidate configuration whose own
+`alternate` is null. The top-level `repeats` count specifies the number of
+**A → B → A cycles**, so two cycles perform six separate trials. A and B may
+vary the scenario-specific workload parameters; scenario identity, clock,
+graphics preference, profile and all measurement timing must agree. The
+dashboard copies common execution settings from A when using a saved B preset.
+Capacity searches and the fixed six-reference Quick Suite cannot mix an
+alternate B configuration.
+
+A checked-in short real-graphics example compares three vs 24 raw rectangles:
+
+```sh
+./scripts/run-benchmark.sh --no-build --config apps/benchmark/stage2-aba-geometry.json
+# To compare two separately saved current V1 configurations instead:
+./scripts/run-benchmark.sh --no-build --config apps/benchmark/stage1-unattended.json \
+  --alternate-config path/to/candidate.json
+```
+
+The second example requires the candidate JSON to have identical shared
+execution settings, including `repeats`, but may vary `parameters`. Both
+native and frame-driven Web runners execute all strict trials without
+reinitializing the ImGui dashboard between members. Every trial is still a
+new preparation and warmup, and the browser runs at most one measured frame
+per rAF callback. No changes affect the native Lua/JSON microbenchmark.
+
+For A/B/A, `scenarios[].trials[]` records each trial's `arm` (`A` or
+`B`), all complete/incomplete outcomes, and interrupted attempts. The
+`scenarios[].alternating` summary reports each arm's distribution **across
+completed per-trial** wall/CPU medians, p95 and p99, counts, signed B-minus-A
+median percentage, and first-to-last successful A endpoint drift. This is
+distinct from the legacy pooled frame distribution: the latter contains
+both workloads and must **not** be used as an A/B comparison. Missing trials
+yield partial results and warnings, not imputed measurements. Warnings also
+flag repeated interruptions/background changes, between-trial coefficient
+of variation greater than 15%, and A endpoint drift over 10%. Those are
+**suspect-condition indicators**, not performance pass/fail thresholds, nor
+proof of thermal throttling; the benchmark cannot read reliable thermal or
+GPU-frequency telemetry on every platform. Users must control background,
+power and thermal conditions and examine the actual trial distributions.
+The direct import-comparison panel likewise remains exploratory across
+dissimilar machine, build, workload or clock metadata.
+
+Tests `noveltea_benchmark_runner` and `noveltea_benchmark_frame_driven`
+use stable and noisy deterministic synthetic clock samples for six-member
+ordering, fresh lifecycle boundaries, median deltas, drift and interruption
+recovery. `noveltea_benchmark_report` and
+`noveltea_benchmark_comparison` reject obsolete report/configuration shapes
+and malformed A/B/A outcomes. The Linux
+`noveltea_benchmark_aba_geometry_smoke` exercises the same canonical
+configuration on a real bgfx host, with no FPS performance baseline.
+
 ## Standalone Web benchmark (#431)
 
 Run the optimized WebGL2 benchmark using Emscripten's SDK environment:

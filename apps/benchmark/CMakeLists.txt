@@ -307,6 +307,14 @@ if(BUILD_TESTING AND NOT ANDROID)
                 LABELS "benchmark;graphics;smoke"
                 FIXTURES_REQUIRED benchmark_stage1_report)
         endif()
+        add_test(NAME noveltea_benchmark_aba_geometry_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --config "${CMAKE_CURRENT_SOURCE_DIR}/stage2-aba-geometry.json"
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-aba-geometry.json")
+        set_tests_properties(noveltea_benchmark_aba_geometry_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 180 frames across 6 trial"
+            TIMEOUT 90)
         add_test(NAME noveltea_benchmark_empty_engine_integration
             COMMAND "${NOVELTEA_XVFB_RUN}" -a
                 "$<TARGET_FILE:noveltea-benchmark-empty-engine-tests>")

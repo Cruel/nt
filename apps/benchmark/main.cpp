@@ -90,7 +90,9 @@ void print_usage()
     std::puts("  --dashboard-visual-smoke  Untimed two-stage preview pixel fixture");
     std::puts("  --inspection-smoke       Untimed standalone or integrated PNG capture check");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
-    std::puts("  --repeats       Trials per scenario; default 1, maximum 20");
+    std::puts("  --repeats       Trials per scenario (or A/B/A cycles); default 1, maximum 20");
+    std::puts(
+        "  --alternate-config  Candidate B JSON configuration; A/B/A repeats with fresh warmups");
     std::puts("  --config        Exact current JSON configuration; cannot mix with run flags");
     std::puts("  --raw-samples   Include per-frame CPU timing pairs in the report");
     std::puts("  --output        Report path (defaults to platform-local benchmark storage)");
@@ -1745,6 +1747,7 @@ int main(int argc, char* argv[])
         print_usage();
         return 0;
     }
+    const std::string alternate_path = options.alternate_config_path;
     if (!options.config_path.empty()) {
         std::ifstream input(options.config_path);
         if (!input) {
@@ -1761,6 +1764,27 @@ int main(int argc, char* argv[])
         }
         if (!output_override.empty())
             options.output_path = output_override;
+    }
+    if (!alternate_path.empty()) {
+        if (options.alternate) {
+            std::fprintf(stderr, "[benchmark] candidate B already embedded in --config\n");
+            return 2;
+        }
+        std::ifstream input(alternate_path);
+        if (!input) {
+            std::fprintf(stderr, "[benchmark] cannot open alternate config: %s\n",
+                         alternate_path.c_str());
+            return 2;
+        }
+        const std::string json((std::istreambuf_iterator<char>(input)),
+                               std::istreambuf_iterator<char>());
+        Options candidate;
+        if (!noveltea::benchmark::decode_configuration(json, candidate, error) ||
+            candidate.alternate) {
+            std::fprintf(stderr, "[benchmark] invalid candidate B: %s\n", error.c_str());
+            return 2;
+        }
+        options.alternate = std::make_shared<Options>(std::move(candidate));
     }
     if (argc == 1) {
         noveltea::benchmark::DashboardPreferences preferences;

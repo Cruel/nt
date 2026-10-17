@@ -26,6 +26,35 @@
 namespace noveltea::benchmark {
 namespace {
 
+// A/B/A compares workload parameters only. The dashboard owns the shared
+// execution settings; a saved B preset cannot silently change the clock/host.
+void align_alternate_execution_settings(Options& baseline)
+{
+    if (!baseline.alternate)
+        return;
+    auto b = std::make_shared<Options>(*baseline.alternate);
+    b->width = baseline.width;
+    b->height = baseline.height;
+    b->native_resolution = baseline.native_resolution;
+    b->vsync = baseline.vsync;
+    b->clock_policy = baseline.clock_policy;
+    b->profile = baseline.profile;
+    b->warmup_seconds = baseline.warmup_seconds;
+    b->duration_seconds = baseline.duration_seconds;
+    b->measurement_frames = baseline.measurement_frames;
+    b->ready_timeout_seconds = baseline.ready_timeout_seconds;
+    b->repeats = baseline.repeats;
+    b->raw_samples = baseline.raw_samples;
+    b->no_ui = baseline.no_ui;
+    b->quick_suite = false;
+    b->capacity_dimension.clear();
+    b->capacity_target = baseline.capacity_target;
+    b->capacity_threshold = baseline.capacity_threshold;
+    b->capacity_mode = baseline.capacity_mode;
+    b->output_path = baseline.output_path;
+    baseline.alternate = std::move(b);
+}
+
 void show_distribution(const char* name, const Distribution& value)
 {
     if (!value.count) {
@@ -388,8 +417,10 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                                                      : "Run Diagnostic Benchmark"))
             action = DashboardAction::Run;
         ImGui::SameLine();
+        ImGui::BeginDisabled(options.alternate != nullptr);
         if (ImGui::Button("Quick Suite (available reference)"))
             action = DashboardAction::QuickSuite;
+        ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Exit"))
             action = DashboardAction::Exit;
@@ -760,8 +791,28 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     options.measurement_frames =
                         static_cast<uint64_t>(std::clamp(frames, 0, 300000));
                 int repeats = static_cast<int>(options.repeats);
-                if (ImGui::InputInt("Repeated trials", &repeats))
+                if (ImGui::InputInt(options.alternate ? "A/B/A cycles" : "Repeated trials",
+                                    &repeats))
                     options.repeats = static_cast<uint32_t>(std::clamp(repeats, 1, 20));
+                if (ImGui::BeginCombo("A/B/A candidate B",
+                                      options.alternate ? "Named preset selected" : "Disabled")) {
+                    if (ImGui::Selectable("Disabled", !options.alternate))
+                        options.alternate.reset();
+                    for (const auto& preset : preferences_.presets) {
+                        if (preset.configuration.scenario != options.scenario ||
+                            preset.configuration.alternate)
+                            continue;
+                        if (ImGui::Selectable(preset.name.c_str()))
+                            options.alternate = std::make_shared<Options>(preset.configuration);
+                    }
+                    ImGui::EndCombo();
+                }
+                if (options.alternate)
+                    ImGui::TextWrapped(
+                        "A/B/A runs %u fresh A-B-A cycles. B uses the named preset's "
+                        "workload parameters; shared execution settings come from A. "
+                        "No dashboard is rendered between trials.",
+                        options.repeats);
                 ImGui::InputDouble("Readiness timeout seconds", &options.ready_timeout_seconds, 0.5,
                                    1.0, "%.2f");
                 // Profile is a canonical string, never an extra boolean saved in the configuration.
@@ -873,16 +924,71 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                                 "CPU frame-loop cadence: %.2f Hz (not confirmed display FPS)",
                                 static_cast<double>(scenario.measured_frames) /
                                     scenario.measured_wall_seconds);
+                        if (scenario.alternating) {
+                            const auto& alternating = *scenario.alternating;
+                            ImGui::SeparatorText("A/B/A comparison (independent trials)");
+                            ImGui::Text("A completed: %u | B completed: %u",
+                                        alternating.baseline.completed,
+                                        alternating.candidate.completed);
+                            show_distribution("A trial CPU medians",
+                                              alternating.baseline.cpu_medians);
+                            show_distribution("B trial CPU medians",
+                                              alternating.candidate.cpu_medians);
+                            show_distribution("A trial wall medians",
+                                              alternating.baseline.wall_medians);
+                            show_distribution("B trial wall medians",
+                                              alternating.candidate.wall_medians);
+                            show_distribution("A CPU p95 across trials",
+                                              alternating.baseline.cpu_p95);
+                            show_distribution("B CPU p95 across trials",
+                                              alternating.candidate.cpu_p95);
+                            show_distribution("A CPU p99 across trials",
+                                              alternating.baseline.cpu_p99);
+                            show_distribution("B CPU p99 across trials",
+                                              alternating.candidate.cpu_p99);
+                            show_distribution("A wall p95 across trials",
+                                              alternating.baseline.wall_p95);
+                            show_distribution("B wall p95 across trials",
+                                              alternating.candidate.wall_p95);
+                            show_distribution("A wall p99 across trials",
+                                              alternating.baseline.wall_p99);
+                            show_distribution("B wall p99 across trials",
+                                              alternating.candidate.wall_p99);
+                            if (alternating.cpu_delta_percent)
+                                ImGui::Text("B vs A CPU median: %+.2f%%",
+                                            *alternating.cpu_delta_percent);
+                            if (alternating.wall_delta_percent)
+                                ImGui::Text("B vs A wall median: %+.2f%%",
+                                            *alternating.wall_delta_percent);
+                            if (alternating.cpu_drift_percent)
+                                ImGui::Text("A endpoint CPU drift: %+.2f%%",
+                                            *alternating.cpu_drift_percent);
+                            if (alternating.wall_drift_percent)
+                                ImGui::Text("A endpoint wall drift: %+.2f%%",
+                                            *alternating.wall_drift_percent);
+                            for (const auto& warning : alternating.warnings)
+                                ImGui::BulletText("%s", warning.c_str());
+                            ImGui::TextDisabled("Overall distributions below pool A and B; do not "
+                                                "use for comparison.");
+                        }
                         show_distribution("Wall-frame", scenario.wall_frame);
                         show_distribution("CPU operation", scenario.cpu_operation);
                         for (size_t n = 0; n < scenario.trials.size(); ++n) {
                             const auto& trial = scenario.trials[n];
                             if (trial.outcome != "complete") {
-                                ImGui::TextWrapped("Trial %zu %s: %s", n + 1, trial.outcome.c_str(),
+                                ImGui::TextWrapped("Trial %zu (%s) %s: %s", n + 1,
+                                                   trial.arm.c_str(), trial.outcome.c_str(),
                                                    trial.reason.c_str());
-                                continue;
                             }
-                            if (last_run->configuration.profile != "diagnostic")
+                            for (const auto& attempt : trial.interrupted_attempts)
+                                ImGui::TextWrapped(
+                                    "Trial %zu (%s) discarded attempt: %s "
+                                    "(%llu warmup, %llu measured frames)",
+                                    n + 1, trial.arm.c_str(), attempt.reason.c_str(),
+                                    static_cast<unsigned long long>(attempt.warmup_frames),
+                                    static_cast<unsigned long long>(attempt.measured_frames));
+                            if (trial.outcome != "complete" ||
+                                last_run->configuration.profile != "diagnostic")
                                 continue;
                             ImGui::SeparatorText("Diagnostic (non-authoritative)");
                             ImGui::Text(
@@ -953,6 +1059,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             ImGui::EndTabBar();
         }
         ImGui::End();
+        align_alternate_execution_settings(options);
         persist_preferences(options);
         first_frame_ = false;
     }

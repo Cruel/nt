@@ -12,7 +12,8 @@ bool valid(double seconds) { return seconds >= 0.0 && seconds < 3600.0; }
 
 FrameDrivenSuite::FrameDrivenSuite(const Options& options, Scenario& scenario, Clock& clock,
                                    Recovery recovery)
-    : options_(options), scenario_(scenario), clock_(clock), recovery_(std::move(recovery))
+    : options_(options), active_options_(options), scenario_(scenario), clock_(clock),
+      recovery_(std::move(recovery))
 {
     scenario_result_.scenario = scenario.id();
     scenario_result_.description = scenario.description();
@@ -73,6 +74,7 @@ void FrameDrivenSuite::finish_trial()
     // Never publish incomplete measurements. Only a recovered, fresh warmup
     // may supply the logical trial's samples and aggregate.
     if (interrupted_ && cleanup_ok && !cancelled_ && retry_count_ < kMaxInterruptionRetries) {
+        interrupted_attempts_.push_back({reason_, trial_.warmup_frames, trial_.measured_frames});
         ++retry_count_;
         recovering_ = true;
         reason_.clear();
@@ -82,6 +84,8 @@ void FrameDrivenSuite::finish_trial()
         return;
     }
     trial_.interruption_retries = retry_count_;
+    trial_.arm = options_.alternate && trial_index_ % 3 == 1 ? "B" : "A";
+    trial_.interrupted_attempts = std::move(interrupted_attempts_);
     if (interrupted_ && retry_count_ == kMaxInterruptionRetries)
         reason_ = "interruption retry limit exceeded: " + reason_;
     if (results_ready_ && reason_.empty()) {
@@ -91,11 +95,11 @@ void FrameDrivenSuite::finish_trial()
                                               static_cast<std::ptrdiff_t>(trial_.measured_frames));
         trial_.wall_frame = summarize(measured, true);
         trial_.cpu_operation = summarize(measured, false);
-        if (options_.profile == "diagnostic") {
+        if (active_options_.profile == "diagnostic") {
             observations_.resize(static_cast<size_t>(trial_.measured_frames));
             trial_.diagnostic = summarize_diagnostics(observations_, late_);
         }
-        if (options_.raw_samples)
+        if (active_options_.raw_samples)
             trial_.raw_samples = measured;
         combined_.insert(combined_.end(), measured.begin(), measured.end());
         scenario_result_.measured_frames += trial_.measured_frames;
@@ -107,12 +111,14 @@ void FrameDrivenSuite::finish_trial()
     }
     scenario_result_.trials.push_back(std::move(trial_));
     ++trial_index_;
-    if (!cancelled_ && trial_index_ < options_.repeats) {
+    const uint32_t trial_count = options_.repeats * (options_.alternate ? 3u : 1u);
+    if (!cancelled_ && trial_index_ < trial_count) {
         phase_ = Phase::Preparation;
         reason_.clear();
         results_ready_ = false;
         interrupted_ = false;
         retry_count_ = 0;
+        interrupted_attempts_.clear();
         trial_ = {};
         late_.clear();
         return;
@@ -121,11 +127,13 @@ void FrameDrivenSuite::finish_trial()
         std::count_if(scenario_result_.trials.begin(), scenario_result_.trials.end(),
                       [](const TrialResult& item) { return item.outcome == "complete"; });
     scenario_result_.outcome = cancelled_ ? "cancelled"
-                               : passed == static_cast<std::ptrdiff_t>(options_.repeats)
+                               : passed == static_cast<std::ptrdiff_t>(trial_count)
                                    ? "complete"
                                    : (passed > 0 ? "partial" : "failed");
     scenario_result_.wall_frame = summarize(combined_, true);
     scenario_result_.cpu_operation = summarize(combined_, false);
+    scenario_result_.alternating =
+        summarize_alternating(scenario_result_.trials, options_.alternate != nullptr);
     suite_.outcome = scenario_result_.outcome;
     suite_.scenarios.push_back(std::move(scenario_result_));
     done_ = true;
@@ -149,11 +157,15 @@ bool FrameDrivenSuite::step()
             // Report terminal failure without running it twice.
             trial_.reason = reason_;
             trial_.interruption_retries = retry_count_;
+            trial_.arm = options_.alternate && trial_index_ % 3 == 1 ? "B" : "A";
+            trial_.interrupted_attempts = std::move(interrupted_attempts_);
             scenario_result_.trials.push_back(std::move(trial_));
-            trial_index_ = options_.repeats;
+            trial_index_ = options_.repeats * (options_.alternate ? 3u : 1u);
             scenario_result_.outcome = combined_.empty() ? "failed" : "partial";
             scenario_result_.wall_frame = summarize(combined_, true);
             scenario_result_.cpu_operation = summarize(combined_, false);
+            scenario_result_.alternating =
+                summarize_alternating(scenario_result_.trials, options_.alternate != nullptr);
             suite_.outcome = scenario_result_.outcome;
             suite_.scenarios.push_back(std::move(scenario_result_));
             done_ = true;
@@ -168,15 +180,17 @@ bool FrameDrivenSuite::step()
         cleanup_completed_ = false;
         reason_.clear();
         trial_.phases.push_back(Phase::Preparation);
-        const size_t capacity = options_.measurement_frames != 0
-                                    ? static_cast<size_t>(options_.measurement_frames)
+        active_options_ =
+            options_.alternate && trial_index_ % 3 == 1 ? *options_.alternate : options_;
+        const size_t capacity = active_options_.measurement_frames != 0
+                                    ? static_cast<size_t>(active_options_.measurement_frames)
                                     : static_cast<size_t>(kMaxSamples);
         samples_.assign(capacity, {});
         observations_.clear();
         late_.clear();
-        if (options_.profile == "diagnostic")
+        if (active_options_.profile == "diagnostic")
             observations_.resize(capacity);
-        if (!scenario_.prepare(options_, reason_)) {
+        if (!scenario_.prepare(active_options_, reason_)) {
             phase_ = Phase::Cleanup;
         } else {
             readiness_start_ = clock_.now_seconds();
@@ -187,13 +201,13 @@ bool FrameDrivenSuite::step()
     case Phase::Ready: {
         const auto readiness = scenario_.readiness(reason_);
         if (readiness == Readiness::Ready &&
-            clock_.now_seconds() - readiness_start_ <= options_.ready_timeout_seconds) {
+            clock_.now_seconds() - readiness_start_ <= active_options_.ready_timeout_seconds) {
             trial_.phases.push_back(Phase::Ready);
             trial_.phases.push_back(Phase::Warmup);
             warmup_start_ = clock_.now_seconds();
             phase_ = Phase::Warmup;
-        } else if (readiness == Readiness::Failed ||
-                   clock_.now_seconds() - readiness_start_ >= options_.ready_timeout_seconds) {
+        } else if (readiness == Readiness::Failed || clock_.now_seconds() - readiness_start_ >=
+                                                         active_options_.ready_timeout_seconds) {
             if (readiness != Readiness::Failed)
                 reason_ = "readiness timeout";
             else if (reason_.empty())
@@ -203,7 +217,7 @@ bool FrameDrivenSuite::step()
         break;
     }
     case Phase::Warmup:
-        if (clock_.now_seconds() - warmup_start_ >= options_.warmup_seconds) {
+        if (clock_.now_seconds() - warmup_start_ >= active_options_.warmup_seconds) {
             trial_.phases.push_back(Phase::Measurement);
             measurement_start_ = clock_.now_seconds();
             previous_end_ = measurement_start_;
@@ -234,14 +248,14 @@ bool FrameDrivenSuite::step()
             break;
         }
         samples_[static_cast<size_t>(trial_.measured_frames)] = sample;
-        if (options_.profile == "diagnostic")
+        if (active_options_.profile == "diagnostic")
             scenario_.diagnostic_frame(observations_[static_cast<size_t>(trial_.measured_frames)]);
         ++trial_.measured_frames;
         previous_end_ = end;
         trial_.measured_wall_seconds = end - measurement_start_;
-        if (options_.measurement_frames != 0
-                ? trial_.measured_frames >= options_.measurement_frames
-                : trial_.measured_wall_seconds >= options_.duration_seconds)
+        if (active_options_.measurement_frames != 0
+                ? trial_.measured_frames >= active_options_.measurement_frames
+                : trial_.measured_wall_seconds >= active_options_.duration_seconds)
             phase_ = Phase::Completion;
         break;
     }
@@ -251,7 +265,7 @@ bool FrameDrivenSuite::step()
             if (reason_.empty())
                 reason_ = "scenario completion failed";
         } else {
-            if (options_.profile == "diagnostic")
+            if (active_options_.profile == "diagnostic")
                 scenario_.diagnostic_completion(late_);
             trial_.phases.push_back(Phase::Results);
             results_ready_ = true;

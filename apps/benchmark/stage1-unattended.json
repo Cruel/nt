@@ -3,6 +3,7 @@
   "version": 1,
   "scenario": "raw-bgfx-geometry",
   "scenario_version": 1,
+  "alternate": null,
   "parameters": {
     "rect_count": 3,
     "rect_scale": 1.0

@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 using namespace noveltea::benchmark;
 
@@ -24,13 +25,17 @@ struct ScenarioStub : Scenario {
     bool cancel_first_attempt = false;
     bool sent_interruption = false;
     int attempt_frames = 0;
+    bool candidate_arm = false;
+    std::vector<std::string> order;
     Interruption state = Interruption::None;
     [[nodiscard]] Interruption interruption() const override { return state; }
     const char* id() const override { return "frame-driven-test"; }
     const char* description() const override { return "synthetic rAF test"; }
     bool requires_graphics() const override { return false; }
-    bool prepare(const Options&, std::string& reason) override
+    bool prepare(const Options& options, std::string& reason) override
     {
+        candidate_arm = options.rect_count == 4;
+        order.push_back(candidate_arm ? "B" : "A");
         ++prepared;
         attempt_frames = 0;
         state = Interruption::None;
@@ -45,7 +50,7 @@ struct ScenarioStub : Scenario {
     {
         ++frames;
         ++attempt_frames;
-        clock.time += 0.003;
+        clock.time += candidate_arm ? 0.006 : 0.003;
         if (attempt_frames == 2 &&
             (always_interrupt || (!sent_interruption && interrupt_first_attempt))) {
             state = Interruption::Recoverable;
@@ -124,6 +129,39 @@ int main()
             return 1;
     }
 
+    ClockStub alternating_clock;
+    ScenarioStub alternating_scenario(alternating_clock);
+    Options alternating_options = options;
+    alternating_options.alternate = std::make_shared<Options>(alternating_options);
+    alternating_options.alternate->rect_count = 4;
+    FrameDrivenSuite alternating_runner(alternating_options, alternating_scenario,
+                                        alternating_clock);
+    advance(alternating_runner, alternating_clock);
+    const auto& alternating = alternating_runner.result().scenarios.front();
+    if (!verify(alternating_runner.result().outcome == "complete" &&
+                    alternating_scenario.prepared == 6 && alternating_scenario.cleaned == 6 &&
+                    alternating_scenario.order ==
+                        std::vector<std::string>{"A", "B", "A", "A", "B", "A"} &&
+                    alternating.trials.size() == 6 && alternating.alternating &&
+                    alternating.alternating->baseline.completed == 4 &&
+                    alternating.alternating->candidate.completed == 2 &&
+                    std::abs(*alternating.alternating->cpu_delta_percent - 100.0) < 0.001,
+                "browser A/B/A works with one frame per callback and independent trials"))
+        return 1;
+
+    ClockStub early_clock;
+    ScenarioStub early_scenario(early_clock);
+    FrameDrivenSuite early_runner(alternating_options, early_scenario, early_clock);
+    (void)early_runner.step(); // A preparation; no B trial started yet.
+    early_runner.cancel("backgrounded before candidate");
+    advance(early_runner, early_clock);
+    if (!verify(early_runner.result().outcome == "cancelled" &&
+                    early_runner.result().scenarios[0].trials.size() == 1 &&
+                    early_runner.result().scenarios[0].alternating.has_value() &&
+                    early_runner.result().scenarios[0].alternating->candidate.completed == 0,
+                "browser interruption before B retains an incomplete A/B/A summary"))
+        return 1;
+
     ClockStub interrupt_clock;
     ScenarioStub interrupted(interrupt_clock);
     Options single = options;
@@ -135,10 +173,14 @@ int main()
     (void)interrupt_runner.step(); // prepare
     interrupt_runner.interrupt("page hidden");
     advance(interrupt_runner, interrupt_clock);
-    if (!verify(interrupt_runner.result().outcome == "complete" && interrupted.cleaned == 2 &&
-                    interrupted.prepared == 2 && recovery_calls == 2 &&
-                    interrupt_runner.result().scenarios[0].trials[0].interruption_retries == 1,
-                "interrupted attempt cleaned up, pending recovery, fresh warmup and retry"))
+    if (!verify(
+            interrupt_runner.result().outcome == "complete" && interrupted.cleaned == 2 &&
+                interrupted.prepared == 2 && recovery_calls == 2 &&
+                interrupt_runner.result().scenarios[0].trials[0].interruption_retries == 1 &&
+                interrupt_runner.result().scenarios[0].trials[0].interrupted_attempts.size() == 1 &&
+                interrupt_runner.result().scenarios[0].trials[0].interrupted_attempts[0].reason ==
+                    "page hidden",
+            "interrupted attempt cleaned up, pending recovery, fresh warmup and retry"))
         return 1;
 
     ClockStub pending_clock;

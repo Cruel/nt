@@ -3,6 +3,7 @@
   "version": 1,
   "scenario": "engine-compiled-empty",
   "scenario_version": 1,
+  "alternate": null,
   "parameters": {},
   "clock_policy": "fixed-step",
   "settings": {

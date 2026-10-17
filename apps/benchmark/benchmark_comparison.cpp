@@ -168,7 +168,8 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
     }
     std::set<std::string> ids;
     for (const auto& scenario : root["scenarios"]) {
-        if (!fields(scenario, {"id", "outcome", "trials", "aggregate", "graphics"}) ||
+        if (!fields(scenario,
+                    {"id", "outcome", "trials", "aggregate", "graphics", "alternating"}) ||
             !scenario["id"].is_string() || !scenario["outcome"].is_string() ||
             !scenario["trials"].is_array() || !scenario["aggregate"].is_object() ||
             !valid_graphics(scenario["graphics"])) {
@@ -196,11 +197,57 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             error = "invalid aggregate distribution";
             return false;
         }
+        const bool alternating = !root["configuration"]["alternate"].is_null();
+        if (alternating != !scenario["alternating"].is_null()) {
+            error = "inconsistent A/B/A summary";
+            return false;
+        }
+        if (alternating) {
+            const auto& detail = scenario["alternating"];
+            if (!fields(detail, {"order", "baseline", "candidate", "wall_delta_percent",
+                                 "cpu_delta_percent", "wall_drift_percent", "cpu_drift_percent",
+                                 "warnings"}) ||
+                detail["order"] != "A/B/A" || !detail["warnings"].is_array() ||
+                !std::all_of(detail["warnings"].begin(), detail["warnings"].end(),
+                             [](const Json& v) { return v.is_string(); })) {
+                error = "invalid A/B/A reliability summary";
+                return false;
+            }
+            for (const auto* metric : {"wall_delta_percent", "cpu_delta_percent",
+                                       "wall_drift_percent", "cpu_drift_percent"})
+                if (!detail[metric].is_null() &&
+                    (!detail[metric].is_number() || !std::isfinite(detail[metric].get<double>()))) {
+                    error = "invalid A/B/A percentage";
+                    return false;
+                }
+            for (const auto* arm : {"baseline", "candidate"}) {
+                const auto& group = detail[arm];
+                if (!fields(group, {"completed_trials", "trial_wall_medians_ms",
+                                    "trial_cpu_medians_ms", "trial_wall_p95_ms", "trial_cpu_p95_ms",
+                                    "trial_wall_p99_ms", "trial_cpu_p99_ms"}) ||
+                    !unsigned_count(group["completed_trials"])) {
+                    error = "invalid A/B/A trial group";
+                    return false;
+                }
+                for (const auto* key :
+                     {"trial_wall_medians_ms", "trial_cpu_medians_ms", "trial_wall_p95_ms",
+                      "trial_cpu_p95_ms", "trial_wall_p99_ms", "trial_cpu_p99_ms"})
+                    if (!valid_distribution(group[key])) {
+                        error = "invalid A/B/A trial distribution";
+                        return false;
+                    }
+            }
+        }
+        size_t ordinal = 0;
         for (const auto& trial : scenario["trials"]) {
-            if (!fields(trial,
-                        {"outcome", "measured_frames", "interruption_retries", "frame_wall_ms",
-                         "cpu_operation_ms", "diagnostic", "raw_samples"}) ||
-                !trial["outcome"].is_string() || !unsigned_count(trial["measured_frames"]) ||
+            if (!fields(trial, {"outcome", "arm", "interrupted_attempts", "measured_frames",
+                                "interruption_retries", "frame_wall_ms", "cpu_operation_ms",
+                                "diagnostic", "raw_samples"}) ||
+                !trial["outcome"].is_string() || !trial["arm"].is_string() ||
+                trial["arm"] != (alternating && ordinal % 3 == 1 ? "B" : "A") ||
+                !trial["interrupted_attempts"].is_array() ||
+                trial["interrupted_attempts"].size() > kMaxInterruptionRetries ||
+                !unsigned_count(trial["measured_frames"]) ||
                 !unsigned_count(trial["interruption_retries"]) ||
                 !valid_distribution(trial["frame_wall_ms"]) ||
                 !valid_distribution(trial["cpu_operation_ms"]) ||
@@ -209,6 +256,19 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                 error = "invalid trial measurement";
                 return false;
             }
+            for (const auto& attempt : trial["interrupted_attempts"])
+                if (!fields(attempt, {"reason", "warmup_frames", "measured_frames"}) ||
+                    !attempt["reason"].is_string() || !unsigned_count(attempt["warmup_frames"]) ||
+                    !unsigned_count(attempt["measured_frames"])) {
+                    error = "invalid interrupted attempt";
+                    return false;
+                }
+            if (trial["interrupted_attempts"].size() !=
+                trial["interruption_retries"].get<uint64_t>()) {
+                error = "inconsistent retry metadata";
+                return false;
+            }
+            ++ordinal;
         }
     }
     report = {std::move(root), std::move(name)};
@@ -238,6 +298,7 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
     mismatch(result, "Clock", a["timing"], b["timing"], "clock");
     mismatch(result, "Timing profile", a["timing"], b["timing"], "profile");
     mismatch(result, "Clock policy", ac, bc, "clock_policy");
+    mismatch(result, "A/B/A candidate configuration", ac, bc, "alternate");
     mismatch(result, "Workload version", ac, bc, "scenario_version");
     // Ignore run duration, repeats, raw-sample export and output name when
     // checking workload identity. A Quick Suite's selection is per scenario.
