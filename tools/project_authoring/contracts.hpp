@@ -60,6 +60,10 @@ std::optional<std::string> archetype_template_json(std::string_view instance_kin
 // Committed build-time Zod omission defaults for an authoring record family.
 // This metadata may guide source compaction, but never authorizes semantic change.
 std::optional<std::string> source_omission_defaults_json(std::string_view family);
+// Deterministically generated from the authoritative TypeScript CLI record
+// defaults and YAML writer. ID/label placeholders are replaced by the native
+// authoring command before schema admission.
+std::optional<std::string> default_entity_source_json(std::string_view family);
 // Cross-record Room, Map, and Hotspot checks against a complete effective Project.
 // Diagnostics use Project-absolute JSON Pointers; warnings and info do not reject.
 ValidationResult validate_room_map_project(std::string_view effective_project_json);

@@ -13,3 +13,6 @@ class ProjectSession;
 nlohmann::json native_project_localization_sync(const nlohmann::json& request,
                                                 noveltea::authoring::ProjectSession& session,
                                                 const std::filesystem::path& root);
+nlohmann::json native_project_localization_reconcile(const nlohmann::json& request,
+                                                     noveltea::authoring::ProjectSession& session,
+                                                     const std::filesystem::path& root);

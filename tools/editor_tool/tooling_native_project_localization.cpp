@@ -2,6 +2,7 @@
 
 #include "../project_authoring/room_session.hpp"
 #include "../project_authoring/source_authority.hpp"
+#include "../project_authoring/source_analysis.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -9,6 +10,7 @@
 #include <iomanip>
 #include <iterator>
 #include <regex>
+#include <set>
 #include <set>
 #include <sstream>
 #include <string>
@@ -71,6 +73,22 @@ std::string normalized_text(std::string_view source)
     return value;
 }
 
+std::string trimmed_text(std::string_view source)
+{
+    std::size_t first = source.size();
+    std::size_t last = 0;
+    for (std::size_t position = 0; position < source.size();) {
+        const auto next = next_utf8(source, position);
+        if (!whitespace(next.value)) {
+            if (first == source.size())
+                first = position;
+            last = position + next.size;
+        }
+        position += next.size;
+    }
+    return first == source.size() ? std::string{} : std::string(source.substr(first, last - first));
+}
+
 std::string fnv1a(std::string_view source)
 {
     std::ostringstream hex;
@@ -99,12 +117,55 @@ std::string fnv1a(std::string_view source)
 
 std::string linguistic(std::string_view source)
 {
-    // ActiveText object cues and shorthand contribute an additional identity
-    // contract. Never silently produce a fingerprint without those identities.
-    if (source.find('[') != std::string_view::npos || source.find('<') != std::string_view::npos)
-        throw std::runtime_error("Named Message requires ActiveText cue fingerprinting.");
-    const auto plain = std::regex_replace(std::string(source), std::regex("<[^>]*>"), "");
-    return normalized_text(plain);
+    // Mirror authoring-localization-workflow.ts: expand [[label|objectId]],
+    // strip Dialogue/ActiveText markup, retain recognized object cue IDs in
+    // their encounter order, and then normalize Unicode whitespace.
+    std::string expanded;
+    std::vector<std::string> objects;
+    const std::regex shorthand(R"(\[\[([^\]|]*)\|([^\]]+)\]\])");
+    const std::string input(source);
+    std::size_t cursor = 0;
+    for (std::sregex_iterator it(input.begin(), input.end(), shorthand), end; it != end; ++it) {
+        const auto& match = *it;
+        expanded += input.substr(cursor, static_cast<std::size_t>(match.position()) - cursor);
+        expanded += match[1].str();
+        objects.push_back(trimmed_text(match[2].str()));
+        cursor = static_cast<std::size_t>(match.position() + match.length());
+    }
+    expanded += input.substr(cursor);
+
+    std::string plain;
+    const std::regex object_token(R"(^\[(?:o|object)(?:\s+id)?=([^\]]+)\]$)",
+                                  std::regex_constants::icase);
+    for (std::size_t index = 0; index < expanded.size();) {
+        if (expanded[index] != '[') {
+            const auto point = next_utf8(expanded, index);
+            plain.append(expanded, index, point.size);
+            index += point.size;
+            continue;
+        }
+        const auto close = expanded.find(']', index + 1);
+        if (close == std::string::npos)
+            break; // Same invalid-markup projection as parseDialogueCueMarkup.
+        const auto token = expanded.substr(index, close - index + 1);
+        std::smatch match;
+        if (std::regex_match(token, match, object_token)) {
+            const auto id = trimmed_text(match[1].str());
+            if (!id.empty())
+                objects.push_back(id);
+        }
+        index = close + 1;
+    }
+    const auto text = normalized_text(std::regex_replace(plain, std::regex("<[^>]*>"), ""));
+    if (objects.empty())
+        return text;
+    std::string result = text + std::string(1, '\0') + "objects:";
+    for (std::size_t index = 0; index < objects.size(); ++index) {
+        if (index)
+            result += '|';
+        result += objects[index];
+    }
+    return result;
 }
 
 std::string pattern_contract(const Json& pattern, int depth = 0)
@@ -144,6 +205,114 @@ std::string named_fingerprint(const Json& message)
     const auto source = linguistic(message.at("source").get<std::string>());
     const auto pattern = pattern_contract(message.value("pattern", Json(nullptr)));
     return fnv1a(std::string("semantic\0", 9) + source + '\0' + contract + '\0' + pattern + '\0');
+}
+
+Json placeholder_contract(std::string_view text)
+{
+    Json arguments = Json::object();
+    static const std::regex valid(R"(^[A-Za-z_][A-Za-z0-9_-]*$)");
+    for (std::size_t at = 0; at < text.size(); ++at) {
+        if (text[at] != '{')
+            continue;
+        if (at + 1 < text.size() && text[at + 1] == '{') {
+            ++at;
+            continue;
+        }
+        const auto end = text.find('}', at + 1);
+        if (end == std::string_view::npos)
+            continue;
+        const std::string name(text.substr(at + 1, end - at - 1));
+        if (std::regex_match(name, valid))
+            arguments[name] = "printable";
+        at = end;
+    }
+    return arguments;
+}
+
+Json tracked_message_fingerprints(const Json& localization, const ProjectSession& session)
+{
+    Json fingerprints = Json::object();
+    const auto& tracking = localization.at("sourceMessageTracking");
+    const auto collect = [&](const std::string& source_key, const SourceAnalysis& analysis,
+                             bool is_lua) {
+        if (!tracking.contains(source_key))
+            return;
+        std::vector<const ManagedSourceOccurrence*> managed;
+        for (const auto& message : analysis.messages)
+            managed.push_back(&message);
+        for (const auto& target : tracking.at(source_key).at("occurrences")) {
+            const auto ordinal = target.at("ordinal").get<std::size_t>();
+            if (ordinal >= managed.size())
+                continue;
+            const auto& message = *managed[ordinal];
+            if (message.kind == "named")
+                continue;
+            if (message.source != target.at("sourceSnapshot").get<std::string>())
+                continue; // No stale identity may be accepted as an active Message.
+            const auto id = target.at("messageId").get<std::string>();
+            if (is_lua) {
+                Json view{{"kind", "named"}, {"source", message.source}};
+                if (message.kind == "plural" || message.kind == "select") {
+                    view["arguments"] = {
+                        {"value", message.kind == "plural" ? "plural-number" : "string"}};
+                    Json pattern{
+                        {"kind", message.kind}, {"argument", "value"}, {"cases", Json::object()}};
+                    for (const auto& [key, value] : message.cases)
+                        pattern["cases"][key] = {{"kind", "text"}, {"text", value}};
+                    view["pattern"] = std::move(pattern);
+                } else {
+                    const auto arguments = placeholder_contract(message.source);
+                    if (!arguments.empty())
+                        view["arguments"] = arguments;
+                }
+                fingerprints[id] = named_fingerprint(view);
+            } else {
+                auto plain =
+                    normalized_text(std::regex_replace(message.source, std::regex("<[^>]*>"), ""));
+                const auto arguments = placeholder_contract(message.source);
+                std::string contract;
+                for (const auto& [key, value] : arguments.items()) {
+                    if (!contract.empty())
+                        contract += '|';
+                    contract += key + ":" + value.get<std::string>();
+                }
+                fingerprints[id] = fnv1a(std::string("semantic\0", 9) + plain + '\0' + contract);
+            }
+        }
+    };
+    for (const auto& [physical, analysis] : session.source_analyses()) {
+        if (!physical.starts_with("inline/") || !physical.ends_with(".lua"))
+            continue;
+        const auto relative = physical.substr(std::string("inline/").size());
+        const auto collection_end = relative.find('/');
+        const auto id_end = collection_end == std::string::npos
+                                ? std::string::npos
+                                : relative.find('/', collection_end + 1);
+        if (id_end == std::string::npos || relative.size() <= 4)
+            continue;
+        const auto collection = relative.substr(0, collection_end);
+        const auto record_id = relative.substr(collection_end + 1, id_end - collection_end - 1);
+        std::string source_path{"/"};
+        source_path.append(relative.data(), relative.size() - 4);
+        collect("lua:record:" + collection + ":" + record_id + ":" + source_path, analysis, true);
+    }
+    for (const auto& [owner, snapshot] : session.validated_disk_record_snapshots()) {
+        if (!owner.starts_with("layouts/") || !snapshot.valid || snapshot.normalized_json.empty())
+            continue;
+        const auto data = Json::parse(snapshot.normalized_json).at("data");
+        if (!data.contains("rml") || !data.at("rml").is_object())
+            continue;
+        const auto& rml = data.at("rml");
+        if (rml.value("sourceMode", std::string{}) != "inline" || !rml.contains("sourceText") ||
+            !rml.at("sourceText").is_string())
+            continue;
+        const auto id = owner.substr(std::string("layouts/").size());
+        const auto path = "/layouts/" + id + "/data/rml/sourceText";
+        const auto analysis =
+            analyze_project_text("inline" + path + ".rml", rml.at("sourceText").get<std::string>());
+        collect("rml:record:layouts:" + id + ":" + path, analysis, false);
+    }
+    return fingerprints;
 }
 
 std::string bytes_at(const std::filesystem::path& path)
@@ -198,14 +367,24 @@ Json native_project_localization(const Json& request, ProjectSession& session,
         return failure("Invalid target translation locale.");
     const auto path = "i18n/locales/" + locale + ".yaml";
     const auto owner = path;
-    const auto messages = localization.at("messages");
+    const auto& messages = localization.at("messages");
+    const auto local_fingerprints = tracked_message_fingerprints(localization, session);
     Json fingerprints = Json::object();
     std::vector<RoomPatch> patches;
     for (const auto& id_json : request.at("messageIds")) {
         const auto id = id_json.get<std::string>();
-        if (!messages.contains(id))
-            return failure("Native localization named Message is missing: " + id);
-        const auto fingerprint = named_fingerprint(messages.at(id));
+        std::string fingerprint;
+        if (messages.contains(id)) {
+            auto message = messages.at(id);
+            if (message.value("kind", std::string{}) == "local")
+                message["kind"] = "named";
+            fingerprint = named_fingerprint(message);
+        } else if (local_fingerprints.contains(id)) {
+            fingerprint = local_fingerprints.at(id).get<std::string>();
+        } else {
+            return failure("Native localization Message is missing or has stale source identity: " +
+                           id);
+        }
         fingerprints[id] = fingerprint;
         if (operation == "inspect")
             continue;

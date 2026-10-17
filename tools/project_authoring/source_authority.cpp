@@ -280,6 +280,11 @@ SourceAuthority::Capture SourceAuthority::capture() const
             if (entry.is_directory()) {
                 if (relative != "records/layouts")
                     throw std::runtime_error("Unexpected nested record directory: " + record);
+                // A grouped Layout deletion can momentarily leave its empty
+                // parent before the writer prunes it. Empty directories have
+                // no source identity; any orphan companion remains invalid.
+                if (std::filesystem::is_empty(entry.path()))
+                    return;
                 scan(record, [&](const auto& leaf, const std::string& file) {
                     if (leaf.is_regular_file() && is_source_extension(leaf.path()))
                         add(file);

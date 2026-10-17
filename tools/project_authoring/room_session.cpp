@@ -718,7 +718,8 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
                 throw std::runtime_error("Unknown record collection: " + relative);
             if (it->path().parent_path().lexically_relative(root) == "records/layouts" &&
                 (!is_id(it->path().filename().string()) ||
-                 !std::filesystem::is_regular_file(it->path() / "layout.yaml")))
+                 (!std::filesystem::is_regular_file(it->path() / "layout.yaml") &&
+                  !std::filesystem::is_empty(it->path()))))
                 throw std::runtime_error("Layout requires canonical layout.yaml: " + relative);
             const auto parent = it->path().parent_path().lexically_relative(root).generic_string();
             if (relative.starts_with("records/") && parent != "records" &&
@@ -2903,6 +2904,17 @@ std::map<std::string, RoomSessionSnapshot> ProjectSession::validated_disk_record
 {
     std::map<std::string, RoomSessionSnapshot> snapshots;
     if (!validation_snapshot_ || !validation_snapshot_->valid)
+        return snapshots;
+    for (const auto& [owner, session] : validation_records_)
+        snapshots.emplace(owner, session->snapshot());
+    return snapshots;
+}
+
+std::map<std::string, RoomSessionSnapshot>
+ProjectSession::reconciliation_disk_record_snapshots() const
+{
+    std::map<std::string, RoomSessionSnapshot> snapshots;
+    if (!validation_snapshot_)
         return snapshots;
     for (const auto& [owner, session] : validation_records_)
         snapshots.emplace(owner, session->snapshot());

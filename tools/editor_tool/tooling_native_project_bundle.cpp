@@ -515,10 +515,17 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
     const auto action = request.value("action", std::string{});
     if (action == "project-import")
         return import_bundle(request);
-    if (action == "export-preparation") {
+    if (action == "export-preparation" || action == "runtime-package-preparation") {
         if (!session)
             return failure("Native export preparation requires an admitted disk Project.");
         const auto effective = complete_project(*session);
+        if (action == "runtime-package-preparation" &&
+            (!effective.contains("export") || !effective.at("export").is_object() ||
+             !effective.at("export").contains("runtime") ||
+             !effective.at("export").at("runtime").is_object() ||
+             effective.at("export").at("runtime").value("kind", std::string{}) != "runtime"))
+            return failure(
+                "Cannot prepare Runtime Package without a valid native runtime profile.");
         std::set<std::string> paths;
         project_paths(effective, *session, root, paths);
         Json records = Json::array();
@@ -527,10 +534,24 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
             records.push_back(source);
             revisions[source] = exact_source_revision(bytes_at(checked_source(root, source)));
         }
-        return {{"ok", true},
-                {"project", std::move(effective)},
-                {"sourcePaths", std::move(records)},
-                {"sourceRevisions", std::move(revisions)}};
+        Json result{{"ok", true},
+                    {"project", effective},
+                    {"sourcePaths", std::move(records)},
+                    {"sourceRevisions", std::move(revisions)}};
+        if (action == "runtime-package-preparation") {
+            const auto profile = effective.at("export").at("runtime");
+            if (request.contains("profileId") && (!request.at("profileId").is_string() ||
+                                                  request.at("profileId") != profile.at("id")))
+                return failure(
+                    "Runtime Package profile is not the selected Project runtime profile.");
+            result["profile"] = profile;
+            result["projectIdentity"] = effective.at("project");
+            result["runtimeIntent"] = "runtime-package-export";
+            // The compiled artifact/shader lowering remain owned by the
+            // established native export-tooling pipeline; do not reimplement
+            // or opportunistically publish a partial runtime package here.
+        }
+        return result;
     }
     if (action == "project-export") {
         if (!session)

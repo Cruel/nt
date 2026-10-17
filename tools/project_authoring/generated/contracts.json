@@ -158,6 +158,87 @@
       "traits": []
     }
   },
+  "entityRecordSources": {
+    "animations": {
+      "companions": {},
+      "labelPrefix": "Animation",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  canvas:\n    width: 256\n    height: 256\n  defaultMotionId: default\n  motions:\n    - id: default\n      kind: sprite-sequence\n      frames: []\n      markers: []\n"
+    },
+    "archetypes": {
+      "companions": {},
+      "labelPrefix": "Archetype",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  instanceKind: room\n"
+    },
+    "characters": {
+      "companions": {},
+      "labelPrefix": "Character",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\narchetype: null\narchetypeOverrides: {}\ntraits: []\nlocalProperties: []\ndata:\n  displayName: NovelTeaTemplateLabel\n  dialogue:\n    name: NovelTeaTemplateLabel\n  defaults:\n    profileId: stage\n    expressionId: neutral\n  profiles:\n    - id: stage\n      label: Stage\n      layers:\n        - id: body\n          label: Body\n          role: body\n      defaultPoseId: default\n      poses:\n        - id: default\n          label: Default\n          layers:\n            - layerId: body\n  expressions:\n    - id: neutral\n      label: Neutral\n"
+    },
+    "dialogues": {
+      "companions": {},
+      "labelPrefix": "Dialogue",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  displayName: NovelTeaTemplateLabel\n  entryBlockId: start\n  blocks:\n    - id: start\n      type: sequence\n      label: Sequence\n      segments:\n        - id: line-1\n          type: line\n          text:\n            source:\n              kind: inline\n              text: \"\"\n            markup: active-text\n"
+    },
+    "interactables": {
+      "companions": {},
+      "labelPrefix": "Interactable",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\narchetype: null\narchetypeOverrides: {}\ntraits: []\ndefaultProperties: []\ndata:\n  displayName: NovelTeaTemplateLabel\n  stackable: false\n  stackLimit: null\n  presentation:\n    cursor: null\n"
+    },
+    "interactions": {
+      "companions": {},
+      "labelPrefix": "Interaction",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata: {}\n"
+    },
+    "layouts": {
+      "companions": {
+        "layout.lua": "layout_preview = layout_preview or {}\nlayout_preview.click_count = 0\n\nfunction layout_preview.on_click(event, element, document)\n  layout_preview.click_count = layout_preview.click_count + 1\n  element.inner_rml = 'Clicked ' .. layout_preview.click_count .. ' times'\nend\n",
+        "layout.rcss": ".noveltea-layout-preview {\n  margin: 48px;\n  padding: 24px;\n  background-color: rgba(15, 23, 42, 214);\n  border-radius: 12px;\n}\n\n.noveltea-layout-actions {\n  display: flex;\n}\n\n.noveltea-layout-actions button + button {\n  margin-left: 8px;\n}\n",
+        "layout.rml": "<div class=\"noveltea-layout-preview\">\n  <h1>NovelTea Fragment</h1>\n  <p>This reusable fragment is mounted into an internal preview host.</p>\n  <button id=\"layout-preview-counter\" onclick=\"layout_preview.on_click(event, element, document)\">Clicked 0 times</button>\n</div>\n"
+      },
+      "labelPrefix": "Layout",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  layoutKind: fragment\n  displayName: NovelTeaTemplateLabel\n  rml:\n    sourceMode: file\n  rcss:\n    sourceMode: file\n  lua:\n    sourceMode: file\n  script:\n    enabled: true\n    namespace: layout_preview\n    additionalDependencies:\n      targets: []\n  mount:\n    defaultParent: nt-layout-preview-mount\n    scopedStyles: true\n  dependencies:\n    images: []\n    fonts: []\n    stylesheets: []\n    materials: []\n    scripts: []\n"
+    },
+    "maps": {
+      "companions": {},
+      "labelPrefix": "Map",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata: {}\n"
+    },
+    "materials": {
+      "companions": {},
+      "labelPrefix": "Material",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  base:\n    kind: preset\n    preset: engine-2d\n  displayName: NovelTeaTemplateLabel\n  parameters: {}\n  textures: {}\n"
+    },
+    "rooms": {
+      "companions": {},
+      "labelPrefix": "Room",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\narchetype: null\narchetypeOverrides: {}\ntraits: []\nlocalProperties: []\ndata:\n  displayName: NovelTeaTemplateLabel\n  presentationSpace:\n    size:\n      width: 1920\n      height: 1080\n    defaultView:\n      center:\n        x: 960\n        \"y\": 540\n"
+    },
+    "scenes": {
+      "companions": {},
+      "labelPrefix": "Scene",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  displayName: NovelTeaTemplateLabel\n  stage:\n    kind: blank\n    background:\n      asset: null\n      materialApplication: null\n      color: \"#0f172a\"\n      fit: cover\n    layout: null\n  events:\n    - id: start\n      label: Start\n      type: comment\n      text: \"\"\n      timeline:\n        trackId: notes\n        startMs: 0\n        durationMs: 0\n  terminal:\n    kind: complete-game\n"
+    },
+    "scripts": {
+      "companions": {},
+      "labelPrefix": "Script",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  source:\n    kind: inline-lua\n    source: \"\"\n"
+    },
+    "tests": {
+      "companions": {},
+      "labelPrefix": "Test",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  displayName: NovelTeaTemplateLabel\n  steps:\n    - id: start\n      input: tick\n      label: Start\n      dialogueChoice:\n        edgeId: choice\n      sceneChoice:\n        optionId: choice\n      navigate:\n        exitId: exit\n      subjectAction:\n        subject: null\n      runInteraction:\n        verb: null\n        bindings: []\n      saveSlot:\n        slotId: autosave\n      uiClick:\n        documentId: runtime_game\n        mountInstanceId: null\n        selector: \"#target\"\n  preview:\n    selectedStepId: start\n    selectedObservationIndex: null\n    autoOpenReport: true\n"
+    },
+    "variables": {
+      "companions": {},
+      "labelPrefix": "Variable",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  type: boolean\n  value: false\n"
+    },
+    "verbs": {
+      "companions": {},
+      "labelPrefix": "Verb",
+      "source": "id: nt-template-id\nlabel: NovelTeaTemplateLabel\ndata:\n  actionText:\n    source:\n      kind: inline\n      text: NovelTeaTemplateLabel\n    markup: plain\n  completedCommandText:\n    source:\n      kind: inline\n      text: NovelTeaTemplateLabel\n    markup: plain\n"
+    }
+  },
   "materialPresets": {
     "active-text": {
       "hotspotImage": null,

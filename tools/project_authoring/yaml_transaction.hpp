@@ -24,6 +24,13 @@ struct YamlTransactionTarget {
     std::vector<YamlValueEdit> edits;
     std::optional<std::string> create_source; // only when expected_revision is absent
     bool erase = false;
+    // Atomic whole-source formatting; unlike a normal edit, content must
+    // decode to the same source value as its baseline.
+    std::optional<std::string> replacement_source = std::nullopt;
+    // Only permitted for a canonical record source, when native validation
+    // proves that omission of explicit defaults leaves its effective value
+    // exactly unchanged.
+    std::optional<std::string> semantic_compaction_family = std::nullopt;
 };
 
 struct PreparedYamlTarget {

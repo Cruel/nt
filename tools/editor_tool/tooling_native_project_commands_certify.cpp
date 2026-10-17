@@ -80,6 +80,25 @@ void certify(const std::filesystem::path& source)
                                   {"id", "missing"}});
     require(unknown.at("ok") == false, "Unknown native records must be rejected.");
 
+    const auto runtime_preparation =
+        command({{"action", "runtime-package-preparation"}, {"projectRoot", root}});
+    require(runtime_preparation.value("ok", false) &&
+                runtime_preparation.at("runtimeIntent") == "runtime-package-export" &&
+                runtime_preparation.at("profile") ==
+                    runtime_preparation.at("project").at("export").at("runtime") &&
+                runtime_preparation.at("profile").at("kind") == "runtime" &&
+                runtime_preparation.at("projectIdentity") ==
+                    runtime_preparation.at("project").at("project") &&
+                runtime_preparation.at("sourcePaths").size() ==
+                    runtime_preparation.at("sourceRevisions").size(),
+            "Native Runtime Package preparation uses the admitted complete Project, the "
+            "selected runtime profile, and revision-pinned file inventory.");
+    require(!command({{"action", "runtime-package-preparation"},
+                      {"projectRoot", root},
+                      {"profileId", "unselected-profile"}})
+                 .value("ok", false),
+            "Native runtime preparation must reject unselected export profiles.");
+
     const Json replacement =
         Json::array({{{"op", "replace"}, {"path", "/project/name"}, {"value", "CLI Native"}}});
     const auto probing_bundle = fixture.root / "probed.ntproject";
@@ -177,6 +196,16 @@ void certify(const std::filesystem::path& source)
                                      {"collection", "rooms"},
                                      {"id", "room-lifecycle-roundtrip"}});
     require(before_fmt.value("ok", false), "Defaulted fixture record is valid.");
+    const auto whole_strip = command({{"action", "fmt"},
+                                      {"projectRoot", root},
+                                      {"path", "records/rooms/room-lifecycle-roundtrip.yaml"},
+                                      {"check", true},
+                                      {"stripDefaults", true}});
+    require(whole_strip.value("ok", false) && whole_strip.at("changed") == true &&
+                whole_strip.at("removedDefaults").get<std::size_t>() > 0 &&
+                read(room_path) == room_source,
+            "Whole-source native fmt includes semantic default stripping in check mode: " +
+                whole_strip.dump().substr(0, 600));
     const auto check = command({{"action", "fmt-strip-defaults"},
                                 {"projectRoot", root},
                                 {"path", physical},
@@ -221,6 +250,20 @@ void certify(const std::filesystem::path& source)
                                                      "fnv1a:65a40d0410f846f876a25a3adf231834",
             "Native named Message semantic fingerprints match TypeScript tracking identity: " +
                 inspect_target.dump());
+    const Json managed_ids = Json::array(
+        {"9a53c6c6-c7ce-5c62-907d-7d6c124e7456", "b97bfd6f-e54d-5a4b-9c0f-5b157f56b1bf"});
+    const auto managed = command({{"action", "localization-targets"},
+                                  {"projectRoot", root},
+                                  {"operation", "inspect"},
+                                  {"locale", "fr"},
+                                  {"messageIds", managed_ids}});
+    require(managed.value("ok", false) &&
+                managed.at("fingerprints").at("9a53c6c6-c7ce-5c62-907d-7d6c124e7456") ==
+                    "fnv1a:37806bfd126ea9297f3c6657a962f44d" &&
+                managed.at("fingerprints").at("b97bfd6f-e54d-5a4b-9c0f-5b157f56b1bf") ==
+                    "fnv1a:0c1d0b3250f54a2e90d523bc96000de2",
+            "Managed Lua and RML localization fingerprints match the installed CLI views: " +
+                managed.dump().substr(0, 500));
 
     const auto locale_before = read(locale_file);
     const auto review =
@@ -244,6 +287,32 @@ void certify(const std::filesystem::path& source)
     const auto after_review = read(locale_file);
     require(stale_accept.at("ok") == false && read(locale_file) == after_review,
             "Localization review/accept transaction rejects stale source revisions.");
+
+    const std::string active_text_message = "25700000-0000-4000-8000-000000000099";
+    {
+        const auto named_path = fixture.root / "i18n/messages.yaml";
+        auto named = read(named_path);
+        const auto marker = named.find("structuredMessageIds:");
+        require(marker != std::string::npos, "Named Message fixture has its final tracking root.");
+        named.insert(marker, "  " + active_text_message +
+                                 ":\n"
+                                 "    key: lab.active-text-fingerprint\n"
+                                 "    kind: named\n"
+                                 "    source: 'Visit [[Bridge|a b]] and [o=door]!'\n");
+        std::ofstream out(named_path, std::ios::binary | std::ios::trunc);
+        out << named;
+    }
+    const auto active_text = command({{"action", "localization-targets"},
+                                      {"projectRoot", root},
+                                      {"operation", "inspect"},
+                                      {"locale", "ja"},
+                                      {"messageIds", Json::array({active_text_message})}});
+    require(active_text.value("ok", false) &&
+                active_text.at("fingerprints").at(active_text_message) ==
+                    "fnv1a:46aa084a16e962163b654bc0d4a6297a",
+            "Native named-Message fingerprint retains ActiveText object identity, shorthands "
+            "and cue order: " +
+                active_text.dump().substr(0, 430));
 
     std::filesystem::create_directories(fixture.root / "workflows/.git");
     std::filesystem::create_directories(fixture.root / "workflows/.noveltea");
@@ -353,6 +422,110 @@ void certify(const std::filesystem::path& source)
     require(repeated_sync.value("ok", false) && repeated_sync.at("changed") == false &&
                 repeated_sync.at("preservedMessageIds").size() == 10,
             "Reopened tracked source is valid and repeated sync remains stable.");
+
+    // New deterministic Message identities must be applied through native
+    // transactional source editing, not just reported in a dry-run plan.
+    auto removed_scene = read(scene);
+    const auto call_at = removed_scene.find(needle);
+    require(call_at != std::string::npos, "Fixture contains the Lua anchor.");
+    removed_scene.insert(call_at + needle.size(),
+                         "; noveltea.notify(Text.tr('Native reconcile newly added marker'))");
+    {
+        std::ofstream stream(scene, std::ios::binary | std::ios::trunc);
+        stream << removed_scene;
+    }
+    const std::string workspace_revision = "sha256:certification-native-reconciliation";
+    const auto plan_response = command({{"action", "localization-reconcile"},
+                                        {"projectRoot", root},
+                                        {"workspaceRevision", workspace_revision}});
+    require(plan_response.value("ok", false) &&
+                plan_response.at("plan").at("deterministicChanged") == true &&
+                plan_response.at("plan").at("groups").empty(),
+            "Native reconciliation identifies a deterministic new managed Message: " +
+                plan_response.dump().substr(0, 600));
+    const auto plan = plan_response.at("plan");
+    Json preconditions = Json::object();
+    for (const auto* target : {"i18n/tracking.yaml", "i18n/orphans.yaml", "i18n/locales/fr.yaml",
+                               "i18n/locales/ja.yaml", "i18n/locales/en-GB.yaml"}) {
+        if (std::filesystem::is_regular_file(fixture.root / target))
+            preconditions[target] =
+                noveltea::authoring::exact_source_revision(read(fixture.root / target));
+    }
+    const auto apply_input = Json{{"action", "localization-reconcile"},
+                                  {"projectRoot", root},
+                                  {"dryRun", false},
+                                  {"workspaceRevision", workspace_revision},
+                                  {"expectedWorkspaceRevision", workspace_revision},
+                                  {"expectedFingerprint", plan.at("expectedFingerprint")},
+                                  {"resolutions", Json::object()},
+                                  {"diskPreconditions", preconditions}};
+    auto stale_input = apply_input;
+    stale_input["diskPreconditions"]["i18n/tracking.yaml"] = "sha256:stale";
+    const auto pre_apply_tracking = read(tracking);
+    require(!command(stale_input).value("ok", false) && read(tracking) == pre_apply_tracking,
+            "Reconciliation cannot commit with an outdated physical tracking revision.");
+    const auto applied = command(apply_input);
+    require(applied.value("ok", false) &&
+                applied.at("writes") == Json::array({"i18n/tracking.yaml"}) &&
+                read(scene) == removed_scene,
+            "Native reconciliation persists deterministic Message tracking: " +
+                applied.dump().substr(0, 700));
+    const auto repeated_plan = command({{"action", "localization-reconcile"},
+                                        {"projectRoot", root},
+                                        {"workspaceRevision", workspace_revision}});
+    require(repeated_plan.value("ok", false) &&
+                repeated_plan.at("plan").at("deterministicChanged") == false,
+            "Repeated reconciliation leaves unchanged local Message identity stable.");
+    for (const auto& family : {"variables", "rooms", "materials", "layouts"}) {
+        const auto id = std::string("native-cli-created-") + family;
+        const auto path = fixture.root / "records" / family /
+                          (family == std::string("layouts") ? id + "/layout.yaml" : id + ".yaml");
+        const Json request{
+            {"action", "entity-create"}, {"projectRoot", root}, {"collection", family}, {"id", id}};
+        const auto dry = command(request);
+        require(dry.value("ok", false) && !std::filesystem::exists(path),
+                "Native entity create dry-run does not materialize the new source.");
+        auto committing = request;
+        committing["dryRun"] = false;
+        const auto created = command(committing);
+        require(created.value("ok", false) && std::filesystem::is_regular_file(path) &&
+                    created.at("writes").size() == (family == std::string("layouts") ? 4u : 1u),
+                "Native entity create commits its generated source transaction: " + created.dump());
+        require(!command(committing).value("ok", false),
+                "Native entity create rejects duplicate physical owner paths.");
+        const auto inspected = command({{"action", "entity-inspect"},
+                                        {"projectRoot", root},
+                                        {"collection", family},
+                                        {"id", id}});
+        require(inspected.value("ok", false) && inspected.at("fields").at("record").at("id") == id,
+                "New record must reopen under the native schema validator: " +
+                    inspected.dump().substr(0, 350));
+        const auto renamed_id = id + "-renamed";
+        const auto renamed_path =
+            fixture.root / "records" / family /
+            (family == std::string("layouts") ? renamed_id + "/layout.yaml" : renamed_id + ".yaml");
+        Json renaming{{"action", "entity-rename"},
+                      {"projectRoot", root},
+                      {"collection", family},
+                      {"id", id},
+                      {"toId", renamed_id},
+                      {"dryRun", false},
+                      {"sourceRevision", noveltea::authoring::exact_source_revision(read(path))}};
+        const auto renamed = command(renaming);
+        require(renamed.value("ok", false) && !std::filesystem::exists(path) &&
+                    std::filesystem::is_regular_file(renamed_path),
+                "Native reference-free identity rename is an atomic transaction: " +
+                    renamed.dump().substr(0, 500));
+        Json deleting{{"action", "entity-delete"}, {"projectRoot", root},
+                      {"collection", family},      {"id", renamed_id},
+                      {"dryRun", false},           {"sourceRevision", "sha256:stale"}};
+        require(!command(deleting).value("ok", false) &&
+                    std::filesystem::is_regular_file(renamed_path),
+                "Native structural deletion rejects a stale source revision.");
+        deleting["sourceRevision"] = noveltea::authoring::exact_source_revision(read(renamed_path));
+        require(command(deleting).value("ok", false) && !std::filesystem::exists(renamed_path),
+                "Native reference-free deletion commits atomically.");
+    }
 }
 } // namespace
 

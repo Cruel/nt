@@ -1054,6 +1054,57 @@ async function runNovelTeaScriptcIslandScoped(
         '\n';
     }
     if (
+      family === 'entity' &&
+      ['create', 'rename', 'delete'].includes(operation) &&
+      bootstrap.globals.command.includes('--dry-run') &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string' &&
+      bootstrap.globals.command.length >= 4
+    ) {
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: `entity-${operation}`,
+            projectRoot: commandResult.envelope.projectRoot,
+            collection: bootstrap.globals.command[2],
+            id: bootstrap.globals.command[3],
+            ...(operation === 'rename' ? { toId: bootstrap.globals.command[4] } : {}),
+            dryRun: true,
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; sourcePath?: string; rewrittenSources?: string[] };
+      validationProfileText +=
+        '[native-cli-entity-edit] ' +
+        JSON.stringify({ native, operation, oracle: commandResult.envelope }) +
+        '\n';
+    }
+    if (
+      bootstrap.globals.command[0] === 'fmt' &&
+      bootstrap.globals.command.includes('--check') &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string'
+    ) {
+      const requestedPath = bootstrap.globals.command[1];
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'fmt',
+            projectRoot: commandResult.envelope.projectRoot,
+            ...(requestedPath && !requestedPath.startsWith('--') ? { path: requestedPath } : {}),
+            check: true,
+            stripDefaults: bootstrap.globals.command.includes('--strip-defaults'),
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; changed?: boolean; files?: string[] };
+      validationProfileText += '[native-cli-fmt] ' + JSON.stringify({ native }) + '\n';
+    }
+    if (
       family === 'localization' &&
       operation === 'sync' &&
       bootstrap.globals.command.includes('--dry-run') &&
@@ -1086,6 +1137,32 @@ async function runNovelTeaScriptcIslandScoped(
           },
         }) +
         '\n';
+    }
+    if (
+      family === 'localization' &&
+      operation === 'reconcile' &&
+      !bootstrap.globals.command.includes('--apply') &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string' &&
+      typeof commandResult.envelope.plan === 'object' &&
+      commandResult.envelope.plan !== null
+    ) {
+      const oracle = commandResult.envelope.plan as { expectedWorkspaceRevision: string };
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'localization-reconcile',
+            projectRoot: commandResult.envelope.projectRoot,
+            workspaceRevision: oracle.expectedWorkspaceRevision,
+            dryRun: true,
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; plan?: unknown };
+      validationProfileText +=
+        '[native-cli-reconcile] ' + JSON.stringify({ native, oracle }) + '\n';
     }
     // A reproducible certification-only sibling bundle is compared against
     // the public exporter in the installed-headless integration fixture.
