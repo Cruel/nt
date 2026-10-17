@@ -1015,6 +1015,44 @@ async function runNovelTeaScriptcIslandScoped(
         }) +
         '\n';
     }
+    // #501: the existing daemon's CLI result remains the production oracle.
+    // Observe native record/provenance semantics without mutating disk or
+    // introducing a second authoring command dispatcher for users.
+    if (
+      family === 'entity' &&
+      operation === 'inspect' &&
+      invocationContext.residentProjectSessionEpoch !== undefined &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string' &&
+      bootstrap.globals.command.length >= 4
+    ) {
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'entity-inspect',
+            projectRoot: commandResult.envelope.projectRoot,
+            collection: bootstrap.globals.command[2],
+            id: bootstrap.globals.command[3],
+            provenance: bootstrap.globals.command.includes('--provenance'),
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; fields?: unknown };
+      validationProfileText +=
+        '[native-cli-inspect] ' +
+        JSON.stringify({
+          native,
+          oracle: {
+            success: commandResult.envelope.success,
+            exitCode: commandResult.exitCode,
+            record: commandResult.envelope.record,
+            provenance: commandResult.envelope.provenance,
+          },
+        }) +
+        '\n';
+    }
     trace('application invocation completed');
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)

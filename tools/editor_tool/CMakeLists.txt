@@ -46,6 +46,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_daemon_broker.cpp
     tooling_daemon_broker.hpp
     tooling_native_project_validation.cpp
+    tooling_native_project_commands.cpp
     tooling_project_authority.cpp
     tooling_project_authority.hpp
     tooling_native.cpp
@@ -153,3 +154,10 @@ target_compile_definitions(noveltea-tooling-bridge PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)
+add_executable(noveltea-cli-native-certify EXCLUDE_FROM_ALL tooling_native_project_commands_certify.cpp)
+target_link_libraries(noveltea-cli-native-certify PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea-cli-native-certify PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+if(BUILD_TESTING)
+    add_test(NAME native_authoring_cli_commands
+        COMMAND noveltea-cli-native-certify "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+endif()
