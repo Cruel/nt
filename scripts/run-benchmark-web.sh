@@ -68,6 +68,10 @@ const keys = {
   "--ui-gradients":"uiGradients", "--ui-filters":"uiFilters",
   "--ui-masks":"uiMasks", "--ui-nested-layers":"uiNestedLayers",
   "--texture-size":"textureSize", "--coverage":"coverage",
+  "--native-quads":"nativeQuads", "--native-glyphs":"nativeGlyphs",
+  "--native-texture-size":"nativeTextureSize", "--shader-tint":"shaderTint",
+  "--shader-scope":"shaderScope", "--cpu-work-units":"cpuWorkUnits",
+  "--asset-cache":"assetCache",
   "--composition-path":"compositionPath", "--composite-passes":"compositePasses",
   "--target-scale":"targetScale", "--msaa-samples":"msaaSamples",
   "--capacity-dimension":"capacityDimension", "--capacity-target":"capacityTarget",
@@ -80,7 +84,8 @@ const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",
   "--native-resolution":"nativeResolution",
   "--vsync":"vsync", "--raw-samples":"rawSamples",
   "--no-transparent-overlay":"noTransparentOverlay",
-  "--dashboard-smoke":"dashboardSmoke", "--quick-suite":"quickSuite"};
+  "--dashboard-smoke":"dashboardSmoke", "--inspection-smoke":"inspectionSmoke",
+  "--quick-suite":"quickSuite"};
 const args = process.argv.slice(1);
 for (let i=0; i<args.length; ++i) {
   const key = args[i];

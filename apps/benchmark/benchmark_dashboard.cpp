@@ -339,6 +339,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
 {
     if (!initialized_)
         return DashboardAction::Exit;
+    if (inspection_only_ && !supports_inspection(options.scenario))
+        inspection_only_ = false;
 #if defined(__EMSCRIPTEN__)
     for (int slot = 0; slot != 2; ++slot) {
         char* selected = reinterpret_cast<char*>(EM_ASM_PTR(
@@ -389,24 +391,25 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         ImGui::TextDisabled("(dashboard and inspection frame excluded from measurement)");
         ImGui::Separator();
         ImGui::Text("Selected: %s", options.scenario.c_str());
-        ImGui::TextDisabled("Full-scene inspection shows the selected workload (F9 saves PNG).");
-        ImGui::Spacing();
-
-        if (options.scenario != "raw-bgfx-empty" &&
-            options.scenario != "integrated-rmlui-controlled" &&
-            options.scenario != "integrated-rmlui-production" &&
-            options.scenario != "engine-empty" && options.scenario != "engine-compiled-empty" &&
-            options.scenario != "engine-compiled-menu" &&
-            options.scenario != "engine-feature-lab" && !is_video_scenario(options.scenario)) {
+        if (supports_inspection(options.scenario)) {
+            ImGui::TextDisabled("Live full-scene preview is available; F9 saves an untimed PNG.");
             if (ImGui::Button("Inspect full scene"))
                 inspection_only_ = true;
+        } else if (supports_engine_inspection(options.scenario)) {
+            ImGui::TextDisabled("Use untimed PNG capture to inspect the production renderer.");
+        } else {
+            ImGui::TextDisabled("Live preview and screenshot are unavailable for this workload.");
         }
+        ImGui::Spacing();
 
         if (supports_inspection(options.scenario)) {
             if (ImGui::Button("Save inspection PNG (untimed)"))
                 action = DashboardAction::Capture;
         } else if (supports_engine_inspection(options.scenario)) {
-            if (ImGui::Button("Capture Engine reference PNG (untimed)"))
+            if (ImGui::Button(is_native_2d_scenario(options.scenario) ||
+                                      is_shader_scenario(options.scenario)
+                                  ? "Capture Native Renderer PNG (untimed)"
+                                  : "Capture Engine reference PNG (untimed)"))
                 action = DashboardAction::CaptureEngine;
         } else {
             ImGui::TextDisabled(
@@ -451,7 +454,18 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                                                   "engine-feature-lab",
                                                   "video-decode",
                                                   "video-upload",
-                                                  "video-present"}) {
+                                                  "video-present",
+                                                  "native-2d-geometry",
+                                                  "native-2d-text-static",
+                                                  "native-2d-text-dynamic",
+                                                  "native-shader-material",
+                                                  "native-postprocess",
+                                                  "cpu-lua",
+                                                  "cpu-runtime-session",
+                                                  "cpu-flow-prediction",
+                                                  "asset-source-read",
+                                                  "asset-project-prepare",
+                                                  "asset-texture-realize"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options = reference_scenario_options(options, candidate);
                             // Preserve the explicitly chosen optional package across scenario
@@ -641,6 +655,73 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.texture_size = 256;
                         options.coverage = 1.0;
                     }
+                }
+                if (is_native_2d_scenario(options.scenario) ||
+                    is_shader_scenario(options.scenario)) {
+                    int count = static_cast<int>(options.native_quads);
+                    if ((options.scenario == "native-2d-geometry" ||
+                         is_shader_scenario(options.scenario)) &&
+                        ImGui::SliderInt("Native geometry quads", &count, 1, 2048))
+                        options.native_quads = static_cast<uint32_t>(count);
+                    if (options.scenario == "native-2d-text-static" ||
+                        options.scenario == "native-2d-text-dynamic") {
+                        count = static_cast<int>(options.native_glyphs);
+                        if (ImGui::SliderInt("Shaped glyphs", &count, 1, 4096))
+                            options.native_glyphs = static_cast<uint32_t>(count);
+                    } else if (ImGui::BeginCombo(
+                                   "Native texture edge",
+                                   std::to_string(options.native_texture_size).c_str())) {
+                        for (uint32_t edge : {0u, 64u, 128u, 256u, 512u, 1024u})
+                            if (ImGui::Selectable(std::to_string(edge).c_str(),
+                                                  options.native_texture_size == edge))
+                                options.native_texture_size = edge;
+                        ImGui::EndCombo();
+                    }
+                    if (options.scenario == "native-postprocess") {
+                        if (ImGui::BeginCombo("Production composition",
+                                              options.composition_path.c_str())) {
+                            for (const char* path : {"direct", "offscreen"})
+                                if (ImGui::Selectable(path, options.composition_path == path)) {
+                                    options.composition_path = path;
+                                    options.composite_passes =
+                                        options.composition_path == "offscreen" ? 1u : 0u;
+                                    options.shader_tint = 1.0;
+                                }
+                            ImGui::EndCombo();
+                        }
+                        if (options.composition_path == "offscreen") {
+                            count = static_cast<int>(options.composite_passes);
+                            if (ImGui::SliderInt("Production postprocess passes", &count, 1, 4))
+                                options.composite_passes = static_cast<uint32_t>(count);
+                            float tint = static_cast<float>(options.shader_tint);
+                            if (ImGui::SliderFloat("Postprocess tint", &tint, 0.0f, 1.0f))
+                                options.shader_tint = tint;
+                            if (ImGui::BeginCombo("Postprocess scope",
+                                                  options.shader_scope.c_str())) {
+                                for (const char* scope : {"world", "full-game-viewport"})
+                                    if (ImGui::Selectable(scope, options.shader_scope == scope))
+                                        options.shader_scope = scope;
+                                ImGui::EndCombo();
+                            }
+                        }
+                    }
+                    ImGui::TextWrapped("Production Renderer gets exclusive SDL/bgfx ownership "
+                                       "during measurement; this dashboard is suspended.");
+                }
+                if (is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario)) {
+                    int count = static_cast<int>(options.cpu_work_units);
+                    if (ImGui::SliderInt("CPU operations per batch", &count, 1,
+                                         is_asset_scenario(options.scenario) ? 64 : 4096))
+                        options.cpu_work_units = static_cast<uint32_t>(count);
+                    if (is_asset_scenario(options.scenario) &&
+                        ImGui::BeginCombo("Asset manager cache", options.asset_cache.c_str())) {
+                        for (const char* cache : {"warm", "cold"})
+                            if (ImGui::Selectable(cache, options.asset_cache == cache))
+                                options.asset_cache = cache;
+                        ImGui::EndCombo();
+                    }
+                    ImGui::TextWrapped("CPU-only workloads run without a graphics host; "
+                                       "GPU-backed asset realization acquires its own renderer.");
                 }
                 ImGui::TextDisabled("Engine-owned scenarios use the production Engine and a "
                                     "separate graphics host on all platforms.");
@@ -930,14 +1011,23 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     for (const auto& scenario : last_run->result.scenarios) {
                         ImGui::Separator();
                         ImGui::Text("%s: %s", scenario.scenario.c_str(), scenario.outcome.c_str());
-                        ImGui::Text("%llu measured host callbacks in %.3f s",
+                        const bool work_batches = is_cpu_scenario(scenario.scenario) ||
+                                                  is_asset_scenario(scenario.scenario) ||
+                                                  scenario.scenario == "video-decode";
+                        ImGui::Text("%llu measured %s in %.3f s",
                                     static_cast<unsigned long long>(scenario.measured_frames),
+                                    work_batches ? "work batches" : "frame-loop iterations",
                                     scenario.measured_wall_seconds);
-                        if (scenario.measured_wall_seconds > 0)
-                            ImGui::Text(
-                                "CPU frame-loop cadence: %.2f Hz (not confirmed display FPS)",
-                                static_cast<double>(scenario.measured_frames) /
-                                    scenario.measured_wall_seconds);
+                        if (scenario.measured_wall_seconds > 0) {
+                            const double rate = static_cast<double>(scenario.measured_frames) /
+                                                scenario.measured_wall_seconds;
+                            if (work_batches)
+                                ImGui::Text("Work-batch throughput: %.2f batches/s (not FPS)",
+                                            rate);
+                            else
+                                ImGui::Text("CPU frame-loop cadence: %.2f Hz (not display FPS)",
+                                            rate);
+                        }
                         if (scenario.repeated) {
                             const auto& repeated = *scenario.repeated;
                             ImGui::SeparatorText("Repeated-trial reliability");

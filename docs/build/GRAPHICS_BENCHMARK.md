@@ -153,10 +153,16 @@ CPU-decoded-frame interface in this production backend. Browser-side
 decode-only latency must not be invented by measuring unrelated APIs.
 
 The browser functional regression `node scripts/benchmark-video-web-smoke.mjs
-build/web-benchmark-debug/apps/benchmark` checks Chromium and Firefox real
-Web media upload/presentation (no performance thresholds). It requires an
-available WebGL2 context and a browser supporting the fixture codec;
-unsupported hosts fail with diagnostics rather than recording fake performance.
+build/web-benchmark-debug/apps/benchmark` checks real Web media
+upload/presentation (no performance thresholds). On a software-GL/Xvfb host,
+use `NOVELTEA_BENCHMARK_BROWSER=Firefox NOVELTEA_BENCHMARK_FIREFOX_HEADFUL=1`
+under `xvfb-run -a env` for Firefox instead of headless Firefox, which may
+lack a working WebGL2 context. Unsupported hosts fail rather than recording
+fake performance. On native platforms, pending video asset completions,
+residency leases, and GPU allocations must be retired **before** shutting
+down bgfx: late occurrence framebuffers contain live bgfx handles. The
+video-dashboard and video-present smoke tests exercise this teardown path;
+ASan/UBSan repeated runs are recommended when changing video lifetime rules.
 
 
 
@@ -223,10 +229,31 @@ regression compares production Material rendering with the original geometry
 reference, tests neutral world/full-game passes for pixel equivalence, and
 requires real output changes with tint and higher pass count. This visual
 check runs using software OpenGL/Xvfb and does **not** represent a hardware
-performance comparison. As with other native-only benchmark workloads, Web
-currently rejects this scenario because the Web dashboard owns the bgfx
-context; Android uses the native Platform/Renderer host and staged system
-shader assets.
+performance comparison. Linux, Android, and Web run the same production
+Renderer-owned material/postprocess workloads. Web transfers exclusive
+SDL/bgfx ownership from the benchmark dashboard to the production Renderer
+within the existing requestAnimationFrame-driven runner, then restores the
+untimed dashboard after completion. The shader variant is `essl-300`; an
+unsupported browser/GPU capability must fail explicitly rather than silently
+changing reference visuals.
+
+Run `NOVELTEA_BENCHMARK_BROWSER=Chromium node
+scripts/benchmark-native-web-smoke.mjs build/web-benchmark-debug/apps/benchmark`
+for Chromium, and for Firefox on the software-GL/Xvfb test host run:
+
+```sh
+xvfb-run -a env NOVELTEA_BENCHMARK_BROWSER=Firefox \
+  NOVELTEA_BENCHMARK_FIREFOX_HEADFUL=1 \
+  node scripts/benchmark-native-web-smoke.mjs build/web-benchmark-debug/apps/benchmark
+```
+
+The functional regression exercises repeated native 2D/text/material/postprocessing
+workloads, dashboard ownership transitions, WebGL context loss with discarded
+samples and fresh warmup, and an untimed production Renderer PNG download. A
+browser without WebGL2 must fail rather than fabricate a benchmark result.
+The `web-benchmark` GitHub Actions job builds the optimized WebGL2 benchmark
+and runs the raw/Engine, native 2D/shader, asset/CPU, and video browser
+regressions in Chromium and Firefox (headful Firefox under Xvfb).
 
 ## Native 2D renderer, geometry and text (#445)
 
@@ -276,13 +303,16 @@ during timing. Linux CTest covers Clean/Diagnostic workloads, independent
 texture/glyph scaling, and these actual readback paths under Xvfb (software
 OpenGL smoke is **not** a hardware performance result).
 
-These scenarios currently require unattended native benchmark runs:
-the dashboard, Quick Suite, and automatic capacity search are not wired to
-this additional owning renderer host. On Web, separate Renderer initialization
-would conflict with the dashboard-owned WebGL/bgfx host; the CLI explicitly
-rejects native 2D there until a Web-safe host handoff is implemented. Android
-uses its packaged `system:/` assets and production Platform/Renderer
-lifecycle. The benchmark app must compile with `NOVELTEA_PLATFORM_ANDROID`
+These scenarios support unattended runs and interactive selection in the
+benchmark dashboard on Linux, Android, and Web. The dashboard releases its
+SDL/bgfx ownership before Native2DScenario acquires the production Renderer,
+then restores ImGui only after complete teardown. The Web runner drives each
+measured frame on requestAnimationFrame, discards interrupted samples, and
+retries after a fresh warmup; no blocking presentation loop is used. Quick
+Suite and automatic capacity search remain restricted to their documented
+reference scenarios. Untimed native screenshots are PNG downloads on Web and
+local ignored `screenshots/` files on Linux/Android. Android uses its packaged
+`system:/` assets and production Platform/Renderer lifecycle. The benchmark app must compile with `NOVELTEA_PLATFORM_ANDROID`
 just like the Engine: `Renderer` embeds an Android-only native-window field.
 Without that definition, the mismatched object layout causes an actual SIGSEGV
 in `Renderer::submit_quad` on ARM64. Native startup uses the same
@@ -353,9 +383,13 @@ non-authoritative even when no GPU diagnostics are applicable. The default
 real-time clock policy controls the runner wall clock, **not** the fixed
 simulation-time input used by the headless Runtime Session.
 
-The headless CPU runs do not support the interactive dashboard (`--ui`),
-graphics-only settings, capacity-search modes, Quick Suite, or `fixed-step`
-clock policy. Unsupported combinations fail validation with a reason instead
+CPU runs also support the interactive dashboard (`--ui`): its ImGui/bgfx host
+is shut down before CPU preparation, and recreated after the headless work
+batches complete. Only raw bgfx and standalone RmlUi fixtures support a live
+full-scene inspection preview. Engine-owned and native-renderer workloads
+provide explicit untimed capture where supported; CPU and asset workloads do
+not offer a misleading blank live preview. They do not support graphics-only settings, capacity-search
+modes, Quick Suite, or `fixed-step` clock policy. Unsupported combinations fail validation with a reason instead
 of silently presenting CPU throughput as GPU capacity. Linux CTest smoke cases
 exercise each CPU scenario using an unavailable SDL video driver, two trials,
 and Diagnostic mode. Feature Lab needs no authored UI coverage here: these
@@ -1127,10 +1161,10 @@ Launch with no CLI arguments to open the standalone SDL3/bgfx Dear ImGui
 dashboard, or use `--ui` with CLI run settings or a configuration containing
 `"no_ui": false`. The dashboard has Scenarios, Run Settings, Results,
 and Advanced tabs. Preview shows the selected reference content without contributing
-to measurements; Clean and Diagnostic runs are separate actions. The scenario
-selector includes `raw-bgfx-empty`, `raw-bgfx-geometry`,
-`standalone-rmlui-simple`, `integrated-rmlui-controlled`,
-`integrated-rmlui-production`, and `engine-empty`; other workloads are separate tickets.
+to measurements; Clean and Diagnostic runs are separate actions. The scenario selector now includes raw bgfx, standalone/integrated RmlUi,
+Engine, Compiled Project and video, native 2D/text/shader/postprocessing, and
+CPU/asset operation workloads. All selected scenarios remove ImGui before
+sampling; CPU-only scenarios also release the graphics host.
 The **Inspect full scene** control hides the large dashboard panel and leaves a small **Return to dashboard** button at the
 top-right, so the fixed reference rectangles can be viewed unobscured.
 Inspection is outside timed sampling.

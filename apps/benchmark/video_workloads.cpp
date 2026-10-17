@@ -495,6 +495,11 @@ bool VideoScenario::cleanup(std::string& reason)
 {
     reason.clear();
     ready_ = false;
+    // Pending native video completions may release SourceState shaders and
+    // occurrence-owned YUV framebuffers. Quiesce them while bgfx is alive;
+    // completing them after renderer_.shutdown() destroys an invalid device.
+    if (executor_)
+        executor_->begin_shutdown();
     stream_.reset();
     sample_.reset();
     pending_seed_.reset();
@@ -503,15 +508,15 @@ bool VideoScenario::cleanup(std::string& reason)
     source_.reset();
 #endif
     assets_.clear_supplemental_leases_on_owner();
-    // Release GPU state while Renderer still owns the original AssetManager.
-    renderer_.shutdown();
-    if (executor_) {
-        executor_->begin_shutdown();
+    if (executor_)
         (void)executor_->dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
-    }
+    // Residency eviction invokes bgfx::destroy for textures, framebuffers,
+    // uniforms and shaders. All leases and manager-owned records must be
+    // released before the renderer destroys the bgfx device.
     assets_ = assets::AssetManager{};
     executor_.reset();
     residency_.reset();
+    renderer_.shutdown();
     platform_.shutdown();
     return true;
 }

@@ -611,9 +611,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
         const auto edge = options.native_texture_size;
         const bool texture_valid =
             edge == 0 || (edge >= 64 && edge <= 1024 && (edge & (edge - 1u)) == 0);
-        if ((!options.no_ui && !options.inspection_smoke) || options.quick_suite ||
-            !options.capacity_dimension.empty() || options.clock_policy != "realtime" ||
-            options.native_quads < 1 || options.native_quads > 2048 || options.native_glyphs < 1 ||
+        if (options.quick_suite || !options.capacity_dimension.empty() ||
+            options.clock_policy != "realtime" || options.native_quads < 1 ||
+            options.native_quads > 2048 || options.native_glyphs < 1 ||
             options.native_glyphs > 4096 || !texture_valid ||
             (shader &&
              (!std::isfinite(options.shader_tint) || options.shader_tint < 0.0 ||
@@ -632,7 +632,7 @@ bool validate_reference_options(const Options& options, std::string& reason)
             (!postprocess && options.shader_scope != "world") ||
             (!geometry && (options.native_quads != defaults.native_quads || edge != 0)) ||
             (geometry && options.native_glyphs != defaults.native_glyphs)) {
-            reason = "native renderer workloads require --no-ui, realtime, quads 1..2048 and "
+            reason = "native renderer workloads require realtime, quads 1..2048 and "
                      "texture 0 or power-of-two 64..1024; native-postprocess direct requires "
                      "zero passes, offscreen requires 1..4; Engine postprocess uses full-size "
                      "non-MSAA targets; no capacity search or Quick Suite";
@@ -658,9 +658,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
         if (options.cpu_work_units < 1 || options.cpu_work_units > 64 ||
             (options.asset_cache != "cold" && options.asset_cache != "warm") ||
             options.clock_policy != "realtime" || !options.feature_lab_package.empty() ||
-            !options.no_ui || options.quick_suite || !options.capacity_dimension.empty() ||
-            options.vsync || options.native_resolution) {
-            reason = "asset workloads require --no-ui, 1..64 work units, cold/warm cache, "
+            options.quick_suite || !options.capacity_dimension.empty() || options.vsync ||
+            options.native_resolution) {
+            reason = "asset workloads require 1..64 work units, cold/warm cache, "
                      "realtime clock and no capacity search or VSync";
             return false;
         }
@@ -671,9 +671,9 @@ bool validate_reference_options(const Options& options, std::string& reason)
     if (is_cpu_scenario(options.scenario)) {
         if (options.cpu_work_units < 1 || options.cpu_work_units > 4096 ||
             options.clock_policy != "realtime" || !options.feature_lab_package.empty() ||
-            !options.no_ui || options.quick_suite || !options.capacity_dimension.empty() ||
-            options.vsync || options.native_resolution) {
-            reason = "CPU scenarios require --no-ui, realtime clock, no capacity search, "
+            options.quick_suite || !options.capacity_dimension.empty() || options.vsync ||
+            options.native_resolution) {
+            reason = "CPU scenarios require realtime clock, no capacity search, "
                      "and no graphics-only settings";
             return false;
         }

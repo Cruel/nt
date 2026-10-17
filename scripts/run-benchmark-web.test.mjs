@@ -72,6 +72,26 @@ test('Web launcher transports exact canonical JSON and rejects mixed run flags',
   })) {
     assert.equal(effectsParams.get(key), expected, key);
   }
+  const native = run('--scenario', 'native-postprocess', '--native-quads', '96',
+    '--native-texture-size', '128', '--shader-scope', 'full-game-viewport',
+    '--shader-tint', '0.8', '--composition-path', 'offscreen',
+    '--composite-passes', '2', '--inspection-smoke');
+  assert.equal(native.status, 0, native.stderr);
+  const nativeParams = new URL(native.stdout.match(/ at (\S+)/)[1]).searchParams;
+  for (const [key, expected] of Object.entries({
+    scenario: 'native-postprocess', nativeQuads: '96', nativeTextureSize: '128',
+    shaderScope: 'full-game-viewport', shaderTint: '0.8',
+    compositionPath: 'offscreen', compositePasses: '2', inspectionSmoke: '1'
+  })) assert.equal(nativeParams.get(key), expected, key);
+  const text = run('--scenario', 'native-2d-text-static', '--native-glyphs', '256');
+  assert.equal(text.status, 0, text.stderr);
+  assert.equal(new URL(text.stdout.match(/ at (\S+)/)[1]).searchParams.get('nativeGlyphs'), '256');
+  const asset = run('--scenario', 'asset-project-prepare', '--asset-cache', 'cold',
+    '--cpu-work-units', '7');
+  assert.equal(asset.status, 0, asset.stderr);
+  const assetParams = new URL(asset.stdout.match(/ at (\S+)/)[1]).searchParams;
+  assert.equal(assetParams.get('assetCache'), 'cold');
+  assert.equal(assetParams.get('cpuWorkUnits'), '7');
   const overridden = run('--config', filename, '--output', 'selected.json');
   assert.equal(overridden.status, 0, overridden.stderr);
   assert.equal(new URL(overridden.stdout.match(/ at (\S+)/)[1]).searchParams.get('output'), 'selected.json');

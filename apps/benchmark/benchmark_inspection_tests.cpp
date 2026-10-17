@@ -63,6 +63,18 @@ int main()
     assert(supports_inspection("standalone-rmlui-simple"));
     assert(!supports_inspection("integrated-rmlui-controlled"));
     assert(supports_engine_inspection("integrated-rmlui-controlled"));
+    for (const auto scenario :
+         {"native-2d-geometry", "native-2d-text-static", "native-2d-text-dynamic",
+          "native-shader-material", "native-postprocess"}) {
+        assert(!supports_inspection(scenario));
+        assert(supports_engine_inspection(scenario));
+    }
+    for (const auto scenario :
+         {"cpu-lua", "cpu-runtime-session", "cpu-flow-prediction", "asset-source-read",
+          "asset-project-prepare", "asset-texture-realize"}) {
+        assert(!supports_inspection(scenario));
+        assert(!supports_engine_inspection(scenario));
+    }
     assert(!supports_engine_inspection("raw-bgfx-empty"));
     std::puts("inspection PNG metadata, colors, orientation and unsupported paths OK");
     return 0;

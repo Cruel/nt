@@ -211,7 +211,7 @@ int main()
         !noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options.no_ui = false;
-    if (noveltea::benchmark::validate_reference_options(options, error))
+    if (!noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     if (!noveltea::benchmark::parse_options(11, shader_stack, options, error) ||
         !noveltea::benchmark::validate_reference_options(options, error) ||
@@ -239,7 +239,7 @@ int main()
         !noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options.no_ui = false;
-    if (noveltea::benchmark::validate_reference_options(options, error))
+    if (!noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options.no_ui = true;
     if (!noveltea::benchmark::parse_options(7, asset_cold, options, error) ||
@@ -255,7 +255,7 @@ int main()
         return 1;
     options.cpu_work_units = 4;
     options.no_ui = false;
-    if (noveltea::benchmark::validate_reference_options(options, error))
+    if (!noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     options.no_ui = true;
     options.scenario = "raw-bgfx-empty";

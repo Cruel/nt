@@ -31,7 +31,7 @@ try {
     if (process.env.NOVELTEA_BENCHMARK_BROWSER &&
         process.env.NOVELTEA_BENCHMARK_BROWSER !== name) continue;
     const browser = await engine.launch({
-      headless: true,
+      headless: name !== 'Firefox' || !process.env.NOVELTEA_BENCHMARK_FIREFOX_HEADFUL,
       args: name === 'Chromium'
         ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [],
       ...(name === 'Firefox' ? {

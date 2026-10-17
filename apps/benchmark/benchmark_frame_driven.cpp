@@ -67,6 +67,9 @@ void FrameDrivenSuite::finish_trial()
     const bool cleanup_ok = cleanup_completed_ || scenario_.cleanup(cleanup_error);
     cleanup_completed_ = true;
     if (!cleanup_ok) {
+        // Never begin another trial or acquire a new graphics host after a
+        // failed teardown, including when an interruption was recoverable.
+        terminal_cleanup_failed_ = true;
         if (!reason_.empty())
             reason_ += "; ";
         reason_ += cleanup_error.empty() ? "cleanup failed" : "cleanup failed: " + cleanup_error;
@@ -114,7 +117,7 @@ void FrameDrivenSuite::finish_trial()
     scenario_result_.trials.push_back(std::move(trial_));
     ++trial_index_;
     const uint32_t trial_count = options_.repeats * (options_.alternate ? 3u : 1u);
-    if (!cancelled_ && trial_index_ < trial_count) {
+    if (!cancelled_ && !terminal_cleanup_failed_ && trial_index_ < trial_count) {
         phase_ = Phase::Preparation;
         reason_.clear();
         results_ready_ = false;

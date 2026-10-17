@@ -133,6 +133,7 @@ struct WebBenchmarkApp {
     size_t quick_index = 0;
     std::string feedback;
     bool stopped = false;
+    bool unsafe_renderer_cleanup = false;
     int smoke_cycle = 0;
     uint32_t preview_count = 0;
     double preview_scale = 0;
@@ -153,7 +154,11 @@ struct WebBenchmarkApp {
             return false;
         }
         EM_ASM({ window.NovelTeaBenchmark.ready = true; });
-        if (options.no_ui || options.dashboard_smoke)
+        if (options.inspection_smoke &&
+            (noveltea::benchmark::is_native_2d_scenario(options.scenario) ||
+             noveltea::benchmark::is_shader_scenario(options.scenario)))
+            begin_engine_inspection();
+        else if (options.no_ui || options.dashboard_smoke)
             start(options.quick_suite);
         return true;
     }
@@ -161,7 +166,10 @@ struct WebBenchmarkApp {
     static bool engine_owned(const std::string& id)
     {
         return noveltea::benchmark::is_video_scenario(id) ||
-               id == "asset-texture-realize" || id == "engine-empty" ||
+               noveltea::benchmark::is_native_2d_scenario(id) ||
+               noveltea::benchmark::is_shader_scenario(id) ||
+               noveltea::benchmark::is_cpu_scenario(id) ||
+               noveltea::benchmark::is_asset_scenario(id) || id == "engine-empty" ||
                noveltea::benchmark::is_compiled_project_scenario(id) ||
                id == "integrated-rmlui-controlled" ||
                id == "integrated-rmlui-production" || id == "integrated-rmlui-scaling" ||
@@ -185,7 +193,18 @@ struct WebBenchmarkApp {
         else if (noveltea::benchmark::is_video_scenario(current_options.scenario))
             observed = static_cast<const noveltea::benchmark::VideoScenario&>(*active_scenario)
                            .environment();
-        else if (current_options.scenario == "engine-empty" ||
+        else if (noveltea::benchmark::is_native_2d_scenario(current_options.scenario) ||
+                 noveltea::benchmark::is_shader_scenario(current_options.scenario))
+            observed = static_cast<const noveltea::benchmark::Native2DScenario&>(*active_scenario)
+                           .environment();
+        else if (noveltea::benchmark::is_asset_scenario(current_options.scenario))
+            observed = static_cast<const noveltea::benchmark::AssetScenario&>(*active_scenario)
+                           .environment();
+        else if (noveltea::benchmark::is_cpu_scenario(current_options.scenario)) {
+            observed = {};
+            observed.platform = SDL_GetPlatform();
+            observed.frame_path = "cpu-work-batch-no-presentation";
+        } else if (current_options.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(current_options.scenario))
             observed = static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
                            .environment();
@@ -414,8 +433,18 @@ struct WebBenchmarkApp {
                 }
             }
         }
-        if (frozen.scenario == "asset-texture-realize")
+        if (noveltea::benchmark::is_cpu_scenario(frozen.scenario)) {
+            const auto workload = frozen.scenario == "cpu-lua"
+                                      ? noveltea::benchmark::CpuWorkload::Lua
+                                  : frozen.scenario == "cpu-runtime-session"
+                                      ? noveltea::benchmark::CpuWorkload::RuntimeSession
+                                      : noveltea::benchmark::CpuWorkload::FlowPrediction;
+            active_scenario = std::make_unique<noveltea::benchmark::CpuScenario>(workload);
+        } else if (noveltea::benchmark::is_asset_scenario(frozen.scenario))
             active_scenario = std::make_unique<noveltea::benchmark::AssetScenario>(frozen.scenario);
+        else if (noveltea::benchmark::is_native_2d_scenario(frozen.scenario) ||
+                 noveltea::benchmark::is_shader_scenario(frozen.scenario))
+            active_scenario = std::make_unique<noveltea::benchmark::Native2DScenario>(frozen.scenario);
         else if (noveltea::benchmark::is_video_scenario(frozen.scenario))
             active_scenario = std::make_unique<noveltea::benchmark::VideoScenario>(frozen.scenario);
         else if (frozen.scenario == "engine-empty" ||
@@ -460,7 +489,9 @@ struct WebBenchmarkApp {
                 }
                 EM_ASM({ window.NovelTeaBenchmark.backgrounded = false; });
                 return noveltea::benchmark::RecoveryState::Ready;
-            });
+            }, noveltea::benchmark::is_cpu_scenario(frozen.scenario) ||
+                   (noveltea::benchmark::is_asset_scenario(frozen.scenario) &&
+                    frozen.scenario != "asset-texture-realize"));
         completed_run.reset();
         feedback.clear();
     }
@@ -468,6 +499,16 @@ struct WebBenchmarkApp {
     void finish(bool graphics_unavailable = false)
     {
         const auto latest = active->result();
+        // A failed Renderer/bgfx shutdown leaves ownership uncertain. Export
+        // the failure, but never destroy the owner or initialize the dashboard.
+        unsafe_renderer_cleanup = std::any_of(
+            latest.scenarios.begin(), latest.scenarios.end(), [](const auto& scenario) {
+                return std::any_of(scenario.trials.begin(), scenario.trials.end(),
+                                   [](const auto& trial) {
+                                       return trial.reason.find("cleanup failed") != std::string::npos;
+                                   });
+            });
+        graphics_unavailable |= unsafe_renderer_cleanup;
         const Environment environment = scenario_environment();
         active.reset();
         if (graphics_unavailable)
@@ -495,6 +536,11 @@ struct WebBenchmarkApp {
             collected_environments = {environment};
         }
         finish_collection(graphics_unavailable);
+        if (unsafe_renderer_cleanup) {
+            stopped = true;
+            std::fprintf(stderr, "[benchmark] renderer cleanup failed; refusing WebGL host reacquisition\n");
+            emscripten_cancel_main_loop();
+        }
     }
 
     void finish_collection(bool graphics_unavailable = false)
@@ -528,11 +574,15 @@ struct WebBenchmarkApp {
         else
             feedback.clear();
         for (const auto& scenario : completed_run->result.scenarios) {
-            std::printf("[benchmark] %s: %s, %llu frames, %.3f s rAF-paced cadence; CPU operation "
-                        "mean %.3f ms\n",
+            const bool batches = noveltea::benchmark::is_cpu_scenario(scenario.scenario) ||
+                                 noveltea::benchmark::is_asset_scenario(scenario.scenario);
+            std::printf("[benchmark] %s: %s, %llu %s, %.3f s %s; CPU operation mean %.3f ms\n",
                         scenario.scenario.c_str(), scenario.outcome.c_str(),
                         static_cast<unsigned long long>(scenario.measured_frames),
-                        scenario.measured_wall_seconds, scenario.cpu_operation.mean_ms);
+                        batches ? "work batches" : "frame-loop iterations",
+                        scenario.measured_wall_seconds,
+                        batches ? "work-batch elapsed (not display FPS)" : "rAF-paced cadence",
+                        scenario.cpu_operation.mean_ms);
             for (const auto& trial : scenario.trials) {
                 if (trial.outcome != "complete")
                     std::fprintf(stderr, "[benchmark] trial %s: %s\n", trial.outcome.c_str(),
@@ -577,6 +627,29 @@ struct WebBenchmarkApp {
         preview_ui.shutdown();
         dashboard.shutdown();
         graphics.shutdown();
+        if (noveltea::benchmark::is_native_2d_scenario(options.scenario) ||
+            noveltea::benchmark::is_shader_scenario(options.scenario)) {
+            noveltea::benchmark::Native2DScenario native(options.scenario);
+            const bool prepared = native.prepare(options, reason);
+            const bool captured = prepared && native.inspect(options, reason);
+            const std::string capture_reason = reason;
+            std::string cleanup_reason;
+            const bool cleaned = native.cleanup(cleanup_reason);
+            if (!cleaned) {
+                feedback = "Native Renderer screenshot cleanup failed: " + cleanup_reason;
+                stopped = true;
+                emscripten_cancel_main_loop();
+                return;
+            }
+            std::string restore_error;
+            if (!graphics.initialize(options, restore_error) ||
+                !dashboard.initialize(graphics.window, options, restore_error))
+                feedback = "Dashboard restoration after native screenshot failed: " + restore_error;
+            else
+                feedback = captured ? "Native Renderer PNG captured outside measurement"
+                                    : "Screenshot failed: " + capture_reason;
+            return;
+        }
         inspecting = std::make_unique<noveltea::benchmark::IntegratedInspection>();
         if (!inspecting->begin(options, reason)) {
             inspecting.reset();
@@ -664,7 +737,11 @@ struct WebBenchmarkApp {
                          return window.NovelTeaBenchmark.backgrounded || document.hidden ? 1 : 0;
                      }))
                 active->interrupt("browser tab backgrounded; requestAnimationFrame throttled");
-            if (active->step())
+            const bool headless_batch =
+                noveltea::benchmark::is_cpu_scenario(current_options.scenario) ||
+                (noveltea::benchmark::is_asset_scenario(current_options.scenario) &&
+                 current_options.scenario != "asset-texture-realize");
+            if (headless_batch ? active->step_bounded_batch() : active->step())
                 finish();
             return;
         }

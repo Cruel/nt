@@ -376,6 +376,21 @@ int main()
                "cleanup failure invalidates otherwise successful measurement"))
         return 1;
 
+    FakeClock unsafe_clock;
+    FakeScenario unsafe(unsafe_clock);
+    unsafe.fail_cleanup = true;
+    FakeScenario never_started(unsafe_clock);
+    Options unsafe_options = options;
+    unsafe_options.repeats = 3;
+    const auto unsafe_suite = run_suite(unsafe_options, {&unsafe, &never_started}, unsafe_clock);
+    if (!check(unsafe_suite.outcome == "failed" && unsafe.prepares == 1 && unsafe.cleanups == 1 &&
+                   never_started.prepares == 0 && unsafe_suite.scenarios.size() == 1 &&
+                   unsafe_suite.scenarios[0].trials.size() == 1 &&
+                   unsafe_suite.scenarios[0].trials[0].reason.find("cleanup failed") !=
+                       std::string::npos,
+               "unsafe renderer cleanup terminates repeats and subsequent scenario owners"))
+        return 1;
+
     FakeClock multiple_failures_clock;
     FakeScenario multiple_failures(multiple_failures_clock);
     multiple_failures.fail_prepare = true;
@@ -383,12 +398,12 @@ int main()
     FakeScenario independent(multiple_failures_clock);
     const auto failed_prepare_cleanup =
         run_suite(fail_options, {&multiple_failures, &independent}, multiple_failures_clock);
-    if (!check(failed_prepare_cleanup.outcome == "partial" &&
+    if (!check(failed_prepare_cleanup.outcome == "failed" &&
                    failed_prepare_cleanup.scenarios[0].trials[0].reason ==
                        "preparation failed; cleanup failed: host shutdown failed" &&
-                   failed_prepare_cleanup.scenarios[1].outcome == "complete" &&
-                   multiple_failures.cleanups == 1 && independent.cleanups == 1,
-               "primary failure retained alongside cleanup failure; suite continues"))
+                   failed_prepare_cleanup.scenarios.size() == 1 &&
+                   multiple_failures.cleanups == 1 && independent.cleanups == 0,
+               "primary failure retained and unsafe cleanup prevents another owner"))
         return 1;
 
     FakeClock no_reason_clock;
