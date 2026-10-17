@@ -5,6 +5,7 @@
 #include "tooling_native_project_localization.hpp"
 #include "tooling_native_project_sync.hpp"
 #include "tooling_native_project_bundle.hpp"
+#include "tooling_native_project_entity.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -188,11 +189,18 @@ Json operate(const Json& request)
 
     if (action == "fmt-strip-defaults")
         return native_project_strip_defaults(request, *session, root);
+    if (action == "fmt")
+        return native_project_format(request, *session, root);
     if (action == "localization-targets")
         return native_project_localization(request, *session, root);
     if (action == "localization-sync")
         return native_project_localization_sync(request, *session, root);
-    if (action == "project-export" || action == "export-preparation")
+    if (action == "localization-reconcile")
+        return native_project_localization_reconcile(request, *session, root);
+    if (action == "entity-create" || action == "entity-rename" || action == "entity-delete")
+        return native_project_entity(request, *session, root);
+    if (action == "project-export" || action == "export-preparation" ||
+        action == "runtime-package-preparation")
         return native_project_bundle(request, session.get(), root);
 
     return failure("Unknown native CLI Project operation.");
@@ -231,8 +239,13 @@ noveltea_tooling_native_project_commands_json(const std::uint8_t* request,
                 action == "project-import" || action == "project-export" ||
                 (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
                 (action == "fmt-strip-defaults" && !boolean_flag("check", true)) ||
+                (action == "fmt" && !boolean_flag("check", true)) ||
                 (action == "localization-targets" && !boolean_flag("dryRun", true)) ||
-                (action == "localization-sync" && !boolean_flag("dryRun", true));
+                (action == "localization-sync" && !boolean_flag("dryRun", true)) ||
+                (action == "localization-reconcile" && !boolean_flag("dryRun", true)) ||
+                ((action == "entity-create" || action == "entity-rename" ||
+                  action == "entity-delete") &&
+                 !boolean_flag("dryRun", true));
             if (mutating && (!response || response_capacity < 8 * 1024 * 1024))
                 serialized = failure("Mutating native Project commands require a preallocated "
                                      "8 MiB response buffer; probing is forbidden.")

@@ -50,6 +50,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native_project_fmt.cpp
     tooling_native_project_localization.cpp
     tooling_native_project_sync.cpp
+    tooling_native_project_entity.cpp
     tooling_native_project_bundle.cpp
     tooling_project_authority.cpp
     tooling_project_authority.hpp

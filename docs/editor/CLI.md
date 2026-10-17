@@ -52,13 +52,15 @@ for mutating operations; a two-pass response-size probe must not execute a
 transaction or write an archive. The installed `--no-daemon` capture path
 reserves this buffer and invokes the command exactly once.
 
-The #501 certification adapter now additionally exercises a **fail-closed subset**
-of `fmt --strip-defaults` for single canonical record YAML sources, comparing the
-effective record before and after each safe unannotated omission and committing
-only after an exact physical source-revision check. Native named-Message
-`localization accept`/`review` certification uses source fingerprints and native
-multi-source-safe YAML transactions; unsupported ActiveText cue patterns are
-rejected rather than guessed. The native editable Project `.ntproject` exporter
+The #501 native adapter now certifies whole-source `fmt` and
+`fmt --strip-defaults` against canonical YAML sources. Its emitter must
+preserve comments and scalar semantics; sparse default omissions additionally
+require identical effective native record validation before a revision-checked
+atomic whole-source transaction. Native Message
+`localization accept`/`review` certification uses source fingerprints for
+named Messages and tracked managed Lua/RML Messages, with native
+multi-source-safe YAML transactions. ActiveText object cues and shorthand
+participate in the named Message fingerprint contract. The native editable Project `.ntproject` exporter
 reconstructs all validated disk record contributors and uses the existing native
 ZIP archiver; the importer verifies ZIP headers, CRC, manifest hashes, canonical
 inventory, physical paths and workspace admission before activating the new
@@ -75,11 +77,24 @@ authored inline Lua Message. The CLI `--dry-run` result is compared field for
 field to the installed-headless implementation in the same daemon's optional
 `[native-cli-localization-sync]` certification observation.
 
-The native adapter still does not replace the complete `fmt` surface,
-localization reconciliation planning/apply, all entity structural operations,
-or compiled runtime package publication. These must reach semantic parity before
-the coordinated native cutover. No production caller switches to a partial
-native implementation.
+The native adapter also exposes localization reconciliation planning and
+decision-checked application with deterministic source fingerprints, stale-plan
+and physical source-revision guards, and all affected locale/tracking/orphan
+owners committed together. Schema-generated entity defaults produce native
+create transactions; rename/delete operate on reference-free owners or
+atomically rewrite known typed references, rejecting unclassified potential
+references rather than silently producing a dangling graph. Grouped Layout
+sources commit `layout.yaml` and their RML/RCSS/Lua companions together.
+`runtime-package-preparation` verifies complete disk-owned record contributors,
+the selected runtime profile, and content-revision-pinned inputs. Final compiled
+artifact creation, shader lowering, and ZIP publication still use the existing
+Runtime Package pipeline and native package exporter, not a separate partial
+implementation.
+
+Full parity remains a cutover gate: rich free-form/localization workflow
+presentation and some semantic reference-repair/forced-delete cases still
+require the established CLI oracle. Until #474's coordinated cutover, no
+production CLI command delegates partially to this certification adapter.
 
 ## Private media-tool diagnosis
 

@@ -1,5 +1,6 @@
 #include "yaml_transaction.hpp"
 
+#include "contracts.hpp"
 #include "source_authority.hpp"
 
 #include <jsoncons/json.hpp>
@@ -12,6 +13,7 @@
 #include <fstream>
 #include <iterator>
 #include <random>
+#include <regex>
 #include <set>
 #include <stdexcept>
 #include <system_error>
@@ -201,6 +203,53 @@ bool valid_revision(std::string_view text)
                        [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
 
+ValidationResult effective_record_for_compaction(std::string_view family, std::string_view source)
+{
+    if (family == "rooms")
+        return validate_room_source(source);
+    if (family == "maps")
+        return validate_map_source(source);
+    if (family == "characters")
+        return validate_character_source(source);
+    if (family == "archetypes")
+        return validate_archetype_source(source);
+    if (family == "animations")
+        return validate_animation_source(source);
+    if (family == "materials")
+        return validate_material_source(source);
+    if (family == "interactables")
+        return validate_interactable_sparse_source(source);
+    if (family == "dialogues")
+        return validate_dialogue_source(source);
+    if (family == "scenes")
+        return validate_scene_source(source);
+    if (family == "verbs")
+        return validate_verb_source(source);
+    if (family == "interactions")
+        return validate_interaction_source(source);
+    if (family == "tests")
+        return validate_test_source(source);
+    return {};
+}
+
+std::vector<std::string> hash_fragments(std::string_view source)
+{
+    // Deliberately conservative: a '#' in a scalar is also retained in the
+    // evidence inventory. An emitter may never silently delete or rewrite
+    // comments while claiming to perform formatting only.
+    std::vector<std::string> fragments;
+    for (std::size_t start = 0; start < source.size();) {
+        const auto end = source.find('\n', start);
+        const auto line = source.substr(start, (end == source.npos ? source.size() : end) - start);
+        if (const auto marker = line.find('#'); marker != line.npos)
+            fragments.emplace_back(line.substr(marker));
+        if (end == source.npos)
+            break;
+        start = end + 1;
+    }
+    return fragments;
+}
+
 bool path_safe(std::string_view path)
 {
     if (path.empty() || path.find('\\') != path.npos || path.front() == '/' ||
@@ -380,7 +429,11 @@ void write_journal(const fs::path& directory, const Journal& journal)
 
 fs::path safe_source_path(const fs::path& root, std::string_view relative)
 {
-    if (!path_safe(relative) || relative.starts_with(".noveltea/") || !relative.ends_with(".yaml"))
+    const bool layout_text = std::regex_match(
+        std::string(relative),
+        std::regex(R"(^records/layouts/[a-z][a-z0-9]*(?:-[a-z0-9]+)*/layout\.(rml|rcss|lua)$)"));
+    if (!path_safe(relative) || relative.starts_with(".noveltea/") ||
+        (!relative.ends_with(".yaml") && !layout_text))
         throw std::runtime_error("Invalid tracked YAML transaction target: " +
                                  std::string(relative));
     const auto target = root / fs::path(relative);
@@ -428,8 +481,10 @@ void apply_target(const fs::path& root, const fs::path& directory, const Journal
     if (current != alternative)
         throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: " + target.path);
     if (wanted == "absent") {
-        fs::remove(path);
-        sync_directory(path.parent_path());
+        if (fs::exists(path)) {
+            fs::remove(path);
+            sync_directory(path.parent_path());
+        }
         return;
     }
     const auto& blob = after ? target.after_blob : target.before_blob;
@@ -493,6 +548,22 @@ void recover_journals(const fs::path& root)
                     apply_target(root, directory, *it, false);
                 journal.state = "rolled-back";
                 write_journal(directory, journal);
+            }
+            // A structural Layout owner can be removed by deleting its YAML
+            // and three companions. Empty directories are not source owners;
+            // prune them after replay as well as after a normal commit.
+            for (const auto& target : journal.targets) {
+                const bool active = journal.state == "committed";
+                const bool absent =
+                    active ? target.after_revision == "absent" : target.before_revision == "absent";
+                if (!absent || !target.path.starts_with("records/layouts/") ||
+                    !target.path.ends_with("/layout.yaml"))
+                    continue;
+                const auto parent = safe_source_path(root, target.path).parent_path();
+                if (fs::is_directory(parent) && fs::is_empty(parent)) {
+                    fs::remove(parent);
+                    sync_directory(parent.parent_path());
+                }
             }
             fs::remove_all(directory);
             sync_directory(transactions);
@@ -629,6 +700,13 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
             throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: unknown source owner.");
         std::set<std::string> used;
         for (const auto& target : targets) {
+            const bool layout_text = std::regex_match(
+                target.path,
+                std::regex(
+                    R"(^records/layouts/[a-z][a-z0-9]*(?:-[a-z0-9]+)*/layout\.(rml|rcss|lua)$)"));
+            if (layout_text && (!target.edits.empty() || (!target.create_source && !target.erase)))
+                throw std::runtime_error("Layout companion transaction only supports whole-file "
+                                         "creation or deletion.");
             const auto absolute = checked_path(target.path);
             if (!used.insert(target.path).second)
                 throw std::runtime_error("Duplicate YAML transaction target.");
@@ -644,6 +722,12 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 throw std::runtime_error("Untrusted YAML transaction baseline.");
             if (target.erase && (!target.edits.empty() || target.create_source))
                 throw std::runtime_error("YAML deletion cannot include field edits.");
+            if (target.replacement_source &&
+                (target.erase || target.create_source || !target.edits.empty() || layout_text))
+                throw std::runtime_error(
+                    "Whole-source replacement must be a YAML format operation.");
+            if (target.semantic_compaction_family && !target.replacement_source)
+                throw std::runtime_error("Semantic compaction requires a whole-source format.");
             if (target.create_source && target.expected_revision != "absent")
                 throw std::runtime_error("New YAML source requires absent expected revision.");
             const auto current_revision = revision(absolute);
@@ -653,7 +737,7 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 throw std::runtime_error("YAML source changed during preparation.");
             if (current_revision != target.expected_revision) {
                 if (current_revision == "absent" || target.erase || target.create_source ||
-                    target.expected_revision == "absent")
+                    target.replacement_source || target.expected_revision == "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
                 const auto baseline = open_yaml_source(target.baseline_source);
                 const auto fresh = open_yaml_source(current);
@@ -673,7 +757,7 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
             prepared.erase = target.erase;
             if (target.erase) {
                 prepared.after_revision = "absent";
-                if (current_revision != "absent") {
+                if (current_revision != "absent" && !layout_text) {
                     const auto opened = open_yaml_source(current);
                     if (!opened.accepted)
                         throw std::runtime_error("Cannot review invalid YAML deletion source.");
@@ -684,10 +768,43 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
             } else if (target.create_source) {
                 if (current_revision != "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: existing target.");
-                const auto opened = open_yaml_source(*target.create_source);
-                if (!opened.accepted)
-                    throw std::runtime_error("Cannot create invalid YAML source: " + opened.error);
+                if (!layout_text) {
+                    const auto opened = open_yaml_source(*target.create_source);
+                    if (!opened.accepted)
+                        throw std::runtime_error("Cannot create invalid YAML source: " +
+                                                 opened.error);
+                }
                 prepared.after_source = *target.create_source;
+                prepared.after_revision = exact_source_revision(prepared.after_source);
+            } else if (target.replacement_source) {
+                if (current_revision == "absent")
+                    throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing YAML source.");
+                const auto before = open_yaml_source(current);
+                const auto after = open_yaml_source(*target.replacement_source);
+                if (!before.accepted || !after.accepted)
+                    throw std::runtime_error(
+                        "Whole-source formatting requires valid restricted YAML.");
+                bool same_semantics = jsoncons::json::parse(before.source_json) ==
+                                      jsoncons::json::parse(after.source_json);
+                if (!same_semantics && target.semantic_compaction_family) {
+                    const auto& family = *target.semantic_compaction_family;
+                    const auto prefix = "records/" + family + "/";
+                    if (!target.path.starts_with(prefix) ||
+                        target.path.substr(prefix.size()).find('/') != std::string::npos)
+                        throw std::runtime_error(
+                            "Semantic compaction is not a canonical record owner.");
+                    const auto initial =
+                        effective_record_for_compaction(family, before.source_json);
+                    const auto updated = effective_record_for_compaction(family, after.source_json);
+                    same_semantics = initial.accepted && updated.accepted &&
+                                     jsoncons::json::parse(initial.effective_json) ==
+                                         jsoncons::json::parse(updated.effective_json);
+                }
+                if (!same_semantics)
+                    throw std::runtime_error("YAML formatting changed source semantics.");
+                if (hash_fragments(current) != hash_fragments(*target.replacement_source))
+                    throw std::runtime_error("YAML formatting must preserve all comment text.");
+                prepared.after_source = *target.replacement_source;
                 prepared.after_revision = exact_source_revision(prepared.after_source);
             } else {
                 if (current_revision == "absent")
@@ -846,6 +963,17 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
             }
             journal.state = "committed";
             write_journal(directory, journal);
+            for (const auto& target : journal.targets) {
+                if (target.after_revision != "absent" ||
+                    !target.path.starts_with("records/layouts/") ||
+                    !target.path.ends_with("/layout.yaml"))
+                    continue;
+                const auto parent = checked_path(target.path).parent_path();
+                if (fs::is_directory(parent) && fs::is_empty(parent)) {
+                    fs::remove(parent);
+                    sync_directory(parent.parent_path());
+                }
+            }
         } catch (...) {
             if (persisted) {
                 // A failed recovery must leave the journal intact, so a later

@@ -7,6 +7,84 @@ const { generateNativeContracts, canonicalJson } = await import('./native-schema
 const { nativeSchemaSources } = await import('./native-schema/sources.ts');
 const { sparseRecordYamlSourceDefaults } =
   await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
+const { encodeSparseRecordYaml } =
+  await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
+const { encodeLayoutYaml } = await import('../src/shared/project-workspace/layout-yaml-source.ts');
+const { encodeVariableYaml } =
+  await import('../src/shared/project-workspace/variable-yaml-source.ts');
+const { authoringCollectionMetadata } =
+  await import('../src/shared/project-schema/authoring-collections.ts');
+const defaultData = Object.fromEntries(
+  await Promise.all(
+    [
+      ['archetypes', 'authoring-archetypes.ts', 'defaultArchetypeData'],
+      ['characters', 'authoring-characters.ts', 'defaultCharacterData'],
+      ['dialogues', 'authoring-dialogues.ts', 'defaultDialogueData'],
+      ['interactables', 'authoring-interactables.ts', 'defaultInteractableData'],
+      ['interactions', 'authoring-interactions.ts', 'defaultInteractionData'],
+      ['layouts', 'authoring-layouts.ts', 'defaultLayoutData'],
+      ['maps', 'authoring-maps.ts', 'defaultMapData'],
+      ['materials', 'authoring-materials.ts', 'defaultMaterialData'],
+      ['rooms', 'authoring-rooms.ts', 'defaultRoomData'],
+      ['scenes', 'authoring-scenes.ts', 'defaultSceneData'],
+      ['scripts', 'authoring-script-modules.ts', 'defaultScriptModuleData'],
+      ['tests', 'authoring-tests.ts', 'defaultTestData'],
+      ['variables', 'authoring-variables.ts', 'defaultVariableData'],
+      ['verbs', 'authoring-verbs.ts', 'defaultVerbData'],
+    ].map(async ([family, source, named]) => {
+      const module = await import(`../src/shared/project-schema/${source}`);
+      return [family, module[named]];
+    }),
+  ),
+);
+const canonicalEntitySources = Object.fromEntries(
+  Object.entries(defaultData)
+    .concat([
+      [
+        'animations',
+        () => ({
+          kind: 'animation',
+          canvas: { width: 256, height: 256 },
+          defaultMotionId: 'default',
+          motions: [{ id: 'default', kind: 'sprite-sequence', frames: [], markers: [] }],
+        }),
+      ],
+    ])
+    .map(([family, makeData]) => {
+      const record = {
+        id: 'nt-template-id',
+        label: 'NovelTeaTemplateLabel',
+        data: makeData(
+          family === 'archetypes' || family === 'variables' ? undefined : 'NovelTeaTemplateLabel',
+        ),
+      };
+      if (['characters', 'rooms', 'interactables'].includes(family)) {
+        record.archetype = null;
+        record.archetypeOverrides = {};
+        record.traits = [];
+        if (family === 'interactables') record.defaultProperties = [];
+        else record.localProperties = [];
+      }
+      const companions = {};
+      if (family === 'layouts') {
+        for (const channel of ['rml', 'rcss', 'lua']) {
+          if (record.data[channel].sourceMode !== 'inline') continue;
+          companions[`layout.${channel}`] = record.data[channel].sourceText;
+          record.data[channel] = { sourceMode: 'file' };
+        }
+      }
+      const source =
+        family === 'variables'
+          ? encodeVariableYaml(record)
+          : family === 'layouts'
+            ? encodeLayoutYaml(record)
+            : encodeSparseRecordYaml(family, record);
+      return [
+        family,
+        { labelPrefix: authoringCollectionMetadata[family].singularLabel, source, companions },
+      ];
+    }),
+);
 const { testSourceStepPayloads, testSourceExpectationPayloads, testSourceValueExpectations } =
   await import('../src/shared/project-schema/test-source-intent.ts');
 const { defaultArchetypeConfiguration } =
@@ -43,6 +121,7 @@ const files = new Map([
         tests: sparseRecordYamlSourceDefaults('tests'),
         layouts: sparseRecordYamlSourceDefaults('layouts'),
       },
+      entityRecordSources: canonicalEntitySources,
       testSourceIntent: {
         steps: testSourceStepPayloads,
         expectations: testSourceExpectationPayloads,

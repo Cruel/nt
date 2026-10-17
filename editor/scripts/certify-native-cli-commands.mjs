@@ -86,12 +86,73 @@ function verifySync() {
   return observed.native;
 }
 
+function verifyReconcile() {
+  const argv = ['--project', project, '--json', 'localization', 'reconcile'];
+  const oracle = execute(['--no-daemon', ...argv]);
+  const actual = execute(argv);
+  assert.equal(actual.status, oracle.status);
+  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
+  const rows = actual.stderr
+    .split('\n')
+    .filter((line) => line.startsWith('[native-cli-reconcile] '));
+  assert.equal(rows.length, 1, 'Expected one native reconcile observation: ' + actual.stderr);
+  const observed = JSON.parse(rows[0].slice('[native-cli-reconcile] '.length));
+  assert.equal(observed.native.ok, true, observed.native.error);
+  assert.deepEqual(observed.native.plan, observed.oracle);
+  return observed.native.plan;
+}
+
+function verifyEntityDryRun(collection, id, operation) {
+  const argv = ['--project', project, '--json', 'entity', operation, collection, id, '--dry-run'];
+  const oracle = execute(['--no-daemon', ...argv]);
+  const actual = execute(argv);
+  assert.equal(actual.status, oracle.status);
+  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
+  const observations = actual.stderr
+    .split('\n')
+    .filter((line) => line.startsWith('[native-cli-entity-edit] '));
+  assert.equal(observations.length, 1, 'Expected native dry-run observation: ' + actual.stderr);
+  const observed = JSON.parse(observations[0].slice('[native-cli-entity-edit] '.length));
+  assert.equal(observed.native.ok, true, observed.native.error);
+  assert.equal(observed.native.collection, collection);
+  assert.equal(observed.native.id, id);
+  assert.equal(observed.native.dryRun, true);
+  if (operation === 'create') {
+    const expectedPaths =
+      collection === 'layouts'
+        ? ['layout.lua', 'layout.rcss', 'layout.rml', 'layout.yaml'].map(
+            (name) => `records/layouts/${id}/${name}`,
+          )
+        : [observed.native.sourcePath];
+    assert.deepEqual(observed.oracle.plan.writes, expectedPaths);
+  }
+}
+
+function verifyFormatCheck(relative) {
+  const args = ['--project', project, '--json', 'fmt', relative, '--check'];
+  const oracle = execute(['--no-daemon', ...args]);
+  const actual = execute(args);
+  assert.equal(actual.status, oracle.status);
+  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
+  const observed = actual.stderr.split('\n').filter((line) => line.startsWith('[native-cli-fmt] '));
+  assert.equal(observed.length, 1, 'Expected native fmt check observation: ' + actual.stderr);
+  const native = JSON.parse(observed[0].slice('[native-cli-fmt] '.length)).native;
+  assert.equal(native.ok, true, native.error);
+  const expected = JSON.parse(oracle.stdout);
+  assert.deepEqual(native.files, expected.files);
+  assert.equal(native.changed, expected.changed > 0);
+}
+
 try {
   await cp(fixture, project, { recursive: true });
   inspect('rooms', 'room-lifecycle-roundtrip', true);
   inspect('characters', 'studio-guide', true);
   inspect('rooms', 'room-lifecycle-roundtrip', false);
+  verifyEntityDryRun('variables', 'native-ci-parity-var', 'create');
+  verifyEntityDryRun('layouts', 'native-ci-parity-layout', 'create');
+  verifyFormatCheck('project.yaml');
   assert.equal(verifySync().changed, false);
+  assert.deepEqual(verifyReconcile().groups, []);
   const outputPath = path.join(root, 'oracle.ntproject');
   const bundle = execute([
     '--project',
@@ -133,6 +194,8 @@ try {
     ),
   );
   assert.equal(verifySync().changed, true);
+  const reconcile = verifyReconcile();
+  assert.equal(reconcile.deterministicChanged, true);
   console.log('Native CLI inspect/provenance and installed-headless oracle parity passed.');
 } finally {
   execute(['daemon', 'stop']);

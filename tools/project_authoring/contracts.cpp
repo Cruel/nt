@@ -1590,6 +1590,15 @@ std::optional<std::string> source_omission_defaults_json(std::string_view family
     return families.at(family).to_string();
 }
 
+std::optional<std::string> default_entity_source_json(std::string_view family)
+{
+    static const Contracts contracts;
+    const auto& families = contracts.document.at("entityRecordSources");
+    if (!families.contains(family))
+        return std::nullopt;
+    return families.at(family).to_string();
+}
+
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id)
 {
     static const Contracts contracts;

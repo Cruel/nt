@@ -54,5 +54,8 @@ struct YamlValueEdit {
 // Parallel certification-only host codec: no production writer, schema or workspace authority.
 YamlSourceResult open_yaml_source(std::string_view source);
 YamlSourceResult edit_yaml_source(std::string_view source, const std::vector<YamlValueEdit>& edits);
+// Re-emit one restricted YAML document with 2-space indentation and preserved
+// comments. Reject any emitter output that changes the decoded source value.
+YamlSourceResult format_yaml_source(std::string_view source);
 
 } // namespace noveltea::authoring

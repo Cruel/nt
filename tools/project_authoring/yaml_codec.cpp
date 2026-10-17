@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <regex>
 #include <set>
@@ -163,6 +164,7 @@ public:
     Parsed& operator=(const Parsed&) = delete;
 
     fy_node* root() const { return fy_document_root(doc); }
+    fy_document* document() const { return doc; }
     std::string source;
 
 private:
@@ -805,6 +807,120 @@ YamlSourceResult edit_yaml_source(std::string_view source, const std::vector<Yam
         return failure(source, e.what(), e.offset);
     } catch (const std::exception& e) {
         return failure(source, e.what());
+    }
+}
+
+YamlSourceResult format_yaml_source(std::string_view source)
+{
+    const auto initial = open_yaml_source(source);
+    if (!initial.accepted)
+        return initial;
+    try {
+        Parsed parsed(source);
+        auto* buffer = fy_emit_document_to_string(
+            parsed.document(), static_cast<fy_emitter_cfg_flags>(
+                                   FYECF_MODE_ORIGINAL | FYECF_INDENT_2 | FYECF_WIDTH_INF |
+                                   FYECF_OUTPUT_COMMENTS | FYECF_STRIP_DOC));
+        if (!buffer)
+            throw SourceFailure("Native YAML formatter could not emit its source document.");
+        std::string formatted(buffer);
+        free(buffer);
+        // The authoritative JS YAML writer emits indented block sequences
+        // under mapping values ("key:\n  - value"). libfyaml emits valid
+        // but indentless sequences ("key:\n- value"). Normalize that one
+        // syntactic choice without touching scalar content or comment text.
+        std::vector<std::string> lines;
+        for (std::size_t at = 0; at < formatted.size();) {
+            const auto end = formatted.find('\n', at);
+            lines.push_back(
+                formatted.substr(at, (end == formatted.npos ? formatted.size() : end) - at));
+            at = end == formatted.npos ? formatted.size() : end + 1;
+        }
+        const auto indent = [](const std::string& line) {
+            return static_cast<std::size_t>(
+                std::distance(line.begin(), std::find_if(line.begin(), line.end(),
+                                                         [](char ch) { return ch != ' '; })));
+        };
+        std::vector<std::size_t> shift(lines.size(), 0);
+        for (std::size_t i = 0; i + 1 < lines.size(); ++i) {
+            const auto& line = lines[i];
+            const auto pos = line.find_last_not_of(" \t\r");
+            if (pos == std::string::npos || line[pos] != ':')
+                continue;
+            const auto parent_indent = indent(line);
+            std::size_t next = i + 1;
+            while (next < lines.size() &&
+                   (lines[next].empty() ||
+                    lines[next].find_first_not_of(" \t\r") == std::string::npos))
+                ++next;
+            if (next == lines.size() || indent(lines[next]) != parent_indent ||
+                !lines[next].substr(parent_indent).starts_with("- "))
+                continue;
+            for (std::size_t j = next; j < lines.size(); ++j) {
+                if (!lines[j].empty() && lines[j].find_first_not_of(" \t\r") != std::string::npos) {
+                    const auto level = indent(lines[j]);
+                    if (level < parent_indent ||
+                        (level == parent_indent && !lines[j].substr(level).starts_with("- ") &&
+                         !lines[j].substr(level).starts_with("#")))
+                        break;
+                }
+                shift[j] += 2;
+            }
+        }
+        formatted.clear();
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            formatted.append(shift[i], ' ');
+            formatted += lines[i];
+            formatted += '\n';
+        }
+        // The existing YAML writer attaches a mapping-key comment immediately
+        // before the nested value when it formats a block mapping. libfyaml
+        // instead keeps that same comment to the right of the parent colon.
+        // Both have identical parsed data but only the former is CLI parity.
+        lines.clear();
+        for (std::size_t at = 0; at < formatted.size();) {
+            const auto end = formatted.find('\n', at);
+            lines.push_back(
+                formatted.substr(at, (end == formatted.npos ? formatted.size() : end) - at));
+            at = end == formatted.npos ? formatted.size() : end + 1;
+        }
+        for (std::size_t i = 0; i + 1 < lines.size(); ++i) {
+            const auto marker = lines[i].find('#');
+            if (marker == std::string::npos)
+                continue;
+            auto prefix = lines[i].substr(0, marker);
+            while (!prefix.empty() && prefix.back() == ' ')
+                prefix.pop_back();
+            if (prefix.empty() || prefix.back() != ':')
+                continue;
+            const auto parent_indent = indent(lines[i]);
+            const auto child_indent = indent(lines[i + 1]);
+            if (child_indent <= parent_indent || lines[i + 1].empty())
+                continue;
+            auto comment = lines[i].substr(marker);
+            lines[i] = std::move(prefix);
+            lines.insert(lines.begin() + static_cast<std::ptrdiff_t>(i + 1),
+                         std::string(child_indent, ' ') + comment);
+            ++i;
+        }
+        formatted.clear();
+        for (const auto& line : lines)
+            formatted += line + '\n';
+        const auto checked = open_yaml_source(formatted);
+        if (!checked.accepted ||
+            Json::parse(checked.source_json) != Json::parse(initial.source_json))
+            throw SourceFailure("Native YAML emitter altered the source semantic value.");
+        const auto count_comments = [](const YamlSourceResult& source) {
+            return std::count_if(source.locations.begin(), source.locations.end(),
+                                 [](const auto& location) { return location.has_comment; });
+        };
+        if (count_comments(checked) != count_comments(initial))
+            throw SourceFailure("Native YAML emission changed the annotated comment inventory.");
+        return checked;
+    } catch (const SourceFailure& error) {
+        return failure(source, error.what(), error.offset);
+    } catch (const std::exception& error) {
+        return failure(source, error.what());
     }
 }
 
