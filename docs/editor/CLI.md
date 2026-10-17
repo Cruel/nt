@@ -24,6 +24,29 @@ diagnostic presentation, exit statuses, editor behavior, and `--no-daemon`
 continue to use the existing canonical CLI validator until the coordinated
 native cutover under #474. Certification-only diagnostics are not persisted.
 
+## Parallel native Project command certification (#501)
+
+The host-only native Project command adapter exposes `entity-inspect` (including
+sparse-source provenance), `scoped-edit` (a generic patch batch with dry-run and
+explicit working/source revisions), and `export-preparation` (a validated
+effective Project and owned-source inventory). The adapter opens an independent
+disk Project session for each command and uses the same native transaction and
+dependent-source validation boundary as editor-native authoring. A write requires
+exact disk preconditions for every affected owner; stale, invalid, or unsafe
+mutations fail without permitting an implicit TypeScript fallback.
+
+`NOVELTEA_CLI_CERTIFICATION=1` plus
+`NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS=1` instructs the existing Project
+daemon to compare read-only `entity inspect` results against the native adapter,
+emitting `[native-cli-inspect]` observations to stderr. The authoritative CLI
+JSON, exit codes, and edits are unchanged. The native adapter is not yet a
+production replacement for `fmt`, localization sync/reconcile, portable bundle
+import/export, or runtime package publication: those paths remain on their
+existing implementation until corresponding native parity work and the #474
+coordinated cutover. The host integration test is
+`editor/scripts/certify-native-cli-commands.mjs`; the direct native test target
+is `noveltea-cli-native-certify`.
+
 ## Private media-tool diagnosis
 
 `noveltea [--json] media-tool check` checks the installation-relative private FFmpeg tool without

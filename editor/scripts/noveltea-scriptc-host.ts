@@ -1485,6 +1485,7 @@ function requestEnvironment(): Record<string, string> {
   const result: Record<string, string> = {
     NOVELTEA_CLI_CERTIFICATION: '',
     NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '',
+    NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '',
     NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '',
@@ -1862,7 +1863,8 @@ function requestInvokeHost(
       operation === 'process-alive' ||
       operation === 'run-process' ||
       operation === 'cli-executable-path' ||
-      operation === 'native-disk-project-validation'
+      operation === 'native-disk-project-validation' ||
+      operation === 'native-project-commands'
     )
       return invokeHost(operation, requestText);
     const envelope = JSON.parse(

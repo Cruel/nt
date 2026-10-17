@@ -1372,6 +1372,9 @@ jobs:
       - name: Certify standalone native CLI disk Project validation on this host
         run: node editor/scripts/certify-native-daemon-validation.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
 
+      - name: Certify native CLI record inspection parity on this host
+        run: node editor/scripts/certify-native-cli-commands.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
+
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:
