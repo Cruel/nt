@@ -15,6 +15,7 @@
 #include "benchmark_bgfx_diagnostics.hpp"
 #include "benchmark_capacity.hpp"
 #include "benchmark_completed_run.hpp"
+#include "cpu_workloads.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_inspection.hpp"
 #include "benchmark_options.hpp"
@@ -62,8 +63,10 @@ void print_usage()
               "standalone-rmlui-simple|standalone-rmlui-scaling|integrated-rmlui-scaling|"
               "standalone-rmlui-effects|integrated-rmlui-effects|"
               "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty|"
-              "engine-compiled-empty|engine-compiled-menu|engine-feature-lab] [--rect-count N]");
+              "engine-compiled-empty|engine-compiled-menu|engine-feature-lab|"
+              "cpu-lua|cpu-runtime-session|cpu-flow-prediction] [--rect-count N]");
     std::puts("       [--clock-policy realtime|fixed-step] [--feature-lab-package FILE]");
+    std::puts("       [--cpu-work-units 1..4096] (CPU-only --no-ui batch size)");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
     std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
@@ -877,6 +880,44 @@ bool write_report(const Options& options, const Environment& environment, const 
     output = "download: " + name;
 #endif
     return true;
+}
+
+int run_cpu(const Options& options)
+{
+    if (!options.no_ui) {
+        std::fprintf(stderr, "[benchmark] CPU workloads require --no-ui (no SDL/bgfx host)\n");
+        return 2;
+    }
+    noveltea::benchmark::CpuScenario lua(noveltea::benchmark::CpuWorkload::Lua);
+    noveltea::benchmark::CpuScenario session(noveltea::benchmark::CpuWorkload::RuntimeSession);
+    noveltea::benchmark::CpuScenario prediction(noveltea::benchmark::CpuWorkload::FlowPrediction);
+    Scenario* selected = options.scenario == "cpu-lua" ? static_cast<Scenario*>(&lua)
+                         : options.scenario == "cpu-runtime-session"
+                             ? static_cast<Scenario*>(&session)
+                             : static_cast<Scenario*>(&prediction);
+    SteadyClock clock;
+    const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock);
+    Environment environment;
+    environment.platform = SDL_GetPlatform();
+    environment.frame_path = "cpu-work-batch-no-presentation";
+    std::string output;
+    if (!write_report(options, environment, result, output))
+        return 3;
+    const auto& scenario = result.scenarios.front();
+    if (scenario.outcome == "complete") {
+        std::printf("[benchmark] complete: %llu CPU work batches across %zu trial(s), "
+                    "%u work units/batch, CPU operation mean %.3f ms (no SDL/bgfx or GPU time)\n",
+                    static_cast<unsigned long long>(scenario.measured_frames),
+                    scenario.trials.size(), options.cpu_work_units, scenario.cpu_operation.mean_ms);
+    } else {
+        for (const auto& trial : scenario.trials) {
+            if (trial.outcome != "complete")
+                std::fprintf(stderr, "[benchmark] CPU trial %s: %s\n", trial.outcome.c_str(),
+                             trial.reason.c_str());
+        }
+    }
+    std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
+    return result.outcome == "complete" ? 0 : 2;
 }
 
 #if !defined(__EMSCRIPTEN__)
@@ -1812,6 +1853,8 @@ int main(int argc, char* argv[])
         std::fprintf(stderr, "[benchmark] %s\n", error.c_str());
         return 2;
     }
+    if (noveltea::benchmark::is_cpu_scenario(options.scenario))
+        return run_cpu(options);
 #if defined(__EMSCRIPTEN__)
     return run_web(options);
 #else

@@ -28,7 +28,12 @@ constexpr const char* kWallFrameDescription =
 Json configuration(const Options& options)
 {
     Json parameters = Json::object();
-    if (options.scenario == "raw-bgfx-geometry")
+    if (is_cpu_scenario(options.scenario))
+        parameters = {{"work_units", options.cpu_work_units},
+                      {"input", options.scenario == "cpu-lua"
+                                    ? "Lua ScriptRuntime benchmark_step/64 additions"
+                                    : "compiled-project-golden/minimal.json"}};
+    else if (options.scenario == "raw-bgfx-geometry")
         parameters = {{"rect_count", options.rect_count}, {"rect_scale", options.rect_scale}};
     else if (options.scenario == "raw-bgfx-textured")
         parameters = {{"texture_size", options.texture_size}, {"coverage", options.coverage}};
@@ -223,10 +228,21 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     const std::string scenario = root["scenario"].get<std::string>();
     const auto& parameters = root["parameters"];
-    if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple" ||
-        scenario == "integrated-rmlui-production" || scenario == "integrated-rmlui-controlled" ||
-        scenario == "engine-empty" || scenario == "engine-compiled-empty" ||
-        scenario == "engine-compiled-menu") {
+    if (is_cpu_scenario(scenario)) {
+        if (!has_fields(parameters, {"work_units", "input"}) ||
+            !unsigned_integer(parameters, "work_units") ||
+            parameters["work_units"].get<uint64_t>() < 1 ||
+            parameters["work_units"].get<uint64_t>() > 4096 || !parameters["input"].is_string() ||
+            parameters["input"] != (scenario == "cpu-lua"
+                                        ? "Lua ScriptRuntime benchmark_step/64 additions"
+                                        : "compiled-project-golden/minimal.json")) {
+            reason = "invalid CPU workload parameters or input identity";
+            return false;
+        }
+    } else if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple" ||
+               scenario == "integrated-rmlui-production" ||
+               scenario == "integrated-rmlui-controlled" || scenario == "engine-empty" ||
+               scenario == "engine-compiled-empty" || scenario == "engine-compiled-menu") {
         if (!parameters.empty()) {
             reason = "empty scenario does not take geometry parameters";
             return false;
@@ -373,6 +389,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     Options next;
     next.scenario = scenario;
     next.clock_policy = root["clock_policy"].get<std::string>();
+    if (is_cpu_scenario(scenario))
+        next.cpu_work_units = static_cast<uint32_t>(parameters["work_units"].get<uint64_t>());
     if (scenario == "engine-feature-lab")
         next.feature_lab_package = parameters["package_path"].get<std::string>();
     if (is_ui_effects_scenario(scenario)) {
@@ -492,17 +510,24 @@ std::string encode_result(const Options& options, const Environment& environment
                  {"measured_frames", trial.measured_frames},
                  {"measured_wall_seconds",
                   trial.measured_frames > 0 ? Json(trial.measured_wall_seconds) : Json(nullptr)},
-                 {"frame_loop_cadence_hz",
-                  trial.outcome == "complete" && trial.measured_wall_seconds > 0.0
-                      ? Json(static_cast<double>(trial.measured_frames) /
-                             trial.measured_wall_seconds)
-                      : Json(nullptr)},
+                 {"frame_loop_cadence_hz", !is_cpu_scenario(options.scenario) &&
+                                                   trial.outcome == "complete" &&
+                                                   trial.measured_wall_seconds > 0.0
+                                               ? Json(static_cast<double>(trial.measured_frames) /
+                                                      trial.measured_wall_seconds)
+                                               : Json(nullptr)},
                  {"frame_wall_ms", distribution(trial.wall_frame)},
                  {"cpu_operation_ms", distribution(trial.cpu_operation)},
                  {"diagnostic", options.profile == "diagnostic" && trial.outcome == "complete"
                                     ? diagnostic_result(trial.diagnostic)
                                     : Json(nullptr)},
                  {"raw_samples", std::move(raw)}});
+            if (is_cpu_scenario(options.scenario))
+                trials.back()["cpu_work_batches_per_second"] =
+                    trial.outcome == "complete" && trial.measured_wall_seconds > 0.0
+                        ? Json(static_cast<double>(trial.measured_frames) /
+                               trial.measured_wall_seconds)
+                        : Json(nullptr);
         }
         const auto group = [](const TrialGroupSummary& value) {
             return Json{{"completed_trials", value.completed},
@@ -554,12 +579,19 @@ std::string encode_result(const Options& options, const Environment& environment
              {"aggregate",
               {{"measured_frames", scenario.measured_frames},
                {"measured_wall_seconds", scenario.measured_wall_seconds},
-               {"frame_loop_cadence_hz", scenario.measured_wall_seconds > 0.0
-                                             ? Json(static_cast<double>(scenario.measured_frames) /
-                                                    scenario.measured_wall_seconds)
-                                             : Json(nullptr)},
+               {"frame_loop_cadence_hz",
+                !is_cpu_scenario(options.scenario) && scenario.measured_wall_seconds > 0.0
+                    ? Json(static_cast<double>(scenario.measured_frames) /
+                           scenario.measured_wall_seconds)
+                    : Json(nullptr)},
                {"frame_wall_ms", distribution(scenario.wall_frame)},
                {"cpu_operation_ms", distribution(scenario.cpu_operation)}}}});
+        if (is_cpu_scenario(options.scenario))
+            scenarios.back()["aggregate"]["cpu_work_batches_per_second"] =
+                scenario.measured_wall_seconds > 0.0
+                    ? Json(static_cast<double>(scenario.measured_frames) /
+                           scenario.measured_wall_seconds)
+                    : Json(nullptr);
     }
     const auto encode_graphics = [](const Environment& environment) -> Json {
         return {
@@ -784,8 +816,13 @@ std::string encode_result(const Options& options, const Environment& environment
         {"timing",
          {{"clock", "steady_clock"},
           {"profile", options.profile},
-          {"frame_wall", kWallFrameDescription},
-          {"cpu_operation", "CPU wall duration of scenario frame operation"},
+          {"frame_wall", is_cpu_scenario(options.scenario)
+                             ? "CPU work-batch end-to-end interval; no display frame or FPS"
+                             : kWallFrameDescription},
+          {"cpu_operation", is_cpu_scenario(options.scenario)
+                                ? "CPU duration of one configured work batch; includes only "
+                                  "the selected Lua, Runtime Session, or prediction operations"
+                                : "CPU wall duration of scenario frame operation"},
           {"gpu_execution_ms", nullptr},
           {"gpu_timing_status", options.profile == "diagnostic"
                                     ? "per-trial when GPU completed-frame IDs are available"

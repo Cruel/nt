@@ -1,7 +1,7 @@
-# Graphics Benchmark (Linux, Android, and Web, #422–#440)
+# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#444)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
-and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
+RmlUi reference workloads, and headless Lua/Runtime Session/Flow prediction CPU workloads. Raw and standalone RmlUi **do not instantiate**
 the NovelTea Engine, while `engine-empty`, the Compiled Project workloads,
 and the integrated RmlUi modes use the real Engine and production Renderer. The binary links the Engine library
 for Engine-owned scenarios; standalone scenarios remain separately owned.
@@ -10,6 +10,60 @@ sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## CPU-only Lua, Runtime Session, and Flow prediction (#444)
+
+The `cpu-lua`, `cpu-runtime-session`, and `cpu-flow-prediction` scenarios run
+through the **same portable runner** without SDL video initialization, bgfx,
+the NovelTea Engine renderer, ImGui, or a presentation window. The benchmark
+binary still links graphics libraries because other scenarios require them;
+these CPU-only runs do not initialize those services. Use `--no-ui` (the
+default for explicit CLI settings), and run the standalone application:
+
+```sh
+./scripts/run-benchmark.sh --scenario cpu-lua --frames 200 --cpu-work-units 64
+./scripts/run-benchmark.sh --scenario cpu-runtime-session --frames 200 --cpu-work-units 2
+./scripts/run-benchmark.sh --scenario cpu-flow-prediction --frames 200 --profile diagnostic
+```
+
+The runner's legacy "frame" counters mean **CPU work batches** for these
+scenarios, *not* graphics frames. `--cpu-work-units` selects 1–4096 actual
+operations within each batch and is fixed within a trial. Lua runs the
+production `ScriptRuntime` expression evaluator against 64 deterministic
+integer additions per work unit. Runtime Session uses the production
+`RuntimeSession`, a headless presentation acceptance port, and one
+`AdvanceTimeInput` of 16,667 microseconds per unit. Flow prediction uses the
+production `FlowPredictor` over the generated index and entrypoint in
+`compiled-project-golden/minimal.json`. The two latter modes decode the
+actual compiled-project fixture staged with the app, rather than constructing
+a synthetic model inside the timed operation. Project decoding, Lua/module
+bootstrap, initial session startup, and cleanup happen **outside** timed
+warmup/measurement, and deterministic failures abort rather than creating
+fake samples. All modes check their results on each work unit.
+
+The report's `configuration.parameters.input` identifies Lua logic or the
+compiled-project fixture and `work_units` is the batch size. Its
+`graphics.frame_path` is `cpu-work-batch-no-presentation`; renderer, GPU
+device, display dimensions, and GPU timings are **null/unavailable**. CPU
+`frame_wall_ms` and `cpu_operation_ms` are batch wall intervals and operation
+costs, while `cpu_work_batches_per_second` records batch throughput.
+`frame_loop_cadence_hz` is null, rather than fabricated FPS; the actual
+CPU operations per second are batches/sec multiplied by work units/batch.
+Results are not comparable to the Engine's real-time presented-frame timings.
+Clean is suitable for throughput comparisons, whereas Diagnostic remains
+non-authoritative even when no GPU diagnostics are applicable. The default
+real-time clock policy controls the runner wall clock, **not** the fixed
+simulation-time input used by the headless Runtime Session.
+
+The headless CPU runs do not support the interactive dashboard (`--ui`),
+graphics-only settings, capacity-search modes, Quick Suite, or `fixed-step`
+clock policy. Unsupported combinations fail validation with a reason instead
+of silently presenting CPU throughput as GPU capacity. Linux CTest smoke cases
+exercise each CPU scenario using an unavailable SDL video driver, two trials,
+and Diagnostic mode. Feature Lab needs no authored UI coverage here: these
+tests exercise backend-neutral runtime and prediction code with no visual
+contract. The original `noveltea-benchmark` microbenchmark target is
+unchanged.
 
 ## Untimed screenshot inspection (#440)
 
