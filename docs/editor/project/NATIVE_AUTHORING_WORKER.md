@@ -223,6 +223,9 @@ owning Lua/RML analysis. Their edits invalidate localization independently.
 Managed source identity uses structural and anchor fingerprints, with ordinal
 fallback permitted only when the full-source fingerprint is unchanged. RML
 identity candidates exclude named `nt-tr` nodes and embedded Lua calls.
+Lua/RML tracking whitespace normalization follows ECMAScript Unicode
+`/\s+/gu` and `.trim()` rather than locale-dependent byte classification,
+so non-ASCII whitespace cannot detach an existing tracked Message identity.
 Script project-file and Layout file/inline/Asset source descriptors resolve
 through current working selectors, not guessed physical paths.
 Production localization sync/reconcile and the eventual
