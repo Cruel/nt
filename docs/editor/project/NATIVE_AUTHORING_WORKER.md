@@ -214,8 +214,11 @@ edits; the certification validator admits or rejects their physical presence.
 Untouched fragments are not rewritten on validation or unrelated Save.
 
 Repeated Project snapshots reuse the native localization validation generation
-until an `i18n/` owner changes or the native source watcher observes an
-`i18n/` change. Production localization sync/reconcile and the eventual
+until an `i18n/` owner, contributing gameplay record, or managed Lua/RML
+buffer changes (including physical source observations). Native translation
+checks project structured and tracked-only Messages and Dialogue Cues from the
+working sources, not saved gameplay YAML when unsaved owners exist.
+Production localization sync/reconcile and the eventual
 single-authority cutover remain governed by the existing Project Workspace
 contract and the parent native migration specification.
 
@@ -234,7 +237,9 @@ locations. References and occurrences retain a source revision so dependency
 and localization adapters can reconcile their provenance. Managed occurrences
 also preserve selector branches, translator guidance, runtime argument names,
 and source spans; unsupported Lua escapes mark analysis incomplete. This is a static
-authoring adapter: it does not execute Lua or instantiate RmlUi.
+authoring adapter: it does not execute Lua or instantiate RmlUi. Lua decimal
+and hexadecimal escapes are decoded as Unicode scalar values and encoded
+as UTF-8, matching the TypeScript managed-source analyzer.
 
 The resident session exposes sourceAnalyses, textSourceOverlays and
 stageTextSource through its opt-in Node-API certification addon. A dirty
@@ -243,7 +248,11 @@ working revision and its admitted physical byte revision. Validation uses the
 buffer without Save; a separate disk-authoritative session sees only the file.
 Reverting to exact disk content discards the overlay. Content caches invalidate
 only the edited or externally observed source; contributions are attributed to
-consuming Script/Layout/gameplay owners, not rewritten into YAML.
+consuming Script/Layout/gameplay owners, not rewritten into YAML. Canonical
+sparse template Asset references are indexed alongside expanded references;
+dirty Asset source-path retargeting reindexes consuming Layouts without
+opening them as working owners. Trait/Variable dependents are discovered
+through decoded YAML scalar references rather than physical substrings.
 
 This slice does not replace the richer TypeScript source analyzer, authoring
 dependency graph, managed localization synchronization, or production editor

@@ -58,6 +58,33 @@ bool indexed_text_owner(std::string_view owner)
     return false;
 }
 
+// Search decoded semantic scalar values, never physical YAML substrings:
+// quoted escapes, block scalars and aliases can encode a canonical ID without
+// spelling its bytes in the source file.
+bool references_any(const Json& value, const std::set<std::string>& ids)
+{
+    if (ids.empty())
+        return false;
+    if (value.is_string())
+        return ids.contains(value.as<std::string>());
+    if (value.is_array())
+        return std::any_of(value.array_range().begin(), value.array_range().end(),
+                           [&](const Json& member) { return references_any(member, ids); });
+    if (value.is_object())
+        for (const auto& field : value.object_range())
+            if (ids.contains(std::string(field.key())) || references_any(field.value(), ids))
+                return true;
+    return false;
+}
+
+std::optional<Json> decoded_record(const std::filesystem::path& path)
+{
+    const auto opened = open_yaml_source(read_bytes(path));
+    if (!opened.accepted)
+        return std::nullopt;
+    return Json::parse(opened.source_json);
+}
+
 void collect_inline_lua(const Json& value, const std::string& pointer,
                         std::map<std::string, std::string>& sources)
 {
@@ -1389,16 +1416,18 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 changed_variables.insert(owner.substr(sizeof("variables/") - 1));
     std::set<std::string> affected_archetypes;
     if (!changed_traits.empty() || !changed_variables.empty()) {
-        std::map<std::string, std::string> archetype_sources;
+        std::map<std::string, Json> archetype_sources;
         const auto directory = root_ / "records/archetypes";
         if (std::filesystem::is_directory(directory))
             for (const auto& file : std::filesystem::directory_iterator(directory))
                 if (file.is_regular_file() && file.path().extension() == ".yaml") {
                     const auto id = file.path().stem().string();
                     const auto owner = "archetypes/" + id;
-                    archetype_sources.emplace(id, records_.contains(owner)
-                                                      ? records_.at(owner)->snapshot().source_json
-                                                      : read_bytes(file.path()));
+                    if (records_.contains(owner))
+                        archetype_sources.emplace(
+                            id, Json::parse(records_.at(owner)->snapshot().source_json));
+                    else if (auto decoded = decoded_record(file.path()))
+                        archetype_sources.emplace(id, std::move(*decoded));
                 }
         // Follow inherited Archetype dependencies transitively so only the
         // consumers of edited Trait/Variable declarations need normalization.
@@ -1408,13 +1437,9 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             for (const auto& [id, contents] : archetype_sources) {
                 if (affected_archetypes.contains(id))
                     continue;
-                bool depends = false;
-                for (const auto& trait : changed_traits)
-                    depends |= contents.find(trait) != std::string::npos;
-                for (const auto& variable : changed_variables)
-                    depends |= contents.find(variable) != std::string::npos;
-                for (const auto& ancestor : affected_archetypes)
-                    depends |= contents.find(ancestor) != std::string::npos;
+                const bool depends = references_any(contents, changed_traits) ||
+                                     references_any(contents, changed_variables) ||
+                                     references_any(contents, affected_archetypes);
                 if (depends)
                     discovered |= affected_archetypes.insert(id).second;
             }
@@ -1436,20 +1461,10 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 const auto owner = std::string(family) + "/" + id;
                 if (!is_id(id) || records_.contains(owner))
                     continue;
-                // Dependency IDs are canonical ASCII YAML scalars. Cheap
-                // physical-source screening avoids normalizing hundreds of
-                // unaffected records on every typed Value edit; false
-                // positives are safe, while inherited archetypes can
-                // contribute Traits without spelling their IDs at the owner.
-                const auto source_bytes = read_bytes(item.path());
-                bool affected = false;
-                for (const auto& trait : changed_traits)
-                    affected |= source_bytes.find(trait) != std::string::npos;
-                for (const auto& variable : changed_variables)
-                    affected |= source_bytes.find(variable) != std::string::npos;
-                for (const auto& archetype : affected_archetypes)
-                    affected |= source_bytes.find(archetype) != std::string::npos;
-                if (!affected)
+                const auto decoded = decoded_record(item.path());
+                if (!decoded || !(references_any(*decoded, changed_traits) ||
+                                  references_any(*decoded, changed_variables) ||
+                                  references_any(*decoded, affected_archetypes)))
                     continue;
                 const auto saved = resolve_record(family, id);
                 if (!saved)
@@ -1715,13 +1730,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     }
     // The localization cache incorporates dirty tracked source fragments, so
     // Asset referential checks must consume this effective model, not disk YAML.
-    if (!localization_cache_) {
-        std::map<std::string, std::string> localization_sources;
-        for (const auto& [owner, record] : records_)
-            if (owner.starts_with("i18n/"))
-                localization_sources.emplace(owner, record->snapshot().source_json);
-        localization_cache_ = validate_project_localization(root_, localization_sources);
-    }
+    if (!localization_cache_)
+        localization_cache_ = validate_working_localization();
     // Asset-alias dependency checking is scoped to interested owners.
     if (manifest_dirty || std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
             return entry.first.starts_with("assets/");
@@ -1812,13 +1822,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
                                  semantic.diagnostics.end());
     }
-    if (!localization_cache_) {
-        std::map<std::string, std::string> localization_sources;
-        for (const auto& [owner, record] : records_)
-            if (owner.starts_with("i18n/"))
-                localization_sources.emplace(owner, record->snapshot().source_json);
-        localization_cache_ = validate_project_localization(root_, localization_sources);
-    }
+    if (!localization_cache_)
+        localization_cache_ = validate_working_localization();
     state.valid &= localization_cache_->accepted;
     state.diagnostics.insert(state.diagnostics.end(), localization_cache_->diagnostics.begin(),
                              localization_cache_->diagnostics.end());
@@ -1973,7 +1978,15 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
 void ProjectSession::index_text_owner(std::string_view owner, std::string_view raw_json)
 {
     const auto key = std::string(owner);
+    localization_cache_.reset();
     layout_declared_scripts_.erase(key);
+    for (auto it = asset_text_consumers_.begin(); it != asset_text_consumers_.end();) {
+        it->second.erase(key);
+        if (it->second.empty())
+            it = asset_text_consumers_.erase(it);
+        else
+            ++it;
+    }
     const auto inline_prefix = "inline/" + key + "/";
     for (auto it = inline_text_sources_.begin(); it != inline_text_sources_.end();) {
         if (it->first.starts_with(inline_prefix)) {
@@ -2012,6 +2025,7 @@ void ProjectSession::index_text_owner(std::string_view owner, std::string_view r
     const auto track_asset = [&](std::string_view asset_id) {
         if (!is_id(asset_id))
             return;
+        asset_text_consumers_[std::string(asset_id)].insert(key);
         const auto asset = [&]() -> std::optional<std::string> {
             if (const auto edited = records_.find("assets/" + std::string(asset_id));
                 edited != records_.end()) {
@@ -2068,9 +2082,32 @@ void ProjectSession::index_text_owner(std::string_view owner, std::string_view r
                     }
             if (dependencies.contains("templates") && dependencies.at("templates").is_array())
                 for (const auto& ref : dependencies.at("templates").array_range())
-                    if (ref.is_object() && ref.contains("$ref"))
+                    if (ref.is_string())
+                        track_asset(ref.as<std::string>());
+                    else if (ref.is_object() && ref.contains("$ref"))
                         track_asset(ref.at("$ref").at("id").as<std::string>());
         }
+    }
+}
+
+void ProjectSession::reindex_asset_consumers(std::string_view asset_id)
+{
+    const auto found = asset_text_consumers_.find(std::string(asset_id));
+    if (found == asset_text_consumers_.end())
+        return;
+    const auto consumers = found->second;
+    for (const auto& owner : consumers) {
+        if (const auto opened = records_.find(owner); opened != records_.end()) {
+            index_text_owner(owner, opened->second->snapshot().source_json);
+            continue;
+        }
+        const auto split = owner.find('/');
+        if (split == std::string::npos)
+            continue;
+        const auto path =
+            root_ / "records" / owner.substr(0, split) / owner.substr(split + 1) / "layout.yaml";
+        if (const auto decoded = decoded_record(path))
+            index_text_owner(owner, decoded->to_string());
     }
 }
 
@@ -2095,7 +2132,15 @@ SourceObservation ProjectSession::observe_sources()
         return std::any_of(paths.begin(), paths.end(),
                            [](const auto& path) { return path.starts_with("i18n/"); });
     };
-    if (!observed.authoritative || changed_localization(observed.delta.changed) ||
+    const auto source_contributes = [](const std::vector<std::string>& paths) {
+        return std::any_of(paths.begin(), paths.end(), [](const auto& path) {
+            return path.starts_with("records/") || path.ends_with(".lua") ||
+                   path.ends_with(".rml") || path.ends_with(".rcss");
+        });
+    };
+    if (!observed.authoritative || source_contributes(observed.delta.changed) ||
+        source_contributes(observed.delta.added) || source_contributes(observed.delta.removed) ||
+        changed_localization(observed.delta.changed) ||
         changed_localization(observed.delta.added) || changed_localization(observed.delta.removed))
         localization_cache_.reset();
     const auto changed_interactions = [](const std::vector<std::string>& paths) {
@@ -2168,6 +2213,7 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
         else
             text_source_overlays_.insert_or_assign(path, std::move(source_text));
         text_analysis_cache_.erase(path);
+        localization_cache_.reset();
         ++working_revision_;
         response.accepted = true;
         if (const auto owners = text_source_owners_.find(path); owners != text_source_owners_.end())
@@ -2303,6 +2349,20 @@ std::map<std::string, RoomSessionSnapshot> ProjectSession::record_snapshots() co
     return result;
 }
 
+ValidationResult ProjectSession::validate_working_localization() const
+{
+    std::map<std::string, std::string> localization, records;
+    for (const auto& [owner, session] : records_) {
+        if (owner.starts_with("i18n/"))
+            localization.emplace(owner, session->snapshot().source_json);
+        else if (indexed_text_owner(owner))
+            records.emplace("records/" + owner +
+                                (owner.starts_with("layouts/") ? "/layout.yaml" : ".yaml"),
+                            session->snapshot().source_json);
+    }
+    return validate_project_localization(root_, localization, records, source_analyses());
+}
+
 RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
 {
     RoomSessionResult result;
@@ -2364,6 +2424,8 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
     if (response.accepted && !response.affected_records.empty()) {
         if (indexed_text_owner(owner) && records_.contains(std::string(owner)))
             index_text_owner(owner, records_.at(std::string(owner))->snapshot().source_json);
+        if (owner.starts_with("assets/"))
+            reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
         if (owner.starts_with("i18n/"))
             localization_cache_.reset();
         if (owner.starts_with("materials/"))
@@ -2397,6 +2459,8 @@ RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_v
     if (response.accepted && !response.affected_records.empty()) {
         if (indexed_text_owner(owner) && records_.contains(std::string(owner)))
             index_text_owner(owner, records_.at(std::string(owner))->snapshot().source_json);
+        if (owner.starts_with("assets/"))
+            reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
         if (owner.starts_with("i18n/"))
             localization_cache_.reset();
         ++working_revision_;
@@ -2484,6 +2548,9 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
             for (const auto& owner : response.affected_records)
                 if (indexed_text_owner(owner))
                     index_text_owner(owner, records_.at(owner)->snapshot().source_json);
+            for (const auto& owner : response.affected_records)
+                if (owner.starts_with("assets/"))
+                    reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
             if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
                             [](const auto& owner) { return owner.starts_with("i18n/"); }))
                 localization_cache_.reset();
@@ -2954,6 +3021,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     for (const auto& owner : affected)
         if (indexed_text_owner(owner))
             index_text_owner(owner, records_.at(owner)->snapshot().source_json);
+    for (const auto& owner : affected)
+        if (owner.starts_with("assets/"))
+            reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
     if (std::any_of(affected.begin(), affected.end(),
                     [](const auto& owner) { return owner.starts_with("i18n/"); }))
         localization_cache_.reset();

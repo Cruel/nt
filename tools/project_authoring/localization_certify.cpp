@@ -75,6 +75,53 @@ void certify(const std::filesystem::path& source)
         model.at("sourceLocaleLock") == "en" &&
             contents(policy).find("sourceLocaleLock: null") != std::string::npos,
         "Substantive translation work materializes an effective lock without rewriting the source");
+    // A dirty gameplay TextContent changes the Message's source contract.
+    // The saved French translation must not be validated against disk YAML.
+    const auto verb_yaml = open_yaml_source(contents(fixture.root / "records/verbs/deliver.yaml"));
+    require(verb_yaml.accepted, "Gameplay Message fixture is readable");
+    auto dirty_verb = Json::parse(verb_yaml.source_json);
+    dirty_verb["data"]["completedCommandText"]["source"]["text"] = "Deliver {title}";
+    const auto dirty_structured = validate_project_localization(
+        fixture.root, {}, {{"records/verbs/deliver.yaml", dirty_verb.to_string()}});
+    require(
+        !dirty_structured.accepted &&
+            diagnostic(dirty_structured,
+                       "/localization/translations/fr/07203395-f20c-5d69-8d8b-2547b934eaa5/text"),
+        "Dirty gameplay structured Message invalidates a saved translation");
+    const auto scene_yaml =
+        open_yaml_source(contents(fixture.root / "records/scenes/localized-story.yaml"));
+    require(scene_yaml.accepted, "Managed Scene localization fixture is readable");
+    auto dirty_scene = Json::parse(scene_yaml.source_json);
+    auto& scene_lua = dirty_scene["data"]["events"][0]["source"];
+    auto lua = scene_lua.as<std::string>();
+    const auto old_literal = std::string("Managed letter for {name}', {name='Ada'}");
+    const auto old_at = lua.find(old_literal);
+    require(old_at != std::string::npos, "Tracked managed literal is present");
+    lua.replace(old_at, old_literal.size(), "Managed letter for {title}', {title='Ada'}");
+    scene_lua = lua;
+    const auto physical = std::string("inline/scenes/localized-story/data/events/0/source.lua");
+    const auto dirty_managed = validate_project_localization(
+        fixture.root, {}, {{"records/scenes/localized-story.yaml", dirty_scene.to_string()}},
+        {{physical, analyze_project_text(physical, lua)}});
+    require(
+        !dirty_managed.accepted &&
+            diagnostic(dirty_managed,
+                       "/localization/translations/fr/48d01321-b758-5fcd-8380-42872aef0bd1/text"),
+        "Dirty tracked-only Lua Message invalidates a saved translation");
+    std::string working_error;
+    auto working = ProjectSession::open(fixture.root, working_error);
+    require(working != nullptr, "Working localization fixture opens");
+    const auto changed_gameplay = working->patch(
+        0, {{RoomPatch::Operation::Replace, "/verbs/deliver/data/completedCommandText/source/text",
+             R"("Deliver {title}")"}});
+    require(changed_gameplay.accepted && !changed_gameplay.snapshot.valid &&
+                std::any_of(changed_gameplay.snapshot.diagnostics.begin(),
+                            changed_gameplay.snapshot.diagnostics.end(),
+                            [](const Diagnostic& entry) {
+                                return entry.path == "/localization/translations/fr/"
+                                                     "07203395-f20c-5d69-8d8b-2547b934eaa5/text";
+                            }),
+            "ProjectSession invalidates cached localization after an unsaved gameplay edit");
 
     auto invalid_placeholder = model;
     invalid_placeholder["messages"]["25700000-0000-4000-8000-000000000001"]["arguments"] =

@@ -231,6 +231,8 @@ private:
     }
     std::optional<std::string> resolved_material(std::string_view material_id) const;
     void index_text_owner(std::string_view owner, std::string_view raw_json);
+    void reindex_asset_consumers(std::string_view asset_id);
+    ValidationResult validate_working_localization() const;
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
     std::filesystem::path root_;
@@ -243,6 +245,7 @@ private:
     std::set<std::string> text_source_paths_;
     std::map<std::string, std::string> text_disk_revisions_;
     std::map<std::string, std::set<std::string>> text_source_owners_;
+    std::map<std::string, std::set<std::string>> asset_text_consumers_;
     std::map<std::string, std::set<std::string>> layout_declared_scripts_;
     mutable std::map<std::string, SourceAnalysis> text_analysis_cache_;
     std::map<std::string, ValidationResult> material_compiler_results_;
