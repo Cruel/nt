@@ -206,18 +206,46 @@ std::size_t byte_at_utf16(std::string_view text, std::size_t target)
     return offset;
 }
 
+// ECMAScript RegExp \s and String.trim include Unicode WhiteSpace and
+// LineTerminator, not the locale-dependent C isspace() byte classification.
+// Match whole UTF-8 codepoint encodings so multi-byte whitespace cannot be
+// partially preserved or collapsed. U+0085, U+180E and U+200B are NOT \s.
+std::size_t ecmascript_whitespace_width(std::string_view text, std::size_t at)
+{
+    const auto first = static_cast<unsigned char>(text[at]);
+    if (first == 0x20 || (first >= 0x09 && first <= 0x0d))
+        return 1;
+    if (at + 1 < text.size() && first == 0xc2 && static_cast<unsigned char>(text[at + 1]) == 0xa0)
+        return 2; // U+00A0
+    if (at + 2 >= text.size())
+        return 0;
+    const auto second = static_cast<unsigned char>(text[at + 1]);
+    const auto third = static_cast<unsigned char>(text[at + 2]);
+    if (first == 0xe1 && second == 0x9a && third == 0x80)
+        return 3; // U+1680
+    if (first == 0xe2 && second == 0x80 &&
+        ((third >= 0x80 && third <= 0x8a) || third == 0xa8 || third == 0xa9 || third == 0xaf))
+        return 3; // U+2000..U+200A, U+2028, U+2029, U+202F
+    if ((first == 0xe2 && second == 0x81 && third == 0x9f) ||
+        (first == 0xe3 && second == 0x80 && third == 0x80) ||
+        (first == 0xef && second == 0xbb && third == 0xbf))
+        return 3; // U+205F, U+3000, U+FEFF
+    return 0;
+}
+
 std::string collapse_space(std::string_view text)
 {
     std::string result;
     bool pending = false;
-    for (const auto ch : text) {
-        if (std::isspace(static_cast<unsigned char>(ch))) {
+    for (std::size_t at = 0; at < text.size();) {
+        if (const auto width = ecmascript_whitespace_width(text, at)) {
             pending = !result.empty();
+            at += width;
             continue;
         }
         if (pending)
             result += ' ';
-        result += ch;
+        result += text[at++];
         pending = false;
     }
     return result;
@@ -230,9 +258,12 @@ std::string normalize_lua_tracking(const std::string& text)
     const auto stripped =
         std::regex_replace(std::regex_replace(text, long_comment, ""), line_comment, "");
     std::string normalized;
-    for (const auto ch : stripped)
-        if (!std::isspace(static_cast<unsigned char>(ch)))
-            normalized += ch;
+    for (std::size_t at = 0; at < stripped.size();) {
+        if (const auto width = ecmascript_whitespace_width(stripped, at))
+            at += width;
+        else
+            normalized += stripped[at++];
+    }
     return normalized;
 }
 

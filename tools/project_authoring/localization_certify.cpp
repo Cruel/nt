@@ -222,6 +222,40 @@ void certify(const std::filesystem::path& source)
                 "RML identity follows the original local Message through insertion and edits");
     }
     {
+        // Fingerprints below are computed with the TypeScript tracking oracle:
+        // /\s+/gu and .trim() normalize the non-breaking space in the tag.
+        // Neither an old anchor nor the unchanged-source ordinal fallback can
+        // rescue the identity after the surrounding markup and content change.
+        const auto rml_path = std::string("records/layouts/language-board/layout.rml");
+        const auto open_tag = std::string("<nt-tr class=\"a") + "\xc2\xa0" + "b\">";
+        const auto original = "<rml><body>" + open_tag + "<b>Hello</b></nt-tr></body></rml>";
+        const auto dirty = "<rml><head><title>Changed</title></head><body>" + open_tag +
+                           "<b>Hello {name}</b></nt-tr></body></rml>";
+        const auto tracked_yaml = open_yaml_source(contents(fixture.root / "i18n/tracking.yaml"));
+        require(tracked_yaml.accepted, "Unicode whitespace tracking fixture is readable");
+        auto tracking = Json::parse(tracked_yaml.source_json);
+        auto& entry = tracking.at(
+            "rml:record:layouts:language-board:/layouts/language-board/data/rml/sourceText");
+        auto& prior = entry["occurrences"][0];
+        prior["sourceSnapshot"] = "<b>Hello</b>";
+        prior["sourceFingerprint"] = "fnv1a:ec844aacf7d465489a8190fa47ff4c1c";
+        prior["structuralFingerprint"] = "fnv1a:f95dad3c3c15b3b0affdacbaca12aa0c";
+        prior["anchorFingerprint"] = "fnv1a:bd655112307ca6ce6716bec82a7305c2";
+        entry["sourceSnapshotFingerprint"] = "fnv1a:93b1aff796ace1f373be4a95d62a66e7";
+        const auto preserved = validate_project_localization(
+            fixture.root, {{"i18n/tracking.yaml", tracking.to_string()}}, {},
+            {{rml_path, analyze_project_text(rml_path, original)}});
+        require(preserved.accepted, "Original RML source matches its tracked baseline");
+        const auto changed = validate_project_localization(
+            fixture.root, {{"i18n/tracking.yaml", tracking.to_string()}}, {},
+            {{rml_path, analyze_project_text(rml_path, dirty)}});
+        require(!changed.accepted &&
+                    diagnostic(changed, "/localization/translations/fr/"
+                                        "f0b75a61-85b2-53fd-9d5f-5b43eb6bb8f1/text"),
+                "Unicode-space structural fingerprint preserves a local RML Message identity "
+                "when content and surrounding anchors change");
+    }
+    {
         const auto scene_path = fixture.root / "records/scenes/localized-story.yaml";
         const auto opened = open_yaml_source(contents(scene_path));
         require(opened.accepted, "Lua tracking reorder fixture opens");
