@@ -2899,6 +2899,16 @@ ValidationResult ProjectSession::validate_working_localization() const
     return validate_project_localization(root_, localization, records, source_analyses());
 }
 
+std::map<std::string, RoomSessionSnapshot> ProjectSession::validated_disk_record_snapshots() const
+{
+    std::map<std::string, RoomSessionSnapshot> snapshots;
+    if (!validation_snapshot_ || !validation_snapshot_->valid)
+        return snapshots;
+    for (const auto& [owner, session] : validation_records_)
+        snapshots.emplace(owner, session->snapshot());
+    return snapshots;
+}
+
 RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
 {
     RoomSessionResult result;

@@ -1053,6 +1053,85 @@ async function runNovelTeaScriptcIslandScoped(
         }) +
         '\n';
     }
+    if (
+      family === 'localization' &&
+      operation === 'sync' &&
+      bootstrap.globals.command.includes('--dry-run') &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string'
+    ) {
+      const native = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'localization-sync',
+            projectRoot: commandResult.envelope.projectRoot,
+            dryRun: true,
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; changed?: boolean };
+      validationProfileText +=
+        '[native-cli-localization-sync] ' +
+        JSON.stringify({
+          native,
+          oracle: {
+            success: commandResult.envelope.success,
+            changed: commandResult.envelope.changed,
+            materializedMessageIds: commandResult.envelope.materializedMessageIds,
+            preservedMessageIds: commandResult.envelope.preservedMessageIds,
+            unresolved: commandResult.envelope.unresolved,
+            structuredMessageCount: commandResult.envelope.structuredMessageCount,
+          },
+        }) +
+        '\n';
+    }
+    // A reproducible certification-only sibling bundle is compared against
+    // the public exporter in the installed-headless integration fixture.
+    // Both the write and native import occur outside the active Project root.
+    if (
+      family === 'project' &&
+      operation === 'export' &&
+      commandResult.envelope.success &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string' &&
+      typeof commandResult.envelope.outputPath === 'string'
+    ) {
+      const original = commandResult.envelope.outputPath;
+      const parsed = path.parse(original);
+      const nativeOutput = path.join(parsed.dir, `.${parsed.name}.native-cert.ntproject`);
+      const nativeDestination = path.join(parsed.dir, `.${parsed.name}.native-import`);
+      const exported = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'project-export',
+            projectRoot: commandResult.envelope.projectRoot,
+            outputPath: nativeOutput,
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; manifest?: unknown };
+      if (!exported.ok)
+        throw new Error(exported.error ?? 'Native portable Project export certification failed.');
+      const imported = JSON.parse(
+        invokeHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'project-import',
+            bundlePath: nativeOutput,
+            destination: nativeDestination,
+          }),
+        ),
+      ) as { ok?: boolean; error?: string; manifest?: unknown };
+      if (!imported.ok)
+        throw new Error(imported.error ?? 'Native portable Project import certification failed.');
+      validationProfileText +=
+        '[native-cli-bundle] ' +
+        JSON.stringify({ nativeOutput, nativeDestination, exported, imported }) +
+        '\n';
+    }
     trace('application invocation completed');
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)

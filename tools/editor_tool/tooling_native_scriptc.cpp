@@ -250,7 +250,7 @@ struct CapturedNativeResponse {
 };
 
 CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uint8_t* request_bytes,
-                                       std::size_t request_size)
+                                       std::size_t request_size, bool single_pass)
 {
     std::fflush(stdout);
     std::fflush(stderr);
@@ -327,9 +327,14 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
         return failed;
     }
 
+    // The capture protocol is also used by installed --no-daemon CLI calls.
+    // For a potentially mutating Project command, size probing can execute
+    // the operation twice; preallocate and invoke it exactly once instead.
     const auto required =
-        operation(request_bytes, static_cast<std::uint64_t>(request_size), nullptr, 0);
-    std::vector<std::uint8_t> response(response_capacity(required));
+        single_pass
+            ? project_authority_response_capacity
+            : operation(request_bytes, static_cast<std::uint64_t>(request_size), nullptr, 0);
+    std::vector<std::uint8_t> response(single_pass ? required : response_capacity(required));
     const auto written = operation(request_bytes, static_cast<std::uint64_t>(request_size),
                                    response.data(), response.size());
     std::fflush(stdout);
@@ -348,7 +353,9 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
         close_fd(stderr_copy);
 
     CapturedNativeResponse captured;
-    captured.ok = true;
+    captured.ok = written <= response.size();
+    if (!captured.ok)
+        captured.error = "native capture response overflow";
     captured.stdout_text = read_capture(stdout_capture);
     captured.stderr_text = read_capture(stderr_capture);
     std::fclose(stdout_capture);
@@ -390,7 +397,8 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
         return;
     }
     if (capture_output && operation != "daemon") {
-        const auto captured = invoke_captured(native_operation, request_bytes, request_size);
+        const auto captured = invoke_captured(native_operation, request_bytes, request_size,
+                                              operation == "native-project-commands");
         const auto envelope = nlohmann::json{{"captureOk", captured.ok},
                                              {"captureError", captured.error},
                                              {"response", captured.response},

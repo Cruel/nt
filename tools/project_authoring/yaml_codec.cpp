@@ -605,7 +605,10 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         } else
             throw SourceFailure("YAML edit path has no source value.");
     }
-    if (previous == replacement && edit.operation != YamlEditOperation::Remove)
+    // A default-valued field still needs to pass through the omission branch.
+    // Otherwise an Upsert(default, omission_default=default) silently does nothing.
+    if (previous == replacement && edit.operation != YamlEditOperation::Remove &&
+        !edit.omission_default_json)
         return std::string(source);
     const bool commented = has_physical_comment(source, node, key);
     if (edit.operation == YamlEditOperation::Remove) {
@@ -706,7 +709,25 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
     if (!fy_node_is_scalar(node) && contains_comment(node))
         throw SourceFailure("Cannot replace a commented YAML subtree as one value.", *start);
     std::string result(source);
-    const auto encoded = emit_source_value(replacement, node);
+    auto encoded = emit_source_value(replacement, node);
+    // The end mark of a block mapping/sequence can point to the following
+    // sibling's token. When replacing its entire multi-line value with a
+    // compact JSON-flow value, preserve the consumed line boundary rather
+    // than joining the flow value to that sibling's key.
+    if (!fy_node_is_scalar(node) &&
+        (fy_node_get_style(node) == FYNS_BLOCK || fy_node_get_style(node) == FYNS_ANY) &&
+        source.substr(*start, *finish - *start).find('\n') != std::string_view::npos &&
+        !encoded.ends_with('\n')) {
+        const auto next_line_start = start_of_line(source, *finish);
+        const auto indent = source.substr(next_line_start, *finish - next_line_start);
+        if (!std::all_of(indent.begin(), indent.end(),
+                         [](char c) { return c == ' ' || c == '\t'; }))
+            throw SourceFailure("Cannot safely retain the following YAML sibling's indent.");
+        encoded += source.substr(*start, *finish - *start).find("\r\n") != std::string_view::npos
+                       ? "\r\n"
+                       : "\n";
+        encoded += indent;
+    }
     result.replace(*start, *finish - *start, encoded);
     if (edit.comments == YamlCommentDisposition::Remove) {
         const auto key_start = key ? mark_offset(fy_node_get_start_token(key)) : start;

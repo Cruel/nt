@@ -202,6 +202,9 @@ public:
                 TransactionDecision comments,
                 const std::map<std::string, std::vector<std::string>>& paths = {});
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
+    // Immutable disk-validation contributors, including lazily uninspected
+    // record owners. Valid only after validate_project() has refreshed proof.
+    std::map<std::string, RoomSessionSnapshot> validated_disk_record_snapshots() const;
     RoomSessionResult save(std::string_view disk_revision)
     {
         for (const auto& [owner, record] : records_) {
