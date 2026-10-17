@@ -3,6 +3,7 @@
 #include "benchmark_report.hpp"
 #include "benchmark_runner.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/jobs/inline_job_executor.hpp"
 #include "noveltea/platform.hpp"
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/renderer.hpp"
@@ -40,6 +41,7 @@ public:
     Readiness readiness(std::string& reason) override;
     bool frame(std::string& reason) override;
     void diagnostic_frame(DiagnosticObservation& observation) override;
+    void diagnostic_completion(std::vector<DiagnosticObservation>& late) override;
     bool complete(std::string& reason) override;
     bool inspect(const Options& options, std::string& reason);
     bool cleanup(std::string& reason) override;
@@ -50,6 +52,9 @@ private:
     std::string id_;
     Platform platform_;
     assets::AssetManager assets_;
+    std::unique_ptr<jobs::InlineJobExecutor> executor_;
+    std::shared_ptr<assets::AssetResidencyManager> residency_;
+    ShaderMaterialProject shader_project_;
     Renderer renderer_;
     Native2DReference reference_;
     bgfx::TextureHandle texture_ = BGFX_INVALID_HANDLE;
@@ -58,6 +63,13 @@ private:
     TextLayout static_layout_;
     TextLayout dynamic_layout_;
     bool dynamic_ = false;
+    bool diagnostic_ = false;
+    bool shader_enabled_ = false;
+    PostprocessScope postprocess_scope_ = PostprocessScope::World;
+    uint32_t postprocess_passes_ = 0;
+    double cpu_submission_ms_ = 0.0;
+    double bgfx_frame_cpu_ms_ = 0.0;
+    bool prepare_shader_assets(std::string& reason);
     uint64_t frame_number_ = 0;
     Interruption interruption_ = Interruption::None;
     Environment environment_;

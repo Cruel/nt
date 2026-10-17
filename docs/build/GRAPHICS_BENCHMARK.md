@@ -1,4 +1,4 @@
-# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#445)
+# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#446)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 RmlUi reference workloads, and headless Lua/Runtime Session/Flow prediction CPU workloads. Raw and standalone RmlUi **do not instantiate**
@@ -10,6 +10,63 @@ sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## Production shaders and postprocessing (#446)
+
+`native-shader-material` and `native-postprocess` reuse the native renderer host below;
+**neither** is a raw-bgfx imitation of the renderer's Material binder or postprocess
+pipeline. These fixed-reference cases use production `Renderer::draw_2d` Material
+submission with the staged `quad` vertex/fragment shader, mandatory resident
+shader-program and Material asset leases, and the real full-screen
+`postprocess_tint` shader and ping-pong compositor. Shader binaries are compiled
+for the active renderer variant, and asset requests, shader preparation, target
+allocation and four submitted warmup frames finish **before Ready**.
+
+```sh
+./scripts/run-benchmark.sh --scenario native-shader-material --native-quads 128 --native-texture-size 256 --frames 300
+./scripts/run-benchmark.sh --scenario native-postprocess --composition-path direct --frames 300
+./scripts/run-benchmark.sh --scenario native-postprocess --composition-path offscreen --composite-passes 1 --frames 300
+./scripts/run-benchmark.sh --scenario native-postprocess --composition-path offscreen --composite-passes 3 --shader-tint 0.8 --shader-scope full-game-viewport --profile diagnostic --frames 300
+./scripts/run-benchmark.sh --scenario native-postprocess --composition-path offscreen --composite-passes 2 --shader-tint 0.5 --inspection-smoke --width 640 --height 480
+```
+
+The unchanged deterministic grid controls geometry submission through
+`--native-quads 1..2048`; `--native-texture-size` controls an independent real
+checkerboard texture (0 means solid color; 64..1024 power-of-two). The
+`native-postprocess` scenario has two *explicit* modes: `--composition-path direct`
+with **zero** effects (a renderer-owned material baseline), and
+`--composition-path offscreen` with 1–4 actual production postprocess passes.
+Each pass applies the same `u_tint` RGB multiplier, controlled by
+`--shader-tint 0..1`; 1 is neutral, and less than 1 visibly changes the
+picture. `--shader-scope world|full-game-viewport` selects the real production
+rendering scope. Pass count, tint, quad count and texture footprint are
+independent workload dimensions. The report identifies all these settings
+and the exact fixed reference. Compare only visually equivalent settings as
+an apples-to-apples baseline (e.g. neutral tint); an enabled tint is an
+intentional visual change, not a renderer optimization.
+
+The production postprocess target dimensions equal the effective game
+viewport/UI raster dimensions. Use `--width`/`--height` or
+`--native-resolution` to exercise different real render-target sizes;
+`--target-scale` and MSAA **are not supported** by this production route,
+so those settings are rejected instead of silently switching to a different
+composition implementation. Arbitrary source shader compilation is outside
+this fixed-reference benchmark. The 4-pass production limit is enforced,
+and non-shader scenarios reject the shader-specific knobs.
+
+Clean samples native Renderer CPU submission and frame synchronization without
+inspection readbacks. Diagnostic preserves distinct CPU submission, bgfx
+frame/presentation wait, render-thread and *only if available* matched GPU
+execution data. They are never collapsed into a fabricated GPU time.
+`--inspection-smoke` captures output outside measurement; a Linux CTest visual
+regression compares production Material rendering with the original geometry
+reference, tests neutral world/full-game passes for pixel equivalence, and
+requires real output changes with tint and higher pass count. This visual
+check runs using software OpenGL/Xvfb and does **not** represent a hardware
+performance comparison. As with other native-only benchmark workloads, Web
+currently rejects this scenario because the Web dashboard owns the bgfx
+context; Android uses the native Platform/Renderer host and staged system
+shader assets.
 
 ## Native 2D renderer, geometry and text (#445)
 

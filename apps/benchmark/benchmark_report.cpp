@@ -35,6 +35,14 @@ Json configuration(const Options& options)
                       {"font", "system:/fonts/LiberationSans.ttf"},
                       {"font_size_px", 12},
                       {"reference", "native-2d-grid-az-v1"}};
+    else if (is_shader_scenario(options.scenario))
+        parameters = {{"geometry_quads", options.native_quads},
+                      {"texture_edge", options.native_texture_size},
+                      {"composition_path", options.composition_path},
+                      {"passes", options.composite_passes},
+                      {"tint", options.shader_tint},
+                      {"scope", options.shader_scope},
+                      {"reference", "native-shader-grid-tint-v1"}};
     else if (is_cpu_scenario(options.scenario))
         parameters = {{"work_units", options.cpu_work_units},
                       {"input", options.scenario == "cpu-lua"
@@ -253,6 +261,23 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             reason = "invalid native 2D benchmark parameters or reference identity";
             return false;
         }
+    } else if (is_shader_scenario(scenario)) {
+        if (!has_fields(parameters, {"geometry_quads", "texture_edge", "composition_path", "passes",
+                                     "tint", "scope", "reference"}) ||
+            !unsigned_integer(parameters, "geometry_quads") ||
+            !unsigned_integer(parameters, "texture_edge") ||
+            !unsigned_integer(parameters, "passes") || !numeric(parameters, "tint") ||
+            !parameters["composition_path"].is_string() || !parameters["scope"].is_string() ||
+            !parameters["reference"].is_string() ||
+            parameters["geometry_quads"].get<uint64_t>() < 1 ||
+            parameters["geometry_quads"].get<uint64_t>() > 2048 ||
+            parameters["texture_edge"].get<uint64_t>() > 1024 ||
+            parameters["passes"].get<uint64_t>() > 4 || parameters["tint"].get<double>() < 0.0 ||
+            parameters["tint"].get<double>() > 1.0 ||
+            parameters["reference"] != "native-shader-grid-tint-v1") {
+            reason = "invalid native shader material benchmark parameters";
+            return false;
+        }
     } else if (is_cpu_scenario(scenario)) {
         if (!has_fields(parameters, {"work_units", "input"}) ||
             !unsigned_integer(parameters, "work_units") ||
@@ -419,6 +444,15 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         next.native_glyphs = static_cast<uint32_t>(parameters["glyphs"].get<uint64_t>());
         next.native_texture_size =
             static_cast<uint32_t>(parameters["texture_edge"].get<uint64_t>());
+    }
+    if (is_shader_scenario(scenario)) {
+        next.native_quads = static_cast<uint32_t>(parameters["geometry_quads"].get<uint64_t>());
+        next.native_texture_size =
+            static_cast<uint32_t>(parameters["texture_edge"].get<uint64_t>());
+        next.composition_path = parameters["composition_path"].get<std::string>();
+        next.composite_passes = static_cast<uint32_t>(parameters["passes"].get<uint64_t>());
+        next.shader_tint = parameters["tint"].get<double>();
+        next.shader_scope = parameters["scope"].get<std::string>();
     }
     if (is_cpu_scenario(scenario))
         next.cpu_work_units = static_cast<uint32_t>(parameters["work_units"].get<uint64_t>());

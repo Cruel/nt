@@ -6,20 +6,74 @@
 #include "benchmark_inspection.hpp"
 #include "benchmark_window_size.hpp"
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/assets/mandatory_asset_gate.hpp"
+#include "noveltea/render/shader_manifest.hpp"
 #include "noveltea/world_presentation.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace noveltea::benchmark {
+namespace {
+
+constexpr std::string_view kQuadMaterial = "benchmark/material/quad";
+constexpr std::string_view kTintMaterial = "benchmark/material/tint";
+
+// The production system shader binaries are precompiled for every supported renderer variant.
+// This fixture uses the same compiled quad and postprocess-tint programs as Engine demo content.
+ShaderMaterialProject make_shader_reference()
+{
+    const auto make_shader = [](std::string_view name, ShaderRole role, std::string_view program) {
+        ShaderDefinition shader;
+        shader.id = ShaderId(std::string(name));
+        shader.roles.push_back(role);
+        for (const auto [stage, suffix] :
+             {std::pair{ShaderStage::Vertex, "vs"}, {ShaderStage::Fragment, "fs"}}) {
+            ShaderStageDefinition definition;
+            definition.stage = stage;
+            for (const char* variant : {"glsl-330", "essl-300", "metal"})
+                definition.compiled.push_back(ShaderCompiledBinaryRef::trusted_system(
+                    variant, "system:/shaders/bgfx/" + std::string(variant) + "/" +
+                                 std::string(program) + "." + suffix + ".bin"));
+            shader.stages.push_back(std::move(definition));
+        }
+        shader.samplers.push_back(ShaderSamplerDeclaration{.name = "s_texColor", .stage = 0});
+        if (role == ShaderRole::Postprocess)
+            shader.uniforms.push_back(
+                ShaderUniformDeclaration{.name = "u_tint",
+                                         .type = ShaderUniformType::Color,
+                                         .default_value = ShaderColor{1, 1, 1, 1}});
+        return shader;
+    };
+    ShaderMaterialProject project;
+    project.shaders.push_back(make_shader("benchmark/shader/quad", ShaderRole::Engine2D, "quad"));
+    project.shaders.push_back(
+        make_shader("benchmark/shader/tint", ShaderRole::Postprocess, "postprocess_tint"));
+    project.materials.push_back(MaterialDefinition{
+        .id = MaterialId(std::string(kQuadMaterial)),
+        .role = ShaderRole::Engine2D,
+        .shader = project.shaders[0].id,
+    });
+    project.materials.push_back(MaterialDefinition{
+        .id = MaterialId(std::string(kTintMaterial)),
+        .role = ShaderRole::Postprocess,
+        .shader = project.shaders[1].id,
+        .uniforms = {{"u_tint", ShaderColor{1, 1, 1, 1}}},
+    });
+    return project;
+}
+
+} // namespace
 
 Native2DReference make_native_2d_reference(uint32_t quad_count, uint32_t glyph_count, int width,
                                            int height)
@@ -61,9 +115,67 @@ const char* Native2DScenario::description() const
 {
     if (id_ == "native-2d-geometry")
         return "production Renderer::draw_2d geometry submission; optional real GPU texture";
+    if (id_ == "native-shader-material")
+        return "production engine-2d Material binder and real staged quad shader";
+    if (id_ == "native-postprocess")
+        return "production engine-2d Material plus optional scoped tint postprocess passes";
     if (id_ == "native-2d-text-static")
         return "production native text renderer with pre-shaped static glyph layout";
     return "production native HarfBuzz shaping/layout plus text draw with changing strings";
+}
+
+bool Native2DScenario::prepare_shader_assets(std::string& reason)
+{
+    std::vector<assets::StructuredAssetLeaseRecord> leases;
+    auto retain = [&](auto requested, auto asset_request, const char* label) {
+        if (!requested) {
+            reason = std::string("native shader asset request failed: ") + label;
+            return false;
+        }
+        auto handle = std::move(requested).value();
+        for (int step = 0; step < 64 && handle.state() == assets::AssetRequestState::Pending;
+             ++step) {
+            (void)executor_->run_until_idle(256);
+            (void)executor_->dispatch_owner_completions(256);
+        }
+        if (handle.state() != assets::AssetRequestState::Ready) {
+            reason = std::string("native shader asset not ready: ") + label;
+            for (const auto& diagnostic : handle.diagnostics())
+                reason += "; " + diagnostic.code + ": " + diagnostic.message;
+            return false;
+        }
+        auto lease = std::move(handle).take_ready();
+        if (!lease) {
+            reason = std::string("native shader asset completed without lease: ") + label;
+            return false;
+        }
+        auto key = lease->cache_key();
+        leases.push_back({{std::move(asset_request), std::move(key)}, std::move(*lease)});
+        return true;
+    };
+
+    const auto prepare_material = [&](std::string_view id) {
+        const MaterialId material{std::string(id)};
+        const auto resolved = resolve_material_shader_program(shader_project_, material,
+                                                              renderer_.active_shader_variant());
+        if (!resolved.program) {
+            reason = "native shader material has no compiled variant: " + std::string(id);
+            return false;
+        }
+        const assets::ShaderProgramAssetRequest shader_request{*resolved.program};
+        const assets::MaterialAssetRequest material_request{std::string(id)};
+        return retain(assets_.request_shader_program(shader_request,
+                                                     assets::AssetRequestReason::Demand),
+                      shader_request, "compiled shader program") &&
+               retain(
+                   assets_.request_material(material_request, assets::AssetRequestReason::Demand),
+                   material_request, "material definition");
+    };
+    if (!prepare_material(kQuadMaterial) ||
+        (postprocess_passes_ != 0 && !prepare_material(kTintMaterial)))
+        return false;
+    assets_.set_supplemental_leases_on_owner(assets::StructuredAssetLeaseSet(std::move(leases)));
+    return true;
 }
 
 bool Native2DScenario::prepare(const Options& options, std::string& reason)
@@ -77,6 +189,11 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
     interruption_ = Interruption::None;
     environment_ = {};
     dynamic_ = id_ == "native-2d-text-dynamic";
+    diagnostic_ = options.profile == "diagnostic";
+    shader_enabled_ = is_shader_scenario(id_);
+    postprocess_passes_ = id_ == "native-postprocess" ? options.composite_passes : 0;
+    postprocess_scope_ = options.shader_scope == "world" ? PostprocessScope::World
+                                                         : PostprocessScope::FullGameViewport;
     frame_number_ = 0;
 
     PlatformConfig platform_config{.title = "NovelTea Native 2D Benchmark",
@@ -106,6 +223,17 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
 #else
     assets_.mount_directory("system", benchmark_asset_path("system"));
 #endif
+    if (shader_enabled_) {
+        executor_ = std::make_unique<jobs::InlineJobExecutor>();
+        constexpr uint64_t budget = 128u * 1024u * 1024u;
+        residency_ = std::make_shared<assets::AssetResidencyManager>(assets::ResidencyBudget{
+            budget, budget, budget, budget, budget, budget, budget, budget});
+        if (!assets_.configure_async_requests(*executor_, residency_)) {
+            reason = "native shader asset request orchestration failed";
+            return false;
+        }
+        shader_project_ = make_shader_reference();
+    }
     const auto surface = platform_.surface();
     const auto presentation =
         make_presentation_metrics(surface, {.reference = {.size = surface.framebuffer_size},
@@ -124,9 +252,29 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
         reason = "production native 2D Renderer initialization failed";
         return false;
     }
+    if (shader_enabled_) {
+        renderer_.set_shader_material_project(&shader_project_);
+        if (!prepare_shader_assets(reason))
+            return false;
+        if (postprocess_passes_ != 0) {
+            std::vector<RuntimePostprocessPass> passes;
+            passes.reserve(postprocess_passes_);
+            const ShaderColor tint{static_cast<float>(options.shader_tint),
+                                   static_cast<float>(options.shader_tint),
+                                   static_cast<float>(options.shader_tint), 1.0f};
+            for (uint32_t index = 0; index < postprocess_passes_; ++index)
+                passes.push_back(RuntimePostprocessPass{
+                    .stable_identity = "benchmark/pass/" + std::to_string(index),
+                    .material = MaterialId(std::string(kTintMaterial)),
+                    .scope = postprocess_scope_,
+                    .uniforms = {{"u_tint", ShaderUniformValue{tint}, std::nullopt}},
+                });
+            renderer_.set_runtime_postprocess_stack(std::move(passes));
+        }
+    }
     const auto width = renderer_.reference_width();
     const auto height = renderer_.reference_height();
-    const bool geometry = id_ == "native-2d-geometry";
+    const bool geometry = id_ == "native-2d-geometry" || shader_enabled_;
     reference_ = make_native_2d_reference(geometry ? options.native_quads : 0u,
                                           geometry ? 0u : options.native_glyphs, width, height);
     if (geometry && options.native_texture_size > 0) {
@@ -155,6 +303,19 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
                                         command.color);
         }
         reference_.quads = std::move(textured);
+    }
+    if (shader_enabled_) {
+        QuadBatch material_batch;
+        for (const auto& command : reference_.quads.commands()) {
+            if (command.texture.valid())
+                material_batch.draw_material_textured_quad(
+                    command.rect, MaterialId(std::string(kQuadMaterial)), command.texture,
+                    {0, 0, 1, 1}, command.color);
+            else
+                material_batch.draw_material_quad(
+                    command.rect, MaterialId(std::string(kQuadMaterial)), command.color);
+        }
+        reference_.quads = std::move(material_batch);
     }
     if (!geometry) {
         font_ = renderer_.load_font({std::string(kSystemFontAsset)});
@@ -215,7 +376,7 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
     environment_.ui_raster_height = presentation.value().ui_raster.size.height;
     environment_.world_raster_width = presentation.value().world_raster.size.width;
     environment_.world_raster_height = presentation.value().world_raster.size.height;
-    environment_.engine_postprocess_active = false;
+    environment_.engine_postprocess_active = postprocess_passes_ != 0;
 
     // Warm raster/glyph atlas and submit real frames before Ready, even for --smoke.
     for (int step = 0; step < 4; ++step)
@@ -253,10 +414,19 @@ bool Native2DScenario::frame(std::string& reason)
         reason = "native 2D renderer not initialized";
         return false;
     }
+    std::chrono::steady_clock::time_point begin;
+    if (diagnostic_)
+        begin = std::chrono::steady_clock::now();
     renderer_.begin_frame();
-    if (id_ == "native-2d-geometry") {
+    if (postprocess_passes_ != 0 && !renderer_.prepare_postprocess_surface(false)) {
+        reason = "production postprocess target preparation failed";
+        return false;
+    }
+    if (id_ == "native-2d-geometry" || shader_enabled_) {
         renderer_.draw_2d(reference_.quads);
         renderer_.composite_ordinary_world_surface();
+        if (postprocess_passes_ != 0)
+            renderer_.composite_postprocess_surface(postprocess_scope_);
     } else if (dynamic_) {
         // Both text variants are laid out/rasterized before Ready; reshaping remains timed.
         label_.value = (frame_number_ & 1u) ? reference_.text : reference_.alternate_text;
@@ -265,14 +435,39 @@ bool Native2DScenario::frame(std::string& reason)
         renderer_.draw_text(static_layout_);
     }
     renderer_.finalize_screenshot_capture();
+    std::chrono::steady_clock::time_point submitted;
+    if (diagnostic_)
+        submitted = std::chrono::steady_clock::now();
     renderer_.end_frame();
+    if (diagnostic_) {
+        const auto completed = std::chrono::steady_clock::now();
+        cpu_submission_ms_ = std::chrono::duration<double, std::milli>(submitted - begin).count();
+        bgfx_frame_cpu_ms_ =
+            std::chrono::duration<double, std::milli>(completed - submitted).count();
+    }
     ++frame_number_;
     return true;
 }
 
 void Native2DScenario::diagnostic_frame(DiagnosticObservation& observation)
 {
+    observation.cpu_submission_ms = cpu_submission_ms_;
+    observation.bgfx_frame_cpu_ms = bgfx_frame_cpu_ms_;
+    observation.submitted_frame = renderer_.last_submitted_bgfx_frame();
     capture_bgfx_diagnostics(observation);
+}
+
+void Native2DScenario::diagnostic_completion(std::vector<DiagnosticObservation>& late)
+{
+    // Let delayed bgfx GPU timers settle after the measurement interval.
+    // Samples are attributed only through matching submitted frame IDs, never by position.
+    for (int step = 0; step < 3; ++step) {
+        renderer_.begin_frame();
+        renderer_.end_frame();
+        DiagnosticObservation observation;
+        capture_bgfx_diagnostics(observation);
+        late.push_back(std::move(observation));
+    }
 }
 
 bool Native2DScenario::inspect(const Options& options, std::string& reason)
@@ -309,7 +504,19 @@ bool Native2DScenario::inspect(const Options& options, std::string& reason)
             varied = true;
             break;
         }
-    if (!varied) {
+    // A zero-tint full-screen effect intentionally blacks out the reference.
+    // Validate that output rather than misclassifying a valid effect as a blank workload.
+    const bool blackout =
+        id_ == "native-postprocess" && postprocess_passes_ != 0 && options.shader_tint == 0.0;
+    if (blackout) {
+        for (size_t offset = 0; offset + 3 < screenshot->pixels.size(); offset += 4) {
+            if (screenshot->pixels[offset] > 3 || screenshot->pixels[offset + 1u] > 3 ||
+                screenshot->pixels[offset + 2u] > 3) {
+                reason = "native postprocess zero tint did not produce black output";
+                return false;
+            }
+        }
+    } else if (!varied) {
         reason = "native 2D visual inspection is uniform (no visible workload)";
         return false;
     }
@@ -348,7 +555,24 @@ bool Native2DScenario::cleanup(std::string& reason)
         bgfx::destroy(texture_);
         texture_ = BGFX_INVALID_HANDLE;
     }
+    renderer_.set_runtime_postprocess_stack({});
+    renderer_.set_shader_material_project(nullptr);
+    if (shader_enabled_)
+        assets_.clear_supplemental_leases_on_owner();
     renderer_.shutdown();
+    assets_ = assets::AssetManager{};
+    if (executor_) {
+        executor_->begin_shutdown();
+        (void)executor_->dispatch_owner_completions(std::numeric_limits<size_t>::max());
+    }
+    executor_.reset();
+    residency_.reset();
+    shader_project_ = {};
+    shader_enabled_ = false;
+    diagnostic_ = false;
+    postprocess_passes_ = 0;
+    cpu_submission_ms_ = 0.0;
+    bgfx_frame_cpu_ms_ = 0.0;
     platform_.shutdown();
     reference_ = {};
     font_ = {};

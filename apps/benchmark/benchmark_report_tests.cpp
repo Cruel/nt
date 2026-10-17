@@ -129,6 +129,44 @@ int main()
                    text_roundtrip.scenario == native.scenario,
                "native 2D dynamic text accepts independently scaled glyph count"))
         return 1;
+    Options shader;
+    shader.scenario = "native-postprocess";
+    shader.native_quads = 96;
+    shader.native_texture_size = 128;
+    shader.composition_path = "offscreen";
+    shader.composite_passes = 3;
+    shader.shader_tint = 0.8;
+    shader.shader_scope = "full-game-viewport";
+    auto shader_config = nlohmann::json::parse(encode_configuration(shader));
+    Options shader_roundtrip;
+    if (!check(decode_configuration(shader_config.dump(), shader_roundtrip, error) &&
+                   shader_roundtrip.native_quads == 96 &&
+                   shader_roundtrip.native_texture_size == 128 &&
+                   shader_roundtrip.composite_passes == 3 && shader_roundtrip.shader_tint == 0.8 &&
+                   shader_roundtrip.shader_scope == "full-game-viewport" &&
+                   nlohmann::json::parse(encode_configuration(shader_roundtrip)) == shader_config,
+               "native postprocess configuration roundtrip retains independent scene and passes"))
+        return 1;
+    shader_config["parameters"]["passes"] = 5;
+    if (!check(rejected(shader_config), "postprocess rejects more than four passes"))
+        return 1;
+    shader_config["parameters"]["passes"] = 3;
+    shader_config["parameters"]["reference"] = "changed";
+    if (!check(rejected(shader_config), "postprocess rejects changed visual fixture identity"))
+        return 1;
+    shader_config["parameters"]["reference"] = "native-shader-grid-tint-v1";
+    shader_config["parameters"]["composition_path"] = "direct";
+    if (!check(rejected(shader_config), "direct postprocess cannot silently retain effects"))
+        return 1;
+    shader.scenario = "native-shader-material";
+    shader.composition_path = "direct";
+    shader.composite_passes = 0;
+    shader.shader_tint = 1.0;
+    shader.shader_scope = "world";
+    if (!check(decode_configuration(encode_configuration(shader), shader_roundtrip, error),
+               "native shader material accepts fixed production shader reference"))
+        return 1;
+
     auto missing_alternate = configured;
     missing_alternate.erase("alternate");
     if (!check(configured["alternate"].is_null() && rejected(missing_alternate),

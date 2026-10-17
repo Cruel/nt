@@ -157,6 +157,8 @@ public:
     bool initialize(const RendererConfig& config);
     void begin_frame();
     void end_frame();
+    // bgfx submission identity for diagnostic frame attribution, not a GPU completion fence.
+    [[nodiscard]] std::uint32_t last_submitted_bgfx_frame() const noexcept { return m_bgfx_frame; }
     void resize(const PresentationMetrics& presentation);
 #if defined(NOVELTEA_PLATFORM_ANDROID)
     // Rebind a newly created Android ANativeWindow without dropping game state or GPU resources.
