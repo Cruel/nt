@@ -996,8 +996,28 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                                 static_cast<unsigned long long>(trial.diagnostic.observations),
                                 static_cast<unsigned long long>(
                                     trial.diagnostic.bgfx_stats_observations));
-                            show_distribution("UI update", trial.diagnostic.cpu_update_ms);
-                            show_distribution("CPU submission", trial.diagnostic.cpu_submission_ms);
+                            show_distribution("RmlUi Update (layout-inclusive)",
+                                              trial.diagnostic.rmlui_update_ms);
+                            show_distribution("RmlUi Render (CPU submit)",
+                                              trial.diagnostic.rmlui_render_ms);
+                            show_distribution("Standalone fixture mutation",
+                                              trial.diagnostic.ui_fixture_mutation_ms);
+                            show_distribution("Engine events", trial.diagnostic.engine_events_ms);
+                            show_distribution("Engine jobs", trial.diagnostic.engine_jobs_ms);
+                            show_distribution("Engine assets", trial.diagnostic.engine_assets_ms);
+                            show_distribution("Engine update (jobs through layout; overlaps)",
+                                              trial.diagnostic.engine_update_ms);
+                            show_distribution("Engine runtime", trial.diagnostic.engine_runtime_ms);
+                            show_distribution("Engine layout realization",
+                                              trial.diagnostic.engine_layout_ms);
+                            show_distribution("Engine render (CPU including waits)",
+                                              trial.diagnostic.engine_render_ms);
+                            show_distribution("Legacy CPU update", trial.diagnostic.cpu_update_ms);
+                            show_distribution("Legacy CPU submission",
+                                              trial.diagnostic.cpu_submission_ms);
+                            ImGui::TextDisabled(
+                                "Owner-thread stages are non-additive across owners. "
+                                "RmlUi Update includes CSS layout work when dirty.");
                             show_distribution("bgfx::frame CPU handoff",
                                               trial.diagnostic.bgfx_frame_cpu_ms);
                             show_distribution("bgfx render-thread",
@@ -1008,6 +1028,12 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                                               trial.diagnostic.bgfx_wait_submit_ms);
                             show_distribution("GPU execution (identified completions)",
                                               trial.diagnostic.gpu_execution_ms);
+                            if (trial.diagnostic.compute_calls.count)
+                                ImGui::Text("bgfx compute submissions (async): mean %.1f",
+                                            trial.diagnostic.compute_calls.mean);
+                            if (trial.diagnostic.blit_calls.count)
+                                ImGui::Text("bgfx blit submissions (async): mean %.1f",
+                                            trial.diagnostic.blit_calls.mean);
                             if (trial.diagnostic.draw_calls.count)
                                 ImGui::Text("bgfx snapshots: draw mean %.1f, textures mean %.1f, "
                                             "programs mean %.1f",

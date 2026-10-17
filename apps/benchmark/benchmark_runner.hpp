@@ -58,6 +58,17 @@ struct Distribution {
 // completed-frame snapshot, not necessarily the frame just submitted.
 struct DiagnosticObservation {
     std::optional<double> cpu_update_ms;
+    // Owner-specific Diagnostic timings, absent for unsupported scenarios.
+    std::optional<double> rmlui_update_ms;
+    std::optional<double> rmlui_render_ms;
+    std::optional<double> ui_fixture_mutation_ms;
+    std::optional<double> engine_events_ms;
+    std::optional<double> engine_jobs_ms;
+    std::optional<double> engine_assets_ms;
+    std::optional<double> engine_update_ms;
+    std::optional<double> engine_runtime_ms;
+    std::optional<double> engine_layout_ms;
+    std::optional<double> engine_render_ms;
     std::optional<double> cpu_submission_ms;
     std::optional<double> bgfx_frame_cpu_ms;
     std::optional<double> bgfx_render_thread_ms;
@@ -86,6 +97,16 @@ struct DiagnosticSummary {
     uint64_t observations = 0;
     uint64_t bgfx_stats_observations = 0;
     Distribution cpu_update_ms;
+    Distribution rmlui_update_ms;
+    Distribution rmlui_render_ms;
+    Distribution ui_fixture_mutation_ms;
+    Distribution engine_events_ms;
+    Distribution engine_jobs_ms;
+    Distribution engine_assets_ms;
+    Distribution engine_update_ms;
+    Distribution engine_runtime_ms;
+    Distribution engine_layout_ms;
+    Distribution engine_render_ms;
     Distribution cpu_submission_ms;
     Distribution bgfx_frame_cpu_ms;
     Distribution bgfx_render_thread_ms;

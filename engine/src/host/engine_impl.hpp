@@ -224,6 +224,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool m_pointer_valid = false;
     bool m_debug_ui_enabled = true;
     bool m_render_perf_logging = false;
+    bool m_benchmark_frame_timing_enabled = false;
+    std::optional<EngineBenchmarkFrameTiming> m_benchmark_frame_timing;
     struct FramePerfSample {
         uint64_t sample_start = 0;
         uint64_t max_tick = 0;

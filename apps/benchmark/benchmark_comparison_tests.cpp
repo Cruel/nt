@@ -44,6 +44,12 @@ std::string example_report(const Options& options, const Environment& environmen
     trial.measured_wall_seconds = 1;
     trial.wall_frame = scenario.wall_frame;
     trial.cpu_operation = scenario.cpu_operation;
+    if (options.profile == "diagnostic") {
+        trial.diagnostic.observations = trial.measured_frames;
+        trial.diagnostic.cpu_update_ms = scenario.cpu_operation;
+        trial.diagnostic.rmlui_update_ms = scenario.cpu_operation;
+        trial.diagnostic.engine_layout_ms = scenario.cpu_operation;
+    }
     scenario.trials.push_back(std::move(trial));
     if (options.alternate) {
         scenario.trials.push_back(scenario.trials.front());
@@ -145,6 +151,28 @@ int main()
     broken_pair["scenarios"][0].erase("alternating");
     if (!check(!parse(broken_pair.dump(), candidate), "report reader requires A/B/A summary"))
         return 1;
+    Options detailed = options;
+    detailed.profile = "diagnostic";
+    const Json detailed_report = Json::parse(example_report(detailed, machine, 11));
+    if (!check(parse(detailed_report.dump(), candidate),
+               "accept current owner-scoped diagnostic distributions"))
+        return 1;
+    auto broken_diagnostic = detailed_report;
+    broken_diagnostic["scenarios"][0]["trials"][0]["diagnostic"]["engine_layout_ms"]["p95_ms"] = -1;
+    if (!check(!parse(broken_diagnostic.dump(), candidate),
+               "reject negative owner-stage sample quantile"))
+        return 1;
+    broken_diagnostic = detailed_report;
+    broken_diagnostic["scenarios"][0]["trials"][0]["diagnostic"].erase("engine_scope");
+    if (!check(!parse(broken_diagnostic.dump(), candidate),
+               "reject obsolete diagnostic schema without owner scope"))
+        return 1;
+    broken_diagnostic = detailed_report;
+    broken_diagnostic["scenarios"][0]["trials"][0]["diagnostic"]["draw_calls"] = "bad";
+    if (!check(!parse(broken_diagnostic.dump(), candidate),
+               "reject malformed async bgfx counter summary"))
+        return 1;
+
     Json malformed = Json::parse(json);
     ImportedReport untouched = baseline;
     std::string reason;

@@ -311,6 +311,25 @@ DiagnosticSummary summarize_diagnostics(const std::vector<DiagnosticObservation>
     DiagnosticSummary result;
     result.observations = observations.size();
     result.cpu_update_ms = diagnostic_times(observations, &DiagnosticObservation::cpu_update_ms);
+    result.rmlui_update_ms =
+        diagnostic_times(observations, &DiagnosticObservation::rmlui_update_ms);
+    result.rmlui_render_ms =
+        diagnostic_times(observations, &DiagnosticObservation::rmlui_render_ms);
+    result.ui_fixture_mutation_ms =
+        diagnostic_times(observations, &DiagnosticObservation::ui_fixture_mutation_ms);
+    result.engine_events_ms =
+        diagnostic_times(observations, &DiagnosticObservation::engine_events_ms);
+    result.engine_jobs_ms = diagnostic_times(observations, &DiagnosticObservation::engine_jobs_ms);
+    result.engine_assets_ms =
+        diagnostic_times(observations, &DiagnosticObservation::engine_assets_ms);
+    result.engine_update_ms =
+        diagnostic_times(observations, &DiagnosticObservation::engine_update_ms);
+    result.engine_runtime_ms =
+        diagnostic_times(observations, &DiagnosticObservation::engine_runtime_ms);
+    result.engine_layout_ms =
+        diagnostic_times(observations, &DiagnosticObservation::engine_layout_ms);
+    result.engine_render_ms =
+        diagnostic_times(observations, &DiagnosticObservation::engine_render_ms);
     result.cpu_submission_ms =
         diagnostic_times(observations, &DiagnosticObservation::cpu_submission_ms);
     result.bgfx_frame_cpu_ms =

@@ -1,5 +1,6 @@
 #include "integrated_rmlui.hpp"
 #include "benchmark_bgfx_diagnostics.hpp"
+#include "benchmark_engine_diagnostics.hpp"
 #include "benchmark_android_lifecycle.hpp"
 
 #include "reference_scene.hpp"
@@ -236,6 +237,7 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
 
     // No extra clock reads or stage accumulation in Clean-mode Engine ticks.
     EngineTooling::set_ui_benchmark_timing(*engine_, options.profile == "diagnostic");
+    EngineTooling::set_engine_benchmark_timing(*engine_, options.profile == "diagnostic");
 
     if (effects_)
         EngineTooling::set_ui_effect_observation(*engine_, true);
@@ -399,9 +401,12 @@ void IntegratedRmlUi::diagnostic_frame(DiagnosticObservation& observation)
 {
     capture_bgfx_diagnostics(observation);
     if (engine_) {
+        capture_engine_stage_diagnostics(*engine_, observation);
         if (const auto stages = EngineTooling::ui_benchmark_frame_timing(*engine_)) {
             observation.cpu_update_ms = stages->first * 1000.0;
             observation.cpu_submission_ms = stages->second * 1000.0;
+            observation.rmlui_update_ms = observation.cpu_update_ms;
+            observation.rmlui_render_ms = observation.cpu_submission_ms;
         }
     }
     // No submitted-frame identity crosses the production Engine tick boundary.

@@ -93,6 +93,12 @@ struct FakeScenario final : Scenario {
         if (!emit_diagnostics)
             return;
         observation.cpu_submission_ms = 2.0;
+        observation.rmlui_update_ms = 0.8;
+        observation.rmlui_render_ms = 1.2;
+        observation.engine_update_ms = 0.4;
+        observation.engine_runtime_ms = 0.1;
+        observation.engine_layout_ms = 0.2;
+        observation.engine_render_ms = 2.4;
         observation.bgfx_frame_cpu_ms = 3.0;
         observation.bgfx_wait_render_ms = 0.5;
         observation.bgfx_wait_submit_ms = 0.25;
@@ -382,6 +388,13 @@ int main()
                    diagnostic_run.instrumentation_control->iterations == 20000 &&
                    instrumented.diagnostic_calls == 4 && measurements.observations == 4 &&
                    measurements.cpu_submission_ms.count == 4 &&
+                   measurements.rmlui_update_ms.count == 4 &&
+                   measurements.rmlui_update_ms.p50_ms == 0.8 &&
+                   measurements.rmlui_render_ms.p95_ms == 1.2 &&
+                   measurements.engine_update_ms.mean_ms == 0.4 &&
+                   measurements.engine_runtime_ms.count == 4 &&
+                   measurements.engine_layout_ms.p99_ms == 0.2 &&
+                   measurements.engine_render_ms.mean_ms == 2.4 &&
                    measurements.bgfx_frame_cpu_ms.mean_ms == 3.0 &&
                    measurements.bgfx_wait_render_ms.mean_ms == 0.5 &&
                    measurements.draw_calls.mean == 4.0 && measurements.textures.mean == 7.0 &&
@@ -396,6 +409,8 @@ int main()
     if (!check(!clean_run.instrumentation_control && clean_scenario.diagnostic_calls == 0 &&
                    clean_scenario.diagnostic_completion_calls == 0 &&
                    clean_run.scenarios[0].trials[0].diagnostic.observations == 0 &&
+                   clean_run.scenarios[0].trials[0].diagnostic.engine_runtime_ms.count == 0 &&
+                   clean_run.scenarios[0].trials[0].diagnostic.rmlui_update_ms.count == 0 &&
                    clean_run.scenarios[0].trials[0].diagnostic.gpu_execution_ms.count == 0,
                "clean profile never invokes diagnostic observation"))
         return 1;

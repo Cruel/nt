@@ -21,6 +21,7 @@ class RmlUiEffectProbe;
 class StandaloneRmlUi final {
 public:
     struct DiagnosticStages {
+        double fixture_mutation_seconds = 0.0;
         double update_seconds = 0.0;
         double render_seconds = 0.0;
     };

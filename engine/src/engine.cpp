@@ -2036,6 +2036,8 @@ bool Engine::Impl::tick()
 {
     if (!m_running)
         return false;
+    if (m_benchmark_frame_timing_enabled)
+        m_benchmark_frame_timing.reset();
 
     if (m_job_shutdown_started) {
         handle_events();
@@ -2046,12 +2048,13 @@ bool Engine::Impl::tick()
         return true;
     }
 
+    // A throttled/early-return tick must never expose the prior frame's stages.
     if (throttle_frame_start()) {
         return true;
     }
 
-    // Opt-in owner-thread frame timings. No clock reads on the ordinary release path.
-    const bool measure_perf = m_render_perf_logging;
+    // Opt-in owner-thread frame timings; neither mode adds clocks to Clean ticks.
+    const bool measure_perf = m_render_perf_logging || m_benchmark_frame_timing_enabled;
     std::array<uint64_t, 7> perf_checkpoints{};
     if (measure_perf)
         perf_checkpoints[0] = SDL_GetPerformanceCounter();
@@ -2121,7 +2124,28 @@ bool Engine::Impl::tick()
     render();
     if (measure_perf) {
         perf_checkpoints[6] = SDL_GetPerformanceCounter();
-        record_frame_perf_sample(perf_checkpoints);
+        if (m_render_perf_logging)
+            record_frame_perf_sample(perf_checkpoints);
+        if (m_benchmark_frame_timing_enabled) {
+            const auto frequency = SDL_GetPerformanceFrequency();
+            if (frequency != 0) {
+                const double factor = 1.0 / static_cast<double>(frequency);
+                const auto elapsed = [&](std::size_t index) {
+                    return static_cast<double>(perf_checkpoints[index + 1] -
+                                               perf_checkpoints[index]) *
+                           factor;
+                };
+                m_benchmark_frame_timing = EngineBenchmarkFrameTiming{
+                    .events_seconds = elapsed(0),
+                    .jobs_seconds = elapsed(1),
+                    .assets_seconds = elapsed(2),
+                    .update_seconds =
+                        static_cast<double>(perf_checkpoints[5] - perf_checkpoints[1]) * factor,
+                    .runtime_seconds = elapsed(3),
+                    .layout_seconds = elapsed(4),
+                    .render_seconds = elapsed(5)};
+            }
+        }
     }
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (m_editor_asset_profiler != nullptr)
@@ -4270,6 +4294,18 @@ void EngineTooling::record_debugger_console(Engine& engine, std::string message,
                                              engine.m_impl->m_frame_count);
 }
 #endif
+
+void EngineTooling::set_engine_benchmark_timing(Engine& engine, bool enabled)
+{
+    engine.m_impl->m_benchmark_frame_timing_enabled = enabled;
+    engine.m_impl->m_benchmark_frame_timing.reset();
+}
+
+std::optional<EngineBenchmarkFrameTiming>
+EngineTooling::engine_benchmark_frame_timing(const Engine& engine)
+{
+    return engine.m_impl->m_benchmark_frame_timing;
+}
 
 void EngineTooling::set_ui_benchmark_timing(Engine& engine, bool enabled)
 {

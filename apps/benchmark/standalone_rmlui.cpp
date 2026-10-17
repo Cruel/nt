@@ -302,6 +302,8 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
         }
     }
     ++frame_index_;
+    const auto mutation_end =
+        diagnostic ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
     const auto update = [&]() {
         context_->Update();
         for (auto* context : extra_contexts_)
@@ -317,7 +319,9 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
         const auto after_update = std::chrono::steady_clock::now();
         render();
         const auto after_render = std::chrono::steady_clock::now();
-        stages_.update_seconds = std::chrono::duration<double>(after_update - start).count();
+        stages_.fixture_mutation_seconds =
+            std::chrono::duration<double>(mutation_end - start).count();
+        stages_.update_seconds = std::chrono::duration<double>(after_update - mutation_end).count();
         stages_.render_seconds = std::chrono::duration<double>(after_render - after_update).count();
     } else {
         update();
