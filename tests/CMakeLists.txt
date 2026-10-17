@@ -443,6 +443,7 @@ if(TARGET noveltea_tooling_native)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tooling_bridge_font_coverage.cmake")
     add_executable(noveltea_tooling_tests
         tooling/daemon_scriptc_adapter_tests.cpp
+        tooling/native_disk_project_validation_tests.cpp
         tooling/native_shader_compile_tests.cpp
         tooling/font_coverage_tests.cpp
         tooling/playback_expectation_tests.cpp

@@ -387,6 +387,22 @@ const windowsGnuRuntimeLibraries = isWindows
 
 const libraries = [
   staticArchive(editorToolRoot, 'noveltea_tooling_native'),
+  // The existing ScriptC host retains a certification-only native Project
+  // validator inside the daemon owner. ScriptC's explicit static FFI link
+  // archive list must match the CMake tooling link graph.
+  staticArchive(
+    path.join(buildRoot, 'tools', 'project_authoring'),
+    'noveltea_project_authoring_session',
+  ),
+  staticArchive(
+    path.join(buildRoot, 'tools', 'project_authoring'),
+    'noveltea_project_authoring_yaml',
+  ),
+  staticArchive(path.join(buildRoot, '_deps', 'noveltea_libfyaml-build'), 'fyaml_static'),
+  staticArchive(
+    path.join(buildRoot, 'tools', 'project_authoring'),
+    'noveltea_project_authoring_contracts',
+  ),
   staticArchive(editorToolRoot, 'noveltea_text_tooling'),
   staticArchive(editorToolRoot, 'noveltea_bimg_texturec_embedded'),
   staticArchive(engineRoot, 'noveltea_presentation'),

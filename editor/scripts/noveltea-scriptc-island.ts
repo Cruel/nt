@@ -971,6 +971,50 @@ async function runNovelTeaScriptcIslandScoped(
       novelTeaResidentProjectSessionCount() > 0
     )
       await retainExactResidentValidation(commandResult, invokeHost);
+    // #500 parallel native daemon certification. The C++ disk Project graph
+    // stays resident in this existing Project owner, but cannot affect the
+    // public TS validation result, diagnostic presentation, or exit status.
+    if (
+      family === 'validate' &&
+      invocationContext.residentProjectSessionEpoch !== undefined &&
+      !invocationContext.prepareResidentSnapshotOnly &&
+      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION === '1' &&
+      typeof commandResult.envelope.projectRoot === 'string'
+    ) {
+      const native = JSON.parse(
+        invokeHost(
+          'native-disk-project-validation',
+          JSON.stringify({ projectRoot: commandResult.envelope.projectRoot }),
+        ),
+      ) as {
+        ok?: boolean;
+        error?: string;
+        valid?: boolean;
+        warm?: boolean;
+        diagnostics?: unknown[];
+        cliDiagnostics?: unknown[];
+        work?: unknown;
+      };
+      if (native.ok !== true)
+        throw new Error(native.error ?? 'Parallel native disk validation failed.');
+      // Certification diagnostics remain on stderr; JSON CLI output is unchanged.
+      validationProfileText +=
+        '[native-disk-validation] ' +
+        JSON.stringify({
+          valid: native.valid,
+          warm: native.warm,
+          diagnostics: native.diagnostics,
+          cliDiagnostics: native.cliDiagnostics,
+          work: native.work,
+          oracle: {
+            success: commandResult.envelope.success,
+            exitCode: commandResult.exitCode,
+            diagnostics: commandResult.envelope.diagnostics,
+          },
+        }) +
+        '\n';
+    }
     trace('application invocation completed');
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)

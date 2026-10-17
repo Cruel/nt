@@ -108,6 +108,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_create_archive_json;
     if (operation == "daemon")
         return &noveltea_tooling_daemon_json;
+    if (operation == "native-disk-project-validation")
+        return &noveltea_tooling_native_disk_project_validation_json;
     if (operation == "terminal-size")
         return &terminal_size_json;
     return nullptr;
@@ -401,8 +403,8 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
     // than using the two-pass size-probe convention intended for pure queries.
     if (operation == "alpha-encode") {
         std::vector<std::uint8_t> response(32 * 1024 * 1024);
-        const auto written = native_operation(request_bytes, request_size,
-                                              response.data(), response.size());
+        const auto written =
+            native_operation(request_bytes, request_size, response.data(), response.size());
         if (written > response.size()) {
             write_text(response_path, R"({"ok":false,"error":"alpha diagnostics too large"})");
             return;
@@ -411,7 +413,10 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
                                                    static_cast<std::size_t>(written)));
         return;
     }
-    if (operation == "daemon") {
+    // Native Project validation retains its source/diagnostic generation on each
+    // invocation. A two-pass size probe would execute a cold validation twice
+    // and incorrectly report the *first* request as warm.
+    if (operation == "daemon" || operation == "native-disk-project-validation") {
         const auto capacity = daemon_project_authority_observation(request_bytes, request_size)
                                   ? project_authority_response_capacity
                                   : noveltea::tooling::daemon::max_frame_bytes;

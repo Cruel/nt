@@ -45,6 +45,7 @@ noveltea_apply_policy_warnings(noveltea_text_tooling)
 add_library(noveltea_tooling_native STATIC
     tooling_daemon_broker.cpp
     tooling_daemon_broker.hpp
+    tooling_native_project_validation.cpp
     tooling_project_authority.cpp
     tooling_project_authority.hpp
     tooling_native.cpp
@@ -90,7 +91,8 @@ target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_script_lua
     noveltea_shader_tooling
     noveltea_text_tooling
-    PRIVATE noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz
+    PRIVATE noveltea_project_authoring_session
+            noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz
             noveltea_text_freetype)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(WIN32)
