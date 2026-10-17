@@ -67,10 +67,196 @@ void certify(const std::filesystem::path& source)
         for (const auto& issue : initial.diagnostics)
             std::cerr << issue.path << " " << issue.message << "\n";
     require(initial.accepted, "Existing split Feature Lab localization is valid");
+    {
+        Fixture contributors(source);
+        const auto locale_path = contributors.root / "i18n/locales/fr.yaml";
+        const auto parsed = open_yaml_source(contents(locale_path));
+        require(parsed.accepted, "Structured contributor translation fixture decodes");
+        auto french = Json::parse(parsed.source_json);
+        for (const auto& id :
+             {"bb028069-11e3-57f5-9912-4e8b3b12aeb9", "a4530345-3681-5e51-a70d-0357585c53f5"}) {
+            Json translation = Json::object();
+            translation["text"] = "Localized source title";
+            translation["origin"] = "ai";
+            translation["review"] = "needs-review";
+            translation["sourceFingerprint"] = "fnv1a:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            french.insert_or_assign(id, std::move(translation));
+        }
+        std::ofstream(locale_path, std::ios::trunc) << french.to_string();
+        std::string error;
+        auto project = ProjectSession::open(contributors.root, error);
+        require(project && project->snapshot().valid,
+                "Translated Character and Interactable baseline opens");
+        const auto changed_character =
+            project->patch(0, {{RoomPatch::Operation::Replace,
+                                "/characters/pilot-guide/data/displayName", R"("Guide {name}")"}});
+        require(changed_character.accepted && !changed_character.snapshot.valid &&
+                    diagnostic(ValidationResult{changed_character.snapshot.valid,
+                                                {},
+                                                changed_character.snapshot.diagnostics},
+                               "/localization/translations/fr/"
+                               "bb028069-11e3-57f5-9912-4e8b3b12aeb9/text"),
+                "Dirty Character source revalidates its translation without inspecting Lua");
+        const auto restored_character =
+            project->patch(changed_character.snapshot.working_revision,
+                           {{RoomPatch::Operation::Replace,
+                             "/characters/pilot-guide/data/displayName", R"("Pilot Guide")"}});
+        require(restored_character.accepted &&
+                    std::none_of(restored_character.snapshot.diagnostics.begin(),
+                                 restored_character.snapshot.diagnostics.end(),
+                                 [](const Diagnostic& issue) {
+                                     return issue.path.starts_with(
+                                         "/localization/translations/fr/"
+                                         "bb028069-11e3-57f5-9912-4e8b3b12aeb9/");
+                                 }),
+                "Repairing Character source clears its translation diagnostics");
+        const auto changed_interactable = project->patch(
+            restored_character.snapshot.working_revision,
+            {{RoomPatch::Operation::Replace, "/interactables/lab-specimen/data/displayName",
+              R"("Specimen {title}")"}});
+        require(changed_interactable.accepted && !changed_interactable.snapshot.valid &&
+                    diagnostic(ValidationResult{changed_interactable.snapshot.valid,
+                                                {},
+                                                changed_interactable.snapshot.diagnostics},
+                               "/localization/translations/fr/"
+                               "a4530345-3681-5e51-a70d-0357585c53f5/text"),
+                "Dirty Interactable source revalidates its translation without Lua indexing");
+    }
     require(contents(policy) == saved_policy, "Validation does not rewrite YAML");
     const auto model = Json::parse(initial.effective_json);
     require(model.at("sourceLocale") == "en" && model.at("locales").contains("fr-CA"),
             "Native model retains policy and locale definitions");
+    {
+        const auto tracking_file = open_yaml_source(contents(fixture.root / "i18n/tracking.yaml"));
+        const auto french_file = open_yaml_source(contents(fixture.root / "i18n/locales/fr.yaml"));
+        require(tracking_file.accepted && french_file.accepted,
+                "Physical selector tracking test fixtures decode");
+        auto tracking = Json::parse(tracking_file.source_json);
+        auto french = Json::parse(french_file.source_json);
+        const auto record_tracking = [&](std::string family, std::string owner, std::string path,
+                                         std::string id, std::string source_text,
+                                         std::string anchor, std::string snapshot) {
+            Json item = Json::object();
+            item["family"] = family;
+            item["ownerKey"] = owner;
+            item["sourcePath"] = path;
+            item["sourceSnapshotFingerprint"] = snapshot;
+            Json occurrence = Json::object();
+            occurrence["messageId"] = id;
+            occurrence["ordinal"] = 0;
+            occurrence["sourceSnapshot"] = source_text;
+            occurrence["sourceFingerprint"] = "fnv1a:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            occurrence["structuralFingerprint"] = "fnv1a:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            occurrence["anchorFingerprint"] = anchor;
+            item["occurrences"] = Json::array();
+            item["occurrences"].push_back(std::move(occurrence));
+            tracking.insert_or_assign(family + ":" + owner + ":" + path, std::move(item));
+            Json translated = Json::object();
+            translated["text"] = "Traduit {name}";
+            translated["origin"] = "ai";
+            translated["review"] = "needs-review";
+            translated["sourceFingerprint"] = "fnv1a:cccccccccccccccccccccccccccccccc";
+            french.insert_or_assign(id, std::move(translated));
+        };
+        record_tracking(
+            "lua", "record:scripts:notice-board", "/scripts/notice-board/data/source/path",
+            "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa", "Saved {name}",
+            "fnv1a:7d03e1d60f05a24285c1cde8c861e1a6", "fnv1a:dddddddddddddddddddddddddddddddd");
+        const auto lua_path = std::string("scripts/notice-board.lua");
+        const auto lua = std::string("Text.tr('Saved {title}', {title=1})");
+        const auto script =
+            validate_project_localization(fixture.root,
+                                          {{"i18n/tracking.yaml", tracking.to_string()},
+                                           {"i18n/locales/fr.yaml", french.to_string()}},
+                                          {}, {{lua_path, analyze_project_text(lua_path, lua)}});
+        require(!script.accepted && diagnostic(script, "/localization/translations/fr/"
+                                                       "aaaaaaaa-aaaa-5aaa-8aaa-aaaaaaaaaaaa/text"),
+                "Managed project-file Script Message resolves its selected physical source");
+        record_tracking(
+            "lua", "record:layouts:flow-counter", "/layouts/flow-counter/data/rml/sourceText",
+            "bbbbbbbb-bbbb-5bbb-8bbb-bbbbbbbbbbbb", "Embedded {name}",
+            "fnv1a:7d03e1d60f05a24285c1cde8c861e1a6", "fnv1a:ef784254c8287690aeda177eebad32a4");
+        const auto asset_path = std::string("assets/ui/counter.rml");
+        const auto markup =
+            std::string("<rml><body><button onclick=\"Text.tr('Embedded {title}', {title=1})\">"
+                        "Click</button></body></rml>");
+        const auto asset =
+            validate_project_localization(fixture.root,
+                                          {{"i18n/tracking.yaml", tracking.to_string()},
+                                           {"i18n/locales/fr.yaml", french.to_string()}},
+                                          {},
+                                          {{asset_path, analyze_project_text(asset_path, markup)},
+                                           {lua_path, analyze_project_text(lua_path, lua)}});
+        require(!asset.accepted && diagnostic(asset, "/localization/translations/fr/"
+                                                     "bbbbbbbb-bbbb-5bbb-8bbb-bbbbbbbbbbbb/text"),
+                "Embedded Lua tracking resolves through Asset-backed Layout RML selector");
+    }
+    {
+        const auto rml_path = std::string("records/layouts/language-board/layout.rml");
+        const auto saved = contents(fixture.root / rml_path);
+        auto changed = saved;
+        const auto at = changed.find("Managed reading desk");
+        require(at != std::string::npos, "RML tracked local Message fixture exists");
+        changed.replace(at, sizeof("Managed reading desk") - 1, "Managed reading desk {newName}");
+        const auto dirty = validate_project_localization(
+            fixture.root, {}, {}, {{rml_path, analyze_project_text(rml_path, changed)}});
+        require(!dirty.accepted && diagnostic(dirty, "/localization/translations/fr/"
+                                                     "f0b75a61-85b2-53fd-9d5f-5b43eb6bb8f1/text"),
+                "RML local tracking ignores preceding named nodes and binds changed content");
+        const auto inserted = std::string("<nt-tr>New {newName}</nt-tr>\n") + saved;
+        const auto reordered = validate_project_localization(
+            fixture.root, {}, {}, {{rml_path, analyze_project_text(rml_path, inserted)}});
+        require(reordered.accepted,
+                "Inserting a new local RML node does not transfer the old tracked Message ID");
+        auto inserted_and_changed = inserted;
+        const auto original = inserted_and_changed.find("Managed reading desk");
+        require(original != std::string::npos, "Original RML local remains after insertion");
+        inserted_and_changed.replace(original, sizeof("Managed reading desk") - 1,
+                                     "Managed reading desk {title}");
+        const auto identity = validate_project_localization(
+            fixture.root, {}, {},
+            {{rml_path, analyze_project_text(rml_path, inserted_and_changed)}});
+        require(!identity.accepted &&
+                    diagnostic(identity, "/localization/translations/fr/"
+                                         "f0b75a61-85b2-53fd-9d5f-5b43eb6bb8f1/text"),
+                "RML identity follows the original local Message through insertion and edits");
+    }
+    {
+        const auto scene_path = fixture.root / "records/scenes/localized-story.yaml";
+        const auto opened = open_yaml_source(contents(scene_path));
+        require(opened.accepted, "Lua tracking reorder fixture opens");
+        auto scene = Json::parse(opened.source_json);
+        auto& source_text = scene["data"]["events"][0]["source"];
+        const auto inserted = std::string("local scratch=Text.tr('Preview {title}',"
+                                          "{title='A'}); ") +
+                              source_text.as<std::string>();
+        source_text = inserted;
+        const auto source_path =
+            std::string("inline/scenes/localized-story/data/events/0/source.lua");
+        const auto check = validate_project_localization(
+            fixture.root, {}, {{"records/scenes/localized-story.yaml", scene.to_string()}},
+            {{source_path, analyze_project_text(source_path, inserted)}});
+        require(check.accepted,
+                "Inserting a new managed Lua call cannot shift existing tracked Message IDs");
+        auto changed_after_insert = inserted;
+        const auto original = changed_after_insert.find("Managed letter for {name}");
+        require(original != std::string::npos, "Original Lua local remains after insertion");
+        changed_after_insert.replace(original, sizeof("Managed letter for {name}") - 1,
+                                     "Managed letter for {title}");
+        // Keep the call's runtime arguments static and valid, allowing the
+        // localization contract (rather than Lua argument validation) to
+        // surface the changed source Message.
+        const auto argument = changed_after_insert.find("{name='Ada'}", original);
+        require(argument != std::string::npos, "Original managed arguments remain intact");
+        changed_after_insert.replace(argument, sizeof("{name='Ada'}") - 1, "{title='Ada'}");
+        scene["data"]["events"][0]["source"] = changed_after_insert;
+        const auto moved = validate_project_localization(
+            fixture.root, {}, {{"records/scenes/localized-story.yaml", scene.to_string()}},
+            {{source_path, analyze_project_text(source_path, changed_after_insert)}});
+        require(!moved.accepted && diagnostic(moved, "/localization/translations/fr/"
+                                                     "48d01321-b758-5fcd-8380-42872aef0bd1/text"),
+                "Lua tracking retains a Message ID after insertion and source-literal edits");
+    }
     require(
         model.at("sourceLocaleLock") == "en" &&
             contents(policy).find("sourceLocaleLock: null") != std::string::npos,

@@ -218,6 +218,13 @@ until an `i18n/` owner, contributing gameplay record, or managed Lua/RML
 buffer changes (including physical source observations). Native translation
 checks project structured and tracked-only Messages and Dialogue Cues from the
 working sources, not saved gameplay YAML when unsaved owners exist.
+Characters and Interactables contribute structured localization without
+owning Lua/RML analysis. Their edits invalidate localization independently.
+Managed source identity uses structural and anchor fingerprints, with ordinal
+fallback permitted only when the full-source fingerprint is unchanged. RML
+identity candidates exclude named `nt-tr` nodes and embedded Lua calls.
+Script project-file and Layout file/inline/Asset source descriptors resolve
+through current working selectors, not guessed physical paths.
 Production localization sync/reconcile and the eventual
 single-authority cutover remain governed by the existing Project Workspace
 contract and the parent native migration specification.
