@@ -147,7 +147,8 @@ std::optional<Json> working_record(const std::filesystem::path& root,
                                    const std::map<std::string, std::string>& overlays,
                                    std::string_view family, std::string_view id)
 {
-    const auto name = "records/" + std::string(family) + "/" + std::string(id) + ".yaml";
+    const auto name = "records/" + std::string(family) + "/" + std::string(id) +
+                      (family == "layouts" ? "/layout.yaml" : ".yaml");
     if (const auto it = overlays.find(name); it != overlays.end())
         return Json::parse(it->second);
     const auto file = root / name;
@@ -160,6 +161,215 @@ std::optional<Json> working_record(const std::filesystem::path& root,
     if (!decoded.accepted)
         return std::nullopt;
     return Json::parse(decoded.source_json);
+}
+
+std::string tracking_fingerprint(std::string_view value)
+{
+    std::string result = "fnv1a:";
+    for (const std::uint32_t seed : {0x811c9dc5u, 0x9e3779b9u, 0x85ebca6bu, 0xc2b2ae35u}) {
+        auto hash = seed;
+        for (std::size_t i = 0; i < value.size();) {
+            const auto first = static_cast<unsigned char>(value[i++]);
+            std::uint32_t codepoint = first;
+            if (first >= 0xc2 && first <= 0xf4) {
+                const auto count = first < 0xe0 ? 1u : first < 0xf0 ? 2u : 3u;
+                if (i + count <= value.size()) {
+                    codepoint = first & (count == 1 ? 0x1fu : count == 2 ? 0x0fu : 0x07u);
+                    for (unsigned int n = 0; n < count; ++n)
+                        codepoint =
+                            (codepoint << 6) | (static_cast<unsigned char>(value[i++]) & 0x3fu);
+                }
+            }
+            if (codepoint > 0xffff) {
+                const auto u = codepoint - 0x10000;
+                hash = (hash ^ (0xd800u + (u >> 10))) * 0x01000193u;
+                hash = (hash ^ (0xdc00u + (u & 0x3ffu))) * 0x01000193u;
+            } else
+                hash = (hash ^ codepoint) * 0x01000193u;
+        }
+        std::ostringstream hex;
+        hex << std::hex << std::setfill('0') << std::setw(8) << hash;
+        result += hex.str();
+    }
+    return result;
+}
+
+std::size_t byte_at_utf16(std::string_view text, std::size_t target)
+{
+    std::size_t units = 0, offset = 0;
+    while (offset < text.size() && units < target) {
+        const auto first = static_cast<unsigned char>(text[offset]);
+        const auto width = first < 0x80 ? 1u : first < 0xe0 ? 2u : first < 0xf0 ? 3u : 4u;
+        offset += std::min<std::size_t>(width, text.size() - offset);
+        units += width == 4 ? 2 : 1;
+    }
+    return offset;
+}
+
+std::string collapse_space(std::string_view text)
+{
+    std::string result;
+    bool pending = false;
+    for (const auto ch : text) {
+        if (std::isspace(static_cast<unsigned char>(ch))) {
+            pending = !result.empty();
+            continue;
+        }
+        if (pending)
+            result += ' ';
+        result += ch;
+        pending = false;
+    }
+    return result;
+}
+
+std::string normalize_lua_tracking(const std::string& text)
+{
+    static const std::regex long_comment(R"(--\[(=*)\[[\s\S]*?\]\1\])");
+    static const std::regex line_comment(R"(--[^\r\n]*)");
+    const auto stripped =
+        std::regex_replace(std::regex_replace(text, long_comment, ""), line_comment, "");
+    std::string normalized;
+    for (const auto ch : stripped)
+        if (!std::isspace(static_cast<unsigned char>(ch)))
+            normalized += ch;
+    return normalized;
+}
+
+std::string normalize_rml_tracking(std::string_view text)
+{
+    static const std::regex content(R"(>([^<]+)<)");
+    const std::string input(text);
+    std::string result;
+    auto cursor = input.cbegin();
+    std::smatch match;
+    while (std::regex_search(cursor, input.cend(), match, content)) {
+        result.append(cursor, match[0].first);
+        result += ">";
+        if (!collapse_space(match[1].str()).empty())
+            result += "<text>";
+        result += "<";
+        cursor = match[0].second;
+    }
+    result.append(cursor, input.cend());
+    return collapse_space(result);
+}
+
+struct TrackedCandidate {
+    const ManagedSourceOccurrence* occurrence;
+    std::string structural;
+    std::string anchor;
+};
+
+std::vector<TrackedCandidate> tracked_candidates(const SourceAnalysis& analyzed,
+                                                 std::string_view family)
+{
+    std::vector<TrackedCandidate> result;
+    const auto& source = analyzed.source_text;
+    for (const auto& message : analyzed.messages) {
+        if (family == "rml" ? message.lua_call || message.kind != "local" : !message.lua_call)
+            continue;
+        const auto call_start = byte_at_utf16(source, message.call_start_utf16);
+        const auto call_end = byte_at_utf16(source, message.call_end_utf16);
+        if (call_start >= call_end || call_end > source.size())
+            continue;
+        const auto window = family == "rml" ? 128u : 96u;
+        const auto before = byte_at_utf16(
+            source, message.call_start_utf16 > window ? message.call_start_utf16 - window : 0);
+        const auto after = byte_at_utf16(source, message.call_end_utf16 + window);
+        std::string structural;
+        std::string anchor;
+        if (family == "rml") {
+            if (!message.rml_open_end_utf16 || !message.rml_content_end_utf16)
+                continue;
+            const auto open_end = byte_at_utf16(source, *message.rml_open_end_utf16);
+            const auto content_end = byte_at_utf16(source, *message.rml_content_end_utf16);
+            structural = tracking_fingerprint(
+                collapse_space(source.substr(call_start, open_end - call_start)) + "|" +
+                normalize_rml_tracking(source.substr(open_end, content_end - open_end)));
+            anchor = tracking_fingerprint(
+                normalize_rml_tracking(source.substr(before, call_start - before)) + "|<nt-tr>|" +
+                normalize_rml_tracking(source.substr(call_end, after - call_end)));
+        } else {
+            std::string call = source.substr(call_start, call_end - call_start);
+            std::vector<std::tuple<std::size_t, std::size_t, std::string>> edits;
+            if (message.source_start_utf16 && message.source_end_utf16)
+                edits.emplace_back(byte_at_utf16(source, *message.source_start_utf16) - call_start,
+                                   byte_at_utf16(source, *message.source_end_utf16) - call_start,
+                                   "<source>");
+            if (message.metadata_start_utf16 && message.metadata_end_utf16)
+                edits.emplace_back(
+                    byte_at_utf16(source, *message.metadata_start_utf16) - call_start,
+                    byte_at_utf16(source, *message.metadata_end_utf16) - call_start, "<metadata>");
+            std::sort(edits.begin(), edits.end(), std::greater<>{});
+            for (const auto& [start, end, replacement] : edits)
+                if (start <= end && end <= call.size())
+                    call.replace(start, end - start, replacement);
+            structural = tracking_fingerprint(message.kind + "|" + normalize_lua_tracking(call));
+            anchor = tracking_fingerprint(
+                normalize_lua_tracking(source.substr(before, call_start - before)) + "|<message>|" +
+                normalize_lua_tracking(source.substr(call_end, after - call_end)));
+        }
+        result.push_back({&message, std::move(structural), std::move(anchor)});
+    }
+    std::sort(result.begin(), result.end(), [](const auto& a, const auto& b) {
+        return a.occurrence->call_start_utf16 < b.occurrence->call_start_utf16;
+    });
+    return result;
+}
+
+std::vector<std::size_t> matching_tracked(const Json& tracked, const TrackedCandidate& candidate)
+{
+    std::vector<std::size_t> both, structural, anchor;
+    std::size_t index = 0;
+    for (const auto& occurrence : tracked.at("occurrences").array_range()) {
+        const bool shape = occurrence.at("structuralFingerprint") == candidate.structural;
+        const bool location = occurrence.at("anchorFingerprint") == candidate.anchor;
+        if (shape && location)
+            both.push_back(index);
+        if (shape)
+            structural.push_back(index);
+        if (location)
+            anchor.push_back(index);
+        ++index;
+    }
+    if (both.size() == 1)
+        return both;
+    if (structural.size() == 1)
+        return structural;
+    if (anchor.size() == 1)
+        return anchor;
+    return {};
+}
+
+const ManagedSourceOccurrence* tracked_occurrence(const Json& entry, const Json& previous,
+                                                  const SourceAnalysis& source,
+                                                  std::string_view family)
+{
+    const auto candidates = tracked_candidates(source, family);
+    const auto ordinal = previous.at("ordinal").as<std::size_t>();
+    const auto& old = entry.at("occurrences");
+    for (const auto& candidate : candidates) {
+        const auto matches = matching_tracked(entry, candidate);
+        if (matches.size() != 1 ||
+            old.at(matches.front()).at("messageId") != previous.at("messageId"))
+            continue;
+        const auto reverse =
+            std::count_if(candidates.begin(), candidates.end(), [&](const TrackedCandidate& other) {
+                const auto links = matching_tracked(entry, other);
+                return links.size() == 1 &&
+                       old.at(links.front()).at("messageId") == previous.at("messageId");
+            });
+        if (reverse == 1)
+            return candidate.occurrence;
+    }
+    // Ordinal fallback is safe only if the original entire source is still
+    // byte-for-byte identical (matching the TypeScript tracking policy).
+    if (entry.at("sourceSnapshotFingerprint") == tracking_fingerprint(source.source_text))
+        for (std::size_t index = 0; index < candidates.size(); ++index)
+            if (index == ordinal)
+                return candidates[index].occurrence;
+    return nullptr;
 }
 
 std::map<std::string, std::string>
@@ -234,6 +444,88 @@ std::optional<std::string> record_source_at(const std::filesystem::path& root,
                                 : std::nullopt;
 }
 
+std::optional<SourceAnalysis> resolve_tracked_source(
+    const std::filesystem::path& root, const std::map<std::string, std::string>& records,
+    const std::map<std::string, SourceAnalysis>& working_sources, const Json& tracked)
+{
+    const auto pointer = tracked.at("sourcePath").as<std::string>();
+    const auto owner = tracked.at("ownerKey").as<std::string>();
+    std::string physical;
+    std::optional<std::string> inline_text;
+    if (owner.starts_with("record:layouts:")) {
+        const auto id = owner.substr(sizeof("record:layouts:") - 1);
+        const auto layout = working_record(root, records, "layouts", id);
+        if (layout && layout->contains("data")) {
+            const auto channel = pointer.find("/data/rml/") != std::string::npos    ? "rml"
+                                 : pointer.find("/data/rcss/") != std::string::npos ? "rcss"
+                                                                                    : "lua";
+            const auto& data = layout->at("data");
+            if (data.contains(channel) && data.at(channel).is_object()) {
+                const auto& selector = data.at(channel);
+                if (!selector.contains("sourceMode") || !selector.at("sourceMode").is_string())
+                    return std::nullopt;
+                const auto mode = selector.at("sourceMode").as<std::string>();
+                if (mode == "file")
+                    physical = "records/layouts/" + id + "/layout." + channel;
+                else if (mode == "inline") {
+                    physical =
+                        "inline/layouts/" + id + "/data/" + channel + "/sourceText." + channel;
+                    if (selector.contains("sourceText") && selector.at("sourceText").is_string())
+                        inline_text = selector.at("sourceText").as<std::string>();
+                } else if (mode == "asset" && selector.contains("sourceAsset")) {
+                    const auto& reference = selector.at("sourceAsset");
+                    std::string asset_id;
+                    if (reference.is_string())
+                        asset_id = reference.as<std::string>();
+                    else if (reference.is_object() && reference.contains("$ref"))
+                        asset_id = reference.at("$ref").at("id").as<std::string>();
+                    if (!asset_id.empty()) {
+                        const auto asset = working_record(root, records, "assets", asset_id);
+                        if (asset && asset->contains("data") && asset->at("data").is_object() &&
+                            asset->at("data").contains("source") &&
+                            asset->at("data").at("source").is_object()) {
+                            const auto& source = asset->at("data").at("source");
+                            if (source.contains("type") && source.at("type") == "project-file" &&
+                                source.contains("path") && source.at("path").is_string())
+                                physical = source.at("path").as<std::string>();
+                        }
+                    }
+                }
+            }
+        }
+    } else if (owner.starts_with("record:scripts:")) {
+        const auto id = owner.substr(sizeof("record:scripts:") - 1);
+        const auto script = working_record(root, records, "scripts", id);
+        if (script && script->contains("data") && script->at("data").is_object() &&
+            script->at("data").contains("source") && script->at("data").at("source").is_object()) {
+            const auto& source = script->at("data").at("source");
+            if (source.contains("kind") && source.at("kind") == "project-file" &&
+                source.contains("path") && source.at("path").is_string())
+                physical = source.at("path").as<std::string>();
+            else if (source.contains("kind") && source.at("kind") == "inline-lua" &&
+                     source.contains("source") && source.at("source").is_string()) {
+                physical = "inline/scripts/" + id + "/data/source/source.lua";
+                inline_text = source.at("source").as<std::string>();
+            }
+        }
+    }
+    if (physical.empty() && pointer.starts_with("/")) {
+        physical = "inline/" + pointer.substr(1) + ".lua";
+        inline_text = record_source_at(root, records, pointer);
+    }
+    if (const auto active = working_sources.find(physical); active != working_sources.end())
+        return active->second;
+    if (!physical.empty() && std::filesystem::is_regular_file(root / physical)) {
+        std::ifstream stream(root / physical, std::ios::binary);
+        const std::string bytes{std::istreambuf_iterator<char>{stream},
+                                std::istreambuf_iterator<char>{}};
+        return analyze_project_text(physical, bytes);
+    }
+    if (inline_text)
+        return analyze_project_text(physical, *inline_text);
+    return std::nullopt;
+}
+
 void add_tracked_messages(Json& model, const std::filesystem::path& root,
                           const std::map<std::string, std::string>& record_overlays,
                           const std::map<std::string, SourceAnalysis>& working_sources)
@@ -246,30 +538,7 @@ void add_tracked_messages(Json& model, const std::filesystem::path& root,
     static const std::regex placeholder(R"(\{([A-Za-z_][A-Za-z0-9_-]*)\})");
     for (const auto& entry : tracking.object_range()) {
         const auto& tracked = entry.value();
-        const auto owner = tracked.at("ownerKey").as<std::string>();
-        const auto pointer = tracked.at("sourcePath").as<std::string>();
-        std::string physical;
-        if (owner.starts_with("record:layouts:")) {
-            const auto id = owner.substr(sizeof("record:layouts:") - 1);
-            const auto channel = tracked.at("family") == "rml" ? "rml" : "lua";
-            physical = "records/layouts/" + id + "/layout." + channel;
-        } else if (pointer.starts_with('/')) {
-            physical = "inline/" + pointer.substr(1) + ".lua";
-        }
-        const auto analysis = working_sources.find(physical);
-        std::optional<SourceAnalysis> disk_analysis;
-        if (analysis == working_sources.end()) {
-            if (std::filesystem::is_regular_file(root / physical)) {
-                std::ifstream stream(root / physical, std::ios::binary);
-                const std::string source{std::istreambuf_iterator<char>{stream},
-                                         std::istreambuf_iterator<char>{}};
-                disk_analysis = analyze_project_text(physical, source);
-            } else if (const auto source = record_source_at(root, record_overlays, pointer))
-                disk_analysis = analyze_project_text(physical, *source);
-        }
-        const SourceAnalysis* active = analysis != working_sources.end()
-                                           ? &analysis->second
-                                           : (disk_analysis ? &*disk_analysis : nullptr);
+        const auto active = resolve_tracked_source(root, record_overlays, working_sources, tracked);
         const auto& occurrences = tracked.at("occurrences");
         for (const auto& occurrence : occurrences.array_range()) {
             const auto id = occurrence.at("messageId").as<std::string>();
@@ -277,9 +546,9 @@ void add_tracked_messages(Json& model, const std::filesystem::path& root,
                 continue;
             std::string text = occurrence.at("sourceSnapshot").as<std::string>();
             const ManagedSourceOccurrence* current = nullptr;
-            const auto ordinal = occurrence.at("ordinal").as<std::size_t>();
-            if (active && ordinal < active->messages.size())
-                current = &active->messages[ordinal];
+            if (active)
+                current = tracked_occurrence(tracked, occurrence, *active,
+                                             tracked.at("family").as<std::string>());
             if (current)
                 text = current->source;
             if (named_keys.contains(text) || (current && current->kind == "named"))

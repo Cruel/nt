@@ -586,6 +586,25 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
             occurrence.selector_end_utf16 = selector_end;
             occurrence.cases_start_utf16 = cases_start;
             occurrence.cases_end_utf16 = cases_end;
+            for (auto at = args[1].first; at + 2 < args[1].last; ++at) {
+                if (tokens[at].text != "other")
+                    continue;
+                std::size_t literal = at + 2;
+                if (tokens[at + 1].text != "=") {
+                    // Lua table keys may be written as ['other'] as well
+                    // as other = '...'.
+                    if (at == args[1].first || tokens[at - 1].text != "[" ||
+                        at + 3 >= args[1].last || tokens[at + 1].text != "]" ||
+                        tokens[at + 2].text != "=")
+                        continue;
+                    literal = at + 3;
+                }
+                if (tokens[literal].kind == Token::Kind::String) {
+                    occurrence.source_start_utf16 = utf16_at(tokens[literal].begin);
+                    occurrence.source_end_utf16 = utf16_at(tokens[literal].end);
+                    break;
+                }
+            }
             occurrence.cases = *cases;
             occurrence.runtime_argument_names = std::vector<std::string>{"value"};
             if (args.size() >= 3)
@@ -850,17 +869,34 @@ void analyze_rml(SourceAnalysis& output, std::string_view source)
                     auto node = std::move(translated.back());
                     translated.pop_back();
                     const auto [node_line, node_column] = location(source, node.start);
-                    output.messages.push_back(
-                        {node.key.empty() ? "local" : "named",
-                         node.key.empty() ? std::string(source.substr(node.content_start,
-                                                                      start - node.content_start))
-                                          : std::move(node.key),
-                         output.source_path, output.source_revision, node_line, node_column});
+                    ManagedSourceOccurrence occurrence{
+                        node.key.empty() ? "local" : "named",
+                        node.key.empty() ? std::string(source.substr(node.content_start,
+                                                                     start - node.content_start))
+                                         : std::move(node.key),
+                        output.source_path,
+                        output.source_revision,
+                        node_line,
+                        node_column};
+                    occurrence.call_start_utf16 = utf16_offset(source.substr(0, node.start));
+                    occurrence.call_end_utf16 = utf16_offset(source.substr(0, cursor));
+                    occurrence.rml_open_end_utf16 =
+                        utf16_offset(source.substr(0, node.content_start));
+                    occurrence.rml_content_end_utf16 = utf16_offset(source.substr(0, start));
+                    output.messages.push_back(std::move(occurrence));
                 }
             } else if (self_closing) {
-                output.messages.push_back({attributes["key"].empty() ? "local" : "named",
-                                           attributes["key"], output.source_path,
-                                           output.source_revision, line, col});
+                ManagedSourceOccurrence occurrence{attributes["key"].empty() ? "local" : "named",
+                                                   attributes["key"],
+                                                   output.source_path,
+                                                   output.source_revision,
+                                                   line,
+                                                   col};
+                occurrence.call_start_utf16 = utf16_offset(source.substr(0, start));
+                occurrence.call_end_utf16 = utf16_offset(source.substr(0, cursor));
+                occurrence.rml_open_end_utf16 = occurrence.call_end_utf16;
+                occurrence.rml_content_end_utf16 = occurrence.call_end_utf16;
+                output.messages.push_back(std::move(occurrence));
             } else
                 translated.push_back({start, cursor, attributes["key"]});
         }
@@ -919,6 +955,7 @@ SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_
     SourceAnalysis result;
     result.source_path = std::string(relative_path);
     result.source_revision = exact_source_revision(text);
+    result.source_text = std::string(text);
     if (relative_path.ends_with(".lua"))
         analyze_lua(result, text, 1, 1);
     else if (relative_path.ends_with(".rml"))

@@ -42,6 +42,8 @@ struct ManagedSourceOccurrence {
     std::optional<std::size_t> runtime_args_end_utf16;
     std::optional<std::size_t> metadata_start_utf16;
     std::optional<std::size_t> metadata_end_utf16;
+    std::optional<std::size_t> rml_open_end_utf16;
+    std::optional<std::size_t> rml_content_end_utf16;
 };
 
 struct SourceReference {
@@ -60,6 +62,9 @@ struct CursorSourceOccurrence {
 struct SourceAnalysis {
     std::string source_path;
     std::string source_revision;
+    // Retained for stable managed occurrence fingerprinting; not serialized
+    // into the Node addon analysis payload.
+    std::string source_text;
     bool complete = true;
     std::vector<Diagnostic> diagnostics;
     std::vector<ManagedSourceOccurrence> messages;

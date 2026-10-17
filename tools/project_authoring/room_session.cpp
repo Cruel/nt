@@ -58,6 +58,14 @@ bool indexed_text_owner(std::string_view owner)
     return false;
 }
 
+bool localization_record_owner(std::string_view owner)
+{
+    // Character and Interactable records contain structured TextContent but
+    // do not own Lua/RML source analyses. Keep the two indexes independent.
+    return indexed_text_owner(owner) || owner.starts_with("characters/") ||
+           owner.starts_with("interactables/");
+}
+
 // Search decoded semantic scalar values, never physical YAML substrings:
 // quoted escapes, block scalars and aliases can encode a canonical ID without
 // spelling its bytes in the source file.
@@ -2355,7 +2363,7 @@ ValidationResult ProjectSession::validate_working_localization() const
     for (const auto& [owner, session] : records_) {
         if (owner.starts_with("i18n/"))
             localization.emplace(owner, session->snapshot().source_json);
-        else if (indexed_text_owner(owner))
+        else if (localization_record_owner(owner) || owner.starts_with("assets/"))
             records.emplace("records/" + owner +
                                 (owner.starts_with("layouts/") ? "/layout.yaml" : ".yaml"),
                             session->snapshot().source_json);
@@ -2393,6 +2401,8 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
                 records_.emplace(name, std::move(record));
                 if (indexed_text_owner(name))
                     index_text_owner(name, records_.at(name)->snapshot().source_json);
+                if (localization_record_owner(name))
+                    localization_cache_.reset();
                 if (name.starts_with("i18n/"))
                     localization_cache_.reset();
                 result.accepted = true;
@@ -2424,8 +2434,12 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
     if (response.accepted && !response.affected_records.empty()) {
         if (indexed_text_owner(owner) && records_.contains(std::string(owner)))
             index_text_owner(owner, records_.at(std::string(owner))->snapshot().source_json);
+        if (localization_record_owner(owner))
+            localization_cache_.reset();
         if (owner.starts_with("assets/"))
             reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
+        if (owner.starts_with("assets/"))
+            localization_cache_.reset();
         if (owner.starts_with("i18n/"))
             localization_cache_.reset();
         if (owner.starts_with("materials/"))
@@ -2459,8 +2473,12 @@ RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_v
     if (response.accepted && !response.affected_records.empty()) {
         if (indexed_text_owner(owner) && records_.contains(std::string(owner)))
             index_text_owner(owner, records_.at(std::string(owner))->snapshot().source_json);
+        if (localization_record_owner(owner))
+            localization_cache_.reset();
         if (owner.starts_with("assets/"))
             reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
+        if (owner.starts_with("assets/"))
+            localization_cache_.reset();
         if (owner.starts_with("i18n/"))
             localization_cache_.reset();
         ++working_revision_;
@@ -2548,9 +2566,15 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
             for (const auto& owner : response.affected_records)
                 if (indexed_text_owner(owner))
                     index_text_owner(owner, records_.at(owner)->snapshot().source_json);
+            if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
+                            localization_record_owner))
+                localization_cache_.reset();
             for (const auto& owner : response.affected_records)
                 if (owner.starts_with("assets/"))
                     reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
+            if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
+                            [](const auto& owner) { return owner.starts_with("assets/"); }))
+                localization_cache_.reset();
             if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
                             [](const auto& owner) { return owner.starts_with("i18n/"); }))
                 localization_cache_.reset();
@@ -3021,9 +3045,14 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     for (const auto& owner : affected)
         if (indexed_text_owner(owner))
             index_text_owner(owner, records_.at(owner)->snapshot().source_json);
+    if (std::any_of(affected.begin(), affected.end(), localization_record_owner))
+        localization_cache_.reset();
     for (const auto& owner : affected)
         if (owner.starts_with("assets/"))
             reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
+    if (std::any_of(affected.begin(), affected.end(),
+                    [](const auto& owner) { return owner.starts_with("assets/"); }))
+        localization_cache_.reset();
     if (std::any_of(affected.begin(), affected.end(),
                     [](const auto& owner) { return owner.starts_with("i18n/"); }))
         localization_cache_.reset();
