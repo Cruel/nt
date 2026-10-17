@@ -50,7 +50,10 @@ struct Options {
     uint32_t ui_masks = 2;
     uint32_t ui_nested_layers = 2;
     double rect_scale = 1.0;
-    uint32_t cpu_work_units = 1; // Repeated CPU operations in one timed runner batch.
+    uint32_t cpu_work_units = 1;      // Repeated CPU operations in one timed runner batch.
+    uint32_t native_quads = 64;       // Native 2D independent geometry dimension.
+    uint32_t native_glyphs = 256;     // Total shaped text glyphs per native text frame.
+    uint32_t native_texture_size = 0; // Zero means solid color; otherwise texels per side.
     uint32_t draw_calls = 64;
     uint32_t quad_count = 1;
     uint32_t texture_size = 256;
@@ -69,6 +72,12 @@ struct Options {
 [[nodiscard]] inline bool is_cpu_scenario(std::string_view id) noexcept
 {
     return id == "cpu-lua" || id == "cpu-runtime-session" || id == "cpu-flow-prediction";
+}
+
+[[nodiscard]] inline bool is_native_2d_scenario(std::string_view id) noexcept
+{
+    return id == "native-2d-geometry" || id == "native-2d-text-static" ||
+           id == "native-2d-text-dynamic";
 }
 
 [[nodiscard]] UiEffectCounts ui_effect_counts(const Options& options);

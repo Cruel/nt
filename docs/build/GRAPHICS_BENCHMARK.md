@@ -1,4 +1,4 @@
-# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#444)
+# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#445)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 RmlUi reference workloads, and headless Lua/Runtime Session/Flow prediction CPU workloads. Raw and standalone RmlUi **do not instantiate**
@@ -10,6 +10,63 @@ sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## Native 2D renderer, geometry and text (#445)
+
+The `native-2d-geometry`, `native-2d-text-static`, and `native-2d-text-dynamic` scenarios run
+NovelTea's production `Platform`, `Renderer`, `QuadBatch`, HarfBuzz shaping,
+FreeType font loader and bgfx glyph renderer *without* the Engine tick or RmlUi.
+They retain the Renderer-owned shaders, frame views, textures, glyph atlases and
+native platform resource management. These are **native renderer** baselines,
+not raw bgfx or whole-Engine timings. Invoke via the existing Linux launcher:
+
+```sh
+./scripts/run-benchmark.sh --scenario native-2d-geometry --native-quads 128 --frames 300
+./scripts/run-benchmark.sh --scenario native-2d-geometry --native-quads 128 --native-texture-size 256 --frames 300
+./scripts/run-benchmark.sh --scenario native-2d-text-static --native-glyphs 256 --frames 300
+./scripts/run-benchmark.sh --scenario native-2d-text-dynamic --native-glyphs 256 --profile diagnostic --frames 300
+./scripts/run-benchmark.sh --scenario native-2d-text-static --inspection-smoke --width 640 --height 480
+```
+
+`--native-quads` varies independently from `--native-texture-size` (0 = solid color;
+64, 128, 256, 512 or 1024 = an actual checkerboard texture). The native
+geometry case places real quad commands in a fixed grid through
+`Renderer::draw_2d`. `--native-glyphs` requests 1–4096 visible Latin letters.
+Both text cases use the *same* font, fixed 12px size, alternating A–Z reference
+strings, native text drawing and viewport. Static text pre-shapes a retained
+`TextLayout` and redraws it every frame. Dynamic text alternates its
+string and calls the production layout/shaping pipeline each frame. Insufficient
+space for the full requested text fails explicitly, rather than silently
+truncating work. The configuration JSON includes native scene identity, glyph,
+quad, texture and font parameters; unlike configurations are exploratory
+comparisons rather than equivalent baselines.
+
+Font load, baseline shaping, shader and texture creation, glyph rasterization
+and atlas upload are prepared before Ready, including four real warmup frames.
+The measured operation includes actual native Renderer submission and
+`bgfx::frame()` synchronization, not the unrelated Engine/RmlUi services.
+Clean remains the authoritative low-instrumentation profile; Diagnostic samples
+supported bgfx statistics, with GPU execution time unavailable unless the
+existing validated delayed-frame identity mechanism can attribute it. A
+`bgfx::frame()` CPU wait is never advertised as GPU duration. Output uses
+the same JSON and local comparison pipeline as other renderer scenarios.
+
+Visual correctness is exercised separately by `--inspection-smoke`, which
+performs a real **untimed** GPU screenshot readback, refuses a uniform/blank
+render, and writes a metadata-bearing PNG into the ignored `screenshots/`
+directory alongside benchmark reports. The renderer never captures pixels
+during timing. Linux CTest covers Clean/Diagnostic workloads, independent
+texture/glyph scaling, and these actual readback paths under Xvfb (software
+OpenGL smoke is **not** a hardware performance result).
+
+These scenarios currently require unattended native benchmark runs:
+the dashboard, Quick Suite, and automatic capacity search are not wired to
+this additional owning renderer host. On Web, separate Renderer initialization
+would conflict with the dashboard-owned WebGL/bgfx host; the CLI explicitly
+rejects native 2D there until a Web-safe host handoff is implemented. Android
+uses its packaged `system:/` assets and production Platform/Renderer
+lifecycle; physical-device verification remains necessary. Existing player,
+sandbox and native microbenchmark behavior is unchanged.
 
 ## CPU-only Lua, Runtime Session, and Flow prediction (#444)
 

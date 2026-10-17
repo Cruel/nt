@@ -90,6 +90,45 @@ int main()
                "CPU configurations reject out-of-bounds, changed fixture and graphics settings"))
         return 1;
 
+    Options native;
+    native.scenario = "native-2d-geometry";
+    native.native_quads = 128;
+    native.native_texture_size = 256;
+    const auto native_config = nlohmann::json::parse(encode_configuration(native));
+    Options native_roundtrip;
+    if (!check(decode_configuration(native_config.dump(), native_roundtrip, error) &&
+                   native_roundtrip.native_quads == 128 &&
+                   native_roundtrip.native_texture_size == 256 &&
+                   native_roundtrip.native_glyphs == 256 &&
+                   nlohmann::json::parse(encode_configuration(native_roundtrip)) == native_config,
+               "native 2D workload has stable geometry, glyph, texture and font identity"))
+        return 1;
+    auto native_bad = native_config;
+    native_bad["parameters"]["font_size_px"] = 24;
+    if (!check(rejected(native_bad), "native 2D does not accept a changed font scale"))
+        return 1;
+    native_bad = native_config;
+    native_bad["parameters"]["texture_edge"] = 73;
+    if (!check(rejected(native_bad), "native 2D disallows non-power-of-two texture scale"))
+        return 1;
+    native_bad = native_config;
+    native_bad["parameters"]["reference"] = "unknown";
+    if (!check(rejected(native_bad), "native 2D rejects changed scene identity"))
+        return 1;
+    native_bad = native_config;
+    native_bad["parameters"]["geometry_quads"] = 2049;
+    if (!check(rejected(native_bad), "native 2D rejects excessive geometry"))
+        return 1;
+    native.scenario = "native-2d-text-dynamic";
+    native.native_quads = 64;
+    native.native_texture_size = 0;
+    native.native_glyphs = 512;
+    Options text_roundtrip;
+    if (!check(decode_configuration(encode_configuration(native), text_roundtrip, error) &&
+                   text_roundtrip.native_glyphs == 512 &&
+                   text_roundtrip.scenario == native.scenario,
+               "native 2D dynamic text accepts independently scaled glyph count"))
+        return 1;
     auto missing_alternate = configured;
     missing_alternate.erase("alternate");
     if (!check(configured["alternate"].is_null() && rejected(missing_alternate),

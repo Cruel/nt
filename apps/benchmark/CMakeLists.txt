@@ -58,7 +58,8 @@ endif()
 set(NOVELTEA_BENCHMARK_APP_SOURCES
     main.cpp benchmark_dashboard.cpp benchmark_storage.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     raw_bgfx_workloads.cpp
-    standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp cpu_workloads.cpp)
+    standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp cpu_workloads.cpp
+    native_2d_workloads.cpp)
 if(ANDROID)
     add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
     target_link_options(noveltea-benchmark-app PRIVATE "LINKER:-z,max-page-size=16384")
@@ -289,6 +290,40 @@ if(BUILD_TESTING AND NOT ANDROID)
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
+        foreach(native_case native-2d-geometry native-2d-text-static native-2d-text-dynamic)
+            add_test(NAME "noveltea_benchmark_${native_case}_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario "${native_case}" --smoke --width 640 --height 480
+                    --profile diagnostic
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-${native_case}.json")
+            set_tests_properties("noveltea_benchmark_${native_case}_smoke"
+                PROPERTIES LABELS "benchmark;graphics;native-2d;smoke"
+                    PASS_REGULAR_EXPRESSION "complete: 30 native 2D frames" TIMEOUT 90)
+            add_test(NAME "noveltea_benchmark_${native_case}_visual_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario "${native_case}" --inspection-smoke
+                    --width 640 --height 480)
+            set_tests_properties("noveltea_benchmark_${native_case}_visual_smoke"
+                PROPERTIES LABELS "benchmark;graphics;native-2d;visual;smoke"
+                    PASS_REGULAR_EXPRESSION "native 2D inspection smoke complete" TIMEOUT 90)
+        endforeach()
+        add_test(NAME noveltea_benchmark_native_2d_text_scaling_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario native-2d-text-dynamic --native-glyphs 512
+                --frames 8 --warmup-seconds 0 --width 640 --height 480
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-native-text-scaling.json")
+        set_tests_properties(noveltea_benchmark_native_2d_text_scaling_smoke
+            PROPERTIES LABELS "benchmark;graphics;native-2d;smoke"
+                PASS_REGULAR_EXPRESSION "complete: 8 native 2D frames" TIMEOUT 90)
+        add_test(NAME noveltea_benchmark_native_2d_texture_scaling_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario native-2d-geometry --native-quads 128
+                --native-texture-size 256 --frames 8 --warmup-seconds 0
+                --width 640 --height 480
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-native-texture-scaling.json")
+        set_tests_properties(noveltea_benchmark_native_2d_texture_scaling_smoke
+            PROPERTIES LABELS "benchmark;graphics;native-2d;smoke"
+                PASS_REGULAR_EXPRESSION "complete: 8 native 2D frames" TIMEOUT 90)
         foreach(inspection_scenario raw-bgfx-geometry standalone-rmlui-simple
                                     integrated-rmlui-controlled integrated-rmlui-production)
             add_test(NAME "noveltea_benchmark_inspection_${inspection_scenario}_smoke"
