@@ -16,6 +16,7 @@
 #include "benchmark_capacity.hpp"
 #include "benchmark_completed_run.hpp"
 #include "cpu_workloads.hpp"
+#include "native_2d_workloads.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_inspection.hpp"
 #include "benchmark_options.hpp"
@@ -64,9 +65,12 @@ void print_usage()
               "standalone-rmlui-effects|integrated-rmlui-effects|"
               "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty|"
               "engine-compiled-empty|engine-compiled-menu|engine-feature-lab|"
-              "cpu-lua|cpu-runtime-session|cpu-flow-prediction] [--rect-count N]");
+              "cpu-lua|cpu-runtime-session|cpu-flow-prediction|"
+              "native-2d-geometry|native-2d-text-static|native-2d-text-dynamic]");
     std::puts("       [--clock-policy realtime|fixed-step] [--feature-lab-package FILE]");
     std::puts("       [--cpu-work-units 1..4096] (CPU-only --no-ui batch size)");
+    std::puts("       [--native-quads 1..2048] [--native-glyphs 1..4096]");
+    std::puts("       [--native-texture-size 0|64|128|256|512|1024] (native 2D --no-ui)");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
     std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
@@ -880,6 +884,47 @@ bool write_report(const Options& options, const Environment& environment, const 
     output = "download: " + name;
 #endif
     return true;
+}
+
+int run_native_2d(const Options& options)
+{
+#if defined(__EMSCRIPTEN__)
+    (void)options;
+    std::fprintf(stderr, "[benchmark] native 2D Web context ownership is unsupported\n");
+    return 2;
+#else
+    noveltea::benchmark::Native2DScenario native(options.scenario);
+    if (options.inspection_smoke) {
+        std::string reason;
+        const bool prepared = native.prepare(options, reason);
+        const bool inspected = prepared && native.inspect(options, reason);
+        const bool cleaned = native.cleanup(reason);
+        if (!prepared || !inspected || !cleaned) {
+            std::fprintf(stderr, "[benchmark] native 2D inspection failed: %s\n", reason.c_str());
+            return 3;
+        }
+        return 0;
+    }
+    SteadyClock clock;
+    const SuiteResult result = noveltea::benchmark::run_suite(options, {&native}, clock);
+    std::string output;
+    if (!write_report(options, native.environment(), result, output))
+        return 3;
+    const auto& scenario = result.scenarios.front();
+    if (scenario.outcome == "complete") {
+        std::printf("[benchmark] complete: %llu native 2D frames across %zu trial(s), "
+                    "CPU operation mean %.3f ms (not GPU time)\n",
+                    static_cast<unsigned long long>(scenario.measured_frames),
+                    scenario.trials.size(), scenario.cpu_operation.mean_ms);
+    } else {
+        for (const auto& trial : scenario.trials)
+            if (trial.outcome != "complete")
+                std::fprintf(stderr, "[benchmark] native 2D trial %s: %s\n", trial.outcome.c_str(),
+                             trial.reason.c_str());
+    }
+    std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
+    return result.outcome == "complete" ? 0 : 2;
+#endif
 }
 
 int run_cpu(const Options& options)
@@ -1855,6 +1900,8 @@ int main(int argc, char* argv[])
     }
     if (noveltea::benchmark::is_cpu_scenario(options.scenario))
         return run_cpu(options);
+    if (noveltea::benchmark::is_native_2d_scenario(options.scenario))
+        return run_native_2d(options);
 #if defined(__EMSCRIPTEN__)
     return run_web(options);
 #else

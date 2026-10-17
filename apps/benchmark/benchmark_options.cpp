@@ -139,7 +139,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--clock-policy" && flag != "--feature-lab-package" &&
             flag != "--capacity-dimension" && flag != "--capacity-target" &&
             flag != "--capacity-threshold" && flag != "--capacity-mode" &&
-            flag != "--cpu-work-units") {
+            flag != "--cpu-work-units" && flag != "--native-quads" && flag != "--native-glyphs" &&
+            flag != "--native-texture-size") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -162,6 +163,29 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 return false;
             }
             options.alternate_config_path = value;
+            continue;
+        }
+        if (flag == "--native-quads" || flag == "--native-glyphs" ||
+            flag == "--native-texture-size") {
+            has_cli_settings = true;
+            uint64_t count = 0;
+            const uint64_t maximum = flag == "--native-quads"    ? 2048u
+                                     : flag == "--native-glyphs" ? 4096u
+                                                                 : 1024u;
+            if (!parse_integer(value, count) || count > maximum ||
+                (flag != "--native-texture-size" && count == 0) ||
+                (flag == "--native-texture-size" && count != 0 &&
+                 (count < 64 || (count & (count - 1))))) {
+                error = "invalid native 2D dimension (quads 1..2048, glyphs 1..4096, "
+                        "texture 0 or power-of-two 64..1024)";
+                return false;
+            }
+            if (flag == "--native-quads")
+                options.native_quads = static_cast<uint32_t>(count);
+            else if (flag == "--native-glyphs")
+                options.native_glyphs = static_cast<uint32_t>(count);
+            else
+                options.native_texture_size = static_cast<uint32_t>(count);
             continue;
         }
         if (flag == "--cpu-work-units") {
@@ -516,6 +540,9 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
     selected.ui_nested_layers = defaults.ui_nested_layers;
     selected.rect_scale = defaults.rect_scale;
     selected.cpu_work_units = defaults.cpu_work_units;
+    selected.native_quads = defaults.native_quads;
+    selected.native_glyphs = defaults.native_glyphs;
+    selected.native_texture_size = defaults.native_texture_size;
     selected.draw_calls = defaults.draw_calls;
     selected.quad_count = defaults.quad_count;
     selected.texture_size = defaults.texture_size;
@@ -544,6 +571,27 @@ bool validate_reference_options(const Options& options, std::string& reason)
         (!options.feature_lab_package.empty() && options.scenario != "engine-feature-lab")) {
         reason = "fixed-step clock requires a Compiled Project scenario; package path requires "
                  "Feature Lab";
+        return false;
+    }
+    if (is_native_2d_scenario(options.scenario)) {
+        const bool geometry = options.scenario == "native-2d-geometry";
+        const auto edge = options.native_texture_size;
+        const bool texture_valid =
+            edge == 0 || (edge >= 64 && edge <= 1024 && (edge & (edge - 1u)) == 0);
+        if ((!options.no_ui && !options.inspection_smoke) || options.quick_suite ||
+            !options.capacity_dimension.empty() || options.clock_policy != "realtime" ||
+            options.native_quads < 1 || options.native_quads > 2048 || options.native_glyphs < 1 ||
+            options.native_glyphs > 4096 || !texture_valid ||
+            (!geometry && (options.native_quads != defaults.native_quads || edge != 0)) ||
+            (geometry && options.native_glyphs != defaults.native_glyphs)) {
+            reason = "native 2D workloads require --no-ui and realtime; geometry scales "
+                     "quads/texture, text scales glyphs; no capacity or Quick Suite yet";
+            return false;
+        }
+    } else if (options.native_quads != defaults.native_quads ||
+               options.native_glyphs != defaults.native_glyphs ||
+               options.native_texture_size != defaults.native_texture_size) {
+        reason = "native 2D dimensions require native-2d-geometry or native-2d-text scenario";
         return false;
     }
     if (is_cpu_scenario(options.scenario)) {
@@ -653,8 +701,8 @@ bool validate_reference_options(const Options& options, std::string& reason)
         reason.clear();
         return true;
     }
-    if ((is_cpu_scenario(options.scenario) || options.scenario == "raw-bgfx-empty" ||
-         options.scenario == "standalone-rmlui-simple" ||
+    if ((is_native_2d_scenario(options.scenario) || is_cpu_scenario(options.scenario) ||
+         options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
          options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty" ||
          project_scenario) &&

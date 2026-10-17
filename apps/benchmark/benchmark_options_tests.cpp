@@ -114,6 +114,17 @@ int main()
     const char* const bad_coverage[] = {"benchmark", "--coverage", "nan"};
     const char* const cpu_units[] = {"benchmark", "--scenario", "cpu-lua", "--cpu-work-units",
                                      "16"};
+    const char* const native_geom[] = {"benchmark",
+                                       "--scenario",
+                                       "native-2d-geometry",
+                                       "--native-quads",
+                                       "128",
+                                       "--native-texture-size",
+                                       "256"};
+    const char* const native_text[] = {"benchmark", "--scenario", "native-2d-text-dynamic",
+                                       "--native-glyphs", "512"};
+    const char* const native_bad_texture[] = {"benchmark", "--native-texture-size", "70"};
+    const char* const native_bad_glyphs[] = {"benchmark", "--native-glyphs", "4097"};
     const char* const cpu_units_zero[] = {"benchmark", "--cpu-work-units", "0"};
     const char* const cpu_units_excess[] = {"benchmark", "--cpu-work-units", "4097"};
     const char* const invalid_geometry[] = {"benchmark", "--rect-count", "257"};
@@ -138,7 +149,9 @@ int main()
         !expect_options(quick, 3, true, 30) || !expect_options(invalid_profile, 3, false) ||
         !expect_options(geometry, 7, true) || !expect_options(ui_reference, 3, true) ||
         !expect_options(cpu_units, 5, true) || !expect_options(cpu_units_zero, 3, false) ||
-        !expect_options(cpu_units_excess, 3, false) ||
+        !expect_options(cpu_units_excess, 3, false) || !expect_options(native_geom, 7, true) ||
+        !expect_options(native_text, 5, true) || !expect_options(native_bad_texture, 3, false) ||
+        !expect_options(native_bad_glyphs, 3, false) ||
         !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
         !expect_options(ui_scaling, 17, true) || !expect_options(ui_named_preset, 7, true) ||
         !expect_options(ui_preset_last, 7, true) || !expect_options(ui_bad_preset, 3, false) ||
@@ -165,6 +178,20 @@ int main()
         return 1;
     if (!noveltea::benchmark::parse_options(3, quick, options, error) || !options.quick_suite ||
         !options.no_ui)
+        return 1;
+    if (!noveltea::benchmark::parse_options(7, native_geom, options, error) ||
+        options.native_quads != 128 || options.native_texture_size != 256 ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.scenario = "native-2d-text-static";
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(5, native_text, options, error) ||
+        options.native_glyphs != 512 ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.no_ui = false;
+    if (noveltea::benchmark::validate_reference_options(options, error))
         return 1;
     if (!noveltea::benchmark::parse_options(5, cpu_units, options, error) ||
         options.cpu_work_units != 16 || !noveltea::benchmark::is_cpu_scenario(options.scenario) ||

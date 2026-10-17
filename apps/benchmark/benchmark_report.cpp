@@ -28,7 +28,14 @@ constexpr const char* kWallFrameDescription =
 Json configuration(const Options& options)
 {
     Json parameters = Json::object();
-    if (is_cpu_scenario(options.scenario))
+    if (is_native_2d_scenario(options.scenario))
+        parameters = {{"geometry_quads", options.native_quads},
+                      {"glyphs", options.native_glyphs},
+                      {"texture_edge", options.native_texture_size},
+                      {"font", "system:/fonts/LiberationSans.ttf"},
+                      {"font_size_px", 12},
+                      {"reference", "native-2d-grid-az-v1"}};
+    else if (is_cpu_scenario(options.scenario))
         parameters = {{"work_units", options.cpu_work_units},
                       {"input", options.scenario == "cpu-lua"
                                     ? "Lua ScriptRuntime benchmark_step/64 additions"
@@ -228,7 +235,25 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     const std::string scenario = root["scenario"].get<std::string>();
     const auto& parameters = root["parameters"];
-    if (is_cpu_scenario(scenario)) {
+    if (is_native_2d_scenario(scenario)) {
+        if (!has_fields(parameters, {"geometry_quads", "glyphs", "texture_edge", "font",
+                                     "font_size_px", "reference"}) ||
+            !unsigned_integer(parameters, "geometry_quads") ||
+            !unsigned_integer(parameters, "glyphs") ||
+            !unsigned_integer(parameters, "texture_edge") ||
+            parameters["geometry_quads"].get<uint64_t>() < 1 ||
+            parameters["geometry_quads"].get<uint64_t>() > 2048 ||
+            parameters["glyphs"].get<uint64_t>() < 1 ||
+            parameters["glyphs"].get<uint64_t>() > 4096 ||
+            parameters["texture_edge"].get<uint64_t>() > 1024 || !parameters["font"].is_string() ||
+            parameters["font"] != "system:/fonts/LiberationSans.ttf" ||
+            !unsigned_integer(parameters, "font_size_px") || parameters["font_size_px"] != 12 ||
+            !parameters["reference"].is_string() ||
+            parameters["reference"] != "native-2d-grid-az-v1") {
+            reason = "invalid native 2D benchmark parameters or reference identity";
+            return false;
+        }
+    } else if (is_cpu_scenario(scenario)) {
         if (!has_fields(parameters, {"work_units", "input"}) ||
             !unsigned_integer(parameters, "work_units") ||
             parameters["work_units"].get<uint64_t>() < 1 ||
@@ -389,6 +414,12 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     Options next;
     next.scenario = scenario;
     next.clock_policy = root["clock_policy"].get<std::string>();
+    if (is_native_2d_scenario(scenario)) {
+        next.native_quads = static_cast<uint32_t>(parameters["geometry_quads"].get<uint64_t>());
+        next.native_glyphs = static_cast<uint32_t>(parameters["glyphs"].get<uint64_t>());
+        next.native_texture_size =
+            static_cast<uint32_t>(parameters["texture_edge"].get<uint64_t>());
+    }
     if (is_cpu_scenario(scenario))
         next.cpu_work_units = static_cast<uint32_t>(parameters["work_units"].get<uint64_t>());
     if (scenario == "engine-feature-lab")
