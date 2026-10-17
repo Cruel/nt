@@ -2013,9 +2013,18 @@ int main(int argc, char* argv[])
         std::fprintf(stderr, "[benchmark] %s\n", error.c_str());
         return 2;
     }
-    if (noveltea::benchmark::is_cpu_scenario(options.scenario))
+    if (noveltea::benchmark::is_cpu_scenario(options.scenario)) {
+#if defined(__EMSCRIPTEN__)
+        return run_web_headless(options);
+#else
         return run_cpu(options);
+#endif
+    }
     if (noveltea::benchmark::is_asset_scenario(options.scenario)) {
+#if defined(__EMSCRIPTEN__)
+        if (options.scenario != "asset-texture-realize")
+            return run_web_headless(options);
+#endif
 #if defined(__EMSCRIPTEN__)
         // GPU-backed assets need rAF-driven ownership/recovery on Web.
         if (options.scenario == "asset-texture-realize")

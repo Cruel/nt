@@ -149,7 +149,7 @@ bool VideoScenario::prepare(const Options& options, std::string& reason)
         environment_.video_codec_backend = decoder_->backend();
         environment_.video_codec_fallback = decoder_->fallback_reason();
         ready_ = true;
-        packet_index_ = 1;
+        packet_index_ = 0;
         return true;
     }
 #endif
@@ -386,6 +386,33 @@ bool VideoScenario::render_frame(std::string& reason)
     return true;
 }
 
+bool VideoScenario::prepare_frame(std::string& reason)
+{
+#ifndef __EMSCRIPTEN__
+    if (id_ == "video-decode" && packet_index_ != 0 && packet_index_ % 3 == 0) {
+        // The fixture has only four frames. Prime the next decoder before
+        // timing so short-loop initialization never contaminates decode samples.
+        auto next = std::make_unique<media::NativeVideoDecoder>(source_);
+        auto first = next->step(25.0);
+        for (unsigned step = 0; first && !first.value() && step < 8; ++step)
+            first = next->step(25.0);
+        if (!first || !first.value()) {
+            reason = first ? "native video decoder did not produce its priming frame"
+                           : diagnostics_text(first.error());
+            return false;
+        }
+        if (next->backend() != environment_.video_codec_backend) {
+            reason = "decoder backend changed during the benchmark trial";
+            return false;
+        }
+        decoder_ = std::move(next);
+    }
+#else
+    (void)reason;
+#endif
+    return true;
+}
+
 bool VideoScenario::frame(std::string& reason)
 {
     if (!ready_) {
@@ -401,8 +428,9 @@ bool VideoScenario::frame(std::string& reason)
 #endif
     if (id_ == "video-decode") {
 #if !defined(__EMSCRIPTEN__)
-        // One semantic source packet per work unit, looping at the authored 200 ms endpoint.
-        const double time_ms = static_cast<double>((packet_index_ % 4) * 50 + 25);
+        // Measure the three sequential inter-frames after untimed keyframe
+        // priming. Each timed unit decodes forward without resetting the codec.
+        const double time_ms = static_cast<double>((packet_index_ % 3) * 50 + 75);
         for (unsigned step = 0; step < 8; ++step) {
             auto decoded = decoder_->step(time_ms);
             if (!decoded) {

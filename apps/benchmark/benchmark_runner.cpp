@@ -147,7 +147,7 @@ TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
             const double start = clock.now_seconds();
             bool worked = true;
             while (clock.now_seconds() - start < options.warmup_seconds) {
-                if (!scenario.frame(reason)) {
+                if (!scenario.prepare_frame(reason) || !scenario.frame(reason)) {
                     worked = false;
                     if (reason.empty())
                         reason = "warmup frame failed";
@@ -160,10 +160,17 @@ TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
                 const double measured_start = clock.now_seconds();
                 double previous_end = measured_start;
                 bool measured = true;
+                const bool active_timing = scenario.active_operation_timing();
                 while (true) {
                     if (trial.measured_frames == samples.size()) {
                         measured = false;
                         reason = "sample capacity exceeded";
+                        break;
+                    }
+                    if (!scenario.prepare_frame(reason)) {
+                        measured = false;
+                        if (reason.empty())
+                            reason = "measurement preparation failed";
                         break;
                     }
                     const double frame_start = clock.now_seconds();
@@ -174,7 +181,9 @@ TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
                         break;
                     }
                     const double frame_end = clock.now_seconds();
-                    const FrameSample sample{frame_end - previous_end, frame_end - frame_start};
+                    const double operation = frame_end - frame_start;
+                    const FrameSample sample{active_timing ? operation : frame_end - previous_end,
+                                             operation};
                     if (!sample_valid(sample.wall_seconds) ||
                         !sample_valid(sample.operation_seconds) || frame_end <= measured_start) {
                         measured = false;
@@ -189,12 +198,15 @@ TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
                     }
                     ++trial.measured_frames;
                     previous_end = frame_end;
+                    if (active_timing)
+                        trial.measured_wall_seconds += operation;
+                    else
+                        trial.measured_wall_seconds = frame_end - measured_start;
                     if (options.measurement_frames != 0
                             ? trial.measured_frames >= options.measurement_frames
-                            : frame_end - measured_start >= options.duration_seconds)
+                            : trial.measured_wall_seconds >= options.duration_seconds)
                         break;
                 }
-                trial.measured_wall_seconds = previous_end - measured_start;
                 if (measured) {
                     trial.phases.push_back(Phase::Completion);
                     if (!scenario.complete(reason)) {

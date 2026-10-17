@@ -29,6 +29,8 @@ struct FakeScenario final : Scenario {
     bool fail_completion = false;
     bool fail_cleanup = false;
     bool graphics = false;
+    bool untimed_cycle_preparation = false;
+    int cycle_preparations = 0;
     int diagnostic_calls = 0;
     int diagnostic_completion_calls = 0;
     bool emit_diagnostics = false;
@@ -47,6 +49,15 @@ struct FakeScenario final : Scenario {
     const char* id() const override { return "synthetic"; }
     const char* description() const override { return "controlled CPU-only frame"; }
     bool requires_graphics() const override { return graphics; }
+    bool active_operation_timing() const override { return untimed_cycle_preparation; }
+    bool prepare_frame(std::string&) override
+    {
+        if (untimed_cycle_preparation) {
+            ++cycle_preparations;
+            clock.time += 0.04; // Simulated decoder initialization before each timed operation.
+        }
+        return true;
+    }
     bool prepare(const Options& options, std::string& reason) override
     {
         candidate_arm = options.rect_count != 3;
@@ -179,6 +190,23 @@ int main()
     if (!check(results.scenarios[0].measured_frames == 10 &&
                    results.scenarios[0].cpu_operation.count == 10,
                "aggregate measured frames"))
+        return 1;
+
+    FakeClock decode_clock;
+    FakeScenario decode(decode_clock);
+    decode.untimed_cycle_preparation = true;
+    Options decode_options = options;
+    decode_options.warmup_seconds = 0;
+    decode_options.measurement_frames = 3;
+    decode_options.repeats = 1;
+    const auto decode_suite = run_suite(decode_options, {&decode}, decode_clock);
+    const auto& decoded = decode_suite.scenarios.front().trials.front();
+    if (!check(decode_suite.outcome == "complete" && decode.cycle_preparations == 3 &&
+                   decoded.measured_frames == 3 &&
+                   std::abs(decoded.cpu_operation.mean_ms - 10.0) < 0.001 &&
+                   std::abs(decoded.wall_frame.mean_ms - 10.0) < 0.001 &&
+                   std::abs(decoded.measured_wall_seconds - 0.03) < 0.000001,
+               "untimed decoder setup excluded from steady-state samples and throughput"))
         return 1;
 
     FakeClock recovery_clock;

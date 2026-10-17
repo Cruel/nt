@@ -201,12 +201,20 @@ bool valid_diagnostic(const Json& value)
     return true;
 }
 
+bool is_headless_scenario(std::string_view id)
+{
+    return is_cpu_scenario(id) || id == "asset-source-read" || id == "asset-project-prepare" ||
+           id == "video-decode";
+}
+
 bool valid_graphics(const Json& value)
 {
     if (value.is_null())
         return true; // A failed or mixed-host suite may not have a graphics owner.
     if (!fields(value, {"platform", "video_driver", "renderer", "frame_path", "gpu_vendor_id",
-                        "gpu_device_id", "width_pixels", "height_pixels", "browser"}))
+                        "gpu_device_id", "width_pixels", "height_pixels", "browser",
+                        "asset_workload", "video_decode_backend", "video_decode_fallback",
+                        "video_upload_pipeline", "video_hardware_decode_confirmed"}))
         return false;
     if (!value["platform"].is_string() || !value["browser"].is_string())
         return false;
@@ -215,12 +223,26 @@ bool valid_graphics(const Json& value)
             return false;
     for (const auto* key :
          {"video_decode_backend", "video_decode_fallback", "video_upload_pipeline"})
-        if (value.contains(key) && !value[key].is_null() && !value[key].is_string())
+        if (!value[key].is_null() &&
+            (!value[key].is_string() || value[key].get<std::string>().empty()))
             return false;
-    if (value.contains("video_hardware_decode_confirmed") &&
-        !value["video_hardware_decode_confirmed"].is_null() &&
+    if (!value["video_hardware_decode_confirmed"].is_null() &&
         !value["video_hardware_decode_confirmed"].is_boolean())
         return false;
+    const auto& asset = value["asset_workload"];
+    if (!asset.is_null()) {
+        if (!fields(asset, {"manager_cache", "os_page_cache", "source_backend", "graphics_backend",
+                            "gpu_upload_execution_ms"}) ||
+            (asset["manager_cache"] != "warm" && asset["manager_cache"] != "cold") ||
+            asset["os_page_cache"] != "uncontrolled" ||
+            asset["source_backend"] != (value["platform"] == "Android"      ? "SDL packaged assets"
+                                        : value["platform"] == "Emscripten" ? "Web MEMFS"
+                                                                            : "directory source") ||
+            (asset["graphics_backend"] != "none" &&
+             asset["graphics_backend"] != "production Renderer/bgfx") ||
+            !asset["gpu_upload_execution_ms"].is_null())
+            return false;
+    }
     for (const auto* key : {"gpu_vendor_id", "gpu_device_id", "width_pixels", "height_pixels"})
         if (!value[key].is_null() && !value[key].is_number_integer())
             return false;
@@ -330,6 +352,51 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             return false;
         }
         const auto id = scenario["id"].get<std::string>();
+        const auto& graphics = scenario["graphics"];
+        if (scenario["outcome"] == "complete" && (is_asset_scenario(id) || is_video_scenario(id)) &&
+            !graphics.is_object()) {
+            error = "completed asset or video workload lacks backend evidence";
+            return false;
+        }
+        if (graphics.is_object()) {
+            const auto& asset = graphics["asset_workload"];
+            if (is_asset_scenario(id) != asset.is_object() ||
+                (is_asset_scenario(id) &&
+                 (asset["manager_cache"] != config.asset_cache ||
+                  asset["graphics_backend"] !=
+                      (id == "asset-texture-realize" ? "production Renderer/bgfx" : "none"))) ||
+                (!is_video_scenario(id) &&
+                 (!graphics["video_decode_backend"].is_null() ||
+                  !graphics["video_decode_fallback"].is_null() ||
+                  !graphics["video_upload_pipeline"].is_null() ||
+                  !graphics["video_hardware_decode_confirmed"].is_null()))) {
+                error = "scenario backend or cache evidence contradicts its workload";
+                return false;
+            }
+            if (is_video_scenario(id)) {
+                const auto& backend = graphics["video_decode_backend"];
+                const auto& hardware = graphics["video_hardware_decode_confirmed"];
+                const bool complete = scenario["outcome"] == "complete";
+                if ((complete && backend.is_null()) ||
+                    (id == "video-decode" && !graphics["video_upload_pipeline"].is_null()) ||
+                    (complete && id != "video-decode" &&
+                     graphics["video_upload_pipeline"].is_null()) ||
+                    (backend == "libvpx-vp9" && hardware != false) ||
+                    ((backend == "nvdec-vp9" || backend == "va-api-vp9" ||
+                      backend == "mediacodec-vp9" || backend == "mediafoundation-vp9" ||
+                      backend == "videotoolbox-vp9") &&
+                     hardware != true) ||
+                    (backend.is_null() && !hardware.is_null()) ||
+                    (backend == "browser-media-gpu" && !hardware.is_null()) ||
+                    (!backend.is_null() && backend != "browser-media-gpu" &&
+                     backend != "libvpx-vp9" && backend != "nvdec-vp9" && backend != "va-api-vp9" &&
+                     backend != "mediacodec-vp9" && backend != "mediafoundation-vp9" &&
+                     backend != "videotoolbox-vp9")) {
+                    error = "video report lacks valid decoder or upload evidence";
+                    return false;
+                }
+            }
+        }
         const auto& suite_scenarios = quick_suite_scenarios();
         if (id.empty() || !ids.insert(id).second ||
             (!config.quick_suite && id != config.scenario) ||
@@ -557,7 +624,7 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
     for (const auto* key : {"vsync", "native_resolution", "width", "height", "capacity_dimension",
                             "capacity_target", "capacity_threshold", "capacity_mode"}) {
         // A CPU-only batch does not create a window; requested pixel dimensions have no effect.
-        if (is_cpu_scenario(a_options.scenario) && is_cpu_scenario(b_options.scenario) &&
+        if (is_headless_scenario(a_options.scenario) && is_headless_scenario(b_options.scenario) &&
             (std::string_view(key) == "width" || std::string_view(key) == "height"))
             continue;
         mismatch(result, key, ac["settings"], bc["settings"], key);
@@ -595,18 +662,33 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
             result.controlled = false;
             result.warnings.push_back(id + ": graphics identity unavailable");
         } else {
-            for (const auto* key :
-                 {"platform", "browser", "video_driver", "renderer", "frame_path", "gpu_vendor_id",
-                  "gpu_device_id", "width_pixels", "height_pixels", "ui_raster_width_pixels",
-                  "ui_raster_height_pixels", "world_raster_width_pixels",
-                  "world_raster_height_pixels", "raw_workload", "ui_render_path",
-                  "ui_reference_msaa_samples"})
+            for (const auto* key : {"platform",
+                                    "browser",
+                                    "video_driver",
+                                    "renderer",
+                                    "frame_path",
+                                    "gpu_vendor_id",
+                                    "gpu_device_id",
+                                    "width_pixels",
+                                    "height_pixels",
+                                    "ui_raster_width_pixels",
+                                    "ui_raster_height_pixels",
+                                    "world_raster_width_pixels",
+                                    "world_raster_height_pixels",
+                                    "raw_workload",
+                                    "ui_render_path",
+                                    "ui_reference_msaa_samples",
+                                    "asset_workload",
+                                    "video_decode_backend",
+                                    "video_decode_fallback",
+                                    "video_upload_pipeline",
+                                    "video_hardware_decode_confirmed"})
                 mismatch(result, (id + ": " + key).c_str(), ag, bg, key);
             // Headless CPU reports legitimately lack graphics hardware and pixel dimensions.
             // Requiring those fields would make every CPU comparison exploratory by definition.
             for (const auto* key : {"platform", "renderer", "gpu_vendor_id", "gpu_device_id",
                                     "width_pixels", "height_pixels"}) {
-                if (is_cpu_scenario(id) && std::string_view(key) != "platform")
+                if (is_headless_scenario(id) && std::string_view(key) != "platform")
                     continue;
                 if (text_field(ag, key) == "<unavailable>" || text_field(ag, key) == "null" ||
                     text_field(bg, key) == "<unavailable>" || text_field(bg, key) == "null") {
@@ -615,6 +697,12 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
                                               " unavailable; cannot verify parity");
                 }
             }
+        }
+        if (is_video_scenario(id) && ag.is_object() && bg.is_object() &&
+            (ag["video_hardware_decode_confirmed"].is_null() ||
+             bg["video_hardware_decode_confirmed"].is_null())) {
+            result.controlled = false;
+            result.warnings.push_back(id + ": hardware decoder identity is unverified");
         }
         if (scenario["outcome"] != "complete" || (*other)["outcome"] != "complete") {
             result.controlled = false;

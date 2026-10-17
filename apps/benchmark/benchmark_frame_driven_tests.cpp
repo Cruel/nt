@@ -129,6 +129,31 @@ int main()
             return 1;
     }
 
+    // Headless browser batches may execute several CPU operations per callback.
+    // rAF delays must not enter work-unit durations or throughput totals.
+    ClockStub headless_clock;
+    ScenarioStub headless_scenario(headless_clock);
+    Options headless_options = options;
+    headless_options.repeats = 1;
+    headless_options.measurement_frames = 9;
+    FrameDrivenSuite headless(headless_options, headless_scenario, headless_clock, {}, true);
+    for (int callback = 0; callback < 40; ++callback) {
+        const int before = headless_scenario.frames;
+        headless_clock.time += 0.5; // Browser was busy between callbacks.
+        if (headless.step_bounded_batch())
+            break;
+        if (!verify(headless_scenario.frames - before <= 3,
+                    "headless CPU work is bounded by the per-callback budget"))
+            return 1;
+    }
+    if (!verify(headless.result().outcome == "complete" &&
+                    headless.result().scenarios.front().measured_frames == 9 &&
+                    std::abs(headless.result().scenarios.front().measured_wall_seconds - 0.027) <
+                        0.00001 &&
+                    std::abs(headless.result().scenarios.front().wall_frame.mean_ms - 3.0) < 0.0001,
+                "headless Web measurements exclude browser scheduling delays"))
+        return 1;
+
     ClockStub alternating_clock;
     ScenarioStub alternating_scenario(alternating_clock);
     Options alternating_options = options;
