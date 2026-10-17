@@ -99,9 +99,12 @@ if [ "$PULL" = 1 ]; then
   exit 0
 fi
 
+# A previously installed Activity may reuse its old Intent with am start -S;
+# force-stop first, then start a fresh Activity with the requested extras.
+"${ADB[@]}" shell am force-stop "$APP_ID"
 "${ADB[@]}" logcat -c
 if [ -n "$CONFIG_BASE64" ]; then
-  "${ADB[@]}" shell "am start -S -n $ACTIVITY --es novelteaBenchmarkConfigBase64 '$CONFIG_BASE64'"
+  "${ADB[@]}" shell "am start -n $ACTIVITY --es novelteaBenchmarkConfigBase64 '$CONFIG_BASE64'"
 elif [ "${#APP_ARGS[@]}" -gt 0 ]; then
   for flag in "${APP_ARGS[@]}"; do
     [[ "$flag" =~ ^[a-zA-Z0-9_.:/=-]+$ ]] || {
@@ -109,9 +112,9 @@ elif [ "${#APP_ARGS[@]}" -gt 0 ]; then
       exit 2
     }
   done
-  "${ADB[@]}" shell "am start -S -n $ACTIVITY --es novelteaBenchmarkArgs '${APP_ARGS[*]}'"
+  "${ADB[@]}" shell "am start -n $ACTIVITY --es novelteaBenchmarkArgs '${APP_ARGS[*]}'"
 else
-  "${ADB[@]}" shell am start -S -n "$ACTIVITY"
+  "${ADB[@]}" shell am start -n "$ACTIVITY"
 fi
 echo "[benchmark] APK launched on $DEVICE_SERIAL. Log: adb -s $DEVICE_SERIAL logcat -s 'SDL/APP:V'"
 echo "[benchmark] Reports: $0 --device $DEVICE_SERIAL --no-build --pull"

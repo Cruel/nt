@@ -87,17 +87,21 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
     if (!requested_benchmark_window_size(options, nullptr, platform_config.width,
                                          platform_config.height, reason))
         return false;
-#if defined(__ANDROID__)
-    if (!android_benchmark_foreground()) {
-        reason = "Android Activity is not in the foreground";
-        return false;
-    }
-#endif
     if (!platform_.initialize(platform_config)) {
         reason = "native 2D Platform initialization failed";
         return false;
     }
 #if defined(__ANDROID__)
+    // SDL_CreateWindow can temporarily replace Android's surface or change orientation.
+    // The first Activity wait in main precedes Platform; wait again before bgfx owns EGL.
+    bool waiting_for_surface = false;
+    while (!android_benchmark_foreground()) {
+        if (!waiting_for_surface) {
+            SDL_Log("[benchmark] waiting for native 2D Android window focus before EGL init");
+            waiting_for_surface = true;
+        }
+        SDL_Delay(100);
+    }
     assets_.mount("system", std::make_shared<assets::SdlPackagedAssetSource>("system"));
 #else
     assets_.mount_directory("system", benchmark_asset_path("system"));

@@ -64,7 +64,7 @@ esac
     const flavor = mode === 'debug' ? 'debug' : 'release';
     assert.match(actions, new RegExp(`install -r .*/benchmark-${flavor}\\.apk`));
     if (mode === 'pull') {
-      assert.doesNotMatch(actions, /am start/);
+      assert.doesNotMatch(actions, /am start|am force-stop/);
       assert.equal(await readFile(
         path.join(root, 'build/benchmark-android-results/phone-01/raw-bgfx-geometry-123.json'),
         'utf8'), '{"format":"noveltea.benchmark.result"}\n');
@@ -74,7 +74,11 @@ esac
         assert.match(gradle, new RegExp(`:benchmark:assemble${mode === 'debug' ? 'Debug' : 'Release'}`));
         assert.match(gradle, /-PnovelteaAbi=arm64-v8a/);
       }
-      assert.match(actions, /am start -S -n org\.noveltea\.benchmark\/\.BenchmarkActivity/);
+      assert.match(actions, /am force-stop org\.noveltea\.benchmark/);
+      assert.match(actions, /am start -n org\.noveltea\.benchmark\/\.BenchmarkActivity/);
+      assert.ok(actions.indexOf("am force-stop org.noveltea.benchmark") <
+        actions.indexOf("am start -n org.noveltea.benchmark/.BenchmarkActivity"),
+        "fresh Intent cannot be delivered before stopping an existing Activity");
       if (mode === 'release') {
         assert.match(actions, /--scenario raw-bgfx-geometry --smoke --no-ui/);
       } else if (mode === 'config') {

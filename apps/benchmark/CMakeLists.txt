@@ -62,6 +62,8 @@ set(NOVELTEA_BENCHMARK_APP_SOURCES
     native_2d_workloads.cpp)
 if(ANDROID)
     add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
+    # Native 2D embeds Renderer by value: match the Engine's Android-only class layout.
+    target_compile_definitions(noveltea-benchmark-app PRIVATE NOVELTEA_PLATFORM_ANDROID)
     target_link_options(noveltea-benchmark-app PRIVATE "LINKER:-z,max-page-size=16384")
     set(NOVELTEA_BENCHMARK_SHADER_VARIANT "essl-300")
     set(NOVELTEA_BENCHMARK_RESULT_ROOT "")
