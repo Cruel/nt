@@ -3,6 +3,7 @@
 #include "reference_scene.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -60,6 +61,8 @@ struct Options {
     bool transparent_overlay = true;
     std::string output_path;
     std::string config_path;
+    std::string alternate_config_path;  // CLI-only path; loaded before execution.
+    std::shared_ptr<Options> alternate; // Candidate B for repeated A/B/A cycles.
 };
 
 [[nodiscard]] UiEffectCounts ui_effect_counts(const Options& options);

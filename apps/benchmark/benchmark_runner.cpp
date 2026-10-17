@@ -271,6 +271,25 @@ bool validate_run_options(const Options& options, std::string& reason)
     }
     if (!reason.empty())
         return false;
+    if (options.alternate) {
+        const Options& b = *options.alternate;
+        if (b.alternate || b.scenario != options.scenario || options.quick_suite ||
+            !options.capacity_dimension.empty() || b.quick_suite || !b.capacity_dimension.empty() ||
+            b.width != options.width || b.height != options.height ||
+            b.native_resolution != options.native_resolution || b.vsync != options.vsync ||
+            b.clock_policy != options.clock_policy || b.profile != options.profile ||
+            b.warmup_seconds != options.warmup_seconds ||
+            b.duration_seconds != options.duration_seconds ||
+            b.measurement_frames != options.measurement_frames ||
+            b.ready_timeout_seconds != options.ready_timeout_seconds ||
+            b.repeats != options.repeats || b.raw_samples != options.raw_samples) {
+            reason = "A/B/A requires the same scenario, timing, clock, graphics settings and "
+                     "profile; only workload parameters may differ";
+            return false;
+        }
+        if (!validate_run_options(b, reason))
+            return false;
+    }
     return valid_capacity_options(options, reason);
 }
 
@@ -380,6 +399,81 @@ void append_failed_scenario(SuiteResult& destination, std::string id, std::strin
     append_suite_result(destination, std::move(single));
 }
 
+std::optional<AlternatingSummary> summarize_alternating(const std::vector<TrialResult>& trials,
+                                                        bool enabled)
+{
+    if (!enabled && std::none_of(trials.begin(), trials.end(),
+                                 [](const TrialResult& trial) { return trial.arm == "B"; }))
+        return std::nullopt;
+    AlternatingSummary result;
+    auto summarize_group = [&](const char* arm, TrialGroupSummary& group) {
+        std::vector<double> wall_medians, cpu_medians, wall_p95, cpu_p95, wall_p99, cpu_p99;
+        for (const auto& trial : trials) {
+            if (trial.arm != arm || trial.outcome != "complete")
+                continue;
+            wall_medians.push_back(trial.wall_frame.p50_ms);
+            cpu_medians.push_back(trial.cpu_operation.p50_ms);
+            wall_p95.push_back(trial.wall_frame.p95_ms);
+            cpu_p95.push_back(trial.cpu_operation.p95_ms);
+            wall_p99.push_back(trial.wall_frame.p99_ms);
+            cpu_p99.push_back(trial.cpu_operation.p99_ms);
+            ++group.completed;
+        }
+        group.wall_medians = summarize_milliseconds(wall_medians);
+        group.cpu_medians = summarize_milliseconds(cpu_medians);
+        group.wall_p95 = summarize_milliseconds(wall_p95);
+        group.cpu_p95 = summarize_milliseconds(cpu_p95);
+        group.wall_p99 = summarize_milliseconds(wall_p99);
+        group.cpu_p99 = summarize_milliseconds(cpu_p99);
+    };
+    summarize_group("A", result.baseline);
+    summarize_group("B", result.candidate);
+    const auto percent = [](double after, double before) -> std::optional<double> {
+        if (!(before > 0.0))
+            return std::nullopt;
+        return 100.0 * (after - before) / before;
+    };
+    if (result.baseline.completed && result.candidate.completed) {
+        result.wall_delta_percent =
+            percent(result.candidate.wall_medians.p50_ms, result.baseline.wall_medians.p50_ms);
+        result.cpu_delta_percent =
+            percent(result.candidate.cpu_medians.p50_ms, result.baseline.cpu_medians.p50_ms);
+    }
+    const TrialResult* first = nullptr;
+    const TrialResult* last = nullptr;
+    for (const auto& trial : trials) {
+        if (trial.arm == "A" && trial.outcome == "complete") {
+            if (!first)
+                first = &trial;
+            last = &trial;
+        }
+        if (trial.outcome != "complete")
+            result.warnings.emplace_back("Incomplete trial; comparison has missing observations");
+        if (!trial.interrupted_attempts.empty())
+            result.warnings.emplace_back(
+                "Interrupted attempt(s); platform/background conditions may have changed");
+    }
+    if (first && last && first != last) {
+        result.wall_drift_percent = percent(last->wall_frame.p50_ms, first->wall_frame.p50_ms);
+        result.cpu_drift_percent = percent(last->cpu_operation.p50_ms, first->cpu_operation.p50_ms);
+    }
+    if (result.baseline.completed != result.candidate.completed * 2)
+        result.warnings.emplace_back("Unequal completed A/B/A arms; paired comparison incomplete");
+    for (const auto* group : {&result.baseline, &result.candidate}) {
+        for (const auto* metric : {&group->wall_medians, &group->cpu_medians}) {
+            if (metric->count > 1 && metric->mean_ms > 0.0 &&
+                metric->standard_deviation_ms / metric->mean_ms > 0.15)
+                result.warnings.emplace_back("High between-trial variability (CV > 15%); check "
+                                             "background activity and thermals");
+        }
+    }
+    if ((result.wall_drift_percent && std::abs(*result.wall_drift_percent) > 10.0) ||
+        (result.cpu_drift_percent && std::abs(*result.cpu_drift_percent) > 10.0))
+        result.warnings.emplace_back(
+            "A-arm drift exceeds 10%; thermal or background effects are possible");
+    return result;
+}
+
 SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios, Clock& clock,
                       Recovery recovery)
 {
@@ -401,19 +495,24 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
         result.description = scenario->description();
         std::vector<FrameSample> combined_samples;
         bool cancelled = false;
-        for (uint32_t trial_number = 0; trial_number < options.repeats; ++trial_number) {
-            const size_t capacity = options.measurement_frames != 0
-                                        ? static_cast<size_t>(options.measurement_frames)
+        const uint32_t trial_count = options.repeats * (options.alternate ? 3u : 1u);
+        for (uint32_t trial_number = 0; trial_number < trial_count; ++trial_number) {
+            const bool candidate = options.alternate && trial_number % 3 == 1;
+            const Options& current = candidate ? *options.alternate : options;
+            const size_t capacity = current.measurement_frames != 0
+                                        ? static_cast<size_t>(current.measurement_frames)
                                         : static_cast<size_t>(kMaxSamplesPerTrial);
             // Allocate before preparing each trial; no growth during the sample window.
             std::vector<FrameSample> samples(capacity);
             std::vector<DiagnosticObservation> observations;
-            if (options.profile == "diagnostic")
+            if (current.profile == "diagnostic")
                 observations.resize(capacity);
             TrialResult trial;
+            std::vector<InterruptedAttempt> attempts;
             uint32_t retries = 0;
             while (true) {
-                trial = run_trial(options, *scenario, clock, samples, observations);
+                trial = run_trial(current, *scenario, clock, samples, observations);
+                trial.arm = candidate ? "B" : "A";
                 const auto interruption = scenario->interruption();
                 if (trial.outcome == "complete" || interruption == Interruption::None)
                     break;
@@ -429,6 +528,7 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
                     trial.reason = "interruption retry limit exceeded: " + trial.reason;
                     break;
                 }
+                attempts.push_back({trial.reason, trial.warmup_frames, trial.measured_frames});
                 ++retries;
                 if (recovery) {
                     std::string error;
@@ -447,6 +547,7 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
                 // discarded attempt's frames or wall time.
             }
             trial.interruption_retries = retries;
+            trial.interrupted_attempts = std::move(attempts);
             if (trial.outcome == "complete") {
                 combined_samples.insert(combined_samples.end(), samples.begin(),
                                         samples.begin() +
@@ -463,11 +564,12 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
                           [](const TrialResult& trial) { return trial.outcome == "complete"; });
         completed_trials += static_cast<uint64_t>(passed);
         result.outcome = cancelled ? "cancelled"
-                         : passed == static_cast<std::ptrdiff_t>(options.repeats)
+                         : passed == static_cast<std::ptrdiff_t>(trial_count)
                              ? "complete"
                              : (passed > 0 ? "partial" : "failed");
         result.wall_frame = summarize(combined_samples, true);
         result.cpu_operation = summarize(combined_samples, false);
+        result.alternating = summarize_alternating(result.trials, options.alternate != nullptr);
         if (result.outcome == "complete")
             ++successful_scenarios;
         suite.scenarios.push_back(std::move(result));

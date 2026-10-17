@@ -45,6 +45,14 @@ std::string example_report(const Options& options, const Environment& environmen
     trial.wall_frame = scenario.wall_frame;
     trial.cpu_operation = scenario.cpu_operation;
     scenario.trials.push_back(std::move(trial));
+    if (options.alternate) {
+        scenario.trials.push_back(scenario.trials.front());
+        scenario.trials.back().arm = "B";
+        scenario.trials.push_back(scenario.trials.front());
+        scenario.measured_frames = 300;
+        scenario.measured_wall_seconds = 3.0;
+        scenario.alternating = summarize_alternating(scenario.trials);
+    }
     suite.scenarios.push_back(std::move(scenario));
     return encode_result(options, environment, suite);
 }
@@ -113,6 +121,30 @@ int main()
                "graphics settings difference is conspicuous"))
         return 1;
 
+    Options paired_options = options;
+    paired_options.scenario = "raw-bgfx-geometry";
+    paired_options.alternate = std::make_shared<Options>(paired_options);
+    paired_options.alternate->rect_count = 5;
+    const auto paired_report = example_report(paired_options, machine, 10);
+    if (!check(
+            parse(paired_report, candidate) &&
+                candidate.document["scenarios"][0]["trials"].size() == 3 &&
+                candidate.document["scenarios"][0]["trials"][1]["arm"] == "B" &&
+                candidate.document["scenarios"][0]["alternating"]["baseline"]["completed_trials"] ==
+                    2 &&
+                candidate.document["scenarios"][0]["alternating"]["candidate"]
+                                  ["completed_trials"] == 1,
+            "A/B/A reports retain per-arm trials, summaries and embedded workload B"))
+        return 1;
+    Json broken_pair = Json::parse(paired_report);
+    broken_pair["scenarios"][0]["trials"][1]["arm"] = "A";
+    if (!check(!parse(broken_pair.dump(), candidate),
+               "report reader rejects incorrect A/B/A order"))
+        return 1;
+    broken_pair = Json::parse(paired_report);
+    broken_pair["scenarios"][0].erase("alternating");
+    if (!check(!parse(broken_pair.dump(), candidate), "report reader requires A/B/A summary"))
+        return 1;
     Json malformed = Json::parse(json);
     ImportedReport untouched = baseline;
     std::string reason;
@@ -148,6 +180,10 @@ int main()
         return 1;
     malformed = Json::parse(json);
     malformed["scenarios"][0]["trials"][0]["interruption_retries"] = 1;
+    if (!check(!parse(malformed.dump(), candidate), "recovery attempt metadata required"))
+        return 1;
+    malformed["scenarios"][0]["trials"][0]["interrupted_attempts"] =
+        Json::array({{{"reason", "surface lost"}, {"warmup_frames", 4}, {"measured_frames", 2}}});
     if (!check(parse(malformed.dump(), candidate), "accept recovered trial") ||
         !check(!compare_reports(baseline, candidate).warnings.empty(),
                "comparison surfaces recovery/interruption warnings"))

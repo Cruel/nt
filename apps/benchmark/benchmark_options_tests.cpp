@@ -119,6 +119,10 @@ int main()
     const char* const config_only[] = {"benchmark", "--config", "run.json", "--output",
                                        "other.json"};
     const char* const mixed_config[] = {"benchmark", "--config", "run.json", "--smoke"};
+    const char* const alternate_only[] = {"benchmark", "--alternate-config", "candidate.json"};
+    const char* const embedded_alternate[] = {"benchmark", "--config", "run.json",
+                                              "--alternate-config", "candidate.json"};
+    const char* const missing_alternate[] = {"benchmark", "--alternate-config", ""};
 
     if (!expect_options(defaults, 1, true) || !expect_options(fixed, 7, true, 50) ||
         !expect_options(smoke, 2, true, 30) || !expect_options(invalid_frames, 3, false) ||
@@ -139,7 +143,9 @@ int main()
         !expect_options(bad_msaa, 3, false) || !expect_options(bad_target, 3, false) ||
         !expect_options(bad_draws, 3, false) || !expect_options(bad_quads, 3, false) ||
         !expect_options(bad_texture, 3, false) || !expect_options(bad_coverage, 3, false) ||
-        !expect_options(config_only, 5, true) || !expect_options(mixed_config, 4, false))
+        !expect_options(config_only, 5, true) || !expect_options(mixed_config, 4, false) ||
+        !expect_options(alternate_only, 3, true) || !expect_options(embedded_alternate, 5, true) ||
+        !expect_options(missing_alternate, 3, false))
         return 1;
 
     noveltea::benchmark::Options options;

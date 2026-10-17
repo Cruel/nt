@@ -101,7 +101,15 @@ struct DiagnosticSummary {
     CounterSummary programs;
 };
 
+struct InterruptedAttempt {
+    std::string reason;
+    uint64_t warmup_frames = 0;
+    uint64_t measured_frames = 0;
+};
+
 struct TrialResult {
+    std::string arm = "A";
+    std::vector<InterruptedAttempt> interrupted_attempts;
     std::string outcome = "failed";
     std::string reason;
     std::vector<Phase> phases;
@@ -115,7 +123,28 @@ struct TrialResult {
     std::vector<FrameSample> raw_samples;
 };
 
+struct TrialGroupSummary {
+    uint32_t completed = 0;
+    Distribution wall_medians;
+    Distribution cpu_medians;
+    Distribution wall_p95;
+    Distribution cpu_p95;
+    Distribution wall_p99;
+    Distribution cpu_p99;
+};
+
+struct AlternatingSummary {
+    TrialGroupSummary baseline;
+    TrialGroupSummary candidate;
+    std::optional<double> wall_delta_percent;
+    std::optional<double> cpu_delta_percent;
+    std::optional<double> wall_drift_percent;
+    std::optional<double> cpu_drift_percent;
+    std::vector<std::string> warnings;
+};
+
 struct ScenarioResult {
+    std::optional<AlternatingSummary> alternating;
     std::string scenario;
     std::string description;
     std::vector<TrialResult> trials;
@@ -201,6 +230,8 @@ public:
 [[nodiscard]] DiagnosticSummary
 summarize_diagnostics(const std::vector<DiagnosticObservation>& observations,
                       const std::vector<DiagnosticObservation>& late_observations = {});
+[[nodiscard]] std::optional<AlternatingSummary>
+summarize_alternating(const std::vector<TrialResult>& trials, bool enabled = false);
 [[nodiscard]] SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios,
                                     Clock& clock, Recovery recovery = {});
 
@@ -223,6 +254,8 @@ private:
     void finish_trial();
     void fail_frame(std::string fallback);
     Options options_;
+    Options active_options_;
+    std::vector<InterruptedAttempt> interrupted_attempts_;
     Scenario& scenario_;
     Clock& clock_;
     Recovery recovery_;

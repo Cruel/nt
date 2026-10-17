@@ -70,6 +70,8 @@ Json configuration(const Options& options)
             {"scenario", options.scenario},
             {"scenario_version", 1},
             {"parameters", parameters},
+            {"alternate", options.alternate ? Json::parse(encode_configuration(*options.alternate))
+                                            : Json(nullptr)},
             {"clock_policy", options.clock_policy},
             {"settings",
              {{"width", options.width},
@@ -189,7 +191,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     const Json root = Json::parse(source.begin(), source.end(), nullptr, false);
     if (root.is_discarded() ||
         !has_fields(root, {"format", "version", "scenario", "scenario_version", "parameters",
-                           "clock_policy", "settings"}) ||
+                           "clock_policy", "settings", "alternate"}) ||
         !root["format"].is_string() || root["format"] != kConfigFormat ||
         !root["version"].is_number_integer() || root["version"] != 1 ||
         !root["scenario"].is_string() || root["scenario"].get<std::string>().empty() ||
@@ -415,6 +417,20 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     next.capacity_target = settings["capacity_target"].get<std::string>();
     next.capacity_threshold = settings["capacity_threshold"].get<double>();
     next.capacity_mode = settings["capacity_mode"].get<std::string>();
+    if (!root["alternate"].is_null()) {
+        if (!root["alternate"].is_object()) {
+            reason = "alternate comparison configuration must be an object or null";
+            return false;
+        }
+        if (!root["alternate"].contains("alternate") || !root["alternate"]["alternate"].is_null()) {
+            reason = "nested A/B/A comparisons are unsupported";
+            return false;
+        }
+        Options candidate;
+        if (!decode_configuration(root["alternate"].dump(), candidate, reason))
+            return false;
+        next.alternate = std::make_shared<Options>(std::move(candidate));
+    }
     if (!validate_run_options(next, reason) || !validate_reference_options(next, reason))
         return false;
     options = std::move(next);
@@ -430,6 +446,11 @@ std::string encode_result(const Options& options, const Environment& environment
     for (const auto& scenario : result.scenarios) {
         Json trials = Json::array();
         for (const auto& trial : scenario.trials) {
+            Json attempts = Json::array();
+            for (const auto& attempt : trial.interrupted_attempts)
+                attempts.push_back({{"reason", attempt.reason},
+                                    {"warmup_frames", attempt.warmup_frames},
+                                    {"measured_frames", attempt.measured_frames}});
             Json phases = Json::array();
             for (const auto phase : trial.phases)
                 phases.push_back(phase_name(phase));
@@ -442,6 +463,8 @@ std::string encode_result(const Options& options, const Environment& environment
             }
             trials.push_back(
                 {{"outcome", trial.outcome},
+                 {"arm", trial.arm},
+                 {"interrupted_attempts", std::move(attempts)},
                  {"reason", trial.reason.empty() ? Json(nullptr) : Json(trial.reason)},
                  {"phases", std::move(phases)},
                  {"interruption_retries", trial.interruption_retries},
@@ -461,8 +484,38 @@ std::string encode_result(const Options& options, const Environment& environment
                                     : Json(nullptr)},
                  {"raw_samples", std::move(raw)}});
         }
+        Json alternating = nullptr;
+        if (scenario.alternating) {
+            const auto group = [](const TrialGroupSummary& value) {
+                return Json{{"completed_trials", value.completed},
+                            {"trial_wall_medians_ms", distribution(value.wall_medians)},
+                            {"trial_cpu_medians_ms", distribution(value.cpu_medians)},
+                            {"trial_wall_p95_ms", distribution(value.wall_p95)},
+                            {"trial_cpu_p95_ms", distribution(value.cpu_p95)},
+                            {"trial_wall_p99_ms", distribution(value.wall_p99)},
+                            {"trial_cpu_p99_ms", distribution(value.cpu_p99)}};
+            };
+            const auto& comparison = *scenario.alternating;
+            alternating = {{"order", "A/B/A"},
+                           {"baseline", group(comparison.baseline)},
+                           {"candidate", group(comparison.candidate)},
+                           {"wall_delta_percent", comparison.wall_delta_percent
+                                                      ? Json(*comparison.wall_delta_percent)
+                                                      : Json(nullptr)},
+                           {"cpu_delta_percent", comparison.cpu_delta_percent
+                                                     ? Json(*comparison.cpu_delta_percent)
+                                                     : Json(nullptr)},
+                           {"wall_drift_percent", comparison.wall_drift_percent
+                                                      ? Json(*comparison.wall_drift_percent)
+                                                      : Json(nullptr)},
+                           {"cpu_drift_percent", comparison.cpu_drift_percent
+                                                     ? Json(*comparison.cpu_drift_percent)
+                                                     : Json(nullptr)},
+                           {"warnings", comparison.warnings}};
+        }
         scenarios.push_back(
-            {{"id", scenario.scenario},
+            {{"alternating", std::move(alternating)},
+             {"id", scenario.scenario},
              {"description", scenario.description},
              {"outcome", scenario.outcome},
              {"trials", std::move(trials)},

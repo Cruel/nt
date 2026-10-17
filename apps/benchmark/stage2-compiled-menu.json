@@ -3,6 +3,7 @@
   "version": 1,
   "scenario": "engine-compiled-menu",
   "scenario_version": 1,
+  "alternate": null,
   "parameters": {},
   "clock_policy": "realtime",
   "settings": {

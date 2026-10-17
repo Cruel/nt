@@ -38,14 +38,19 @@ struct FakeScenario final : Scenario {
     int attempts_to_interrupt = 0;
     int attempts_interrupted = 0;
     int attempt_frames = 0;
+    bool candidate_arm = false;
+    double candidate_extra_seconds = 0.0;
+    std::vector<std::string> arm_order;
     [[nodiscard]] Interruption interruption() const override { return interruption_state; }
 
     explicit FakeScenario(FakeClock& value) : clock(value) {}
     const char* id() const override { return "synthetic"; }
     const char* description() const override { return "controlled CPU-only frame"; }
     bool requires_graphics() const override { return graphics; }
-    bool prepare(const Options&, std::string& reason) override
+    bool prepare(const Options& options, std::string& reason) override
     {
+        candidate_arm = options.rect_count != 3;
+        arm_order.push_back(candidate_arm ? "B" : "A");
         ++prepares;
         attempt_frames = 0;
         interruption_state = Interruption::None;
@@ -66,7 +71,7 @@ struct FakeScenario final : Scenario {
     }
     bool frame(std::string& reason) override
     {
-        clock.time += 0.01;
+        clock.time += 0.01 + (candidate_arm ? candidate_extra_seconds : 0.0);
         ++attempt_frames;
         if (attempt_frames == 2 && attempts_interrupted < attempts_to_interrupt) {
             ++attempts_interrupted;
@@ -183,6 +188,9 @@ int main()
                    recoverable.prepares == 3 && recoverable.cleanups == 3 &&
                    recovered.scenarios[0].trials.size() == 2 &&
                    recovered.scenarios[0].trials[0].interruption_retries == 1 &&
+                   recovered.scenarios[0].trials[0].interrupted_attempts.size() == 1 &&
+                   recovered.scenarios[0].trials[0].interrupted_attempts[0].reason ==
+                       "surface lost" &&
                    recovered.scenarios[0].measured_frames == 10,
                "native interrupted attempt retries with fresh warmup and retains repeats"))
         return 1;
@@ -419,6 +427,53 @@ int main()
                "delayed GPU frames are deduplicated, bounded and not counted as CPU samples"))
         return 1;
 
+    FakeClock aba_clock;
+    FakeScenario alternating(aba_clock);
+    alternating.candidate_extra_seconds = 0.01;
+    Options aba_options = options;
+    aba_options.repeats = 2;
+    aba_options.alternate = std::make_shared<Options>(aba_options);
+    aba_options.alternate->rect_count = 4;
+    const auto aba = run_suite(aba_options, {&alternating}, aba_clock);
+    const auto& aba_scenario = aba.scenarios.front();
+    if (!check(
+            aba.outcome == "complete" && alternating.prepares == 6 && alternating.cleanups == 6 &&
+                alternating.arm_order == std::vector<std::string>{"A", "B", "A", "A", "B", "A"} &&
+                aba_scenario.trials.size() == 6 && aba_scenario.measured_frames == 30 &&
+                aba_scenario.alternating.has_value() &&
+                aba_scenario.alternating->baseline.completed == 4 &&
+                aba_scenario.alternating->candidate.completed == 2 &&
+                std::abs(*aba_scenario.alternating->cpu_delta_percent - 100.0) < 0.001 &&
+                std::abs(*aba_scenario.alternating->cpu_drift_percent) < 0.001,
+            "A/B/A cycles independently warm, measure and cleanup every A and B trial"))
+        return 1;
+    FakeClock early_clock;
+    FakeScenario early_cancel(early_clock);
+    early_cancel.injected_interruption = Interruption::Cancelled;
+    early_cancel.attempts_to_interrupt = 1;
+    const auto early = run_suite(aba_options, {&early_cancel}, early_clock);
+    if (!check(early.outcome == "cancelled" && early.scenarios[0].trials.size() == 1 &&
+                   early.scenarios[0].alternating.has_value() &&
+                   early.scenarios[0].alternating->candidate.completed == 0 &&
+                   !early.scenarios[0].alternating->warnings.empty(),
+               "A/B/A cancellation before B retains unfinished comparison metadata"))
+        return 1;
+    std::vector<TrialResult> noisy_trials(6);
+    const double observations[] = {10.0, 20.0, 10.0, 30.0, 25.0, 40.0};
+    for (size_t i = 0; i < noisy_trials.size(); ++i) {
+        noisy_trials[i].arm = i % 3 == 1 ? "B" : "A";
+        noisy_trials[i].outcome = "complete";
+        noisy_trials[i].wall_frame.p50_ms = observations[i];
+        noisy_trials[i].cpu_operation.p50_ms = observations[i];
+    }
+    const auto noisy = summarize_alternating(noisy_trials);
+    if (!check(noisy && noisy->wall_drift_percent &&
+                   std::abs(*noisy->wall_drift_percent - 300.0) < 0.001 &&
+                   noisy->baseline.wall_medians.standard_deviation_ms > 0.0 &&
+                   noisy->candidate.cpu_medians.p99_ms > noisy->candidate.cpu_medians.p50_ms &&
+                   !noisy->warnings.empty(),
+               "synthetic noisy trials flag variability and drift without wall-clock thresholds"))
+        return 1;
     Options invalid = options;
     invalid.repeats = 0;
     std::string reason;

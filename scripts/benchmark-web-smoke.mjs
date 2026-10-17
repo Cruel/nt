@@ -9,6 +9,7 @@ import {validateStage1Report} from './benchmark-stage1-validate.mjs';
 const directory = path.resolve(process.argv[2] || 'build/web-benchmark-release/apps/benchmark');
 const canonicalBytes = await readFile(new URL('../apps/benchmark/stage1-unattended.json', import.meta.url));
 const canonical = JSON.parse(canonicalBytes.toString('utf8'));
+const alternatingBytes = await readFile(new URL('../apps/benchmark/stage2-aba-geometry.json', import.meta.url));
 const mime = {'.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.data': 'application/octet-stream'};
 const server = createServer(async (request, response) => {
   const pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname);
@@ -91,6 +92,26 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     const canonicalReport = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
     validateStage1Report(canonicalReport, canonical, 'Emscripten');
     console.log(name + ': unattended canonical JSON and measured report certified');
+
+    // Real WebGL2 A/B/A switching stays within one frame-driven collection;
+    // each arm prepares independently without displaying the dashboard.
+    await page.goto(origin + '/benchmark.html?configB64=' +
+                    encodeURIComponent(alternatingBytes.toString('base64')));
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
+                               {timeout: 60000});
+    const alternatingReport = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    const alternatingScenario = alternatingReport.scenarios[0];
+    if (alternatingReport.outcome !== 'complete' ||
+        alternatingScenario.aggregate.measured_frames !== 180 ||
+        alternatingScenario.trials.map(trial => trial.arm).join('') !== 'ABAABA' ||
+        alternatingScenario.trials.some(trial => trial.outcome !== 'complete' ||
+          trial.measured_frames !== 30 || !Array.isArray(trial.interrupted_attempts)) ||
+        alternatingScenario.alternating?.baseline.completed_trials !== 4 ||
+        alternatingScenario.alternating?.candidate.completed_trials !== 2 ||
+        alternatingReport.configuration.alternate?.parameters.rect_count !== 24)
+      throw new Error('real-WebGL A/B/A trial metadata mismatch: ' +
+                      JSON.stringify(alternatingScenario));
+    console.log(name + ': six independently measured A/B/A WebGL trials and report metadata passed');
 
     // Exercise the real file-picker import transport without requiring any
     // filesystem mount or a network upload.

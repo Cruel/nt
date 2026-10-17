@@ -61,6 +61,32 @@ int main()
                "current config roundtrip"))
         return 1;
 
+    auto missing_alternate = configured;
+    missing_alternate.erase("alternate");
+    if (!check(configured["alternate"].is_null() && rejected(missing_alternate),
+               "configuration V1 requires the current-only A/B/A field"))
+        return 1;
+    Options paired = original;
+    paired.scenario = "raw-bgfx-geometry";
+    paired.alternate = std::make_shared<Options>(paired);
+    paired.alternate->rect_count = 7;
+    const auto paired_config = nlohmann::json::parse(encode_configuration(paired));
+    Options parsed_pair;
+    if (!check(decode_configuration(paired_config.dump(), parsed_pair, error) &&
+                   parsed_pair.alternate && parsed_pair.alternate->rect_count == 7 &&
+                   nlohmann::json::parse(encode_configuration(parsed_pair)) == paired_config,
+               "candidate B is a complete current V1 configuration and roundtrips"))
+        return 1;
+    auto nested_pair = paired_config;
+    nested_pair["alternate"]["alternate"] = paired_config;
+    auto incompatible_pair = paired_config;
+    incompatible_pair["alternate"]["settings"]["vsync"] = true;
+    auto different_scenario = paired_config;
+    different_scenario["alternate"]["scenario"] = "raw-bgfx-empty";
+    if (!check(rejected(nested_pair) && rejected(incompatible_pair) && rejected(different_scenario),
+               "A/B/A rejects nesting and incomparable graphics/scenario settings"))
+        return 1;
+
     Options quick_options = original;
     quick_options.quick_suite = true;
     const auto quick_config = nlohmann::json::parse(encode_configuration(quick_options));
