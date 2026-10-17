@@ -45,6 +45,14 @@ try {
     });
     try {
       const page = await browser.newPage({acceptDownloads: true});
+      await page.addInitScript(() => {
+        window.__benchmarkRafTicks = 0;
+        const count = () => {
+          ++window.__benchmarkRafTicks;
+          requestAnimationFrame(count);
+        };
+        requestAnimationFrame(count);
+      });
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => {
@@ -66,13 +74,96 @@ try {
             report?.scenarios?.[0]?.aggregate?.measured_frames !== 12 ||
             report?.graphics?.renderer !== null ||
             report?.configuration?.parameters?.cache !== cache ||
-            report?.configuration?.parameters?.work_units !== 2) {
+            report?.configuration?.parameters?.work_units !== 2 ||
+            !report?.timing?.frame_wall?.includes('browser scheduling gaps excluded')) {
           throw new Error(name + ' ' + scenario + ' invalid report: ' +
                           JSON.stringify(report).slice(0, 7000));
         }
         console.log(name + ': ' + scenario + ' ' + cache +
                     ' 12 CPU-only batches across two trials PASS');
       }
+      // A visibilitychange event may fire while rAF is suspended, with no C++
+      // callback until the tab is visible again. Dispatch hide/restore within
+      // one JS task so no rAF callback can see document.hidden === true.
+      await page.goto(origin + '/benchmark.html?' + new URLSearchParams({
+        scenario: 'cpu-lua', noUi: '1', frames: '2500',
+        warmup: '0.025', cpuWorkUnits: '16'
+      }));
+      await page.waitForFunction(() => window.NovelTeaBenchmark?.ready,
+                                 null, {timeout: 30000});
+      const rafBefore = await page.evaluate(() => window.__benchmarkRafTicks);
+      await page.waitForFunction(ticks => window.__benchmarkRafTicks >= ticks + 8,
+                                 rafBefore, {timeout: 15000});
+      const latchedOnRestore = await page.evaluate(() => {
+        const ticks = window.__benchmarkRafTicks;
+        Object.defineProperty(document, 'hidden', {configurable: true, value: true});
+        document.dispatchEvent(new Event('visibilitychange'));
+        const latched = window.NovelTeaBenchmark.backgrounded;
+        delete document.hidden;
+        document.dispatchEvent(new Event('visibilitychange'));
+        return latched && !document.hidden && window.__benchmarkRafTicks === ticks;
+      });
+      if (!latchedOnRestore)
+        throw new Error(name + ' visibility latch did not survive hide/restore without rAF');
+      await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length >= 1,
+                                 null, {timeout: 90000});
+      const resumed = await page.evaluate(() => ({
+        report: window.NovelTeaBenchmark.runs[0].report,
+        backgrounded: window.NovelTeaBenchmark.backgrounded
+      }));
+      const resumedTrial = resumed.report?.scenarios?.[0]?.trials?.[0];
+      if (resumed.report?.outcome !== 'complete' ||
+          resumedTrial?.interruption_retries !== 1 ||
+          !resumedTrial?.interrupted_attempts?.[0]?.reason?.includes('backgrounded') ||
+          !(resumedTrial?.interrupted_attempts?.[0]?.measured_frames > 0) ||
+          !(resumedTrial?.interrupted_attempts?.[0]?.warmup_frames > 0) ||
+          !(resumedTrial?.warmup_frames > 0) ||
+          resumedTrial?.measured_frames !== 2500 ||
+          resumed.backgrounded !== false) {
+        throw new Error(name + ' missed headless visibility recovery: ' +
+                        JSON.stringify(resumed).slice(0, 7000));
+      }
+      console.log(name + ': headless hide/restore with suspended rAF PASS');
+
+      // Duration-based CPU work must yield to rAF while continuing to report
+      // active CPU throughput, not throughput diluted by browser scheduling.
+      await page.goto(origin + '/benchmark.html?' + new URLSearchParams({
+        scenario: 'cpu-lua', noUi: '1', warmup: '0.05',
+        seconds: '0.25', cpuWorkUnits: '16'
+      }));
+      try {
+        await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length >= 1,
+                                   null, {timeout: 15000});
+      } catch (error) {
+        const diagnostic = await page.evaluate(() => ({
+          ready: window.NovelTeaBenchmark?.ready,
+          ticks: window.__benchmarkRafTicks,
+          status: document.querySelector('#status')?.textContent,
+          log: document.querySelector('#log')?.textContent?.slice(-5000)
+        }));
+        throw new Error(name + ' cpu-lua: ' + error.message + ' ' +
+                        JSON.stringify(diagnostic) + ' ' + errors.join('; '));
+      }
+      const cpuReport = await page.evaluate(() => ({
+        report: window.NovelTeaBenchmark.runs[0].report,
+        rafTicks: window.__benchmarkRafTicks
+      }));
+      const cpuAggregate = cpuReport.report?.scenarios?.[0]?.aggregate;
+      if (cpuReport.report?.outcome !== 'complete' ||
+          cpuAggregate?.frame_loop_cadence_hz !== null ||
+          !cpuReport.report?.timing?.frame_wall?.includes('browser scheduling gaps excluded') ||
+          !(cpuAggregate?.cpu_work_batches_per_second > 0) ||
+          !(cpuAggregate?.measured_wall_seconds >= 0.25) ||
+          cpuReport.report?.graphics?.renderer !== null ||
+          cpuReport.rafTicks < 5) {
+        throw new Error(name + ' headless CPU responsiveness invalid: ' +
+                        JSON.stringify(cpuReport).slice(0, 7000));
+      }
+      console.log(name + ': cpu-lua headless rAF responsiveness PASS');
+
+      // Allow headless-only verification on browsers without a usable WebGL2 host.
+      if (process.env.NOVELTEA_BENCHMARK_HEADLESS_ONLY === '1')
+        continue;
       for (const cache of ['warm', 'cold']) {
         await page.goto(origin + '/benchmark.html?' + new URLSearchParams({
           scenario: 'asset-texture-realize', noUi: '1', frames: '6',
@@ -100,6 +191,9 @@ try {
             scenario?.trials?.length !== 2 ||
             report?.configuration?.parameters?.cache !== cache ||
             report?.configuration?.parameters?.work_units !== 2 ||
+            !report?.timing?.frame_wall?.includes('requestAnimationFrame-paced interval') ||
+            !report?.timing?.frame_wall?.includes('browser scheduling') ||
+            report?.timing?.frame_wall?.includes('scheduling gaps excluded') ||
             report?.graphics?.asset_workload?.source_backend !== 'Web MEMFS' ||
             report?.graphics?.asset_workload?.gpu_upload_execution_ms !== null ||
             aggregate?.frame_loop_cadence_hz !== null ||

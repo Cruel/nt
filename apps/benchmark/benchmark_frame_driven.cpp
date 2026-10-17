@@ -11,9 +11,9 @@ bool valid(double seconds) { return seconds >= 0.0 && seconds < 3600.0; }
 } // namespace
 
 FrameDrivenSuite::FrameDrivenSuite(const Options& options, Scenario& scenario, Clock& clock,
-                                   Recovery recovery)
+                                   Recovery recovery, bool headless_batches)
     : options_(options), active_options_(options), scenario_(scenario), clock_(clock),
-      recovery_(std::move(recovery))
+      recovery_(std::move(recovery)), headless_batches_(headless_batches)
 {
     scenario_result_.scenario = scenario.id();
     scenario_result_.description = scenario.description();
@@ -88,6 +88,8 @@ void FrameDrivenSuite::finish_trial()
     trial_.interrupted_attempts = std::move(interrupted_attempts_);
     if (interrupted_ && retry_count_ == kMaxInterruptionRetries)
         reason_ = "interruption retry limit exceeded: " + reason_;
+    if (results_ready_ && reason_.empty() && trial_.measured_wall_seconds <= 0.0)
+        reason_ = "clock resolution insufficient to measure any elapsed work";
     if (results_ready_ && reason_.empty()) {
         trial_.outcome = "complete";
         std::vector<FrameSample> measured(samples_.begin(),
@@ -190,6 +192,7 @@ bool FrameDrivenSuite::step()
                                     ? static_cast<size_t>(active_options_.measurement_frames)
                                     : static_cast<size_t>(kMaxSamples);
         samples_.assign(capacity, {});
+        warmup_active_seconds_ = 0.0;
         observations_.clear();
         late_.clear();
         if (active_options_.profile == "diagnostic")
@@ -221,15 +224,22 @@ bool FrameDrivenSuite::step()
         break;
     }
     case Phase::Warmup:
-        if (clock_.now_seconds() - warmup_start_ >= active_options_.warmup_seconds) {
+        if ((headless_batches_ ? warmup_active_seconds_ : clock_.now_seconds() - warmup_start_) >=
+            active_options_.warmup_seconds) {
             trial_.phases.push_back(Phase::Measurement);
             measurement_start_ = clock_.now_seconds();
             previous_end_ = measurement_start_;
             phase_ = Phase::Measurement;
-        } else if (!scenario_.frame(reason_)) {
-            fail_frame("warmup frame failed");
+        } else if (!scenario_.prepare_frame(reason_)) {
+            fail_frame("warmup preparation failed");
         } else {
-            ++trial_.warmup_frames;
+            const double start = clock_.now_seconds();
+            if (!scenario_.frame(reason_))
+                fail_frame("warmup frame failed");
+            else {
+                warmup_active_seconds_ += clock_.now_seconds() - start;
+                ++trial_.warmup_frames;
+            }
         }
         break;
     case Phase::Measurement: {
@@ -238,15 +248,21 @@ bool FrameDrivenSuite::step()
             phase_ = Phase::Cleanup;
             break;
         }
+        if (!scenario_.prepare_frame(reason_)) {
+            fail_frame("measurement preparation failed");
+            break;
+        }
         const double start = clock_.now_seconds();
         if (!scenario_.frame(reason_)) {
             fail_frame("measurement frame failed");
             break;
         }
         const double end = clock_.now_seconds();
-        const FrameSample sample{end - previous_end_, end - start};
+        const double operation = end - start;
+        const bool active_timing = headless_batches_ || scenario_.active_operation_timing();
+        const FrameSample sample{active_timing ? operation : end - previous_end_, operation};
         if (!valid(sample.wall_seconds) || !valid(sample.operation_seconds) ||
-            end <= measurement_start_) {
+            (!active_timing && end <= measurement_start_)) {
             reason_ = "non-monotonic or invalid frame timing";
             phase_ = Phase::Cleanup;
             break;
@@ -256,7 +272,10 @@ bool FrameDrivenSuite::step()
             scenario_.diagnostic_frame(observations_[static_cast<size_t>(trial_.measured_frames)]);
         ++trial_.measured_frames;
         previous_end_ = end;
-        trial_.measured_wall_seconds = end - measurement_start_;
+        if (active_timing)
+            trial_.measured_wall_seconds += operation;
+        else
+            trial_.measured_wall_seconds = end - measurement_start_;
         if (active_options_.measurement_frames != 0
                 ? trial_.measured_frames >= active_options_.measurement_frames
                 : trial_.measured_wall_seconds >= active_options_.duration_seconds)
@@ -285,6 +304,21 @@ bool FrameDrivenSuite::step()
         break;
     }
     return done_;
+}
+
+bool FrameDrivenSuite::step_bounded_batch()
+{
+    // A callback spends at most ~8 ms in headless CPU work (except for a
+    // single indivisible operation), leaving the browser time for input and
+    // visibility/cancellation events before the next rAF callback.
+    const double start = clock_.now_seconds();
+    for (unsigned unit = 0; unit < 64; ++unit) {
+        if (step())
+            return true;
+        if (clock_.now_seconds() - start >= 0.008)
+            break;
+    }
+    return false;
 }
 
 } // namespace noveltea::benchmark

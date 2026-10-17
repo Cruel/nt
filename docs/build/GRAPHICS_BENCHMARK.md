@@ -49,9 +49,21 @@ Report failures instead of fabricated samples if an asset is missing or a
 typed request fails. Use optimized Clean builds for meaningful comparisons;
 Xvfb software GL and Debug runs establish correctness, not real-GPU baselines.
 
-On Web, CPU-only asset cases use the headless source/codec runner; GPU texture
-realization transfers SDL/bgfx ownership away from the dashboard and uses
-the browser's rAF-driven production Renderer lifecycle. The shell supports
+On Web, CPU-only asset cases use a headless, rAF-scheduled runner that executes
+bounded CPU-operation batches per callback (at most 64 operations or roughly
+8 ms of active CPU work). It creates no SDL video, bgfx, or ImGui owner, and
+yields between batches so browser input and visibility events are serviced.
+Active operation intervals and throughput exclude browser callback scheduling
+delays; these are **not** displayed FPS. The shell latches `visibilitychange`
+events even when rAF is suspended: after restoration the headless runner
+discards the interrupted attempt, performs a fresh warmup, and clears the latch
+only during successful recovery. GPU texture realization transfers
+SDL/bgfx ownership away from the dashboard and uses the browser's rAF-driven
+production Renderer lifecycle. Its `timing.frame_wall` and asset throughput
+include rAF scheduling gaps, unlike the headless asset modes; they do not
+represent unpaced CPU-operation throughput. Native CPU and asset
+`timing.frame_wall` values are end-to-end batch intervals, not strictly
+operation-only timing. The shell supports
 `cpuWorkUnits` and `assetCache` query parameters. After building the Web
 benchmark, run the browser functional regression (no throughput thresholds):
 
@@ -59,8 +71,10 @@ benchmark, run the browser functional regression (no throughput thresholds):
 NOVELTEA_BENCHMARK_BROWSER=Chromium node scripts/benchmark-asset-web-smoke.mjs build/web-benchmark-debug/apps/benchmark
 ```
 
-The script also supports Firefox when that host exposes WebGL2. A missing
-WebGL2 context is an environment capability failure, not evidence of an
+Use `NOVELTEA_BENCHMARK_HEADLESS_ONLY=1` to run just the CPU/headless
+scenarios and hide/restore regression in browsers without WebGL2, including
+Firefox. Full asset tests also support Firefox when that host exposes WebGL2.
+A missing WebGL2 context is an environment capability failure, not evidence of an
 asset-pipeline performance regression. Native Linux CTest includes four
 CPU-only warm/cold repeated-run checks and two actual bgfx texture realization
 checks; the CPU cases explicitly disable SDL video to guard against accidental
@@ -82,9 +96,16 @@ Run them as separate trials with the same display settings and profile:
 ```
 
 `video-decode` uses `NativeVideoSource` and `NativeVideoDecoder` without
-SDL video or bgfx; one source-timed frame is requested per work unit, looping
-the prepared 200 ms clip. The reported work-unit rate is decoder workload
-throughput, **not** display FPS (reported under
+SDL video or bgfx. The prepared 200 ms clip has a keyframe at 25 ms and three
+successive frames at 75, 125 and 175 ms. Each measured work unit decodes one
+of the three successive frames in presentation-timestamp order. Before each
+new short-clip cycle, a fresh decoder is allocated and primed through the
+keyframe **outside** the measured operation. The reported work-unit rate
+therefore measures sequential post-keyframe decoding, not loop/reset
+throughput or average decode cost including keyframes. The operation samples
+and throughput denominator exclude untimed per-cycle decoder initialization;
+the configuration identifies this precise scope. The reported work-unit rate
+is decoder workload throughput, **not** display FPS (reported under
 `video_decode_work_units_per_second`, not `frame_loop_cadence_hz`).
 `video-upload` uses the real typed video
 asset pipeline and `WorldVideoStream` to decode, upload YUV planes, and
@@ -109,7 +130,12 @@ reason and production upload pipeline. `video_hardware_decode_confirmed`
 reports whether the selected decoder is hardware-backed; it does not
 assert that every device has usable hardware decoding. This small reference
 may fall below hardware codec minimum dimensions: CPU fallback is expected
-and is not a benchmark failure. Diagnostic bgfx timings have the ordinary
+and is not a benchmark failure. Imported reports require this canonical
+backend/upload/cache evidence even when particular fields explicitly contain
+`null`. Before/after comparisons treat backend, hardware confirmation, and
+upload path as workload identity; browser-media hardware decoding is opaque,
+so such video comparisons remain exploratory rather than hardware-controlled.
+Diagnostic bgfx timings have the ordinary
 asynchronous attribution limits; `bgfx::frame()` time is never GPU
 execution time. Clean mode performs no readback. On Linux, Xvfb software
 OpenGL is useful for correctness, not representative GPU performance.
@@ -314,7 +340,11 @@ compiled-project fixture and `work_units` is the batch size. Its
 `graphics.frame_path` is `cpu-work-batch-no-presentation`; renderer, GPU
 device, display dimensions, and GPU timings are **null/unavailable**. CPU
 `frame_wall_ms` and `cpu_operation_ms` are batch wall intervals and operation
-costs, while `cpu_work_batches_per_second` records batch throughput.
+costs, while `cpu_work_batches_per_second` records batch throughput. On Web,
+these are active CPU-operation intervals: the browser schedules bounded
+batches using rAF, but scheduling delays are excluded from throughput and
+warmup/measurement durations. Each batch yields to the browser before the
+next callback, preserving input and cancellation responsiveness.
 `frame_loop_cadence_hz` is null, rather than fabricated FPS; the actual
 CPU operations per second are batches/sec multiplied by work units/batch.
 Results are not comparable to the Engine's real-time presented-frame timings.

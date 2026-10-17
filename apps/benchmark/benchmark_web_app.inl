@@ -1,4 +1,108 @@
 // Included only by main.cpp in the benchmark's anonymous namespace.
+// Headless CPU benchmarks never create a video window, SDL renderer, bgfx or
+// the ImGui dashboard. rAF is only the scheduler between bounded CPU batches.
+struct WebHeadlessBenchmarkApp {
+    explicit WebHeadlessBenchmarkApp(Options initial) : options(std::move(initial)) {}
+
+    Options options;
+    SteadyClock clock;
+    std::unique_ptr<Scenario> scenario;
+    std::unique_ptr<noveltea::benchmark::FrameDrivenSuite> runner;
+    Environment environment;
+    bool hidden = false;
+
+    bool initialize()
+    {
+        if (noveltea::benchmark::is_cpu_scenario(options.scenario)) {
+            if (!options.no_ui) {
+                std::fprintf(stderr, "[benchmark] Web CPU workloads require --no-ui\n");
+                return false;
+            }
+            const auto kind = options.scenario == "cpu-lua"
+                                  ? noveltea::benchmark::CpuWorkload::Lua
+                              : options.scenario == "cpu-runtime-session"
+                                  ? noveltea::benchmark::CpuWorkload::RuntimeSession
+                                  : noveltea::benchmark::CpuWorkload::FlowPrediction;
+            scenario = std::make_unique<noveltea::benchmark::CpuScenario>(kind);
+            environment.frame_path = "cpu-work-batch-no-presentation";
+        } else if (options.scenario == "asset-source-read" ||
+                   options.scenario == "asset-project-prepare") {
+            scenario = std::make_unique<noveltea::benchmark::AssetScenario>(options.scenario);
+            environment.frame_path = "asset-source-and-compiled-project-cpu-only";
+        } else {
+            return false;
+        }
+        environment.platform = SDL_GetPlatform();
+        char* browser = reinterpret_cast<char*>(
+            EM_ASM_PTR({ return stringToNewUTF8(navigator.userAgent || ""); }));
+        if (browser) {
+            environment.browser = browser;
+            std::free(browser);
+        }
+        runner = std::make_unique<noveltea::benchmark::FrameDrivenSuite>(
+            options, *scenario, clock,
+            [this](std::string&) {
+                if (EM_ASM_INT({ return document.hidden ? 1 : 0; }))
+                    return noveltea::benchmark::RecoveryState::Pending;
+                // visibilitychange is latched by the shell while rAF is
+                // suspended. Clear it only when beginning a fresh attempt.
+                EM_ASM({ window.NovelTeaBenchmark.backgrounded = false; });
+                hidden = false;
+                return noveltea::benchmark::RecoveryState::Ready;
+            },
+            true);
+        EM_ASM({
+            window.NovelTeaBenchmark.ready = true;
+            window.NovelTeaBenchmark.headlessCancel = false;
+            window.addEventListener('keydown', event => {
+                if (event.key === 'Escape')
+                    window.NovelTeaBenchmark.headlessCancel = true;
+            });
+        });
+        return true;
+    }
+
+    void tick()
+    {
+        const bool cancelled =
+            EM_ASM_INT({ return window.NovelTeaBenchmark.headlessCancel ? 1 : 0; });
+        if (cancelled)
+            runner->cancel("headless Web benchmark cancelled with Escape");
+        const bool now_hidden = EM_ASM_INT({ return document.hidden ? 1 : 0; });
+        const bool backgrounded = EM_ASM_INT({
+            return window.NovelTeaBenchmark.backgrounded ? 1 : 0;
+        });
+        // The tab may already be visible again: consume the shell's latch,
+        // not only document.hidden as observed on this rAF callback.
+        if ((now_hidden || backgrounded) && !hidden)
+            runner->interrupt("headless Web benchmark backgrounded");
+        hidden = now_hidden || backgrounded;
+        if (now_hidden && !cancelled)
+            return;
+        if (!runner->step_bounded_batch())
+            return;
+        std::string output;
+        if (!write_report(options, environment, runner->result(), output))
+            std::fprintf(stderr, "[benchmark] could not export headless Web report\n");
+        else
+            std::printf("[benchmark] headless Web report: %s (outcome=%s)\n", output.c_str(),
+                        runner->result().outcome.c_str());
+        emscripten_cancel_main_loop();
+    }
+};
+
+int run_web_headless(Options options)
+{
+    auto* app = new WebHeadlessBenchmarkApp(std::move(options));
+    if (!app->initialize()) {
+        delete app;
+        return 3;
+    }
+    emscripten_set_main_loop_arg(
+        [](void* state) { static_cast<WebHeadlessBenchmarkApp*>(state)->tick(); }, app, 0, true);
+    return 0;
+}
+
 // The Emscripten callback remains registered for the lifetime of the page.
 struct WebBenchmarkApp {
     explicit WebBenchmarkApp(Options initial) : options(std::move(initial)) {}

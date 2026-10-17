@@ -137,7 +137,10 @@ int main()
                     result["scenarios"][0]["aggregate"].contains("asset_work_batches_per_second") &&
                     result["graphics"]["asset_workload"]["manager_cache"] == "cold" &&
                     result["graphics"]["asset_workload"]["os_page_cache"] == "uncontrolled" &&
-                    result["timing"]["gpu_execution_ms"].is_null(),
+                    result["timing"]["gpu_execution_ms"].is_null() &&
+                    result["timing"]["frame_wall"].get<std::string>().find(
+                        "end-to-end CPU interval between completed work batches") !=
+                        std::string::npos,
                 "asset reports have workload throughput and explicit cache/GPU limitations"))
             return 1;
     }
@@ -678,6 +681,9 @@ int main()
     if (!check(cpu_result["graphics"]["renderer"].is_null() &&
                    cpu_result["graphics"]["gpu_device_id"].is_null() &&
                    cpu_result["graphics"]["frame_path"] == "cpu-work-batch-no-presentation" &&
+                   cpu_result["timing"]["frame_wall"].get<std::string>().find(
+                       "end-to-end CPU interval between completed work batches") !=
+                       std::string::npos &&
                    cpu_result["timing"]["gpu_execution_ms"].is_null() &&
                    cpu_result["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
                    cpu_result["scenarios"][0]["aggregate"]["cpu_work_batches_per_second"] == 100 &&
@@ -699,6 +705,8 @@ int main()
             decode_report["graphics"]["video_hardware_decode_confirmed"] == false &&
                 decode_report["graphics"]["video_decode_backend"] == "libvpx-vp9" &&
                 decode_report["graphics"]["video_decode_fallback"] == "no compatible hardware" &&
+                decode_report["timing"]["frame_wall"].get<std::string>().find(
+                    "active CPU decoder operation interval") != std::string::npos &&
                 decode_report["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
                 decode_report["scenarios"][0]["aggregate"]["video_decode_work_units_per_second"] ==
                     100 &&

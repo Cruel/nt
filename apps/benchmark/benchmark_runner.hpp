@@ -239,7 +239,13 @@ public:
     [[nodiscard]] virtual bool requires_graphics() const = 0;
     virtual bool prepare(const Options& options, std::string& reason) = 0;
     virtual Readiness readiness(std::string& reason) = 0;
+    // Optional untimed work required before the next measured operation, such as
+    // rewinding a short decoder fixture. Never include it in operation samples.
+    virtual bool prepare_frame(std::string&) { return true; }
     virtual bool frame(std::string& reason) = 0;
+    // Workloads with untimed per-unit setup report active operation time,
+    // not setup or scheduling gaps, as their wall-throughput denominator.
+    [[nodiscard]] virtual bool active_operation_timing() const { return false; }
     // Only called after a successful measured frame in the Diagnostic profile.
     // CPU-only scenarios and unsupported backends leave fields unavailable.
     virtual void diagnostic_frame(DiagnosticObservation&) {}
@@ -271,8 +277,11 @@ summarize_repeated(const std::vector<TrialResult>& trials, bool alternating = fa
 class FrameDrivenSuite {
 public:
     FrameDrivenSuite(const Options& options, Scenario& scenario, Clock& clock,
-                     Recovery recovery = {});
+                     Recovery recovery = {}, bool headless_batches = false);
     [[nodiscard]] bool step(); // true when results and cleanup are complete
+    // Headless Web runs bounded CPU batches per host callback and yield between
+    // callbacks; other Web workloads remain one frame per rAF.
+    [[nodiscard]] bool step_bounded_batch();
     void interrupt(std::string reason);
     void cancel(std::string reason);
     // For hosts whose graphics context is unavailable: produce a terminal
@@ -306,6 +315,8 @@ private:
     bool recovering_ = false;
     bool interrupted_ = false;
     bool cancelled_ = false;
+    bool headless_batches_ = false;
+    double warmup_active_seconds_ = 0.0;
     uint32_t retry_count_ = 0;
     double readiness_start_ = 0.0;
     double warmup_start_ = 0.0;

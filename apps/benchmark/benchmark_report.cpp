@@ -25,6 +25,32 @@ constexpr const char* kWallFrameDescription =
     "end-to-end CPU frame-loop interval; not confirmed presentation";
 #endif
 
+// The graphics-owned Web runner counts rAF scheduling gaps in frame-wall
+// samples; only headless Web CPU/asset runs use active-operation timing.
+// Native CPU/asset runs use continuous end-to-end intervals, while the native
+// decoder explicitly excludes untimed keyframe priming and decoder resets.
+const char* frame_wall_description(const Options& options)
+{
+#if defined(__EMSCRIPTEN__)
+    if (is_cpu_scenario(options.scenario) || options.scenario == "asset-source-read" ||
+        options.scenario == "asset-project-prepare")
+        return "active CPU operation interval per headless work batch; browser scheduling "
+               "gaps excluded; no display frame or FPS";
+    if (options.scenario == "asset-texture-realize")
+        return "requestAnimationFrame-paced interval between GPU-backed asset work batches "
+               "(includes browser scheduling and presentation pacing); asset throughput "
+               "reflects paced elapsed time, not unpaced CPU throughput or confirmed display FPS";
+#else
+    if (is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario))
+        return "end-to-end CPU interval between completed work batches; includes time "
+               "between operations and is not display frame time or FPS";
+    if (options.scenario == "video-decode")
+        return "active CPU decoder operation interval; untimed keyframe priming and "
+               "decoder reset excluded; no display frame or FPS";
+#endif
+    return kWallFrameDescription;
+}
+
 Json configuration(const Options& options)
 {
     Json parameters = Json::object();
@@ -49,7 +75,12 @@ Json configuration(const Options& options)
                       {"width", 32},
                       {"height", 16},
                       {"frame_durations_ms", {50, 50, 50, 50}},
-                      {"reference", "production-video-four-frame-v1"}};
+                      {"reference", "production-video-four-frame-v1"},
+                      {"decode_measurement",
+                       options.scenario == "video-decode"
+                           ? "sequential frames 75/125/175 ms; keyframe priming and loop "
+                             "reset excluded from operation timing"
+                           : "production realtime source timing"}};
     else if (is_asset_scenario(options.scenario))
         parameters = {{"work_units", options.cpu_work_units},
                       {"cache", options.asset_cache},
@@ -294,12 +325,17 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         }
     } else if (is_video_scenario(scenario)) {
         if (!has_fields(parameters, {"codec", "source", "width", "height", "frame_durations_ms",
-                                     "reference"}) ||
+                                     "reference", "decode_measurement"}) ||
             parameters["codec"] != "vp9-profile0-webm" ||
             parameters["source"] != "opaque-vp9.webm" || parameters["width"] != 32 ||
             parameters["height"] != 16 ||
             parameters["frame_durations_ms"] != Json::array({50, 50, 50, 50}) ||
-            parameters["reference"] != "production-video-four-frame-v1") {
+            parameters["reference"] != "production-video-four-frame-v1" ||
+            parameters["decode_measurement"] !=
+                (scenario == "video-decode"
+                     ? "sequential frames 75/125/175 ms; keyframe priming and loop "
+                       "reset excluded from operation timing"
+                     : "production realtime source timing")) {
             reason = "invalid current video workload fixture identity";
             return false;
         }
@@ -966,9 +1002,7 @@ std::string encode_result(const Options& options, const Environment& environment
         {"timing",
          {{"clock", "steady_clock"},
           {"profile", options.profile},
-          {"frame_wall", is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario)
-                             ? "CPU work-batch end-to-end interval; no display frame or FPS"
-                             : kWallFrameDescription},
+          {"frame_wall", frame_wall_description(options)},
           {"cpu_operation",
            is_asset_scenario(options.scenario)
                ? "CPU duration of a configured batch of production asset operations; "

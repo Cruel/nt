@@ -33,7 +33,9 @@ public:
     bool requires_graphics() const override { return id_ != "video-decode"; }
     bool prepare(const Options& options, std::string& reason) override;
     Readiness readiness(std::string& reason) override;
+    bool prepare_frame(std::string& reason) override;
     bool frame(std::string& reason) override;
+    bool active_operation_timing() const override { return id_ == "video-decode"; }
     void diagnostic_frame(DiagnosticObservation& observation) override;
     void diagnostic_completion(std::vector<DiagnosticObservation>& late) override;
     bool complete(std::string& reason) override;

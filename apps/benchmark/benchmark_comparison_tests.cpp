@@ -151,6 +151,114 @@ int main()
                "reject CPU reports with invalid batch throughput metadata"))
         return 1;
 
+    // Current report evidence is mandatory even when a backend is unavailable.
+    Json missing_backend = Json::parse(json);
+    for (const char* key : {"asset_workload", "video_decode_backend", "video_decode_fallback",
+                            "video_upload_pipeline", "video_hardware_decode_confirmed"}) {
+        Json missing = missing_backend;
+        missing["scenarios"][0]["graphics"].erase(key);
+        if (!check(!parse(missing.dump(), candidate),
+                   "reject reports missing canonical backend evidence"))
+            return 1;
+    }
+
+    Options asset_options;
+    asset_options.scenario = "asset-project-prepare";
+    asset_options.asset_cache = "cold";
+    Environment asset_host;
+    asset_host.platform = "Linux";
+    asset_host.frame_path = "asset-source-and-compiled-project-cpu-only";
+    const Json asset_json = Json::parse(example_report(asset_options, asset_host, 0.5));
+    ImportedReport asset_base, asset_other;
+    if (!check(parse(asset_json.dump(), asset_base) &&
+                   parse(example_report(asset_options, asset_host, 0.4), asset_other) &&
+                   compare_reports(asset_base, asset_other).controlled,
+               "identical headless asset reports have controlled comparison"))
+        return 1;
+    Json invalid_asset = asset_json;
+    invalid_asset["scenarios"][0]["graphics"]["asset_workload"]["manager_cache"] = "warm";
+    if (!check(!parse(invalid_asset.dump(), candidate),
+               "reject asset workload cache evidence conflicting with configuration"))
+        return 1;
+    invalid_asset = asset_json;
+    invalid_asset["scenarios"][0]["graphics"]["asset_workload"]["source_backend"] = "Web MEMFS";
+    if (!check(!parse(invalid_asset.dump(), candidate),
+               "reject impossible asset source backend for the reported platform"))
+        return 1;
+    invalid_asset = asset_json;
+    invalid_asset["scenarios"][0]["graphics"]["asset_workload"] = nullptr;
+    if (!check(!parse(invalid_asset.dump(), candidate),
+               "reject missing headless asset workload metadata"))
+        return 1;
+
+    Options decode_options;
+    decode_options.scenario = "video-decode";
+    Environment decoder_host;
+    decoder_host.platform = "Linux";
+    decoder_host.frame_path = "native-vp9-decoder-no-presentation";
+    decoder_host.video_codec_backend = "libvpx-vp9";
+    const Json decode_json = Json::parse(example_report(decode_options, decoder_host, 0.3));
+    ImportedReport decode_base, decode_other;
+    std::string decoder_error;
+    const bool decoder_import_a =
+        decode_imported_report(decode_json.dump(), "decoder A", decode_base, decoder_error);
+    if (!decoder_import_a)
+        std::fprintf(stderr, "decoder A import: %s\n", decoder_error.c_str());
+    const bool decoder_import_b =
+        decode_imported_report(example_report(decode_options, decoder_host, 0.2), "decoder B",
+                               decode_other, decoder_error);
+    if (!decoder_import_b)
+        std::fprintf(stderr, "decoder B import: %s\n", decoder_error.c_str());
+    if (decoder_import_a && decoder_import_b) {
+        for (const auto& warning : compare_reports(decode_base, decode_other).warnings)
+            std::fprintf(stderr, "headless decoder comparison: %s\n", warning.c_str());
+    }
+    if (!check(decoder_import_a && decoder_import_b &&
+                   compare_reports(decode_base, decode_other).controlled,
+               "identical headless decoder reports compare without GPU metadata"))
+        return 1;
+    Json switched_backend = decode_json;
+    switched_backend["scenarios"][0]["graphics"]["video_decode_backend"] = "nvdec-vp9";
+    switched_backend["scenarios"][0]["graphics"]["video_hardware_decode_confirmed"] = true;
+    if (!check(parse(switched_backend.dump(), decode_other) &&
+                   !compare_reports(decode_base, decode_other).controlled,
+               "hardware decoder changes invalidate a controlled comparison"))
+        return 1;
+    Json incomplete_decode = decode_json;
+    incomplete_decode["scenarios"][0]["graphics"] = nullptr;
+    if (!check(!parse(incomplete_decode.dump(), candidate),
+               "completed video report cannot omit all scenario backend evidence"))
+        return 1;
+    incomplete_decode = decode_json;
+    incomplete_decode["scenarios"][0]["graphics"]["video_decode_backend"] = nullptr;
+    if (!check(!parse(incomplete_decode.dump(), candidate),
+               "completed video decode requires backend identity"))
+        return 1;
+
+    Options browser_video;
+    browser_video.scenario = "video-upload";
+    Environment browser_video_host = machine;
+    browser_video_host.platform = "Emscripten";
+    browser_video_host.browser = "Chromium";
+    browser_video_host.video_codec_backend = "browser-media-gpu";
+    browser_video_host.video_upload_pipeline = "typed-asset browser-media HTMLVideoElement";
+    ImportedReport opaque_a, opaque_b;
+    std::string opaque_error;
+    const bool imported_opaque_a =
+        decode_imported_report(example_report(browser_video, browser_video_host, 1.0), "browser A",
+                               opaque_a, opaque_error);
+    if (!imported_opaque_a)
+        std::fprintf(stderr, "browser A import: %s\n", opaque_error.c_str());
+    const bool imported_opaque_b =
+        decode_imported_report(example_report(browser_video, browser_video_host, 0.9), "browser B",
+                               opaque_b, opaque_error);
+    if (!imported_opaque_b)
+        std::fprintf(stderr, "browser B import: %s\n", opaque_error.c_str());
+    if (!check(imported_opaque_a && imported_opaque_b &&
+                   !compare_reports(opaque_a, opaque_b).controlled,
+               "opaque browser hardware-decoding capability cannot be certified as controlled"))
+        return 1;
+
     Environment other = machine;
     other.browser = "Firefox";
     other.gpu_device_id = 456;
