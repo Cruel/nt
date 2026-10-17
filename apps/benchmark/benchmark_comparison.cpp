@@ -67,7 +67,7 @@ bool valid_distribution(const Json& value)
 bool count_matches(const Json& distribution, uint64_t count)
 {
     return count == 0 ? distribution.is_null()
-                      : valid_distribution(distribution) &&
+                      : distribution.is_object() && valid_distribution(distribution) &&
                             distribution["samples"].get<uint64_t>() == count;
 }
 
@@ -393,8 +393,8 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
         double wall_seconds = 0.0;
         for (const auto& trial : scenario["trials"]) {
             if (!fields(trial, {"outcome", "arm", "interrupted_attempts", "measured_frames",
-                                "interruption_retries", "frame_wall_ms", "cpu_operation_ms",
-                                "diagnostic", "raw_samples"}) ||
+                                "measured_wall_seconds", "interruption_retries", "frame_wall_ms",
+                                "cpu_operation_ms", "diagnostic", "raw_samples"}) ||
                 !trial["outcome"].is_string() ||
                 (trial["outcome"] != "complete" && trial["outcome"] != "failed" &&
                  trial["outcome"] != "cancelled") ||

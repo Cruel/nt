@@ -247,6 +247,53 @@ int main()
     malformed["scenarios"][0]["trials"] = Json::array();
     if (!check(!parse(malformed.dump(), candidate), "reject complete result with no trials"))
         return 1;
+    // Required completed-trial distributions may not be null, even though
+    // unavailable optional diagnostic distributions legitimately may be.
+    for (const auto* metric : {"frame_wall_ms", "cpu_operation_ms"}) {
+        malformed = Json::parse(json);
+        malformed["scenarios"][0]["trials"][0][metric] = nullptr;
+        if (!check(!decode_imported_report(malformed.dump(), "missing trial distribution",
+                                           untouched, reason) &&
+                       !reason.empty() && untouched.document == baseline.document,
+                   "reject null required trial distribution without aborting or replacing import"))
+            return 1;
+        malformed = Json::parse(json);
+        malformed["scenarios"][0]["aggregate"][metric] = nullptr;
+        if (!check(
+                !decode_imported_report(malformed.dump(), "missing aggregate distribution",
+                                        untouched, reason) &&
+                    !reason.empty() && untouched.document == baseline.document,
+                "reject null required aggregate distribution without aborting or replacing import"))
+            return 1;
+    }
+    malformed = Json::parse(paired_report);
+    malformed["scenarios"][0]["alternating"]["baseline"]["trial_wall_medians_ms"] = nullptr;
+    if (!check(!decode_imported_report(malformed.dump(), "missing A/B/A distribution", untouched,
+                                       reason) &&
+                   !reason.empty() && untouched.document == baseline.document,
+               "reject null required A/B/A trial-group distribution without aborting"))
+        return 1;
+    malformed = repeated_report;
+    malformed["scenarios"][0]["repeated"]["trials"]["trial_cpu_p95_ms"] = nullptr;
+    if (!check(!decode_imported_report(malformed.dump(), "missing repeated distribution", untouched,
+                                       reason) &&
+                   !reason.empty() && untouched.document == baseline.document,
+               "reject null repeated-trial distribution without aborting"))
+        return 1;
+    malformed = Json::parse(json);
+    malformed["scenarios"][0]["trials"][0].erase("measured_wall_seconds");
+    if (!check(
+            !decode_imported_report(malformed.dump(), "missing elapsed time", untouched, reason) &&
+                !reason.empty() && untouched.document == baseline.document,
+            "reject missing completed-trial elapsed time without aborting"))
+        return 1;
+    malformed = Json::parse(json);
+    malformed["scenarios"][0]["trials"][0]["measured_wall_seconds"] = nullptr;
+    if (!check(!decode_imported_report(malformed.dump(), "null elapsed time", untouched, reason) &&
+                   !reason.empty() && untouched.document == baseline.document,
+               "reject null completed-trial elapsed time without aborting"))
+        return 1;
+
     malformed = Json::parse(json);
     malformed["scenarios"][0]["trials"][0]["frame_wall_ms"]["samples"] = 99;
     if (!check(!parse(malformed.dump(), candidate),
