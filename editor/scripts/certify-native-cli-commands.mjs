@@ -197,6 +197,35 @@ try {
   verifyEntityDryRun('layouts', 'native-ci-parity-layout', 'create');
   verifyFormatCheck('project.yaml');
   verifyLocalizationView();
+  // Differential regression: Project-level fallback Text and effective
+  // instance Archetype overrides must be part of the native Message view.
+  const manifestFile = path.join(project, 'project.yaml');
+  const originalManifest = await readFile(manifestFile, 'utf8');
+  const fallbackBefore =
+    'undefinedInteractionProgram:\n  instructions: []\n  completion:\n    kind: return\n  outcome: unhandled';
+  const fallbackAfter =
+    'undefinedInteractionProgram:\n  instructions:\n    - id: native-review-fallback\n' +
+    '      kind: notify\n      message:\n        source:\n          kind: inline\n' +
+    '          text: Native Project fallback Message\n        markup: plain\n' +
+    '  completion:\n    kind: return\n  outcome: handled';
+  assert.ok(originalManifest.includes(fallbackBefore));
+  const instanceFile = path.join(
+    project,
+    'records/interactables/lab-archetype-instance-definition.yaml',
+  );
+  const originalInstance = await readFile(instanceFile, 'utf8');
+  assert.ok(originalInstance.includes('archetypeOverrides: {}'));
+  await writeFile(manifestFile, originalManifest.replace(fallbackBefore, fallbackAfter));
+  await writeFile(
+    instanceFile,
+    originalInstance.replace(
+      'archetypeOverrides: {}',
+      'archetypeOverrides:\n  /data/displayName: Native Archetype instance override',
+    ),
+  );
+  verifyLocalizationView();
+  await writeFile(manifestFile, originalManifest);
+  await writeFile(instanceFile, originalInstance);
   verifyLocalizationView('current');
   verifyLocalizationView('attention');
   // A valid translation may acknowledge an older presentation/guidance

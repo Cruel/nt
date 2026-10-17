@@ -892,6 +892,35 @@ Json reconciliation_plan(const Json& original,
 
 } // namespace
 
+// Include all tracked native authoring sources, rather than only the YAML owner
+// selected for a write. This prevents publishing identities derived from a
+// changed Lua/RML buffer after the editor's read generation has gone stale.
+std::string native_project_source_generation(const ProjectSession& session,
+                                             const std::filesystem::path& root)
+{
+    std::string identity = "native-project-source-generation-v1";
+    identity.push_back('\0');
+    for (const auto& source : session.file_inventory()) {
+        if (source.kind != ProjectFileKind::TrackedSource &&
+            source.kind != ProjectFileKind::ProjectSource)
+            continue;
+        const auto path = root / std::filesystem::path(source.path);
+        if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
+            throw std::runtime_error("Cannot verify native source generation: " + source.path);
+        identity.append(source.path).push_back('\0');
+        identity.append(exact_source_revision(bytes_at(path))).push_back('\0');
+    }
+    return exact_source_revision(identity);
+}
+
+bool native_project_source_generation_is_current(const std::filesystem::path& root,
+                                                 std::string_view expected)
+{
+    std::string error;
+    auto fresh = ProjectSession::open(root, error);
+    return fresh && native_project_source_generation(*fresh, root) == expected;
+}
+
 std::vector<NativeLocalizationTrackingSource>
 native_project_localization_sources(ProjectSession& session)
 {
@@ -905,11 +934,13 @@ Json native_project_localization_sync(const Json& request, ProjectSession& sessi
         (request.contains("sourceRevision") && !request.at("sourceRevision").is_string()))
         return failure("Native localization sync options are malformed.");
     const bool dry_run = request.value("dryRun", true);
+    const auto generation = native_project_source_generation(session, root);
     const auto sources = current_sources(session);
     const auto localization = localization_from_physical_sources(root);
     const auto synchronized = synchronize(localization, sources);
     Json result{{"ok", true},
                 {"dryRun", dry_run},
+                {"sourceGeneration", generation},
                 {"changed", synchronized.changed},
                 {"materializedMessageIds", synchronized.materialized},
                 {"preservedMessageIds", synchronized.preserved},
@@ -918,6 +949,10 @@ Json native_project_localization_sync(const Json& request, ProjectSession& sessi
                 {"writes", Json::array()}};
     if (dry_run || !synchronized.changed)
         return result;
+    if (!request.contains("expectedSourceGeneration") ||
+        !request.at("expectedSourceGeneration").is_string() ||
+        request.at("expectedSourceGeneration") != generation)
+        return failure("Native localization sync requires its exact planned source generation.");
     const auto path = "i18n/tracking.yaml";
     const auto physical_revision = exact_source_revision(bytes_at(root / path));
     if (!request.contains("sourceRevision") || request.at("sourceRevision") != physical_revision)
@@ -940,6 +975,8 @@ Json native_project_localization_sync(const Json& request, ProjectSession& sessi
         session.patch(session.snapshot().working_revision, edits, {{path, physical_revision}});
     if (!patched.accepted)
         return failure(patched.error);
+    if (!native_project_source_generation_is_current(root, generation))
+        return failure("Native localization source generation changed before sync commit.");
     const auto saved = session.save_owners(patched.snapshot.working_revision, {path}, false,
                                            TransactionDecision::KeepComments);
     if (!saved.accepted)
@@ -959,15 +996,20 @@ Json native_project_localization_reconcile(const Json& request, ProjectSession& 
     const auto sources = current_sources(session);
     const auto original = localization_from_physical_sources(root);
     const auto revision = request.value("workspaceRevision", std::string{});
+    const auto generation = native_project_source_generation(session, root);
     const auto plan = reconciliation_plan(original, sources, revision);
     if (dry_run)
-        return {{"ok", true}, {"plan", plan}, {"writes", Json::array()}};
+        return {{"ok", true}, {"plan", plan}, {"sourceGeneration", generation},
+                {"writes", Json::array()}};
     if (!request.contains("expectedWorkspaceRevision") ||
         !request.at("expectedWorkspaceRevision").is_string() || revision.empty() ||
         request.at("expectedWorkspaceRevision") != revision ||
         !request.contains("expectedFingerprint") ||
         !request.at("expectedFingerprint").is_string() ||
-        request.at("expectedFingerprint") != plan.at("expectedFingerprint"))
+        request.at("expectedFingerprint") != plan.at("expectedFingerprint") ||
+        !request.contains("expectedSourceGeneration") ||
+        !request.at("expectedSourceGeneration").is_string() ||
+        request.at("expectedSourceGeneration") != generation)
         return failure("Native reconciliation plan is stale or unverified.");
     if (!request.contains("resolutions") || !request.at("resolutions").is_object() ||
         !request.contains("diskPreconditions") || !request.at("diskPreconditions").is_object())
@@ -1184,6 +1226,8 @@ Json native_project_localization_reconcile(const Json& request, ProjectSession& 
                 {"diagnostics", diagnostics}};
     }
     std::vector<std::string> owners(affected.begin(), affected.end());
+    if (!native_project_source_generation_is_current(root, generation))
+        return failure("Native localization source generation changed before reconciliation commit.");
     const auto saved = session.save_owners(patched.snapshot.working_revision, owners, false,
                                            TransactionDecision::KeepComments);
     if (!saved.accepted)
