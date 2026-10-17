@@ -59,7 +59,7 @@ set(NOVELTEA_BENCHMARK_APP_SOURCES
     main.cpp benchmark_dashboard.cpp benchmark_storage.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     raw_bgfx_workloads.cpp
     standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp cpu_workloads.cpp
-    native_2d_workloads.cpp video_workloads.cpp)
+    native_2d_workloads.cpp video_workloads.cpp asset_workloads.cpp)
 if(ANDROID)
     add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
     # Native 2D embeds Renderer by value: match the Engine's Android-only class layout.
@@ -95,9 +95,15 @@ add_custom_target(noveltea-benchmark-stage-assets
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts"
     COMMAND "${CMAKE_COMMAND}" -E make_directory
         "${CMAKE_CURRENT_BINARY_DIR}/assets/media"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/images"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${PROJECT_SOURCE_DIR}/tests/fixtures/media/opaque-vp9.webm"
         "${CMAKE_CURRENT_BINARY_DIR}/assets/media/opaque-vp9.webm"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/tests/projects/feature-lab/assets/images/stress-image-1.png"
+        "${PROJECT_SOURCE_DIR}/tests/projects/feature-lab/assets/images/stress-image-2.png"
+        "${PROJECT_SOURCE_DIR}/tests/projects/feature-lab/assets/images/stress-image-3.png"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/images"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts/LiberationSans.ttf"
@@ -129,9 +135,15 @@ if(EMSCRIPTEN)
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/shaders/bgfx/essl-300"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/media"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/images"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${PROJECT_SOURCE_DIR}/tests/fixtures/media/opaque-vp9.webm"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/media/opaque-vp9.webm"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/tests/projects/feature-lab/assets/images/stress-image-1.png"
+            "${PROJECT_SOURCE_DIR}/tests/projects/feature-lab/assets/images/stress-image-2.png"
+            "${PROJECT_SOURCE_DIR}/tests/projects/feature-lab/assets/images/stress-image-3.png"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/images"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts/LiberationSans.ttf"
@@ -309,8 +321,34 @@ if(BUILD_TESTING AND NOT ANDROID)
     set_tests_properties(noveltea_benchmark_video_decode_smoke PROPERTIES
         LABELS "benchmark;video;cpu;smoke"
         PASS_REGULAR_EXPRESSION "complete: 30 video work units" TIMEOUT 60)
+    foreach(asset_case asset-source-read asset-project-prepare)
+        foreach(cache_mode cold warm)
+            add_test(NAME "noveltea_benchmark_${asset_case}_${cache_mode}_smoke"
+                COMMAND "${CMAKE_COMMAND}" -E env "SDL_VIDEODRIVER=unavailable"
+                    "$<TARGET_FILE:noveltea-benchmark-app>" --scenario "${asset_case}"
+                    --frames 4 --repeats 2 --warmup-seconds 0
+                    --cpu-work-units 2 --asset-cache "${cache_mode}"
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-${asset_case}-${cache_mode}.json")
+            set_tests_properties("noveltea_benchmark_${asset_case}_${cache_mode}_smoke"
+                PROPERTIES LABELS "benchmark;asset;cpu;smoke"
+                    PASS_REGULAR_EXPRESSION "complete: 8 asset operation batches across 2 trial"
+                    TIMEOUT 60)
+        endforeach()
+    endforeach()
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
+        foreach(cache_mode cold warm)
+            add_test(NAME "noveltea_benchmark_asset_texture_${cache_mode}_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario asset-texture-realize --frames 4 --repeats 2
+                    --warmup-seconds 0 --cpu-work-units 2 --asset-cache "${cache_mode}"
+                    --width 640 --height 480 --profile diagnostic
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-asset-texture-${cache_mode}.json")
+            set_tests_properties("noveltea_benchmark_asset_texture_${cache_mode}_smoke"
+                PROPERTIES LABELS "benchmark;asset;graphics;smoke"
+                    PASS_REGULAR_EXPRESSION "complete: 8 asset operation batches across 2 trial"
+                    TIMEOUT 120)
+        endforeach()
         add_test(NAME noveltea_benchmark_video_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --dashboard-smoke --scenario video-present --width 640 --height 360

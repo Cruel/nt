@@ -114,6 +114,11 @@ int main()
     const char* const bad_coverage[] = {"benchmark", "--coverage", "nan"};
     const char* const cpu_units[] = {"benchmark", "--scenario", "cpu-lua", "--cpu-work-units",
                                      "16"};
+    const char* const asset_cold[] = {
+        "benchmark",     "--scenario", "asset-texture-realize", "--cpu-work-units", "4",
+        "--asset-cache", "cold"};
+    const char* const asset_bad_cache[] = {"benchmark", "--scenario", "asset-source-read",
+                                           "--asset-cache", "unknown"};
     const char* const native_geom[] = {"benchmark",
                                        "--scenario",
                                        "native-2d-geometry",
@@ -233,6 +238,22 @@ int main()
         options.cpu_work_units != 16 || !noveltea::benchmark::is_cpu_scenario(options.scenario) ||
         !noveltea::benchmark::validate_reference_options(options, error))
         return 1;
+    options.no_ui = false;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.no_ui = true;
+    if (!noveltea::benchmark::parse_options(7, asset_cold, options, error) ||
+        !noveltea::benchmark::is_asset_scenario(options.scenario) ||
+        options.asset_cache != "cold" || options.cpu_work_units != 4 ||
+        !noveltea::benchmark::validate_reference_options(options, error) ||
+        noveltea::benchmark::parse_options(5, asset_bad_cache, options, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(7, asset_cold, options, error))
+        return 1;
+    options.cpu_work_units = 65;
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.cpu_work_units = 4;
     options.no_ui = false;
     if (noveltea::benchmark::validate_reference_options(options, error))
         return 1;

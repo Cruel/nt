@@ -50,6 +50,13 @@ Json configuration(const Options& options)
                       {"height", 16},
                       {"frame_durations_ms", {50, 50, 50, 50}},
                       {"reference", "production-video-four-frame-v1"}};
+    else if (is_asset_scenario(options.scenario))
+        parameters = {{"work_units", options.cpu_work_units},
+                      {"cache", options.asset_cache},
+                      {"input", options.scenario == "asset-project-prepare"
+                                    ? "compiled-project-golden/minimal.json"
+                                    : "feature-lab/stress-image-{1,2,3}.png"},
+                      {"reference", "production-asset-operations-v1"}};
     else if (is_cpu_scenario(options.scenario))
         parameters = {{"work_units", options.cpu_work_units},
                       {"input", options.scenario == "cpu-lua"
@@ -296,6 +303,20 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             reason = "invalid current video workload fixture identity";
             return false;
         }
+    } else if (is_asset_scenario(scenario)) {
+        if (!has_fields(parameters, {"work_units", "cache", "input", "reference"}) ||
+            !unsigned_integer(parameters, "work_units") ||
+            parameters["work_units"].get<uint64_t>() < 1 ||
+            parameters["work_units"].get<uint64_t>() > 64 || !parameters["cache"].is_string() ||
+            (parameters["cache"] != "cold" && parameters["cache"] != "warm") ||
+            !parameters["input"].is_string() ||
+            parameters["input"] != (scenario == "asset-project-prepare"
+                                        ? "compiled-project-golden/minimal.json"
+                                        : "feature-lab/stress-image-{1,2,3}.png") ||
+            parameters["reference"] != "production-asset-operations-v1") {
+            reason = "invalid asset workload identity, unit count or cache mode";
+            return false;
+        }
     } else if (is_cpu_scenario(scenario)) {
         if (!has_fields(parameters, {"work_units", "input"}) ||
             !unsigned_integer(parameters, "work_units") ||
@@ -472,8 +493,10 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         next.shader_tint = parameters["tint"].get<double>();
         next.shader_scope = parameters["scope"].get<std::string>();
     }
-    if (is_cpu_scenario(scenario))
+    if (is_cpu_scenario(scenario) || is_asset_scenario(scenario))
         next.cpu_work_units = static_cast<uint32_t>(parameters["work_units"].get<uint64_t>());
+    if (is_asset_scenario(scenario))
+        next.asset_cache = parameters["cache"].get<std::string>();
     if (scenario == "engine-feature-lab")
         next.feature_lab_package = parameters["package_path"].get<std::string>();
     if (is_ui_effects_scenario(scenario)) {
@@ -594,8 +617,9 @@ std::string encode_result(const Options& options, const Environment& environment
                  {"measured_wall_seconds",
                   trial.measured_frames > 0 ? Json(trial.measured_wall_seconds) : Json(nullptr)},
                  {"frame_loop_cadence_hz",
-                  !is_cpu_scenario(options.scenario) && options.scenario != "video-decode" &&
-                          trial.outcome == "complete" && trial.measured_wall_seconds > 0.0
+                  !is_cpu_scenario(options.scenario) && !is_asset_scenario(options.scenario) &&
+                          options.scenario != "video-decode" && trial.outcome == "complete" &&
+                          trial.measured_wall_seconds > 0.0
                       ? Json(static_cast<double>(trial.measured_frames) /
                              trial.measured_wall_seconds)
                       : Json(nullptr)},
@@ -605,10 +629,12 @@ std::string encode_result(const Options& options, const Environment& environment
                                     ? diagnostic_result(trial.diagnostic)
                                     : Json(nullptr)},
                  {"raw_samples", std::move(raw)}});
-            if (is_cpu_scenario(options.scenario) || options.scenario == "video-decode") {
-                const char* throughput_key = is_cpu_scenario(options.scenario)
-                                                 ? "cpu_work_batches_per_second"
-                                                 : "video_decode_work_units_per_second";
+            if (is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario) ||
+                options.scenario == "video-decode") {
+                const char* throughput_key =
+                    is_asset_scenario(options.scenario) ? "asset_work_batches_per_second"
+                    : is_cpu_scenario(options.scenario) ? "cpu_work_batches_per_second"
+                                                        : "video_decode_work_units_per_second";
                 trials.back()[throughput_key] =
                     trial.outcome == "complete" && trial.measured_wall_seconds > 0.0
                         ? Json(static_cast<double>(trial.measured_frames) /
@@ -666,18 +692,20 @@ std::string encode_result(const Options& options, const Environment& environment
              {"aggregate",
               {{"measured_frames", scenario.measured_frames},
                {"measured_wall_seconds", scenario.measured_wall_seconds},
-               {"frame_loop_cadence_hz", !is_cpu_scenario(options.scenario) &&
-                                                 options.scenario != "video-decode" &&
-                                                 scenario.measured_wall_seconds > 0.0
-                                             ? Json(static_cast<double>(scenario.measured_frames) /
-                                                    scenario.measured_wall_seconds)
-                                             : Json(nullptr)},
+               {"frame_loop_cadence_hz",
+                !is_cpu_scenario(options.scenario) && !is_asset_scenario(options.scenario) &&
+                        options.scenario != "video-decode" && scenario.measured_wall_seconds > 0.0
+                    ? Json(static_cast<double>(scenario.measured_frames) /
+                           scenario.measured_wall_seconds)
+                    : Json(nullptr)},
                {"frame_wall_ms", distribution(scenario.wall_frame)},
                {"cpu_operation_ms", distribution(scenario.cpu_operation)}}}});
-        if (is_cpu_scenario(options.scenario) || options.scenario == "video-decode") {
-            const char* throughput_key = is_cpu_scenario(options.scenario)
-                                             ? "cpu_work_batches_per_second"
-                                             : "video_decode_work_units_per_second";
+        if (is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario) ||
+            options.scenario == "video-decode") {
+            const char* throughput_key =
+                is_asset_scenario(options.scenario) ? "asset_work_batches_per_second"
+                : is_cpu_scenario(options.scenario) ? "cpu_work_batches_per_second"
+                                                    : "video_decode_work_units_per_second";
             scenarios.back()["aggregate"][throughput_key] =
                 scenario.measured_wall_seconds > 0.0
                     ? Json(static_cast<double>(scenario.measured_frames) /
@@ -685,7 +713,7 @@ std::string encode_result(const Options& options, const Environment& environment
                     : Json(nullptr);
         }
     }
-    const auto encode_graphics = [](const Environment& environment) -> Json {
+    const auto encode_graphics = [&options](const Environment& environment) -> Json {
         const auto& backend = environment.video_codec_backend;
         Json hardware_decode = nullptr;
         if (backend == "libvpx-vp9")
@@ -695,6 +723,19 @@ std::string encode_result(const Options& options, const Environment& environment
             hardware_decode = true;
         return {
             {"platform", environment.platform},
+            {"asset_workload",
+             is_asset_scenario(options.scenario)
+                 ? Json{{"manager_cache", options.asset_cache},
+                        {"os_page_cache", "uncontrolled"},
+                        {"source_backend", environment.platform == "Android" ? "SDL packaged assets"
+                                           : environment.platform == "Emscripten"
+                                               ? "Web MEMFS"
+                                               : "directory source"},
+                        {"graphics_backend", options.scenario == "asset-texture-realize"
+                                                 ? "production Renderer/bgfx"
+                                                 : "none"},
+                        {"gpu_upload_execution_ms", nullptr}}
+                 : Json(nullptr)},
             {"browser", environment.browser},
             {"video_driver",
              environment.video_driver.empty() ? Json(nullptr) : Json(environment.video_driver)},
@@ -925,15 +966,23 @@ std::string encode_result(const Options& options, const Environment& environment
         {"timing",
          {{"clock", "steady_clock"},
           {"profile", options.profile},
-          {"frame_wall", is_cpu_scenario(options.scenario)
+          {"frame_wall", is_cpu_scenario(options.scenario) || is_asset_scenario(options.scenario)
                              ? "CPU work-batch end-to-end interval; no display frame or FPS"
                              : kWallFrameDescription},
-          {"cpu_operation", is_cpu_scenario(options.scenario)
-                                ? "CPU duration of one configured work batch; includes only "
-                                  "the selected Lua, Runtime Session, or prediction operations"
-                                : "CPU wall duration of scenario frame operation"},
+          {"cpu_operation",
+           is_asset_scenario(options.scenario)
+               ? "CPU duration of a configured batch of production asset operations; "
+                 "includes source I/O, codec, or typed request/finalization and "
+                 "renderer handoff as selected, not GPU execution time"
+           : is_cpu_scenario(options.scenario)
+               ? "CPU duration of one configured work batch; includes only "
+                 "the selected Lua, Runtime Session, or prediction operations"
+               : "CPU wall duration of scenario frame operation"},
           {"gpu_execution_ms", nullptr},
-          {"gpu_timing_status", options.profile == "diagnostic"
+          {"gpu_timing_status", is_asset_scenario(options.scenario)
+                                    ? "unavailable: texture upload GPU time cannot be identified "
+                                      "by a completed-frame timer"
+                                : options.profile == "diagnostic"
                                     ? "per-trial when GPU completed-frame IDs are available"
                                     : "unavailable in Clean"},
           {"presented_frame_count", nullptr},

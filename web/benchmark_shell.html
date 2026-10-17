@@ -47,6 +47,7 @@ for (const [key, flag] of Object.entries({
   capacityThreshold: '--capacity-threshold', capacityMode: '--capacity-mode',
   readyTimeout: '--ready-timeout-seconds', clockPolicy: '--clock-policy',
   featureLabPackage: '--feature-lab-package',
+  cpuWorkUnits: '--cpu-work-units', assetCache: '--asset-cache',
   output: '--output'
 })) {
   if (params.has(key)) args.push(flag, params.get(key));
