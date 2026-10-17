@@ -479,6 +479,7 @@ std::string encode_result(const Options& options, const Environment& environment
     const auto encode_graphics = [](const Environment& environment) -> Json {
         return {
             {"platform", environment.platform},
+            {"browser", environment.browser},
             {"video_driver",
              environment.video_driver.empty() ? Json(nullptr) : Json(environment.video_driver)},
             {"renderer", environment.renderer.empty() ? Json(nullptr) : Json(environment.renderer)},

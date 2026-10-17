@@ -15,7 +15,7 @@ button{padding:6px 10px;background:#303c50;color:white;border:1px solid #66758b;
 </head>
 <body>
 <main>
-<header><strong>NovelTea Graphics Benchmark</strong><span id="status">Loading WebGL2 benchmark…</span><button type="button" id="download" hidden>Download last JSON</button><button type="button" id="download-png" hidden>Download last PNG</button></header>
+<header><strong>NovelTea Graphics Benchmark</strong><span id="status">Loading WebGL2 benchmark…</span><button type="button" id="import-baseline">Import baseline JSON</button><button type="button" id="import-candidate">Import candidate JSON</button><button type="button" id="download" hidden>Download last JSON</button><button type="button" id="download-png" hidden>Download last PNG</button></header>
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 <pre id="log" aria-live="polite"></pre>
 </main>
@@ -100,6 +100,26 @@ window.NovelTeaBenchmark = {
   contextRecoveryNeeded: false,
   runs: [],
   screenshots: [],
+  importText: [null, null],
+  pickReport(slot) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 16 * 1024 * 1024) {
+        log.textContent = 'Report import exceeds 16 MiB limit';
+        return;
+      }
+      try {
+        this.importText[slot] = await file.text();
+      } catch (error) {
+        log.textContent = 'Report import failed: ' + error;
+      }
+    };
+    input.click();
+  },
   screenshot(name, bytes) {
     lastScreenshot = {name, bytes};
     this.screenshots.push(lastScreenshot);
@@ -115,6 +135,10 @@ window.NovelTeaBenchmark = {
     downloadJson(lastReport);
   }
 };
+// These HTML buttons provide a trusted click activation for native file
+// pickers. A file chooser launched by an ImGui rAF callback may be blocked.
+document.querySelector('#import-baseline').onclick = () => window.NovelTeaBenchmark.pickReport(0);
+document.querySelector('#import-candidate').onclick = () => window.NovelTeaBenchmark.pickReport(1);
 // Visibility notifications still fire even when the browser suspends rAF.
 // Latch the interruption until C++ observes it after the page becomes visible.
 document.addEventListener('visibilitychange', () => {

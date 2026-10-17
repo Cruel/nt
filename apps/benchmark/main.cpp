@@ -20,6 +20,7 @@
 #include "benchmark_options.hpp"
 #include "benchmark_window_size.hpp"
 #include "benchmark_report.hpp"
+#include "benchmark_storage.hpp"
 #include "benchmark_runner.hpp"
 #include "empty_engine.hpp"
 #include "integrated_rmlui.hpp"
@@ -31,6 +32,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -428,6 +430,14 @@ struct Graphics {
         bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(width), static_cast<uint16_t>(height));
         bgfx::setViewClear(0, BGFX_CLEAR_NONE);
         environment.platform = SDL_GetPlatform();
+#if defined(__EMSCRIPTEN__)
+        char* browser = reinterpret_cast<char*>(
+            EM_ASM_PTR({ return stringToNewUTF8(navigator.userAgent || ""); }));
+        if (browser) {
+            environment.browser = browser;
+            std::free(browser);
+        }
+#endif
         const char* driver = SDL_GetCurrentVideoDriver();
         environment.video_driver = driver ? driver : "";
         environment.renderer = bgfx::getRendererName(bgfx::getRendererType());
@@ -1751,6 +1761,22 @@ int main(int argc, char* argv[])
         }
         if (!output_override.empty())
             options.output_path = output_override;
+    }
+    if (argc == 1) {
+        noveltea::benchmark::DashboardPreferences preferences;
+        std::string storage_error;
+        if (noveltea::benchmark::load_dashboard_preferences(preferences, storage_error)) {
+            // Restore an interactive session, never silently run a saved unattended configuration.
+            // Explicit CLI and --config always take precedence over local preferences.
+            if (preferences.last_configuration.no_ui ||
+                !preferences.last_configuration.scenario.empty()) {
+                options = preferences.last_configuration;
+                options.no_ui = false;
+                options.quick_suite = false;
+            }
+        } else {
+            std::fprintf(stderr, "[benchmark] dashboard preferences: %s\n", storage_error.c_str());
+        }
     }
     if (!noveltea::benchmark::validate_run_options(options, error) ||
         !noveltea::benchmark::validate_reference_options(options, error)) {

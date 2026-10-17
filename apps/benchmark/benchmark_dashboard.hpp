@@ -1,6 +1,7 @@
 #pragma once
 
 #include "benchmark_completed_run.hpp"
+#include "benchmark_comparison.hpp"
 
 #include <SDL3/SDL.h>
 #include <bgfx/bgfx.h>
@@ -43,6 +44,9 @@ public:
 
 private:
     bool create_resources(std::string& error);
+    void import_report(int slot, std::string_view text, std::string name);
+    void import_path(int slot);
+    void persist_preferences(const Options& options);
     void render();
 
     SDL_Window* window_ = nullptr;
@@ -55,6 +59,14 @@ private:
     bgfx::TextureHandle font_ = BGFX_INVALID_HANDLE;
     std::array<char, 512> output_path_{};
     std::array<char, 1024> feature_lab_path_{};
+    std::array<char, 1024> import_paths_[2]{};
+    std::array<char, 65> preset_name_{};
+    DashboardPreferences preferences_;
+    bool preferences_loaded_ = false;
+    std::string last_stored_configuration_;
+    std::string preferences_error_;
+    std::string import_error_[2];
+    std::optional<ImportedReport> imported_[2];
 };
 
 } // namespace noveltea::benchmark

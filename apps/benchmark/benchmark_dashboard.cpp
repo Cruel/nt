@@ -2,6 +2,8 @@
 #include "benchmark_view_order.hpp"
 #include "benchmark_assets.hpp"
 #include "benchmark_inspection.hpp"
+#include "benchmark_report.hpp"
+#include "benchmark_storage.hpp"
 #include "reference_workloads.hpp"
 #include "reference_scene.hpp"
 
@@ -12,7 +14,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <vector>
+
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#include <cstdlib>
+#endif
 
 namespace noveltea::benchmark {
 namespace {
@@ -33,6 +42,51 @@ void show_distribution(const char* name, const Distribution& value)
 } // namespace
 
 Dashboard::~Dashboard() { shutdown(); }
+
+void Dashboard::import_report(int slot, std::string_view text, std::string name)
+{
+    ImportedReport next;
+    if (!decode_imported_report(text, std::move(name), next, import_error_[slot]))
+        return;
+    imported_[slot] = std::move(next);
+    import_error_[slot].clear();
+}
+
+void Dashboard::import_path(int slot)
+{
+    const std::string path = import_paths_[slot].data();
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) {
+        import_error_[slot] = "cannot open report: " + path;
+        return;
+    }
+    const auto size = file.tellg();
+    if (size < 0 || size > 16 * 1024 * 1024) {
+        import_error_[slot] = "report exceeds 16 MiB limit";
+        return;
+    }
+    file.seekg(0);
+    const std::string source((std::istreambuf_iterator<char>(file)),
+                             std::istreambuf_iterator<char>());
+    if (!file.eof() && file.fail()) {
+        import_error_[slot] = "unable to read report: " + path;
+        return;
+    }
+    import_report(slot, source, path);
+}
+
+void Dashboard::persist_preferences(const Options& options)
+{
+    std::string reason;
+    if (!validate_run_options(options, reason) || !validate_reference_options(options, reason))
+        return; // Never replace a valid saved state with a partially edited invalid configuration.
+    const std::string current = encode_configuration(options);
+    if (current == last_stored_configuration_ && preferences_error_.empty())
+        return;
+    preferences_.last_configuration = options;
+    if (save_dashboard_preferences(preferences_, preferences_error_))
+        last_stored_configuration_ = current;
+}
 
 bool Dashboard::create_resources(std::string& error)
 {
@@ -87,6 +141,13 @@ bool Dashboard::initialize(SDL_Window* window, const Options& options, std::stri
         return false;
     }
     window_ = window;
+    if (!preferences_loaded_) {
+        preferences_loaded_ = true;
+        if (!load_dashboard_preferences(preferences_, preferences_error_))
+            preferences_ = {};
+        else
+            last_stored_configuration_ = encode_configuration(preferences_.last_configuration);
+    }
     output_path_.fill(0);
     std::snprintf(output_path_.data(), output_path_.size(), "%s", options.output_path.c_str());
     std::snprintf(feature_lab_path_.data(), feature_lab_path_.size(), "%s",
@@ -249,6 +310,24 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
 {
     if (!initialized_)
         return DashboardAction::Exit;
+#if defined(__EMSCRIPTEN__)
+    for (int slot = 0; slot != 2; ++slot) {
+        char* selected = reinterpret_cast<char*>(EM_ASM_PTR(
+            {
+                const pending = window.NovelTeaBenchmark.importText;
+                if (!pending || pending[$0] == null)
+                    return 0;
+                const text = pending[$0];
+                pending[$0] = null;
+                return stringToNewUTF8(text);
+            },
+            slot));
+        if (selected) {
+            import_report(slot, selected, std::string("browser report ") + (slot ? "B" : "A"));
+            std::free(selected);
+        }
+    }
+#endif
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
     const auto* viewport = ImGui::GetMainViewport();
@@ -537,6 +616,69 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Run Settings")) {
+                ImGui::SeparatorText("Saved configurations");
+                ImGui::InputText("Preset name", preset_name_.data(), preset_name_.size());
+                if (ImGui::Button("Save named preset")) {
+                    const std::string name = preset_name_.data();
+                    const auto valid = !name.empty() && name.size() <= 64 &&
+                                       std::none_of(name.begin(), name.end(), [](unsigned char ch) {
+                                           return ch < 0x20 || ch == 0x7f;
+                                       });
+                    std::string invalid_reason;
+                    if (!valid)
+                        preferences_error_ = "preset name must be 1-64 non-control characters";
+                    else if (!validate_run_options(options, invalid_reason) ||
+                             !validate_reference_options(options, invalid_reason))
+                        preferences_error_ = "cannot save invalid preset: " + invalid_reason;
+                    else {
+                        auto& presets = preferences_.presets;
+                        const auto entry = std::find_if(
+                            presets.begin(), presets.end(),
+                            [&](const NamedBenchmarkPreset& p) { return p.name == name; });
+                        if (entry != presets.end()) {
+                            entry->configuration = options;
+                            last_stored_configuration_.clear();
+                            persist_preferences(options);
+                        } else if (presets.size() < 32) {
+                            presets.push_back({name, options});
+                            last_stored_configuration_.clear();
+                            persist_preferences(options);
+                        } else {
+                            preferences_error_ = "maximum 32 named presets";
+                        }
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Delete named preset")) {
+                    const std::string name = preset_name_.data();
+                    auto& presets = preferences_.presets;
+                    const auto old_size = presets.size();
+                    std::erase_if(presets, [&](const NamedBenchmarkPreset& preset) {
+                        return preset.name == name;
+                    });
+                    if (presets.size() != old_size) {
+                        last_stored_configuration_.clear();
+                        persist_preferences(options);
+                    }
+                }
+                if (ImGui::BeginCombo("Load named preset", "Choose a saved configuration")) {
+                    for (const auto& preset : preferences_.presets) {
+                        if (ImGui::Selectable(preset.name.c_str())) {
+                            options = preset.configuration;
+                            options.no_ui = false;
+                            options.quick_suite = false;
+                            std::snprintf(output_path_.data(), output_path_.size(), "%s",
+                                          options.output_path.c_str());
+                            std::snprintf(feature_lab_path_.data(), feature_lab_path_.size(), "%s",
+                                          options.feature_lab_package.c_str());
+                            std::snprintf(preset_name_.data(), preset_name_.size(), "%s",
+                                          preset.name.c_str());
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (!preferences_error_.empty())
+                    ImGui::TextWrapped("Saved settings: %s", preferences_error_.c_str());
 #if defined(__ANDROID__)
                 ImGui::TextDisabled("Using Android's native fullscreen framebuffer.");
 #else
@@ -636,6 +778,55 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             }
             if (ImGui::BeginTabItem("Results", nullptr,
                                     first_frame_ && last_run ? ImGuiTabItemFlags_SetSelected : 0)) {
+                ImGui::SeparatorText("Compare saved JSON reports");
+                for (int slot = 0; slot < 2; ++slot) {
+                    ImGui::PushID(slot);
+#if defined(__EMSCRIPTEN__)
+                    ImGui::TextWrapped("%s", slot ? "Candidate: use the Import candidate JSON "
+                                                    "button above the Web canvas."
+                                                  : "Baseline: use the Import baseline JSON "
+                                                    "button above the Web canvas.");
+#else
+                    ImGui::InputText(slot ? "Candidate JSON path" : "Baseline JSON path",
+                                     import_paths_[slot].data(), import_paths_[slot].size());
+                    if (ImGui::Button(slot ? "Import candidate" : "Import baseline"))
+                        import_path(slot);
+#endif
+                    if (imported_[slot])
+                        ImGui::TextWrapped("%s: %s", slot ? "Candidate" : "Baseline",
+                                           imported_[slot]->source.c_str());
+                    if (!import_error_[slot].empty())
+                        ImGui::TextWrapped("Import failed: %s", import_error_[slot].c_str());
+                    ImGui::PopID();
+                }
+                if (imported_[0] && imported_[1]) {
+                    const auto comparison = compare_reports(*imported_[0], *imported_[1]);
+                    ImGui::TextWrapped(
+                        "%s",
+                        comparison.controlled
+                            ? "Compatible measured settings; verify physical conditions manually."
+                            : "EXPLORATORY / UNCONTROLLED COMPARISON: differences or unknown "
+                              "conditions mean deltas are not isolated regressions.");
+                    for (const auto& warning : comparison.warnings)
+                        ImGui::BulletText("%s", warning.c_str());
+                    for (const auto& metric : comparison.metrics) {
+                        ImGui::SeparatorText(metric.scenario.c_str());
+                        ImGui::Text("%s: %.3f -> %.3f ms | delta %+.3f ms", metric.name.c_str(),
+                                    metric.baseline, metric.candidate, metric.delta);
+                        if (metric.percent)
+                            ImGui::SameLine(), ImGui::Text("(%+.2f%%)", *metric.percent);
+                        else
+                            ImGui::TextDisabled("Percentage unavailable: zero baseline");
+                        ImGui::TextDisabled(
+                            "Variability stddev %.3f -> %.3f ms | samples %llu -> %llu",
+                            metric.baseline_stddev, metric.candidate_stddev,
+                            static_cast<unsigned long long>(metric.baseline_samples),
+                            static_cast<unsigned long long>(metric.candidate_samples));
+                    }
+                    ImGui::TextDisabled(
+                        "No pass/fail thresholds. Negative latency delta means lower time.");
+                }
+                ImGui::SeparatorText("Most recent session");
                 if (!last_run) {
                     ImGui::TextDisabled("No run completed in this session.");
                 } else {
@@ -762,6 +953,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             ImGui::EndTabBar();
         }
         ImGui::End();
+        persist_preferences(options);
         first_frame_ = false;
     }
     if (capture_requested_) {
