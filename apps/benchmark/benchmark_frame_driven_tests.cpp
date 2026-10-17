@@ -224,7 +224,9 @@ int main()
     if (!verify(sample_result.outcome == "complete" && sample_result.trials.size() == 2 &&
                     sample_result.trials[0].interruption_retries == 1 &&
                     sample_result.trials[0].measured_frames == 3 &&
-                    sample_result.measured_frames == 6 && sample_scenario.cleaned == 3,
+                    sample_result.measured_frames == 6 && sample_scenario.cleaned == 3 &&
+                    sample_result.repeated && sample_result.repeated->trials.completed == 2 &&
+                    sample_result.repeated->trials.cpu_medians.count == 2,
                 "partial samples discarded; completed repeats retained"))
         return 1;
 

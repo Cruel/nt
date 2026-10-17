@@ -134,6 +134,8 @@ void FrameDrivenSuite::finish_trial()
     scenario_result_.cpu_operation = summarize(combined_, false);
     scenario_result_.alternating =
         summarize_alternating(scenario_result_.trials, options_.alternate != nullptr);
+    scenario_result_.repeated =
+        summarize_repeated(scenario_result_.trials, options_.alternate != nullptr);
     suite_.outcome = scenario_result_.outcome;
     suite_.scenarios.push_back(std::move(scenario_result_));
     done_ = true;
@@ -166,6 +168,8 @@ bool FrameDrivenSuite::step()
             scenario_result_.cpu_operation = summarize(combined_, false);
             scenario_result_.alternating =
                 summarize_alternating(scenario_result_.trials, options_.alternate != nullptr);
+            scenario_result_.repeated =
+                summarize_repeated(scenario_result_.trials, options_.alternate != nullptr);
             suite_.outcome = scenario_result_.outcome;
             suite_.scenarios.push_back(std::move(scenario_result_));
             done_ = true;

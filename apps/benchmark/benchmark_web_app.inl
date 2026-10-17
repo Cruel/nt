@@ -88,8 +88,13 @@ struct WebBenchmarkApp {
         return observed;
     }
 
-    void draw_preview()
+    bool draw_preview()
     {
+        const auto checked = [&](bool success) {
+            if (!success && feedback.empty())
+                feedback = "Reference preview preparation or submission failed";
+            return success;
+        };
         if (options.scenario != "raw-bgfx-geometry")
             preview_geometry.shutdown();
         if (!noveltea::benchmark::is_extended_raw_scenario(options.scenario))
@@ -125,10 +130,10 @@ struct WebBenchmarkApp {
                 if (!preview_ui.initialize(scene, graphics.environment.width_pixels,
                                            graphics.environment.height_pixels, feedback,
                                            scaling_preview ? &options : nullptr))
-                    return;
+                    return checked(false);
                 preview_ui_options = options;
             }
-            (void)preview_ui.submit(false, feedback);
+            return checked(preview_ui.submit(false, feedback));
         } else if (options.scenario == "raw-bgfx-geometry") {
             const auto scene = noveltea::benchmark::geometry_reference_scene(options.rect_count,
                                                                              options.rect_scale);
@@ -139,13 +144,13 @@ struct WebBenchmarkApp {
                 preview_scale != options.rect_scale || preview_width != width ||
                 preview_height != height) {
                 if (!preview_geometry.initialize(scene, width, height, feedback))
-                    return;
+                    return checked(false);
                 preview_count = options.rect_count;
                 preview_scale = options.rect_scale;
                 preview_width = width;
                 preview_height = height;
             }
-            (void)preview_geometry.submit(feedback);
+            return checked(preview_geometry.submit(feedback));
         } else if (noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
             const int width = graphics.environment.width_pixels;
             const int height = graphics.environment.height_pixels;
@@ -165,13 +170,14 @@ struct WebBenchmarkApp {
                     options, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
                 if (!spec || !preview_workload.initialize(*spec, static_cast<uint32_t>(width),
                                                           static_cast<uint32_t>(height), feedback))
-                    return;
+                    return checked(false);
                 preview_raw_options = options;
                 preview_raw_width = width;
                 preview_raw_height = height;
             }
-            (void)preview_workload.submit(feedback);
+            return checked(preview_workload.submit(feedback));
         }
+        return false; // Non-preview scenarios cannot authorize a screenshot.
     }
 
     bool restore_graphics(std::string& error)
@@ -566,9 +572,10 @@ struct WebBenchmarkApp {
         if (dashboard.initialized()) {
             graphics.inspection.poll(feedback);
             const auto action = dashboard.frame(options, completed_run ? &*completed_run : nullptr,
-                                                feedback, [this]() { draw_preview(); }, [&]() {
+                                                feedback, [this]() {
+                                                    return draw_preview();
+                                                }, [&]() {
                 // Allow a new request after a previous failure or timeout.
-                feedback.clear();
                 (void)graphics.inspection.request(options, graphics.environment.width_pixels,
                                                   graphics.environment.height_pixels, feedback);
             });

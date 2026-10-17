@@ -164,7 +164,15 @@ struct AlternatingSummary {
     std::vector<std::string> warnings;
 };
 
+struct RepeatedSummary {
+    TrialGroupSummary trials;
+    std::optional<double> wall_drift_percent;
+    std::optional<double> cpu_drift_percent;
+    std::vector<std::string> warnings;
+};
+
 struct ScenarioResult {
+    std::optional<RepeatedSummary> repeated;
     std::optional<AlternatingSummary> alternating;
     std::string scenario;
     std::string description;
@@ -253,6 +261,8 @@ summarize_diagnostics(const std::vector<DiagnosticObservation>& observations,
                       const std::vector<DiagnosticObservation>& late_observations = {});
 [[nodiscard]] std::optional<AlternatingSummary>
 summarize_alternating(const std::vector<TrialResult>& trials, bool enabled = false);
+[[nodiscard]] std::optional<RepeatedSummary>
+summarize_repeated(const std::vector<TrialResult>& trials, bool alternating = false);
 [[nodiscard]] SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios,
                                     Clock& clock, Recovery recovery = {});
 

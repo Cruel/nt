@@ -418,12 +418,9 @@ void append_failed_scenario(SuiteResult& destination, std::string id, std::strin
     append_suite_result(destination, std::move(single));
 }
 
-std::optional<AlternatingSummary> summarize_alternating(const std::vector<TrialResult>& trials,
-                                                        bool enabled)
+namespace {
+AlternatingSummary summarize_trial_groups(const std::vector<TrialResult>& trials, bool alternating)
 {
-    if (!enabled && std::none_of(trials.begin(), trials.end(),
-                                 [](const TrialResult& trial) { return trial.arm == "B"; }))
-        return std::nullopt;
     AlternatingSummary result;
     auto summarize_group = [&](const char* arm, TrialGroupSummary& group) {
         std::vector<double> wall_medians, cpu_medians, wall_p95, cpu_p95, wall_p99, cpu_p99;
@@ -446,7 +443,8 @@ std::optional<AlternatingSummary> summarize_alternating(const std::vector<TrialR
         group.cpu_p99 = summarize_milliseconds(cpu_p99);
     };
     summarize_group("A", result.baseline);
-    summarize_group("B", result.candidate);
+    if (alternating)
+        summarize_group("B", result.candidate);
     const auto percent = [](double after, double before) -> std::optional<double> {
         if (!(before > 0.0))
             return std::nullopt;
@@ -476,9 +474,11 @@ std::optional<AlternatingSummary> summarize_alternating(const std::vector<TrialR
         result.wall_drift_percent = percent(last->wall_frame.p50_ms, first->wall_frame.p50_ms);
         result.cpu_drift_percent = percent(last->cpu_operation.p50_ms, first->cpu_operation.p50_ms);
     }
-    if (result.baseline.completed != result.candidate.completed * 2)
+    if (alternating && result.baseline.completed != result.candidate.completed * 2)
         result.warnings.emplace_back("Unequal completed A/B/A arms; paired comparison incomplete");
     for (const auto* group : {&result.baseline, &result.candidate}) {
+        if (!alternating && group == &result.candidate)
+            continue;
         for (const auto* metric : {&group->wall_medians, &group->cpu_medians}) {
             if (metric->count > 1 && metric->mean_ms > 0.0 &&
                 metric->standard_deviation_ms / metric->mean_ms > 0.15)
@@ -489,8 +489,30 @@ std::optional<AlternatingSummary> summarize_alternating(const std::vector<TrialR
     if ((result.wall_drift_percent && std::abs(*result.wall_drift_percent) > 10.0) ||
         (result.cpu_drift_percent && std::abs(*result.cpu_drift_percent) > 10.0))
         result.warnings.emplace_back(
-            "A-arm drift exceeds 10%; thermal or background effects are possible");
+            alternating
+                ? "A-arm drift exceeds 10%; thermal or background effects are possible"
+                : "Repeated-trial drift exceeds 10%; thermal or background effects are possible");
     return result;
+}
+} // namespace
+
+std::optional<AlternatingSummary> summarize_alternating(const std::vector<TrialResult>& trials,
+                                                        bool enabled)
+{
+    if (!enabled && std::none_of(trials.begin(), trials.end(),
+                                 [](const TrialResult& trial) { return trial.arm == "B"; }))
+        return std::nullopt;
+    return summarize_trial_groups(trials, true);
+}
+
+std::optional<RepeatedSummary> summarize_repeated(const std::vector<TrialResult>& trials,
+                                                  bool alternating)
+{
+    if (alternating || trials.size() < 2)
+        return std::nullopt;
+    auto group = summarize_trial_groups(trials, false);
+    return RepeatedSummary{std::move(group.baseline), group.wall_drift_percent,
+                           group.cpu_drift_percent, std::move(group.warnings)};
 }
 
 SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios, Clock& clock,
@@ -589,6 +611,7 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
         result.wall_frame = summarize(combined_samples, true);
         result.cpu_operation = summarize(combined_samples, false);
         result.alternating = summarize_alternating(result.trials, options.alternate != nullptr);
+        result.repeated = summarize_repeated(result.trials, options.alternate != nullptr);
         if (result.outcome == "complete")
             ++successful_scenarios;
         suite.scenarios.push_back(std::move(result));

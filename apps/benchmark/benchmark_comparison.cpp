@@ -64,6 +64,72 @@ bool valid_distribution(const Json& value)
            value["min_ms"] <= value["mean_ms"] && value["mean_ms"] <= value["max_ms"];
 }
 
+bool count_matches(const Json& distribution, uint64_t count)
+{
+    return count == 0 ? distribution.is_null()
+                      : valid_distribution(distribution) &&
+                            distribution["samples"].get<uint64_t>() == count;
+}
+
+bool valid_trial_group(const Json& group, uint64_t completed, const Json& trials,
+                       std::string_view arm)
+{
+    if (!fields(group, {"completed_trials", "trial_wall_medians_ms", "trial_cpu_medians_ms",
+                        "trial_wall_p95_ms", "trial_cpu_p95_ms", "trial_wall_p99_ms",
+                        "trial_cpu_p99_ms"}) ||
+        !unsigned_count(group["completed_trials"]) ||
+        group["completed_trials"].get<uint64_t>() != completed)
+        return false;
+    for (const auto* metric : {"trial_wall_medians_ms", "trial_cpu_medians_ms", "trial_wall_p95_ms",
+                               "trial_cpu_p95_ms", "trial_wall_p99_ms", "trial_cpu_p99_ms"}) {
+        if (!count_matches(group[metric], completed))
+            return false;
+        const bool wall = std::string_view(metric).find("wall") != std::string_view::npos;
+        const char* percentile =
+            std::string_view(metric).find("medians") != std::string_view::npos ? "p50_ms"
+            : std::string_view(metric).find("p95") != std::string_view::npos   ? "p95_ms"
+                                                                               : "p99_ms";
+        std::vector<FrameSample> observations;
+        for (const auto& trial : trials)
+            if (trial["outcome"] == "complete" && trial["arm"] == arm) {
+                const double ms =
+                    trial[wall ? "frame_wall_ms" : "cpu_operation_ms"][percentile].get<double>();
+                observations.push_back({ms / 1000.0, 0.0});
+            }
+        const auto expected = summarize(observations, true);
+        if (!completed)
+            continue;
+        const auto& recorded = group[metric];
+        const auto equal = [&](const char* key, double value) {
+            const double actual = recorded[key].get<double>();
+            return std::abs(actual - value) <=
+                   1e-7 * std::max({1.0, std::abs(value), std::abs(actual)});
+        };
+        if (!equal("mean_ms", expected.mean_ms) || !equal("min_ms", expected.min_ms) ||
+            !equal("max_ms", expected.max_ms) || !equal("p50_ms", expected.p50_ms) ||
+            !equal("p95_ms", expected.p95_ms) || !equal("p99_ms", expected.p99_ms) ||
+            !equal("standard_deviation_ms", expected.standard_deviation_ms))
+            return false;
+    }
+    return true;
+}
+
+bool valid_percentage(const Json& value)
+{
+    return value.is_null() || (value.is_number() && std::isfinite(value.get<double>()));
+}
+
+bool valid_warnings(const Json& warnings)
+{
+    return warnings.is_array() && std::all_of(warnings.begin(), warnings.end(),
+                                              [](const Json& item) { return item.is_string(); });
+}
+
+bool near_seconds(double a, double b)
+{
+    return std::abs(a - b) <= 1e-8 * std::max({1.0, std::abs(a), std::abs(b)});
+}
+
 bool valid_counter(const Json& value)
 {
     if (value.is_null())
@@ -226,6 +292,14 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
         error = "invalid or unsupported benchmark result V1";
         return false;
     }
+    const auto outcome_allowed = [](const Json& value) {
+        return value == "complete" || value == "partial" || value == "failed" ||
+               value == "cancelled";
+    };
+    if (!outcome_allowed(root["outcome"])) {
+        error = "unsupported benchmark suite outcome";
+        return false;
+    }
     Options config;
     if (!decode_configuration(root["configuration"].dump(), config, error)) {
         error = "report configuration: " + error;
@@ -239,11 +313,11 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
     }
     std::set<std::string> ids;
     for (const auto& scenario : root["scenarios"]) {
-        if (!fields(scenario,
-                    {"id", "outcome", "trials", "aggregate", "graphics", "alternating"}) ||
+        if (!fields(scenario, {"id", "outcome", "trials", "aggregate", "graphics", "alternating",
+                               "repeated"}) ||
             !scenario["id"].is_string() || !scenario["outcome"].is_string() ||
             !scenario["trials"].is_array() || !scenario["aggregate"].is_object() ||
-            !valid_graphics(scenario["graphics"])) {
+            !valid_graphics(scenario["graphics"]) || !outcome_allowed(scenario["outcome"])) {
             error = "invalid scenario or graphics metadata";
             return false;
         }
@@ -269,6 +343,11 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             return false;
         }
         const bool alternating = !root["configuration"]["alternate"].is_null();
+        const bool repeated = !alternating && scenario["trials"].size() > 1;
+        if (repeated != !scenario["repeated"].is_null()) {
+            error = "inconsistent repeated-trial summary";
+            return false;
+        }
         if (alternating != !scenario["alternating"].is_null()) {
             error = "inconsistent A/B/A summary";
             return false;
@@ -310,11 +389,16 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             }
         }
         size_t ordinal = 0;
+        uint64_t completed_a = 0, completed_b = 0, frames = 0;
+        double wall_seconds = 0.0;
         for (const auto& trial : scenario["trials"]) {
             if (!fields(trial, {"outcome", "arm", "interrupted_attempts", "measured_frames",
                                 "interruption_retries", "frame_wall_ms", "cpu_operation_ms",
                                 "diagnostic", "raw_samples"}) ||
-                !trial["outcome"].is_string() || !trial["arm"].is_string() ||
+                !trial["outcome"].is_string() ||
+                (trial["outcome"] != "complete" && trial["outcome"] != "failed" &&
+                 trial["outcome"] != "cancelled") ||
+                !trial["arm"].is_string() ||
                 trial["arm"] != (alternating && ordinal % 3 == 1 ? "B" : "A") ||
                 !trial["interrupted_attempts"].is_array() ||
                 trial["interrupted_attempts"].size() > kMaxInterruptionRetries ||
@@ -341,8 +425,68 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                 error = "inconsistent retry metadata";
                 return false;
             }
+            const bool complete = trial["outcome"] == "complete";
+            const uint64_t count = complete ? trial["measured_frames"].get<uint64_t>() : 0;
+            if ((complete && count == 0) || !count_matches(trial["frame_wall_ms"], count) ||
+                !count_matches(trial["cpu_operation_ms"], count) ||
+                (!trial["raw_samples"].is_null() &&
+                 (trial["raw_samples"].size() != count || !complete))) {
+                error = "trial outcome, measured frames and sample counts disagree";
+                return false;
+            }
+            if (complete) {
+                ++(trial["arm"] == "B" ? completed_b : completed_a);
+                frames += count;
+                if (!finite_nonnegative(trial["measured_wall_seconds"]) ||
+                    trial["measured_wall_seconds"].get<double>() <= 0.0) {
+                    error = "completed trial lacks elapsed wall time";
+                    return false;
+                }
+                wall_seconds += trial["measured_wall_seconds"].get<double>();
+            }
             ++ordinal;
         }
+        const uint64_t completed = completed_a + completed_b;
+        const uint64_t expected = static_cast<uint64_t>(config.repeats) * (alternating ? 3u : 1u);
+        if (frames != aggregate["measured_frames"].get<uint64_t>() ||
+            !near_seconds(wall_seconds, aggregate["measured_wall_seconds"].get<double>()) ||
+            !count_matches(aggregate["frame_wall_ms"], frames) ||
+            !count_matches(aggregate["cpu_operation_ms"], frames) ||
+            scenario["trials"].size() > expected ||
+            (scenario["outcome"] == "complete" &&
+             (completed != expected || scenario["trials"].size() != expected)) ||
+            (scenario["outcome"] == "failed" && completed != 0) ||
+            (scenario["outcome"] == "partial" && completed == 0) ||
+            (scenario["outcome"] == "complete" && completed == 0)) {
+            error = "scenario outcome, trials and aggregate measurements disagree";
+            return false;
+        }
+        if (alternating && (!valid_trial_group(scenario["alternating"]["baseline"], completed_a,
+                                               scenario["trials"], "A") ||
+                            !valid_trial_group(scenario["alternating"]["candidate"], completed_b,
+                                               scenario["trials"], "B"))) {
+            error = "A/B/A completed-arm summaries disagree with trials";
+            return false;
+        }
+        if (repeated) {
+            const auto& summary = scenario["repeated"];
+            if (!fields(summary,
+                        {"trials", "wall_drift_percent", "cpu_drift_percent", "warnings"}) ||
+                !valid_trial_group(summary["trials"], completed_a, scenario["trials"], "A") ||
+                !valid_percentage(summary["wall_drift_percent"]) ||
+                !valid_percentage(summary["cpu_drift_percent"]) ||
+                !valid_warnings(summary["warnings"])) {
+                error = "repeated-trial reliability summary disagrees with trials";
+                return false;
+            }
+        }
+    }
+    if (root["outcome"] == "complete" && root["capacity_search"].is_null() &&
+        (root["scenarios"].empty() ||
+         !std::all_of(root["scenarios"].begin(), root["scenarios"].end(),
+                      [](const Json& value) { return value["outcome"] == "complete"; }))) {
+        error = "complete suite lacks complete scenario evidence";
+        return false;
     }
     report = {std::move(root), std::move(name)};
     error.clear();
@@ -442,6 +586,57 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
                 }
             }
         }
+        // A/B/A aggregate mixes two different workloads and must never be compared.
+        if (!scenario["alternating"].is_null() || !(*other)["alternating"].is_null()) {
+            const auto warn_arm = [&](const Json& source, const char* label) {
+                if (source["alternating"].is_null())
+                    return;
+                const auto& detail = source["alternating"];
+                for (const auto& warning : detail["warnings"]) {
+                    result.warnings.push_back(id + ": " + label +
+                                              " A/B/A: " + warning.get<std::string>());
+                    result.controlled = false;
+                }
+                for (const auto* drift : {"wall_drift_percent", "cpu_drift_percent"}) {
+                    if (!detail[drift].is_null() && std::abs(detail[drift].get<double>()) > 10.0) {
+                        result.controlled = false;
+                        result.warnings.push_back(id + ": " + label + " " + drift + " exceeds 10%");
+                    }
+                }
+            };
+            warn_arm(scenario, "baseline");
+            warn_arm(*other, "candidate");
+            if (scenario["alternating"].is_null() || (*other)["alternating"].is_null()) {
+                result.controlled = false;
+                result.warnings.push_back(id + ": A/B/A and ordinary runs cannot be compared");
+                continue;
+            }
+            for (const auto* arm : {"baseline", "candidate"}) {
+                for (const auto* metric :
+                     {"trial_wall_medians_ms", "trial_cpu_medians_ms", "trial_wall_p95_ms",
+                      "trial_cpu_p95_ms", "trial_wall_p99_ms", "trial_cpu_p99_ms"}) {
+                    const auto& left = scenario["alternating"][arm][metric];
+                    const auto& right = (*other)["alternating"][arm][metric];
+                    for (const auto* field : {"mean_ms", "p50_ms", "p95_ms", "p99_ms"})
+                        add_metric(result, id,
+                                   (std::string(arm) + "." + metric + "." + field).c_str(), left,
+                                   right, field);
+                }
+            }
+            continue;
+        }
+        const auto warn_repeated = [&](const Json& source, const char* label) {
+            if (source["repeated"].is_null())
+                return;
+            const auto& detail = source["repeated"];
+            for (const auto& warning : detail["warnings"]) {
+                result.warnings.push_back(id + ": " + label +
+                                          " repeated trials: " + warning.get<std::string>());
+                result.controlled = false;
+            }
+        };
+        warn_repeated(scenario, "baseline");
+        warn_repeated(*other, "candidate");
         for (const auto* key : {"frame_wall_ms", "cpu_operation_ms"}) {
             const auto& left = scenario["aggregate"][key];
             const auto& right = (*other)["aggregate"][key];

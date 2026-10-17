@@ -504,17 +504,28 @@ std::string encode_result(const Options& options, const Environment& environment
                                     : Json(nullptr)},
                  {"raw_samples", std::move(raw)}});
         }
+        const auto group = [](const TrialGroupSummary& value) {
+            return Json{{"completed_trials", value.completed},
+                        {"trial_wall_medians_ms", distribution(value.wall_medians)},
+                        {"trial_cpu_medians_ms", distribution(value.cpu_medians)},
+                        {"trial_wall_p95_ms", distribution(value.wall_p95)},
+                        {"trial_cpu_p95_ms", distribution(value.cpu_p95)},
+                        {"trial_wall_p99_ms", distribution(value.wall_p99)},
+                        {"trial_cpu_p99_ms", distribution(value.cpu_p99)}};
+        };
+        Json repeated = nullptr;
+        if (scenario.repeated) {
+            const auto& value = *scenario.repeated;
+            repeated = {{"trials", group(value.trials)},
+                        {"wall_drift_percent", value.wall_drift_percent
+                                                   ? Json(*value.wall_drift_percent)
+                                                   : Json(nullptr)},
+                        {"cpu_drift_percent",
+                         value.cpu_drift_percent ? Json(*value.cpu_drift_percent) : Json(nullptr)},
+                        {"warnings", value.warnings}};
+        }
         Json alternating = nullptr;
         if (scenario.alternating) {
-            const auto group = [](const TrialGroupSummary& value) {
-                return Json{{"completed_trials", value.completed},
-                            {"trial_wall_medians_ms", distribution(value.wall_medians)},
-                            {"trial_cpu_medians_ms", distribution(value.cpu_medians)},
-                            {"trial_wall_p95_ms", distribution(value.wall_p95)},
-                            {"trial_cpu_p95_ms", distribution(value.cpu_p95)},
-                            {"trial_wall_p99_ms", distribution(value.wall_p99)},
-                            {"trial_cpu_p99_ms", distribution(value.cpu_p99)}};
-            };
             const auto& comparison = *scenario.alternating;
             alternating = {{"order", "A/B/A"},
                            {"baseline", group(comparison.baseline)},
@@ -535,6 +546,7 @@ std::string encode_result(const Options& options, const Environment& environment
         }
         scenarios.push_back(
             {{"alternating", std::move(alternating)},
+             {"repeated", std::move(repeated)},
              {"id", scenario.scenario},
              {"description", scenario.description},
              {"outcome", scenario.outcome},

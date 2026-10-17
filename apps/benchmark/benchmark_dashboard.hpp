@@ -34,8 +34,8 @@ public:
     bool initialize(SDL_Window* window, const Options& options, std::string& error);
     void shutdown();
     void process_event(const SDL_Event& event);
-    DashboardAction frame(Options& options, const CompletedRun* last_run, std::string_view error,
-                          const std::function<void()>& preview = {},
+    DashboardAction frame(Options& options, const CompletedRun* last_run, std::string& error,
+                          const std::function<bool()>& preview = {},
                           const std::function<void()>& capture = {});
     // Supports automated full-reference inspection in the GPU lifecycle smoke.
     void set_inspection_only(bool value) { inspection_only_ = value; }

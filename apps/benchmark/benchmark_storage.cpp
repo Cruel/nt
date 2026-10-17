@@ -30,6 +30,7 @@ std::filesystem::path preferences_file(std::string& error)
 
 bool load_dashboard_preferences(DashboardPreferences& state, std::string& error)
 {
+    error.clear();
     std::string text;
 #if defined(__EMSCRIPTEN__)
     auto* raw = reinterpret_cast<char*>(EM_ASM_PTR({
@@ -70,6 +71,7 @@ bool load_dashboard_preferences(DashboardPreferences& state, std::string& error)
 
 bool save_dashboard_preferences(const DashboardPreferences& state, std::string& error)
 {
+    error.clear();
     const std::string text = encode_dashboard_preferences(state);
 #if defined(__EMSCRIPTEN__)
     const int saved = EM_ASM_INT(

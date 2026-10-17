@@ -56,6 +56,21 @@ int main()
         std::fprintf(stderr, "storage: invalid settings should preserve previously loaded state\n");
         return 1;
     }
+    // A stale invalid-state or invalid-preset error must not latch persistence off.
+    original.last_configuration.rect_count = 37;
+    if (!save_dashboard_preferences(original, error) || !error.empty() ||
+        !load_dashboard_preferences(loaded, error) || loaded.last_configuration.rect_count != 37) {
+        std::fprintf(stderr, "storage: failed to recover save after invalid preferences: %s\n",
+                     error.c_str());
+        return 1;
+    }
+    error = "empty named preset";
+    original.last_configuration.rect_count = 41;
+    if (!save_dashboard_preferences(original, error) || !error.empty() ||
+        !load_dashboard_preferences(loaded, error) || loaded.last_configuration.rect_count != 41) {
+        std::fprintf(stderr, "storage: stale dashboard error disabled subsequent saves\n");
+        return 1;
+    }
     fs::remove_all(root);
     std::puts("benchmark native app-local storage passed");
     return 0;
