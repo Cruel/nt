@@ -489,6 +489,23 @@ int main()
                    !noisy->warnings.empty(),
                "synthetic noisy trials flag variability and drift without wall-clock thresholds"))
         return 1;
+    std::vector<TrialResult> ordinary_trials(5);
+    for (size_t i = 0; i < ordinary_trials.size(); ++i) {
+        ordinary_trials[i].arm = "A";
+        ordinary_trials[i].outcome = "complete";
+        ordinary_trials[i].wall_frame.p50_ms = 10.0 + i * 5.0;
+        ordinary_trials[i].cpu_operation.p50_ms = 5.0 + i * 3.0;
+    }
+    const auto repeated = summarize_repeated(ordinary_trials);
+    if (!check(repeated && repeated->trials.completed == 5 &&
+                   repeated->trials.wall_medians.count == 5 &&
+                   repeated->trials.wall_p95.count == 5 && repeated->trials.cpu_p99.count == 5 &&
+                   repeated->wall_drift_percent &&
+                   std::abs(*repeated->wall_drift_percent - 200.0) < 0.001 &&
+                   !repeated->warnings.empty() && !summarize_repeated(ordinary_trials, true),
+               "ordinary repeated trials report CV, endpoints, and tails without a B arm"))
+        return 1;
+
     Options invalid = options;
     invalid.repeats = 0;
     std::string reason;

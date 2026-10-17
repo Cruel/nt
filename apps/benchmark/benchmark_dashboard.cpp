@@ -333,8 +333,8 @@ void Dashboard::render()
     }
 }
 
-DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
-                                 std::string_view error, const std::function<void()>& preview,
+DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run, std::string& error,
+                                 const std::function<bool()>& preview,
                                  const std::function<void()>& capture)
 {
     if (!initialized_)
@@ -924,6 +924,25 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                                 "CPU frame-loop cadence: %.2f Hz (not confirmed display FPS)",
                                 static_cast<double>(scenario.measured_frames) /
                                     scenario.measured_wall_seconds);
+                        if (scenario.repeated) {
+                            const auto& repeated = *scenario.repeated;
+                            ImGui::SeparatorText("Repeated-trial reliability");
+                            ImGui::Text("Completed trials: %u", repeated.trials.completed);
+                            show_distribution("Trial CPU medians", repeated.trials.cpu_medians);
+                            show_distribution("Trial wall medians", repeated.trials.wall_medians);
+                            show_distribution("Trial CPU p95", repeated.trials.cpu_p95);
+                            show_distribution("Trial wall p95", repeated.trials.wall_p95);
+                            show_distribution("Trial CPU p99", repeated.trials.cpu_p99);
+                            show_distribution("Trial wall p99", repeated.trials.wall_p99);
+                            if (repeated.cpu_drift_percent)
+                                ImGui::Text("CPU endpoint drift: %+.2f%%",
+                                            *repeated.cpu_drift_percent);
+                            if (repeated.wall_drift_percent)
+                                ImGui::Text("Wall endpoint drift: %+.2f%%",
+                                            *repeated.wall_drift_percent);
+                            for (const auto& warning : repeated.warnings)
+                                ImGui::BulletText("%s", warning.c_str());
+                        }
                         if (scenario.alternating) {
                             const auto& alternating = *scenario.alternating;
                             ImGui::SeparatorText("A/B/A comparison (independent trials)");
@@ -1099,14 +1118,22 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
     ImGui::Render();
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x17212cff);
     bgfx::touch(0);
-    if (preview)
-        preview();
+    // Only a new capture attempt clears stale screenshot status. The preview
+    // callback can now report a fresh preparation/submission error.
+    if (action == DashboardAction::Capture)
+        error.clear();
+    const bool preview_succeeded = !preview || preview();
     // Default bgfx ID sorting would composite views 2..63 over ImGui view 1.
     set_dashboard_view_order();
     if (action == DashboardAction::Capture) {
-        // Do not submit dashboard or inspection controls into the captured frame.
-        if (capture)
+        // A failed preview must never yield a blank or partial 'successful' screenshot.
+        // Do not submit dashboard controls into the capture's frame.
+        if (preview_succeeded && capture)
             capture();
+        else {
+            action = DashboardAction::None;
+            render(); // Preserve the dashboard after a failed preview.
+        }
     } else {
         render();
     }

@@ -615,6 +615,10 @@ retry up to three times with new resources and warmup. Its final trial record
 includes `interruption_retries` and `interrupted_attempts[]`, with the
 discarded attempt's reason and observed warmup/measured frame counts. Discarded
 frames never enter statistics, and cancellation stops remaining trials.
+For ordinary `--repeats N` (without B), `scenarios[].repeated` reports
+completed-trial median/p95/p99 distributions, endpoint drift, and reliability
+warnings independently of A/B/A. A single trial has no between-trial summary.
+The dashboard displays this separately from the pooled per-frame aggregates.
 
 For an alternating comparison, select a **named B preset** for the same scenario
 in Run Settings, or supply a complete current-V1 candidate configuration in
@@ -659,8 +663,22 @@ of variation greater than 15%, and A endpoint drift over 10%. Those are
 proof of thermal throttling; the benchmark cannot read reliable thermal or
 GPU-frequency telemetry on every platform. Users must control background,
 power and thermal conditions and examine the actual trial distributions.
-The direct import-comparison panel likewise remains exploratory across
-dissimilar machine, build, workload or clock metadata.
+The direct import-comparison panel compares **like-for-like arms** for
+A/B/A reports, never pooled A+B aggregates; its separate A/B arm median,
+p95 and p99 distributions carry drift/variance warnings, making suspect
+runs explicitly uncontrolled. Ordinary repeated reports retain A-only
+per-frame comparisons, with their reliability warnings surfaced too.
+Imports reject complete reports with missing trials, sample-count mismatch,
+or inconsistent repeated/A/B/A completed-trial counts, rather than offering
+comparisons without measurement evidence. Comparison still remains exploratory
+across dissimilar machine, build, workload or clock metadata.
+
+Native dashboard preferences recovery clears prior operation errors before
+retrying persistence, including when previously stored settings were invalid.
+For untimed standalone/raw screenshots the preview must prepare **and submit**
+successfully before the readback is requested; failures preserve their reason
+and leave the dashboard active, never labeling a cleared background as a
+verified reference image.
 
 Tests `noveltea_benchmark_runner` and `noveltea_benchmark_frame_driven`
 use stable and noisy deterministic synthetic clock samples for six-member

@@ -1051,7 +1051,12 @@ int run_dashboard(Options options)
     double preview_scale = 0;
     int preview_width = 0;
     int preview_height = 0;
-    const auto draw_preview = [&]() {
+    const auto draw_preview = [&]() -> bool {
+        const auto checked = [&](bool success) {
+            if (!success && feedback.empty())
+                feedback = "Reference preview preparation or submission failed";
+            return success;
+        };
         if (options.scenario != "raw-bgfx-geometry")
             preview_geometry.shutdown();
         if (!noveltea::benchmark::is_extended_raw_scenario(options.scenario))
@@ -1088,11 +1093,10 @@ int run_dashboard(Options options)
                 if (!preview_ui.initialize(scene, graphics.environment.width_pixels,
                                            graphics.environment.height_pixels, feedback,
                                            scaling_preview ? &options : nullptr))
-                    return;
+                    return checked(false);
                 preview_ui_options = options;
             }
-            (void)preview_ui.submit(false, feedback);
-            return;
+            return checked(preview_ui.submit(false, feedback));
         }
         if (noveltea::benchmark::is_extended_raw_scenario(options.scenario)) {
             const int width = graphics.environment.width_pixels;
@@ -1113,16 +1117,15 @@ int run_dashboard(Options options)
                     options, static_cast<uint32_t>(width), static_cast<uint32_t>(height));
                 if (!spec || !preview_workload.initialize(*spec, static_cast<uint32_t>(width),
                                                           static_cast<uint32_t>(height), feedback))
-                    return;
+                    return checked(false);
                 preview_raw_options = options;
                 preview_raw_width = width;
                 preview_raw_height = height;
             }
-            (void)preview_workload.submit(feedback);
-            return;
+            return checked(preview_workload.submit(feedback));
         }
         if (options.scenario != "raw-bgfx-geometry")
-            return;
+            return false;
         const int width = graphics.environment.width_pixels;
         const int height = graphics.environment.height_pixels;
         if (!preview_geometry.initialized() || preview_count != options.rect_count ||
@@ -1131,15 +1134,15 @@ int run_dashboard(Options options)
             const auto scene = noveltea::benchmark::geometry_reference_scene(options.rect_count,
                                                                              options.rect_scale);
             if (!preview_geometry.initialize(scene, width, height, feedback))
-                return;
+                return checked(false);
             preview_count = options.rect_count;
             preview_scale = options.rect_scale;
             preview_width = width;
             preview_height = height;
         }
-        if (!preview_geometry.submit(feedback))
-            return;
+        return checked(preview_geometry.submit(feedback));
     };
+    const auto& checked_preview = draw_preview;
 
     if (options.inspection_smoke) {
         std::string reason;
@@ -1150,7 +1153,7 @@ int run_dashboard(Options options)
         }
         if (noveltea::benchmark::supports_inspection(options.scenario)) {
             for (int i = 0; i < 4; ++i)
-                (void)dashboard.frame(options, nullptr, feedback, draw_preview);
+                (void)dashboard.frame(options, nullptr, feedback, checked_preview);
             if (!feedback.empty() ||
                 !graphics.inspection.request(options, graphics.environment.width_pixels,
                                              graphics.environment.height_pixels, feedback)) {
@@ -1399,7 +1402,7 @@ int run_dashboard(Options options)
         if (cover.visible && dashboard.initialized()) {
             // Present a fully recreated dashboard before exposing its surface.
             (void)dashboard.frame(options, completed_run ? &*completed_run : nullptr, feedback,
-                                  draw_preview);
+                                  checked_preview);
         }
         cover.hide();
 #endif
@@ -1416,7 +1419,7 @@ int run_dashboard(Options options)
         for (bool inspect : {false, true}) {
             dashboard.set_inspection_only(inspect);
             for (int frame = 0; frame < 15; ++frame)
-                (void)dashboard.frame(options, nullptr, feedback, draw_preview);
+                (void)dashboard.frame(options, nullptr, feedback, checked_preview);
             std::printf("[benchmark] visual %s ready\n", inspect ? "inspection" : "dashboard");
             std::fflush(stdout);
             SDL_Delay(1800);
@@ -1460,7 +1463,7 @@ int run_dashboard(Options options)
             else
                 dashboard.set_inspection_only(false);
             (void)dashboard.frame(options, completed_run ? &*completed_run : nullptr, feedback,
-                                  draw_preview);
+                                  checked_preview);
             benchmark_once(options.quick_suite);
             if (!dashboard.initialized() || !completed_run ||
                 completed_run->result.outcome != "complete" || !feedback.empty())
@@ -1468,7 +1471,7 @@ int run_dashboard(Options options)
             std::printf("[benchmark] dashboard cycle %d complete\n", cycle + 1);
         }
         dashboard.set_inspection_only(false);
-        (void)dashboard.frame(options, &*completed_run, feedback, draw_preview);
+        (void)dashboard.frame(options, &*completed_run, feedback, checked_preview);
         return 0;
     }
 
@@ -1529,10 +1532,9 @@ int run_dashboard(Options options)
 #endif
         graphics.inspection.poll(feedback);
         const auto action = dashboard.frame(
-            options, completed_run ? &*completed_run : nullptr, feedback, draw_preview, [&]() {
+            options, completed_run ? &*completed_run : nullptr, feedback, checked_preview, [&]() {
                 // A previous screenshot error is status, not a permanent latch;
                 // the user must be able to retry an untimed capture.
-                feedback.clear();
                 (void)graphics.inspection.request(options, graphics.environment.width_pixels,
                                                   graphics.environment.height_pixels, feedback);
             });
