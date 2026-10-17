@@ -17,6 +17,7 @@
 #include "benchmark_completed_run.hpp"
 #include "cpu_workloads.hpp"
 #include "native_2d_workloads.hpp"
+#include "video_workloads.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_inspection.hpp"
 #include "benchmark_options.hpp"
@@ -67,7 +68,8 @@ void print_usage()
               "engine-compiled-empty|engine-compiled-menu|engine-feature-lab|"
               "cpu-lua|cpu-runtime-session|cpu-flow-prediction|"
               "native-2d-geometry|native-2d-text-static|native-2d-text-dynamic|"
-              "native-shader-material|native-postprocess]");
+              "native-shader-material|native-postprocess|"
+              "video-decode|video-upload|video-present]");
     std::puts("       [--clock-policy realtime|fixed-step] [--feature-lab-package FILE]");
     std::puts("       [--cpu-work-units 1..4096] (CPU-only --no-ui batch size)");
     std::puts("       [--native-quads 1..2048] [--native-glyphs 1..4096]");
@@ -945,6 +947,50 @@ int run_native_2d(const Options& options)
 #endif
 }
 
+int run_video(const Options& options)
+{
+#if defined(__EMSCRIPTEN__)
+    (void)options;
+    std::fprintf(stderr, "[benchmark] video-decode unsupported on Web: browser media does "
+                         "not expose a production CPU-decoded frame interface\n");
+    return 2;
+#else
+#if defined(__ANDROID__)
+    std::string startup_reason;
+    if (!wait_for_android_foreground(startup_reason)) {
+        std::fprintf(stderr, "[benchmark] video startup failed: %s\n", startup_reason.c_str());
+        return 2;
+    }
+#endif
+    noveltea::benchmark::VideoScenario video(options.scenario);
+    SteadyClock clock;
+#if defined(__ANDROID__)
+    const SuiteResult result =
+        noveltea::benchmark::run_suite(options, {&video}, clock, android_engine_recovery());
+#else
+    const SuiteResult result = noveltea::benchmark::run_suite(options, {&video}, clock);
+#endif
+    std::string output;
+    if (!write_report(options, video.environment(), result, output))
+        return 3;
+    const auto& scenario = result.scenarios.front();
+    if (scenario.outcome == "complete") {
+        std::printf("[benchmark] complete: %llu video work units, backend=%s, "
+                    "CPU operation mean %.3f ms (GPU cost is diagnostic-only)\n",
+                    static_cast<unsigned long long>(scenario.measured_frames),
+                    video.environment().video_codec_backend.c_str(),
+                    scenario.cpu_operation.mean_ms);
+    } else {
+        for (const auto& trial : scenario.trials)
+            if (trial.outcome != "complete")
+                std::fprintf(stderr, "[benchmark] video trial %s: %s\n", trial.outcome.c_str(),
+                             trial.reason.c_str());
+    }
+    std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
+    return result.outcome == "complete" ? 0 : 2;
+#endif
+}
+
 int run_cpu(const Options& options)
 {
     if (!options.no_ui) {
@@ -1115,7 +1161,8 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
 
 int run_dashboard(Options options)
 {
-    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
+    if (!noveltea::benchmark::is_video_scenario(options.scenario) &&
+        options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_scaling_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_effects_scenario(options.scenario) &&
@@ -1343,7 +1390,8 @@ int run_dashboard(Options options)
                                 run_options.scenario == "integrated-rmlui-scaling" ||
                                 run_options.scenario == "integrated-rmlui-effects";
         const bool engine_owned =
-            integrated || run_options.scenario == "engine-empty" ||
+            noveltea::benchmark::is_video_scenario(run_options.scenario) || integrated ||
+            run_options.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(run_options.scenario);
         bool ran = false;
         if (quick) {
@@ -1379,15 +1427,21 @@ int run_dashboard(Options options)
                 run_options.scenario == "integrated-rmlui-effects");
             noveltea::benchmark::EmptyEngine empty_engine(
                 {}, noveltea::benchmark::engine_workload(run_options.scenario));
-            Scenario* selected = integrated ? static_cast<Scenario*>(&engine_ui)
-                                            : static_cast<Scenario*>(&empty_engine);
+            noveltea::benchmark::VideoScenario video(run_options.scenario);
+            Scenario* selected = noveltea::benchmark::is_video_scenario(run_options.scenario)
+                                     ? static_cast<Scenario*>(&video)
+                                 : integrated ? static_cast<Scenario*>(&engine_ui)
+                                              : static_cast<Scenario*>(&empty_engine);
             noveltea::benchmark::Recovery recover;
 #if defined(__ANDROID__)
             recover = android_engine_recovery();
 #endif
             std::vector<Environment> environments;
             const auto current_environment = [&]() {
-                return integrated ? engine_ui.environment() : empty_engine.environment();
+                return noveltea::benchmark::is_video_scenario(run_options.scenario)
+                           ? video.environment()
+                       : integrated ? engine_ui.environment()
+                                    : empty_engine.environment();
             };
             auto result =
                 run_options.capacity_dimension.empty()
@@ -1918,6 +1972,13 @@ int main(int argc, char* argv[])
     }
     if (noveltea::benchmark::is_cpu_scenario(options.scenario))
         return run_cpu(options);
+    if (noveltea::benchmark::is_video_scenario(options.scenario)) {
+#if defined(__EMSCRIPTEN__)
+        return run_web(options);
+#else
+        return options.no_ui ? run_video(options) : run_dashboard(options);
+#endif
+    }
     if (noveltea::benchmark::is_native_2d_scenario(options.scenario) ||
         noveltea::benchmark::is_shader_scenario(options.scenario))
         return run_native_2d(options);

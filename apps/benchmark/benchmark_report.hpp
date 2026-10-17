@@ -28,6 +28,9 @@ struct Environment {
     std::string browser; // Web user agent; empty on native hosts.
     std::string renderer;
     std::string frame_path;
+    std::string video_codec_backend;
+    std::string video_codec_fallback;
+    std::string video_upload_pipeline;
     int gpu_vendor_id = -1;
     int gpu_device_id = -1;
     int width_pixels = 0;

@@ -59,7 +59,7 @@ set(NOVELTEA_BENCHMARK_APP_SOURCES
     main.cpp benchmark_dashboard.cpp benchmark_storage.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     raw_bgfx_workloads.cpp
     standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp cpu_workloads.cpp
-    native_2d_workloads.cpp)
+    native_2d_workloads.cpp video_workloads.cpp)
 if(ANDROID)
     add_library(noveltea-benchmark-app SHARED ${NOVELTEA_BENCHMARK_APP_SOURCES})
     # Native 2D embeds Renderer by value: match the Engine's Android-only class layout.
@@ -77,6 +77,7 @@ else()
     set(NOVELTEA_BENCHMARK_SHADER_VARIANT "glsl-330")
     set(NOVELTEA_BENCHMARK_RESULT_ROOT "${CMAKE_BINARY_DIR}/benchmarks")
 endif()
+target_include_directories(noveltea-benchmark-app PRIVATE "${PROJECT_SOURCE_DIR}/engine/src")
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
     imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner PNG::PNG)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
@@ -92,6 +93,11 @@ if(NOT ANDROID AND NOT EMSCRIPTEN)
 add_custom_target(noveltea-benchmark-stage-assets
     COMMAND "${CMAKE_COMMAND}" -E make_directory
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/media"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/tests/fixtures/media/opaque-vp9.webm"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/media/opaque-vp9.webm"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts/LiberationSans.ttf"
@@ -122,6 +128,10 @@ if(EMSCRIPTEN)
         COMMAND "${CMAKE_COMMAND}" -E make_directory
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/shaders/bgfx/essl-300"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/media"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/tests/fixtures/media/opaque-vp9.webm"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/media/opaque-vp9.webm"
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts/LiberationSans.ttf"
@@ -164,6 +174,7 @@ if(EMSCRIPTEN)
         LINK_DEPENDS
             "${PROJECT_SOURCE_DIR}/web/benchmark_shell.html"
             "${PROJECT_SOURCE_DIR}/web/persistent_fs.js"
+            "${PROJECT_SOURCE_DIR}/tests/fixtures/media/opaque-vp9.webm"
             ${NOVELTEA_WEB_BENCHMARK_SYSTEM_ASSETS}
             ${NOVELTEA_WEB_BENCHMARK_SHADERS})
     if(CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "Release")
@@ -290,8 +301,34 @@ if(BUILD_TESTING AND NOT ANDROID)
     set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_bgfx_diagnostics noveltea_benchmark_capacity noveltea_benchmark_app_help
         PROPERTIES LABELS "benchmark;graphics")
 
+    add_test(NAME noveltea_benchmark_video_decode_smoke
+        COMMAND "${CMAKE_COMMAND}" -E env "SDL_VIDEODRIVER=unavailable"
+            "$<TARGET_FILE:noveltea-benchmark-app>" --scenario video-decode
+            --smoke --profile diagnostic
+            --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-video-decode.json")
+    set_tests_properties(noveltea_benchmark_video_decode_smoke PROPERTIES
+        LABELS "benchmark;video;cpu;smoke"
+        PASS_REGULAR_EXPRESSION "complete: 30 video work units" TIMEOUT 60)
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
+        add_test(NAME noveltea_benchmark_video_dashboard_lifecycle_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --dashboard-smoke --scenario video-present --width 640 --height 360
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-video-dashboard.json")
+        set_tests_properties(noveltea_benchmark_video_dashboard_lifecycle_smoke
+            PROPERTIES LABELS "benchmark;graphics;video;smoke"
+                PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete" TIMEOUT 90)
+        foreach(video_case video-upload video-present)
+            string(REPLACE "-" "_" video_test_case "${video_case}")
+            add_test(NAME "noveltea_benchmark_${video_test_case}_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario "${video_case}" --smoke --width 640 --height 480
+                    --profile diagnostic
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-${video_case}.json")
+            set_tests_properties("noveltea_benchmark_${video_test_case}_smoke"
+                PROPERTIES LABELS "benchmark;graphics;video;smoke"
+                    PASS_REGULAR_EXPRESSION "complete: 30 video work units" TIMEOUT 90)
+        endforeach()
         foreach(native_case native-2d-geometry native-2d-text-static native-2d-text-dynamic
                             native-shader-material native-postprocess)
             add_test(NAME "noveltea_benchmark_${native_case}_smoke"

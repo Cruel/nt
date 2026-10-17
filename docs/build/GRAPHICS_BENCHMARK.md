@@ -1,4 +1,72 @@
-# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#446)
+# Graphics and CPU Benchmark (Linux, Android, and Web, #422–#447)
+
+## Runtime video decode, upload and presentation (#447)
+
+Three scenarios use production VP9/WebM and video texture pipelines
+rather than synthetic RGBA uploads. Native Linux/Android expose all three;
+Web exposes browser-media upload and presentation (not the CPU-only decoder).
+They can run unattended or from the benchmark dashboard; both transfer
+SDL/bgfx ownership away from ImGui for the measurement.
+Run them as separate trials with the same display settings and profile:
+
+```sh
+./scripts/run-benchmark.sh --scenario video-decode --frames 300
+./scripts/run-benchmark.sh --scenario video-upload --frames 300
+./scripts/run-benchmark.sh --scenario video-present --profile diagnostic --frames 300
+```
+
+`video-decode` uses `NativeVideoSource` and `NativeVideoDecoder` without
+SDL video or bgfx; one source-timed frame is requested per work unit, looping
+the prepared 200 ms clip. The reported work-unit rate is decoder workload
+throughput, **not** display FPS (reported under
+`video_decode_work_units_per_second`, not `frame_loop_cadence_hz`).
+`video-upload` uses the real typed video
+asset pipeline and `WorldVideoStream` to decode, upload YUV planes, and
+convert to RGBA through the bgfx `video_yuv` program, without drawing a
+presentation quad. `video-present` adds a real textured world quad and
+ordinary NovelTea world composition. Do not subtract these totals and label
+the difference pure decode, upload, or GPU time: asynchronous production
+work, frame holds, render synchronization and compositor pacing overlap.
+
+The immutable 32×16 profile-0 VP9/WebM reference has four 50 ms source
+frames, and the run configuration fixes its codec, dimensions, durations,
+and fixture identity. Resource mounting, demux, first-frame readiness,
+occurrence decoder allocation, and first GPU YUV conversion all finish
+before the runner's Warmup and Measurement phases. For graphics scenarios,
+a steady realtime clock chooses the source frame every frame: decoder
+readiness never advances gameplay/presentation time. Held source frames
+reuse resident GPU textures; natural source-rate frame holds remain part
+of the workload, rather than forcing an upload on every display refresh.
+
+The JSON graphics section records the *selected* decoder backend, fallback
+reason and production upload pipeline. `video_hardware_decode_confirmed`
+reports whether the selected decoder is hardware-backed; it does not
+assert that every device has usable hardware decoding. This small reference
+may fall below hardware codec minimum dimensions: CPU fallback is expected
+and is not a benchmark failure. Diagnostic bgfx timings have the ordinary
+asynchronous attribution limits; `bgfx::frame()` time is never GPU
+execution time. Clean mode performs no readback. On Linux, Xvfb software
+OpenGL is useful for correctness, not representative GPU performance.
+
+Android stages the same reference media in its APK; GPU scenarios follow
+the existing Activity focus/recovery behavior. Web stages the same reference
+in MEMFS and uses production browser-owned media elements, HTML video seek
+callbacks and imported WebGL textures. `video-upload` and `video-present`
+prepare their media asynchronously across frame-driven rAF callbacks without
+blocking the browser event loop. Web decoder implementation and hardware
+acceleration are browser-controlled and opaque; the report identifies
+`browser-media-gpu` but records hardware-decoding confirmation as null.
+`video-decode` is explicitly unsupported on Web because there is no
+CPU-decoded-frame interface in this production backend. Browser-side
+decode-only latency must not be invented by measuring unrelated APIs.
+
+The browser functional regression `node scripts/benchmark-video-web-smoke.mjs
+build/web-benchmark-debug/apps/benchmark` checks Chromium and Firefox real
+Web media upload/presentation (no performance thresholds). It requires an
+available WebGL2 context and a browser supporting the fixture codec;
+unsupported hosts fail with diagnostics rather than recording fake performance.
+
+
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 RmlUi reference workloads, and headless Lua/Runtime Session/Flow prediction CPU workloads. Raw and standalone RmlUi **do not instantiate**

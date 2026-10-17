@@ -43,6 +43,13 @@ Json configuration(const Options& options)
                       {"tint", options.shader_tint},
                       {"scope", options.shader_scope},
                       {"reference", "native-shader-grid-tint-v1"}};
+    else if (is_video_scenario(options.scenario))
+        parameters = {{"codec", "vp9-profile0-webm"},
+                      {"source", "opaque-vp9.webm"},
+                      {"width", 32},
+                      {"height", 16},
+                      {"frame_durations_ms", {50, 50, 50, 50}},
+                      {"reference", "production-video-four-frame-v1"}};
     else if (is_cpu_scenario(options.scenario))
         parameters = {{"work_units", options.cpu_work_units},
                       {"input", options.scenario == "cpu-lua"
@@ -276,6 +283,17 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             parameters["tint"].get<double>() > 1.0 ||
             parameters["reference"] != "native-shader-grid-tint-v1") {
             reason = "invalid native shader material benchmark parameters";
+            return false;
+        }
+    } else if (is_video_scenario(scenario)) {
+        if (!has_fields(parameters, {"codec", "source", "width", "height", "frame_durations_ms",
+                                     "reference"}) ||
+            parameters["codec"] != "vp9-profile0-webm" ||
+            parameters["source"] != "opaque-vp9.webm" || parameters["width"] != 32 ||
+            parameters["height"] != 16 ||
+            parameters["frame_durations_ms"] != Json::array({50, 50, 50, 50}) ||
+            parameters["reference"] != "production-video-four-frame-v1") {
+            reason = "invalid current video workload fixture identity";
             return false;
         }
     } else if (is_cpu_scenario(scenario)) {
@@ -575,24 +593,28 @@ std::string encode_result(const Options& options, const Environment& environment
                  {"measured_frames", trial.measured_frames},
                  {"measured_wall_seconds",
                   trial.measured_frames > 0 ? Json(trial.measured_wall_seconds) : Json(nullptr)},
-                 {"frame_loop_cadence_hz", !is_cpu_scenario(options.scenario) &&
-                                                   trial.outcome == "complete" &&
-                                                   trial.measured_wall_seconds > 0.0
-                                               ? Json(static_cast<double>(trial.measured_frames) /
-                                                      trial.measured_wall_seconds)
-                                               : Json(nullptr)},
+                 {"frame_loop_cadence_hz",
+                  !is_cpu_scenario(options.scenario) && options.scenario != "video-decode" &&
+                          trial.outcome == "complete" && trial.measured_wall_seconds > 0.0
+                      ? Json(static_cast<double>(trial.measured_frames) /
+                             trial.measured_wall_seconds)
+                      : Json(nullptr)},
                  {"frame_wall_ms", distribution(trial.wall_frame)},
                  {"cpu_operation_ms", distribution(trial.cpu_operation)},
                  {"diagnostic", options.profile == "diagnostic" && trial.outcome == "complete"
                                     ? diagnostic_result(trial.diagnostic)
                                     : Json(nullptr)},
                  {"raw_samples", std::move(raw)}});
-            if (is_cpu_scenario(options.scenario))
-                trials.back()["cpu_work_batches_per_second"] =
+            if (is_cpu_scenario(options.scenario) || options.scenario == "video-decode") {
+                const char* throughput_key = is_cpu_scenario(options.scenario)
+                                                 ? "cpu_work_batches_per_second"
+                                                 : "video_decode_work_units_per_second";
+                trials.back()[throughput_key] =
                     trial.outcome == "complete" && trial.measured_wall_seconds > 0.0
                         ? Json(static_cast<double>(trial.measured_frames) /
                                trial.measured_wall_seconds)
                         : Json(nullptr);
+            }
         }
         const auto group = [](const TrialGroupSummary& value) {
             return Json{{"completed_trials", value.completed},
@@ -644,21 +666,33 @@ std::string encode_result(const Options& options, const Environment& environment
              {"aggregate",
               {{"measured_frames", scenario.measured_frames},
                {"measured_wall_seconds", scenario.measured_wall_seconds},
-               {"frame_loop_cadence_hz",
-                !is_cpu_scenario(options.scenario) && scenario.measured_wall_seconds > 0.0
-                    ? Json(static_cast<double>(scenario.measured_frames) /
-                           scenario.measured_wall_seconds)
-                    : Json(nullptr)},
+               {"frame_loop_cadence_hz", !is_cpu_scenario(options.scenario) &&
+                                                 options.scenario != "video-decode" &&
+                                                 scenario.measured_wall_seconds > 0.0
+                                             ? Json(static_cast<double>(scenario.measured_frames) /
+                                                    scenario.measured_wall_seconds)
+                                             : Json(nullptr)},
                {"frame_wall_ms", distribution(scenario.wall_frame)},
                {"cpu_operation_ms", distribution(scenario.cpu_operation)}}}});
-        if (is_cpu_scenario(options.scenario))
-            scenarios.back()["aggregate"]["cpu_work_batches_per_second"] =
+        if (is_cpu_scenario(options.scenario) || options.scenario == "video-decode") {
+            const char* throughput_key = is_cpu_scenario(options.scenario)
+                                             ? "cpu_work_batches_per_second"
+                                             : "video_decode_work_units_per_second";
+            scenarios.back()["aggregate"][throughput_key] =
                 scenario.measured_wall_seconds > 0.0
                     ? Json(static_cast<double>(scenario.measured_frames) /
                            scenario.measured_wall_seconds)
                     : Json(nullptr);
+        }
     }
     const auto encode_graphics = [](const Environment& environment) -> Json {
+        const auto& backend = environment.video_codec_backend;
+        Json hardware_decode = nullptr;
+        if (backend == "libvpx-vp9")
+            hardware_decode = false;
+        else if (backend == "nvdec-vp9" || backend == "va-api-vp9" || backend == "mediacodec-vp9" ||
+                 backend == "mediafoundation-vp9" || backend == "videotoolbox-vp9")
+            hardware_decode = true;
         return {
             {"platform", environment.platform},
             {"browser", environment.browser},
@@ -667,6 +701,16 @@ std::string encode_result(const Options& options, const Environment& environment
             {"renderer", environment.renderer.empty() ? Json(nullptr) : Json(environment.renderer)},
             {"frame_path",
              environment.frame_path.empty() ? Json(nullptr) : Json(environment.frame_path)},
+            {"video_decode_backend", environment.video_codec_backend.empty()
+                                         ? Json(nullptr)
+                                         : Json(environment.video_codec_backend)},
+            {"video_decode_fallback", environment.video_codec_fallback.empty()
+                                          ? Json(nullptr)
+                                          : Json(environment.video_codec_fallback)},
+            {"video_upload_pipeline", environment.video_upload_pipeline.empty()
+                                          ? Json(nullptr)
+                                          : Json(environment.video_upload_pipeline)},
+            {"video_hardware_decode_confirmed", hardware_decode},
             {"gpu_vendor_id",
              environment.gpu_vendor_id < 0 ? Json(nullptr) : Json(environment.gpu_vendor_id)},
             {"gpu_device_id",
