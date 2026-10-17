@@ -79,6 +79,15 @@ void certify(const std::filesystem::path& source)
                                   {"collection", "rooms"},
                                   {"id", "missing"}});
     require(unknown.at("ok") == false, "Unknown native records must be rejected.");
+    require(!command({{"action", "entity-delete"},
+                      {"projectRoot", root},
+                      {"collection", "../../outside"},
+                      {"id", "project"},
+                      {"dryRun", false},
+                      {"sourceRevision", baseline_revision}})
+                    .value("ok", false) &&
+                read(path) == baseline,
+            "Native entity mutations reject physical path injection via collection names.");
 
     const auto runtime_preparation =
         command({{"action", "runtime-package-preparation"}, {"projectRoot", root}});
