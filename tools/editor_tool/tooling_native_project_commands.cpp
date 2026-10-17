@@ -199,6 +199,8 @@ Json operate(const Json& request)
         return native_project_localization_reconcile(request, *session, root);
     if (action == "entity-create" || action == "entity-rename" || action == "entity-delete")
         return native_project_entity(request, *session, root);
+    if (action == "entity-usages")
+        return native_project_entity_usages(request, *session, root);
     if (action == "project-export" || action == "export-preparation" ||
         action == "runtime-package-preparation")
         return native_project_bundle(request, session.get(), root);

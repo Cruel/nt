@@ -59,6 +59,17 @@ struct CursorSourceOccurrence {
     std::size_t column = 1;
 };
 
+struct LuaLiteralOccurrence {
+    std::string value;
+    std::string kind; // quoted or long-bracket
+    std::size_t start_utf16 = 0;
+    std::size_t end_utf16 = 0;
+    std::size_t line = 1;
+    std::size_t column = 1;
+    std::size_t end_line = 1;
+    std::size_t end_column = 1;
+};
+
 struct SourceAnalysis {
     std::string source_path;
     std::string source_revision;
@@ -69,11 +80,15 @@ struct SourceAnalysis {
     std::vector<Diagnostic> diagnostics;
     std::vector<ManagedSourceOccurrence> messages;
     std::vector<SourceReference> references;
+    // Complete native lexical evidence for CLI source usages, including
+    // escaped and long-bracket strings. Not part of the Node addon payload.
+    std::vector<LuaLiteralOccurrence> lua_literals;
     std::vector<CursorSourceOccurrence> cursors;
 };
 
 // Certification-only native analyzer. Does not execute scripts, parse a Project
 // through TypeScript, or modify the physical source being inspected.
-SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_view text);
+SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_view text,
+                                    bool collect_lexical_literals = false);
 
 } // namespace noveltea::authoring

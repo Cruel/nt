@@ -474,7 +474,7 @@ bool is_first_root_key(fy_node* root, fy_node* parent, fy_node* key)
 // Reject edits that change any other field, container type, or array length.
 // This protects against valid YAML that accidentally reparses with different structure.
 bool same_outside_path(const Json& before, const Json& after, const std::vector<std::string>& parts,
-                       std::size_t depth = 0)
+                       bool removing_sequence_item, std::size_t depth = 0)
 {
     if (depth == parts.size())
         return true;
@@ -491,9 +491,10 @@ bool same_outside_path(const Json& before, const Json& after, const std::vector<
         if (depth + 1 == parts.size())
             return true;
         return before.contains(selected) && after.contains(selected) &&
-               same_outside_path(before.at(selected), after.at(selected), parts, depth + 1);
+               same_outside_path(before.at(selected), after.at(selected), parts,
+                                 removing_sequence_item, depth + 1);
     }
-    if (before.is_array() && after.is_array() && before.size() == after.size()) {
+    if (before.is_array() && after.is_array()) {
         if (selected.empty() || (selected.size() > 1 && selected.front() == '0') ||
             !std::all_of(selected.begin(), selected.end(),
                          [](unsigned char c) { return std::isdigit(c); }))
@@ -501,11 +502,21 @@ bool same_outside_path(const Json& before, const Json& after, const std::vector<
         const auto index = std::stoull(selected);
         if (index >= before.size())
             return false;
+        if (removing_sequence_item && depth + 1 == parts.size() &&
+            before.size() == after.size() + 1) {
+            for (std::size_t i = 0; i < after.size(); ++i)
+                if (after.at(i) != before.at(i < index ? i : i + 1))
+                    return false;
+            return true;
+        }
+        if (before.size() != after.size())
+            return false;
         for (std::size_t i = 0; i < before.size(); ++i)
             if (i != index && before.at(i) != after.at(i))
                 return false;
         return depth + 1 == parts.size() ||
-               same_outside_path(before.at(index), after.at(index), parts, depth + 1);
+               same_outside_path(before.at(index), after.at(index), parts, removing_sequence_item,
+                                 depth + 1);
     }
     return false;
 }
@@ -614,6 +625,56 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         return std::string(source);
     const bool commented = has_physical_comment(source, node, key);
     if (edit.operation == YamlEditOperation::Remove) {
+        if (!pair && parent && fy_node_is_sequence(parent)) {
+            const auto head = mark_offset(fy_node_get_start_token(node));
+            if (!head)
+                throw SourceFailure("Cannot locate the source-backed sequence item.");
+            const auto first_line = start_of_line(source, *head);
+            const auto dash = source.find_first_not_of(' ', first_line);
+            if (dash == std::string_view::npos || dash >= source.size() || source[dash] != '-' ||
+                dash > *head ||
+                (dash + 1 < source.size() && source[dash + 1] != ' ' && source[dash + 1] != '\n'))
+                throw SourceFailure("Cannot safely identify a YAML sequence item marker.");
+            const auto indent = dash - first_line;
+            auto end = after_line(source, *head);
+            while (end < source.size()) {
+                const auto nonspace = source.find_first_not_of(' ', end);
+                if (nonspace == std::string_view::npos)
+                    break;
+                if (nonspace == end || source[nonspace] == '\n' || source[nonspace] == '\r') {
+                    end = after_line(source, end);
+                    continue;
+                }
+                if (nonspace - end <= indent)
+                    break;
+                end = after_line(source, end);
+            }
+            if (commented && edit.comments == YamlCommentDisposition::Keep)
+                throw SourceFailure("Removing an annotated YAML sequence item requires review.");
+            if (edit.comments == YamlCommentDisposition::Keep &&
+                source.substr(first_line, end - first_line).find('#') != std::string_view::npos)
+                throw SourceFailure("Removing a commented YAML sequence item requires review.");
+            std::string result(source);
+            if (fy_node_sequence_item_count(parent) == 1) {
+                const std::vector<std::string> grandparent_path(parts.begin(), parts.end() - 2);
+                auto* grandparent = find_node(parsed.root(), grandparent_path);
+                auto* owner_pair = mapping_pair(grandparent, parts[parts.size() - 2]);
+                if (!owner_pair ||
+                    has_physical_comment(source, parent, fy_node_pair_key(owner_pair)))
+                    throw SourceFailure("Cannot replace a commented YAML sequence owner.");
+                const auto owner_key =
+                    mark_offset(fy_node_get_start_token(fy_node_pair_key(owner_pair)));
+                if (!owner_key)
+                    throw SourceFailure("Cannot locate the emptying sequence owner.");
+                const auto owner_line = start_of_line(source, *owner_key);
+                std::string prefix(source.substr(owner_line, *owner_key - owner_line));
+                prefix += parts[parts.size() - 2] + ": []\n";
+                result.replace(owner_line, end - owner_line, prefix);
+            } else {
+                result.erase(first_line, end - first_line);
+            }
+            return result;
+        }
         if (!pair || !parent || fy_node_get_style(parent) == FYNS_FLOW)
             throw SourceFailure("Cannot safely remove a non-mapping YAML entry.");
         if (commented && edit.comments == YamlCommentDisposition::Keep)
@@ -783,13 +844,23 @@ YamlSourceResult edit_yaml_source(std::string_view source, const std::vector<Yam
             const auto parts = split_pointer(edit.path);
             const auto old_json = Json::parse(before.source_json);
             const auto new_json = Json::parse(checked.source_json);
-            if (!same_outside_path(old_json, new_json, parts))
+            if (!same_outside_path(old_json, new_json, parts,
+                                   edit.operation == YamlEditOperation::Remove))
                 throw SourceFailure("YAML edit changed an unrelated value or container type.");
             const auto replacement = edit.operation == YamlEditOperation::Remove
                                          ? Json::null()
                                          : Json::parse(edit.value_json);
             const auto* final_value = json_at_path(new_json, parts);
             if (edit.operation == YamlEditOperation::Remove) {
+                if (parts.size() > 1) {
+                    const auto parent_parts =
+                        std::vector<std::string>(parts.begin(), parts.end() - 1);
+                    const auto* array_before = json_at_path(old_json, parent_parts);
+                    const auto* array_after = json_at_path(new_json, parent_parts);
+                    if (array_before && array_after && array_before->is_array() &&
+                        array_after->is_array() && array_before->size() == array_after->size() + 1)
+                        continue;
+                }
                 if (final_value)
                     throw SourceFailure("YAML removal still contains the selected field.");
                 continue;

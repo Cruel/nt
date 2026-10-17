@@ -88,20 +88,36 @@ YAML scalar references are classified by their structural owner/target types:
 the native adapter rewrites Room exits and known Room material references as
 exact references, not ambiguous prose. `--allow-possible-source-references`
 only acknowledges plausible lexical references in source/prose fields; it
-does not override missing repairs for required typed references, even with
-`--force`. Refusing an unsafe operation leaves the source files unchanged.
+does not override missing repairs for required typed references. The separate
+`--force` deletion contract deliberately permits known incoming references to
+remain dangling, as in the installed CLI; it does not authorize rename
+without semantic repairs. Unforced delete automatically removes known Room
+cast/overlay references and clears declared nullable Room references, using
+source-aware sequence edits that refuse to silently discard YAML annotations.
+Before a non-forced structural commit, the adapter validates the prospective
+complete disk Project in an isolated staging root; invalid dependents block
+publication of every changed source. Refusing an unsafe operation leaves
+the original source files unchanged.
 Structural renames also remap `i18n/messages.yaml` structured-Message paths
 in the same revision-checked transaction, preserving existing derived or
 explicit Message UUIDs (including defaulted Room descriptions) across multiple
 renames. Deleting records with translated structured Messages is rejected
 until a transaction can explicitly preserve that history.
-Grouped Layout
-sources commit `layout.yaml` and their RML/RCSS/Lua companions together.
+Grouped Layout sources commit `layout.yaml` and their RML/RCSS/Lua companions together.
 `runtime-package-preparation` verifies complete disk-owned record contributors,
 the selected runtime profile, and content-revision-pinned inputs. Final compiled
 artifact creation, shader lowering, and ZIP publication still use the existing
 Runtime Package pipeline and native package exporter, not a separate partial
 implementation.
+
+The certification-only `entity-usages` reader also projects typed reference
+edges from validated native record snapshots, including Condition Variable,
+Room, Material and Asset references, and builds Lua lexical evidence from
+inline and Project-owned script sources. Canonical edge IDs, roles, source
+paths and occurrence locations are compared against installed-headless CLI
+`usages` results. Source references outside the currently certified paths
+remain a graph-coverage gate for #501 and must not be silently treated as
+reference-free by mutating operations.
 
 Full parity remains a cutover gate: rich free-form/localization workflow
 presentation and some semantic reference-repair/forced-delete cases still
