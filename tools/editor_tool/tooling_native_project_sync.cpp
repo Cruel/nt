@@ -1164,9 +1164,19 @@ Json native_project_localization_reconcile(const Json& request, ProjectSession& 
     const auto patched = session.patch(session.snapshot().working_revision, patches, preconditions);
     if (!patched.accepted)
         return failure(patched.error);
-    if (!patched.snapshot.valid)
-        return failure("Native reconciliation would leave an invalid dependent Project; "
-                       "no localization source was written.");
+    if (!patched.snapshot.valid) {
+        Json diagnostics = Json::array();
+        for (const auto& issue : patched.snapshot.diagnostics) {
+            diagnostics.push_back(
+                {{"code", issue.code}, {"path", issue.path}, {"message", issue.message}});
+            if (diagnostics.size() == 12)
+                break;
+        }
+        return {{"ok", false},
+                {"error", "Native reconciliation would leave an invalid dependent Project; "
+                          "no localization source was written."},
+                {"diagnostics", diagnostics}};
+    }
     std::vector<std::string> owners(affected.begin(), affected.end());
     const auto saved = session.save_owners(patched.snapshot.working_revision, owners, false,
                                            TransactionDecision::KeepComments);
