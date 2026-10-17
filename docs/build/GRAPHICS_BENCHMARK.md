@@ -900,6 +900,91 @@ Use the same workload separately under `--profile clean` for authoritative
 comparisons. GPU timing/counter availability varies by backend. Never compare
 Debug, Xvfb or software-rendered numbers as real-device performance.
 
+## Detailed Engine and RmlUi Diagnostic stages (#443)
+
+The separate **Diagnostic** profile (`--profile diagnostic`) extends the existing
+per-trial CPU and asynchronous bgfx counters with **owner-specific stages**.
+Clean runs never call the stage recording path: Engine tick checkpoints,
+RmlUi timers, report observations, bgfx debug-profiler views, and validation
+happen only when requested. The benchmark does not initialize the Engine
+devtools frontend or enable periodic Engine performance logging.
+
+The `scenarios[].trials[].diagnostic` object contains distributions (or
+`null` when unsupported) for:
+
+- `engine_events_ms`, `engine_jobs_ms`, `engine_assets_ms`,
+  `engine_update_ms`, `engine_runtime_ms`, `engine_layout_ms`, and
+  `engine_render_ms`:
+  owner-thread checkpoints inside the **production Engine** tick. The runtime
+  stage includes GameHost advancement and presentation/audio orchestration.
+  `engine_update_ms` covers jobs through layout and overlaps its component
+  stages. Layout measures Engine presentation/layout realization, **not** isolated CSS
+  layout. Render includes CPU-side submission, `bgfx::frame()` and any waits:
+  it is not GPU time. These values exist in Engine-owned scenarios, including
+  Compiled Projects; raw/standalone scenarios return `null`.
+- `rmlui_update_ms` and `rmlui_render_ms`: production/standalone RmlUi
+  Context Update and Render CPU calls. Update **includes** RmlUi layout and
+  style recalculation when invalidated; there is no separate trustworthy
+  internal CSS-layout-only timer. Render includes adapter submission, not the
+  subsequent bgfx handoff. Non-UI scenarios return `null`.
+- `ui_fixture_mutation_ms`: benchmark-side changes to standalone fixture
+  CSS/text before RmlUi Update. Separated so Update measures RmlUi work
+  rather than the generator or test harness. For Engine-hosted scenarios,
+  fixture changes happen outside `Engine::tick()` and this field is `null`.
+
+The previous `cpu_update_ms`/`cpu_submission_ms` compatibility labels
+remain available inside the current report shape; use owner-specific fields
+for detailed attribution. Report strings `engine_scope`, `rmlui_scope`,
+`ui_fixture_scope`, and `stage_additivity` explicitly describe the stage
+boundaries. These are **non-additive** across owners or with total frame-loop
+CPU time: nested calls, overhead, bgfx waits, asynchronous snapshots, and
+presentation cadence prevent naive summation.
+
+The bgfx `draw_calls`, `compute_calls`, `blit_calls`, `view_count`,
+`resource_textures`, `resource_framebuffers`, `resource_programs`,
+`bgfx_waitRender/waitSubmit` (JSON keys: `bgfx_wait_render_ms` and
+`bgfx_wait_submit_ms`) come from lagging completed-frame snapshots and may
+repeat. An unsupported or empty profiler view count is `null`, **not**
+zero drawn passes. GPU time still requires identified matching measured
+submission/completion IDs; production Engine ticks do not export such IDs, so
+their `gpu_execution_ms` remains `null`. No GPU fence or per-frame logging
+is inserted into the measurement interval.
+
+For native external profiling, run the optimized benchmark process without
+the dashboard and collect external profiler traces separately, keeping the
+reference parameters identical across clean and diagnostic runs:
+
+```sh
+./scripts/run-benchmark.sh --no-build --no-ui --scenario standalone-rmlui-scaling \
+  --ui-elements 96 --ui-text-lines 12 --ui-visible-contexts 2 \
+  --ui-empty-contexts 2 --ui-hidden-contexts 2 --ui-text-mode dynamic \
+  --ui-redraw dirty-only --profile diagnostic --frames 300 --repeats 3
+./scripts/run-benchmark.sh --no-build --no-ui --scenario integrated-rmlui-scaling \
+  --ui-elements 96 --ui-text-lines 12 --ui-visible-contexts 2 \
+  --ui-empty-contexts 2 --ui-hidden-contexts 2 --ui-text-mode dynamic \
+  --ui-redraw continuous --profile diagnostic --frames 300 --repeats 3
+./scripts/run-benchmark.sh --no-build --no-ui --scenario engine-compiled-menu \
+  --profile diagnostic --frames 300 --repeats 3
+```
+
+Use an external CPU sampler (for example `perf`, Instruments or Tracy when
+supported by the build) and a platform GPU frame debugger **outside** the
+timed baseline comparison. For example, `perf record -g -- <benchmark binary>
+--no-ui ...` can sample the process, with symbols depending on the build.
+Do not attach profiling overhead to authoritative Clean results. Physical GPU
+counters, temperature and clock telemetry depend on the target platform;
+Xvfb/software GL timing is useful for correctness only.
+
+Correctness coverage:
+`noveltea_benchmark_runner`, `noveltea_benchmark_report`, and
+`noveltea_benchmark_comparison` check stage aggregation, unavailable fields,
+strict schema validation, and Clean-mode isolation. Existing standalone and
+integrated scaling graphics smokes additionally feed the diagnostic report
+validator (`noveltea_benchmark_standalone_diagnostic_validation` and
+`noveltea_benchmark_integrated_diagnostic_validation`) to require the
+correct owner-specific stage distributions and unavailable scopes, **not**
+any FPS or millisecond threshold.
+
 ## Standalone RmlUi reference (#426)
 
 `--scenario standalone-rmlui-simple` uses the same Scenario lifecycle and

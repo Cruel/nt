@@ -803,8 +803,11 @@ struct RmlUiScenario final : EmptyBgfxScenario {
         EmptyBgfxScenario::diagnostic_frame(observation);
         const auto stages = ui.last_diagnostic_stages();
         observation.cpu_update_ms = stages.update_seconds * 1000.0;
+        observation.rmlui_update_ms = observation.cpu_update_ms;
+        observation.ui_fixture_mutation_ms = stages.fixture_mutation_seconds * 1000.0;
         // RmlUi Render() submits its draws; this stays distinct from bgfx::frame().
         observation.cpu_submission_ms = stages.render_seconds * 1000.0;
+        observation.rmlui_render_ms = observation.cpu_submission_ms;
     }
     bool cleanup(std::string& reason) override
     {

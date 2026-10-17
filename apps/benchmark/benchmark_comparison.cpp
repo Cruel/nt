@@ -64,6 +64,77 @@ bool valid_distribution(const Json& value)
            value["min_ms"] <= value["mean_ms"] && value["mean_ms"] <= value["max_ms"];
 }
 
+bool valid_counter(const Json& value)
+{
+    if (value.is_null())
+        return true;
+    if (!fields(value, {"snapshots", "mean", "min", "max"}) ||
+        !unsigned_count(value["snapshots"]) || value["snapshots"] == 0 ||
+        !finite_nonnegative(value["mean"]) || !unsigned_count(value["min"]) ||
+        !unsigned_count(value["max"]))
+        return false;
+    return value["min"] <= value["mean"] && value["mean"] <= value["max"];
+}
+
+bool valid_diagnostic(const Json& value)
+{
+    if (value.is_null())
+        return true;
+    if (!fields(value, {"observations",
+                        "bgfx_stats_snapshots",
+                        "stats_scope",
+                        "cpu_update_ms",
+                        "cpu_submission_ms",
+                        "rmlui_update_ms",
+                        "rmlui_render_ms",
+                        "ui_fixture_mutation_ms",
+                        "engine_events_ms",
+                        "engine_jobs_ms",
+                        "engine_assets_ms",
+                        "engine_update_ms",
+                        "engine_runtime_ms",
+                        "engine_layout_ms",
+                        "engine_render_ms",
+                        "engine_scope",
+                        "rmlui_scope",
+                        "ui_fixture_scope",
+                        "stage_additivity",
+                        "bgfx_frame_cpu_ms",
+                        "bgfx_render_thread_ms",
+                        "bgfx_wait_render_ms",
+                        "bgfx_wait_submit_ms",
+                        "gpu_execution_ms",
+                        "gpu_scope",
+                        "draw_calls",
+                        "compute_calls",
+                        "blit_calls",
+                        "view_count",
+                        "view_scope",
+                        "resource_textures",
+                        "resource_framebuffers",
+                        "resource_programs"}) ||
+        !unsigned_count(value["observations"]) || !unsigned_count(value["bgfx_stats_snapshots"]) ||
+        value["observations"] == 0)
+        return false;
+    for (const auto* field : {"stats_scope", "gpu_scope", "view_scope", "engine_scope",
+                              "rmlui_scope", "ui_fixture_scope", "stage_additivity"})
+        if (!value[field].is_string() || value[field].get<std::string>().empty())
+            return false;
+    for (const auto* field :
+         {"cpu_update_ms", "cpu_submission_ms", "rmlui_update_ms", "rmlui_render_ms",
+          "ui_fixture_mutation_ms", "engine_events_ms", "engine_jobs_ms", "engine_assets_ms",
+          "engine_update_ms", "engine_runtime_ms", "engine_layout_ms", "engine_render_ms",
+          "bgfx_frame_cpu_ms", "bgfx_render_thread_ms", "bgfx_wait_render_ms",
+          "bgfx_wait_submit_ms", "gpu_execution_ms"})
+        if (!valid_distribution(value[field]))
+            return false;
+    for (const auto* field : {"draw_calls", "compute_calls", "blit_calls", "view_count",
+                              "resource_textures", "resource_framebuffers", "resource_programs"})
+        if (!valid_counter(value[field]))
+            return false;
+    return true;
+}
+
 bool valid_graphics(const Json& value)
 {
     if (value.is_null())
@@ -252,7 +323,9 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                 !valid_distribution(trial["frame_wall_ms"]) ||
                 !valid_distribution(trial["cpu_operation_ms"]) ||
                 !valid_raw_samples(trial["raw_samples"]) ||
-                (!trial["diagnostic"].is_null() && !trial["diagnostic"].is_object())) {
+                !valid_diagnostic(trial["diagnostic"]) ||
+                ((config.profile == "diagnostic" && trial["outcome"] == "complete") !=
+                 !trial["diagnostic"].is_null())) {
                 error = "invalid trial measurement";
                 return false;
             }

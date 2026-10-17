@@ -349,6 +349,27 @@ if(BUILD_TESTING AND NOT ANDROID)
                 PASS_REGULAR_EXPRESSION "complete: 120 frames across 2 trial"
                 TIMEOUT 120)
         endforeach()
+        if(NOVELTEA_BENCHMARK_NODE)
+            foreach(project_case compiled-empty compiled-menu)
+                add_test(NAME "noveltea_benchmark_${project_case}_diagnostic_smoke"
+                    COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                        --no-ui --scenario "engine-${project_case}" --profile diagnostic
+                        --clock-policy realtime --smoke --repeats 1
+                        --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-${project_case}-diagnostic.json")
+                set_tests_properties("noveltea_benchmark_${project_case}_diagnostic_smoke" PROPERTIES
+                    LABELS "benchmark;graphics;smoke"
+                    FIXTURES_SETUP "benchmark_${project_case}_diagnostic"
+                    TIMEOUT 120)
+                add_test(NAME "noveltea_benchmark_${project_case}_diagnostic_validation"
+                    COMMAND "${NOVELTEA_BENCHMARK_NODE}"
+                        "${PROJECT_SOURCE_DIR}/scripts/benchmark-diagnostic-validate.mjs"
+                        "${CMAKE_BINARY_DIR}/benchmarks/ctest-${project_case}-diagnostic.json"
+                        "engine-${project_case}")
+                set_tests_properties("noveltea_benchmark_${project_case}_diagnostic_validation" PROPERTIES
+                    LABELS "benchmark;graphics;smoke"
+                    FIXTURES_REQUIRED "benchmark_${project_case}_diagnostic")
+            endforeach()
+        endif()
         add_test(NAME noveltea_benchmark_empty_engine_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario engine-empty --dashboard-smoke
@@ -434,6 +455,7 @@ if(BUILD_TESTING AND NOT ANDROID)
                 --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-rmlui-scaling.json")
         set_tests_properties(noveltea_benchmark_standalone_rmlui_scaling_smoke PROPERTIES
             LABELS "benchmark;graphics;smoke"
+            FIXTURES_SETUP benchmark_standalone_diagnostic
             PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
             TIMEOUT 120)
         add_test(NAME noveltea_benchmark_integrated_rmlui_scaling_smoke
@@ -445,8 +467,26 @@ if(BUILD_TESTING AND NOT ANDROID)
                 --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-scaling.json")
         set_tests_properties(noveltea_benchmark_integrated_rmlui_scaling_smoke PROPERTIES
             LABELS "benchmark;graphics;smoke"
+            FIXTURES_SETUP benchmark_integrated_diagnostic
             PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
             TIMEOUT 180)
+        if(NOVELTEA_BENCHMARK_NODE)
+            foreach(owner standalone integrated)
+                if(owner STREQUAL "standalone")
+                    set(report_name "ctest-rmlui-scaling.json")
+                else()
+                    set(report_name "ctest-integrated-rmlui-scaling.json")
+                endif()
+                add_test(NAME "noveltea_benchmark_${owner}_diagnostic_validation"
+                    COMMAND "${NOVELTEA_BENCHMARK_NODE}"
+                        "${PROJECT_SOURCE_DIR}/scripts/benchmark-diagnostic-validate.mjs"
+                        "${CMAKE_BINARY_DIR}/benchmarks/${report_name}"
+                        "${owner}-rmlui-scaling")
+                set_tests_properties("noveltea_benchmark_${owner}_diagnostic_validation" PROPERTIES
+                    LABELS "benchmark;graphics;smoke"
+                    FIXTURES_REQUIRED "benchmark_${owner}_diagnostic")
+            endforeach()
+        endif()
         add_test(NAME noveltea_benchmark_standalone_rmlui_effects_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario standalone-rmlui-effects --smoke --repeats 2

@@ -120,6 +120,26 @@ Json diagnostic_result(const DiagnosticSummary& value)
         {"stats_scope", "asynchronous bgfx completed-frame snapshots; may repeat or lag; "
                         "not paired to CPU frame indices"},
         {"cpu_update_ms", distribution(value.cpu_update_ms)},
+        {"rmlui_update_ms", distribution(value.rmlui_update_ms)},
+        {"rmlui_render_ms", distribution(value.rmlui_render_ms)},
+        {"ui_fixture_mutation_ms", distribution(value.ui_fixture_mutation_ms)},
+        {"engine_events_ms", distribution(value.engine_events_ms)},
+        {"engine_jobs_ms", distribution(value.engine_jobs_ms)},
+        {"engine_assets_ms", distribution(value.engine_assets_ms)},
+        {"engine_update_ms", distribution(value.engine_update_ms)},
+        {"engine_runtime_ms", distribution(value.engine_runtime_ms)},
+        {"engine_layout_ms", distribution(value.engine_layout_ms)},
+        {"engine_render_ms", distribution(value.engine_render_ms)},
+        {"engine_scope", "owner-thread production Engine tick; update overlaps the jobs, "
+                         "assets, runtime and layout phases; events, jobs, assets, "
+                         "runtime, layout realization, render; render includes CPU-side "
+                         "presentation and bgfx::frame blocking, not GPU execution"},
+        {"rmlui_scope", "RmlUi Context::Update() and Context::Render() CPU; Update includes "
+                        "CSS layout when dirty; Render includes submission, not bgfx handoff"},
+        {"ui_fixture_scope", "benchmark-side workload mutations before standalone RmlUi Update; "
+                             "separate from Update/Render and absent for Engine-hosted UI"},
+        {"stage_additivity", "non-additive: nested/overlapping boundaries, clock overhead and "
+                             "async bgfx stats; do not sum across owners"},
         {"cpu_submission_ms", distribution(value.cpu_submission_ms)},
         {"bgfx_frame_cpu_ms", distribution(value.bgfx_frame_cpu_ms)},
         {"bgfx_render_thread_ms", distribution(value.bgfx_render_thread_ms)},

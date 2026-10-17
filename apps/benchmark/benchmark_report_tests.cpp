@@ -430,6 +430,11 @@ int main()
     trial.measured_wall_seconds = 0.02;
     trial.cpu_operation.count = 2;
     trial.cpu_operation.mean_ms = 8.0;
+    trial.cpu_operation.min_ms = 8.0;
+    trial.cpu_operation.max_ms = 8.0;
+    trial.cpu_operation.p50_ms = 8.0;
+    trial.cpu_operation.p95_ms = 8.0;
+    trial.cpu_operation.p99_ms = 8.0;
     trial.raw_samples = {{0.01, 0.008}, {0.01, 0.008}};
 
     noveltea::benchmark::ScenarioResult scenario;
@@ -581,6 +586,11 @@ int main()
     diagnostic_metrics.observations = 2;
     diagnostic_metrics.bgfx_stats_observations = 2;
     diagnostic_metrics.cpu_submission_ms = trial.cpu_operation;
+    diagnostic_metrics.engine_update_ms = trial.cpu_operation;
+    diagnostic_metrics.engine_layout_ms = trial.cpu_operation;
+    diagnostic_metrics.engine_runtime_ms = trial.cpu_operation;
+    diagnostic_metrics.rmlui_update_ms = trial.cpu_operation;
+    diagnostic_metrics.rmlui_render_ms = trial.cpu_operation;
     diagnostic_metrics.bgfx_wait_render_ms = trial.cpu_operation;
     diagnostic_metrics.draw_calls = {2, 1.0, 1, 1};
     const auto diagnostic_result = nlohmann::json::parse(encode_result(original, {}, suite));
@@ -592,6 +602,13 @@ int main()
                    diagnostic_result["timing"]["instrumentation_control"]["incremental_ns"] ==
                        20.0 &&
                    diagnostic_trial["cpu_submission_ms"]["mean_ms"] == 8.0 &&
+                   diagnostic_trial["engine_layout_ms"]["mean_ms"] == 8.0 &&
+                   diagnostic_trial["engine_update_ms"]["p50_ms"] == 8.0 &&
+                   diagnostic_trial["engine_runtime_ms"]["samples"] == 2 &&
+                   diagnostic_trial["rmlui_update_ms"]["p95_ms"] == 8.0 &&
+                   diagnostic_trial["rmlui_render_ms"]["mean_ms"] == 8.0 &&
+                   diagnostic_trial["engine_scope"].is_string() &&
+                   diagnostic_trial["stage_additivity"].is_string() &&
                    diagnostic_trial["bgfx_wait_render_ms"]["mean_ms"] == 8.0 &&
                    diagnostic_trial["gpu_execution_ms"].is_null() &&
                    diagnostic_trial["draw_calls"]["mean"] == 1.0 &&

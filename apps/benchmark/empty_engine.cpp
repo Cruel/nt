@@ -3,6 +3,7 @@
 #include "benchmark_assets.hpp"
 #include "benchmark_android_lifecycle.hpp"
 #include "benchmark_bgfx_diagnostics.hpp"
+#include "benchmark_engine_diagnostics.hpp"
 #include "benchmark_window_size.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
@@ -201,6 +202,11 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     environment_.world_raster_width = presentation.world_raster.size.width;
     environment_.world_raster_height = presentation.world_raster.size.height;
 
+    EngineTooling::set_engine_benchmark_timing(*engine_, options.profile == "diagnostic");
+    EngineTooling::set_ui_benchmark_timing(*engine_, options.profile == "diagnostic" &&
+                                                         (workload_ == EngineWorkload::StaticMenu ||
+                                                          workload_ == EngineWorkload::FeatureLab));
+
     // Submit real Engine frames and allow initial renderer work to settle
     // before Ready, including --smoke's zero-duration warmup.
     for (int frame = 0; frame < 4; ++frame) {
@@ -279,6 +285,17 @@ bool EmptyEngine::frame(std::string& reason)
 void EmptyEngine::diagnostic_frame(DiagnosticObservation& observation)
 {
     capture_bgfx_diagnostics(observation);
+    if (engine_) {
+        capture_engine_stage_diagnostics(*engine_, observation);
+        if (workload_ == EngineWorkload::StaticMenu || workload_ == EngineWorkload::FeatureLab) {
+            if (const auto stages = EngineTooling::ui_benchmark_frame_timing(*engine_)) {
+                observation.cpu_update_ms = stages->first * 1000.0;
+                observation.cpu_submission_ms = stages->second * 1000.0;
+                observation.rmlui_update_ms = observation.cpu_update_ms;
+                observation.rmlui_render_ms = observation.cpu_submission_ms;
+            }
+        }
+    }
     // Engine owns bgfx::frame(); its submitted frame ID is not exported, so
     // render-thread snapshots cannot establish a GPU measurement window.
 }
