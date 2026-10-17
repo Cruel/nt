@@ -16,6 +16,8 @@ enum class DashboardAction {
     None,
     Run,
     QuickSuite,
+    Capture,
+    CaptureEngine,
     Exit,
 };
 
@@ -32,7 +34,8 @@ public:
     void shutdown();
     void process_event(const SDL_Event& event);
     DashboardAction frame(Options& options, const CompletedRun* last_run, std::string_view error,
-                          const std::function<void()>& preview = {});
+                          const std::function<void()>& preview = {},
+                          const std::function<void()>& capture = {});
     // Supports automated full-reference inspection in the GPU lifecycle smoke.
     void set_inspection_only(bool value) { inspection_only_ = value; }
     [[nodiscard]] bool inspection_only() const { return inspection_only_; }
@@ -46,6 +49,7 @@ private:
     bool initialized_ = false;
     bool first_frame_ = true;
     bool inspection_only_ = false;
+    bool capture_requested_ = false;
     bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle sampler_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle font_ = BGFX_INVALID_HANDLE;

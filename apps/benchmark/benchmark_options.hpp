@@ -31,6 +31,7 @@ struct Options {
     bool dashboard_smoke = false;
     bool quick_suite = false;
     bool dashboard_visual_smoke = false;
+    bool inspection_smoke = false;
     std::string scenario = "raw-bgfx-empty";
     uint32_t rect_count = 3;
     uint32_t ui_elements = 512;

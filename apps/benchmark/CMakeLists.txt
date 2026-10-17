@@ -56,7 +56,7 @@ elseif(NOT TARGET imgui::imgui)
     find_package(imgui CONFIG REQUIRED)
 endif()
 set(NOVELTEA_BENCHMARK_APP_SOURCES
-    main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
+    main.cpp benchmark_dashboard.cpp benchmark_inspection.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
     raw_bgfx_workloads.cpp
     standalone_rmlui.cpp integrated_rmlui.cpp empty_engine.cpp)
 if(ANDROID)
@@ -75,7 +75,7 @@ else()
     set(NOVELTEA_BENCHMARK_RESULT_ROOT "${CMAKE_BINARY_DIR}/benchmarks")
 endif()
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
-    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner)
+    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner PNG::PNG)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
 noveltea_attach_runtime_assets(noveltea-benchmark-app)
 target_compile_definitions(noveltea-benchmark-app PRIVATE
@@ -234,6 +234,19 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_test(NAME noveltea_benchmark_options COMMAND noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_app_help COMMAND noveltea-benchmark-app --help)
 
+    add_executable(noveltea-benchmark-inspection-tests
+        benchmark_inspection_tests.cpp benchmark_inspection.cpp integrated_rmlui.cpp)
+    target_link_libraries(noveltea-benchmark-inspection-tests PRIVATE
+        noveltea_engine noveltea-benchmark-runner SDL3::SDL3 bgfx::bgfx RmlUi::Core PNG::PNG)
+    target_compile_definitions(noveltea-benchmark-inspection-tests PRIVATE
+        NOVELTEA_BENCHMARK_RESULTS_DIR="${NOVELTEA_BENCHMARK_RESULT_ROOT}"
+        NOVELTEA_BENCHMARK_SHADER_ROOT="shaders/bgfx/${NOVELTEA_BENCHMARK_SHADER_VARIANT}"
+        NOVELTEA_BENCHMARK_FONT_PATH="fonts/LiberationSans.ttf")
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-inspection-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-inspection-tests)
+    add_test(NAME noveltea_benchmark_inspection COMMAND noveltea-benchmark-inspection-tests)
+    set_tests_properties(noveltea_benchmark_inspection PROPERTIES LABELS "benchmark;graphics")
+
     add_executable(noveltea-benchmark-empty-engine-tests
         empty_engine_tests.cpp empty_engine.cpp integrated_rmlui.cpp)
     target_link_libraries(noveltea-benchmark-empty-engine-tests PRIVATE
@@ -248,6 +261,16 @@ if(BUILD_TESTING AND NOT ANDROID)
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
     if(NOVELTEA_XVFB_RUN)
+        foreach(inspection_scenario raw-bgfx-geometry standalone-rmlui-simple
+                                    integrated-rmlui-controlled integrated-rmlui-production)
+            add_test(NAME "noveltea_benchmark_inspection_${inspection_scenario}_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario "${inspection_scenario}" --inspection-smoke)
+            set_tests_properties("noveltea_benchmark_inspection_${inspection_scenario}_smoke"
+                PROPERTIES LABELS "benchmark;graphics;visual;smoke"
+                    PASS_REGULAR_EXPRESSION "inspection smoke complete"
+                    TIMEOUT 90)
+        endforeach()
         find_program(NOVELTEA_BENCHMARK_NODE NAMES node)
         if(NOVELTEA_BENCHMARK_NODE)
             set(NOVELTEA_BENCHMARK_CANONICAL_REPORT

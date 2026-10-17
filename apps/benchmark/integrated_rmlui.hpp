@@ -31,6 +31,8 @@ public:
     Interruption interruption() const override { return last_interruption_; }
 
     const Environment& environment() const { return environment_; }
+    // Only valid after prepare, outside the benchmark runner's timed path.
+    bool request_inspection_png(std::string path, std::string& reason);
 
 private:
     bool controlled_;

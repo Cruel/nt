@@ -1,6 +1,7 @@
 #include "benchmark_dashboard.hpp"
 #include "benchmark_view_order.hpp"
 #include "benchmark_assets.hpp"
+#include "benchmark_inspection.hpp"
 #include "reference_workloads.hpp"
 #include "reference_scene.hpp"
 
@@ -138,8 +139,11 @@ void Dashboard::shutdown()
 
 void Dashboard::process_event(const SDL_Event& event)
 {
-    if (initialized_)
-        ImGui_ImplSDL3_ProcessEvent(&event);
+    if (!initialized_)
+        return;
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F9 && !event.key.repeat)
+        capture_requested_ = true;
+    ImGui_ImplSDL3_ProcessEvent(&event);
 }
 
 void Dashboard::render()
@@ -240,7 +244,8 @@ void Dashboard::render()
 }
 
 DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
-                                 std::string_view error, const std::function<void()>& preview)
+                                 std::string_view error, const std::function<void()>& preview,
+                                 const std::function<void()>& capture)
 {
     if (!initialized_)
         return DashboardAction::Exit;
@@ -261,6 +266,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                          ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
         if (ImGui::Button("Return to dashboard"))
             inspection_only_ = false;
+        if (supports_inspection(options.scenario) && ImGui::Button("Save inspection PNG"))
+            action = DashboardAction::Capture;
         ImGui::End();
     } else {
         ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
@@ -274,7 +281,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         ImGui::TextDisabled("(dashboard and inspection frame excluded from measurement)");
         ImGui::Separator();
         ImGui::Text("Selected: %s", options.scenario.c_str());
-        ImGui::TextDisabled("Full-scene inspection shows the selected workload.");
+        ImGui::TextDisabled("Full-scene inspection shows the selected workload (F9 saves PNG).");
         ImGui::Spacing();
 
         if (options.scenario != "raw-bgfx-empty" &&
@@ -285,6 +292,17 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             options.scenario != "engine-feature-lab") {
             if (ImGui::Button("Inspect full scene"))
                 inspection_only_ = true;
+        }
+
+        if (supports_inspection(options.scenario)) {
+            if (ImGui::Button("Save inspection PNG (untimed)"))
+                action = DashboardAction::Capture;
+        } else if (supports_engine_inspection(options.scenario)) {
+            if (ImGui::Button("Capture Engine reference PNG (untimed)"))
+                action = DashboardAction::CaptureEngine;
+        } else {
+            ImGui::TextDisabled(
+                "Screenshot unavailable: this scene has no benchmark-owned preview/readback.");
         }
 
         if (ImGui::Button(options.profile == "clean" ? "Run Clean Benchmark"
@@ -298,7 +316,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             action = DashboardAction::Exit;
 
         if (!error.empty())
-            ImGui::TextWrapped("Failure: %.*s", static_cast<int>(error.size()), error.data());
+            ImGui::TextWrapped("Status: %.*s", static_cast<int>(error.size()), error.data());
         if (ImGui::BeginTabBar("benchmark-tabs")) {
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
@@ -508,9 +526,10 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     options.scenario == "engine-compiled-empty" ||
                     options.scenario == "engine-compiled-menu" ||
                     options.scenario == "engine-feature-lab")
-                    ImGui::TextWrapped("Engine preview requires exclusive graphics ownership. "
-                                       "The actual Engine output is visible during a run; the "
-                                       "dashboard does not substitute a fake Engine preview.");
+                    ImGui::TextWrapped(
+                        "Engine references require exclusive graphics ownership. "
+                        "Capture Engine reference starts a separate untimed Engine "
+                        "session, saves the screenshot, and restores the dashboard.");
                 ImGui::Spacing();
                 ImGui::TextWrapped(
                     "Preview renders the selected reference outside sampling. "
@@ -745,6 +764,13 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         ImGui::End();
         first_frame_ = false;
     }
+    if (capture_requested_) {
+        if (supports_inspection(options.scenario))
+            action = DashboardAction::Capture;
+        else if (supports_engine_inspection(options.scenario))
+            action = DashboardAction::CaptureEngine;
+        capture_requested_ = false;
+    }
     ImGui::Render();
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x17212cff);
     bgfx::touch(0);
@@ -752,7 +778,13 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         preview();
     // Default bgfx ID sorting would composite views 2..63 over ImGui view 1.
     set_dashboard_view_order();
-    render();
+    if (action == DashboardAction::Capture) {
+        // Do not submit dashboard or inspection controls into the captured frame.
+        if (capture)
+            capture();
+    } else {
+        render();
+    }
     bgfx::frame();
     return action;
 }

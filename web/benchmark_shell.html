@@ -15,7 +15,7 @@ button{padding:6px 10px;background:#303c50;color:white;border:1px solid #66758b;
 </head>
 <body>
 <main>
-<header><strong>NovelTea Graphics Benchmark</strong><span id="status">Loading WebGL2 benchmark…</span><button type="button" id="download" hidden>Download last JSON</button></header>
+<header><strong>NovelTea Graphics Benchmark</strong><span id="status">Loading WebGL2 benchmark…</span><button type="button" id="download" hidden>Download last JSON</button><button type="button" id="download-png" hidden>Download last PNG</button></header>
 <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
 <pre id="log" aria-live="polite"></pre>
 </main>
@@ -80,12 +80,33 @@ function downloadJson(report) {
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 document.querySelector('#download').onclick = () => lastReport && downloadJson(lastReport);
+let lastScreenshot = null;
+function downloadScreenshot(entry) {
+  const blob = new Blob([entry.bytes], {type: 'image/png'});
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.download = entry.name;
+  anchor.href = url;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+document.querySelector('#download-png').onclick = () => lastScreenshot && downloadScreenshot(lastScreenshot);
 window.NovelTeaBenchmark = {
   ready: false,
   backgrounded: false,
   contextLost: false,
   contextRecoveryNeeded: false,
   runs: [],
+  screenshots: [],
+  screenshot(name, bytes) {
+    lastScreenshot = {name, bytes};
+    this.screenshots.push(lastScreenshot);
+    status.textContent = 'Untimed inspection captured: ' + name;
+    document.querySelector('#download-png').hidden = false;
+    downloadScreenshot(lastScreenshot);
+  },
   report(name, json, outcome) {
     lastReport = {name, json};
     this.runs.push({name, report: JSON.parse(json)});
