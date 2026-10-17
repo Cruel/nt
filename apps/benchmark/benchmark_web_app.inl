@@ -16,6 +16,7 @@ struct WebBenchmarkApp {
     SteadyClock clock;
     std::optional<noveltea::benchmark::CompletedRun> completed_run;
     std::unique_ptr<Scenario> active_scenario;
+    std::unique_ptr<noveltea::benchmark::IntegratedInspection> inspecting;
     // Cancelling while WebGL is lost must not run a GPU destructor. Keep the
     // abandoned scenario alive until the restored context can release it.
     std::unique_ptr<Scenario> deferred_scenario;
@@ -198,6 +199,10 @@ struct WebBenchmarkApp {
 
     void start(bool suite = false)
     {
+        if (graphics.inspection.pending()) {
+            feedback = "Finish the pending inspection screenshot before benchmarking";
+            return;
+        }
         quick_suite_active = suite;
         capacity_search = !suite && !options.capacity_dimension.empty()
                               ? std::make_unique<noveltea::benchmark::CapacitySearch>(options)
@@ -436,6 +441,30 @@ struct WebBenchmarkApp {
         }
     }
 
+    void begin_engine_inspection()
+    {
+        std::string reason;
+        if (!noveltea::benchmark::validate_run_options(options, reason) ||
+            !noveltea::benchmark::validate_reference_options(options, reason)) {
+            feedback = "Screenshot failed: " + reason;
+            return;
+        }
+        preview_geometry.shutdown();
+        preview_workload.shutdown();
+        preview_ui.shutdown();
+        dashboard.shutdown();
+        graphics.shutdown();
+        inspecting = std::make_unique<noveltea::benchmark::IntegratedInspection>();
+        if (!inspecting->begin(options, reason)) {
+            inspecting.reset();
+            feedback = "Screenshot failed: " + reason;
+            std::string restore_error;
+            if (!graphics.initialize(options, restore_error) ||
+                !dashboard.initialize(graphics.window, options, restore_error))
+                feedback += "; dashboard restoration failed: " + restore_error;
+        }
+    }
+
     void tick()
     {
         if (stopped)
@@ -460,6 +489,34 @@ struct WebBenchmarkApp {
             EM_ASM_INT({ return window.NovelTeaBenchmark.contextLost ? 1 : 0; });
         const bool context_changed =
             EM_ASM_INT({ return window.NovelTeaBenchmark.contextRecoveryNeeded ? 1 : 0; });
+        if (inspecting) {
+            if (context_lost)
+                return;
+            if (context_changed) {
+                inspecting->shutdown();
+                inspecting.reset();
+                std::string restore_error;
+                if (!restore_graphics(restore_error) ||
+                    !dashboard.initialize(graphics.window, options, restore_error))
+                    feedback = "Engine inspection context recovery failed: " + restore_error;
+                else
+                    feedback = "Screenshot failed: WebGL context was lost during inspection";
+                return;
+            }
+            std::string result;
+            if (inspecting->step(result)) {
+                const auto path = inspecting->path();
+                inspecting.reset();
+                std::string restore_error;
+                if (!graphics.initialize(options, restore_error) ||
+                    !dashboard.initialize(graphics.window, options, restore_error))
+                    feedback = "Dashboard restoration after screenshot failed: " + restore_error;
+                else
+                    feedback = result.empty() ? "Untimed screenshot: " + path.string()
+                                              : "Screenshot failed: " + result;
+            }
+            return;
+        }
         if (active) {
             if (context_lost) {
                 // Terminal cancellation is allowed during context loss. Avoid
@@ -505,11 +562,19 @@ struct WebBenchmarkApp {
             }
         }
         if (dashboard.initialized()) {
+            graphics.inspection.poll(feedback);
             const auto action = dashboard.frame(options, completed_run ? &*completed_run : nullptr,
-                                                feedback, [this]() { draw_preview(); });
+                                                feedback, [this]() { draw_preview(); }, [&]() {
+                // Allow a new request after a previous failure or timeout.
+                feedback.clear();
+                (void)graphics.inspection.request(options, graphics.environment.width_pixels,
+                                                  graphics.environment.height_pixels, feedback);
+            });
             if (action == noveltea::benchmark::DashboardAction::Exit) {
                 stopped = true;
                 emscripten_cancel_main_loop();
+            } else if (action == noveltea::benchmark::DashboardAction::CaptureEngine) {
+                begin_engine_inspection();
             } else if (action == noveltea::benchmark::DashboardAction::Run ||
                        action == noveltea::benchmark::DashboardAction::QuickSuite) {
                 start(action == noveltea::benchmark::DashboardAction::QuickSuite);

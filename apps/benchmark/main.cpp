@@ -16,6 +16,7 @@
 #include "benchmark_capacity.hpp"
 #include "benchmark_completed_run.hpp"
 #include "benchmark_dashboard.hpp"
+#include "benchmark_inspection.hpp"
 #include "benchmark_options.hpp"
 #include "benchmark_window_size.hpp"
 #include "benchmark_report.hpp"
@@ -85,6 +86,7 @@ void print_usage()
     std::puts("  --quick-suite   Run all six reference comparisons with independent outcomes");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
     std::puts("  --dashboard-visual-smoke  Untimed two-stage preview pixel fixture");
+    std::puts("  --inspection-smoke       Untimed standalone or integrated PNG capture check");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
     std::puts("  --repeats       Trials per scenario; default 1, maximum 20");
     std::puts("  --config        Exact current JSON configuration; cannot mix with run flags");
@@ -228,6 +230,7 @@ struct Graphics {
     bool sdl_ready = false;
     bool bgfx_ready = false;
     bool vsync_enabled = false;
+    noveltea::benchmark::InspectionCapture inspection;
 #if defined(__ANDROID__)
     ANativeWindow* held_native_window = nullptr;
 #endif
@@ -235,6 +238,7 @@ struct Graphics {
 
     void shutdown()
     {
+        inspection.cancel();
         if (bgfx_ready) {
             bgfx::shutdown();
             bgfx_ready = false;
@@ -396,6 +400,7 @@ struct Graphics {
             return false;
         }
         bgfx::Init init;
+        init.callback = &inspection;
 #if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
         init.type = bgfx::RendererType::OpenGLES;
 #else
@@ -1121,7 +1126,64 @@ int run_dashboard(Options options)
             return;
     };
 
+    if (options.inspection_smoke) {
+        std::string reason;
+        if (!noveltea::benchmark::validate_run_options(options, reason) ||
+            !noveltea::benchmark::validate_reference_options(options, reason)) {
+            std::fprintf(stderr, "[benchmark] inspection smoke: %s\n", reason.c_str());
+            return 2;
+        }
+        if (noveltea::benchmark::supports_inspection(options.scenario)) {
+            for (int i = 0; i < 4; ++i)
+                (void)dashboard.frame(options, nullptr, feedback, draw_preview);
+            if (!feedback.empty() ||
+                !graphics.inspection.request(options, graphics.environment.width_pixels,
+                                             graphics.environment.height_pixels, feedback)) {
+                std::fprintf(stderr, "[benchmark] inspection smoke: %s\n", feedback.c_str());
+                return 3;
+            }
+            for (int i = 0; i < 300 && graphics.inspection.pending(); ++i) {
+                bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x17212cff);
+                bgfx::touch(0);
+                draw_preview();
+                bgfx::frame();
+                graphics.inspection.poll(feedback);
+                SDL_Delay(16);
+            }
+        } else if (noveltea::benchmark::supports_engine_inspection(options.scenario)) {
+            preview_geometry.shutdown();
+            preview_workload.shutdown();
+            preview_ui.shutdown();
+            dashboard.shutdown();
+            graphics.shutdown();
+            noveltea::benchmark::IntegratedInspection capture;
+            if (capture.begin(options, reason)) {
+                for (int i = 0; i < 600; ++i) {
+                    if (capture.step(reason))
+                        break;
+                    SDL_Delay(16);
+                }
+            }
+            feedback = reason.empty() ? "Untimed screenshot: " + capture.path().string()
+                                      : "Screenshot failed: " + reason;
+            capture.shutdown();
+        } else {
+            feedback = "Screenshot unsupported: no reference preview for this scenario";
+        }
+        if (feedback.starts_with("Untimed screenshot: ") &&
+            std::filesystem::exists(feedback.substr(sizeof("Untimed screenshot: ") - 1))) {
+            std::printf("[benchmark] inspection smoke complete: %s\n", feedback.c_str());
+            return 0;
+        }
+        std::fprintf(stderr, "[benchmark] inspection smoke failed: %s\n", feedback.c_str());
+        return 3;
+    }
+
     const auto benchmark_once = [&](bool quick = false) {
+        if (graphics.inspection.pending()) {
+            feedback = "Finish the pending inspection screenshot before benchmarking";
+            return;
+        }
         std::string validation;
         if (!noveltea::benchmark::validate_run_options(options, validation) ||
             (!quick && !noveltea::benchmark::validate_reference_options(options, validation))) {
@@ -1450,10 +1512,52 @@ int run_dashboard(Options options)
             needs_surface_recreation = false;
         }
 #endif
-        const auto action = dashboard.frame(options, completed_run ? &*completed_run : nullptr,
-                                            feedback, draw_preview);
+        graphics.inspection.poll(feedback);
+        const auto action = dashboard.frame(
+            options, completed_run ? &*completed_run : nullptr, feedback, draw_preview, [&]() {
+                // A previous screenshot error is status, not a permanent latch;
+                // the user must be able to retry an untimed capture.
+                feedback.clear();
+                (void)graphics.inspection.request(options, graphics.environment.width_pixels,
+                                                  graphics.environment.height_pixels, feedback);
+            });
         if (action == noveltea::benchmark::DashboardAction::Exit)
             break;
+        if (action == noveltea::benchmark::DashboardAction::CaptureEngine) {
+            std::string reason;
+            if (!noveltea::benchmark::validate_run_options(options, reason) ||
+                !noveltea::benchmark::validate_reference_options(options, reason)) {
+                feedback = "Screenshot failed: " + reason;
+                continue;
+            }
+            // The production Engine must own SDL/bgfx exclusively, even for
+            // untimed inspection. Never substitute a standalone lookalike.
+            preview_geometry.shutdown();
+            preview_workload.shutdown();
+            preview_ui.shutdown();
+            dashboard.shutdown();
+            graphics.shutdown();
+            noveltea::benchmark::IntegratedInspection capture;
+            if (capture.begin(options, reason)) {
+                for (;;) {
+                    if (capture.step(reason))
+                        break;
+                    SDL_Delay(16);
+                }
+            }
+            const auto path = capture.path();
+            capture.shutdown();
+            std::string restore_error;
+            if (!graphics.initialize(options, restore_error) ||
+                !dashboard.initialize(graphics.window, options, restore_error)) {
+                std::fprintf(stderr, "[benchmark] dashboard restoration after screenshot: %s\n",
+                             restore_error.c_str());
+                return 3;
+            }
+            feedback = reason.empty() ? "Untimed screenshot: " + path.string()
+                                      : "Screenshot failed: " + reason;
+            continue;
+        }
         if (action == noveltea::benchmark::DashboardAction::Run ||
             action == noveltea::benchmark::DashboardAction::QuickSuite)
             benchmark_once(action == noveltea::benchmark::DashboardAction::QuickSuite);

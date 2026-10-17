@@ -304,6 +304,19 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     return true;
 }
 
+bool IntegratedRmlUi::request_inspection_png(std::string path, std::string& reason)
+{
+    if (!engine_ || !engine_->is_running()) {
+        reason = "integrated Engine is unavailable for untimed screenshot";
+        return false;
+    }
+    if (!EngineTooling::request_screenshot(*engine_, std::move(path))) {
+        reason = "production Engine rejected the untimed PNG capture request";
+        return false;
+    }
+    return true;
+}
+
 Readiness IntegratedRmlUi::readiness(std::string& reason)
 {
     if (!engine_ || !engine_->is_running()) {

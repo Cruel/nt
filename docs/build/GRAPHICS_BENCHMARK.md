@@ -1,4 +1,4 @@
-# Graphics Benchmark (Linux, Android, and Web, #422–#439)
+# Graphics Benchmark (Linux, Android, and Web, #422–#440)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
@@ -10,6 +10,61 @@ sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## Untimed screenshot inspection (#440)
+
+The dashboard provides **Save inspection PNG (untimed)** for raw bgfx reference
+previews and standalone RmlUi reference scenarios, and **Capture Engine
+reference PNG (untimed)** for the integrated RmlUi controlled, production,
+scaling, and effects reference scenarios. Press **F9** as a shortcut. Use
+**Inspect full scene** first when visually comparing the standalone views.
+Screenshot generation is deliberately on demand; it never runs during
+preparation, warmup, measurement, capacity search, or Quick Suite sampling,
+and has no effect on any benchmark result. The standalone capture omits
+the ImGui overlay entirely. The integrated capture uses the real production
+Engine, not a separately drawn approximation: it releases the dashboard's
+SDL/bgfx owner, renders an independent **untimed** Engine reference session,
+uses the Engine screenshot service, and returns to the dashboard.
+
+On Linux, PNGs are written to
+`build/linux-benchmark-<configuration>/benchmarks/screenshots/`; an explicit
+`--output` directory uses an adjacent `screenshots/` subdirectory. Android
+writes to app-private `NovelTea/Benchmark/results/screenshots/` (alongside
+the JSON result collection); retrieve both file types with
+`./scripts/run-benchmark-android.sh --no-build --pull`. Web immediately
+downloads the PNG through the browser, with a **Download last PNG** control
+for re-downloading. Its virtual filesystem stores the same PNG under
+`/results/screenshots/`. These outputs remain outside the tracked source
+tree.
+
+Every PNG has the original pixels at the effective *captured* dimensions,
+and a PNG text chunk named `NovelTea benchmark` containing JSON with
+`kind: untimed-inspection`, `width_pixels`, `height_pixels`, and the full
+current canonical `configuration`. Compare the recorded effective dimensions,
+scenario knobs, and reference scene before comparing standalone and
+integrated pixels. Engine-owned reference capture requires the same
+16:9 framebuffer constraints as the corresponding Engine benchmark; a Web
+browser viewport can reduce the effective drawable canvas. The empty bgfx
+scene, empty Engine, and compiled/Feature Lab scenes currently have no
+preview-owned capture path and explicitly show that the screenshot is
+unavailable rather than substituting a fake scene. Readback failure or
+timeout surfaces a screenshot-specific error instead of writing a blank PNG.
+
+To exercise the actual Linux graphics paths without measured frames:
+
+```sh
+xvfb-run -a build/linux-benchmark-debug/apps/benchmark/noveltea-benchmark-app \
+  --scenario standalone-rmlui-simple --inspection-smoke
+xvfb-run -a build/linux-benchmark-debug/apps/benchmark/noveltea-benchmark-app \
+  --scenario integrated-rmlui-controlled --inspection-smoke
+node scripts/benchmark-inspection-web-smoke.mjs build/web-benchmark-debug/apps/benchmark
+```
+
+The CTest `noveltea_benchmark_inspection` checks PNG metadata, orientation,
+channel conversion and unsupported formats; the four
+`noveltea_benchmark_inspection_*_smoke` tests verify real Linux GPU capture,
+and the browser smoke verifies downloadable PNG bytes and repeatable
+Engine/dashboard ownership transitions.
 
 ## Automatic capacity search (#439)
 

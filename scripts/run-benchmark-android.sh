@@ -12,7 +12,7 @@ APP_ARGS=()
 usage() {
   echo "usage: $0 [--debug] [--device SERIAL] [--no-build] [--pull] [-- benchmark flags]"
   echo "  Optimized, debug-signed Android benchmark APK by default; --debug selects Debug."
-  echo "  --pull retrieves app-private JSON reports from the installed benchmark APK."
+  echo "  --pull retrieves app-private JSON reports and inspection PNGs from the installed benchmark APK."
   echo "  --config FILE after -- sends the canonical JSON via the Activity intent."
   echo "  e.g. $0 -- --config apps/benchmark/stage1-unattended.json"
 }
@@ -82,11 +82,11 @@ if [ "$PULL" = 1 ]; then
     echo "[benchmark] run-as unavailable; install the debug-signed benchmark APK" >&2
     exit 1
   }
-  mapfile -t REPORTS < <("${ADB[@]}" shell "run-as $APP_ID find files -path '*/results/*.json' -type f" | tr -d '\r')
+  mapfile -t REPORTS < <("${ADB[@]}" shell "run-as $APP_ID find files -type f -path '*/results/*.json' -o -type f -path '*/results/screenshots/*.png'" | tr -d '\r')
   for report in "${REPORTS[@]}"; do
     [ -n "$report" ] || continue
     case "$report" in
-      files/results/*.json|files/*/results/*.json) ;;
+      files/results/*.json|files/*/results/*.json|files/results/screenshots/*.png|files/*/results/screenshots/*.png) ;;
       *) echo "[benchmark] unsafe report path: $report" >&2; exit 1 ;;
     esac
     case "$report" in

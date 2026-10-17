@@ -69,6 +69,12 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.no_ui = false;
             continue;
         }
+        if (flag == "--inspection-smoke") {
+            has_cli_settings = true;
+            options.inspection_smoke = true;
+            options.no_ui = false;
+            continue;
+        }
         if (flag == "--dashboard-smoke") {
             has_cli_settings = true;
             options.dashboard_smoke = true;
