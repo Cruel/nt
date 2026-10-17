@@ -34,7 +34,7 @@ try {
     if (process.env.NOVELTEA_BENCHMARK_BROWSER &&
         process.env.NOVELTEA_BENCHMARK_BROWSER !== name) continue;
     const browser = await engine.launch({
-      headless: true,
+      headless: name !== 'Firefox' || !process.env.NOVELTEA_BENCHMARK_FIREFOX_HEADFUL,
       args: name === 'Chromium'
         ? ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [],
       ...(name === 'Firefox' ? {
@@ -86,7 +86,7 @@ try {
       // callback until the tab is visible again. Dispatch hide/restore within
       // one JS task so no rAF callback can see document.hidden === true.
       await page.goto(origin + '/benchmark.html?' + new URLSearchParams({
-        scenario: 'cpu-lua', noUi: '1', frames: '2500',
+        scenario: 'cpu-lua', noUi: '1', frames: '30000',
         warmup: '0.025', cpuWorkUnits: '16'
       }));
       await page.waitForFunction(() => window.NovelTeaBenchmark?.ready,
@@ -115,10 +115,11 @@ try {
       if (resumed.report?.outcome !== 'complete' ||
           resumedTrial?.interruption_retries !== 1 ||
           !resumedTrial?.interrupted_attempts?.[0]?.reason?.includes('backgrounded') ||
-          !(resumedTrial?.interrupted_attempts?.[0]?.measured_frames > 0) ||
+          // A faster optimized build may observe visibility during warmup;
+          // that still must discard the attempt and retry from a fresh warmup.
           !(resumedTrial?.interrupted_attempts?.[0]?.warmup_frames > 0) ||
           !(resumedTrial?.warmup_frames > 0) ||
-          resumedTrial?.measured_frames !== 2500 ||
+          resumedTrial?.measured_frames !== 30000 ||
           resumed.backgrounded !== false) {
         throw new Error(name + ' missed headless visibility recovery: ' +
                         JSON.stringify(resumed).slice(0, 7000));

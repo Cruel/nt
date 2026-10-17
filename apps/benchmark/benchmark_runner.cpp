@@ -608,8 +608,11 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
                 result.measured_frames += trial.measured_frames;
                 result.measured_wall_seconds += trial.measured_wall_seconds;
             }
+            const bool unsafe_cleanup = trial.reason.find("cleanup failed") != std::string::npos;
             result.trials.push_back(std::move(trial));
-            if (cancelled)
+            // The next trial may initialize another graphics owner. A failed
+            // shutdown must terminate the collection, never retry ownership.
+            if (cancelled || unsafe_cleanup)
                 break;
         }
         const auto passed =
@@ -626,9 +629,17 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
         result.repeated = summarize_repeated(result.trials, options.alternate != nullptr);
         if (result.outcome == "complete")
             ++successful_scenarios;
+        const bool unsafe_cleanup =
+            std::any_of(result.trials.begin(), result.trials.end(), [](const TrialResult& trial) {
+                return trial.reason.find("cleanup failed") != std::string::npos;
+            });
         suite.scenarios.push_back(std::move(result));
         if (cancelled) {
             suite.outcome = "cancelled";
+            return suite;
+        }
+        if (unsafe_cleanup) {
+            suite.outcome = completed_trials > 0 ? "partial" : "failed";
             return suite;
         }
     }

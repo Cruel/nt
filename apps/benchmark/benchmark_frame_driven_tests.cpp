@@ -289,6 +289,17 @@ int main()
                     failed.reason.find("shutdown failed") != std::string::npos,
                 "preparation and cleanup failure remain visible"))
         return 1;
+    ClockStub unsafe_clock;
+    ScenarioStub unsafe(unsafe_clock);
+    unsafe.fail_cleanup = true;
+    FrameDrivenSuite unsafe_runner(options, unsafe, unsafe_clock);
+    advance(unsafe_runner, unsafe_clock);
+    if (!verify(unsafe_runner.result().outcome == "failed" && unsafe.prepared == 1 &&
+                    unsafe.cleaned == 1 && unsafe_runner.result().scenarios[0].trials.size() == 1 &&
+                    unsafe_runner.result().scenarios[0].trials[0].reason.find("cleanup failed") !=
+                        std::string::npos,
+                "failed graphics shutdown stops rAF trials before acquiring another owner"))
+        return 1;
     std::puts("frame-driven runner tests passed");
     return 0;
 }

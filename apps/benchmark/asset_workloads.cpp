@@ -294,15 +294,17 @@ bool AssetScenario::cleanup(std::string& reason)
 {
     reason.clear();
     ready_ = false;
-    resident_.clear();
-    renderer_.shutdown();
-    if (executor_) {
+    if (executor_)
         executor_->begin_shutdown();
+    resident_.clear();
+    if (executor_)
         (void)executor_->dispatch_owner_completions(std::numeric_limits<std::size_t>::max());
-    }
+    // Texture eviction may destroy bgfx handles. Retire every resident
+    // while the Renderer still owns a valid graphics device.
     assets_ = assets::AssetManager{};
     executor_.reset();
     residency_.reset();
+    renderer_.shutdown();
     platform_.shutdown();
     return true;
 }

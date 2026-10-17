@@ -76,10 +76,10 @@ void print_usage()
     std::puts("       [--cpu-work-units 1..4096] (CPU work size; asset scenarios 1..64)");
     std::puts("       [--asset-cache cold|warm] (asset scenarios only; no OS-cache eviction)");
     std::puts("       [--native-quads 1..2048] [--native-glyphs 1..4096]");
-    std::puts("       [--native-texture-size 0|64|128|256|512|1024] (native renderer --no-ui)");
+    std::puts("       [--native-texture-size 0|64|128|256|512|1024] (native renderer)");
     std::puts("       [--shader-scope world|full-game-viewport] [--shader-tint 0..1]");
     std::puts("       native-postprocess: direct = 0 passes, offscreen = 1..4 passes;");
-    std::puts("       postprocess targets are production full-size/non-MSAA; Web unsupported");
+    std::puts("       postprocess targets are production full-size/non-MSAA on Linux/Android/Web");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
     std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
@@ -104,7 +104,7 @@ void print_usage()
     std::puts("  --quick-suite   Run all six reference comparisons with independent outcomes");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
     std::puts("  --dashboard-visual-smoke  Untimed two-stage preview pixel fixture");
-    std::puts("  --inspection-smoke       Untimed standalone or integrated PNG capture check");
+    std::puts("  --inspection-smoke       Untimed raw/RmlUi/Engine/native-renderer PNG check");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
     std::puts("  --repeats       Trials per scenario (or A/B/A cycles); default 1, maximum 20");
     std::puts(
@@ -897,11 +897,6 @@ bool write_report(const Options& options, const Environment& environment, const 
 
 int run_native_2d(const Options& options)
 {
-#if defined(__EMSCRIPTEN__)
-    (void)options;
-    std::fprintf(stderr, "[benchmark] native 2D Web context ownership is unsupported\n");
-    return 2;
-#else
 #if defined(__ANDROID__)
     std::string startup_reason;
     if (!wait_for_android_foreground(startup_reason)) {
@@ -947,7 +942,6 @@ int run_native_2d(const Options& options)
     }
     std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
     return result.outcome == "complete" ? 0 : 2;
-#endif
 }
 
 int run_video(const Options& options)
@@ -1092,8 +1086,18 @@ SuiteResult run_native_capacity(const Options& base, Scenario& scenario, Clock& 
         }
         SuiteResult item = noveltea::benchmark::run_suite(candidate, {&scenario}, clock, recovery);
         environments.push_back(environment());
+        const bool unsafe_cleanup = std::any_of(
+            item.scenarios.begin(), item.scenarios.end(), [](const auto& scenario_result) {
+                return std::any_of(scenario_result.trials.begin(), scenario_result.trials.end(),
+                                   [](const auto& trial) {
+                                       return trial.reason.find("cleanup failed") !=
+                                              std::string::npos;
+                                   });
+            });
         search.observe(item);
         noveltea::benchmark::append_suite_result(collection, std::move(item));
+        if (unsafe_cleanup)
+            break; // Never run a second capacity probe over a potentially live renderer.
     }
     collection.capacity = search.result();
     if (collection.capacity->status == "inconclusive")
@@ -1205,6 +1209,10 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
 int run_dashboard(Options options)
 {
     if (!noveltea::benchmark::is_video_scenario(options.scenario) &&
+        !noveltea::benchmark::is_native_2d_scenario(options.scenario) &&
+        !noveltea::benchmark::is_shader_scenario(options.scenario) &&
+        !noveltea::benchmark::is_cpu_scenario(options.scenario) &&
+        !noveltea::benchmark::is_asset_scenario(options.scenario) &&
         options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_scaling_scenario(options.scenario) &&
@@ -1230,6 +1238,7 @@ int run_dashboard(Options options)
     SteadyClock clock;
     std::optional<noveltea::benchmark::CompletedRun> completed_run;
     std::string feedback;
+    bool unsafe_renderer_cleanup = false;
 #if defined(__ANDROID__)
     bool suspended = false;
     bool needs_surface_recreation = false;
@@ -1433,7 +1442,11 @@ int run_dashboard(Options options)
                                 run_options.scenario == "integrated-rmlui-scaling" ||
                                 run_options.scenario == "integrated-rmlui-effects";
         const bool engine_owned =
-            noveltea::benchmark::is_video_scenario(run_options.scenario) || integrated ||
+            noveltea::benchmark::is_video_scenario(run_options.scenario) ||
+            noveltea::benchmark::is_native_2d_scenario(run_options.scenario) ||
+            noveltea::benchmark::is_shader_scenario(run_options.scenario) ||
+            noveltea::benchmark::is_cpu_scenario(run_options.scenario) ||
+            noveltea::benchmark::is_asset_scenario(run_options.scenario) || integrated ||
             run_options.scenario == "engine-empty" ||
             noveltea::benchmark::is_compiled_project_scenario(run_options.scenario);
         bool ran = false;
@@ -1452,6 +1465,7 @@ int run_dashboard(Options options)
             if (!ownership_safe) {
                 // The report is safe to publish, but a new bgfx owner is not.
                 // Leave the UI stopped instead of initializing over a live device.
+                unsafe_renderer_cleanup = true;
                 feedback = "Quick Suite renderer cleanup failed; dashboard cannot be restored";
                 std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
                 return;
@@ -1471,8 +1485,23 @@ int run_dashboard(Options options)
             noveltea::benchmark::EmptyEngine empty_engine(
                 {}, noveltea::benchmark::engine_workload(run_options.scenario));
             noveltea::benchmark::VideoScenario video(run_options.scenario);
+            noveltea::benchmark::Native2DScenario native(run_options.scenario);
+            noveltea::benchmark::CpuScenario cpu(
+                run_options.scenario == "cpu-lua" ? noveltea::benchmark::CpuWorkload::Lua
+                : run_options.scenario == "cpu-runtime-session"
+                    ? noveltea::benchmark::CpuWorkload::RuntimeSession
+                    : noveltea::benchmark::CpuWorkload::FlowPrediction);
+            noveltea::benchmark::AssetScenario asset(run_options.scenario);
+            const bool native_owner =
+                noveltea::benchmark::is_native_2d_scenario(run_options.scenario) ||
+                noveltea::benchmark::is_shader_scenario(run_options.scenario);
             Scenario* selected = noveltea::benchmark::is_video_scenario(run_options.scenario)
                                      ? static_cast<Scenario*>(&video)
+                                 : native_owner ? static_cast<Scenario*>(&native)
+                                 : noveltea::benchmark::is_cpu_scenario(run_options.scenario)
+                                     ? static_cast<Scenario*>(&cpu)
+                                 : noveltea::benchmark::is_asset_scenario(run_options.scenario)
+                                     ? static_cast<Scenario*>(&asset)
                                  : integrated ? static_cast<Scenario*>(&engine_ui)
                                               : static_cast<Scenario*>(&empty_engine);
             noveltea::benchmark::Recovery recover;
@@ -1481,8 +1510,17 @@ int run_dashboard(Options options)
 #endif
             std::vector<Environment> environments;
             const auto current_environment = [&]() {
+                if (noveltea::benchmark::is_cpu_scenario(run_options.scenario)) {
+                    Environment env;
+                    env.platform = SDL_GetPlatform();
+                    env.frame_path = "cpu-work-batch-no-presentation";
+                    return env;
+                }
                 return noveltea::benchmark::is_video_scenario(run_options.scenario)
                            ? video.environment()
+                       : native_owner ? native.environment()
+                       : noveltea::benchmark::is_asset_scenario(run_options.scenario)
+                           ? asset.environment()
                        : integrated ? engine_ui.environment()
                                     : empty_engine.environment();
             };
@@ -1499,6 +1537,21 @@ int run_dashboard(Options options)
                 feedback = "failed to write benchmark report";
             } else {
                 feedback.clear();
+            }
+            const bool unsafe_cleanup = std::any_of(
+                completed_run->result.scenarios.begin(), completed_run->result.scenarios.end(),
+                [](const noveltea::benchmark::ScenarioResult& scenario) {
+                    return std::any_of(scenario.trials.begin(), scenario.trials.end(),
+                                       [](const noveltea::benchmark::TrialResult& trial) {
+                                           return trial.reason.find("cleanup failed") !=
+                                                  std::string::npos;
+                                       });
+                });
+            if (unsafe_cleanup) {
+                unsafe_renderer_cleanup = true;
+                feedback = "Renderer cleanup failed; benchmark host cannot safely be recreated";
+                std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+                return;
             }
             if (!graphics.initialize(options, error)) {
                 feedback = "dashboard graphics recreation: " + error;
@@ -1748,13 +1801,38 @@ int run_dashboard(Options options)
                 feedback = "Screenshot failed: " + reason;
                 continue;
             }
-            // The production Engine must own SDL/bgfx exclusively, even for
-            // untimed inspection. Never substitute a standalone lookalike.
+            // Production Engine and Native Renderer captures each require
+            // exclusive graphics ownership, outside measurement.
             preview_geometry.shutdown();
             preview_workload.shutdown();
             preview_ui.shutdown();
             dashboard.shutdown();
             graphics.shutdown();
+            if (noveltea::benchmark::is_native_2d_scenario(options.scenario) ||
+                noveltea::benchmark::is_shader_scenario(options.scenario)) {
+                noveltea::benchmark::Native2DScenario native(options.scenario);
+                const bool prepared = native.prepare(options, reason);
+                const bool captured = prepared && native.inspect(options, reason);
+                const std::string capture_reason = reason;
+                std::string cleanup_reason;
+                if (!native.cleanup(cleanup_reason)) {
+                    std::fprintf(stderr,
+                                 "[benchmark] native inspection renderer cleanup failed: %s\n",
+                                 cleanup_reason.c_str());
+                    return 3;
+                }
+                std::string restore_error;
+                if (!graphics.initialize(options, restore_error) ||
+                    !dashboard.initialize(graphics.window, options, restore_error)) {
+                    std::fprintf(stderr,
+                                 "[benchmark] dashboard restoration after native screenshot: %s\n",
+                                 restore_error.c_str());
+                    return 3;
+                }
+                feedback = captured ? "Native Renderer inspection PNG saved"
+                                    : "Screenshot failed: " + capture_reason;
+                continue;
+            }
             noveltea::benchmark::IntegratedInspection capture;
             if (capture.begin(options, reason)) {
                 for (;;) {
@@ -1784,7 +1862,7 @@ int run_dashboard(Options options)
     preview_geometry.shutdown();
     preview_workload.shutdown();
     preview_ui.shutdown();
-    return 0;
+    return unsafe_renderer_cleanup ? 3 : 0;
 }
 
 int run(const Options& options)
@@ -2015,22 +2093,22 @@ int main(int argc, char* argv[])
     }
     if (noveltea::benchmark::is_cpu_scenario(options.scenario)) {
 #if defined(__EMSCRIPTEN__)
-        return run_web_headless(options);
+        return options.no_ui ? run_web_headless(options) : run_web(options);
 #else
-        return run_cpu(options);
+        return options.no_ui ? run_cpu(options) : run_dashboard(options);
 #endif
     }
     if (noveltea::benchmark::is_asset_scenario(options.scenario)) {
 #if defined(__EMSCRIPTEN__)
-        if (options.scenario != "asset-texture-realize")
+        if (options.scenario != "asset-texture-realize" && options.no_ui)
             return run_web_headless(options);
 #endif
 #if defined(__EMSCRIPTEN__)
-        // GPU-backed assets need rAF-driven ownership/recovery on Web.
-        if (options.scenario == "asset-texture-realize")
-            return run_web(options);
+        // GPU-backed assets and interactive headless reports use rAF ownership.
+        return run_web(options);
+#else
+        return options.no_ui ? run_asset(options) : run_dashboard(options);
 #endif
-        return run_asset(options);
     }
     if (noveltea::benchmark::is_video_scenario(options.scenario)) {
 #if defined(__EMSCRIPTEN__)
@@ -2040,8 +2118,14 @@ int main(int argc, char* argv[])
 #endif
     }
     if (noveltea::benchmark::is_native_2d_scenario(options.scenario) ||
-        noveltea::benchmark::is_shader_scenario(options.scenario))
-        return run_native_2d(options);
+        noveltea::benchmark::is_shader_scenario(options.scenario)) {
+#if defined(__EMSCRIPTEN__)
+        return run_web(options);
+#else
+        return options.no_ui || options.inspection_smoke ? run_native_2d(options)
+                                                         : run_dashboard(options);
+#endif
+    }
 #if defined(__EMSCRIPTEN__)
     return run_web(options);
 #else

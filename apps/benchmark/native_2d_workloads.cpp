@@ -23,6 +23,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+
 namespace noveltea::benchmark {
 namespace {
 
@@ -182,10 +186,6 @@ bool Native2DScenario::prepare(const Options& options, std::string& reason)
 {
     if (!cleanup(reason))
         return false;
-#if defined(__EMSCRIPTEN__)
-    reason = "native 2D renderer owns bgfx; the Web dashboard currently owns that context";
-    return false;
-#endif
     interruption_ = Interruption::None;
     environment_ = {};
     dynamic_ = id_ == "native-2d-text-dynamic";
@@ -532,6 +532,15 @@ bool Native2DScenario::inspect(const Options& options, std::string& reason)
     std::vector<uint8_t> encoded;
     if (!encode_inspection_png(pixels, options, encoded, reason))
         return false;
+#if defined(__EMSCRIPTEN__)
+    // Browser screenshots are downloaded from their untimed CPU-side PNG
+    // bytes. No screenshot readback or encoding occurs during strict sampling.
+    const std::string name = id_ + "-reference.png";
+    EM_ASM(
+        { window.NovelTeaBenchmark.screenshot(UTF8ToString($0), HEAPU8.slice($1, $1 + $2)); },
+        name.c_str(), encoded.data(), encoded.size());
+    return true;
+#endif
     const auto path = make_inspection_path(options, reason);
     if (path.empty())
         return false;
@@ -557,16 +566,18 @@ bool Native2DScenario::cleanup(std::string& reason)
     }
     renderer_.set_runtime_postprocess_stack({});
     renderer_.set_shader_material_project(nullptr);
+    if (executor_)
+        executor_->begin_shutdown();
     if (shader_enabled_)
         assets_.clear_supplemental_leases_on_owner();
-    renderer_.shutdown();
-    assets_ = assets::AssetManager{};
-    if (executor_) {
-        executor_->begin_shutdown();
+    if (executor_)
         (void)executor_->dispatch_owner_completions(std::numeric_limits<size_t>::max());
-    }
+    // Material leases and shader requests can retire GPU resources, and must
+    // finish before bgfx shuts down, including after failed preparation.
+    assets_ = assets::AssetManager{};
     executor_.reset();
     residency_.reset();
+    renderer_.shutdown();
     shader_project_ = {};
     shader_enabled_ = false;
     diagnostic_ = false;

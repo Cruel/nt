@@ -312,6 +312,7 @@ private:
     bool done_ = false;
     bool results_ready_ = false;
     bool cleanup_completed_ = false;
+    bool terminal_cleanup_failed_ = false;
     bool recovering_ = false;
     bool interrupted_ = false;
     bool cancelled_ = false;

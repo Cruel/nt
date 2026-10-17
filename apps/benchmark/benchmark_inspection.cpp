@@ -60,7 +60,8 @@ std::filesystem::path inspection_directory(const Options& options)
 
 bool supports_engine_inspection(std::string_view scenario)
 {
-    return scenario == "integrated-rmlui-controlled" || scenario == "integrated-rmlui-production" ||
+    return is_native_2d_scenario(scenario) || is_shader_scenario(scenario) ||
+           scenario == "integrated-rmlui-controlled" || scenario == "integrated-rmlui-production" ||
            scenario == "integrated-rmlui-scaling" || scenario == "integrated-rmlui-effects";
 }
 
