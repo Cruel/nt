@@ -64,6 +64,18 @@ export const nativeAuthoringResultSchema = z
     textSourceStaged: z.boolean().optional(),
     textSourceDiskRevision: z.string().optional(),
     textSourceDiskRevisions: z.record(z.string(), z.string()).optional(),
+    commentImpacts: z
+      .array(
+        z
+          .object({
+            file: z.string(),
+            path: z.string(),
+            comment: z.string(),
+            kind: z.enum(['changed', 'deleted']),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 export type NativeAuthoringPatchResult = z.infer<typeof nativeAuthoringResultSchema>;

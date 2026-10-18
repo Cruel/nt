@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
@@ -20,14 +21,14 @@ import { toJsonValue } from '../project/json-value';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
 import { confirmNativeCommand } from '../commands/native-command-execution';
 
-function fixture() {
+function fixture(projectRoot = '/trusted/project') {
   const saved = createAuthoringProject({ id: 'native-open', name: 'Open Project' });
   let active = 'one';
   let fail: ((error: Error) => void) | undefined;
   const authority = {
     requireActiveProjectRoot(id: string) {
       if (active !== id) throw new Error('Project session is stale or unknown.');
-      return '/trusted/project';
+      return projectRoot;
     },
     isCurrent(id: string) {
       return active === id;
@@ -69,26 +70,48 @@ function fixture() {
     snapshot: { workingRevision: 0 },
     affectedRecords: ['project'],
   }));
+  const saveOwners = vi.fn(async () => ({
+    accepted: false,
+    error: 'Deleting commented records requires explicit Remove Comments approval.',
+    snapshot: { workingRevision: 0 },
+    affectedRecords: [],
+  }));
   const stageTextSource = vi.fn(async () => ({
-    accepted: true, error: '', snapshot: { workingRevision: 1 },
+    accepted: true,
+    error: '',
+    snapshot: { workingRevision: 1 },
   }));
   const saveTextSources = vi.fn(async () => ({
-    accepted: true, error: '', snapshot: { workingRevision: 2 },
+    accepted: true,
+    error: '',
+    snapshot: { workingRevision: 2 },
     textSourceDiskRevisions: {
       'scripts/game.lua': 'sha256:' + 'a'.repeat(64),
     },
   }));
   const reconcile = vi.fn(async () => ({
-    accepted: true, error: '', snapshot: { workingRevision: 1 },
+    accepted: true,
+    error: '',
+    snapshot: { workingRevision: 1 },
     affectedRecords: ['rooms/hall'],
   }));
   const useDiskUnit = vi.fn(async () => ({
-    accepted: true, error: '', snapshot: { workingRevision: 2 },
+    accepted: true,
+    error: '',
+    snapshot: { workingRevision: 2 },
     affectedRecords: ['rooms/hall'],
   }));
   const working = {
-    open, prepareCompleteWorking, applyRevisionedPatches, snapshot,
-    saveUnits, stageTextSource, saveTextSources, reconcile, useDiskUnit,
+    open,
+    prepareCompleteWorking,
+    applyRevisionedPatches,
+    snapshot,
+    saveUnits,
+    saveOwners,
+    stageTextSource,
+    saveTextSources,
+    reconcile,
+    useDiskUnit,
   };
   const controller = new NativeEditorSessionController(
     authority,
@@ -103,6 +126,7 @@ function fixture() {
     prepareCompleteWorking,
     applyRevisionedPatches,
     saveUnits,
+    saveOwners,
     reconcile,
     useDiskUnit,
     stageTextSource,
@@ -121,35 +145,48 @@ function fixture() {
 describe('native admission at the editor main Project lifecycle', () => {
   it('guards scoped native Use Disk and rejects stale/conflicting sessions', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
-    expect(nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, 'record:rooms:hall']).success).toBe(true);
+    expect(
+      nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, 'record:rooms:hall']).success,
+    ).toBe(true);
     for (const unit of ['../hall', 'record:rooms:../hall', '/tmp/file', ''])
       expect(nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, unit]).success).toBe(false);
     const test = fixture();
-    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall'))
-      .rejects.toThrow('not admitted');
+    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall')).rejects.toThrow(
+      'not admitted',
+    );
     await test.controller.admit('one', test.saved);
-    await expect(test.controller.useDiskUnit('one', 2, 'record:rooms:hall'))
-      .rejects.toThrow('Stale');
-    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall'))
-      .resolves.toMatchObject({ accepted: true });
+    await expect(test.controller.useDiskUnit('one', 2, 'record:rooms:hall')).rejects.toThrow(
+      'Stale',
+    );
+    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall')).resolves.toMatchObject(
+      { accepted: true },
+    );
     expect(test.useDiskUnit).toHaveBeenCalledWith('record:rooms:hall');
     test.setActive('other');
-    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall'))
-      .rejects.toThrow('not admitted');
+    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall')).rejects.toThrow(
+      'not admitted',
+    );
     test.controller.dispose();
   });
   it('admits only canonical native reconciliation owners and checks session/revision', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     for (const owner of ['project', 'editor', 'traits', 'rooms/hall', 'i18n/en'])
       expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(true);
-    for (const owner of ['../project', 'rooms/../bad', 'rooms/hall/file', 'scripts/a.lua', '/project'])
+    for (const owner of [
+      '../project',
+      'rooms/../bad',
+      'rooms/hall/file',
+      'scripts/a.lua',
+      '/project',
+    ])
       expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(false);
     const test = fixture();
     await expect(test.controller.reconcile('one', 0, 'rooms/hall')).rejects.toThrow('not admitted');
     await test.controller.admit('one', test.saved);
     await expect(test.controller.reconcile('one', 5, 'rooms/hall')).rejects.toThrow('Stale');
     await expect(test.controller.reconcile('one', 0, 'rooms/hall')).resolves.toMatchObject({
-      accepted: true, affectedRecords: ['rooms/hall'],
+      accepted: true,
+      affectedRecords: ['rooms/hall'],
     });
     expect(test.reconcile).toHaveBeenCalledWith('rooms/hall');
     test.setActive('other');
@@ -169,68 +206,114 @@ describe('native admission at the editor main Project lifecycle', () => {
       ...test.preparation,
       accepted: false,
       error: 'Working Room source is invalid.',
-      diagnostics: [{
-        code: 'room.bounds.invalid',
-        severity: 'error',
-        path: '/rooms/start/data',
-        message: 'Room invalid',
-        sourcePath: 'records/rooms/start.yaml',
-        line: 7,
-      }],
+      diagnostics: [
+        {
+          code: 'room.bounds.invalid',
+          severity: 'error',
+          path: '/rooms/start/data',
+          message: 'Room invalid',
+          sourcePath: 'records/rooms/start.yaml',
+          line: 7,
+        },
+      ],
     });
     await expect(test.controller.validate('one', 0)).resolves.toMatchObject({
       ok: true,
       success: false,
-      diagnostics: [expect.objectContaining({
-        code: 'room.bounds.invalid',
-        severity: 'error',
-        category: 'Native authoring validation',
-        message: expect.stringContaining('records/rooms/start.yaml:7'),
-      })],
+      diagnostics: [
+        expect.objectContaining({
+          code: 'room.bounds.invalid',
+          severity: 'error',
+          category: 'Native authoring validation',
+          message: expect.stringContaining('records/rooms/start.yaml:7'),
+        }),
+      ],
     });
     test.controller.dispose();
   });
   it('guards source Save schema and resolves revisioned Stage/Save through the admitted owner', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     const hash = 'sha256:' + '1'.repeat(64);
-    const mixed = { textPaths: ['scripts/game.lua'], textContents: { 'scripts/game.lua': 'return true' } };
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], mixed]).success).toBe(true);
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], {
+    const mixed = {
       textPaths: ['scripts/game.lua'],
-    }]).success).toBe(false);
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], {
-      textPaths: ['../escape.lua'], textContents: { '../escape.lua': 'return true' },
-    }]).success).toBe(false);
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], {
-      textPaths: ['scripts/game.lua'], textContents: { 'scripts/game.lua': 'return true',
-        'scripts/other.lua': 'return false' },
-    }]).success).toBe(false);
-    expect(nativeProjectSaveTextArgumentsSchema.safeParse([
-      id, 0, 'scripts/game.lua', hash, 'return true',
-    ]).success).toBe(true);
+      textContents: { 'scripts/game.lua': 'return true' },
+    };
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], mixed]).success).toBe(true);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        id,
+        0,
+        [],
+        {
+          textPaths: ['scripts/game.lua'],
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        id,
+        0,
+        [],
+        {
+          textPaths: ['../escape.lua'],
+          textContents: { '../escape.lua': 'return true' },
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        id,
+        0,
+        [],
+        {
+          textPaths: ['scripts/game.lua'],
+          textContents: { 'scripts/game.lua': 'return true', 'scripts/other.lua': 'return false' },
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      nativeProjectSaveTextArgumentsSchema.safeParse([
+        id,
+        0,
+        'scripts/game.lua',
+        hash,
+        'return true',
+      ]).success,
+    ).toBe(true);
     for (const path of ['../escape.lua', '/tmp/script.lua', '.noveltea/config.lua'])
-      expect(nativeProjectSaveTextArgumentsSchema.safeParse([
-        id, 0, path, hash, 'return true',
-      ]).success).toBe(false);
-    expect(nativeProjectSaveTextArgumentsSchema.safeParse([
-      id, 0, 'scripts/game.lua', 'wrong', 'return true',
-    ]).success).toBe(false);
+      expect(
+        nativeProjectSaveTextArgumentsSchema.safeParse([id, 0, path, hash, 'return true']).success,
+      ).toBe(false);
+    expect(
+      nativeProjectSaveTextArgumentsSchema.safeParse([
+        id,
+        0,
+        'scripts/game.lua',
+        'wrong',
+        'return true',
+      ]).success,
+    ).toBe(false);
     const test = fixture();
-    await expect(test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'))
-      .rejects.toThrow('not admitted');
+    await expect(
+      test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'),
+    ).rejects.toThrow('not admitted');
     await test.controller.admit('one', test.saved);
-    await expect(test.controller.saveText('one', 9, 'scripts/game.lua', hash, 'return true'))
-      .rejects.toThrow('Stale');
-    await expect(test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'))
-      .resolves.toMatchObject({ accepted: true });
+    await expect(
+      test.controller.saveText('one', 9, 'scripts/game.lua', hash, 'return true'),
+    ).rejects.toThrow('Stale');
+    await expect(
+      test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'),
+    ).resolves.toMatchObject({ accepted: true });
     expect(test.stageTextSource).toHaveBeenCalledWith('scripts/game.lua', 'return true', hash);
     expect(test.saveTextSources).toHaveBeenCalledWith(1, ['scripts/game.lua']);
-    await expect(test.controller.stageText('one', 0, 'scripts/game.lua', hash, 'return 2'))
-      .resolves.toMatchObject({ accepted: true });
+    await expect(
+      test.controller.stageText('one', 0, 'scripts/game.lua', hash, 'return 2'),
+    ).resolves.toMatchObject({ accepted: true });
     expect(test.stageTextSource).toHaveBeenLastCalledWith('scripts/game.lua', 'return 2', hash);
     test.setActive('two');
-    await expect(test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'))
-      .rejects.toThrow('not admitted');
+    await expect(
+      test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'),
+    ).rejects.toThrow('not admitted');
     test.controller.dispose();
   });
   it('validates native scoped Save input without allowing arbitrary filesystem paths', () => {
@@ -243,18 +326,107 @@ describe('native admission at the editor main Project lifecycle', () => {
         { comments: 'keep', keepMine: false },
       ]).success,
     ).toBe(true);
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([
-      sessionId, 0, ['record:rooms:foyer', 'record:rooms:kitchen'], {},
-    ]).success).toBe(true);
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([
-      sessionId, 0, ['project:settings', '../escape'], {},
-    ]).success).toBe(false);
-    for (const unit of ['', '../escape', 'record:rooms:../../out', 'project/settings', 'a'.repeat(257)])
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        sessionId,
+        0,
+        ['record:rooms:foyer', 'record:rooms:kitchen'],
+        {},
+      ]).success,
+    ).toBe(true);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        sessionId,
+        0,
+        ['project:settings', '../escape'],
+        {},
+      ]).success,
+    ).toBe(false);
+    for (const unit of [
+      '',
+      '../escape',
+      'record:rooms:../../out',
+      'project/settings',
+      'a'.repeat(257),
+    ])
       expect(nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, 0, unit, {}]).success).toBe(
         false,
       );
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, 0, 'project:settings', { comments: 'override' }]).success).toBe(false);
-    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, -1, 'project:settings', {}]).success).toBe(false);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        sessionId,
+        0,
+        'project:settings',
+        { comments: 'override' },
+      ]).success,
+    ).toBe(false);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, -1, 'project:settings', {}])
+        .success,
+    ).toBe(false);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        sessionId,
+        0,
+        [],
+        { structuralPathsByOwner: { 'rooms/foyer': ['/'] } },
+      ]).success,
+    ).toBe(true);
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        sessionId,
+        0,
+        [],
+        { structuralPathsByOwner: { 'i18n/messages.yaml': ['/structuredMessageIds'] } },
+      ]).success,
+    ).toBe(true);
+    for (const owner of ['rooms/../../escape', '/tmp/escape', 'rooms/FOYER'])
+      expect(
+        nativeProjectSaveUnitArgumentsSchema.safeParse([
+          sessionId,
+          0,
+          [],
+          { structuralPathsByOwner: { [owner]: ['/'] } },
+        ]).success,
+      ).toBe(false);
+  });
+
+  it('returns source comments for native structural deletion approval without writing files', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-comment-approval-'));
+    try {
+      const relative = 'records/rooms/commented-room.yaml';
+      await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+      await writeFile(
+        path.join(root, relative),
+        'id: commented-room\n# Keep this explanation\nlabel: Room\n',
+      );
+      const test = fixture(root);
+      await test.controller.admit('one', test.saved);
+      const reviewed = await test.controller.saveUnit('one', 0, [], {
+        comments: 'keep',
+        structuralPathsByOwner: { 'rooms/commented-room': ['/'] },
+      });
+      expect(reviewed).toMatchObject({
+        accepted: false,
+        commentImpacts: [
+          {
+            file: relative,
+            kind: 'deleted',
+            comment: expect.stringContaining('Keep this explanation'),
+          },
+        ],
+      });
+      expect(test.saveOwners).toHaveBeenCalledWith(['rooms/commented-room'], {
+        pathsByOwner: { 'rooms/commented-room': ['/'] },
+        comments: 'keep',
+        keepMine: undefined,
+        expectedRevision: 0,
+      });
+      expect(await readFile(path.join(root, relative), 'utf8')).toContain('Keep this explanation');
+      test.controller.dispose();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it('authorizes logical native Save only for the exact revision and admitted Project', async () => {
@@ -263,9 +435,9 @@ describe('native admission at the editor main Project lifecycle', () => {
       test.controller.saveUnit('one', 0, 'project:settings', { comments: 'keep' }),
     ).rejects.toThrow('not admitted');
     await test.controller.admit('one', test.saved);
-    await expect(
-      test.controller.saveUnit('one', 1, 'project:settings', {}),
-    ).rejects.toThrow('Stale');
+    await expect(test.controller.saveUnit('one', 1, 'project:settings', {})).rejects.toThrow(
+      'Stale',
+    );
     expect(test.saveUnits).not.toHaveBeenCalled();
     await expect(
       test.controller.saveUnit('one', 0, 'project:settings', { comments: 'remove' }),
@@ -275,12 +447,14 @@ describe('native admission at the editor main Project lifecycle', () => {
       test.controller.saveUnit('one', 0, ['record:rooms:foyer', 'record:rooms:kitchen'], {}),
     ).resolves.toMatchObject({ accepted: true });
     expect(test.saveUnits).toHaveBeenLastCalledWith(
-      ['record:rooms:foyer', 'record:rooms:kitchen'], {}, 0,
+      ['record:rooms:foyer', 'record:rooms:kitchen'],
+      {},
+      0,
     );
     test.setActive('two');
-    await expect(
-      test.controller.saveUnit('one', 0, 'project:settings', {}),
-    ).rejects.toThrow('not admitted');
+    await expect(test.controller.saveUnit('one', 0, 'project:settings', {})).rejects.toThrow(
+      'not admitted',
+    );
     expect(test.saveUnits).toHaveBeenCalledTimes(2);
     test.controller.dispose();
   });

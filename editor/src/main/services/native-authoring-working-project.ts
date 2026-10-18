@@ -133,6 +133,7 @@ export class NativeAuthoringWorkingProject {
   private retained: RetainedBatch[] = [];
   private readonly retainedTextSources = new Map<string, RetainedTextSource>();
   private readonly pendingFields = new Map<string, string>();
+  private readonly pendingDeletedOwners = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
   private projectSessionId: string | null = null;
 
@@ -167,6 +168,7 @@ export class NativeAuthoringWorkingProject {
       this.cursor = 0;
       this.retained = [];
       this.retainedTextSources.clear();
+      this.pendingDeletedOwners.clear();
       this.pendingFields.clear();
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
@@ -229,7 +231,9 @@ export class NativeAuthoringWorkingProject {
   }
 
   async stageTextSource(
-    path: string, text: string, diskPrecondition?: string,
+    path: string,
+    text: string,
+    diskPrecondition?: string,
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
@@ -254,10 +258,7 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
-  async saveTextSources(
-    expectedRevision: number,
-    paths: readonly string[],
-  ): Promise<PatchResult> {
+  async saveTextSources(expectedRevision: number, paths: readonly string[]): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view || this.view.workingRevision !== expectedRevision)
         throw new Error('Stale native Project text Save revision.');
@@ -363,6 +364,18 @@ export class NativeAuthoringWorkingProject {
       expectedRevision?: number;
     } = {},
   ): Promise<PatchResult> {
+    for (const owner of owners)
+      if (
+        owner !== 'project' &&
+        !this.pendingDeletedOwners.has(owner) &&
+        !this.view?.recordSnapshots?.[owner]
+      ) {
+        const inspected = await this.inspectRecord(owner);
+        if (!inspected.accepted)
+          throw new Error(
+            `Native structural Save owner ${owner} is unavailable: ${inspected.error}`,
+          );
+      }
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
       if (
@@ -372,8 +385,10 @@ export class NativeAuthoringWorkingProject {
         throw new Error('Stale native working Project Save revision.');
       if (options.textPaths?.length) {
         for (const path of options.textPaths)
-          if (!this.retainedTextSources.has(path) ||
-              this.retainedTextSources.get(path)!.text !== options.textContents?.[path])
+          if (
+            !this.retainedTextSources.has(path) ||
+            this.retainedTextSources.get(path)!.text !== options.textContents?.[path]
+          )
             throw new Error(`Native staged source changed before mixed Save: ${path}`);
       }
       const result = await this.bridge.request({
@@ -388,8 +403,9 @@ export class NativeAuthoringWorkingProject {
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a scoped Save result.');
       if (result.accepted) {
-        const merged = this.mergeSnapshot(result.snapshot);
+        const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
         this.view = merged;
+        for (const owner of result.affectedRecords) this.pendingDeletedOwners.delete(owner);
         if (options.textPaths?.length) {
           for (const path of options.textPaths) {
             if (!result.textSourceDiskRevisions?.[path])
@@ -406,7 +422,12 @@ export class NativeAuthoringWorkingProject {
 
   async saveUnits(
     saveUnitIds: readonly string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> } = {},
+    options: {
+      keepMine?: boolean;
+      comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
+      textPaths?: string[];
+      textContents?: Record<string, string>;
+    } = {},
     expectedRevision?: number,
   ): Promise<PatchResult> {
     if (!this.view) throw new Error('Native working Project has not opened.');
@@ -417,13 +438,19 @@ export class NativeAuthoringWorkingProject {
         pathsByOwner[owner] = [...new Set([...(pathsByOwner[owner] ?? []), ...paths])].sort();
     }
     for (const owner of Object.keys(pathsByOwner))
-      if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
+      if (
+        owner !== 'project' &&
+        !this.pendingDeletedOwners.has(owner) &&
+        !this.view?.recordSnapshots?.[owner]
+      ) {
         const inspected = await this.inspectRecord(owner);
         if (!inspected.accepted)
           throw new Error(`Native Save unit owner ${owner} is unavailable: ${inspected.error}`);
       }
     return this.saveOwners(Object.keys(pathsByOwner).sort(), {
-      ...options, pathsByOwner, expectedRevision,
+      ...options,
+      pathsByOwner,
+      expectedRevision,
     });
   }
 
@@ -439,7 +466,11 @@ export class NativeAuthoringWorkingProject {
     if (!this.view) throw new Error('Native working Project has not opened.');
     const pathsByOwner = logicalSaveUnitPaths(saveUnitId, this.view);
     for (const owner of Object.keys(pathsByOwner))
-      if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
+      if (
+        owner !== 'project' &&
+        !this.pendingDeletedOwners.has(owner) &&
+        !this.view?.recordSnapshots?.[owner]
+      ) {
         const inspected = await this.inspectRecord(owner);
         if (!inspected.accepted)
           throw new Error(`Native Use Disk unit owner ${owner} is unavailable: ${inspected.error}`);
@@ -455,6 +486,7 @@ export class NativeAuthoringWorkingProject {
         throw new Error('Native Project did not return a logical Use Disk result.');
       if (result.accepted) {
         this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
+        for (const owner of result.affectedRecords) this.pendingDeletedOwners.delete(owner);
         const paths = Object.entries(pathsByOwner).flatMap(([owner, fields]) =>
           fields.map((field) => ownerPath(owner, field)),
         );
@@ -481,6 +513,17 @@ export class NativeAuthoringWorkingProject {
     return this.serial(async () => {
       if (!this.view || this.view.workingRevision !== expectedRevision)
         throw new Error('Stale native Project mutation revision.');
+      for (const patch of patches) {
+        if (patch.op !== 'remove' || !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path)) continue;
+        const owner = patch.path.slice(1);
+        if (this.view.recordSnapshots?.[owner] || this.pendingDeletedOwners.has(owner)) continue;
+        const inspected = await this.bridge.request({ operation: 'inspect', owner });
+        if (!inspected || !('accepted' in inspected) || !inspected.accepted)
+          throw new Error(
+            `Cannot inspect native structural removal ${owner}: ${inspected && 'error' in inspected ? inspected.error : 'no response'}`,
+          );
+        this.view = this.mergeSnapshot(inspected.snapshot);
+      }
       return this.submit(nativePatches(patches));
     });
   }
@@ -537,11 +580,23 @@ export class NativeAuthoringWorkingProject {
         if (source.conflictingPaths?.length) conflicts[owner] = [...source.conflictingPaths];
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
+      this.pendingDeletedOwners.clear();
       try {
         for (const batch of batches) {
           const result = await this.requestPatch(batch.patches, batch.diskPreconditions);
           if (!result.accepted) throw new Error(`Native Project replay conflict: ${result.error}`);
-          this.view = this.mergeSnapshot(result.snapshot);
+          this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
+          for (const patch of batch.patches) {
+            if (patch.operation !== 'remove' || !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path))
+              continue;
+            const owner = patch.path.slice(1);
+            if (
+              !this.view.recordSnapshots?.[owner] &&
+              batch.diskPreconditions[owner] &&
+              batch.diskPreconditions[owner] !== 'absent'
+            )
+              this.pendingDeletedOwners.set(owner, batch.diskPreconditions[owner]);
+          }
         }
         for (const [path, retained] of textSources) {
           const restored = await this.bridge.request({
@@ -584,11 +639,27 @@ export class NativeAuthoringWorkingProject {
   }
 
   private async submit(patches: NativePatch[]): Promise<PatchResult> {
+    const before = this.view;
     const result = await this.requestPatch(patches);
     if (result.accepted && result.affectedRecords.length) {
       const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
       this.view = merged;
-      if (result.affectedRecords.some((owner) => owner !== 'project' && !merged.recordSnapshots?.[owner])) {
+      for (const patch of patches) {
+        if (!/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path)) continue;
+        const owner = patch.path.slice(1);
+        if (patch.operation === 'add' && merged.recordSnapshots?.[owner])
+          this.pendingDeletedOwners.delete(owner);
+        if (patch.operation === 'remove' && !merged.recordSnapshots?.[owner]) {
+          const revision = before?.recordSnapshots?.[owner]?.diskSourceRevision;
+          if (revision && revision !== 'absent') this.pendingDeletedOwners.set(owner, revision);
+          else this.pendingDeletedOwners.delete(owner);
+        }
+      }
+      if (
+        result.affectedRecords.some(
+          (owner) => owner !== 'project' && !merged.recordSnapshots?.[owner],
+        )
+      ) {
         this.checkpointDirtyWorkingState();
       } else {
         this.retained.push({
@@ -638,20 +709,28 @@ export class NativeAuthoringWorkingProject {
       if (state.baseline === undefined)
         throw new Error(`Native owner ${owner} has no saved baseline for recovery.`);
       const prefix = owner === 'project' ? '' : `/${owner}`;
-      const patches = state.diskSourceRevision === 'absent' && owner !== 'project'
-        ? [{ operation: 'add' as const, path: prefix, value: state.source }]
-        : nativePatches(
-          diffJsonDocuments(state.baseline as JsonValue, state.source as JsonValue).map((patch) => ({
-            ...patch,
-            path: prefix + patch.path,
-          })),
-        );
+      const patches =
+        state.diskSourceRevision === 'absent' && owner !== 'project'
+          ? [{ operation: 'add' as const, path: prefix, value: state.source }]
+          : nativePatches(
+              diffJsonDocuments(state.baseline as JsonValue, state.source as JsonValue).map(
+                (patch) => ({
+                  ...patch,
+                  path: prefix + patch.path,
+                }),
+              ),
+            );
       if (patches.length)
         batches.push({
           patches,
           diskPreconditions: sourceRevisions(this.view, [owner]),
         });
     }
+    for (const [owner, revision] of this.pendingDeletedOwners)
+      batches.push({
+        patches: [{ operation: 'remove', path: `/${owner}` }],
+        diskPreconditions: { [owner]: revision },
+      });
     this.retained = batches;
   }
 

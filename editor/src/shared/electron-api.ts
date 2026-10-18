@@ -88,7 +88,13 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
     saveUnitIds: string | string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> },
+    options: {
+      keepMine?: boolean;
+      comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
+      textPaths?: string[];
+      textContents?: Record<string, string>;
+      structuralPathsByOwner?: Record<string, string[]>;
+    },
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
@@ -118,12 +124,16 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
     owner: string,
-  ): Promise<import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult>;
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
   nativeProjectUseDiskUnit(
     projectSessionId: string,
     expectedRevision: number,
     saveUnitId: string,
-  ): Promise<import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult>;
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
   nativeProjectPrepareRuntime(
     projectSessionId: string,
     expectedRevision: number,

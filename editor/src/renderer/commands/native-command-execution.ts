@@ -28,6 +28,39 @@ const recordFamilies = new Set([
   'verbs',
 ]);
 
+/** Physical owner resolution for the generic localization patch contract.
+ * This must match ProjectSession::localization_patch_target: the logical
+ * AuthoringProject localization tree is not stored in project.yaml. */
+export function nativeLocalizationTarget(
+  pointer: string,
+): { owner: string; relative: string } | null {
+  const segments = parseJsonPointer(pointer);
+  if (segments[0] !== 'localization' || segments.length < 2) return null;
+  const [, field, locale] = segments;
+  if (field === 'messages' || field === 'structuredMessageIds')
+    return { owner: 'i18n/messages.yaml', relative: buildJsonPointer(segments.slice(1)) };
+  if (field === 'usageNotes' || field === 'sourceMessageTracking' || field === 'orphanedMessages') {
+    if (segments.length < 3) return null;
+    const file =
+      field === 'usageNotes'
+        ? 'usage-notes'
+        : field === 'sourceMessageTracking'
+          ? 'tracking'
+          : 'orphans';
+    return { owner: `i18n/${file}.yaml`, relative: buildJsonPointer(segments.slice(2)) };
+  }
+  if (field === 'translations' || field === 'assets') {
+    if (segments.length < 4 || !locale) return null;
+    return {
+      owner: `i18n/${field === 'translations' ? 'locales' : 'assets'}/${locale}.yaml`,
+      relative: buildJsonPointer(segments.slice(3)),
+    };
+  }
+  if (['sourceLocale', 'sourceLocaleLock', 'defaultLocale', 'locales'].includes(field!))
+    return { owner: 'i18n/project.yaml', relative: buildJsonPointer(segments.slice(1)) };
+  return null;
+}
+
 function authoritativeSource(
   acknowledged: NativeAuthoringPatchResult,
   pointer: string,
@@ -36,7 +69,12 @@ function authoritativeSource(
   const family = segments[0];
   let owner = 'project';
   let relative = pointer;
-  if ((family === 'editor' || family === 'traits') && segments.length > 1) {
+  if (family === 'localization') {
+    const target = nativeLocalizationTarget(pointer);
+    if (!target) throw new Error(`Unsupported native localization verification: ${pointer}`);
+    owner = target.owner;
+    relative = target.relative;
+  } else if ((family === 'editor' || family === 'traits') && segments.length > 1) {
     owner = family;
     relative = buildJsonPointer(segments.slice(1));
   } else if (family && recordFamilies.has(family) && segments.length >= 2) {
@@ -56,7 +94,7 @@ function authoritativeSource(
 
 /** Native must verify the exact accepted values, not just reply `accepted`.
  * The TypeScript command result is a proposed UI projection, not authority. */
-function assertNativeProjection(
+export function assertNativeProjection(
   proposal: JsonValue,
   patches: readonly JsonPatchOperation[],
   acknowledged: NativeAuthoringPatchResult,
@@ -75,7 +113,8 @@ function assertNativeProjection(
         acknowledged.affectedRecords.includes(owner) &&
         !acknowledged.snapshot.recordSnapshots?.[owner] &&
         !hasJsonAtPointer(proposal, patch.path)
-      ) continue;
+      )
+        continue;
     }
     const verifiedPath =
       segments.at(-1) === '-' ? buildJsonPointer(segments.slice(0, -1)) : patch.path;

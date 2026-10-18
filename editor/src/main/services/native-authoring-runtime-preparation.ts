@@ -77,7 +77,14 @@ export function projectFromNativeWorkingPreparation(
   }
   for (const family of authoringCollectionKeys) {
     const dirty = prepared.recordOverrides[family];
-    if (dirty) candidate[family] = { ...saved[family], ...dirty };
+    if (dirty) {
+      const records = { ...saved[family] } as Record<string, unknown>;
+      for (const [id, value] of Object.entries(dirty)) {
+        if (value === null) delete records[id];
+        else records[id] = value;
+      }
+      candidate[family] = records;
+    }
   }
   const parsed = authoringProjectSchema.safeParse(candidate);
   if (!parsed.success) {
