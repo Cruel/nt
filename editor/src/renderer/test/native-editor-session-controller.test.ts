@@ -13,6 +13,7 @@ import {
   nativeProjectSaveUnitArgumentsSchema,
   nativeProjectSaveTextArgumentsSchema,
   nativeProjectReconcileArgumentsSchema,
+  nativeProjectUseDiskUnitArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
 } from '../../main/editor-ipc-trust-boundary';
 import { toJsonValue } from '../project/json-value';
@@ -81,9 +82,13 @@ function fixture() {
     accepted: true, error: '', snapshot: { workingRevision: 1 },
     affectedRecords: ['rooms/hall'],
   }));
+  const useDiskUnit = vi.fn(async () => ({
+    accepted: true, error: '', snapshot: { workingRevision: 2 },
+    affectedRecords: ['rooms/hall'],
+  }));
   const working = {
     open, prepareCompleteWorking, applyRevisionedPatches, snapshot,
-    saveUnits, stageTextSource, saveTextSources, reconcile,
+    saveUnits, stageTextSource, saveTextSources, reconcile, useDiskUnit,
   };
   const controller = new NativeEditorSessionController(
     authority,
@@ -99,6 +104,7 @@ function fixture() {
     applyRevisionedPatches,
     saveUnits,
     reconcile,
+    useDiskUnit,
     stageTextSource,
     saveTextSources,
     snapshot,
@@ -113,6 +119,25 @@ function fixture() {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('guards scoped native Use Disk and rejects stale/conflicting sessions', async () => {
+    const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
+    expect(nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, 'record:rooms:hall']).success).toBe(true);
+    for (const unit of ['../hall', 'record:rooms:../hall', '/tmp/file', ''])
+      expect(nativeProjectUseDiskUnitArgumentsSchema.safeParse([id, 0, unit]).success).toBe(false);
+    const test = fixture();
+    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall'))
+      .rejects.toThrow('not admitted');
+    await test.controller.admit('one', test.saved);
+    await expect(test.controller.useDiskUnit('one', 2, 'record:rooms:hall'))
+      .rejects.toThrow('Stale');
+    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall'))
+      .resolves.toMatchObject({ accepted: true });
+    expect(test.useDiskUnit).toHaveBeenCalledWith('record:rooms:hall');
+    test.setActive('other');
+    await expect(test.controller.useDiskUnit('one', 0, 'record:rooms:hall'))
+      .rejects.toThrow('not admitted');
+    test.controller.dispose();
+  });
   it('admits only canonical native reconciliation owners and checks session/revision', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     for (const owner of ['project', 'editor', 'traits', 'rooms/hall', 'i18n/en'])

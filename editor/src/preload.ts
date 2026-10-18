@@ -122,6 +122,8 @@ const api: NovelTeaElectronApi = {
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, projectSessionId, expectedRevision),
   nativeProjectReconcile: (projectSessionId, expectedRevision, owner) =>
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RECONCILE, projectSessionId, expectedRevision, owner),
+  nativeProjectUseDiskUnit: (projectSessionId, expectedRevision, saveUnitId) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT, projectSessionId, expectedRevision, saveUnitId),
   nativeProjectPrepareRuntime: (projectSessionId, expectedRevision, shaderVariant) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,

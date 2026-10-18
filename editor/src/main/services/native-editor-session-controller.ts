@@ -42,7 +42,7 @@ export class NativeEditorSessionController {
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
       'open' | 'prepareCompleteWorking' | 'applyRevisionedPatches' | 'saveUnits' |
-      'stageTextSource' | 'saveTextSources' | 'snapshot' | 'reconcile'
+      'stageTextSource' | 'saveTextSources' | 'snapshot' | 'reconcile' | 'useDiskUnit'
     >,
   ) {
     this.unsubscribeFailure = bridge.onFailure(() => this.close());
@@ -196,6 +196,21 @@ export class NativeEditorSessionController {
     const result = await this.working.reconcile(owner);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native reconciliation completed for a superseded Project.');
+    return result;
+  }
+
+  /** Discard the selected logical owner's local changes only after a native
+   * revision check. Native handles the multi-file baseline and conflict state. */
+  async useDiskUnit(projectSessionId: string, expectedRevision: number, saveUnitId: string) {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Native Project is not admitted for this editor session.');
+    const generation = this.generation;
+    this.authority.requireActiveProjectRoot(projectSessionId);
+    if (this.working.snapshot()?.workingRevision !== expectedRevision)
+      throw new Error('Stale native Use Disk revision.');
+    const result = await this.working.useDiskUnit(saveUnitId);
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Native Use Disk completed for a superseded Project.');
     return result;
   }
 

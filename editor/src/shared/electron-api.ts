@@ -119,6 +119,11 @@ interface NovelTeaElectronApiContract {
     expectedRevision: number,
     owner: string,
   ): Promise<import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult>;
+  nativeProjectUseDiskUnit(
+    projectSessionId: string,
+    expectedRevision: number,
+    saveUnitId: string,
+  ): Promise<import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult>;
   nativeProjectPrepareRuntime(
     projectSessionId: string,
     expectedRevision: number,

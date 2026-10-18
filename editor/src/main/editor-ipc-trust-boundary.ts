@@ -656,6 +656,11 @@ export const nativeProjectReconcileArgumentsSchema = z.tuple([
     z.string().max(128).regex(/^(?:animations|archetypes|assets|characters|dialogues|interactables|interactions|layouts|maps|materials|rooms|scenes|scripts|tests|variables|verbs|i18n)\/[a-z][a-z0-9-]*$/u),
   ]),
 ]);
+export const nativeProjectUseDiskUnitArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.string().min(3).max(256).regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+]);
 export const nativeProjectPrepareRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),

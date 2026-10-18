@@ -208,6 +208,7 @@ import {
   nativeProjectSaveUnitArgumentsSchema,
   nativeProjectSaveTextArgumentsSchema,
   nativeProjectReconcileArgumentsSchema,
+  nativeProjectUseDiskUnitArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
   nativeProjectPrepareRuntimeArgumentsSchema,
   nativeProjectRunTestArgumentsSchema,
@@ -1362,6 +1363,16 @@ void app.whenReady().then(async () => {
       if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
         throw new Error('Native Project reconciliation is not enabled for this editor.');
       return nativeEditorAdmission.reconcile(projectSessionId, expectedRevision, owner);
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,
+    (arguments_) => nativeProjectUseDiskUnitArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, saveUnitId) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project Use Disk is not enabled for this editor.');
+      return nativeEditorAdmission.useDiskUnit(projectSessionId, expectedRevision, saveUnitId);
     },
   );
 
