@@ -395,6 +395,11 @@ mutable Project sessions or parsed record instances. Imported contributors
 are materialized into session RAM by reopening each physical record and
 rechecking its exact source revision. Legacy TypeScript manifests and older
 native cache formats are rejected without a migration reader.
+An inspected clean editor record with a superseded disk revision cannot
+override the physical contributor and does not trigger repeated recomputation
+after the new disk diagnostic is cached. Regression coverage asserts zero
+rechecked records and semantic contributions on successive unchanged reads;
+dirty inspected owners still retain their independent conflict semantics.
 
 Clean cache admission verifies native physical-source authority and exact
 source identities before and after reuse. For referenced binary Assets it
@@ -435,7 +440,11 @@ creation using the generated Workspace source-file codec (including the managed
 Asset imports with explicit dry-run plans. Destination publication is exclusive
 and cannot overwrite an existing Project. Asset audits inspect only Project
 identity, canonical Asset records and contained Asset-directory files: unrelated
-invalid Room/Scene records do not block the inventory.
+invalid Room/Scene records do not block the inventory. Scoped admission still
+requires the current workspace schema and version, a structurally valid Project
+identity, and settled YAML transactions; pending native Asset-import staging
+also blocks the audit. Certification compares both rejection codes and paths
+with the installed CLI, as well as successful scoped inventory output.
 
 Native Asset import validates canonical record metadata and source bytes before
 publishing. Image and font inputs use the host's native decoders; audio/video

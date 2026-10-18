@@ -160,7 +160,62 @@ try {
   const nativeAudit = await nativeCommand('asset-audit', { projectRoot: test });
   assert.equal(nativeAudit.ok, true, JSON.stringify(nativeAudit));
   assert.deepEqual(nativeAudit.fields.untrackedFiles, oracleAudit.untrackedFiles);
-  console.log('Native Project command differential PASSED: create, import/dry-run, audit.');
+
+  async function rejectAudit(expectedExitCode, expectedCode, expectedPath) {
+    const publicResult = spawnSync(cli, ['--project', oracle, '--json', 'asset', 'audit'], {
+      cwd: repository,
+      encoding: 'utf8',
+      timeout: 240_000,
+    });
+    assert.ifError(publicResult.error);
+    assert.equal(publicResult.status, expectedExitCode);
+    const installed = JSON.parse(publicResult.stdout);
+    const parallel = await nativeCommand('asset-audit', { projectRoot: test });
+    assert.equal(installed.success, false);
+    assert.equal(parallel.ok, false);
+    assert.equal(parallel.exitCode, installed.exitCode);
+    assert.equal(installed.diagnostics[0].code, expectedCode);
+    assert.equal(parallel.diagnostics[0].code, installed.diagnostics[0].code);
+    assert.equal(parallel.diagnostics[0].path, expectedPath);
+    assert.equal(parallel.diagnostics[0].path, installed.diagnostics[0].path);
+  }
+
+  const originalManifests = await Promise.all(
+    [oracle, test].map((root) => readFile(path.join(root, 'project.yaml'), 'utf8')),
+  );
+  for (const [index, root] of [oracle, test].entries()) {
+    assert.match(originalManifests[index], /schemaVersion: 1/u);
+    await writeFile(
+      path.join(root, 'project.yaml'),
+      originalManifests[index].replace('schemaVersion: 1', 'schemaVersion: 999'),
+    );
+  }
+  await rejectAudit(3, 'WORKSPACE_VERSION_UNSUPPORTED', '/schemaVersion');
+  for (const [index, root] of [oracle, test].entries())
+    await writeFile(path.join(root, 'project.yaml'), originalManifests[index]);
+
+  for (const [index, root] of [oracle, test].entries())
+    await writeFile(
+      path.join(root, 'project.yaml'),
+      originalManifests[index].replace(/^  name:.*$/mu, '  name: 123'),
+    );
+  await rejectAudit(3, 'WORKSPACE_SOURCE_READ', '/project/name');
+  for (const [index, root] of [oracle, test].entries())
+    await writeFile(path.join(root, 'project.yaml'), originalManifests[index]);
+
+  for (const root of [oracle, test]) {
+    const transaction = path.join(root, '.noveltea', 'transactions', 'incomplete');
+    await mkdir(transaction, { recursive: true });
+    await writeFile(path.join(transaction, 'journal.json'), '{}\n');
+  }
+  await rejectAudit(5, 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT', '/.noveltea/transactions');
+  for (const root of [oracle, test])
+    await rm(path.join(root, '.noveltea', 'transactions', 'incomplete'), { recursive: true });
+  assert.equal((await nativeCommand('asset-audit', { projectRoot: test })).ok, true);
+  console.log(
+    'Native Project command differential PASSED: create, import/dry-run, audit, ' +
+      'unsupported versions, invalid identities, and unsettled transactions.',
+  );
 } finally {
   await rm(temporary, { recursive: true, force: true });
 }
