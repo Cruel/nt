@@ -108,6 +108,14 @@ add_custom_target(format
 option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_BUILD_EDITOR_PREVIEW "Build the Web-only editor preview application" OFF)
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
+# The preview and player share a single engine target; combining them would link
+# the player-facing ImGui frontend into the editor preview when devtools are on.
+# Keep the editor preview a separate instrumentation-only build instead.
+if(NOVELTEA_BUILD_EDITOR_PREVIEW AND (NOVELTEA_BUILD_PLAYER OR NOVELTEA_BUILD_SANDBOX))
+    message(FATAL_ERROR
+        "NOVELTEA_BUILD_EDITOR_PREVIEW requires NOVELTEA_BUILD_PLAYER=OFF and "
+        "NOVELTEA_BUILD_SANDBOX=OFF to exclude Dear ImGui from the preview")
+endif()
 option(NOVELTEA_BUILD_HOST_TOOLS "Build native editor and host-tool targets" ON)
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
 option(NOVELTEA_BUILD_BENCHMARK_APP "Build the standalone SDL3/bgfx graphics benchmark (Linux/Android/Web)" OFF)
