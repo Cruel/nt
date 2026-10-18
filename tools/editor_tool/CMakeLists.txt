@@ -47,6 +47,9 @@ add_library(noveltea_tooling_native STATIC
     tooling_daemon_broker.hpp
     tooling_native_project_validation.cpp
     tooling_native_project_commands.cpp
+    tooling_native_project_asset.cpp
+    tooling_native_asset_media.cpp
+    tooling_native_project_create.cpp
     tooling_native_project_fmt.cpp
     tooling_native_project_localization.cpp
     tooling_native_project_sync.cpp

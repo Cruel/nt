@@ -91,7 +91,8 @@ Json validate(std::string_view request_text)
     if (!request.is_object() || !request.contains("projectRoot") ||
         !request["projectRoot"].is_string() || request["projectRoot"].get<std::string>().empty())
         return {{"ok", false}, {"error", "Native disk validation requires projectRoot."}};
-    const auto requested = std::filesystem::path(request["projectRoot"].get<std::string>());
+    const auto root_utf8 = request["projectRoot"].get<std::string>();
+    const auto requested = std::filesystem::path(std::u8string(root_utf8.begin(), root_utf8.end()));
     if (!requested.is_absolute())
         return {{"ok", false}, {"error", "Native disk validation requires an absolute root."}};
     const auto root = std::filesystem::canonical(requested);

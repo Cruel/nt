@@ -45370,6 +45370,20 @@
       "kind": "refinement"
     }
   ],
+  "projectCreationFiles": {
+    ".gitignore": "/.noveltea/\n/dist/\n",
+    "AGENTS.md": "# NovelTea Project\n\n<!-- noveltea:managed-agent-bootstrap:start -->\n<!-- DO NOT EDIT THIS BLOCK. -->\nBefore editing NovelTea project content:\n\n1. Run `noveltea agent sync`.\n2. Read `.noveltea/agent/GUIDE.md` and follow its routing to the focused generated docs for the task.\n\n`.noveltea/agent/GUIDE.md` is the authoritative entrypoint for NovelTea authoring guidance.\n`.noveltea/` is generated, ignored local state. Do not edit it as project source.\n<!-- noveltea:managed-agent-bootstrap:end -->\n",
+    "editor.yaml": "chapters: {}\ntags: {}\nrecordMetadata: {}\n",
+    "i18n/messages.yaml": "messages: {}\nstructuredMessageIds: {}\n",
+    "i18n/orphans.yaml": "{}\n",
+    "i18n/project.yaml": "sourceLocale: en\nsourceLocaleLock: null\ndefaultLocale: en\nlocales:\n  en:\n    supported: true\n    parentLocale: null\n    fontStack: null\n",
+    "i18n/tracking.yaml": "{}\n",
+    "i18n/usage-notes.yaml": "{}\n",
+    "project.yaml": "schema: noveltea.project.workspace\nschemaVersion: 1\nproject:\n  id: noveltea-native-create-template\n  name: NovelTea Native Creation Template\n  version: 0.1.0\n  author: \"\"\n  description: \"\"\nsettings:\n  distributionNotices: []\n  ui:\n    systemLayouts: {}\n  inventory:\n    defaultLayout: null\n  interaction:\n    defaultVerbMenuLayout: null\n  text:\n    defaultFont: null\n    fontStack: []\n  titleScreen:\n    titleImage: null\n    showProjectTitle: true\n    showAuthor: false\n    subtitle: \"\"\n    startLabel: Start\n  app:\n    displayName: NovelTea Native Creation Template\n    localized: {}\n    applicationId: org.noveltea.noveltea-native-create-template\n    saveNamespace: org.noveltea.noveltea-native-create-template\n    versionName: 0.1.0\n    icon: null\n    launchImage: null\n    desktop: {}\n    web: {}\n    android: {}\n  display:\n    referenceResolution:\n      width: 1920\n      height: 1080\n    worldRasterPolicy: capped\n    barColor: \"#000000\"\n  accessibility:\n    uiScale:\n      enabled: true\n      minimum: 1\n      maximum: 2\n    textScale:\n      enabled: true\n      minimum: 1\n      maximum: 2\n  audio:\n    purposes:\n      music:\n        volume: 1\n        muted: false\n      ambience:\n        volume: 1\n        muted: false\n      voice:\n        volume: 1\n        muted: false\n      sound-effect:\n        volume: 1\n        muted: false\n      ui-sound:\n        volume: 1\n        muted: false\n    voiceDucking:\n      enabled: false\n      musicGain: 0.5\n      ambienceGain: 0.5\n  cursors:\n    defaults:\n      default:\n        kind: system\n        cursor: default\n      pointer:\n        kind: system\n        cursor: pointer\n      hotspot:\n        kind: inherit\n        semantic: pointer\n    named: []\n  presentation:\n    roomNavigationTransition:\n      kind: cut\n      durationMs: 0\n      color: null\n      skippable: true\nexport:\n  runtime:\n    id: runtime-default\n    label: Runtime Package\n    kind: runtime\n    outputPath: \"\"\n    includeChecksums: true\n    stripEditorData: true\n    stripShaderSources: true\n    compileShadersBeforeExport: true\n    shaderVariants:\n      - glsl-330\n      - essl-300\n      - metal\n    excludeUnusedAssets: true\n    includeShaderSources: false\n    includeTests: false\n    previewAfterExport: false\n    localization:\n      locales:\n        - en\n      defaultLocale: en\n      quality: development\n  profiles: []\n  assetMemoryPolicies: []\nbootstrapModule:\n  $ref:\n    collection: scripts\n    id: bootstrap\ninventories:\n  - id: inventory\n    label: Inventory\ninteractableInstances: {}\n",
+    "records/scripts/bootstrap.yaml": "id: bootstrap\nlabel: Bootstrap\ndescription: Project bootstrap module.\ndata:\n  source:\n    kind: project-file\n    path: scripts/bootstrap.lua\n",
+    "scripts/bootstrap.lua": "return {}\n",
+    "traits.yaml": "{}\n"
+  },
   "roots": {
     "AnimationsRecord": "n0",
     "ArchetypesRecord": "n52",
@@ -156365,6 +156379,16 @@
       "data.stageSlots.*.initial": null,
       "data.stageSlots.*.speakerSync": true
     },
+    "editor.yaml": {
+      "chapters.assignments": {},
+      "chapters.records": {},
+      "recordMetadata.*": {},
+      "recordMetadata.*.*.tags": [],
+      "tags.records": {}
+    },
+    "i18n/project.yaml": {
+      "sourceLocaleLock": null
+    },
     "interactables": {
       "data.features": [],
       "data.features.*.defaultProperties": [],
@@ -156407,7 +156431,33 @@
       "data.rules.*.program.instructions": [],
       "data.rules.*.program.outcome": "handled"
     },
-    "layouts": {},
+    "layouts": {
+      "data.contract": {
+        "inputs": {},
+        "signals": {}
+      },
+      "data.dependencies": {
+        "fonts": [],
+        "images": [],
+        "materials": [],
+        "scripts": [],
+        "stylesheets": [],
+        "templates": []
+      },
+      "data.kind": "layout",
+      "data.layoutKind": "document",
+      "data.mount": {
+        "scopedStyles": true
+      },
+      "data.preview": {
+        "background": "dark"
+      },
+      "data.sampleState": {},
+      "data.script": {
+        "enabled": true
+      },
+      "data.target": "default-ui"
+    },
     "maps": {
       "data.connections": [],
       "data.connections.*.hitRegions": [],
@@ -156439,6 +156489,10 @@
       }
     },
     "materials": {},
+    "project.yaml": {
+      "entrypoint": null,
+      "undefinedInteractionProgram": null
+    },
     "rooms": {
       "data.anchors": [],
       "data.background": {
@@ -156552,6 +156606,10 @@
       "data.steps.*.tick": {
         "deltaSeconds": 0
       }
+    },
+    "variables": {
+      "data.nullable": false,
+      "data.scope": "global"
     },
     "verbs": {
       "data.availability": {

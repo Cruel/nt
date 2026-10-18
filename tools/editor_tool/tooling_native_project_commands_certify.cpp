@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -43,6 +44,17 @@ Json command(const Json& request)
     return Json::parse(response.begin(), response.begin() + static_cast<std::ptrdiff_t>(size));
 }
 
+Json disk_validate(const Json& request)
+{
+    const auto serialized = request.dump();
+    std::vector<std::uint8_t> response(8 * 1024 * 1024);
+    const auto size = noveltea_tooling_native_disk_project_validation_json(
+        reinterpret_cast<const std::uint8_t*>(serialized.data()), serialized.size(),
+        response.data(), response.size());
+    require(size < response.size(), "Windows disk-validation response buffer too small.");
+    return Json::parse(response.begin(), response.begin() + static_cast<std::ptrdiff_t>(size));
+}
+
 struct Fixture {
     std::filesystem::path root;
     explicit Fixture(const std::filesystem::path& source)
@@ -59,10 +71,313 @@ struct Fixture {
     }
 };
 
+void certify_invalid_manifest_boundary(const std::filesystem::path& fixture_source)
+{
+    Fixture fixture(fixture_source);
+    const auto path = fixture.root / "project.yaml";
+    const auto original = read(path);
+    for (const auto& [replacement, expected] :
+         {std::pair<std::string, std::string>{"name: []", "schema.type"},
+          {"name: [", "source.project"}}) {
+        auto invalid = original;
+        const auto offset = invalid.find("name: Feature Lab");
+        require(offset != std::string::npos, "Manifest source fixture has expected Project name.");
+        invalid.replace(offset, std::string("name: Feature Lab").size(), replacement);
+        {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            output << invalid;
+        }
+        const auto result = disk_validate({{"projectRoot", fixture.root.string()}});
+        require(result.value("ok", false) && !result.value("valid", true) &&
+                    result.contains("diagnostics") && result.at("diagnostics").is_array() &&
+                    std::any_of(result.at("diagnostics").begin(), result.at("diagnostics").end(),
+                                [&](const auto& diagnostic) {
+                                    return diagnostic.value("code", "") == expected &&
+                                           diagnostic.value("sourcePath", "") == "project.yaml";
+                                }),
+                "Native CLI cold manifest diagnostics are structured for " + replacement + ": " +
+                    result.dump());
+    }
+}
+
+void certify_owner_default_stripping(const std::filesystem::path& fixture_source)
+{
+    Fixture fixture(fixture_source);
+    const auto root = fixture.root.string();
+    for (const auto& [path, minimum] :
+         {std::pair<std::string, int>{"editor.yaml", 3}, {"i18n/project.yaml", 1}}) {
+        const auto before = read(fixture.root / path);
+        const auto check = command({{"action", "fmt"},
+                                    {"projectRoot", root},
+                                    {"path", path},
+                                    {"check", true},
+                                    {"stripDefaults", true}});
+        require(check.value("ok", false) && check.at("removedDefaults").get<int>() >= minimum &&
+                    read(fixture.root / path) == before,
+                "Native fmt recognizes source-declared owner defaults without writing: " + path +
+                    " " + check.dump());
+    }
+    const auto layout_path = "records/layouts/feature-lab-hud/layout.yaml";
+    auto source = read(fixture.root / layout_path);
+    const auto start = source.find("data:\n");
+    require(start != std::string::npos && source.find("  target: default-ui") == std::string::npos,
+            "Layout metadata fixture supports default insertion.");
+    source.insert(start + std::string("data:\n").size(), "  target: default-ui\n");
+    {
+        std::ofstream output(fixture.root / layout_path, std::ios::binary | std::ios::trunc);
+        output << source;
+    }
+    const auto check = command({{"action", "fmt"},
+                                {"projectRoot", root},
+                                {"path", layout_path},
+                                {"check", true},
+                                {"stripDefaults", true}});
+    require(check.value("ok", false) && check.at("removedDefaults").get<int>() >= 1 &&
+                read(fixture.root / layout_path) == source,
+            "Native fmt supports nested Layout metadata omission without changing disk bytes: " +
+                check.dump());
+    const auto empty_project =
+        fixture.root.parent_path() / (fixture.root.filename().string() + "-fmt-manifest");
+    std::error_code ignored;
+    std::filesystem::remove_all(empty_project, ignored);
+    const auto created = command({{"action", "project-create"},
+                                  {"projectRoot", empty_project.string()},
+                                  {"name", "Manifest Omission Fixture"}});
+    require(created.value("ok", false), "Native Manifest omission fixture must be creatable.");
+    {
+        std::ofstream manifest(empty_project / "project.yaml", std::ios::binary | std::ios::app);
+        manifest << "entrypoint: null\nundefinedInteractionProgram: null\n";
+    }
+    const auto empty_manifest = read(empty_project / "project.yaml");
+    const auto manifest_check = command({{"action", "fmt"},
+                                         {"projectRoot", empty_project.string()},
+                                         {"path", "project.yaml"},
+                                         {"check", true},
+                                         {"stripDefaults", true}});
+    require(manifest_check.value("ok", false) &&
+                manifest_check.at("removedDefaults").get<int>() >= 1 &&
+                read(empty_project / "project.yaml") == empty_manifest,
+            "Native fmt compacts defaults in a valid Project Manifest without modifying it: " +
+                manifest_check.dump());
+    std::filesystem::remove_all(empty_project, ignored);
+}
+
+void certify_asset_import(const std::filesystem::path& fixture_source)
+{
+    Fixture fixture(fixture_source);
+    const auto root = fixture.root.string();
+    for (const auto& [original, name, classification] :
+         {std::tuple<std::string, std::string, std::string>{"assets/images/bedroom.webp",
+                                                            "native-import-image.webp", "image"},
+          {"assets/fonts/DejaVuSans.ttf", "native-import-font.ttf", "font"},
+          {"assets/audio/notification.mp3", "native-import-audio.mp3", "audio"},
+          {"assets/video/opaque-colors.mp4", "native-import-video.mp4", "video"}}) {
+        const auto input = fixture.root / name;
+        std::filesystem::copy_file(fixture.root / original, input);
+        const auto checked = command({{"action", "asset-import"},
+                                      {"projectRoot", root},
+                                      {"paths", Json::array({input.string()})},
+                                      {"dryRun", true}});
+        require(checked.value("ok", false) &&
+                    checked.at("fields").at("assets").at(0).at("kind") == classification &&
+                    !std::filesystem::exists(fixture.root / ("records/assets/native-import-" +
+                                                             classification + ".yaml")),
+                "Native import validates real Image/Font/Audio/Video bytes without writes: " +
+                    name + " " + checked.dump().substr(0, 500));
+        std::filesystem::remove(input);
+    }
+    const auto source = fixture.root / "native-asset-import-note.txt";
+    {
+        std::ofstream output(source, std::ios::binary);
+        output << "Asset import has to commit the exact bytes.\n";
+    }
+    const auto destination = fixture.root / "assets/text/native-asset-import-note.txt";
+    const auto record = fixture.root / "records/assets/native-asset-import-note.yaml";
+    const auto dry = command({{"action", "asset-import"},
+                              {"projectRoot", root},
+                              {"paths", Json::array({source.string()})},
+                              {"dryRun", true}});
+    require(dry.value("ok", false) && dry.at("fields").at("dryRun") == true &&
+                dry.at("fields").at("assets").size() == 1 &&
+                !std::filesystem::exists(destination) && !std::filesystem::exists(record),
+            "Native dry-run Asset import has no physical side effects: " + dry.dump());
+    const auto rejected =
+        command({{"action", "asset-import"},
+                 {"projectRoot", root},
+                 {"paths", Json::array({source.string(), (fixture.root / "missing.txt").string()})},
+                 {"dryRun", false}});
+    require(!rejected.value("ok", false) && !std::filesystem::exists(destination) &&
+                !std::filesystem::exists(record),
+            "Native Asset import validates all inputs before creating targets.");
+    const auto committed = command({{"action", "asset-import"},
+                                    {"projectRoot", root},
+                                    {"paths", Json::array({source.string()})},
+                                    {"dryRun", false}});
+    require(committed.value("ok", false) && committed.at("fields").at("dryRun") == false &&
+                std::filesystem::is_regular_file(destination) &&
+                std::filesystem::is_regular_file(record) && read(destination) == read(source),
+            "Native Asset import publishes one source and its record together: " +
+                committed.dump());
+    require(command({{"action", "entity-inspect"},
+                     {"projectRoot", root},
+                     {"collection", "assets"},
+                     {"id", "native-asset-import-note"}})
+                .value("ok", false),
+            "Native imported Asset is admitted by the Project semantic validator.");
+    const auto resolved = command({{"action", "asset-import"},
+                                   {"projectRoot", root},
+                                   {"paths", Json::array({destination.string()})},
+                                   {"dryRun", false}});
+    require(resolved.value("ok", false) &&
+                resolved.at("fields").at("assets").at(0).at("alreadyImported") == true,
+            "Re-importing an existing physical Asset reports its existing record.");
+
+    // Recreate a process crash between byte publication and YAML publication.
+    // The next mutating native command must not mistake stale staging for a
+    // YAML journal and must delete only bytes proven to belong to the old
+    // uncommitted import.
+    const auto lock = fixture.root / ".noveltea/asset-import.lock";
+    const auto stage = fixture.root / ".noveltea/asset-import-staging/abandoned";
+    const auto orphan = fixture.root / "assets/text/abandoned-import.txt";
+    const auto create_interruption = [&](std::string actual) {
+        std::filesystem::create_directories(lock);
+        std::filesystem::create_directories(stage);
+        {
+            std::ofstream output(lock / "owner.json", std::ios::binary);
+            output << Json{{"pid", 2'000'000'000}}.dump() << '\n';
+        }
+        {
+            std::ofstream output(stage / "0", std::ios::binary);
+            output << actual;
+        }
+        std::filesystem::create_hard_link(stage / "0", orphan);
+        {
+            std::ofstream output(stage / "manifest.json", std::ios::binary);
+            output << Json{{"schema", "noveltea.native-asset-import"},
+                           {"items",
+                            Json::array({{{"recordPath", "records/assets/abandoned-import.yaml"},
+                                          {"recordRevision",
+                                           noveltea::authoring::exact_source_revision("unused")},
+                                          {"assetPath", "assets/text/abandoned-import.txt"},
+                                          {"assetRevision",
+                                           noveltea::authoring::exact_source_revision("unchanged")},
+                                          {"external", true}}})}}
+                          .dump()
+                   << '\n';
+        }
+    };
+    create_interruption("unchanged");
+    const auto recovered = command({{"action", "asset-import"},
+                                    {"projectRoot", root},
+                                    {"paths", Json::array({destination.string()})},
+                                    {"dryRun", false}});
+    require(recovered.value("ok", false) && !std::filesystem::exists(lock) &&
+                !std::filesystem::exists(stage) && !std::filesystem::exists(orphan) &&
+                read(destination) == read(source),
+            "Dead import recovery deletes only exact unpublished binaries and preserves prior "
+            "Assets: " +
+                recovered.dump());
+    create_interruption("user-modified-content");
+    const auto ambiguous = command({{"action", "asset-import"},
+                                    {"projectRoot", root},
+                                    {"paths", Json::array({destination.string()})},
+                                    {"dryRun", false}});
+    require(
+        !ambiguous.value("ok", false) && std::filesystem::exists(stage) &&
+            read(orphan) == "user-modified-content" && read(destination) == read(source),
+        "Recovery refuses to destroy binaries that no longer match the committed source proof.");
+    std::filesystem::remove_all(lock);
+    std::filesystem::remove_all(stage);
+    std::filesystem::remove(orphan);
+    create_interruption("unchanged");
+    const auto later = fixture.root / "assets/text/abandoned-import-later.txt";
+    {
+        std::ofstream output(stage / "1", std::ios::binary);
+        output << "user-modified-content";
+    }
+    std::filesystem::create_hard_link(stage / "1", later);
+    auto journal = Json::parse(read(stage / "manifest.json"));
+    journal.at("items").push_back(
+        {{"recordPath", "records/assets/abandoned-import-later.yaml"},
+         {"recordRevision", noveltea::authoring::exact_source_revision("unused-later")},
+         {"assetPath", "assets/text/abandoned-import-later.txt"},
+         {"assetRevision", noveltea::authoring::exact_source_revision("expected-unmodified")},
+         {"external", true}});
+    {
+        std::ofstream output(stage / "manifest.json", std::ios::binary | std::ios::trunc);
+        output << journal.dump() << '\n';
+    }
+    const auto late_conflict = command({{"action", "asset-import"},
+                                        {"projectRoot", root},
+                                        {"paths", Json::array({destination.string()})},
+                                        {"dryRun", false}});
+    require(!late_conflict.value("ok", false) && std::filesystem::exists(orphan) &&
+                read(orphan) == "unchanged" && read(later) == "user-modified-content",
+            "A later recovery conflict must not partially delete an earlier verified Asset.");
+    std::filesystem::remove_all(lock);
+    std::filesystem::remove_all(stage);
+    std::filesystem::remove(orphan);
+    std::filesystem::remove(later);
+}
+
 void certify(const std::filesystem::path& source)
 {
     Fixture fixture(source);
     const auto root = fixture.root.string();
+    {
+        const auto new_project =
+            fixture.root.parent_path() / (fixture.root.filename().string() + "-created");
+        std::error_code ignored;
+        std::filesystem::remove_all(new_project, ignored);
+        const auto created = command({{"action", "project-create"},
+                                      {"projectRoot", new_project.string()},
+                                      {"name", "Native Workspace"}});
+        require(created.value("ok", false) &&
+                    created.value("projectId", "") == "native-workspace" &&
+                    std::filesystem::is_regular_file(new_project / "project.yaml") &&
+                    read(new_project / "project.yaml")
+                            .find("applicationId: org.noveltea.native-workspace") !=
+                        std::string::npos &&
+                    read(new_project / "project.yaml")
+                            .find("saveNamespace: org.noveltea.native-workspace") !=
+                        std::string::npos &&
+                    read(new_project / "AGENTS.md")
+                            .find("<!-- noveltea:managed-agent-bootstrap:start -->") !=
+                        std::string::npos &&
+                    read(new_project / ".gitignore").find("/dist/") != std::string::npos,
+                "Native Project create publishes the canonical blank Workspace atomically: " +
+                    created.dump());
+        const auto opened = command({{"action", "entity-inspect"},
+                                     {"projectRoot", new_project.string()},
+                                     {"collection", "scripts"},
+                                     {"id", "bootstrap"}});
+        require(opened.value("ok", false),
+                "Native created Project admits its canonical bootstrap Script source.");
+        require(!command({{"action", "project-create"},
+                          {"projectRoot", new_project.string()},
+                          {"name", "Another Project"}})
+                     .value("ok", false),
+                "Native Project creation refuses existing destinations without overwriting.");
+        std::filesystem::remove_all(new_project, ignored);
+    }
+#ifdef _WIN32
+    // Both disk validation and the CLI adapter receive UTF-8 JSON roots.
+    // Their independent path adapters must resolve the same native wide path
+    // even when the Windows process ACP cannot represent the directory name.
+    const auto unicode_root = fixture.root / std::filesystem::path(u8"日本語-项目");
+    std::filesystem::copy(source, unicode_root, std::filesystem::copy_options::recursive);
+    const auto unicode_path = unicode_root.u8string();
+    const auto unicode_utf8 = std::string(unicode_path.begin(), unicode_path.end());
+    const auto disk_result = disk_validate({{"projectRoot", unicode_utf8}});
+    require(disk_result.value("ok", false) && disk_result.value("valid", false),
+            "Windows disk validation accepts a UTF-8 Project root.");
+    const auto command_result = command({{"action", "entity-inspect"},
+                                         {"projectRoot", unicode_utf8},
+                                         {"collection", "rooms"},
+                                         {"id", "room-lifecycle-roundtrip"}});
+    require(command_result.value("ok", false),
+            "Windows native command and disk validation agree on UTF-8 paths.");
+#endif
     const auto path = fixture.root / "project.yaml";
     const auto baseline = read(path);
     const auto baseline_revision = noveltea::authoring::exact_source_revision(baseline);
@@ -72,6 +387,40 @@ void certify(const std::filesystem::path& source)
                                   {"id", "room-lifecycle-roundtrip"},
                                   {"provenance", true}});
     require(inspect.value("ok", false), "Native CLI record inspection failed.");
+    {
+        const auto untracked = fixture.root / "assets/text/native-audit-untracked.txt";
+        std::filesystem::create_directories(untracked.parent_path());
+        {
+            std::ofstream output(untracked, std::ios::binary);
+            output << "Untracked audit fixture.";
+        }
+        const auto unmodified_audit = command({{"action", "asset-audit"}, {"projectRoot", root}});
+        require(unmodified_audit.value("ok", false) &&
+                    std::any_of(unmodified_audit.at("fields").at("untrackedFiles").begin(),
+                                unmodified_audit.at("fields").at("untrackedFiles").end(),
+                                [](const Json& entry) {
+                                    return entry.at("projectRelativePath") ==
+                                               "assets/text/native-audit-untracked.txt" &&
+                                           entry.at("kind") == "text";
+                                }),
+                "Native scoped Asset audit reports untracked Assets and their type.");
+        const auto room = fixture.root / "records/rooms/active-text-finish.yaml";
+        const auto saved_room = read(room);
+        {
+            std::ofstream output(room, std::ios::binary | std::ios::trunc);
+            output << "broken: [\n";
+        }
+        const auto scoped_audit = command({{"action", "asset-audit"}, {"projectRoot", root}});
+        require(scoped_audit.value("ok", false) &&
+                    scoped_audit.at("fields").at("untrackedFiles") ==
+                        unmodified_audit.at("fields").at("untrackedFiles"),
+                "Asset audit remains available when an unrelated Room is malformed.");
+        {
+            std::ofstream output(room, std::ios::binary | std::ios::trunc);
+            output << saved_room;
+        }
+        std::filesystem::remove(untracked);
+    }
     const auto& fields = inspect.at("fields");
     require(fields.at("record").at("id") == "room-lifecycle-roundtrip" &&
                 fields.at("provenance").at("id") == "explicit",
@@ -305,6 +654,38 @@ void certify(const std::filesystem::path& source)
     require(after_fmt.value("ok", false) &&
                 after_fmt.at("fields").at("record") == before_fmt.at("fields").at("record"),
             "Native formatter retains exact effective Project record semantics.");
+
+    const auto variable_path = fixture.root / "records/variables/background-deliveries.yaml";
+    const auto original_variable = read(variable_path);
+    {
+        std::ofstream output(variable_path, std::ios::app);
+        output << "  nullable: false\n  scope: global\n";
+    }
+    const auto explicit_variable = read(variable_path);
+    const auto variable_fmt = command({{"action", "fmt"},
+                                       {"projectRoot", root},
+                                       {"path", "records/variables/background-deliveries.yaml"},
+                                       {"check", true},
+                                       {"stripDefaults", true}});
+    require(variable_fmt.value("ok", false) && variable_fmt.value("changed", false) &&
+                variable_fmt.at("removedDefaults").get<std::size_t>() == 2 &&
+                read(variable_path) == explicit_variable,
+            "Native fmt --strip-defaults detects explicit Variable nullable/scope defaults: " +
+                variable_fmt.dump());
+    const auto variable_commit =
+        command({{"action", "fmt"},
+                 {"projectRoot", root},
+                 {"path", "records/variables/background-deliveries.yaml"},
+                 {"check", false},
+                 {"stripDefaults", true},
+                 {"diskPreconditions",
+                  {{"records/variables/background-deliveries.yaml",
+                    noveltea::authoring::exact_source_revision(explicit_variable)}}}});
+    require(variable_commit.value("ok", false) &&
+                read(variable_path).find("nullable:") == std::string::npos &&
+                read(variable_path).find("scope:") == std::string::npos,
+            "Variable compaction commits via the same revision-checked semantic writer: " +
+                variable_commit.dump());
 
     const auto locale_file = fixture.root / "i18n/locales/ja.yaml";
     const std::string message_id = "25700000-0000-4000-8000-000000000002";
@@ -540,15 +921,16 @@ void certify(const std::filesystem::path& source)
             preconditions[target] =
                 noveltea::authoring::exact_source_revision(read(fixture.root / target));
     }
-    const auto apply_input = Json{{"action", "localization-reconcile"},
-                                  {"projectRoot", root},
-                                  {"dryRun", false},
-                                  {"workspaceRevision", workspace_revision},
-                                  {"expectedWorkspaceRevision", workspace_revision},
-                                  {"expectedSourceGeneration", plan_response.at("sourceGeneration")},
-                                  {"expectedFingerprint", plan.at("expectedFingerprint")},
-                                  {"resolutions", Json::object()},
-                                  {"diskPreconditions", preconditions}};
+    const auto apply_input =
+        Json{{"action", "localization-reconcile"},
+             {"projectRoot", root},
+             {"dryRun", false},
+             {"workspaceRevision", workspace_revision},
+             {"expectedWorkspaceRevision", workspace_revision},
+             {"expectedSourceGeneration", plan_response.at("sourceGeneration")},
+             {"expectedFingerprint", plan.at("expectedFingerprint")},
+             {"resolutions", Json::object()},
+             {"diskPreconditions", preconditions}};
     auto stale_input = apply_input;
     stale_input["diskPreconditions"]["i18n/tracking.yaml"] = "sha256:stale";
     const auto pre_apply_tracking = read(tracking);
@@ -833,6 +1215,18 @@ void certify(const std::filesystem::path& source)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--invalid-manifest-cli") {
+            certify_invalid_manifest_boundary(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--owner-defaults") {
+            certify_owner_default_stripping(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--asset-import") {
+            certify_asset_import(argv[2]);
+            return 0;
+        }
         // Test-only direct adapter seam for real two-root mutation comparison.
         // This is not linked into the installed production CLI command parser.
         if (argc == 3 && std::string_view(argv[1]) == "--request-file") {

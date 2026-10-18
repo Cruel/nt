@@ -387,37 +387,84 @@ the existing CLI daemon Project owner and the editor's opt-in Node-API worker
 (`validateClean`). Both read and publish
 `.noveltea/cache/authoring/native-clean-current.json`, separate from the
 existing TypeScript `current.json` and its semantic key. The native document
-stores only the complete diagnostic result, canonical Project root, semantic
-key, and exact per-source revision manifest: never working source, parsed
-records, dependency contributions, or a mutable session. Legacy TypeScript
-manifests cannot pass native admission and require no migration reader.
+stores the complete diagnostic result, canonical Project root, semantic key,
+exact per-source revision manifest, and an optional **clean-only** native
+contributor bundle (per-owner valid flags and diagnostics, plus spatial
+validation findings). It never persists editor working source, unsaved text,
+mutable Project sessions or parsed record instances. Imported contributors
+are materialized into session RAM by reopening each physical record and
+rechecking its exact source revision. Legacy TypeScript manifests and older
+native cache formats are rejected without a migration reader.
 
 Clean cache admission verifies native physical-source authority and exact
 source identities before and after reuse. For referenced binary Assets it
 hashes bytes rather than using watcher size/mtime observations as proof.
 Missing/changed files, uncertain authority, corrupt or incompatible payloads,
 and unavailable cache paths fall back to ordinary full native validation.
-Only a clean disk Project publishes: dirty native record patches and unsaved
+Publication additionally matches the source manifest captured **before**
+validation to the manifests re-proved after validation. Two matching
+post-validation manifests cannot authorize an earlier result; an interrupted
+source-revision diagnostic is never persisted. Only a clean disk Project publishes: dirty native record patches and unsaved
 Lua/RML or shader buffers remain exclusively working-session diagnostics and
 cannot publish or replace disk generations. Ordinary warm sessions retain
 unaffected validation contributors on single-source edits. Imported cache
 hits avoid initial full semantic validation, but native Project admission
-and physical source proof are still mandatory. When an imported clean result
-is followed by a Room or Map edit limited to the source's `label` and
-`description`, the session retains its exact-result diagnostics, verifies the
-changed record's local schema and revision, and updates only that owner's
-contribution. The original source evidence is retained **only in session RAM**;
-the persistent cache format remains result-only. Any edit affecting substantive
-fields, a previous diagnostic owned by that record, or other source dependencies
-falls back conservatively to full validation and constructs resident semantic
-contributors for subsequent incremental checks. A lost watcher authority
+and physical source proof are still mandatory. General Room, other record,
+and external Lua/RML edits after import reuse unchanged native per-owner
+contributions and recompute the affected semantic dependency closure. An
+older result-only entry without a contributor bundle can still reuse a
+strictly verified presentation-only Room/Map edit; otherwise it falls back
+to full validation rather than pretending to have incremental evidence.
+A lost watcher authority
 coverage event also forbids an unvalidated cache hit until a fresh full
 validation has completed, even when the physical rescan finds unchanged bytes.
 
 This is an opt-in certification seam, not the coordinated production cutover
 of #474. Feature Lab Project-session certification covers reuse between
 independently opened CLI/editor-style sessions, dirty isolation, single-Room
-rechecks (including the first presentation-only edit after a cache hit),
+rechecks (including substantive edits and Lua changes after an imported hit),
 eviction/restart re-admission, watcher recovery, and legacy-cache rejection;
 the editor worker test exercises the
 typed response including source-aware diagnostics.
+
+## Native CLI compatibility and physical Asset transactions (#501)
+
+The certification-only native CLI command boundary supports atomic Project
+creation using the generated Workspace source-file codec (including the managed
+`AGENTS.md` bootstrap and `.gitignore`), read-only scoped Asset audits, and
+Asset imports with explicit dry-run plans. Destination publication is exclusive
+and cannot overwrite an existing Project. Asset audits inspect only Project
+identity, canonical Asset records and contained Asset-directory files: unrelated
+invalid Room/Scene records do not block the inventory.
+
+Native Asset import validates canonical record metadata and source bytes before
+publishing. Image and font inputs use the host's native decoders; audio/video
+inputs must produce a decoded sample/frame through a bounded FFmpeg process.
+No shell evaluates supplied paths. External source files are first copied to
+the same-filesystem local staging area and linked into absent final Asset
+paths, then the Asset YAML records are published through the revision-checked
+native transaction service. An exact publication manifest in
+`.noveltea/asset-import-staging/` supports conservative crash recovery;
+`.noveltea/asset-import.lock/` identifies the owning process. A dead owner is
+recovered only after the YAML journal is settled: complete records preserve
+their binaries, absent records trigger deletion solely of exact staged hard
+links, and any mixed/changed revisions fail closed. Both directories block
+native clean-cache reuse while unsettled. These local-state files are not
+Project source and are excluded from Project exports.
+
+The installed-headless CLI continues to own the full Runtime Package compiler
+until the coordinated #474 cutover. Its package-export certification now
+cross-checks the parallel native `runtime-package-preparation` boundary against
+the same exact source revision manifest and selected runtime profile, and
+passes that native-selected profile into the installed compiler/export path.
+The resulting `.ntpkg` must be byte-identical to the implicit-profile oracle
+export. Native
+preparation does not pretend to be a replacement artifact compiler.
+
+Run `pnpm -C editor run noveltea:certify:native-project-commands` after
+building `noveltea-tooling-bridge` and the standalone CLI to compare the
+parallel native Project create, Asset import (dry-run and commit), and Asset
+audit against disposable Projects created through the installed public CLI.
+The differential compares parsed Project and Asset source semantics, exact
+Asset bytes, resolved import outputs and untracked inventory, normalizing
+only the import timestamp because the operations occur in separate processes.

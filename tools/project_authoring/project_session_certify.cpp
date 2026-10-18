@@ -1332,6 +1332,101 @@ void clean_cache_recovery_roundtrip(const std::filesystem::path& fixture)
     require(restarted_daemon && restarted_daemon->validate_clean_project().cache_hit,
             "Fresh daemon owner reuses the newly certified physical generation");
 }
+
+void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Cannot open cache-correctness fixture: " + error);
+    require(project->inspect_record("rooms/active-text-finish").accepted,
+            "Inspected Room must remain in the editor's working inventory");
+    require(project->validate_clean_project().snapshot.valid, "Initial Project is valid");
+    auto imported = ProjectSession::open(temp.root, error);
+    require(imported != nullptr && imported->validate_clean_project().cache_hit,
+            "An independent clean host rehydrates verified native contributors");
+    const auto room_path = temp.root / "records/rooms/active-text-finish.yaml";
+    const auto original = read(room_path);
+    auto invalid = original;
+    const auto marker = invalid.find("width: 1920");
+    require(marker != std::string::npos, "Fixture Room has a positive presentation width");
+    invalid.replace(marker, std::string("width: 1920").size(), "width: -1");
+    write(room_path, invalid);
+    const auto first = project->validate_clean_project();
+    const auto has_width_error = [](const RoomSessionSnapshot& snapshot) {
+        return !snapshot.valid &&
+               std::any_of(
+                   snapshot.diagnostics.begin(), snapshot.diagnostics.end(),
+                   [](const Diagnostic& issue) { return issue.code == "schema.exclusiveMinimum"; });
+    };
+    require(has_width_error(first.snapshot), "First invalid disk revision is diagnosed");
+    const auto imported_change = imported->validate_clean_project();
+    require(has_width_error(imported_change.snapshot) &&
+                imported->validation_work().rechecked_records == 1 &&
+                imported->validation_work().retained_records > 0,
+            "Imported substantive Room edits recheck only the changed record");
+    const auto repeated = project->validate_clean_project();
+    require(has_width_error(repeated.snapshot),
+            "A clean inspected owner cannot replace the newer invalid disk revision");
+    auto other_host = ProjectSession::open(temp.root, error);
+    require(other_host != nullptr, "Another host can open the invalid-record Project");
+    const auto shared = other_host->validate_clean_project();
+    require(has_width_error(shared.snapshot),
+            "Shared cache must never publish a false-success validation result");
+    write(room_path, original);
+    require(project->validate_clean_project().snapshot.valid,
+            "Repairing the physical Room revokes the invalid diagnostics");
+    const auto script_path = temp.root / "scripts/notice-board.lua";
+    const auto script_original = read(script_path);
+    auto scripts_host = ProjectSession::open(temp.root, error);
+    require(scripts_host && scripts_host->validate_clean_project().cache_hit,
+            "A restored clean generation can be reimported");
+    write(script_path, script_original + "\nText.tr(dynamic)\n");
+    const auto scripts = scripts_host->validate_clean_project();
+    require(!scripts.snapshot.valid && scripts_host->validation_work().rechecked_records == 0 &&
+                scripts_host->validation_work().retained_contributions > 0,
+            "An imported Lua-only edit preserves unrelated YAML semantic contributions");
+}
+
+void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto warm = ProjectSession::open(temp.root, error);
+    require(warm != nullptr, "Cannot open valid manifest fixture: " + error);
+    require(warm->validate_project().valid, "Baseline manifest is valid");
+    const auto path = temp.root / "project.yaml";
+    const auto original = read(path);
+    for (const auto& replacement : {"name: []", "name: ["}) {
+        auto invalid = original;
+        const auto offset = invalid.find("name: Feature Lab");
+        require(offset != std::string::npos, "Feature Lab manifest must have project name");
+        invalid.replace(offset, std::string("name: Feature Lab").size(), replacement);
+        write(path, invalid);
+        const auto validated = warm->validate_project();
+        require(!validated.valid, "Invalid physical manifest must fail warm validation");
+        auto cold = ProjectSession::validate_cold_project(temp.root, error);
+        require(cold && !cold->valid && !cold->diagnostics.empty(),
+                "Invalid manifest must be diagnosable without mutable admission");
+        const auto signature = [](const RoomSessionSnapshot& snapshot) {
+            std::multiset<std::string> values;
+            for (const auto& issue : snapshot.diagnostics)
+                values.insert(issue.code + "|" + issue.path + "|" + issue.severity + "|" +
+                              issue.source_path);
+            return values;
+        };
+        if (signature(validated) != signature(*cold)) {
+            for (const auto& item : signature(validated))
+                std::cerr << "Warm manifest diagnostic: " << item << '\n';
+            for (const auto& item : signature(*cold))
+                std::cerr << "Cold manifest diagnostic: " << item << '\n';
+        }
+        require(signature(validated) == signature(*cold),
+                "Cold and warm invalid manifest diagnostics have identical source navigation");
+        write(path, original);
+        require(warm->validate_project().valid, "Restored manifest becomes valid again");
+    }
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1388,6 +1483,14 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-recovery") {
             clean_cache_recovery_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-correctness") {
+            clean_cache_correctness_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--invalid-manifest") {
+            invalid_manifest_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 5 && std::string_view(argv[1]) == "--normalized-record") {

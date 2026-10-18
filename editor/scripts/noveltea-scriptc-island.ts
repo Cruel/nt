@@ -490,6 +490,13 @@ async function runInternalCommand(
     if (typeof input.path !== 'string')
       return result(2, '', 'Native font inspection requires a path.\n');
     response = await nativeTools.inspectFont(input.path);
+  } else if (operation === 'native-project-commands') {
+    // Certification-only parallel native Runtime Package preparation, not a
+    // public authoring command cutover. Limit the internal bridge to the one
+    // read-only operation needed by the end-to-end export differential.
+    if (input.action !== 'runtime-package-preparation')
+      return result(2, '', 'Internal native Project preparation requires a runtime intent.\n');
+    response = JSON.parse(invokeHost('native-project-commands', JSON.stringify(input)));
   } else return result(2, '', `Unknown internal editor native operation '${operation}'.\n`);
 
   const record =

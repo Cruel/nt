@@ -28,7 +28,7 @@ using Json = jsoncons::ojson;
 // Intentionally NOT the TypeScript authoring-cache semantic identity. Native
 // diagnostic semantics must be independently bumped when validation changes.
 constexpr std::string_view kContract = "noveltea.native-clean-validation.v1";
-constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-502.1";
+constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-502.2";
 constexpr std::string_view kSemanticFingerprint = NOVELTEA_NATIVE_VALIDATION_FINGERPRINT;
 constexpr std::string_view kRelative = ".noveltea/cache/authoring/native-clean-current.json";
 
@@ -49,6 +49,11 @@ bool safe_cache_path(const fs::path& root)
 
 bool transactions_settled(const fs::path& root)
 {
+    if (fs::exists(root / ".noveltea/asset-import.lock"))
+        return false;
+    const auto imports = root / ".noveltea/asset-import-staging";
+    if (fs::exists(imports) && (!fs::is_directory(imports) || !fs::is_empty(imports)))
+        return false;
     const auto transactions = root / ".noveltea/transactions";
     const auto status = fs::symlink_status(transactions);
     if (status.type() == fs::file_type::not_found)
@@ -111,7 +116,12 @@ Json diagnostics_json(const std::vector<Diagnostic>& diagnostics)
     return result;
 }
 
-std::optional<RoomSessionSnapshot>
+struct CachedValidation {
+    RoomSessionSnapshot snapshot;
+    Json resident;
+};
+
+std::optional<CachedValidation>
 read_clean_cache(const fs::path& root, const std::map<std::string, std::string>& revisions,
                  const RoomSessionSnapshot& source)
 {
@@ -119,11 +129,11 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
         if (!safe_cache_path(root))
             return std::nullopt;
         const auto path = root / kRelative;
-        if (!fs::is_regular_file(path) || fs::file_size(path) > 8 * 1024 * 1024)
+        if (!fs::is_regular_file(path) || fs::file_size(path) > 32 * 1024 * 1024)
             return std::nullopt;
         std::ifstream input(path, std::ios::binary);
         const auto value = Json::parse(input);
-        if (!value.is_object() || value.size() != 6 || value.at("contract") != kContract ||
+        if (!value.is_object() || value.size() != 7 || value.at("contract") != kContract ||
             value.at("semanticKey") != kSemanticKey ||
             value.at("semanticFingerprint") != kSemanticFingerprint ||
             value.at("projectRoot") != fs::canonical(root).generic_string() ||
@@ -165,14 +175,19 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
         }
         if (snapshot.valid == errors)
             return std::nullopt;
-        return snapshot;
+        const auto& resident = value.at("resident");
+        if (!resident.is_null() &&
+            (!resident.is_object() || resident.size() != 2 ||
+             !resident.at("contributions").is_object() || !resident.at("spatial").is_object()))
+            return std::nullopt;
+        return CachedValidation{std::move(snapshot), resident};
     } catch (...) {
         return std::nullopt; // Optional acceleration; malformed or old formats always miss.
     }
 }
 
 void publish_clean_cache(const fs::path& root, const std::map<std::string, std::string>& revisions,
-                         const RoomSessionSnapshot& snapshot)
+                         const RoomSessionSnapshot& snapshot, const Json& resident)
 {
     try {
         if (!safe_cache_path(root))
@@ -190,6 +205,7 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
         value["result"] = Json::object();
         value["result"]["valid"] = snapshot.valid;
         value["result"]["diagnostics"] = diagnostics_json(snapshot.diagnostics);
+        value["resident"] = resident;
         static std::atomic<std::uint64_t> sequence{0};
         const auto staged = fs::path(
             path.string() + "." +
@@ -231,6 +247,154 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
 
 ProjectSession::CleanValidation ProjectSession::validate_clean_project()
 {
+    const auto resident_state = [&]() -> Json {
+        // A contributor bundle is optional acceleration, never the authority
+        // for a clean result. Malformed physical YAML source errors cannot be
+        // reconstructed from record sessions and therefore omit this bundle.
+        if (!validation_snapshot_ || !validation_source_errors_.empty() ||
+            !validation_room_map_cache_ ||
+            validation_contributions_.size() != validation_records_.size())
+            return Json::null();
+        Json contributors = Json::object();
+        for (const auto& [owner, contribution] : validation_contributions_) {
+            if (contribution.dirty)
+                return Json::null();
+            contributors[owner] = Json::object();
+            contributors[owner]["valid"] = contribution.valid;
+            contributors[owner]["diagnostics"] = diagnostics_json(contribution.diagnostics);
+        }
+        Json spatial = Json::object();
+        spatial["accepted"] = validation_room_map_cache_->accepted;
+        spatial["diagnostics"] = diagnostics_json(validation_room_map_cache_->diagnostics);
+        Json resident = Json::object();
+        resident["contributions"] = std::move(contributors);
+        resident["spatial"] = std::move(spatial);
+        return resident;
+    };
+
+    const auto hydrate_resident = [&](const Json& payload,
+                                      const std::map<std::string, std::string>& revisions,
+                                      const RoomSessionSnapshot& cached) {
+        if (!payload.is_object())
+            return false;
+        try {
+            const auto& contributions = payload.at("contributions");
+            const auto& spatial = payload.at("spatial");
+            const auto parse_diagnostics = [](const Json& array) {
+                if (!array.is_array() || array.size() > 10000)
+                    throw std::runtime_error("Invalid resident diagnostics.");
+                std::vector<Diagnostic> values;
+                for (const auto& entry : array.array_range()) {
+                    if (!entry.is_object() || !entry.at("path").is_string() ||
+                        !entry.at("code").is_string() || !entry.at("message").is_string() ||
+                        !entry.at("severity").is_string() || !entry.at("sourcePath").is_string())
+                        throw std::runtime_error("Invalid resident diagnostic entry.");
+                    Diagnostic issue{entry.at("path").as<std::string>(),
+                                     entry.at("code").as<std::string>(),
+                                     entry.at("message").as<std::string>(),
+                                     entry.at("severity").as<std::string>()};
+                    issue.source_path = entry.at("sourcePath").as<std::string>();
+                    if (issue.severity != "error" && issue.severity != "warning" &&
+                        issue.severity != "info")
+                        throw std::runtime_error("Unknown resident diagnostic severity.");
+                    if (entry.contains("line"))
+                        issue.line = entry.at("line").as<int>();
+                    if (entry.contains("column"))
+                        issue.column = entry.at("column").as<int>();
+                    values.push_back(std::move(issue));
+                }
+                return values;
+            };
+            std::map<std::string, ValidationContribution> prepared_contributions;
+            for (const auto& entry : contributions.object_range()) {
+                const auto& source = entry.value();
+                if (!source.is_object() || source.size() != 2 || !source.at("valid").is_bool())
+                    return false;
+                prepared_contributions.emplace(
+                    std::string(entry.key()),
+                    ValidationContribution{source.at("valid").as<bool>(), false,
+                                           parse_diagnostics(source.at("diagnostics"))});
+            }
+            if (spatial.size() != 2 || !spatial.at("accepted").is_bool())
+                return false;
+            ValidationResult prepared_spatial;
+            prepared_spatial.accepted = spatial.at("accepted").as<bool>();
+            prepared_spatial.diagnostics = parse_diagnostics(spatial.at("diagnostics"));
+
+            std::map<std::string, std::unique_ptr<RoomSession>> prepared_records;
+            std::map<std::string, std::string> prepared_revisions;
+            std::set<std::string> prepared_paths;
+            for (const auto& file : file_inventory()) {
+                const auto& path = file.path;
+                if (file.kind != ProjectFileKind::TrackedSource || !path.ends_with(".yaml") ||
+                    path == "project.yaml")
+                    continue;
+                std::string owner;
+                if (path == "editor.yaml")
+                    owner = "editor";
+                else if (path == "traits.yaml")
+                    owner = "traits";
+                else if (path.starts_with("i18n/"))
+                    owner = path;
+                else if (path.starts_with("records/")) {
+                    const auto rest = path.substr(sizeof("records/") - 1);
+                    const auto slash = rest.find('/');
+                    if (slash == std::string::npos)
+                        continue;
+                    const auto family = rest.substr(0, slash);
+                    const auto source_id = rest.substr(slash + 1);
+                    if (family == "layouts") {
+                        if (!source_id.ends_with("/layout.yaml"))
+                            continue;
+                        owner = family + "/" + source_id.substr(0, source_id.size() - 12);
+                    } else {
+                        if (source_id.find('/') != std::string::npos)
+                            continue;
+                        owner = family + "/" + source_id.substr(0, source_id.size() - 5);
+                    }
+                } else
+                    continue;
+                if (!revisions.contains(path) || !prepared_contributions.contains(owner))
+                    return false;
+                std::string error;
+                std::unique_ptr<RoomSession> record;
+                if (owner == "editor")
+                    record = RoomSession::open_editor_source(root_, error);
+                else if (owner == "traits")
+                    record = RoomSession::open_traits_source(root_, error);
+                else if (owner.starts_with("i18n/"))
+                    record = RoomSession::open_localization_source(root_, owner, error);
+                else {
+                    const auto slash = owner.find('/');
+                    record = RoomSession::open_record(root_, owner.substr(0, slash),
+                                                      owner.substr(slash + 1), error);
+                }
+                if (!record || record->snapshot().disk_source_revision != revisions.at(path))
+                    return false;
+                prepared_paths.insert(path);
+                prepared_revisions.emplace(path, revisions.at(path));
+                prepared_records.emplace(owner, std::move(record));
+            }
+            if (prepared_contributions.size() != prepared_records.size())
+                return false;
+            validation_records_ = std::move(prepared_records);
+            validation_source_revisions_ = std::move(prepared_revisions);
+            validation_source_paths_ = std::move(prepared_paths);
+            validation_contributions_ = std::move(prepared_contributions);
+            validation_room_map_cache_ = std::move(prepared_spatial);
+            validation_source_errors_.clear();
+            for (const auto& [owner, record] : validation_records_)
+                index_text_owner(owner, record->snapshot().source_json);
+            validation_snapshot_ = cached;
+            validation_pending_source_revisions_.clear();
+            validation_pending_uncertain_ = false;
+            validation_invalidated_owners_.clear();
+            validation_shader_overlays_ = shader_overlays_;
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
     const auto clean = [&]() {
         if (source_->snapshot().dirty || !shader_overlays_.empty() ||
             !text_source_overlays_.empty())
@@ -243,18 +407,19 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
         return true;
     };
     const auto proof = [&]() -> std::optional<std::map<std::string, std::string>> {
-        if (!transactions_settled(root_))
-            return std::nullopt;
-        const auto observation = observe_sources();
-        if (observation.full_rescan) {
-            // The common native observer revoked resident proof. This request
-            // may only return after a fresh full semantic validation.
+        try {
+            if (!transactions_settled(root_))
+                return std::nullopt;
+            const auto observation = observe_sources();
+            if (observation.full_rescan || !observation.authoritative)
+                return std::nullopt;
+            auto exact = exact_proof(root_, source_authority_->verified_revisions());
+            return transactions_settled(root_) ? exact : std::nullopt;
+        } catch (...) {
+            // Cache IO and physical proof may fail independently of semantic
+            // validation. Such failures always invalidate optional reuse.
             return std::nullopt;
         }
-        if (!observation.authoritative)
-            return std::nullopt;
-        auto exact = exact_proof(root_, source_authority_->verified_revisions());
-        return transactions_settled(root_) ? exact : std::nullopt;
     };
     if (validation_pending_uncertain_) {
         // The watcher may have completed its recovery scan *before* this call.
@@ -270,11 +435,9 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
         imported_clean_revisions_.clear();
     }
 
-    // A clean exact result contains no persisted contributor objects. For
-    // strictly presentation-only Room/Map edits, prove that no semantic input
-    // other than the owning display fields changed. This preserves all prior
-    // source-aware diagnostics without cold-rechecking unrelated records.
-    // Any non-presentation edit uses the normal full dependency validation.
+    // Legacy result-only caches have no contributor bundle. Admit narrowly
+    // proven presentation-only edits without rechecking unrelated records;
+    // regular cache entries instead rehydrate complete contributor evidence.
     if (clean() && !validation_snapshot_ && imported_clean_validation_ &&
         !validation_pending_uncertain_) {
         if (const auto revisions = proof()) {
@@ -330,7 +493,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
                                     validation_work_.retained_contributions =
                                         imported_clean_sources_.size() - 1;
                                     publish_clean_cache(root_, *revisions,
-                                                        *imported_clean_validation_);
+                                                        *imported_clean_validation_, Json::null());
                                     return {*imported_clean_validation_, false};
                                 }
                             }
@@ -362,11 +525,21 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
                     presentation_sources.emplace(path, bytes);
                 }
                 if (proof() == revisions) {
-                    imported_clean_validation_ = *cached;
-                    imported_clean_revisions_ = *revisions;
-                    imported_clean_sources_ = std::move(presentation_sources);
-                    validation_work_ = {};
-                    return {std::move(*cached), true};
+                    if (cached->resident.is_object()) {
+                        if (hydrate_resident(cached->resident, *revisions, cached->snapshot) &&
+                            proof() == revisions) {
+                            validation_work_ = {};
+                            return {std::move(cached->snapshot), true};
+                        }
+                    } else {
+                        // Inadmissible local YAML can retain its exact invalid
+                        // diagnostic result, but has no safe contributor bundle.
+                        imported_clean_validation_ = cached->snapshot;
+                        imported_clean_revisions_ = *revisions;
+                        imported_clean_sources_ = std::move(presentation_sources);
+                        validation_work_ = {};
+                        return {std::move(cached->snapshot), true};
+                    }
                 }
             }
         }
@@ -374,13 +547,18 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
     imported_clean_validation_.reset();
     imported_clean_sources_.clear();
     imported_clean_revisions_.clear();
+    // The proof before validation is the only legitimate cache-publication
+    // generation. Two post-validation identical manifests merely show that
+    // sources have stopped changing; they cannot establish which bytes the
+    // diagnostics were computed from.
+    const auto validated_input = clean() && !validation_pending_uncertain_ ? proof() : std::nullopt;
     auto snapshot = validate_project();
-    if (clean() && !validation_pending_uncertain_) {
-        if (const auto revisions = proof()) {
-            if (proof() == revisions)
-                publish_clean_cache(root_, *revisions, snapshot);
-        }
-    }
+    const bool completed = validation_snapshot_.has_value() &&
+                           validation_snapshot_->working_revision == snapshot.working_revision &&
+                           !validation_pending_uncertain_;
+    if (clean() && completed && validated_input && proof() == validated_input &&
+        proof() == validated_input)
+        publish_clean_cache(root_, *validated_input, snapshot, resident_state());
     return {std::move(snapshot), false};
 }
 } // namespace noveltea::authoring
