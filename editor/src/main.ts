@@ -71,6 +71,9 @@ import {
   resolveProjectOriginalAssetUrl,
 } from './main/services/project-original-asset-service';
 import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { NativeAuthoringSessionBridge } from './main/services/native-authoring-session-bridge';
+import { NativeAuthoringWorkingProject } from './main/services/native-authoring-working-project';
+import { NativeEditorSessionController } from './main/services/native-editor-session-controller';
 import { readEngineShaderSource } from './main/services/project-source-file-service';
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
@@ -350,6 +353,47 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
+// The cutover admission gate is intentionally explicit until #504/#506 have
+// migrated synchronous renderer mutation, Save and watcher ownership together.
+// It operates on the actual main-owned Project lifecycle, not a test-only root.
+const nativeEditorAdmission = process.argv.includes('--certify-native-authoring-open')
+  ? (() => {
+      const addonPath =
+        process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
+        path.join(process.resourcesPath, 'authoring', 'noveltea-authoring-node.node');
+      const bridge = new NativeAuthoringSessionBridge(activeProjectSessions, { addonPath });
+      return new NativeEditorSessionController(
+        activeProjectSessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    })()
+  : null;
+
+async function admitNativeEditorProject(
+  result: { success?: boolean; projectSessionId?: string },
+  activationGeneration: number,
+): Promise<void> {
+  if (!nativeEditorAdmission || !result.success || !result.projectSessionId) return;
+  const sessionId = result.projectSessionId;
+  try {
+    await nativeEditorAdmission.admit(
+      sessionId,
+      activeProjectSessions.requireActiveWorkspace(sessionId).project(),
+    );
+    if (!activeProjectSessions.isProjectActivationCurrent(activationGeneration))
+      throw new Error('Project activation was superseded.');
+  } catch (error) {
+    // A second Open/Create request may already be in progress while its old
+    // Project is still the current ID. Never revoke that newer activation.
+    if (
+      activeProjectSessions.isProjectActivationCurrent(activationGeneration) &&
+      activeProjectSessions.isCurrent(sessionId)
+    )
+      activeProjectSessions.closeActiveProject();
+    throw error;
+  }
+}
 const terminalService = new TerminalService({
   pty: createNodePtyAdapter(),
   resolveProjectRoot: () => activeProjectSessions.currentProjectRoot(),
@@ -778,6 +822,7 @@ function createWindow(): BrowserWindow {
   const sessionOwner = mainWindow;
   mainWindow.on('closed', () => {
     terminalService.dispose();
+    nativeEditorAdmission?.dispose();
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
   });
@@ -1166,6 +1211,7 @@ void app.whenReady().then(async () => {
         await openProject(projectPath),
         activationGeneration,
       );
+      await admitNativeEditorProject(result, activationGeneration);
       return rememberPreviewProjectRoot(result);
     },
   );
@@ -1179,6 +1225,7 @@ void app.whenReady().then(async () => {
         await createProject(request),
         activationGeneration,
       );
+      await admitNativeEditorProject(result, activationGeneration);
       return rememberPreviewProjectRoot(result);
     },
   );
@@ -1200,6 +1247,7 @@ void app.whenReady().then(async () => {
     (arguments_) => noArgumentsSchema.parse(arguments_),
     async () => {
       await stopProjectWorkspaceWatcher();
+      nativeEditorAdmission?.close();
       activeProjectSessions.closeActiveProject();
     },
   );
@@ -2032,6 +2080,7 @@ void app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
+  nativeEditorAdmission?.dispose();
   activeProjectSessions.dispose();
   void stopProjectWorkspaceWatcher();
   void enginePreviewServer.stop();
