@@ -223,7 +223,12 @@ suite('canonical platform export integration', () => {
                   : 'x86_64'
                 : 'x64',
         buildFlavor:
-          (process.env.NOVELTEA_ANDROID_FLAVOR as 'debug' | 'release' | undefined) ?? 'release',
+          (process.env.NOVELTEA_CANONICAL_BUILD_FLAVOR as 'debug' | 'release' | undefined) ??
+          (process.env.NOVELTEA_ANDROID_FLAVOR as 'debug' | 'release' | undefined) ??
+          'release',
+        playerVariant:
+          (process.env.NOVELTEA_CANONICAL_PLAYER_VARIANT as 'standard' | 'devtools' | undefined) ??
+          'standard',
         androidAbi: process.env.NOVELTEA_ANDROID_ABI as 'arm64-v8a' | 'x86_64' | undefined,
         androidArtifact: process.env.NOVELTEA_ANDROID_ARTIFACT as
           | 'apk'

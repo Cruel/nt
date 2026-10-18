@@ -51,7 +51,20 @@ features, capability set, runtime dependencies, graphics backends, shader varian
 requirements. A template must reject a package outside its declared API or feature range.
 
 The canonical `web-release` preset produces the `web-threads` template. The distributed
-`web-release-no-threads` compatibility preset produces the `web-single-threaded` template. Threaded deployments must
+`web-release-no-threads` compatibility preset produces the `web-single-threaded` template.
+The release workflow also builds optimized developer templates for Windows x64, Linux x64,
+macOS arm64, both Web threading modes, and Android arm64-v8a alongside the production variants.
+Developer template IDs end in `-devtools`, retain the production optimization level and use
+`buildFlavor: release` with `playerVariant: devtools` to enable `NOVELTEA_ENABLE_DEVTOOLS=ON`
+(including Dear ImGui in standalone players). Standard production templates use
+`buildFlavor: release`, `playerVariant: standard`, and end in `-release`. The editor can select
+either variant through separate export profiles without changing release packaging/signing.
+The official Web downloader additionally filters on the profile's threaded versus single-threaded
+mode, preventing ambiguous selection between the two Web player templates.
+Android also retains its existing x86_64 Debug/emulator template.
+Each variant receives its own build, license/SBOM inventory, canonical export and platform
+certification evidence; the release inventory requires all variants before publication.
+Threaded deployments must
 serve every player response with `Cross-Origin-Opener-Policy: same-origin` and
 `Cross-Origin-Embedder-Policy: require-corp`; the generated `DEPLOYMENT.md` records this contract.
 

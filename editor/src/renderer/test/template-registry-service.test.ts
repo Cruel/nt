@@ -84,6 +84,7 @@ function archiveFixture(
     compiledFeatures: ['lua'],
     capabilities: [],
     buildFlavor: platform === 'android' ? 'debug' : 'release',
+    playerVariant: 'standard',
     packageAccessModes: [platform === 'android' ? 'android-private-copy' : 'sidecar'],
     files: [
       {
@@ -170,6 +171,30 @@ const profile = parsePlatformExportProfile({
   desktop: { artifact: 'tar', executableName: 'game' },
 });
 describe('template registry service', () => {
+  it('filters installed standard player templates by variant', async () => {
+    const { archive } = archiveFixture();
+    const installed = await installPlayerTemplate({ archivePath: archive });
+    expect(installed.success).toBe(true);
+    const standard = await listPlayerTemplates({
+      platform: 'linux',
+      architecture: 'x64',
+      buildFlavor: 'release',
+      playerVariant: 'standard',
+    });
+    expect(standard.map((entry) => entry.descriptor.templateId)).toEqual(['linux-x64-release']);
+    expect(await listPlayerTemplates({ playerVariant: 'devtools' })).toHaveLength(0);
+  });
+  it('requires explicit threaded mode for official Web downloads', async () => {
+    const result = await downloadPlayerTemplateForRelease(
+      'v1.0.0',
+      { platform: 'web', architecture: 'wasm32', buildFlavor: 'release' },
+      async () => {
+        throw new Error('Web request should fail before fetching');
+      },
+    );
+    expect(result.success).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('threading mode');
+  });
   it('pins official downloads to one exact release template', async () => {
     const response = new Response(
       JSON.stringify({

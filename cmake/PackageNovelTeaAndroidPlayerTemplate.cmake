@@ -8,11 +8,21 @@ set(root "${CMAKE_CURRENT_LIST_DIR}/..")
 cmake_path(ABSOLUTE_PATH root NORMALIZE OUTPUT_VARIABLE root)
 include("${root}/cmake/NovelTeaBgfxVersion.cmake")
 find_program(NODE_EXECUTABLE node REQUIRED)
-set(template_id "android-${NOVELTEA_ANDROID_ABI}-${NOVELTEA_ANDROID_FLAVOR}")
+if(NOT DEFINED NOVELTEA_ANDROID_SOURCE_FLAVOR)
+    set(NOVELTEA_ANDROID_SOURCE_FLAVOR "${NOVELTEA_ANDROID_FLAVOR}")
+endif()
+if(NOT DEFINED NOVELTEA_ANDROID_TEMPLATE_VARIANT)
+    set(NOVELTEA_ANDROID_TEMPLATE_VARIANT "${NOVELTEA_ANDROID_FLAVOR}")
+endif()
+if(NOT NOVELTEA_ANDROID_TEMPLATE_VARIANT MATCHES "^(release|debug|devtools)$")
+    message(FATAL_ERROR "Unsupported Android template variant ${NOVELTEA_ANDROID_TEMPLATE_VARIANT}")
+endif()
+set(template_id "android-${NOVELTEA_ANDROID_ABI}-${NOVELTEA_ANDROID_TEMPLATE_VARIANT}")
 set(stage "${root}/build/package/${template_id}")
 execute_process(COMMAND "${NODE_EXECUTABLE}" "${root}/cmake/package-android-player-template.mjs"
     "${root}" "${stage}" "${NOVELTEA_RELEASE_TAG}" "${NOVELTEA_ANDROID_ABI}"
     "${NOVELTEA_ANDROID_FLAVOR}" "${NOVELTEA_BUNDLETOOL_JAR}" "${NOVELTEA_BGFX_VERSION}"
+    "${NOVELTEA_ANDROID_SOURCE_FLAVOR}" "${NOVELTEA_ANDROID_TEMPLATE_VARIANT}"
     OUTPUT_VARIABLE package_result
     COMMAND_ERROR_IS_FATAL ANY)
 file(MAKE_DIRECTORY "${root}/dist")

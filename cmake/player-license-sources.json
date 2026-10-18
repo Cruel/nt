@@ -49,7 +49,7 @@
     "sheenbidi": { "version": "3.0.0" },
     "sol2": { "name": "sol2", "paths": ["LICENSE.txt"] },
     "twink": { "name": "twink", "paths": ["LICENSE"] },
-    "imgui": { "player": false }
+    "imgui": { "version": "1.92.8-docking", "paths": ["LICENSE.txt"], "devtoolsOnly": true }
   },
   "emscriptenPorts": {
     "sdl3": { "versionPattern": "^SDL-release-(.+)$", "paths": ["LICENSE.txt"] },
