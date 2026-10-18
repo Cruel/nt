@@ -4480,6 +4480,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     compiledFeatures: ['lua', 'web-threads'],
     capabilities: ['external-url'],
     buildFlavor: 'debug',
+    playerVariant: 'standard',
     packageAccessModes: ['web-fetch'],
     files: inventory,
     runtimeDependencies: [
