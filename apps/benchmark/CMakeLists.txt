@@ -24,7 +24,7 @@ add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
 target_include_directories(noveltea-benchmark-runner
     PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated"
     PUBLIC "${PROJECT_SOURCE_DIR}/engine/include")
-target_link_libraries(noveltea-benchmark-runner PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(noveltea-benchmark-runner PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(noveltea-benchmark-runner PUBLIC
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 target_compile_definitions(noveltea-benchmark-runner PRIVATE
@@ -79,7 +79,8 @@ else()
 endif()
 target_include_directories(noveltea-benchmark-app PRIVATE "${PROJECT_SOURCE_DIR}/engine/src")
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
-    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner PNG::PNG)
+    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner PNG::PNG
+    nlohmann_json::nlohmann_json)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
 noveltea_attach_runtime_assets(noveltea-benchmark-app)
 target_compile_definitions(noveltea-benchmark-app PRIVATE
@@ -211,7 +212,8 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_test(NAME noveltea_benchmark_suite COMMAND noveltea-benchmark-suite-tests)
 
     add_executable(noveltea-benchmark-capacity-tests benchmark_capacity_tests.cpp)
-    target_link_libraries(noveltea-benchmark-capacity-tests PRIVATE noveltea-benchmark-runner)
+    target_link_libraries(noveltea-benchmark-capacity-tests
+        PRIVATE noveltea-benchmark-runner nlohmann_json::nlohmann_json)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-capacity-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-capacity-tests)
     add_test(NAME noveltea_benchmark_capacity COMMAND noveltea-benchmark-capacity-tests)
@@ -238,20 +240,22 @@ if(BUILD_TESTING AND NOT ANDROID)
         add_executable(noveltea-benchmark-storage-tests
             benchmark_storage_tests.cpp benchmark_storage.cpp)
         target_link_libraries(noveltea-benchmark-storage-tests
-            PRIVATE noveltea-benchmark-runner SDL3::SDL3)
+            PRIVATE noveltea-benchmark-runner SDL3::SDL3 nlohmann_json::nlohmann_json)
         noveltea_apply_runtime_compiler_policy(noveltea-benchmark-storage-tests)
         noveltea_apply_policy_warnings(noveltea-benchmark-storage-tests)
         add_test(NAME noveltea_benchmark_storage COMMAND noveltea-benchmark-storage-tests)
     endif()
 
     add_executable(noveltea-benchmark-comparison-tests benchmark_comparison_tests.cpp)
-    target_link_libraries(noveltea-benchmark-comparison-tests PRIVATE noveltea-benchmark-runner)
+    target_link_libraries(noveltea-benchmark-comparison-tests
+        PRIVATE noveltea-benchmark-runner nlohmann_json::nlohmann_json)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-comparison-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-comparison-tests)
     add_test(NAME noveltea_benchmark_comparison COMMAND noveltea-benchmark-comparison-tests)
 
     add_executable(noveltea-benchmark-report-tests benchmark_report_tests.cpp)
-    target_link_libraries(noveltea-benchmark-report-tests PRIVATE noveltea-benchmark-runner)
+    target_link_libraries(noveltea-benchmark-report-tests
+        PRIVATE noveltea-benchmark-runner nlohmann_json::nlohmann_json)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-report-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-report-tests)
     add_test(NAME noveltea_benchmark_report COMMAND noveltea-benchmark-report-tests)

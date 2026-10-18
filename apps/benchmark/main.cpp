@@ -1391,8 +1391,12 @@ int run_dashboard(Options options)
         } else {
             feedback = "Screenshot unsupported: no reference preview for this scenario";
         }
-        if (feedback.starts_with("Untimed screenshot: ") &&
-            std::filesystem::exists(feedback.substr(sizeof("Untimed screenshot: ") - 1))) {
+        std::error_code error_code;
+        const auto screenshot_path = feedback.starts_with("Untimed screenshot: ")
+                                         ? feedback.substr(sizeof("Untimed screenshot: ") - 1)
+                                         : std::string{};
+        if (!screenshot_path.empty() && std::filesystem::exists(screenshot_path, error_code) &&
+            !error_code) {
             std::printf("[benchmark] inspection smoke complete: %s\n", feedback.c_str());
             return 0;
         }

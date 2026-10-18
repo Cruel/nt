@@ -49,7 +49,13 @@ bool load_dashboard_preferences(DashboardPreferences& state, std::string& error)
     const auto path = preferences_file(error);
     if (!error.empty())
         return false;
-    if (!std::filesystem::exists(path))
+    std::error_code error_code;
+    const bool exists = std::filesystem::exists(path, error_code);
+    if (error_code) {
+        error = "unable to inspect dashboard settings: " + error_code.message();
+        return false;
+    }
+    if (!exists)
         return true;
     std::ifstream stream(path, std::ios::binary);
     if (!stream) {
@@ -102,10 +108,10 @@ bool save_dashboard_preferences(const DashboardPreferences& state, std::string& 
             return false;
         }
     }
-    std::error_code code;
-    std::filesystem::rename(temp, path, code);
-    if (code) {
-        error = "unable to replace dashboard settings: " + code.message();
+    std::error_code error_code;
+    std::filesystem::rename(temp, path, error_code);
+    if (error_code) {
+        error = "unable to replace dashboard settings: " + error_code.message();
         return false;
     }
 #endif

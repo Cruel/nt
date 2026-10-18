@@ -1,4 +1,5 @@
 #include "benchmark_report.hpp"
+#include "noveltea/core/json_access.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -86,8 +87,14 @@ int main()
     auto cpu_vsync = cpu_config;
     cpu_vsync["settings"]["vsync"] = true;
     if (!check(rejected(cpu_zero) && rejected(cpu_excess) && rejected(cpu_mismatched_input) &&
-                   rejected(cpu_missing_input) && rejected(cpu_ui) && rejected(cpu_vsync),
+                   rejected(cpu_missing_input) && rejected(cpu_vsync),
                "CPU configurations reject out-of-bounds, changed fixture and graphics settings"))
+        return 1;
+    Options cpu_dashboard;
+    if (!check(decode_configuration(cpu_ui.dump(), cpu_dashboard, error) && !cpu_dashboard.no_ui &&
+                   cpu_dashboard.scenario == cpu.scenario &&
+                   nlohmann::json::parse(encode_configuration(cpu_dashboard)) == cpu_ui,
+               "CPU configuration preserves interactive dashboard mode"))
         return 1;
 
     for (const char* id : {"asset-source-read", "asset-project-prepare", "asset-texture-realize"}) {
@@ -112,11 +119,18 @@ int main()
         invalid_count["parameters"]["work_units"] = 65;
         auto missing_cache = encoded;
         missing_cache["parameters"].erase("cache");
-        auto invalid_ui = encoded;
-        invalid_ui["settings"]["no_ui"] = false;
+        auto dashboard_config = encoded;
+        dashboard_config["settings"]["no_ui"] = false;
         if (!check(rejected(invalid_cache) && rejected(invalid_input) && rejected(invalid_count) &&
-                       rejected(missing_cache) && rejected(invalid_ui),
-                   "asset workload rejects incompatible cache, source, units and UI mode"))
+                       rejected(missing_cache),
+                   "asset workload rejects incompatible cache, source and units"))
+            return 1;
+        Options asset_dashboard;
+        if (!check(decode_configuration(dashboard_config.dump(), asset_dashboard, error) &&
+                       !asset_dashboard.no_ui && asset_dashboard.scenario == id &&
+                       nlohmann::json::parse(encode_configuration(asset_dashboard)) ==
+                           dashboard_config,
+                   "asset configuration preserves interactive dashboard mode"))
             return 1;
         noveltea::benchmark::SuiteResult suite;
         noveltea::benchmark::ScenarioResult scenario;
@@ -138,8 +152,9 @@ int main()
                     result["graphics"]["asset_workload"]["manager_cache"] == "cold" &&
                     result["graphics"]["asset_workload"]["os_page_cache"] == "uncontrolled" &&
                     result["timing"]["gpu_execution_ms"].is_null() &&
-                    result["timing"]["frame_wall"].get<std::string>().find(
-                        "end-to-end CPU interval between completed work batches") !=
+                    noveltea::core::json_access::get_or<std::string>(result["timing"]["frame_wall"],
+                                                                     {})
+                            .find("end-to-end CPU interval between completed work batches") !=
                         std::string::npos,
                 "asset reports have workload throughput and explicit cache/GPU limitations"))
             return 1;
@@ -681,8 +696,9 @@ int main()
     if (!check(cpu_result["graphics"]["renderer"].is_null() &&
                    cpu_result["graphics"]["gpu_device_id"].is_null() &&
                    cpu_result["graphics"]["frame_path"] == "cpu-work-batch-no-presentation" &&
-                   cpu_result["timing"]["frame_wall"].get<std::string>().find(
-                       "end-to-end CPU interval between completed work batches") !=
+                   noveltea::core::json_access::get_or<std::string>(
+                       cpu_result["timing"]["frame_wall"], {})
+                           .find("end-to-end CPU interval between completed work batches") !=
                        std::string::npos &&
                    cpu_result["timing"]["gpu_execution_ms"].is_null() &&
                    cpu_result["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
@@ -705,8 +721,9 @@ int main()
             decode_report["graphics"]["video_hardware_decode_confirmed"] == false &&
                 decode_report["graphics"]["video_decode_backend"] == "libvpx-vp9" &&
                 decode_report["graphics"]["video_decode_fallback"] == "no compatible hardware" &&
-                decode_report["timing"]["frame_wall"].get<std::string>().find(
-                    "active CPU decoder operation interval") != std::string::npos &&
+                noveltea::core::json_access::get_or<std::string>(
+                    decode_report["timing"]["frame_wall"], {})
+                        .find("active CPU decoder operation interval") != std::string::npos &&
                 decode_report["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"].is_null() &&
                 decode_report["scenarios"][0]["aggregate"]["video_decode_work_units_per_second"] ==
                     100 &&
@@ -764,8 +781,9 @@ int main()
                 msaa_reported["msaa_samples"] == 4 &&
                 msaa_reported["effective_msaa_samples"].is_null() &&
                 msaa_reported["msaa_sample_count_verified"] == false &&
-                msaa_reported["estimated_extra_msaa_bytes_basis"].get<std::string>().find(
-                    "requested") != std::string::npos &&
+                noveltea::core::json_access::get_or<std::string>(
+                    msaa_reported["estimated_extra_msaa_bytes_basis"], {})
+                        .find("requested") != std::string::npos &&
                 offscreen_report["graphics"]["raw_workload"]["effective_msaa_samples"] == 0 &&
                 offscreen_report["graphics"]["raw_workload"]["msaa_sample_count_verified"] == true,
             "MSAA requests and nominal memory budgets are not misreported as effective GPU state"))

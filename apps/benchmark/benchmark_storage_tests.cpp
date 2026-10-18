@@ -27,6 +27,13 @@ int main()
     original.last_configuration.no_ui = false;
     original.presets.push_back({"baseline", original.last_configuration});
     std::string error;
+    DashboardPreferences missing = original;
+    if (!load_dashboard_preferences(missing, error) || !error.empty() ||
+        missing.last_configuration.rect_count != 29) {
+        std::fprintf(stderr, "storage: absent settings should preserve defaults: %s\n",
+                     error.c_str());
+        return 1;
+    }
     if (!save_dashboard_preferences(original, error)) {
         std::fprintf(stderr, "storage: save failed: %s\n", error.c_str());
         return 1;
@@ -69,6 +76,21 @@ int main()
     if (!save_dashboard_preferences(original, error) || !error.empty() ||
         !load_dashboard_preferences(loaded, error) || loaded.last_configuration.rect_count != 41) {
         std::fprintf(stderr, "storage: stale dashboard error disabled subsequent saves\n");
+        return 1;
+    }
+    fs::remove(file);
+    fs::create_symlink(file.filename(), file);
+    error.clear();
+    if (load_dashboard_preferences(loaded, error) || error.empty() ||
+        loaded.last_configuration.rect_count != 41 || loaded.presets.size() != 1) {
+        std::fprintf(stderr, "storage: filesystem inspection failure must preserve loaded state\n");
+        return 1;
+    }
+    fs::remove(file);
+    if (!save_dashboard_preferences(original, error) || !error.empty() ||
+        !load_dashboard_preferences(loaded, error) || loaded.last_configuration.rect_count != 41) {
+        std::fprintf(stderr, "storage: failed to recover from filesystem error: %s\n",
+                     error.c_str());
         return 1;
     }
     fs::remove_all(root);
