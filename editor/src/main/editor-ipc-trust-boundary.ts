@@ -623,13 +623,24 @@ export const nativeProjectSaveUnitArgumentsSchema = z.tuple([
     z.string().min(3).max(256).regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
     z.array(
       z.string().min(3).max(256).regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
-    ).min(1).max(128),
+    ).max(128),
   ]),
   z.object({
     keepMine: z.boolean().optional(),
     comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']).optional(),
+    textPaths: z.array(
+      projectRelativePathSchema.refine(
+        (value) =>
+          /^(?:scripts|assets)\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:lua|rml|rcss)$/u.test(value) ||
+          /^records\/layouts\/[a-z][a-z0-9-]*\/layout\.(?:lua|rml|rcss)$/u.test(value),
+        'Native mixed Save must target an admitted Lua/RML/RCSS source.',
+      ),
+    ).min(1).max(128).optional(),
   }).strict(),
-]);
+]).refine(([, , owners, options]) =>
+  typeof owners === 'string' || owners.length > 0 || Boolean(options.textPaths?.length),
+  'Native Save must include a logical Save unit or staged text source.',
+);
 export const nativeProjectSaveTextArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),

@@ -40,8 +40,8 @@ interface CommandStoreState {
   saveNativeUnitAsync: (
     saveUnitIds: string | string[],
     expectedProjectRevision: number,
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' },
-    onAcknowledged?: () => void,
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[] },
+    onAcknowledged?: (result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult) => void,
   ) => Promise<CommandExecutionResult>;
   saveNativeTextAsync: (
     path: string,
@@ -487,7 +487,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         // Adopt the scoped saved baseline *while the shared mutation queue is
         // still held*. Otherwise a queued native editor command could publish
         // between the physical Save acknowledgment and the recovery rebase.
-        onAcknowledged?.();
+        onAcknowledged?.(saved);
         set({
           nativeMutationPending: false,
           nativeWorkingRevision: saved.snapshot.workingRevision,

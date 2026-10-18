@@ -8,7 +8,11 @@ import {
 } from './save-unit-registry';
 import type { SaveUnitId } from './save-unit-types';
 import { useProjectStore } from './project-store';
-import { useProjectSourceStore } from './project-source-store';
+import {
+  acknowledgeNativeSavedSources,
+  flushNativeProjectSources,
+  useProjectSourceStore,
+} from './project-source-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -448,10 +452,11 @@ async function commitSelectedNativeSaveUnits(
   selectedIds: Set<SaveUnitId>,
   snapshot: EditorProjectState,
   candidateContent: JsonValue,
+  sourceIds: readonly string[] = [],
 ): Promise<ProjectSaveCoordinatorResult> {
   const current = useProjectStore.getState();
   const remaining = Object.keys(snapshot.recovery.saveUnitsById).sort();
-  if (selectedIds.size === 0) {
+  if (selectedIds.size === 0 && sourceIds.length === 0) {
     return {
       success: false,
       status: 'blocked',
@@ -467,12 +472,19 @@ async function commitSelectedNativeSaveUnits(
     };
   }
   const saveUnitIds = [...selectedIds].sort();
+  const sourceBuffers = useProjectSourceStore.getState().buffersById;
+  const submittedSources = Object.fromEntries(sourceIds.map((id) => {
+    const buffer = sourceBuffers[id];
+    if (!buffer?.dirty || buffer.conflict)
+      throw new Error(`Native mixed Save requires a cleanly staged dirty source: ${id}`);
+    return [id, { text: buffer.text, baseContentHash: buffer.baseContentHash }];
+  }));
   const acknowledged = { remainingDirtySaveUnitIds: null as string[] | null };
   const submitted = await useCommandStore.getState().saveNativeUnitAsync(
     saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
     current.projectRevision,
-    { comments: 'keep' },
-    () => {
+    { comments: 'keep', ...(sourceIds.length ? { textPaths: [...sourceIds] } : {}) },
+    (saved) => {
       const latest = useProjectStore.getState();
       if (
         !latest.document ||
@@ -487,12 +499,21 @@ async function commitSelectedNativeSaveUnits(
       );
       const savedEditorState = editorStateForContentCandidate(snapshot, candidateContent, rebased);
       const workingEditorState = editorStateForContentCandidate(snapshot, latest.document, rebased);
+      if (sourceIds.length)
+        acknowledgeNativeSavedSources(
+          latest.projectSessionId!, submittedSources, saved.textSourceDiskRevisions ?? {},
+        );
       useProjectStore.getState().markSaved({
         document: mergeEditorProjectState(candidateContent, savedEditorState),
       });
       setLoadedEditorProjectState(workingEditorState);
       useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
-      acknowledged.remainingDirtySaveUnitIds = Object.keys(rebased.saveUnitsById).sort();
+      acknowledged.remainingDirtySaveUnitIds = uniqueSorted([
+        ...Object.keys(rebased.saveUnitsById),
+        ...Object.entries(useProjectSourceStore.getState().buffersById)
+          .filter(([, buffer]) => buffer.dirty)
+          .map(([id]) => sourceSaveUnitId(id)),
+      ]);
     },
   );
   if (!submitted.ok) {
@@ -530,7 +551,9 @@ async function commitSelectedNativeSaveUnits(
     success: true,
     status: remainingDirtySaveUnitIds.length ? 'partially-saved' : 'saved',
     diagnostics: [],
-    savedSaveUnitIds: saveUnitIds,
+    savedSaveUnitIds: uniqueSorted([
+      ...saveUnitIds, ...sourceIds.map((id) => sourceSaveUnitId(id)),
+    ]),
     remainingDirtySaveUnitIds,
   };
 }
@@ -885,9 +908,10 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
   if (useCommandStore.getState().nativeWorkingRevision !== null) {
     // Never mix a native working Project Save with the retired source-buffer
     // writer or split a linked Save All into independently committed units.
-    const dirtySources = Object.entries(useProjectSourceStore.getState().buffersById)
+    const sourceIds = Object.entries(useProjectSourceStore.getState().buffersById)
       .filter(([, buffer]) => buffer.dirty)
-      .map(([id]) => sourceSaveUnitId(id));
+      .map(([id]) => id);
+    const dirtySources = sourceIds.map((id) => sourceSaveUnitId(id));
     const dirtyRecords = Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById);
     const all = uniqueSorted([...dirtySources, ...dirtyRecords]);
     if (all.length === 0)
@@ -898,7 +922,24 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
         savedSaveUnitIds: [],
         remainingDirtySaveUnitIds: [],
       };
-    if (dirtySources.length === 0) {
+    try {
+      if (sourceIds.length) await flushNativeProjectSources();
+    } catch (error) {
+      return {
+        success: false,
+        status: 'blocked',
+        diagnostics: [{
+          code: 'editor.native-save-all.stage-rejected',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: error instanceof Error ? error.message : 'Native source staging failed.',
+        }],
+        savedSaveUnitIds: [],
+        remainingDirtySaveUnitIds: all,
+      };
+    }
+    {
       const snapshot = buildEditorProjectStateSnapshot();
       const ids = new Set(dirtyRecords);
       const entries = orderedEntries(snapshot.recovery, ids);
@@ -930,7 +971,7 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
             savedSaveUnitIds: [],
             remainingDirtySaveUnitIds: all,
           };
-        return commitSelectedNativeSaveUnits(ids, snapshot, candidate);
+        return commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
       } catch (error) {
         return {
           success: false,
@@ -947,19 +988,6 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
         };
       }
     }
-    return {
-      success: false,
-      status: 'blocked',
-      diagnostics: [{
-        code: 'editor.native-save-all.atomic-unavailable',
-        severity: 'error',
-        category: 'Project save',
-        path: '/',
-        message: 'Native Save All cannot invoke the retired source-buffer writer; source text must first be staged in the native worker.',
-      }],
-      savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: all,
-    };
   }
   const sourceResult = await saveAllDirtySourceUnits();
   const snapshot = buildEditorProjectStateSnapshot();

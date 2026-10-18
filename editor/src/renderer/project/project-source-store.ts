@@ -561,6 +561,45 @@ export async function flushNativeProjectSources(): Promise<void> {
     );
 }
 
+/** Adopt a batch of physical native Save acknowledgments without issuing a
+ * legacy write. Called synchronously while the native mutation queue is held.
+ * A newer editor buffer stays dirty against the exact bytes just committed. */
+export function acknowledgeNativeSavedSources(
+  projectSessionId: string,
+  submitted: Readonly<Record<string, { text: string; baseContentHash: string }>>,
+  revisions: Readonly<Record<string, string>>,
+): void {
+  const state = useProjectSourceStore.getState();
+  if (state.projectSessionId !== projectSessionId)
+    throw new Error('Native source Save acknowledgment belongs to another Project.');
+  for (const [sourceId, source] of Object.entries(submitted)) {
+    const buffer = state.buffersById[sourceId];
+    if (!buffer || buffer.baseContentHash !== source.baseContentHash ||
+      !/^sha256:[0-9a-f]{64}$/u.test(revisions[sourceId] ?? ''))
+      throw new Error(`Native source Save acknowledgment is stale or incomplete: ${sourceId}`);
+  }
+  const buffersById = { ...state.buffersById };
+  const files = state.files.map((file) => {
+    const source = submitted[file.id];
+    return source ? { ...file, contentHash: revisions[file.id] as `sha256:${string}` } : file;
+  });
+  for (const [sourceId, source] of Object.entries(submitted)) {
+    const prior = buffersById[sourceId]!;
+    buffersById[sourceId] = {
+      ...prior,
+      baseText: source.text,
+      baseContentHash: revisions[sourceId] as `sha256:${string}`,
+      dirty: prior.text !== source.text,
+      conflict: null,
+    };
+    if (prior.text === source.text) {
+      cancelSourceStage(sourceId);
+      touchedNativeSources.delete(sourceId);
+    }
+  }
+  useProjectSourceStore.setState({ buffersById, files, error: null });
+}
+
 export function findProjectSourceByAssetId(
   files: readonly ProjectSourceFile[],
   assetId: string,
