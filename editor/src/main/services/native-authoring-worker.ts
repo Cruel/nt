@@ -34,6 +34,7 @@ interface NativeBinding {
   patch(handle: unknown, revision: number, operations: string, preconditions?: string): string;
   save(handle: unknown, revision: string): string;
   prepareWorking(handle: unknown, revision: number, testId: string): string;
+  prepareCompleteWorking(handle: unknown, revision: number, testId: string): string;
   stageTextSource(
     handle: unknown,
     revision: number,
@@ -150,6 +151,18 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringPreparationSchema.parse(
             JSON.parse(binding.prepareWorking(handle, command.expectedRevision, command.testId)),
+          ),
+        };
+        break;
+      case 'prepareCompleteWorking':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringPreparationSchema.parse(
+            JSON.parse(
+              binding.prepareCompleteWorking(handle, command.expectedRevision, command.testId),
+            ),
           ),
         };
         break;

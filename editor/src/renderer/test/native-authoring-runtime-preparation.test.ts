@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -9,6 +10,7 @@ import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import {
   NativeWorkingRuntimePreparationCache,
   prepareNativeWorkingRuntime,
+  projectFromNativeCompletePreparation,
   projectFromNativeWorkingPreparation,
   runNativeWorkingTest,
 } from '../../main/services/native-authoring-runtime-preparation';
@@ -58,6 +60,53 @@ function fixture() {
 }
 
 describe('certification-only native working Project runtime preparation', () => {
+  it('compiles from a native-complete Project without a TypeScript saved baseline, rechecking source bytes', async () => {
+    const { project, prepared } = fixture();
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-complete-'));
+    try {
+      await writeFile(path.join(root, 'project.yaml'), 'source');
+      await mkdir(path.join(root, 'assets'));
+      await writeFile(path.join(root, 'assets/asset.bin'), 'asset source');
+      const native = {
+        ...prepared,
+        completeProject: {
+          ...project,
+          project: { ...project.project, name: 'Native-only Project' },
+          rooms: { start: { ...project.rooms.start, label: 'Native-only Room' } },
+        },
+        sourceRevisions: {
+          ...prepared.sourceRevisions,
+          'assets/asset.bin': 'sha256:' + createHash('sha256').update('asset source').digest('hex'),
+        },
+      };
+      const options = {
+        prepared: native,
+        projectRoot: root,
+        paths: logicalRuntimeArtifactPaths,
+      };
+      const result = await prepareNativeWorkingRuntime(options);
+      expect(result.status).toBe('prepared');
+      if (result.status === 'prepared') {
+        expect(result.artifact.manifestPreview.projectName).toBe('Native-only Project');
+        await result.dispose();
+      }
+      const cache = new NativeWorkingRuntimePreparationCache();
+      try {
+        const cached = await cache.prepare(options);
+        expect(cached.status).toBe('prepared');
+        if (cached.status === 'prepared') await cached.dispose();
+        await writeFile(path.join(root, 'assets/asset.bin'), 'externally changed');
+        await expect(cache.prepare(options)).rejects.toThrow(
+          'Native complete preparation source changed on disk: assets/asset.bin',
+        );
+      } finally {
+        await cache.clear();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('projects dirty native records without mutating saved source, and guards source revisions', () => {
     const { project, prepared, savedFiles } = fixture();
     const effective = projectFromNativeWorkingPreparation(project, savedFiles, prepared);
@@ -258,6 +307,7 @@ describe.skipIf(!addon)('native Project ↔ saved workspace preparation differen
       close(handle: unknown): void;
       snapshot(handle: unknown): string;
       prepareWorking(handle: unknown, revision: number, testId: string): string;
+      prepareCompleteWorking(handle: unknown, revision: number, testId: string): string;
       patch(handle: unknown, revision: number, patches: string): string;
       stageTextSource(handle: unknown, revision: number, source: string, text: string): string;
     };
@@ -268,6 +318,13 @@ describe.skipIf(!addon)('native Project ↔ saved workspace preparation differen
       const baseline = JSON.parse(
         addonModule.prepareWorking(handle, revision, ''),
       ) as NativeAuthoringPreparation;
+      const completeBaseline = JSON.parse(
+        addonModule.prepareCompleteWorking(handle, revision, ''),
+      ) as NativeAuthoringPreparation;
+      expect(completeBaseline.accepted, completeBaseline.error).toBe(true);
+      expect(projectFromNativeCompletePreparation(completeBaseline)).toEqual(
+        opened.snapshot.project,
+      );
       const saved = projectFromNativeWorkingPreparation(
         opened.snapshot.project,
         opened.snapshot,
@@ -310,11 +367,36 @@ describe.skipIf(!addon)('native Project ↔ saved workspace preparation differen
         prepared,
       );
       expect(projection.project.name).toBe('Unsaved native preview');
+      const completeDirty = JSON.parse(
+        addonModule.prepareCompleteWorking(handle, revision, 'world-composition-flow'),
+      ) as NativeAuthoringPreparation;
+      expect(completeDirty.accepted, completeDirty.error).toBe(true);
+      expect(projectFromNativeCompletePreparation(completeDirty)).toEqual(projection);
       expect(projection.tests['world-composition-flow']?.label).toBe('Edited Test');
       expect(projection.layouts['notice-board']?.data.rml).toMatchObject({
         sourceText: '<rml><body><nt-tr>Dirty RML</nt-tr></body></rml>',
       });
       expect(opened.snapshot.project.project.name).toBe('Feature Lab');
+      const invalid = JSON.parse(
+        addonModule.patch(
+          handle,
+          revision,
+          JSON.stringify([
+            {
+              operation: 'replace',
+              path: '/rooms/room-lifecycle-roundtrip/data/presentationSpace/size/width',
+              value: -1,
+            },
+          ]),
+        ),
+      ) as { accepted: boolean; snapshot: { workingRevision: number } };
+      expect(invalid.accepted).toBe(true);
+      const blocked = JSON.parse(
+        addonModule.prepareCompleteWorking(handle, invalid.snapshot.workingRevision, ''),
+      ) as NativeAuthoringPreparation;
+      expect(blocked.accepted).toBe(false);
+      expect(blocked.completeProject).toBeNull();
+      expect(blocked.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true);
     } finally {
       addonModule.close(handle);
     }

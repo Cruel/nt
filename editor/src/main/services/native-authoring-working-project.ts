@@ -209,6 +209,25 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
+  /** All effective native records, with verified source revisions, for editor
+   * cutover certification. No saved TypeScript Project is used to fill gaps. */
+  async prepareCompleteWorking(testId = ''): Promise<NativeAuthoringPreparation> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const expectedRevision = this.view.workingRevision;
+      const result = await this.bridge.request({
+        operation: 'prepareCompleteWorking',
+        expectedRevision,
+        testId,
+      });
+      if (result.workingRevision !== expectedRevision)
+        throw new Error('Native complete Project preparation advanced the working generation.');
+      if (result.accepted && !result.completeProject)
+        throw new Error('Native complete Project omitted its effective records.');
+      return result;
+    });
+  }
+
   async stageTextSource(path: string, text: string): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');

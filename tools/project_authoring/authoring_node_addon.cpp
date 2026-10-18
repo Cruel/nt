@@ -531,7 +531,7 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             return js_string(env, sources.to_string());
         }
-        if (name == "prepareWorking") {
+        if (name == "prepareWorking" || name == "prepareCompleteWorking") {
             if (argc != 3)
                 throw std::runtime_error("Working preparation requires revision and Test ID.");
             std::int64_t revision = -1;
@@ -540,8 +540,11 @@ napi_value call(napi_env env, napi_callback_info info)
             const auto test_id = string_arg(env, argv[2]);
             if (test_id.size() > 256)
                 throw std::runtime_error("Invalid authored Test ID.");
-            const auto prepared =
-                session.project->prepare_working(static_cast<std::uint64_t>(revision), test_id);
+            const auto prepared = name == "prepareCompleteWorking"
+                                      ? session.project->prepare_complete_working(
+                                            static_cast<std::uint64_t>(revision), test_id)
+                                      : session.project->prepare_working(
+                                            static_cast<std::uint64_t>(revision), test_id);
             Json result = Json::object();
             result["accepted"] = prepared.accepted;
             result["error"] = prepared.error;
@@ -550,6 +553,9 @@ napi_value call(napi_env env, napi_callback_info info)
                 prepared.accepted ? Json::parse(prepared.project_json) : Json::null();
             result["recordOverrides"] =
                 prepared.accepted ? Json::parse(prepared.record_overrides_json) : Json::object();
+            if (name == "prepareCompleteWorking")
+                result["completeProject"] =
+                    prepared.accepted ? Json::parse(prepared.complete_project_json) : Json::null();
             result["sourceRevisions"] = Json::object();
             for (const auto& [path, value] : prepared.source_revisions)
                 result["sourceRevisions"][path] = value;
@@ -688,6 +694,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "stageTextSource",
                                     "sourceAnalyses",
                                     "prepareWorking",
+                                    "prepareCompleteWorking",
                                     "publishMaterialCompilerResult"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;

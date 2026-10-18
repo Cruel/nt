@@ -191,6 +191,9 @@ public:
         std::uint64_t working_revision = 0;
         std::string project_json;
         std::string record_overrides_json;
+        // Complete effective Project assembled by resident native validation,
+        // rather than by overlaying dirty owners on a TypeScript saved Project.
+        std::string complete_project_json;
         std::map<std::string, std::string> source_revisions;
         std::map<std::string, std::string> text_overlays;
         std::map<std::string, std::string> shader_overlays;
@@ -200,6 +203,8 @@ public:
     // effective working Project, without persisting it or invoking the CLI.
     WorkingPreparation prepare_working(std::uint64_t expected_revision,
                                        std::string_view test_id = {}) const;
+    WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
+                                                std::string_view test_id = {});
     RoomSessionResult publish_material_compiler_result(std::uint64_t revision,
                                                        std::string_view material_id,
                                                        std::string_view native_tool_result_json);

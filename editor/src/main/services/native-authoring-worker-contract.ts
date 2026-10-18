@@ -77,6 +77,7 @@ export const nativeAuthoringPreparationSchema = z
     textOverlays: z.record(z.string(), z.string()),
     shaderOverlays: z.record(z.string(), z.string()),
     diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+    completeProject: z.unknown().nullable().optional(),
   })
   .strict();
 
@@ -142,6 +143,14 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
     .object({
       requestId: z.number().int().positive(),
       operation: z.literal('prepareWorking'),
+      expectedRevision: z.number().int().nonnegative(),
+      testId: z.string().max(256).default(''),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('prepareCompleteWorking'),
       expectedRevision: z.number().int().nonnegative(),
       testId: z.string().max(256).default(''),
     })

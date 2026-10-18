@@ -453,6 +453,29 @@ missing source rejects replay and closes the new worker rather than losing
 unsaved text or overwriting the external edit. This is memory-only recovery,
 not durable recovery after Electron main-process termination.
 
+The `prepareCompleteWorking` worker operation provides a self-contained
+effective native Project instead of only the manifest and dirty record
+overrides. It performs full native validation, gathers normalized contributors
+for every tracked record family, overlays dirty records including Layout
+companion text, and re-observes physical source authority before returning.
+Invalid records, stale revisions, or uncertain authority fail closed. The
+older `prepareWorking` remains a cheap lazy-dirty projection; neither operation
+writes source. The editor-side projection supplies only non-authored local
+editor defaults and checks against the existing typed runtime contract.
+The Feature Lab differential compares both entire saved Projects and mixed
+dirty manifest/Test/RML edits against the independently loaded TypeScript
+Workspace. Optional Layout dependencies preserve the old reader's omission
+semantics.
+For self-contained native preview/Test certification, the complete response
+also includes the source authority's exact physical revision manifest,
+including referenced binary Assets. `prepareNativeWorkingRuntime` accepts
+this native-only input without a TypeScript saved-Project baseline, rehashes
+the full manifest before compilation, and repeats those checks even on
+runtime-cache hits. An externally modified Asset fails rather than returning
+a stale cached artifact. Physical input pinning across the later compiler
+execution and production editor migration remain part of the coordinated
+cutover, rather than a second competing production authoring authority.
+
 These additions are certified through the real addon and worker, **not** an
 independent production editor authority. The current renderer Command Store,
 Save coordinator, source watcher, validation, and runtime preparation still

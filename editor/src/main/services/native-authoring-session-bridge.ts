@@ -134,10 +134,16 @@ export class NativeAuthoringSessionBridge {
     command: Extract<Command, { operation: 'prepareWorking' }>,
   ): Promise<NativeAuthoringPreparation>;
   request(
+    command: Extract<Command, { operation: 'prepareCompleteWorking' }>,
+  ): Promise<NativeAuthoringPreparation>;
+  request(
     command: Extract<Command, { operation: 'validateClean' }>,
   ): Promise<NativeAuthoringCleanValidation>;
   request(
-    command: Exclude<Command, { operation: 'prepareWorking' | 'validateClean' }>,
+    command: Exclude<
+      Command,
+      { operation: 'prepareWorking' | 'prepareCompleteWorking' | 'validateClean' }
+    >,
   ): Promise<
     Exclude<Response['result'], NativeAuthoringPreparation | NativeAuthoringCleanValidation>
   >;

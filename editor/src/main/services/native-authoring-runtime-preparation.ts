@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
@@ -90,6 +91,89 @@ export function projectFromNativeWorkingPreparation(
   return parsed.data;
 }
 
+/** Cutover certification: consume every effective native owner, not a
+ * TypeScript-loaded saved-Project oracle. Schema decoding here only adapts
+ * the editor-local defaults that are intentionally not stored in editor.yaml. */
+export function projectFromNativeCompletePreparation(
+  prepared: NativeAuthoringPreparation,
+): AuthoringProject {
+  if (
+    !prepared.accepted ||
+    !prepared.completeProject ||
+    typeof prepared.completeProject !== 'object' ||
+    Array.isArray(prepared.completeProject)
+  )
+    throw new Error(prepared.error || 'Native complete working Project was not available.');
+  const raw = prepared.completeProject as Record<string, unknown>;
+  const candidate: Record<string, unknown> = {
+    ...raw,
+    editor: {
+      ...emptyEditorProjectState(),
+      ...(raw.editor && typeof raw.editor === 'object' && !Array.isArray(raw.editor)
+        ? raw.editor
+        : {}),
+    },
+  };
+  for (const family of authoringCollectionKeys) if (!(family in candidate)) candidate[family] = {};
+  const parsed = authoringProjectSchema.safeParse(candidate);
+  if (!parsed.success)
+    throw new Error(
+      'Native complete Project is incompatible with the editor contract: ' +
+        parsed.error.issues
+          .slice(0, 5)
+          .map((issue) => issue.path.join('/'))
+          .join(', '),
+    );
+  return parsed.data;
+}
+
+function nativeRuntimeProject(options: NativeWorkingRuntimeOptions): AuthoringProject {
+  if (options.saved === undefined && options.savedFiles === undefined)
+    return projectFromNativeCompletePreparation(options.prepared);
+  if (!options.saved || !options.savedFiles)
+    throw new Error('Legacy native preview requires both saved Project and source revisions.');
+  return projectFromNativeWorkingPreparation(options.saved, options.savedFiles, options.prepared);
+}
+
+/** The full native response carries a physically verified manifest, not an
+ * independent TypeScript saved Workspace. Recheck every byte before compile
+ * or cache reuse so neither files nor binary Assets can change unnoticed. */
+async function verifyCompleteNativeSources(options: NativeWorkingRuntimeOptions): Promise<void> {
+  if (options.saved !== undefined || options.savedFiles !== undefined) return;
+  const root = await realpath(options.projectRoot);
+  const revisions = Object.entries(options.prepared.sourceRevisions);
+  if (!revisions.some(([file]) => file === 'project.yaml'))
+    throw new Error('Native complete preparation omitted its Project manifest revision.');
+  for (const [relative, expected] of revisions) {
+    if (
+      !relative ||
+      relative.startsWith('/') ||
+      relative.includes('\\') ||
+      relative.includes(':') ||
+      relative.includes('\0') ||
+      path.posix.normalize(relative) !== relative ||
+      relative.split('/').includes('..')
+    )
+      throw new Error('Native complete preparation contains an unsafe source path.');
+    const candidate = path.join(root, relative);
+    let actual = 'absent';
+    try {
+      const canonical = await realpath(candidate);
+      if (!canonical.startsWith(root + path.sep))
+        throw new Error('Native complete preparation source escapes Project root: ' + relative);
+      actual =
+        'sha256:' +
+        createHash('sha256')
+          .update(await readFile(canonical))
+          .digest('hex');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    if (actual !== expected)
+      throw new Error('Native complete preparation source changed on disk: ' + relative);
+  }
+}
+
 export interface NativeWorkingRuntimeResult {
   readonly status: 'prepared';
   readonly artifact: PreparedRuntimeArtifact;
@@ -124,6 +208,7 @@ export class NativeWorkingRuntimePreparationCache {
 
   private key(options: NativeWorkingRuntimeOptions): string {
     const { prepared, saved } = options;
+    const effective = saved ? saved : projectFromNativeCompletePreparation(prepared);
     const runtimeOverrides = Object.fromEntries(
       Object.entries(prepared.recordOverrides).filter(([owner]) => owner !== 'tests'),
     );
@@ -135,7 +220,7 @@ export class NativeWorkingRuntimePreparationCache {
     const content = JSON.stringify([
       options.projectRoot,
       Boolean(options.testId),
-      { ...saved, tests: {} },
+      { ...effective, tests: {} },
       prepared.project,
       runtimeOverrides,
       runtimeRevisions,
@@ -160,7 +245,8 @@ export class NativeWorkingRuntimePreparationCache {
     if (!options.prepared.accepted) return prepareNativeWorkingRuntime(options);
     // A hit must still prove the new native snapshot is based on the active
     // saved Workspace generation; caching never bypasses source authority.
-    projectFromNativeWorkingPreparation(options.saved, options.savedFiles, options.prepared);
+    await verifyCompleteNativeSources(options);
+    nativeRuntimeProject(options);
     // Shader files are physical compiler inputs, not tracked YAML workspace
     // revisions. Recheck them at cache lookup, including on a cache hit, so
     // an external edit after the native preparation cannot return stale GL
@@ -194,11 +280,7 @@ export class NativeWorkingRuntimePreparationCache {
     }
     let test: NativeWorkingRuntimeResult['test'];
     if (options.testId) {
-      const project = projectFromNativeWorkingPreparation(
-        options.saved,
-        options.savedFiles,
-        options.prepared,
-      );
+      const project = nativeRuntimeProject(options);
       const data = parseTestData(project.tests[options.testId]?.data);
       if (!data)
         return {
@@ -242,8 +324,9 @@ export class NativeWorkingRuntimePreparationCache {
 
 export interface NativeWorkingRuntimeOptions {
   prepared: NativeAuthoringPreparation;
-  saved: AuthoringProject;
-  savedFiles: Pick<LoadedProjectWorkspaceSnapshot, 'fileRevisions'>;
+  // Omit both to compile directly from a fully native-prepared Project.
+  saved?: AuthoringProject;
+  savedFiles?: Pick<LoadedProjectWorkspaceSnapshot, 'fileRevisions'>;
   projectRoot: string;
   testId?: string;
   shaderCompiler?: RuntimeArtifactShaderCompilerAdapter;
@@ -263,11 +346,8 @@ export async function prepareNativeWorkingRuntime(
         ? prepared.diagnostics
         : [{ path: '/', message: prepared.error }],
     };
-  const workingProject = projectFromNativeWorkingPreparation(
-    options.saved,
-    options.savedFiles,
-    prepared,
-  );
+  await verifyCompleteNativeSources(options);
+  const workingProject = nativeRuntimeProject(options);
   const project = options.testId ? workingProject : projectWithPreviewLocale(workingProject);
   let test: NativeWorkingRuntimeResult['test'];
   if (options.testId) {
