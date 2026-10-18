@@ -720,6 +720,119 @@ void property_semantics_roundtrip(const std::filesystem::path& fixture)
             "Reopened Variable retains the saved typed effective Value");
 }
 
+void structural_record_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    const auto original_layout = temp.root / "records/layouts/notice-board";
+    const auto removed_layout = temp.root / "records/layouts/structural-sidecar";
+    std::filesystem::copy(original_layout, removed_layout,
+                          std::filesystem::copy_options::recursive);
+    auto layout_source = read(removed_layout / "layout.yaml");
+    const auto layout_id = layout_source.find("id: notice-board");
+    require(layout_id != std::string::npos, "Layout fixture must carry a source identity");
+    layout_source.replace(layout_id, std::string("id: notice-board").size(),
+                          "id: structural-sidecar");
+    write(removed_layout / "layout.yaml", layout_source);
+    const auto old_file = temp.root / "records/variables/board-stock-copy.yaml";
+    const auto new_file = temp.root / "records/variables/board-stock-renamed.yaml";
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Structural source Project opens with sidecar fixture");
+    const auto remove_layout =
+        project->patch(project->snapshot().working_revision,
+                       {{RoomPatch::Operation::Remove, "/layouts/structural-sidecar", ""}});
+    require(remove_layout.accepted, "Native Layout deletion stages its source and companions");
+    const auto deleted_layout = project->save_owners(remove_layout.snapshot.working_revision,
+                                                     {"layouts/structural-sidecar"}, false,
+                                                     TransactionDecision::RemoveComments);
+    require(deleted_layout.accepted && !std::filesystem::exists(removed_layout / "layout.yaml") &&
+                !std::filesystem::exists(removed_layout / "layout.rml") &&
+                !std::filesystem::exists(removed_layout / "layout.rcss") &&
+                !std::filesystem::exists(removed_layout / "layout.lua"),
+            "A native Layout removal journals YAML and all local source companions together: " +
+                deleted_layout.error);
+    require(project && project->inspect_record("variables/board-stock").accepted,
+            "Existing record must be inspectable before structural patch");
+    auto copied = Json::parse(project->record_snapshots().at("variables/board-stock").source_json);
+    copied.at("id") = "board-stock-copy";
+    const auto seeded = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Add, "/variables/board-stock-copy", copied.to_string()}});
+    require(seeded.accepted && seeded.snapshot.valid &&
+                project
+                    ->save_owners(seeded.snapshot.working_revision, {"variables/board-stock-copy"},
+                                  false, TransactionDecision::KeepComments)
+                    .accepted,
+            "A new unrelated record is persisted before testing persisted-record rename");
+    const auto source = read(old_file);
+    copied.at("id") = "board-stock-renamed";
+    const auto structural = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Remove, "/variables/board-stock-copy", ""},
+         {RoomPatch::Operation::Add, "/variables/board-stock-renamed", copied.to_string()}});
+    require(structural.accepted && structural.snapshot.dirty &&
+                structural.affected_records ==
+                    std::vector<std::string>(
+                        {"variables/board-stock-copy", "variables/board-stock-renamed"}) &&
+                !project->record_snapshots().contains("variables/board-stock-copy") &&
+                project->record_snapshots().contains("variables/board-stock-renamed") &&
+                read(old_file) == source && !std::filesystem::exists(new_file),
+            "A native structural rename stages removal and creation without writing disk");
+    const auto canceled =
+        project->save_owners(structural.snapshot.working_revision,
+                             {"variables/board-stock-copy", "variables/board-stock-renamed"}, false,
+                             TransactionDecision::Cancel);
+    require(!canceled.accepted && read(old_file) == source && !std::filesystem::exists(new_file),
+            "Canceled structural Save has no physical effects");
+    const auto saved =
+        project->save_owners(structural.snapshot.working_revision,
+                             {"variables/board-stock-copy", "variables/board-stock-renamed"}, false,
+                             TransactionDecision::RemoveComments);
+    require(
+        saved.accepted && !std::filesystem::exists(old_file) && std::filesystem::exists(new_file) &&
+            saved.affected_records == std::vector<std::string>({"variables/board-stock-copy",
+                                                                "variables/board-stock-renamed"}),
+        "Native journal atomically commits a record deletion and a record creation: " +
+            saved.error + " owners=" + Json(saved.affected_records).to_string() +
+            " oldExists=" + std::to_string(std::filesystem::exists(old_file)) +
+            " newExists=" + std::to_string(std::filesystem::exists(new_file)));
+    auto reopened = ProjectSession::open(temp.root, error);
+    require(reopened && !reopened->inspect_record("variables/board-stock-copy").accepted &&
+                reopened->inspect_record("variables/board-stock-renamed").accepted,
+            "Structural record changes survive reopening without ghost sources");
+
+    const auto restored = project->patch(
+        saved.snapshot.working_revision,
+        {{RoomPatch::Operation::Remove, "/variables/board-stock-renamed", ""},
+         {RoomPatch::Operation::Add, "/variables/board-stock-copy",
+          Json::parse(project->record_snapshots().at("variables/board-stock-renamed").source_json)
+              .to_string()}});
+    // The final add above deliberately uses the wrong identity; the native
+    // record schema must refuse this before Save, with zero working changes.
+    require(!restored.accepted && std::filesystem::exists(new_file) &&
+                !std::filesystem::exists(old_file),
+            "A malformed reverse structural patch does not partially mutate the session");
+
+    auto next =
+        Json::parse(project->record_snapshots().at("variables/board-stock-renamed").source_json);
+    next.at("id") = "board-stock-final";
+    const auto pending = project->patch(
+        saved.snapshot.working_revision,
+        {{RoomPatch::Operation::Remove, "/variables/board-stock-renamed", ""},
+         {RoomPatch::Operation::Add, "/variables/board-stock-final", next.to_string()}});
+    require(pending.accepted, "A second multi-source native rename stages successfully");
+    const auto final_file = temp.root / "records/variables/board-stock-final.yaml";
+    const auto committed_source = read(new_file);
+    write(new_file, committed_source + "# concurrent comment\n");
+    const auto stale =
+        project->save_owners(pending.snapshot.working_revision,
+                             {"variables/board-stock-renamed", "variables/board-stock-final"},
+                             false, TransactionDecision::RemoveComments);
+    require(!stale.accepted && read(new_file) == committed_source + "# concurrent comment\n" &&
+                !std::filesystem::exists(final_file),
+            "A stale deletion CAS rejects the entire multi-file structural Save");
+}
+
 void source_analysis_roundtrip(const std::filesystem::path& fixture)
 {
     const auto lua = analyze_project_text("scripts/probe.lua",
@@ -1517,6 +1630,10 @@ int main(int argc, char** argv)
             working_preparation_roundtrip(argv[2]);
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[1]) == "--structural-records") {
+            structural_record_roundtrip(argv[2]);
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--properties") {
             property_semantics_roundtrip(argv[2]);
             return 0;
@@ -1526,6 +1643,7 @@ int main(int argc, char** argv)
             roundtrip(argv[1], true);
             traits_editor_roundtrip(argv[1]);
             property_semantics_roundtrip(argv[1]);
+            structural_record_roundtrip(argv[1]);
             return 0;
         }
         return 2;

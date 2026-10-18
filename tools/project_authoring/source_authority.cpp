@@ -477,16 +477,31 @@ bool SourceAuthority::acknowledge_own_write(std::string_view relative_path,
                                             std::string_view revision)
 {
     const std::string path(relative_path);
-    if (!initialized_ || !baseline_.contains(path))
+    if (!initialized_)
         return false;
     try {
         const std::filesystem::path relative(path);
         if (relative.is_absolute() || relative != relative.lexically_normal() ||
             !contained(canonical_root_, root_ / relative))
             return false;
-        if (exact_source_revision(read_exact_bytes(root_ / relative)) != revision)
-            return false;
-        baseline_[path] = revision;
+        const auto absolute = root_ / relative;
+        std::error_code error;
+        const auto status = std::filesystem::symlink_status(absolute, error);
+        if (revision == "absent") {
+            if ((error && error != std::errc::no_such_file_or_directory) ||
+                (status.type() != std::filesystem::file_type::not_found &&
+                 status.type() != std::filesystem::file_type::none))
+                return false;
+        } else {
+            if (error || !std::filesystem::is_regular_file(status) ||
+                exact_source_revision(read_exact_bytes(absolute)) != revision)
+                return false;
+        }
+        // A journal can create or erase tracked records as well as update an
+        // existing source. Own-write evidence pins their exact new physical
+        // identity; the next observation must not mistake it for an external
+        // addition or leave authority permanently uncertain.
+        baseline_.insert_or_assign(path, std::string(revision));
         return true;
     } catch (...) {
         return false;

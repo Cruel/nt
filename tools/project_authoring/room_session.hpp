@@ -73,9 +73,10 @@ public:
                                                     std::string& error);
     // Stage a generic new record without touching disk. Physical creation is
     // owned by the same revision-checked transaction as normal scoped Save.
-    static std::unique_ptr<RoomSession> stage_new_record(
-        const std::filesystem::path& project_root, std::string family, std::string id,
-        std::string source_json, std::string& error);
+    static std::unique_ptr<RoomSession> stage_new_record(const std::filesystem::path& project_root,
+                                                         std::string family, std::string id,
+                                                         std::string source_json,
+                                                         std::string& error);
     // The same generic patch/save boundary with a different admitted source owner.
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
@@ -184,9 +185,9 @@ public:
     // Exact-revision physical publication of previously admitted Lua/RML/RCSS
     // overlays. Uses the Project YAML transaction journal for crash recovery,
     // but writes verbatim text without interpreting it as YAML.
-    RoomSessionResult save_text_sources(std::uint64_t revision,
-                                        const std::vector<std::string>& paths,
-                                        const std::map<std::string, std::string>& disk_preconditions);
+    RoomSessionResult
+    save_text_sources(std::uint64_t revision, const std::vector<std::string>& paths,
+                      const std::map<std::string, std::string>& disk_preconditions);
     const std::map<std::string, SourceAnalysis>& source_analyses() const;
     const std::map<std::string, std::string>& text_source_overlays() const
     {
@@ -224,11 +225,10 @@ public:
     {
         return shader_overlays_;
     }
-    RoomSessionResult
-    save_owners(std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
-                TransactionDecision comments,
-                const std::map<std::string, std::vector<std::string>>& paths = {},
-                const std::vector<std::string>& text_paths = {});
+    RoomSessionResult save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
+                                  bool keep_mine, TransactionDecision comments,
+                                  const std::map<std::string, std::vector<std::string>>& paths = {},
+                                  const std::vector<std::string>& text_paths = {});
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     // Immutable disk-validation contributors, including lazily uninspected
     // record owners. Valid only after validate_project() has refreshed proof.
@@ -291,6 +291,9 @@ private:
     std::filesystem::path root_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
+    // Persisted records removed from the working Project retain their exact
+    // physical baselines until an atomic structural Save commits the deletion.
+    std::map<std::string, std::unique_ptr<RoomSession>> deleted_records_;
     std::map<std::string, std::unique_ptr<RoomSession>> validation_records_;
     std::map<std::string, std::string> validation_source_revisions_;
     // Source changes observed outside validation remain pending until the next

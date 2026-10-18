@@ -58,6 +58,17 @@ ProjectSession::WorkingPreparation ProjectSession::prepare_working(std::uint64_t
         }
         project.insert_or_assign("localization", Json::parse(localization_cache_->effective_json));
         Json changed = Json::object();
+        for (const auto& [owner, session] : deleted_records_) {
+            const auto separator = owner.find('/');
+            const auto family = owner.substr(0, separator);
+            const auto id = owner.substr(separator + 1);
+            if (!changed.contains(family))
+                changed.insert_or_assign(family, Json::object());
+            changed[family].insert_or_assign(id, Json::null());
+            const auto relative = family == "layouts" ? "records/layouts/" + id + "/layout.yaml"
+                                                      : "records/" + family + "/" + id + ".yaml";
+            prepared.source_revisions.emplace(relative, session->snapshot().disk_source_revision);
+        }
         for (const auto& [owner, session] : records_) {
             const auto state = session->snapshot();
             const auto separator = owner.find('/');
@@ -261,7 +272,10 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             if (!complete.contains(family.key()))
                 complete.insert_or_assign(family.key(), Json::object());
             for (const auto& record : family.value().object_range())
-                complete[family.key()].insert_or_assign(record.key(), record.value());
+                if (record.value().is_null())
+                    complete[family.key()].erase(record.key());
+                else
+                    complete[family.key()].insert_or_assign(record.key(), record.value());
         }
         for (const auto& [owner, record] : contributors) {
             std::string relative;

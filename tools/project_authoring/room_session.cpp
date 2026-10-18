@@ -967,9 +967,9 @@ std::unique_ptr<RoomSession> RoomSession::open_record(const std::filesystem::pat
     }
 }
 
-std::unique_ptr<RoomSession> RoomSession::stage_new_record(
-    const std::filesystem::path& project_root, std::string family, std::string id,
-    std::string source_json, std::string& error)
+std::unique_ptr<RoomSession>
+RoomSession::stage_new_record(const std::filesystem::path& project_root, std::string family,
+                              std::string id, std::string source_json, std::string& error)
 {
     try {
         if (!is_id(id) || !record_contracts().contains(family))
@@ -1770,6 +1770,7 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     auto state = source_->snapshot();
     const bool manifest_dirty = state.dirty;
     state.working_revision = working_revision_;
+    state.dirty |= !deleted_records_.empty();
     state.dirty |= !shader_overlays_.empty();
     state.dirty |= !text_source_overlays_.empty();
     const auto trait_owner = records_.find("traits");
@@ -1786,7 +1787,10 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             cached != referenced_variables.end())
             return cached->second;
         std::optional<std::string> value;
-        if (const auto edited = records_.find("variables/" + key); edited != records_.end()) {
+        if (deleted_records_.contains("variables/" + key)) {
+            // A working deletion must not resolve the still-present disk source.
+        } else if (const auto edited = records_.find("variables/" + key);
+                   edited != records_.end()) {
             const auto record = edited->second->snapshot();
             if (record.valid)
                 value = record.normalized_json;
@@ -1809,7 +1813,9 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         if (const auto found = referenced_records.find(owner); found != referenced_records.end())
             return found->second;
         std::optional<std::string> value;
-        if (const auto edited = records_.find(owner); edited != records_.end()) {
+        if (deleted_records_.contains(owner)) {
+            // Only the saved baseline still contains this record.
+        } else if (const auto edited = records_.find(owner); edited != records_.end()) {
             const auto record = edited->second->snapshot();
             if (record.valid)
                 value = record.normalized_json;
@@ -1910,6 +1916,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 if (!record_contracts().contains(std::string(collection)))
                     return false;
                 const auto owner = std::string(collection) + "/" + std::string(id);
+                if (deleted_records_.contains(owner))
+                    return false;
                 if (records_.contains(owner))
                     return true;
                 const auto file =
@@ -1938,6 +1946,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 if (!record_contracts().contains(std::string(collection)))
                     return false;
                 const auto key = std::string(collection) + "/" + std::string(id);
+                if (deleted_records_.contains(key))
+                    return false;
                 if (records_.contains(key))
                     return true;
                 return std::filesystem::is_regular_file(
@@ -1958,6 +1968,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 if (!is_id(id))
                     return false;
                 const auto owner = std::string(collection) + "/" + std::string(id);
+                if (deleted_records_.contains(owner))
+                    return false;
                 if (collection == "layouts")
                     return records_.contains(owner) ||
                            std::filesystem::is_regular_file(root_ / "records" / "layouts" /
@@ -2223,7 +2235,10 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             const auto record = entry.second->snapshot();
             if (!record.dirty)
                 return false;
-            if (record.normalized_json.empty() || record.baseline_json.empty())
+            // A newly staged Variable has the absent-source baseline `{}`;
+            // it has no prior data contract to compare against.
+            if (record.disk_source_revision == "absent" || record.normalized_json.empty() ||
+                record.baseline_json.empty())
                 return true;
             const auto before = Json::parse(record.baseline_json);
             const auto after = Json::parse(record.normalized_json);
@@ -2266,6 +2281,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 return true;
             const auto prior_record = Json::parse(record.baseline_json);
             const auto next_record = Json::parse(record.normalized_json);
+            if (!prior_record.contains("data") || !next_record.contains("data"))
+                return true;
             const auto& before = prior_record.at("data");
             const auto& after = next_record.at("data");
             for (const auto* key : {"type", "nullable", "enumValues"})
@@ -2288,6 +2305,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             if (!record_contracts().contains(std::string(collection)))
                 return false;
             const auto owner = std::string(collection) + "/" + std::string(id);
+            if (deleted_records_.contains(owner))
+                return false;
             return records_.contains(owner) ||
                    std::filesystem::is_regular_file(root_ / "records" / std::string(collection) /
                                                     (std::string(id) + ".yaml"));
@@ -2378,6 +2397,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             if (!is_id(id))
                 return false;
             const auto owner = std::string(collection) + "/" + std::string(id);
+            if (deleted_records_.contains(owner))
+                return false;
             if (collection == "layouts")
                 return records_.contains(owner) ||
                        std::filesystem::is_regular_file(root_ / "records" / "layouts" /
@@ -2480,6 +2501,8 @@ RoomSessionSnapshot ProjectSession::snapshot() const
             if (!is_id(id))
                 return false;
             const auto owner = std::string(family) + "/" + std::string(id);
+            if (deleted_records_.contains(owner))
+                return false;
             if (records_.contains(owner))
                 return true;
             if (!record_contracts().contains(std::string(family)))
@@ -2922,9 +2945,9 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
     return response;
 }
 
-RoomSessionResult ProjectSession::save_text_sources(std::uint64_t revision,
-                                                   const std::vector<std::string>& paths,
-                                                   const std::map<std::string, std::string>& disk_preconditions)
+RoomSessionResult
+ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std::string>& paths,
+                                  const std::map<std::string, std::string>& disk_preconditions)
 {
     RoomSessionResult response;
     const auto before = snapshot();
@@ -3172,6 +3195,8 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
         if (name != "editor" && name != "traits" && !name.starts_with("i18n/") &&
             (!record_contracts().contains(family) || !is_id(id))) {
             result.error = "Unsupported native record owner.";
+        } else if (deleted_records_.contains(name)) {
+            result.error = "Record has a pending native structural deletion: " + name;
         } else if (const auto found = records_.find(name); found != records_.end()) {
             if (source_revision_or_absent(found->second->source_path()) !=
                 found->second->snapshot().disk_source_revision)
@@ -3210,6 +3235,11 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
 RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
 {
     RoomSessionResult response;
+    if (deleted_records_.contains(std::string(owner))) {
+        response.error = "A pending record deletion must be undone before reconciling its source.";
+        response.snapshot = snapshot();
+        return response;
+    }
     const auto before = snapshot();
     if (owner == "project") {
         response = source_->reconcile_disk();
@@ -3249,6 +3279,8 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
 RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_view owner,
                                            const std::vector<std::string>& paths)
 {
+    if (deleted_records_.contains(std::string(owner)))
+        return use_disk_owners(revision, {{std::string(owner), {"/"}}});
     RoomSessionResult response;
     const auto before = snapshot();
     if (revision != working_revision_) {
@@ -3333,9 +3365,23 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
         std::map<std::string, std::unique_ptr<RoomSession>> staged;
         for (const auto& [owner, record] : records_)
             staged.emplace(owner, record->clone());
+        std::map<std::string, std::unique_ptr<RoomSession>> staged_deletions;
+        for (const auto& [owner, record] : deleted_records_)
+            staged_deletions.emplace(owner, record->clone());
         for (const auto& [owner, fields] : paths) {
             if (fields.empty())
                 throw std::runtime_error("Logical Use Disk selection cannot be empty.");
+            if (auto deleted = staged_deletions.find(owner); deleted != staged_deletions.end()) {
+                if (fields.size() != 1 || fields.front() != "/")
+                    throw std::runtime_error("Pending deletion requires whole-owner Use Disk.");
+                if (source_revision_or_absent(deleted->second->source_path()) !=
+                    deleted->second->snapshot().disk_source_revision)
+                    throw std::runtime_error("External source changed during deletion recovery.");
+                staged.emplace(owner, std::move(deleted->second));
+                staged_deletions.erase(deleted);
+                response.affected_records.push_back(owner);
+                continue;
+            }
             auto* record = owner == "project"       ? manifest.get()
                            : staged.contains(owner) ? staged.at(owner).get()
                                                     : nullptr;
@@ -3345,7 +3391,8 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
                 if (fields.size() != 1 || fields.front() != "/")
                     throw std::runtime_error("Uncommitted record requires whole-owner Use Disk.");
                 if (source_revision_or_absent(record->source_path()) != "absent")
-                    throw std::runtime_error("External source changed since conflict was reviewed.");
+                    throw std::runtime_error(
+                        "External source changed since conflict was reviewed.");
                 staged.erase(owner);
                 response.affected_records.push_back(owner);
                 continue;
@@ -3362,6 +3409,7 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
             const auto before = response.snapshot;
             source_ = std::move(manifest);
             records_ = std::move(staged);
+            deleted_records_ = std::move(staged_deletions);
             for (const auto& owner : response.affected_records)
                 if (indexed_text_owner(owner))
                     index_text_owner(owner, records_.contains(owner)
@@ -3413,12 +3461,19 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
     }
     try {
         std::map<std::string, RoomSession*> selected;
+        std::map<std::string, RoomSession*> deletions;
         for (const auto& owner : owners) {
             RoomSession* session = nullptr;
             if (owner == "project")
                 session = source_.get();
             else if (const auto found = records_.find(owner); found != records_.end())
                 session = found->second.get();
+            else if (const auto found = deleted_records_.find(owner);
+                     found != deleted_records_.end()) {
+                if (!deletions.emplace(owner, found->second.get()).second)
+                    throw std::runtime_error("Duplicate native deletion owner: " + owner);
+                continue;
+            }
             if (!session || !selected.emplace(owner, session).second)
                 throw std::runtime_error("Unknown or duplicate native Save owner: " + owner);
         }
@@ -3550,6 +3605,54 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
         }
         std::vector<YamlTransactionTarget> targets;
         std::map<std::string, Json> projected;
+        const bool creates_layout =
+            std::any_of(selected.begin(), selected.end(), [](const auto& entry) {
+                return entry.first.starts_with("layouts/") &&
+                       entry.second->snapshot().disk_source_revision == "absent";
+            });
+        for (const auto& [owner, session] : deletions) {
+            const auto state = session->snapshot();
+            const auto filter = paths.find(owner);
+            if (filter != paths.end() &&
+                (filter->second.size() != 1 || filter->second.front() != "/"))
+                throw std::runtime_error("A record deletion requires whole-owner Save: " + owner);
+            if (state.disk_source_revision == "absent")
+                throw std::runtime_error("Cannot delete a record without a saved baseline.");
+            YamlTransactionTarget removal;
+            removal.path = session->source_path().lexically_relative(root_).generic_string();
+            removal.expected_revision = state.disk_source_revision;
+            removal.baseline_source = session->disk_source_;
+            removal.erase = true;
+            targets.push_back(std::move(removal));
+            // A Layout's local source companions belong to its physical
+            // record directory. Journal their deletion with layout.yaml so a
+            // failed Save cannot strand only one half of the record.
+            if (owner.starts_with("layouts/")) {
+                for (const char* extension : {"rml", "rcss", "lua"}) {
+                    const auto file =
+                        session->source_path().parent_path() / (std::string("layout.") + extension);
+                    if (!std::filesystem::exists(file) && !std::filesystem::is_symlink(file))
+                        continue;
+                    if (!std::filesystem::is_regular_file(file) ||
+                        std::filesystem::is_symlink(file))
+                        throw std::runtime_error("Unsafe Layout source companion: " +
+                                                 file.string());
+                    if (creates_layout)
+                        throw std::runtime_error(
+                            "Layout identity change requires atomic companion relocation.");
+                    YamlTransactionTarget sidecar;
+                    sidecar.path = file.lexically_relative(root_).generic_string();
+                    if (text_source_overlays_.contains(sidecar.path))
+                        throw std::runtime_error(
+                            "Cannot remove a Layout with an unsaved source companion: " +
+                            sidecar.path);
+                    sidecar.baseline_source = read_bytes(file);
+                    sidecar.expected_revision = exact_source_revision(sidecar.baseline_source);
+                    sidecar.erase = true;
+                    targets.push_back(std::move(sidecar));
+                }
+            }
+        }
         for (const auto& [owner, session] : selected) {
             const auto state = session->snapshot();
             if (!state.dirty)
@@ -3648,9 +3751,34 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             throw std::runtime_error(
                 "Native Save cannot treat an unapplied dirty owner as successfully persisted.");
         for (const auto& proposed : prepared.targets) {
+            if (proposed.erase) {
+                const auto deleted =
+                    std::find_if(deletions.begin(), deletions.end(), [&](const auto& item) {
+                        const auto source = item.second->source_path();
+                        if (source.lexically_relative(root_).generic_string() == proposed.path)
+                            return true;
+                        if (!item.first.starts_with("layouts/"))
+                            return false;
+                        for (const char* extension : {"lua", "rml", "rcss"})
+                            if ((source.parent_path() / (std::string("layout.") + extension))
+                                    .lexically_relative(root_)
+                                    .generic_string() == proposed.path)
+                                return true;
+                        return false;
+                    });
+                if (deleted == deletions.end() || proposed.after_revision != "absent")
+                    throw std::runtime_error(
+                        "Native structural deletion projected an unknown source.");
+                if (comments == TransactionDecision::KeepComments &&
+                    !proposed.affected_comments.empty())
+                    throw std::runtime_error(
+                        "Deleting commented records requires explicit Remove Comments approval.");
+                continue;
+            }
             if (selected_text.contains(proposed.path)) {
                 if (proposed.after_source != text_source_overlays_.at(proposed.path))
-                    throw std::runtime_error("Native text Save projection differs from staged bytes.");
+                    throw std::runtime_error(
+                        "Native text Save projection differs from staged bytes.");
                 continue;
             }
             const auto reopened = open_yaml_source(proposed.after_source);
@@ -3710,8 +3838,27 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             if (!source_authority_->acknowledge_own_write(it->path, it->after_revision))
                 source_authority_->coverage_lost();
         }
+        for (const auto& [owner, session] : deletions) {
+            const auto relative = session->source_path().lexically_relative(root_).generic_string();
+            if (const auto it = std::find_if(prepared.targets.begin(), prepared.targets.end(),
+                                             [&](const PreparedYamlTarget& target) {
+                                                 return target.path == relative && target.erase;
+                                             });
+                it != prepared.targets.end()) {
+                deleted_records_.erase(owner);
+                response.affected_records.push_back(owner);
+                if (!source_authority_->acknowledge_own_write(relative, "absent"))
+                    source_authority_->coverage_lost();
+            }
+        }
+        for (const auto& target : prepared.targets)
+            if (target.erase && target.path.starts_with("records/layouts/") &&
+                !target.path.ends_with("/layout.yaml") &&
+                !source_authority_->acknowledge_own_write(target.path, "absent"))
+                source_authority_->coverage_lost();
         for (const auto& target : prepared.targets) {
-            if (!selected_text.contains(target.path)) continue;
+            if (!selected_text.contains(target.path))
+                continue;
             text_disk_revisions_.insert_or_assign(target.path, target.after_revision);
             text_source_overlays_.erase(target.path);
             text_overlay_disk_revisions_.erase(target.path);
@@ -3720,6 +3867,10 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
         }
+        std::sort(response.affected_records.begin(), response.affected_records.end());
+        response.affected_records.erase(
+            std::unique(response.affected_records.begin(), response.affected_records.end()),
+            response.affected_records.end());
         ++working_revision_;
         response.accepted = true;
         const auto prior = response.snapshot;
@@ -3783,6 +3934,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     std::map<std::string, std::unique_ptr<RoomSession>> staged;
     for (const auto& [owner, session] : records_)
         staged.emplace(owner, session->clone());
+    std::map<std::string, std::unique_ptr<RoomSession>> staged_deletions;
+    for (const auto& [owner, session] : deleted_records_)
+        staged_deletions.emplace(owner, session->clone());
     std::set<std::string> affected;
     try {
         for (const auto& operation : patches) {
@@ -3841,12 +3995,21 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 operation.operation == RoomPatch::Operation::Remove) {
                 const auto id = operation.path.substr(first + 1);
                 const auto owner = family + "/" + id;
-                const auto found = staged.find(owner);
-                if (!is_id(id) || found == staged.end() ||
-                    found->second->snapshot().disk_source_revision != "absent")
-                    throw std::runtime_error("Deleting persisted records requires structural Save.");
-                if (source_revision_or_absent(found->second->source_path()) != "absent")
+                if (!is_id(id) || staged_deletions.contains(owner))
+                    throw std::runtime_error("Invalid or already deleted record owner.");
+                auto found = staged.find(owner);
+                if (found == staged.end()) {
+                    std::string error;
+                    auto record = RoomSession::open_record(root_, family, id, error);
+                    if (!record)
+                        throw std::runtime_error("Cannot remove " + owner + ": " + error);
+                    found = staged.emplace(owner, std::move(record)).first;
+                }
+                if (source_revision_or_absent(found->second->source_path()) !=
+                    found->second->snapshot().disk_source_revision)
                     throw std::runtime_error("External source conflict for " + owner);
+                if (found->second->snapshot().disk_source_revision != "absent")
+                    staged_deletions.emplace(owner, found->second->clone());
                 staged.erase(found);
                 affected.insert(owner);
                 continue;
@@ -3856,9 +4019,21 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 const auto id = operation.path.substr(first + 1);
                 if (!is_id(id) || staged.contains(family + "/" + id))
                     throw std::runtime_error("New record ID is invalid or already admitted.");
+                const auto owner = family + "/" + id;
+                if (auto removed = staged_deletions.find(owner);
+                    removed != staged_deletions.end()) {
+                    if (Json::parse(removed->second->snapshot().source_json) !=
+                        Json::parse(operation.value_json))
+                        throw std::runtime_error(
+                            "Restoring a pending deletion requires its exact value.");
+                    staged.emplace(owner, std::move(removed->second));
+                    staged_deletions.erase(removed);
+                    affected.insert(owner);
+                    continue;
+                }
                 std::string error;
-                auto created = RoomSession::stage_new_record(
-                    root_, family, id, operation.value_json, error);
+                auto created =
+                    RoomSession::stage_new_record(root_, family, id, operation.value_json, error);
                 if (!created)
                     throw std::runtime_error("Cannot create " + family + "/" + id + ": " + error);
                 staged.emplace(family + "/" + id, std::move(created));
@@ -3925,6 +4100,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     for (const auto& [owner, _] : records_)
         if (!staged.contains(owner))
             affected.insert(owner);
+    for (const auto& [owner, _] : staged_deletions)
+        if (!deleted_records_.contains(owner))
+            affected.insert(owner);
     if (affected.empty()) {
         response.accepted = true;
         return response;
@@ -3932,6 +4110,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     const auto before = response.snapshot;
     source_ = std::move(manifest);
     records_ = std::move(staged);
+    deleted_records_ = std::move(staged_deletions);
     for (const auto& owner : affected)
         if (indexed_text_owner(owner))
             index_text_owner(owner, records_.contains(owner)
