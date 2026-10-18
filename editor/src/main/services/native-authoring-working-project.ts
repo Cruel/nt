@@ -570,24 +570,28 @@ export class NativeAuthoringWorkingProject {
   private async submit(patches: NativePatch[]): Promise<PatchResult> {
     const result = await this.requestPatch(patches);
     if (result.accepted && result.affectedRecords.length) {
-      const merged = this.mergeSnapshot(result.snapshot);
+      const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
       this.view = merged;
-      this.retained.push({
-        patches,
-        diskPreconditions: sourceRevisions(merged, result.affectedRecords),
-      });
+      if (result.affectedRecords.some((owner) => owner !== 'project' && !merged.recordSnapshots?.[owner])) {
+        this.checkpointDirtyWorkingState();
+      } else {
+        this.retained.push({
+          patches,
+          diskPreconditions: sourceRevisions(merged, result.affectedRecords),
+        });
+      }
       return { ...result, snapshot: merged };
     }
     return result;
   }
 
-  private mergeSnapshot(incoming: Snapshot): Snapshot {
+  private mergeSnapshot(incoming: Snapshot, affectedRecords: readonly string[] = []): Snapshot {
+    const records = { ...this.view?.recordSnapshots, ...incoming.recordSnapshots };
+    for (const owner of affectedRecords)
+      if (owner !== 'project' && !incoming.recordSnapshots?.[owner]) delete records[owner];
     return {
       ...incoming,
-      recordSnapshots: {
-        ...this.view?.recordSnapshots,
-        ...incoming.recordSnapshots,
-      },
+      recordSnapshots: records,
     };
   }
 
@@ -618,12 +622,14 @@ export class NativeAuthoringWorkingProject {
       if (state.baseline === undefined)
         throw new Error(`Native owner ${owner} has no saved baseline for recovery.`);
       const prefix = owner === 'project' ? '' : `/${owner}`;
-      const patches = nativePatches(
-        diffJsonDocuments(state.baseline as JsonValue, state.source as JsonValue).map((patch) => ({
-          ...patch,
-          path: prefix + patch.path,
-        })),
-      );
+      const patches = state.diskSourceRevision === 'absent' && owner !== 'project'
+        ? [{ operation: 'add' as const, path: prefix, value: state.source }]
+        : nativePatches(
+          diffJsonDocuments(state.baseline as JsonValue, state.source as JsonValue).map((patch) => ({
+            ...patch,
+            path: prefix + patch.path,
+          })),
+        );
       if (patches.length)
         batches.push({
           patches,

@@ -66,6 +66,17 @@ function assertNativeProjection(
     // Verify the resulting entire parent array instead of attempting to read
     // a nonexistent element named "-" after the native transaction.
     const segments = parseJsonPointer(patch.path);
+    // A native root Remove can cancel an unborn record. No record source
+    // remains to inspect; require an explicit affected-owner acknowledgment
+    // and verify the projected collection no longer contains the ID.
+    if (patch.op === 'remove' && segments.length === 2 && recordFamilies.has(segments[0]!)) {
+      const owner = `${segments[0]}/${segments[1]}`;
+      if (
+        acknowledged.affectedRecords.includes(owner) &&
+        !acknowledged.snapshot.recordSnapshots?.[owner] &&
+        !hasJsonAtPointer(proposal, patch.path)
+      ) continue;
+    }
     const verifiedPath =
       segments.at(-1) === '-' ? buildJsonPointer(segments.slice(0, -1)) : patch.path;
     const native = authoritativeSource(acknowledged, verifiedPath);

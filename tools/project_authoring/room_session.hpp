@@ -71,6 +71,11 @@ public:
     static std::unique_ptr<RoomSession> open_record(const std::filesystem::path& project_root,
                                                     std::string family, std::string id,
                                                     std::string& error);
+    // Stage a generic new record without touching disk. Physical creation is
+    // owned by the same revision-checked transaction as normal scoped Save.
+    static std::unique_ptr<RoomSession> stage_new_record(
+        const std::filesystem::path& project_root, std::string family, std::string id,
+        std::string source_json, std::string& error);
     // The same generic patch/save boundary with a different admitted source owner.
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
