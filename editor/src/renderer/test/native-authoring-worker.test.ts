@@ -185,6 +185,36 @@ describe('native worker session bridge (main-owned authority)', () => {
       cacheHit: true,
       diagnostics: [{ line: 2, column: 3 }],
     });
+    const complete = bridge.request({
+      operation: 'prepareCompleteWorking',
+      expectedRevision: 0,
+      testId: '',
+    });
+    expect(workers[0]!.sent.at(-1)).toEqual({
+      operation: 'prepareCompleteWorking',
+      expectedRevision: 0,
+      testId: '',
+      requestId: 3,
+    });
+    workers[0]!.emit('message', {
+      type: 'response',
+      sessionId: 'A',
+      generation: 1,
+      requestId: 3,
+      result: {
+        accepted: true,
+        error: '',
+        workingRevision: 0,
+        project: { schema: 'noveltea.authoring.project' },
+        recordOverrides: {},
+        sourceRevisions: {},
+        textOverlays: {},
+        shaderOverlays: {},
+        diagnostics: [],
+        completeProject: { schema: 'noveltea.authoring.project', rooms: {} },
+      },
+    });
+    await expect(complete).resolves.toMatchObject({ completeProject: { rooms: {} } });
     workers[0]!.emit('message', {
       type: 'delta',
       sessionId: 'A',

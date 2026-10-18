@@ -196,4 +196,110 @@ ProjectSession::WorkingPreparation ProjectSession::prepare_working(std::uint64_t
     }
     return prepared;
 }
+
+ProjectSession::WorkingPreparation
+ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id)
+{
+    WorkingPreparation prepared;
+    prepared.working_revision = working_revision_;
+    if (expected_revision != working_revision_) {
+        prepared.error = "Stale working Project preparation revision.";
+        return prepared;
+    }
+    // Full validation supplies native normalized disk contributors for every
+    // tracked record. It does not make uninspected owners editable or writable.
+    const auto validated = validate_project();
+    if (expected_revision != working_revision_) {
+        prepared.working_revision = working_revision_;
+        prepared.error = "Project source generation advanced during complete preparation.";
+        return prepared;
+    }
+    if (!validated.valid) {
+        prepared.diagnostics = validated.diagnostics;
+        prepared.error = "Full native working Project validation failed.";
+        return prepared;
+    }
+    prepared = prepare_working(expected_revision, test_id);
+    if (!prepared.accepted)
+        return prepared;
+    try {
+        Json complete = Json::parse(prepared.project_json);
+        const auto contributors = validated_disk_record_snapshots();
+        for (const auto& [owner, record] : contributors) {
+            if (!record.valid || record.normalized_json.empty())
+                throw std::runtime_error("Invalid native full-Project contributor: " + owner);
+            if (owner == "traits" || owner == "editor") {
+                complete.insert_or_assign(owner, Json::parse(record.normalized_json));
+            } else if (!owner.starts_with("i18n/")) {
+                const auto separator = owner.find('/');
+                if (separator == std::string::npos)
+                    throw std::runtime_error("Unexpected native full-Project owner: " + owner);
+                const auto family = owner.substr(0, separator);
+                const auto id = owner.substr(separator + 1);
+                if (!complete.contains(family))
+                    complete.insert_or_assign(family, Json::object());
+                auto effective = Json::parse(record.normalized_json);
+                // The optional Layout template dependency is not defaulted
+                // when an explicit dependency object omits that field. The
+                // native source projection currently fills an empty array;
+                // keep the saved workspace's exact Zod output shape here.
+                if (family == "layouts") {
+                    const auto source = Json::parse(record.source_json);
+                    if (source.contains("data") && source.at("data").contains("dependencies") &&
+                        !source.at("data").at("dependencies").contains("templates") &&
+                        effective.at("data").at("dependencies").contains("templates") &&
+                        effective.at("data").at("dependencies").at("templates") == Json::array())
+                        effective["data"]["dependencies"].erase("templates");
+                }
+                complete[family].insert_or_assign(id, std::move(effective));
+            }
+        }
+        // Overlay only validated native dirty values (including Layout companion
+        // source text). They have precedence over saved validation contributors.
+        const auto overrides = Json::parse(prepared.record_overrides_json);
+        for (const auto& family : overrides.object_range()) {
+            if (!complete.contains(family.key()))
+                complete.insert_or_assign(family.key(), Json::object());
+            for (const auto& record : family.value().object_range())
+                complete[family.key()].insert_or_assign(record.key(), record.value());
+        }
+        for (const auto& [owner, record] : contributors) {
+            std::string relative;
+            if (owner == "editor")
+                relative = "editor.yaml";
+            else if (owner == "traits")
+                relative = "traits.yaml";
+            else if (owner.starts_with("i18n/"))
+                relative = owner;
+            else {
+                const auto separator = owner.find('/');
+                const auto family = owner.substr(0, separator);
+                const auto id = owner.substr(separator + 1);
+                relative = family == "layouts" ? "records/layouts/" + id + "/layout.yaml"
+                                               : "records/" + family + "/" + id + ".yaml";
+            }
+            prepared.source_revisions.insert_or_assign(relative, record.disk_source_revision);
+        }
+        // No later external modification may turn validation's record evidence
+        // into a stale, apparently complete working Project.
+        const auto observed = observe_sources();
+        if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority) ||
+            !observed.delta.changed.empty() || !observed.delta.added.empty() ||
+            !observed.delta.removed.empty())
+            throw std::runtime_error(
+                "Project source revision changed during complete preparation.");
+        const auto physical = source_authority_->verified_revisions();
+        if (!physical)
+            throw std::runtime_error("Cannot prove the complete native Project source manifest.");
+        // Include referenced binary Assets and other exact source dependencies,
+        // allowing runtime consumers to verify without a TypeScript baseline.
+        for (const auto& [relative, revision] : *physical)
+            prepared.source_revisions.insert_or_assign(relative, revision);
+        prepared.complete_project_json = complete.to_string();
+    } catch (const std::exception& error) {
+        prepared.accepted = false;
+        prepared.error = error.what();
+    }
+    return prepared;
+}
 } // namespace noveltea::authoring
