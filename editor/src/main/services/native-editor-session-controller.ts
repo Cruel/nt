@@ -122,7 +122,7 @@ export class NativeEditorSessionController {
     projectSessionId: string,
     expectedRevision: number,
     saveUnitIds: string | readonly string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' },
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[] },
   ) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');

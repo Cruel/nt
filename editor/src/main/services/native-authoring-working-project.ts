@@ -399,7 +399,7 @@ export class NativeAuthoringWorkingProject {
 
   async saveUnits(
     saveUnitIds: readonly string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[] } = {},
     expectedRevision?: number,
   ): Promise<PatchResult> {
     if (!this.view) throw new Error('Native working Project has not opened.');

@@ -251,6 +251,31 @@ describe('native-backed renderer commands', () => {
     expect(confirmed.result.document).toMatchObject({ project: { tags: ['a', 'b'] } });
   });
 
+  it('confirms native cancellation of an unborn record only when its owner is explicitly removed', async () => {
+    const original = createInitialCommandBusState({ rooms: { newroom: { id: 'newroom' } } });
+    const proposal = executeCommand(original, {
+      type: 'project.applyPatch',
+      payload: [{ op: 'remove', path: '/rooms/newroom' }],
+      originSaveUnitId: 'record:rooms:newroom',
+      persistencePolicy: 'manual-save',
+    });
+    expect(proposal.ok).toBe(true);
+    const acknowledged = {
+      ...nativeAck('irrelevant', 1),
+      affectedRecords: ['rooms/newroom'],
+      snapshot: { ...nativeAck('irrelevant', 1).snapshot, recordSnapshots: {} },
+    };
+    const accepted = await confirmNativeCommand(
+      original, proposal, proposal.historyEntry!.patches, sessionId, 0,
+      async () => acknowledged,
+    );
+    expect(accepted.result.ok).toBe(true);
+    await expect(confirmNativeCommand(
+      original, proposal, proposal.historyEntry!.patches, sessionId, 0,
+      async () => ({ ...acknowledged, affectedRecords: [] }),
+    )).rejects.toThrow('did not acknowledge');
+  });
+
   beforeEach(() => {
     Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
       configurable: true,
