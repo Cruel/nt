@@ -78,6 +78,22 @@ export const nativeAuthoringPreparationSchema = z
   })
   .strict();
 
+export const nativeAuthoringCleanValidationSchema = z
+  .object({
+    valid: z.boolean(),
+    cacheHit: z.boolean(),
+    diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+    work: z
+      .object({
+        recheckedRecords: z.number().int().nonnegative(),
+        retainedRecords: z.number().int().nonnegative(),
+        recheckedContributions: z.number().int().nonnegative(),
+        retainedContributions: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
 const base = { sessionId: z.string(), generation: z.number().int().positive() };
 export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
   z
@@ -107,6 +123,7 @@ export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
         nativeAuthoringResultSchema,
         nativeAuthoringObservationSchema,
         nativeAuthoringPreparationSchema,
+        nativeAuthoringCleanValidationSchema,
         z.null(),
       ]),
     })
@@ -115,6 +132,9 @@ export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
 ]);
 
 export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
+  z
+    .object({ requestId: z.number().int().positive(), operation: z.literal('validateClean') })
+    .strict(),
   z.object({ requestId: z.number().int().positive(), operation: z.literal('observe') }).strict(),
   z
     .object({
@@ -224,3 +244,4 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
 export type NativeAuthoringEvent = z.infer<typeof nativeAuthoringEventSchema>;
 export type NativeAuthoringCommand = z.infer<typeof nativeAuthoringCommandSchema>;
 export type NativeAuthoringPreparation = z.infer<typeof nativeAuthoringPreparationSchema>;
+export type NativeAuthoringCleanValidation = z.infer<typeof nativeAuthoringCleanValidationSchema>;

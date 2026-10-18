@@ -122,8 +122,10 @@ Json validate(std::string_view request_text)
             return {{"ok", false}, {"error", error}};
         return response_for(*cold, false, {});
     }
-    const auto validated = state.session->validate_project();
-    return response_for(validated, warm, state.session->validation_work());
+    const auto validated = state.session->validate_clean_project();
+    auto result = response_for(validated.snapshot, warm, state.session->validation_work());
+    result["cacheHit"] = validated.cache_hit;
+    return result;
 }
 
 } // namespace

@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { parentPort, workerData } from 'node:worker_threads';
 import {
+  nativeAuthoringCleanValidationSchema,
   nativeAuthoringCommandSchema,
   nativeAuthoringObservationSchema,
   nativeAuthoringResultSchema,
@@ -13,6 +14,7 @@ interface NativeBinding {
   open(root: string): unknown;
   close(handle: unknown): void;
   snapshot(handle: unknown): string;
+  validateClean(handle: unknown): string;
   inspect(handle: unknown, owner: string): string;
   reconcile(handle: unknown, owner: string): string;
   useDisk(handle: unknown, revision: number, owner: string, paths?: string): string;
@@ -125,6 +127,16 @@ parent.on('message', (raw: unknown) => {
     const command = nativeAuthoringCommandSchema.parse(raw);
     let result: NativeAuthoringEvent & { type: 'response' };
     switch (command.operation) {
+      case 'validateClean':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringCleanValidationSchema.parse(
+            JSON.parse(binding.validateClean(handle)),
+          ),
+        };
+        break;
       case 'prepareWorking':
         result = {
           ...identity,
