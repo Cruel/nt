@@ -61,6 +61,8 @@ export const nativeAuthoringResultSchema = z
     affectedRecords: z.array(z.string()),
     diagnosticsAdded: z.array(nativeAuthoringDiagnosticSchema),
     diagnosticsRemoved: z.array(nativeAuthoringDiagnosticSchema),
+    textSourceStaged: z.boolean().optional(),
+    textSourceDiskRevision: z.string().optional(),
   })
   .strict();
 
@@ -151,6 +153,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       expectedRevision: z.number().int().nonnegative(),
       path: z.string().min(1).max(2048),
       text: z.string().max(4 * 1024 * 1024),
+      diskPrecondition: z.string().min(1).optional(),
     })
     .strict(),
   z

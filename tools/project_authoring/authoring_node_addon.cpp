@@ -567,7 +567,7 @@ napi_value call(napi_env env, napi_callback_info info)
             return js_string(env, result.to_string());
         }
         if (name == "stageTextSource") {
-            if (argc != 4)
+            if (argc != 4 && argc != 5)
                 throw std::runtime_error("Text source operation requires revision, path and body.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
@@ -576,11 +576,23 @@ napi_value call(napi_env env, napi_callback_info info)
             const auto content = string_arg(env, argv[3]);
             if (content.size() > 4 * 1024 * 1024)
                 throw std::runtime_error("Text source overlay exceeds 4 MiB.");
-            return js_string(env,
-                             result_json(*session.project,
-                                         session.project->stage_text_source(
-                                             static_cast<std::uint64_t>(revision), path, content))
-                                 .to_string());
+            const auto& baselines = session.project->text_source_disk_revisions();
+            const auto baseline = baselines.find(path);
+            if (argc == 5 &&
+                (baseline == baselines.end() || baseline->second != string_arg(env, argv[4]))) {
+                noveltea::authoring::RoomSessionResult rejected;
+                rejected.error = "Native Project text-source recovery conflict for " + path;
+                rejected.snapshot = session.project->snapshot();
+                return js_string(env, result_json(*session.project, rejected).to_string());
+            }
+            auto result = result_json(*session.project,
+                                      session.project->stage_text_source(
+                                          static_cast<std::uint64_t>(revision), path, content));
+            if (result.at("accepted") == true) {
+                result["textSourceStaged"] = session.project->text_source_overlays().contains(path);
+                result["textSourceDiskRevision"] = baselines.at(path);
+            }
+            return js_string(env, result.to_string());
         }
         if (name == "stageShaderSource" || name == "publishMaterialCompilerResult") {
             if (argc != 4)

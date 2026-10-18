@@ -22,6 +22,7 @@ type RetainedBatch = Readonly<{
   patches: NativePatch[];
   diskPreconditions: Record<string, string>;
 }>;
+type RetainedTextSource = Readonly<{ text: string; diskRevision: string }>;
 
 function nativePatches(patches: readonly JsonPatchOperation[]): NativePatch[] {
   return patches.map((patch) =>
@@ -78,7 +79,7 @@ function ownerPath(owner: string, relative: string): string {
   return owner === 'project' ? relative : `/${owner}${relative}`;
 }
 
-function logicalSaveUnitPaths(saveUnitId: string): Record<string, string[]> {
+function logicalSaveUnitPaths(saveUnitId: string, snapshot: Snapshot): Record<string, string[]> {
   const match = /^record:([a-z]+):([a-z][a-z0-9-]*)$/.exec(saveUnitId);
   if (match) {
     const [, collection, id] = match;
@@ -87,9 +88,32 @@ function logicalSaveUnitPaths(saveUnitId: string): Record<string, string[]> {
       editor: [`/recordMetadata/${collection}/${id}`],
     };
   }
+  const collection = /^collection:(assets|materials|tests|variables|traits)$/.exec(saveUnitId)?.[1];
+  if (collection) {
+    const owners = Object.keys(snapshot.recordSnapshots ?? {})
+      .filter((owner) => owner.startsWith(`${collection}/`))
+      .filter((owner) => snapshot.recordSnapshots?.[owner]?.dirty)
+      .sort();
+    return {
+      ...Object.fromEntries(owners.map((owner) => [owner, ['/']])),
+      ...(collection === 'traits' ? { traits: ['/'] } : {}),
+      editor: [`/recordMetadata/${collection}`],
+    };
+  }
+  if (saveUnitId === 'project:localization') {
+    return Object.fromEntries(
+      Object.keys(snapshot.recordSnapshots ?? {})
+        .filter((owner) => owner.startsWith('i18n/'))
+        .filter((owner) => snapshot.recordSnapshots?.[owner]?.dirty)
+        .sort()
+        .map((owner) => [owner, ['/']]),
+    );
+  }
+  if (saveUnitId === 'project:platform-export-profiles')
+    return { project: ['/export/runtime', '/export/profiles'] };
+  if (saveUnitId === 'project:explorer-options') return { editor: ['/explorer'] };
   if (saveUnitId === 'project:chapters') return { editor: ['/chapters'] };
   if (saveUnitId === 'project:tags') return { editor: ['/tags'] };
-  if (saveUnitId === 'collection:traits') return { traits: ['/'] };
   if (saveUnitId === 'editor:organization')
     return { editor: ['/chapters', '/tags', '/recordMetadata'] };
   if (saveUnitId === PROJECT_SETTINGS_SAVE_UNIT_ID)
@@ -107,6 +131,7 @@ export class NativeAuthoringWorkingProject {
   private history: Edit[] = [];
   private cursor = 0;
   private retained: RetainedBatch[] = [];
+  private readonly retainedTextSources = new Map<string, RetainedTextSource>();
   private readonly pendingFields = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
   private projectSessionId: string | null = null;
@@ -141,6 +166,7 @@ export class NativeAuthoringWorkingProject {
       this.history = [];
       this.cursor = 0;
       this.retained = [];
+      this.retainedTextSources.clear();
       this.pendingFields.clear();
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
@@ -194,7 +220,14 @@ export class NativeAuthoringWorkingProject {
       });
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a text-source result.');
-      if (result.accepted) this.view = this.mergeSnapshot(result.snapshot);
+      if (result.accepted) {
+        if (result.textSourceStaged === undefined || !result.textSourceDiskRevision)
+          throw new Error('Native text source omitted its acknowledged recovery evidence.');
+        this.view = this.mergeSnapshot(result.snapshot);
+        if (result.textSourceStaged)
+          this.retainedTextSources.set(path, { text, diskRevision: result.textSourceDiskRevision });
+        else this.retainedTextSources.delete(path);
+      }
       return result;
     });
   }
@@ -295,7 +328,8 @@ export class NativeAuthoringWorkingProject {
     saveUnitId: string,
     options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
   ): Promise<PatchResult> {
-    const pathsByOwner = logicalSaveUnitPaths(saveUnitId);
+    if (!this.view) throw new Error('Native working Project has not opened.');
+    const pathsByOwner = logicalSaveUnitPaths(saveUnitId, this.view);
     for (const owner of Object.keys(pathsByOwner))
       if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
         const inspected = await this.inspectRecord(owner);
@@ -306,7 +340,8 @@ export class NativeAuthoringWorkingProject {
   }
 
   async useDiskUnit(saveUnitId: string): Promise<PatchResult> {
-    const pathsByOwner = logicalSaveUnitPaths(saveUnitId);
+    if (!this.view) throw new Error('Native working Project has not opened.');
+    const pathsByOwner = logicalSaveUnitPaths(saveUnitId, this.view);
     for (const owner of Object.keys(pathsByOwner))
       if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
         const inspected = await this.inspectRecord(owner);
@@ -382,6 +417,7 @@ export class NativeAuthoringWorkingProject {
       // have a known semantic effect. Every replayed owner is pinned to the
       // original exact source identity, not the worker's new revision zero.
       const batches = [...this.retained];
+      const textSources = [...this.retainedTextSources];
       const conflicts: Record<string, string[]> = {};
       for (const [owner, source] of [
         ...Object.entries(this.view?.recordSnapshots ?? {}),
@@ -395,6 +431,25 @@ export class NativeAuthoringWorkingProject {
           const result = await this.requestPatch(batch.patches, batch.diskPreconditions);
           if (!result.accepted) throw new Error(`Native Project replay conflict: ${result.error}`);
           this.view = this.mergeSnapshot(result.snapshot);
+        }
+        for (const [path, retained] of textSources) {
+          const restored = await this.bridge.request({
+            operation: 'stageTextSource',
+            expectedRevision: this.view.workingRevision,
+            path,
+            text: retained.text,
+            diskPrecondition: retained.diskRevision,
+          });
+          if (!restored || !('accepted' in restored) || !restored.accepted)
+            throw new Error(
+              `Native Project text-source replay failed for ${path}: ${restored && 'error' in restored ? restored.error : 'invalid response'}`,
+            );
+          if (
+            restored.textSourceStaged !== true ||
+            restored.textSourceDiskRevision !== retained.diskRevision
+          )
+            throw new Error(`Native Project text-source recovery conflict for ${path}`);
+          this.view = this.mergeSnapshot(restored.snapshot);
         }
         if (Object.keys(conflicts).length) {
           const restored = await this.bridge.request({
