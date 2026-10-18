@@ -40,7 +40,7 @@ interface CommandStoreState {
   saveNativeUnitAsync: (
     saveUnitIds: string | string[],
     expectedProjectRevision: number,
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[] },
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> },
     onAcknowledged?: (result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult) => void,
   ) => Promise<CommandExecutionResult>;
   saveNativeTextAsync: (

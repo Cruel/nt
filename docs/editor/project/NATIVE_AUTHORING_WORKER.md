@@ -566,11 +566,25 @@ native editing is enabled. Native Play and Test certification remains distinct
 from the actual production cutover.
 
 Recovered dirty Project state is rejected on native-edit admission
-until replay integration is complete. This flag **remains certification-only,
-not yet a usable complete native editor**: structural auto-commit, coordinated
-multi-owner Save All across both YAML and source text, native watcher
-reconciliation with full conflict UI, and editable/exportable Package operations
-have not yet migrated. The legacy renderer watcher cannot publish external
+until replay integration is complete. Native generic record creation now stages
+new YAML owners in the working Project, supports edits and cancellation before
+Save, and journals their physical creation through the existing revision-checked
+transaction. Use Disk discards an unsaved new owner. These operations do not
+yet implement persisted-record deletion, rename, or structural auto-commit.
+Native mixed Save All now sends selected YAML owners and previously staged
+Lua/RML/RCSS buffers through **one** physical transaction. Native staging
+retains the original source revision even when later file observation changes
+the current disk revision. The renderer must prove its submitted source text
+matches the native worker's accepted staged bytes before publishing a saved
+baseline; a mismatch fails closed. Native scoped reconciliation and Use Disk
+have authenticated IPC boundaries, but the renderer's external-change workflow
+does not yet publish their results.
+
+This flag **remains certification-only, not yet a usable complete native
+editor**: structural auto-commit and persisted-record rename/delete, native
+watcher reconciliation with full conflict UI, durable dirty recovery across
+editor restart, and editable/exportable Package operations have not yet migrated.
+The legacy renderer watcher cannot publish external
 TypeScript authoring merges into an active native Project; it retains
 notification/asset auditing, while native source authority refuses stale disk
 revisions. The certification UI explicitly reports that native

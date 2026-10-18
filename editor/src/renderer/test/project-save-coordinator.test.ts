@@ -364,6 +364,7 @@ describe('project save coordinator', () => {
     });
     expect(save).toHaveBeenCalledWith('test-project-session', 0, [], {
       comments: 'keep', textPaths: [helperSource.id],
+      textContents: { [helperSource.id]: 'return changed' },
     });
     expect(window.noveltea.writeProjectSource).not.toHaveBeenCalled();
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
@@ -410,6 +411,7 @@ describe('project save coordinator', () => {
     expect((await saveAllSaveUnits()).success).toBe(true);
     expect(save).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
       comments: 'keep', textPaths: [helperSource.id],
+      textContents: { [helperSource.id]: 'return changed' },
     });
     expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label)
       .toBe('Native edited Room');

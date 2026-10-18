@@ -483,7 +483,12 @@ async function commitSelectedNativeSaveUnits(
   const submitted = await useCommandStore.getState().saveNativeUnitAsync(
     saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
     current.projectRevision,
-    { comments: 'keep', ...(sourceIds.length ? { textPaths: [...sourceIds] } : {}) },
+    { comments: 'keep', ...(sourceIds.length ? {
+      textPaths: [...sourceIds],
+      textContents: Object.fromEntries(Object.entries(submittedSources).map(
+        ([id, source]) => [id, source.text],
+      )),
+    } : {}) },
     (saved) => {
       const latest = useProjectStore.getState();
       if (

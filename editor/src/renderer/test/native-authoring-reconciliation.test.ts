@@ -75,9 +75,15 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
       { op: 'replace', path: `/rooms/${roomId}/label`, value: newLabel },
     ])).accepted).toBe(true);
-    expect((await working.stageTextSource(textPath, `${initialText}\n<!-- mixed native -->\n`)).accepted)
+    const firstText = `${initialText}\n<!-- mixed native -->\n`;
+    expect((await working.stageTextSource(textPath, firstText)).accepted)
       .toBe(true);
-    const result = await working.saveOwners([room], { textPaths: [textPath] });
+    await expect(working.saveOwners([room], {
+      textPaths: [textPath], textContents: { [textPath]: 'unacknowledged bytes' },
+    })).rejects.toThrow('changed before mixed Save');
+    const result = await working.saveOwners([room], {
+      textPaths: [textPath], textContents: { [textPath]: firstText },
+    });
     expect(result).toMatchObject({ accepted: true, textSourceDiskRevisions: {
       [textPath]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
     } });
@@ -87,10 +93,13 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
       { op: 'replace', path: `/rooms/${roomId}/label`, value: 'Must not persist' },
     ])).accepted).toBe(true);
-    expect((await working.stageTextSource(textPath, `${initialText}\n<!-- pending -->\n`)).accepted)
+    const secondText = `${initialText}\n<!-- pending -->\n`;
+    expect((await working.stageTextSource(textPath, secondText)).accepted)
       .toBe(true);
     await writeFile(textFile, `${initialText}\n<!-- external change -->\n`);
-    expect((await working.saveOwners([room], { textPaths: [textPath] })).accepted).toBe(false);
+    expect((await working.saveOwners([room], {
+      textPaths: [textPath], textContents: { [textPath]: secondText },
+    })).accepted).toBe(false);
     expect(await readFile(yamlPath, 'utf8')).toContain(newLabel);
     expect(await readFile(textFile, 'utf8')).toContain('external change');
     expect(await readFile(yamlPath, 'utf8')).not.toBe(initialYaml);
