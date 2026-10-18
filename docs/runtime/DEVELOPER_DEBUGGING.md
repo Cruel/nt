@@ -16,11 +16,16 @@ runtime preference and it is independent from ordinary runtime diagnostics and l
 | --- | --- | --- | --- | --- |
 | Native sandbox, normal developer build | yes | yes | yes when the native ImGui dependency is available | no |
 | Native player with `NOVELTEA_ENABLE_DEVTOOLS=ON` | yes | yes | yes when the native ImGui dependency is available | no |
+| Standalone Web player with `NOVELTEA_ENABLE_DEVTOOLS=ON` | yes | yes | yes | no |
 | Optimized `web-editor-preview` | yes | yes | no | yes |
 | Production player / `NOVELTEA_ENABLE_DEVTOOLS=OFF` | no | no | no | no |
 
 The optimized Web editor preview deliberately keeps engine instrumentation while omitting Dear ImGui.
-Production player presets disable developer instrumentation and link `RmlUi::Core` without
+It must be built separately from the Web player or sandbox because they share an engine target;
+CMake rejects mixed editor-preview/player configurations rather than linking ImGui into the preview.
+A standalone Web player intentionally built with devtools has the ImGui overlay and host-level F10
+shortcut, just like a native developer player. Production player presets disable developer
+instrumentation and link `RmlUi::Core` without
 `RmlUi::Debugger`. CI verifies both the Web export surface and the linked native developer-component
 surface from built artifacts rather than inferring the result only from option declarations.
 
@@ -85,8 +90,8 @@ inspected-context rendering stop with the visible debugger. Devtools Snapshots p
 context label based on the presentation plane and mounted Layout/document identities; commands
 continue to use the stable internal RmlUi context name.
 
-On a native developer host, `F10` toggles the NovelTea Dear ImGui debugger frontend and
-`Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before
+On a devtools-enabled standalone player (native or Web) or native sandbox, `F10` toggles
+NovelTea's Dear ImGui debugger frontend and `Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before
 RmlUi, Layout, or gameplay admission. Android devtools builds additionally recognize a two-finger
 hold anywhere on the host surface: place the second finger within 200 ms, hold both still for one
 second, then release to toggle ImGui. Holding for three seconds instead resets its window positioning
