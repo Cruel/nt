@@ -746,7 +746,36 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
                 kept += '\n';
             result.replace(line_start, after_line(source, *last) - line_start, kept);
         } else {
-            result.erase(leading, after_line(source, *last) - leading);
+            // When the field was the sole entry of a block mapping, simply
+            // erasing its line changes `owner: { field: default }` into
+            // `owner: null` (the remaining bare `owner:`). Keep the source
+            // container as an explicit empty mapping; the schema may still
+            // normalize its omitted child to the same declared default.
+            void* cursor = nullptr;
+            std::size_t siblings = 0;
+            while (parent && fy_node_mapping_iterate(parent, &cursor))
+                ++siblings;
+            if (siblings == 1 && parts.size() >= 2) {
+                const std::vector<std::string> grandparent_path(parts.begin(), parts.end() - 2);
+                auto* grandparent = find_node(parsed.root(), grandparent_path);
+                auto* owner_pair = mapping_pair(grandparent, parts[parts.size() - 2]);
+                auto* owner_key = owner_pair ? fy_node_pair_key(owner_pair) : nullptr;
+                const auto owner_mark =
+                    owner_key ? mark_offset(fy_node_get_start_token(owner_key)) : std::nullopt;
+                if (!owner_mark || has_physical_comment(source, parent, owner_key) ||
+                    contains_comment(parent))
+                    throw SourceFailure("Cannot collapse a commented YAML mapping owner.");
+                const auto owner_line = start_of_line(source, *owner_mark);
+                const auto owner_prefix = source.substr(owner_line, *owner_mark - owner_line);
+                std::string empty_owner(owner_prefix);
+                empty_owner += parts[parts.size() - 2] + ": {}";
+                const auto end = after_line(source, *last);
+                if (end > *last && source[end - 1] == '\n')
+                    empty_owner += '\n';
+                result.replace(owner_line, end - owner_line, empty_owner);
+            } else {
+                result.erase(leading, after_line(source, *last) - leading);
+            }
         }
         return result;
     }

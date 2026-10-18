@@ -205,31 +205,7 @@ bool valid_revision(std::string_view text)
 
 ValidationResult effective_record_for_compaction(std::string_view family, std::string_view source)
 {
-    if (family == "rooms")
-        return validate_room_source(source);
-    if (family == "maps")
-        return validate_map_source(source);
-    if (family == "characters")
-        return validate_character_source(source);
-    if (family == "archetypes")
-        return validate_archetype_source(source);
-    if (family == "animations")
-        return validate_animation_source(source);
-    if (family == "materials")
-        return validate_material_source(source);
-    if (family == "interactables")
-        return validate_interactable_sparse_source(source);
-    if (family == "dialogues")
-        return validate_dialogue_source(source);
-    if (family == "scenes")
-        return validate_scene_source(source);
-    if (family == "verbs")
-        return validate_verb_source(source);
-    if (family == "interactions")
-        return validate_interaction_source(source);
-    if (family == "tests")
-        return validate_test_source(source);
-    return {};
+    return normalize_compaction_source(family, source);
 }
 
 std::vector<std::string> hash_fragments(std::string_view source)
@@ -789,10 +765,20 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 if (!same_semantics && target.semantic_compaction_family) {
                     const auto& family = *target.semantic_compaction_family;
                     const auto prefix = "records/" + family + "/";
-                    if (!target.path.starts_with(prefix) ||
-                        target.path.substr(prefix.size()).find('/') != std::string::npos)
+                    const bool flat_record =
+                        target.path.starts_with(prefix) &&
+                        target.path.substr(prefix.size()).find('/') == std::string::npos;
+                    const bool layout_record =
+                        family == "layouts" && target.path.starts_with(prefix) &&
+                        target.path.ends_with("/layout.yaml") &&
+                        target.path.substr(prefix.size(), target.path.size() - prefix.size() - 12)
+                                .find('/') == std::string::npos;
+                    const bool non_record = (family == "project.yaml" || family == "editor.yaml" ||
+                                             family == "i18n/project.yaml") &&
+                                            target.path == family;
+                    if (!flat_record && !layout_record && !non_record)
                         throw std::runtime_error(
-                            "Semantic compaction is not a canonical record owner.");
+                            "Semantic compaction is not a canonical tracked source owner.");
                     const auto initial =
                         effective_record_for_compaction(family, before.source_json);
                     const auto updated = effective_record_for_compaction(family, after.source_json);

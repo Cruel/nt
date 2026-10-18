@@ -1085,12 +1085,46 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
     return open_impl(root, error, false);
 }
 
+// Read-only validation of an inadmissible manifest. Mutable Project sessions
+// still require an entirely valid manifest and must never use this fallback.
+static std::vector<Diagnostic> invalid_manifest_diagnostics(const std::filesystem::path& root)
+{
+    const auto source = open_yaml_source(read_bytes(root / "project.yaml"));
+    if (!source.accepted) {
+        Diagnostic issue{"/", "source.project", "Invalid Project manifest YAML: " + source.error};
+        issue.source_path = "project.yaml";
+        return {std::move(issue)};
+    }
+    const auto semantic = validate_record("WorkspaceManifest", source.source_json);
+    if (semantic.accepted)
+        return {};
+    auto issues = semantic.diagnostics;
+    if (issues.empty())
+        issues.push_back({"/", "source.project", "Invalid Project manifest schema."});
+    for (auto& issue : issues)
+        issue.source_path = "project.yaml";
+    return issues;
+}
+
 std::optional<RoomSessionSnapshot>
 ProjectSession::validate_cold_project(const std::filesystem::path& root, std::string& error)
 {
     auto project = open_impl(root, error, true);
-    if (!project)
+    if (!project) {
+        try {
+            RoomSessionSnapshot invalid;
+            invalid.diagnostics = invalid_manifest_diagnostics(root);
+            if (!invalid.diagnostics.empty()) {
+                invalid.valid = false;
+                error.clear();
+                return invalid;
+            }
+        } catch (const std::exception&) {
+            // Missing/unreadable manifest or source authority is still a
+            // transport/admission failure, not a fabricated parsed result.
+        }
         return std::nullopt;
+    }
     return project->validate_project();
 }
 
@@ -1167,6 +1201,25 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
 
 RoomSessionSnapshot ProjectSession::validate_project()
 {
+    // A malformed on-disk manifest can revoke SourceAuthority before the
+    // watcher can emit a usable project.yaml revision. Inspect this one
+    // immutable owner first so cold and resident diagnostic readers report
+    // the same concrete parse/schema error, not a generic watcher failure.
+    if (!source_->snapshot().dirty) {
+        try {
+            auto issues = invalid_manifest_diagnostics(root_);
+            if (!issues.empty()) {
+                auto result = source_->snapshot();
+                result.valid = false;
+                result.diagnostics = std::move(issues);
+                validation_snapshot_.reset();
+                validation_pending_uncertain_ = true;
+                return result;
+            }
+        } catch (const std::exception&) {
+            // Preserve normal authority diagnostics for inaccessible files.
+        }
+    }
     // Physical observation is a proof, not merely an event hint. In particular,
     // a failed observation must never authorize an old semantic contribution.
     const auto observation = observe_sources();
@@ -1190,6 +1243,27 @@ RoomSessionSnapshot ProjectSession::validate_project()
                 invalid_manifest = reconciled.error;
             }
         }
+    }
+    // A malformed Manifest cannot supply a valid dependency graph. Do not
+    // report hundreds of spurious Scene/Verb/Dialogue dependency errors
+    // against the last admitted Manifest; the cold diagnostic reader cannot
+    // (and must not) construct a mutable Project from that invalid source.
+    if (!invalid_manifest.empty() || !source_->snapshot().valid) {
+        auto result = source_->snapshot();
+        result.valid = false;
+        try {
+            auto issues = invalid_manifest_diagnostics(root_);
+            if (!issues.empty())
+                result.diagnostics = std::move(issues);
+        } catch (const std::exception&) {
+            if (!invalid_manifest.empty()) {
+                Diagnostic issue{"/", "source.project", std::move(invalid_manifest)};
+                issue.source_path = "project.yaml";
+                result.diagnostics = {std::move(issue)};
+            }
+        }
+        validation_snapshot_.reset();
+        return result;
     }
     if (validation_source_paths_.empty()) {
         for (const auto& file : file_inventory())
@@ -1285,6 +1359,14 @@ RoomSessionSnapshot ProjectSession::validate_project()
         const auto working = records_.find(owner);
         const auto saved = validation_source_revisions_.find(path);
         const auto revision = validation_pending_source_revisions_.find(path);
+        // An inspected editor owner may be clean yet older than disk. Absence
+        // of a *new* watcher delta does not make its old revision current: a
+        // prior validation may already have consumed that delta. In that case
+        // validate the physical record, not the stale editor snapshot.
+        const bool inspected_matches_disk = working != records_.end() &&
+                                            std::filesystem::is_regular_file(root_ / path) &&
+                                            exact_source_revision(read_bytes(root_ / path)) ==
+                                                working->second->snapshot().disk_source_revision;
         const bool physically_changed =
             saved == validation_source_revisions_.end() ||
             revision != validation_pending_source_revisions_.end() ||
@@ -1310,7 +1392,7 @@ RoomSessionSnapshot ProjectSession::validate_project()
 
         // A dirty editor owner is the semantic input, but its saved bytes must
         // still be attributable to the current physical source.
-        if (working != records_.end() &&
+        if (working != records_.end() && inspected_matches_disk &&
             (observation.authoritative || observation.scoped_authority) &&
             (revision == validation_pending_source_revisions_.end() ||
              revision->second == working->second->snapshot().disk_source_revision)) {
@@ -1467,9 +1549,20 @@ RoomSessionSnapshot ProjectSession::validate_project()
     } view(validation_view_active_);
     auto result = snapshot();
     if (!invalid_manifest.empty()) {
-        Diagnostic issue{"/", "source.project", std::move(invalid_manifest)};
-        issue.source_path = "project.yaml";
-        result.diagnostics.push_back(std::move(issue));
+        try {
+            auto issues = invalid_manifest_diagnostics(root_);
+            if (!issues.empty())
+                result.diagnostics.insert(result.diagnostics.end(), issues.begin(), issues.end());
+            else {
+                Diagnostic issue{"/", "source.project", std::move(invalid_manifest)};
+                issue.source_path = "project.yaml";
+                result.diagnostics.push_back(std::move(issue));
+            }
+        } catch (const std::exception&) {
+            Diagnostic issue{"/", "source.project", std::move(invalid_manifest)};
+            issue.source_path = "project.yaml";
+            result.diagnostics.push_back(std::move(issue));
+        }
         result.valid = false;
     }
     if (!observation.authoritative && !observation.scoped_authority) {

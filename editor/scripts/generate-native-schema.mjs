@@ -12,6 +12,19 @@ const { encodeSparseRecordYaml } =
 const { encodeLayoutYaml } = await import('../src/shared/project-workspace/layout-yaml-source.ts');
 const { encodeVariableYaml } =
   await import('../src/shared/project-workspace/variable-yaml-source.ts');
+const { createAuthoringProject } =
+  await import('../src/shared/project-schema/authoring-project.ts');
+const { parseEditorProjectState } =
+  await import('../src/shared/project-schema/editor-project-state.ts');
+const { projectWorkspaceFiles } =
+  await import('../src/shared/project-workspace/project-workspace-service.ts');
+const { NOVELTEA_PROJECT_AGENTS_BOOTSTRAP, NOVELTEA_LOCAL_STATE_GITIGNORE_RULE } =
+  await import('../src/shared/project-workspace/agent-bootstrap.ts');
+const nativeCreateTemplate = createAuthoringProject({
+  id: 'noveltea-native-create-template',
+  name: 'NovelTea Native Creation Template',
+});
+const { layoutDataSchema } = await import('../src/shared/project-schema/authoring-layouts.ts');
 const { authoringCollectionMetadata } =
   await import('../src/shared/project-schema/authoring-collections.ts');
 const defaultData = Object.fromEntries(
@@ -119,7 +132,29 @@ const files = new Map([
         dialogues: sparseRecordYamlSourceDefaults('dialogues'),
         scenes: sparseRecordYamlSourceDefaults('scenes'),
         tests: sparseRecordYamlSourceDefaults('tests'),
-        layouts: sparseRecordYamlSourceDefaults('layouts'),
+        layouts: Object.fromEntries(
+          Object.entries(layoutDataSchema.parse({}))
+            .filter(([key]) => !['rml', 'rcss', 'lua'].includes(key))
+            .map(([key, value]) => [`data.${key}`, value]),
+        ),
+        variables: { 'data.nullable': false, 'data.scope': 'global' },
+        'project.yaml': { entrypoint: null, undefinedInteractionProgram: null },
+        'i18n/project.yaml': { sourceLocaleLock: null },
+        'editor.yaml': {
+          'chapters.records': {},
+          'chapters.assignments': {},
+          'tags.records': {},
+          'recordMetadata.*.*.tags': [],
+          'recordMetadata.*': {},
+        },
+      },
+      projectCreationFiles: {
+        ...projectWorkspaceFiles(
+          nativeCreateTemplate,
+          parseEditorProjectState(nativeCreateTemplate.editor),
+        ),
+        'AGENTS.md': NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
+        '.gitignore': `${NOVELTEA_LOCAL_STATE_GITIGNORE_RULE}\n`,
       },
       entityRecordSources: canonicalEntitySources,
       testSourceIntent: {

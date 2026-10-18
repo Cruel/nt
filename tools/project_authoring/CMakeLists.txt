@@ -197,6 +197,10 @@ if(BUILD_TESTING)
         --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_clean_cache_recovery COMMAND noveltea-project-session-certify
         --clean-cache-recovery "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_clean_cache_correctness COMMAND noveltea-project-session-certify
+        --clean-cache-correctness "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_invalid_manifest COMMAND noveltea-project-session-certify
+        --invalid-manifest "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_project_record_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"

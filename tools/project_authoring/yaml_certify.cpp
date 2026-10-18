@@ -145,6 +145,25 @@ int main(int argc, char** argv)
         room, {{"/data/description", "\"\"", YamlCommentDisposition::Keep, "\"\""}});
     require(omitted.accepted && omitted.source.find("  description:") == std::string::npos,
             "changing an unannotated value to its declared default omits the key");
+    const std::string empty_mappings =
+        "chapters:\n  records: {}\n  assignments: {}\ntags:\n  records: {}\n";
+    const auto first_empty = edit_yaml_source(
+        empty_mappings, {{"/chapters/records", "{}", YamlCommentDisposition::Keep, "{}"}});
+    require(first_empty.accepted, "removing one default-valued mapping preserves siblings");
+    const auto last_empty =
+        first_empty.accepted
+            ? edit_yaml_source(first_empty.source, {{"/chapters/assignments", "{}",
+                                                     YamlCommentDisposition::Keep, "{}"}})
+            : first_empty;
+    require(last_empty.accepted && last_empty.source.find("chapters: {}\n") == 0 &&
+                last_empty.source.find("assignments:") == std::string::npos &&
+                last_empty.source.find("tags:\n  records: {}\n") != std::string::npos,
+            "omitting a final default child retains an explicit empty mapping, not YAML null");
+    const auto annotated_owner =
+        edit_yaml_source("chapters: # annotated owner\n  records: {}\n",
+                         {{"/chapters/records", "{}", YamlCommentDisposition::Keep, "{}"}});
+    require(!annotated_owner.accepted,
+            "compaction fails closed rather than rewriting an annotated mapping owner");
     const auto keptDefault =
         edit_yaml_source(room, {{"/data/presentationSpace/edgePolicy", "\"cover\"",
                                  YamlCommentDisposition::Keep, "\"contain\""}});

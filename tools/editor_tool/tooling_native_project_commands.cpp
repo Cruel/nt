@@ -6,6 +6,8 @@
 #include "tooling_native_project_sync.hpp"
 #include "tooling_native_project_bundle.hpp"
 #include "tooling_native_project_entity.hpp"
+#include "tooling_native_project_asset.hpp"
+#include "tooling_native_project_create.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -68,6 +70,8 @@ Json operate(const Json& request)
         return failure("Native CLI Project action must be a string.");
     if (request.at("action") == "project-import")
         return native_project_bundle(request, nullptr, {});
+    if (request.at("action") == "project-create")
+        return native_project_create(request);
     if (!request.is_object() || !request.contains("projectRoot") ||
         !request["projectRoot"].is_string())
         return failure("Native CLI Project operation requires projectRoot.");
@@ -79,12 +83,22 @@ Json operate(const Json& request)
         return failure("Native CLI Project operation requires an absolute root.");
     const auto root = std::filesystem::canonical(requested);
     const auto action = request.at("action").get<std::string>();
+    if (action == "asset-audit")
+        return native_project_asset_audit(root);
+    if (action == "asset-import" &&
+        (!request.contains("dryRun") || request.at("dryRun") == false)) {
+        if (const auto recovery_error = native_project_asset_recover(root))
+            return failure("Native Asset import recovery: " + *recovery_error);
+    }
     // The isolated certification invocation deliberately opens a fresh disk
     // session. It never borrows the editor's unsaved working Project.
     std::string error;
     auto session = ProjectSession::open(root, error);
     if (!session)
         return failure(error);
+
+    if (action == "asset-import")
+        return native_project_asset_import(request, *session, root);
 
     if (action == "entity-inspect") {
         if (!request.contains("collection") || !request.at("collection").is_string() ||
@@ -240,7 +254,9 @@ noveltea_tooling_native_project_commands_json(const std::uint8_t* request,
                            : default_value;
             };
             const bool mutating =
-                action == "project-import" || action == "project-export" ||
+                action == "project-create" || action == "project-import" ||
+                action == "project-export" ||
+                (action == "asset-import" && !boolean_flag("dryRun", true)) ||
                 (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
                 (action == "fmt-strip-defaults" && !boolean_flag("check", true)) ||
                 (action == "fmt" && !boolean_flag("check", true)) ||

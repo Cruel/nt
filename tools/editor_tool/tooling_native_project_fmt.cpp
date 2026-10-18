@@ -70,6 +70,14 @@ std::optional<Json> omission_default(const Json& metadata, const std::vector<std
                 });
             key += index_segment ? "*" : part;
         }
+        // The editor's record-metadata maps use arbitrary collection and
+        // record IDs. Their omissions are declared with explicit wildcard
+        // slots rather than inferred from the user-supplied identity.
+        if (!metadata.contains(key) && prefix >= 2 && parts[0] == "recordMetadata") {
+            key = "recordMetadata";
+            for (std::size_t index = 1; index < prefix; ++index)
+                key += index <= 2 ? ".*" : "." + parts[index];
+        }
         if (!metadata.contains(key))
             continue;
         Json value = metadata.at(key);
@@ -89,37 +97,14 @@ std::optional<Json> omission_default(const Json& metadata, const std::vector<std
 
 ValidationResult normalize(std::string_view family, std::string_view json)
 {
-    if (family == "rooms")
-        return validate_room_source(json);
-    if (family == "maps")
-        return validate_map_source(json);
-    if (family == "characters")
-        return validate_character_source(json);
-    if (family == "archetypes")
-        return validate_archetype_source(json);
-    if (family == "animations")
-        return validate_animation_source(json);
-    if (family == "materials")
-        return validate_material_source(json);
-    if (family == "interactables")
-        return validate_interactable_sparse_source(json);
-    if (family == "dialogues")
-        return validate_dialogue_source(json);
-    if (family == "scenes")
-        return validate_scene_source(json);
-    if (family == "verbs")
-        return validate_verb_source(json);
-    if (family == "interactions")
-        return validate_interaction_source(json);
-    if (family == "tests")
-        return validate_test_source(json);
-    return {};
+    return normalize_compaction_source(family, json);
 }
 
 struct SparseCompaction {
     bool accepted = false;
     std::string candidate;
     std::vector<YamlValueEdit> edits;
+    std::size_t removed_defaults = 0;
     std::string error;
 };
 
@@ -149,7 +134,10 @@ SparseCompaction compact_record(std::string_view family, std::string_view baseli
         return tokens(left.path).size() > tokens(right.path).size();
     });
     for (const auto& location : locations) {
-        if (location.path.empty() || location.has_comment)
+        if (location.path.empty() || location.has_comment ||
+            std::any_of(locations.begin(), locations.end(), [&](const auto& descendant) {
+                return descendant.has_comment && descendant.path.starts_with(location.path + "/");
+            }))
             continue;
         const auto parts = tokens(location.path);
         const auto value = omission_default(defaults, parts);
@@ -180,6 +168,22 @@ SparseCompaction compact_record(std::string_view family, std::string_view baseli
         result.error = "Native sparse formatting changed effective Project semantics.";
         return result;
     }
+    // A single omission edit may prune several now-empty YAML map nodes.
+    // Report the actual number of eligible default fields removed rather
+    // than the number of edit calls used to express the compaction.
+    const auto final_source = Json::parse(after.source_json);
+    for (const auto& location : locations) {
+        if (location.path.empty() || location.has_comment ||
+            std::any_of(locations.begin(), locations.end(), [&](const auto& descendant) {
+                return descendant.has_comment && descendant.path.starts_with(location.path + "/");
+            }))
+            continue;
+        const auto pointer = Json::json_pointer(location.path);
+        const auto default_value = omission_default(defaults, tokens(location.path));
+        if (default_value && explicit_data.contains(pointer) &&
+            explicit_data.at(pointer) == *default_value && !final_source.contains(pointer))
+            ++result.removed_defaults;
+    }
     result.accepted = true;
     return result;
 }
@@ -201,10 +205,15 @@ Json native_project_strip_defaults(const Json& request, ProjectSession& session,
         return failure("Native sparse formatting currently requires a record YAML path.");
     const auto rest = path.substr(prefix.size());
     const auto slash = rest.find('/');
-    if (slash == std::string::npos || rest.find('/', slash + 1) != std::string::npos)
+    const bool layout =
+        slash != std::string::npos && rest.substr(0, slash) == "layouts" &&
+        rest.ends_with("/layout.yaml") &&
+        rest.find('/', slash + 1) == rest.size() - std::string("/layout.yaml").size();
+    if (slash == std::string::npos || (!layout && rest.find('/', slash + 1) != std::string::npos))
         return failure("Native sparse formatting does not support this source layout.");
     const auto family = rest.substr(0, slash);
-    const auto id = rest.substr(slash + 1, rest.size() - slash - 6);
+    const auto id = layout ? rest.substr(slash + 1, rest.size() - slash - 1 - 12)
+                           : rest.substr(slash + 1, rest.size() - slash - 6);
     const auto defaults_json = source_omission_defaults_json(family);
     if (!defaults_json || id.empty())
         return failure("Native sparse defaults are not registered for this record family.");
@@ -232,7 +241,7 @@ Json native_project_strip_defaults(const Json& request, ProjectSession& session,
                   {"changed", changed},
                   {"path", path},
                   {"sourceRevision", revision},
-                  {"removedDefaults", compaction.edits.size()}};
+                  {"removedDefaults", compaction.removed_defaults}};
     if (!check && changed) {
         YamlTransactionService writer(root);
         const auto prepared = writer.prepare({YamlTransactionTarget{.path = path,
@@ -285,18 +294,25 @@ Json native_project_format(const Json& request, ProjectSession& session,
     for (const auto& file : selected) {
         const auto source = bytes_at(root / file);
         std::string candidate = source;
-        if (strip_defaults && file.starts_with("records/")) {
-            const auto rest = file.substr(std::string("records/").size());
-            const auto family_end = rest.find('/');
-            if (family_end != std::string::npos &&
-                rest.find('/', family_end + 1) == std::string::npos) {
-                const auto family = rest.substr(0, family_end);
-                const auto sparse = compact_record(family, source);
+        std::optional<std::string> semantic_family;
+        if (strip_defaults) {
+            if (file.starts_with("records/")) {
+                const auto rest = file.substr(std::string("records/").size());
+                const auto family_end = rest.find('/');
+                if (family_end != std::string::npos &&
+                    (rest.find('/', family_end + 1) == std::string::npos ||
+                     (rest.substr(0, family_end) == "layouts" && rest.ends_with("/layout.yaml"))))
+                    semantic_family = rest.substr(0, family_end);
+            } else if (source_omission_defaults_json(file)) {
+                semantic_family = file;
+            }
+            if (semantic_family) {
+                const auto sparse = compact_record(*semantic_family, source);
                 if (!sparse.accepted)
                     return failure("Sparse default stripping rejected " + file + ": " +
                                    sparse.error);
                 candidate = sparse.candidate;
-                removed_defaults += sparse.edits.size();
+                removed_defaults += sparse.removed_defaults;
             }
         }
         const auto formatted = format_yaml_source(candidate);
@@ -313,13 +329,6 @@ Json native_project_format(const Json& request, ProjectSession& session,
             !request.at("diskPreconditions").at(file).is_string() ||
             request.at("diskPreconditions").at(file) != revision)
             return failure("Native fmt requires an exact source revision for " + file);
-        std::optional<std::string> semantic_family;
-        if (strip_defaults && file.starts_with("records/")) {
-            const auto rest = file.substr(std::string("records/").size());
-            const auto slash = rest.find('/');
-            if (slash != std::string::npos && rest.find('/', slash + 1) == std::string::npos)
-                semantic_family = rest.substr(0, slash);
-        }
         targets.push_back(YamlTransactionTarget{.path = file,
                                                 .expected_revision = revision,
                                                 .baseline_source = source,

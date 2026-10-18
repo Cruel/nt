@@ -1590,6 +1590,66 @@ std::optional<std::string> source_omission_defaults_json(std::string_view family
     return families.at(family).to_string();
 }
 
+ValidationResult normalize_compaction_source(std::string_view family, std::string_view source_json)
+{
+    if (family == "variables") {
+        auto value = Json::parse(source_json);
+        if (value.is_object() && value.contains("data") && value.at("data").is_object() &&
+            !value.at("data").contains("kind"))
+            value["data"].insert_or_assign("kind", "variable");
+        return validate_record("VariablesRecord", value.to_string());
+    }
+    if (family == "project.yaml")
+        return validate_record("WorkspaceManifest", source_json);
+    if (family == "editor.yaml")
+        return validate_record("WorkspaceTrackedEditor", source_json);
+    if (family == "i18n/project.yaml")
+        return validate_record("WorkspaceLocalizationPolicy", source_json);
+    if (family == "layouts") {
+        auto value = Json::parse(source_json);
+        if (!value.is_object() || !value.contains("data") || !value.at("data").is_object())
+            return {};
+        // File-backed companion sources are unchanged by metadata compaction;
+        // the full Project validator already checked them. Normalize the
+        // metadata with exactly the schema's generated omission defaults.
+        const auto defaults = Json::parse(*source_omission_defaults_json("layouts"));
+        for (const auto& field : defaults.object_range()) {
+            const auto path = std::string(field.key());
+            if (!path.starts_with("data.") || path.find('.', 5) != std::string::npos)
+                continue;
+            const auto name = path.substr(5);
+            if (!value.at("data").contains(name))
+                value["data"].insert_or_assign(name, field.value());
+        }
+        return {true, value.to_string(), {}};
+    }
+    if (family == "rooms")
+        return validate_room_source(source_json);
+    if (family == "maps")
+        return validate_map_source(source_json);
+    if (family == "characters")
+        return validate_character_source(source_json);
+    if (family == "archetypes")
+        return validate_archetype_source(source_json);
+    if (family == "animations")
+        return validate_animation_source(source_json);
+    if (family == "materials")
+        return validate_material_source(source_json);
+    if (family == "interactables")
+        return validate_interactable_sparse_source(source_json);
+    if (family == "dialogues")
+        return validate_dialogue_source(source_json);
+    if (family == "scenes")
+        return validate_scene_source(source_json);
+    if (family == "verbs")
+        return validate_verb_source(source_json);
+    if (family == "interactions")
+        return validate_interaction_source(source_json);
+    if (family == "tests")
+        return validate_test_source(source_json);
+    return {};
+}
+
 std::optional<std::string> default_entity_source_json(std::string_view family)
 {
     static const Contracts contracts;
@@ -1597,6 +1657,12 @@ std::optional<std::string> default_entity_source_json(std::string_view family)
     if (!families.contains(family))
         return std::nullopt;
     return families.at(family).to_string();
+}
+
+std::string project_creation_files_json()
+{
+    static const Contracts contracts;
+    return contracts.document.at("projectCreationFiles").to_string();
 }
 
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id)

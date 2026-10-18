@@ -4353,6 +4353,96 @@ async function certifyNativeOperations(tempRoot, pristine) {
   );
   if (!(await stat(output)).isFile())
     fail('Package export did not produce the requested output file.');
+  // Differential #501: native Project preparation is a certification-only
+  // input boundary, while installed ScriptC/TypeScript still owns compilation
+  // and the native exporter publishes the actual .ntpkg. Verify both stages
+  // against the same exact Project files and selected runtime profile.
+  const preparationRequest = path.join(tempRoot, 'native-runtime-preparation-request.json');
+  await writeJson(preparationRequest, {
+    action: 'runtime-package-preparation',
+    projectRoot: root,
+  });
+  const preparedNative = requireSuccess(
+    'native Runtime Package preparation',
+    runNativeWithStdinFile(['__editor-native', 'native-project-commands'], preparationRequest, {
+      cwd: root,
+    }),
+  );
+  const nativePackage = JSON.parse(preparedNative.stdout);
+  if (
+    nativePackage.ok !== true ||
+    nativePackage.runtimeIntent !== 'runtime-package-export' ||
+    nativePackage.profile?.kind !== 'runtime' ||
+    nativePackage.profile?.id !== nativePackage.project?.export?.runtime?.id ||
+    JSON.stringify(nativePackage.projectIdentity) !== JSON.stringify(nativePackage.project?.project)
+  )
+    fail(
+      `Native preparation disagrees with exported Runtime Package intent: ${preparedNative.stdout}`,
+    );
+  if (
+    !Array.isArray(nativePackage.sourcePaths) ||
+    nativePackage.sourcePaths.length === 0 ||
+    Object.keys(nativePackage.sourceRevisions ?? {}).length !== nativePackage.sourcePaths.length
+  )
+    fail('Native Runtime Package preparation lost its physical source inventory.');
+  for (const relative of nativePackage.sourcePaths) {
+    if (
+      typeof relative !== 'string' ||
+      relative.startsWith('/') ||
+      relative.split('/').some((part) => part === '..' || part === '.')
+    )
+      fail(`Native Runtime Package preparation returned an unsafe physical owner: ${relative}`);
+    const bytes = await readFile(path.join(root, relative));
+    const expected = `sha256:${sha256(bytes)}`;
+    if (nativePackage.sourceRevisions[relative] !== expected)
+      fail(`Native Runtime Package preparation missed a changed source: ${relative}`);
+  }
+  if ((await stat(output)).size < 1024)
+    fail('Native Runtime Package export produced an unexpectedly empty artifact.');
+  // Consume the native-selected runtime profile in the *actual* installed
+  // compiler/export path. The resulting package must be byte-identical to
+  // the implicit-profile oracle export above; a shape-only preparation check
+  // would not catch a profile/source lowering divergence here.
+  const nativeProfilePackage = path.join(tempRoot, 'certification-native-profile.ntpkg');
+  requireSuccess(
+    'package export through native-selected profile',
+    runNative(
+      [
+        '--project',
+        root,
+        '--json',
+        'package',
+        'export',
+        '--output',
+        nativeProfilePackage,
+        '--profile',
+        nativePackage.profile.id,
+        '--allow-localization-warnings',
+      ],
+      { cwd: root },
+    ),
+  );
+  const oracleHash = sha256(await readFile(output));
+  const nativeSelectedHash = sha256(await readFile(nativeProfilePackage));
+  if (oracleHash !== nativeSelectedHash)
+    fail(
+      `Native-selected Runtime Package differs from installed CLI oracle: implicit=${oracleHash} native=${nativeSelectedHash}`,
+    );
+  await writeJson(preparationRequest, {
+    action: 'runtime-package-preparation',
+    projectRoot: root,
+    profileId: 'not-the-selected-profile',
+  });
+  const mismatchedNativeProfile = runNativeWithStdinFile(
+    ['__editor-native', 'native-project-commands'],
+    preparationRequest,
+    { cwd: root },
+  );
+  if (
+    mismatchedNativeProfile.status !== 1 ||
+    JSON.parse(mismatchedNativeProfile.stdout).ok !== false
+  )
+    fail('Native Runtime Package preparation silently accepted a different profile.');
 
   const fontCoverageRequestPath = path.join(tempRoot, 'font-coverage-request.json');
   await writeJson(fontCoverageRequestPath, {
