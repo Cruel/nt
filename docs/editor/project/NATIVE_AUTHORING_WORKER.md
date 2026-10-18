@@ -516,7 +516,8 @@ history publish only after native acknowledgment and exact changed-value
 comparison against affected native source owners. Native refusal leaves the
 current editor unchanged; a missing, contradictory, or lost accepted reply
 freezes further native edits instead of silently falling back to TypeScript.
-Uncommitted transactions and auto-commits are not yet enabled in this mode.
+Uncommitted interactive transactions remain unavailable in this mode; the
+native scoped structural auto-commit path is described below (#508).
 
 The old synchronous command methods explicitly refuse changes under the
 native-edit flag. Renderer record editors, the New Entity wizard, Room
@@ -569,8 +570,29 @@ Recovered dirty Project state is rejected on native-edit admission
 until replay integration is complete. Native generic record creation now stages
 new YAML owners in the working Project, supports edits and cancellation before
 Save, and journals their physical creation through the existing revision-checked
-transaction. Use Disk discards an unsaved new owner. These operations do not
-yet implement persisted-record deletion, rename, or structural auto-commit.
+transaction. Use Disk discards an unsaved new owner. The native Project session
+also stages persisted-record deletion as an explicit tombstone retaining its
+exact physical source baseline. Generic remove/add batches can rename record
+identities without altering disk before Save; a scoped multi-owner Save journals
+the YAML deletion and new-source creation together under revision checks.
+Whole-owner Use Disk restores a pending deletion. Reopen/replay retains its
+deletion intent and source precondition, while native working runtime preparation
+excludes deleted owners instead of accidentally falling back to their still-
+present disk files. A Layout deletion now includes its existing RML/RCSS/Lua
+companions in the same native journal rather than leaving orphaned sources.
+Structural editor commands can now stage YAML-owner patches and commit their
+scoped native Save atomically before publishing UI/history. The editor can undo
+or redo those committed changes and restores a rejected candidate through an
+explicit checked inverse patch. Deletion of commented records uses the normal
+comment-review dialog before destructive Save; native source CAS is rechecked
+on confirmation. Logical localization edits resolve to their owning
+`i18n/*.yaml` fragments (not the manifest), so structural reference and
+message-identity updates commit in the same journal as record changes. The
+native route also updates script identity mappings and
+recovery selection for structural remaps. File moves and generated/copied Asset
+trash transitions are not yet atomically supported by this path; commands whose
+policy allows conversion can fall back to *native manual Save*, not a legacy writer,
+while destructive file transitions remain guarded.
 Native mixed Save All now sends selected YAML owners and previously staged
 Lua/RML/RCSS buffers through **one** physical transaction. Native staging
 retains the original source revision even when later file observation changes
@@ -581,9 +603,10 @@ have authenticated IPC boundaries, but the renderer's external-change workflow
 does not yet publish their results.
 
 This flag **remains certification-only, not yet a usable complete native
-editor**: structural auto-commit and persisted-record rename/delete, native
-watcher reconciliation with full conflict UI, durable dirty recovery across
-editor restart, and editable/exportable Package operations have not yet migrated.
+editor**: structural auto-commit, native watcher reconciliation with full
+conflict UI, durable dirty recovery across editor restart, physical Asset trash
+transitions and some companion/source identity moves, and editable/exportable
+Package operations have not yet migrated.
 The legacy renderer watcher cannot publish external
 TypeScript authoring merges into an active native Project; it retains
 notification/asset auditing, while native source authority refuses stale disk

@@ -1,7 +1,22 @@
 import { create } from 'zustand';
 import { useProjectStore } from '@/project/project-store';
 import type { JsonValue } from '@/project/json-value';
-import { persistAutoCommitPlan } from '@/project/structural-command-persistence';
+import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
+import {
+  parseJsonPointer,
+  buildJsonPointer,
+  getJsonAtPointer,
+  hasJsonAtPointer,
+} from '@/project/json-pointer';
+import { jsonValuesEqual } from '@/project/json-value';
+import {
+  persistAutoCommitPlan,
+  remapRecoveryForAutoCommit,
+} from '@/project/structural-command-persistence';
+import {
+  buildEditorProjectStateSnapshot,
+  setLoadedEditorProjectState,
+} from '@/workbench/project-editor-state';
 import {
   beginTransaction as beginTransactionCore,
   cancelTransaction as cancelTransactionCore,
@@ -20,7 +35,12 @@ import type {
   CommandRequest,
   CommandTransactionRequest,
 } from './command-types';
-import { confirmNativeCommand } from './native-command-execution';
+import {
+  assertNativeProjection,
+  confirmNativeCommand,
+  nativeLocalizationTarget,
+} from './native-command-execution';
+import { confirmProjectComments } from '@/project/project-comment-confirmation';
 import {
   authoringDependencyGraphService,
   isAuthoringDependencyGraphServiceStarted,
@@ -40,8 +60,15 @@ interface CommandStoreState {
   saveNativeUnitAsync: (
     saveUnitIds: string | string[],
     expectedProjectRevision: number,
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> },
-    onAcknowledged?: (result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult) => void,
+    options: {
+      keepMine?: boolean;
+      comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
+      textPaths?: string[];
+      textContents?: Record<string, string>;
+    },
+    onAcknowledged?: (
+      result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
+    ) => void,
   ) => Promise<CommandExecutionResult>;
   saveNativeTextAsync: (
     path: string,
@@ -80,6 +107,57 @@ function nativeOnlyResult(message: string): CommandExecutionResult {
   };
 }
 
+const nativeRecordFamilies = new Set([
+  'animations',
+  'archetypes',
+  'assets',
+  'characters',
+  'dialogues',
+  'interactables',
+  'interactions',
+  'layouts',
+  'maps',
+  'materials',
+  'rooms',
+  'scenes',
+  'scripts',
+  'tests',
+  'variables',
+  'verbs',
+]);
+
+/** Derive the physical YAML owner selection from the accepted generic patches,
+ * not the command name or a renderer-provided filesystem path. All owners
+ * commit in one native journal, including reference and editor metadata edits. */
+function nativeStructuralOwners(patches: readonly JsonPatchOperation[]): Record<string, string[]> {
+  const paths: Record<string, string[]> = {};
+  for (const patch of patches) {
+    const segments = parseJsonPointer(patch.path);
+    const family = segments[0];
+    let owner = 'project';
+    let relative = patch.path;
+    if (family === 'localization') {
+      const target = nativeLocalizationTarget(patch.path);
+      if (!target) throw new Error(`Unsupported native localization owner: ${patch.path}`);
+      owner = target.owner;
+      relative = target.relative;
+    } else if (family && nativeRecordFamilies.has(family) && segments.length >= 2) {
+      owner = `${family}/${segments[1]}`;
+      relative = segments.length === 2 ? '/' : buildJsonPointer(segments.slice(2));
+    } else if (family === 'editor' || family === 'traits') {
+      owner = family;
+      relative = segments.length === 1 ? '/' : buildJsonPointer(segments.slice(1));
+    }
+    (paths[owner] ??= []).push(relative);
+  }
+  return Object.fromEntries(
+    Object.entries(paths).map(([owner, values]) => [
+      owner,
+      values.includes('/') ? ['/'] : [...new Set(values)].sort(),
+    ]),
+  );
+}
+
 /** This is the asynchronous production command boundary, not speculative
  * publication followed by an optional worker check. A candidate command,
  * undo or redo remains invisible until native acceptance and value parity. */
@@ -102,6 +180,91 @@ async function submitNativeCommand(
   if (state.nativeMutationPending || state.nativeMutationFailure)
     return nativeOnlyResult(state.nativeMutationFailure || 'A native Project command is pending.');
   if (!proposal.ok || !proposal.projectChanged) return proposal;
+  let effectiveProposal = proposal;
+  let plan = proposal.historyEntry?.autoCommitPlan;
+  const convertToManual = (reason: string): boolean => {
+    if (
+      kind !== 'command' ||
+      plan?.unsafeRebasePolicy !== 'convert-to-manual-save' ||
+      !effectiveProposal.historyEntry
+    )
+      return false;
+    const entry = {
+      ...effectiveProposal.historyEntry,
+      persistencePolicy: 'manual-save' as const,
+      autoCommitPlan: undefined,
+    };
+    effectiveProposal = {
+      ...effectiveProposal,
+      historyEntry: entry,
+      diagnostics: [
+        ...effectiveProposal.diagnostics,
+        {
+          severity: 'warning' as const,
+          message: `Native auto-commit converted to manual Save: ${reason}`,
+        },
+      ],
+      state: {
+        ...effectiveProposal.state,
+        history: {
+          ...effectiveProposal.state.history,
+          entries: effectiveProposal.state.history.entries.map((candidate) =>
+            candidate.id === entry.id ? entry : candidate,
+          ),
+        },
+      },
+    };
+    plan = undefined;
+    return true;
+  };
+  if (
+    plan?.filesystemOperations.some(
+      (operation) => operation.kind !== 'preexisting-project-assets',
+    ) &&
+    !convertToManual('Associated asset files require an atomic native file move.')
+  )
+    return nativeOnlyResult(
+      'Native structural Save cannot yet atomically journal associated asset file moves.',
+    );
+  let savedBaseline: JsonValue | null = null;
+  if (plan) {
+    if (!project.savedDocument)
+      return nativeOnlyResult('Native structural Save requires a saved Project baseline.');
+    // Whole-owner structural Saves must not silently persist earlier manual
+    // edits in the same record. Preserve the owner's saved baseline rather
+    // than letting an auto-commit absorb an unrelated dirty buffer.
+    let overlap: string | null = null;
+    for (const patch of patches) {
+      const full = patch.path.endsWith('/-') ? patch.path.slice(0, -2) : patch.path;
+      const workingHas = hasJsonAtPointer(project.document!, full);
+      const savedHas = hasJsonAtPointer(project.savedDocument, full);
+      if (
+        workingHas !== savedHas ||
+        (workingHas &&
+          !jsonValuesEqual(
+            getJsonAtPointer(project.document!, full),
+            getJsonAtPointer(project.savedDocument, full),
+          ))
+      )
+        overlap = full;
+    }
+    if (overlap && !convertToManual(`Overlapping unsaved edits at ${overlap}`))
+      return nativeOnlyResult(
+        `Native structural auto-commit overlaps unsaved edits at ${overlap}.`,
+      );
+  }
+  if (plan) {
+    try {
+      savedBaseline = applyJsonPatch(
+        project.savedDocument,
+        kind === 'undo' ? plan.inverseBaselinePatches : plan.forwardBaselinePatches,
+      ).document;
+    } catch (error) {
+      return nativeOnlyResult(
+        error instanceof Error ? error.message : 'Native baseline cannot be updated.',
+      );
+    }
+  }
   const generation = project.projectRevision;
   const instanceId = project.projectInstanceId;
   const historyAtSubmission = state.history;
@@ -109,12 +272,74 @@ async function submitNativeCommand(
   try {
     const confirmed = await confirmNativeCommand(
       busStateFromStores(state.history),
-      proposal,
+      effectiveProposal,
       patches,
       projectSessionId,
       revision,
       (sessionId, expected, next) => window.noveltea.nativeProjectPatch(sessionId, expected, next),
     );
+    // A rejected generic patch did not stage a structural change. In
+    // particular, it must never fall through to the physical Save attempt.
+    if (!confirmed.result.ok || !confirmed.result.projectChanged) {
+      useCommandStore.setState({
+        nativeMutationPending: false,
+        lastDiagnostics: confirmed.result.diagnostics,
+      });
+      return confirmed.result;
+    }
+    let workingRevision = confirmed.workingRevision;
+    if (plan) {
+      const structuralPathsByOwner = nativeStructuralOwners(patches);
+      if (!Object.keys(structuralPathsByOwner).length)
+        throw new Error('Native structural Save has no changed YAML owners.');
+      let saved = await window.noveltea.nativeProjectSaveUnit(
+        projectSessionId,
+        workingRevision,
+        [],
+        { structuralPathsByOwner, comments: 'keep' },
+      );
+      if (!saved.accepted && saved.commentImpacts?.length) {
+        const decision = await confirmProjectComments(saved.commentImpacts, plan.commandType);
+        if (decision === 'delete')
+          saved = await window.noveltea.nativeProjectSaveUnit(
+            projectSessionId,
+            workingRevision,
+            [],
+            { structuralPathsByOwner, comments: 'remove' },
+          );
+        else if (decision !== 'cancel')
+          throw new Error('Native structural comment approval returned an invalid decision.');
+      }
+      if (!saved.accepted) {
+        // The YAML journal left the disk unchanged. Restore the native working
+        // candidate before returning a normal command failure; never publish
+        // a candidate whose physical auto-commit was rejected.
+        const entry = effectiveProposal.historyEntry;
+        const inverse = kind === 'undo' ? entry?.patches : entry?.inversePatches;
+        if (!inverse?.length)
+          throw new Error('Rejected native structural Save lacks a rollback patch.');
+        const restored = await window.noveltea.nativeProjectPatch(
+          projectSessionId,
+          workingRevision,
+          [...inverse],
+        );
+        if (!restored.accepted)
+          throw new Error(
+            `Native structural Save and rollback failed: ${saved.error}; ${restored.error}`,
+          );
+        assertNativeProjection(project.document!, inverse, restored);
+        useCommandStore.setState({
+          nativeWorkingRevision: restored.snapshot.workingRevision,
+          nativeMutationPending: false,
+          lastDiagnostics: [
+            { severity: 'error', message: saved.error || 'Native structural Save rejected.' },
+          ],
+        });
+        return nativeOnlyResult(saved.error || 'Native structural Save rejected.');
+      }
+      assertNativeProjection(effectiveProposal.document!, patches, saved);
+      workingRevision = saved.snapshot.workingRevision;
+    }
     const current = useProjectStore.getState();
     if (
       current.projectSessionId !== projectSessionId ||
@@ -128,9 +353,36 @@ async function submitNativeCommand(
       );
     if (confirmed.result.projectChanged && !applyBusResult(confirmed.result, kind))
       throw new Error('Native Project accepted a change that the editor cannot publish.');
+    if (savedBaseline) {
+      const remaps =
+        kind === 'undo'
+          ? plan!.identityRemap.map(({ fromPath, toPath, fromSaveUnitId, toSaveUnitId }) => ({
+              fromPath: toPath,
+              toPath: fromPath,
+              fromSaveUnitId: toSaveUnitId,
+              toSaveUnitId: fromSaveUnitId,
+            }))
+          : plan!.identityRemap;
+      const scriptSourcePaths = { ...project.scriptSourcePaths };
+      for (const remap of remaps) {
+        const from = remap.fromPath.match(/^\/scripts\/([a-z][a-z0-9-]*)$/u)?.[1];
+        const to = remap.toPath.match(/^\/scripts\/([a-z][a-z0-9-]*)$/u)?.[1];
+        if (!from || !to || !scriptSourcePaths[from]) continue;
+        scriptSourcePaths[to] = scriptSourcePaths[from];
+        delete scriptSourcePaths[from];
+      }
+      useProjectStore.getState().markSaved({ document: savedBaseline, scriptSourcePaths });
+      if (remaps.length || plan!.discardRecoverySaveUnitIds.length) {
+        const editorState = buildEditorProjectStateSnapshot();
+        const recovery = remapRecoveryForAutoCommit(editorState.recovery, remaps);
+        for (const id of kind === 'undo' ? [] : plan!.discardRecoverySaveUnitIds)
+          delete recovery.saveUnitsById[id];
+        setLoadedEditorProjectState({ ...editorState, recovery });
+      }
+    }
     useCommandStore.setState({
       history: confirmed.result.state.history,
-      nativeWorkingRevision: confirmed.workingRevision,
+      nativeWorkingRevision: workingRevision,
       nativeProjectionRevision: useProjectStore.getState().projectRevision,
       nativeMutationPending: false,
       lastDiagnostics: confirmed.result.diagnostics,
@@ -436,11 +688,12 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       return get().executeCommand(request);
     }
     return queueNativeCommand(() => {
-      if (get().nativeMutationFailure) return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      if (get().nativeMutationFailure)
+        return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
       if (get().history.activeTransaction)
-        return Promise.resolve(nativeOnlyResult('Native Project transactions require asynchronous commit support.'));
-      if (request.persistencePolicy !== 'manual-save')
-        return Promise.resolve(nativeOnlyResult('Native auto-commit is unavailable until native Save is active.'));
+        return Promise.resolve(
+          nativeOnlyResult('Native Project transactions require asynchronous commit support.'),
+        );
       const proposal = executeCommandCore(busStateFromStores(get().history), request);
       return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
     });
@@ -467,7 +720,10 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       set({ nativeMutationPending: true });
       try {
         const saved = await window.noveltea.nativeProjectSaveUnit(
-          session, revision, saveUnitIds, options,
+          session,
+          revision,
+          saveUnitIds,
+          options,
         );
         const current = useProjectStore.getState();
         if (
@@ -519,15 +775,22 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       const revision = state.nativeWorkingRevision;
       if (state.nativeMutationFailure) return nativeOnlyResult(state.nativeMutationFailure);
       if (
-        revision === null || !session || !instance ||
+        revision === null ||
+        !session ||
+        !instance ||
         state.nativeProjectSessionId !== session ||
         state.nativeProjectionRevision !== project.projectRevision ||
         project.projectRevision !== expectedProjectRevision
-      ) return nativeOnlyResult('Project changed before its native source Save could begin.');
+      )
+        return nativeOnlyResult('Project changed before its native source Save could begin.');
       set({ nativeMutationPending: true });
       try {
         const saved = await window.noveltea.nativeProjectSaveText(
-          session, revision, path, diskRevision, text,
+          session,
+          revision,
+          path,
+          diskRevision,
+          text,
         );
         const current = useProjectStore.getState();
         if (
@@ -535,7 +798,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           current.projectInstanceId !== instance ||
           current.projectRevision !== expectedProjectRevision ||
           get().nativeWorkingRevision !== revision
-        ) throw new Error('Native text Save completed after the Project changed.');
+        )
+          throw new Error('Native text Save completed after the Project changed.');
         if (saved.snapshot.workingRevision < revision)
           throw new Error('Native text Save acknowledged a stale revision.');
         if (saved.accepted && !saved.textSourceDiskRevisions?.[path])
@@ -543,9 +807,9 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         set({
           nativeWorkingRevision: saved.snapshot.workingRevision,
           nativeMutationPending: false,
-          lastDiagnostics: saved.accepted ? [] : [
-            { severity: 'error', message: saved.error || 'Native source Save refused.' },
-          ],
+          lastDiagnostics: saved.accepted
+            ? []
+            : [{ severity: 'error', message: saved.error || 'Native source Save refused.' }],
         });
         if (!saved.accepted) return nativeOnlyResult(saved.error || 'Native source Save refused.');
         return {
@@ -585,15 +849,22 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       const revision = state.nativeWorkingRevision;
       if (state.nativeMutationFailure) return nativeOnlyResult(state.nativeMutationFailure);
       if (
-        revision === null || !session || !instance ||
+        revision === null ||
+        !session ||
+        !instance ||
         state.nativeProjectSessionId !== session ||
         state.nativeProjectionRevision !== project.projectRevision ||
         expectedProjectRevision !== project.projectRevision
-      ) return nativeOnlyResult('Native Project changed before source staging began.');
+      )
+        return nativeOnlyResult('Native Project changed before source staging began.');
       set({ nativeMutationPending: true });
       try {
         const staged = await window.noveltea.nativeProjectStageText(
-          session, revision, path, diskRevision, text,
+          session,
+          revision,
+          path,
+          diskRevision,
+          text,
         );
         const current = useProjectStore.getState();
         if (
@@ -601,7 +872,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           current.projectInstanceId !== instance ||
           current.projectRevision !== expectedProjectRevision ||
           get().nativeWorkingRevision !== revision
-        ) throw new Error('Native source stage completed after the Project changed.');
+        )
+          throw new Error('Native source stage completed after the Project changed.');
         if (staged.snapshot.workingRevision < revision)
           throw new Error('Native source stage acknowledged an old working revision.');
         if (staged.accepted && staged.textSourceStaged === undefined)
@@ -609,9 +881,9 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         set({
           nativeMutationPending: false,
           nativeWorkingRevision: staged.snapshot.workingRevision,
-          lastDiagnostics: staged.accepted ? [] : [
-            { severity: 'error', message: staged.error || 'Native source stage rejected.' },
-          ],
+          lastDiagnostics: staged.accepted
+            ? []
+            : [{ severity: 'error', message: staged.error || 'Native source stage rejected.' }],
         });
         return staged.accepted
           ? { ok: true, projectChanged: false, diagnostics: [] }
@@ -665,8 +937,6 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
       if (get().history.activeTransaction)
         return Promise.resolve(nativeOnlyResult('Another Project transaction is active.'));
-      if (transaction.persistencePolicy !== 'manual-save')
-        return Promise.resolve(nativeOnlyResult('Native auto-commit is unavailable until native Save is active.'));
       const initial = busStateFromStores(get().history);
       let working = beginTransactionCore(initial, transaction);
       if (!working.history.activeTransaction)
@@ -684,20 +954,18 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   undoAsync: async () => {
     if (get().nativeWorkingRevision === null) return get().undo();
     return queueNativeCommand(() => {
-      if (get().nativeMutationFailure) return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      if (get().nativeMutationFailure)
+        return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
       const proposal = undoCommandCore(busStateFromStores(get().history));
-      if (proposal.historyEntry?.autoCommitPlan)
-        return Promise.resolve(nativeOnlyResult('Native undo of auto-committed commands requires native Save.'));
       return submitNativeCommand(proposal, proposal.historyEntry?.inversePatches ?? [], 'undo');
     });
   },
   redoAsync: async () => {
     if (get().nativeWorkingRevision === null) return get().redo();
     return queueNativeCommand(() => {
-      if (get().nativeMutationFailure) return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      if (get().nativeMutationFailure)
+        return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
       const proposal = redoCommandCore(busStateFromStores(get().history));
-      if (proposal.historyEntry?.autoCommitPlan)
-        return Promise.resolve(nativeOnlyResult('Native redo of auto-committed commands requires native Save.'));
       return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'redo');
     });
   },

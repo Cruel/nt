@@ -51,6 +51,128 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('saves generic localization and manifest patches through their real physical owners', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-localization-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    );
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('native-localization-save');
+    const id = '25700000-0000-4000-8000-000000000001';
+    const localizedPath = `/localization/messages/${id}/source`;
+    const source = 'Greetings, {name}!';
+    const manifestPath = path.join(root, 'project.yaml');
+    const messagePath = path.join(root, 'i18n/messages.yaml');
+    const beforeManifest = await readFile(manifestPath, 'utf8');
+    const beforeMessages = await readFile(messagePath, 'utf8');
+    const patch = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: '/project/name', value: 'Native localized Save' },
+      { op: 'replace', path: localizedPath, value: source },
+    ]);
+    expect(patch).toMatchObject({
+      accepted: true,
+      affectedRecords: ['i18n/messages.yaml', 'project'],
+    });
+    expect(await readFile(manifestPath, 'utf8')).toBe(beforeManifest);
+    expect(await readFile(messagePath, 'utf8')).toBe(beforeMessages);
+    const saved = await working.saveOwners(['i18n/messages.yaml', 'project'], {
+      pathsByOwner: {
+        'i18n/messages.yaml': [`/messages/${id}/source`],
+        project: ['/project/name'],
+      },
+    });
+    expect(saved).toMatchObject({
+      accepted: true,
+      affectedRecords: ['i18n/messages.yaml', 'project'],
+    });
+    expect(await readFile(manifestPath, 'utf8')).toContain('Native localized Save');
+    expect(await readFile(messagePath, 'utf8')).toContain(source);
+    await working.reopenAndReplay('native-localization-save');
+    expect(working.snapshot()?.source).toMatchObject({
+      project: { name: 'Native localized Save' },
+    });
+    expect(
+      (await working.inspectRecord('i18n/messages.yaml')).snapshot.recordSnapshots?.[
+        'i18n/messages.yaml'
+      ]?.source,
+    ).toMatchObject({ messages: { [id]: { source } } });
+  }, 120_000);
+  it('replays, discards, and atomically saves persisted-record deletion with exact source CAS', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const id = 'native-deletion-probe';
+    const createdOwner = `rooms/${id}`;
+    const createdPath = path.join(root, `records/rooms/${id}.yaml`);
+    const source = working.snapshot()!.recordSnapshots![owner]!.source as Record<string, unknown>;
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'add', path: `/rooms/${id}`, value: { ...source, id } },
+        ])
+      ).accepted,
+    ).toBe(true);
+    expect((await working.saveOwners([createdOwner])).accepted).toBe(true);
+    const originalSource = await readFile(createdPath, 'utf8');
+
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'remove', path: `/rooms/${id}` },
+        ])
+      ).accepted,
+    ).toBe(true);
+    expect(working.snapshot()?.recordSnapshots?.[createdOwner]).toBeUndefined();
+    expect(await readFile(createdPath, 'utf8')).toBe(originalSource);
+    await working.reopenAndReplay('native-reconcile-test');
+    expect(working.snapshot()?.recordSnapshots?.[createdOwner]).toBeUndefined();
+    expect((await working.useDiskUnit(`record:rooms:${id}`)).accepted).toBe(true);
+    expect(working.snapshot()?.recordSnapshots?.[createdOwner]?.source).toMatchObject({ id });
+
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'remove', path: `/rooms/${id}` },
+        ])
+      ).accepted,
+    ).toBe(true);
+    const committed = await working.saveOwners([createdOwner], { comments: 'remove' });
+    expect(committed).toMatchObject({ accepted: true, affectedRecords: [createdOwner] });
+    await expect(readFile(createdPath)).rejects.toThrow();
+    expect(working.snapshot()?.recordSnapshots?.[createdOwner]).toBeUndefined();
+    await working.reopenAndReplay('native-reconcile-test');
+    expect(working.snapshot()?.recordSnapshots?.[createdOwner]).toBeUndefined();
+
+    const staleId = 'native-deletion-conflict';
+    const staleOwner = `rooms/${staleId}`;
+    const stalePath = path.join(root, `records/rooms/${staleId}.yaml`);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'add', path: `/rooms/${staleId}`, value: { ...source, id: staleId } },
+        ])
+      ).accepted,
+    ).toBe(true);
+    expect((await working.saveOwners([staleOwner])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'remove', path: `/rooms/${staleId}` },
+        ])
+      ).accepted,
+    ).toBe(true);
+    await writeFile(stalePath, (await readFile(stalePath, 'utf8')) + '# external update\n');
+    expect((await working.saveOwners([staleOwner], { comments: 'remove' })).accepted).toBe(false);
+    expect(await readFile(stalePath, 'utf8')).toContain('external update');
+  }, 120_000);
   it('commits YAML and staged RML atomically and refuses a conflicting mixed transaction', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-mixed-transaction-'));
     await cp(fixture, root, { recursive: true });
@@ -72,34 +194,52 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const textFile = path.join(root, textPath);
     const initialText = await readFile(textFile, 'utf8');
     const newLabel = 'Mixed native YAML commit';
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'replace', path: `/rooms/${roomId}/label`, value: newLabel },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'replace', path: `/rooms/${roomId}/label`, value: newLabel },
+        ])
+      ).accepted,
+    ).toBe(true);
     const firstText = `${initialText}\n<!-- mixed native -->\n`;
-    expect((await working.stageTextSource(textPath, firstText)).accepted)
-      .toBe(true);
-    await expect(working.saveOwners([room], {
-      textPaths: [textPath], textContents: { [textPath]: 'unacknowledged bytes' },
-    })).rejects.toThrow('changed before mixed Save');
+    expect((await working.stageTextSource(textPath, firstText)).accepted).toBe(true);
+    await expect(
+      working.saveOwners([room], {
+        textPaths: [textPath],
+        textContents: { [textPath]: 'unacknowledged bytes' },
+      }),
+    ).rejects.toThrow('changed before mixed Save');
     const result = await working.saveOwners([room], {
-      textPaths: [textPath], textContents: { [textPath]: firstText },
+      textPaths: [textPath],
+      textContents: { [textPath]: firstText },
     });
-    expect(result).toMatchObject({ accepted: true, textSourceDiskRevisions: {
-      [textPath]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-    } });
+    expect(result).toMatchObject({
+      accepted: true,
+      textSourceDiskRevisions: {
+        [textPath]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      },
+    });
     expect(await readFile(yamlPath, 'utf8')).toContain(newLabel);
     expect(await readFile(textFile, 'utf8')).toContain('mixed native');
 
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'replace', path: `/rooms/${roomId}/label`, value: 'Must not persist' },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'replace', path: `/rooms/${roomId}/label`, value: 'Must not persist' },
+        ])
+      ).accepted,
+    ).toBe(true);
     const secondText = `${initialText}\n<!-- pending -->\n`;
-    expect((await working.stageTextSource(textPath, secondText)).accepted)
-      .toBe(true);
+    expect((await working.stageTextSource(textPath, secondText)).accepted).toBe(true);
     await writeFile(textFile, `${initialText}\n<!-- external change -->\n`);
-    expect((await working.saveOwners([room], {
-      textPaths: [textPath], textContents: { [textPath]: secondText },
-    })).accepted).toBe(false);
+    expect(
+      (
+        await working.saveOwners([room], {
+          textPaths: [textPath],
+          textContents: { [textPath]: secondText },
+        })
+      ).accepted,
+    ).toBe(false);
     expect(await readFile(yamlPath, 'utf8')).toContain(newLabel);
     expect(await readFile(textFile, 'utf8')).toContain('external change');
     expect(await readFile(yamlPath, 'utf8')).not.toBe(initialYaml);
@@ -137,33 +277,52 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(await readFile(path.join(root, roomRelative), 'utf8')).toBe(existing);
 
     const abandonedId = 'cancelled-before-save';
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'add', path: `/rooms/${abandonedId}`, value: { ...candidate, id: abandonedId } },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'add', path: `/rooms/${abandonedId}`, value: { ...candidate, id: abandonedId } },
+        ])
+      ).accepted,
+    ).toBe(true);
     const cancelled = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
       { op: 'remove', path: `/rooms/${abandonedId}` },
     ]);
     expect(cancelled).toMatchObject({ accepted: true, affectedRecords: [`rooms/${abandonedId}`] });
     expect(working.snapshot()?.recordSnapshots?.[`rooms/${abandonedId}`]).toBeUndefined();
     const survivingId = 'surviving-new-record';
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'add', path: `/rooms/${survivingId}`, value: { ...candidate, id: survivingId } },
-    ])).accepted).toBe(true);
-    expect((await working.reopenAndReplay('native-reconcile-test')).recordSnapshots?.[`rooms/${abandonedId}`])
-      .toBeUndefined();
-    expect(working.snapshot()?.recordSnapshots?.[`rooms/${survivingId}`]?.source)
-      .toMatchObject({ id: survivingId });
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'add', path: `/rooms/${survivingId}`, value: { ...candidate, id: survivingId } },
+        ])
+      ).accepted,
+    ).toBe(true);
+    expect(
+      (await working.reopenAndReplay('native-reconcile-test')).recordSnapshots?.[
+        `rooms/${abandonedId}`
+      ],
+    ).toBeUndefined();
+    expect(working.snapshot()?.recordSnapshots?.[`rooms/${survivingId}`]?.source).toMatchObject({
+      id: survivingId,
+    });
     const discarded = await working.useDiskUnit(`record:rooms:${survivingId}`);
     expect(discarded).toMatchObject({ accepted: true });
     expect(working.snapshot()?.recordSnapshots?.[`rooms/${survivingId}`]).toBeUndefined();
-    expect((await working.reopenAndReplay('native-reconcile-test')).recordSnapshots?.[`rooms/${survivingId}`])
-      .toBeUndefined();
+    expect(
+      (await working.reopenAndReplay('native-reconcile-test')).recordSnapshots?.[
+        `rooms/${survivingId}`
+      ],
+    ).toBeUndefined();
     await expect(readFile(path.join(root, `records/rooms/${abandonedId}.yaml`))).rejects.toThrow();
 
     const colliding = { ...candidate, id: 'taken-externally' };
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'add', path: '/rooms/taken-externally', value: colliding },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'add', path: '/rooms/taken-externally', value: colliding },
+        ])
+      ).accepted,
+    ).toBe(true);
     const collisionFile = path.join(root, 'records/rooms/taken-externally.yaml');
     await writeFile(collisionFile, 'id: taken-externally\nlabel: Disk owns this file\n');
     expect((await working.saveOwners(['rooms/taken-externally'])).accepted).toBe(false);

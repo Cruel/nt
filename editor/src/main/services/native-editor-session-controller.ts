@@ -1,3 +1,7 @@
+import { constants } from 'node:fs';
+import { open, realpath } from 'node:fs/promises';
+import path from 'node:path';
+import { yamlCommentImpacts } from '../../shared/project-workspace/yaml-comment-impact';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { canonicalProjectPersistenceContentJson } from '../../shared/project-schema/editor-project-state';
 import { projectFromNativeCompletePreparation } from './native-authoring-runtime-preparation';
@@ -41,8 +45,16 @@ export class NativeEditorSessionController {
     private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'>,
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
-      'open' | 'prepareCompleteWorking' | 'applyRevisionedPatches' | 'saveUnits' |
-      'stageTextSource' | 'saveTextSources' | 'snapshot' | 'reconcile' | 'useDiskUnit'
+      | 'open'
+      | 'prepareCompleteWorking'
+      | 'applyRevisionedPatches'
+      | 'saveUnits'
+      | 'saveOwners'
+      | 'stageTextSource'
+      | 'saveTextSources'
+      | 'snapshot'
+      | 'reconcile'
+      | 'useDiskUnit'
     >,
   ) {
     this.unsubscribeFailure = bridge.onFailure(() => this.close());
@@ -122,7 +134,13 @@ export class NativeEditorSessionController {
     projectSessionId: string,
     expectedRevision: number,
     saveUnitIds: string | readonly string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> },
+    options: {
+      keepMine?: boolean;
+      comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
+      textPaths?: string[];
+      textContents?: Record<string, string>;
+      structuralPathsByOwner?: Record<string, string[]>;
+    },
   ) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
@@ -130,13 +148,63 @@ export class NativeEditorSessionController {
     this.authority.requireActiveProjectRoot(projectSessionId);
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native Project Save revision.');
-    const result = await this.working.saveUnits(
-      typeof saveUnitIds === 'string' ? [saveUnitIds] : saveUnitIds,
-      options,
-      expectedRevision,
-    );
+    const result = options.structuralPathsByOwner
+      ? await this.working.saveOwners(Object.keys(options.structuralPathsByOwner).sort(), {
+          pathsByOwner: options.structuralPathsByOwner,
+          comments: options.comments,
+          keepMine: options.keepMine,
+          expectedRevision,
+        })
+      : await this.working.saveUnits(
+          typeof saveUnitIds === 'string' ? [saveUnitIds] : saveUnitIds,
+          options,
+          expectedRevision,
+        );
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project Save completed for a superseded session.');
+    if (
+      options.structuralPathsByOwner &&
+      !result.accepted &&
+      result.error.includes('Deleting commented records requires explicit Remove Comments approval')
+    ) {
+      const root = this.authority.requireActiveProjectRoot(projectSessionId);
+      const canonicalRoot = await realpath(root);
+      const impacts = [] as Array<{ file: string; path: string; comment: string; kind: 'deleted' }>;
+      for (const [owner, fields] of Object.entries(options.structuralPathsByOwner)) {
+        const match = /^([a-z]+)\/([a-z][a-z0-9-]*)$/u.exec(owner);
+        if (!match || !fields.includes('/')) continue;
+        const relative =
+          match[1] === 'layouts'
+            ? `records/layouts/${match[2]}/layout.yaml`
+            : `records/${match[1]}/${match[2]}.yaml`;
+        const canonical = await realpath(path.join(root, relative));
+        const inside = path.relative(canonicalRoot, canonical);
+        if (
+          !inside ||
+          inside === '..' ||
+          inside.startsWith(`..${path.sep}`) ||
+          path.isAbsolute(inside)
+        )
+          throw new Error('Native structural comment source escaped the active Project.');
+        const file = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
+        let source: string;
+        try {
+          source = await file.readFile('utf8');
+        } finally {
+          await file.close();
+        }
+        for (const impact of yamlCommentImpacts(source)) {
+          if (impact.kind !== 'deleted') continue;
+          impacts.push({
+            file: relative,
+            path: impact.path,
+            comment: impact.comment,
+            kind: 'deleted',
+          });
+        }
+      }
+      return { ...result, commentImpacts: impacts.slice(0, 256) };
+    }
     return result;
   }
 
@@ -226,7 +294,8 @@ export class NativeEditorSessionController {
       generation !== this.generation ||
       !this.isAdmitted(projectSessionId) ||
       this.working.snapshot()?.workingRevision !== expectedRevision
-    ) throw new Error('Native Project validation was superseded by another edit or Project.');
+    )
+      throw new Error('Native Project validation was superseded by another edit or Project.');
     const diagnostics = prepared.diagnostics.map((diagnostic) => ({
       code: diagnostic.code,
       severity: diagnostic.severity,
@@ -247,8 +316,8 @@ export class NativeEditorSessionController {
     }
     return {
       ok: true,
-      success: prepared.accepted &&
-        !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+      success:
+        prepared.accepted && !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
       diagnostics,
     };
   }
@@ -315,7 +384,8 @@ export class NativeEditorSessionController {
       generation !== this.generation ||
       !this.isAdmitted(projectSessionId) ||
       this.working.snapshot()?.workingRevision !== expectedRevision
-    ) throw new Error('Native runtime preparation was superseded during publication.');
+    )
+      throw new Error('Native runtime preparation was superseded during publication.');
     return {
       status: 'prepared',
       artifact,
@@ -346,7 +416,8 @@ export class NativeEditorSessionController {
         generation !== this.generation ||
         !this.isAdmitted(projectSessionId) ||
         this.working.snapshot()?.workingRevision !== expectedRevision
-      ) throw new Error('Native Test preparation was superseded.');
+      )
+        throw new Error('Native Test preparation was superseded.');
       if (result.status === 'blocked')
         return {
           ok: false,
@@ -364,9 +435,14 @@ export class NativeEditorSessionController {
         generation !== this.generation ||
         !this.isAdmitted(projectSessionId) ||
         this.working.snapshot()?.workingRevision !== expectedRevision
-      ) throw new Error('Native Test result was superseded by a Project edit.');
-      if (!outcome || typeof outcome !== 'object' || !('ok' in outcome) ||
-          typeof outcome.ok !== 'boolean')
+      )
+        throw new Error('Native Test result was superseded by a Project edit.');
+      if (
+        !outcome ||
+        typeof outcome !== 'object' ||
+        !('ok' in outcome) ||
+        typeof outcome.ok !== 'boolean'
+      )
         throw new Error('Native Test runner returned an invalid response.');
       return outcome as PlaybackReportResponse;
     } finally {
@@ -395,7 +471,8 @@ export class NativeEditorSessionController {
         generation !== this.generation ||
         !this.isAdmitted(projectSessionId) ||
         this.working.snapshot()?.workingRevision !== expectedRevision
-      ) throw new Error('Native Test suite preparation was superseded.');
+      )
+        throw new Error('Native Test suite preparation was superseded.');
       if (result.status === 'blocked')
         return {
           ok: false,
@@ -419,9 +496,14 @@ export class NativeEditorSessionController {
         generation !== this.generation ||
         !this.isAdmitted(projectSessionId) ||
         this.working.snapshot()?.workingRevision !== expectedRevision
-      ) throw new Error('Native Test-suite result was superseded by a Project edit.');
-      if (!outcome || typeof outcome !== 'object' || !('ok' in outcome) ||
-          typeof outcome.ok !== 'boolean')
+      )
+        throw new Error('Native Test-suite result was superseded by a Project edit.');
+      if (
+        !outcome ||
+        typeof outcome !== 'object' ||
+        !('ok' in outcome) ||
+        typeof outcome.ok !== 'boolean'
+      )
         throw new Error('Native Test-suite runner returned an invalid response.');
       return outcome as PlaybackReportResponse;
     } finally {

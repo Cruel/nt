@@ -1,10 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { useProjectStore } from '../project/project-store';
-import { toJsonValue } from '../project/json-value';
+import { toJsonValue, type JsonValue } from '../project/json-value';
+import { applyJsonPatch } from '../project/json-patch';
+import { getJsonAtPointer, hasJsonAtPointer } from '../project/json-pointer';
 import { useCommandStore } from '../commands/command-store';
-import { confirmNativeCommand } from '../commands/native-command-execution';
+import {
+  confirmNativeCommand,
+  nativeLocalizationTarget,
+} from '../commands/native-command-execution';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
+import { resolveProjectComments } from '../project/project-comment-confirmation';
+import {
+  authoringDependencyGraphService,
+  startAuthoringDependencyGraphService,
+} from '../project/authoring-dependency-graph-runtime';
 
 const sessionId = '5b33af83-d804-444c-b0dc-e8f10e4d03a0';
 const newSessionId = 'ed60bb33-e19e-4569-bf3c-08ab72bef3c4';
@@ -58,6 +68,278 @@ function nativeAck(name: string, revision: number, accepted = true) {
 }
 
 describe('native-backed renderer commands', () => {
+  it('auto-commits structural creation, undo, and redo only after a native scoped Save', async () => {
+    const createdId = 'native-structural-room';
+    let nativeDocument: JsonValue = useProjectStore.getState().document!;
+    let nativeRevision = 0;
+    let requireDeleteCommentApproval = false;
+    let lastAffected: string[] = [];
+    const ack = () => ({
+      ...nativeAck('Saved Project', nativeRevision),
+      snapshot: {
+        ...nativeAck('Saved Project', nativeRevision).snapshot,
+        source: nativeDocument,
+        recordSnapshots: Object.fromEntries(
+          lastAffected.flatMap((owner) =>
+            owner === 'i18n/messages.yaml'
+              ? [
+                  [
+                    owner,
+                    {
+                      source: {
+                        messages: getJsonAtPointer(nativeDocument, '/localization/messages'),
+                        structuredMessageIds: getJsonAtPointer(
+                          nativeDocument,
+                          '/localization/structuredMessageIds',
+                        ),
+                      },
+                      diskSourceRevision: 'sha256:' + '1'.repeat(64),
+                      dirty: true,
+                    },
+                  ],
+                ]
+              : owner !== 'project' && hasJsonAtPointer(nativeDocument, `/${owner}`)
+                ? [
+                    [
+                      owner,
+                      {
+                        source: getJsonAtPointer(nativeDocument, `/${owner}`),
+                        diskSourceRevision: 'sha256:' + '1'.repeat(64),
+                        dirty: true,
+                      },
+                    ],
+                  ]
+                : [],
+          ),
+        ),
+      },
+      affectedRecords: [...lastAffected],
+    });
+    const patch = vi.fn(
+      async (_session: string, expected: number, patches: Parameters<typeof applyJsonPatch>[1]) => {
+        expect(expected).toBe(nativeRevision);
+        nativeDocument = applyJsonPatch(nativeDocument, patches).document;
+        nativeRevision++;
+        lastAffected = [
+          ...new Set(
+            patches.map(({ path }) => {
+              const parts = path.split('/');
+              if (parts[1] === 'localization')
+                return nativeLocalizationTarget(path)?.owner ?? 'project';
+              return parts[1] === 'editor'
+                ? 'editor'
+                : ['rooms', 'variables', 'assets'].includes(parts[1]!)
+                  ? `${parts[1]}/${parts[2]}`
+                  : 'project';
+            }),
+          ),
+        ].sort();
+        return ack();
+      },
+    );
+    const save = vi.fn(
+      async (
+        _session: string,
+        expected: number,
+        ids: string[],
+        options: {
+          structuralPathsByOwner?: Record<string, string[]>;
+          comments?: string;
+        },
+      ) => {
+        expect(expected).toBe(nativeRevision);
+        expect(ids).toEqual([]);
+        expect(
+          Object.entries(options.structuralPathsByOwner ?? {}).some(
+            ([owner, paths]) => owner.startsWith('rooms/') && paths.includes('/'),
+          ),
+        ).toBe(true);
+        if (requireDeleteCommentApproval && options.comments === 'keep')
+          return {
+            ...ack(),
+            accepted: false,
+            error: 'Deleting commented records requires explicit Remove Comments approval.',
+            commentImpacts: [
+              {
+                file: `records/rooms/${createdId}.yaml`,
+                path: '/label',
+                comment: 'Review this note',
+                kind: 'deleted' as const,
+              },
+            ],
+          };
+        nativeRevision++;
+        return ack();
+      },
+    );
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: patch,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: save,
+    });
+    const created = await useCommandStore.getState().executeCommandAsync({
+      type: 'entity.createRecord',
+      label: 'Create native structural room',
+      payload: { collection: 'rooms', entityId: createdId, label: 'Native Structural Room' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(created.ok, JSON.stringify(created.diagnostics)).toBe(true);
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { [createdId]: { id: createdId } },
+    });
+    expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
+    expect(
+      (useProjectStore.getState().savedDocument as { rooms: Record<string, unknown> }).rooms[
+        createdId
+      ],
+    ).toBeUndefined();
+    expect((await useCommandStore.getState().redoAsync()).ok).toBe(true);
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { [createdId]: { id: createdId } },
+    });
+    expect(save).toHaveBeenCalledTimes(3);
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(6);
+    const stopGraph = startAuthoringDependencyGraphService();
+    try {
+      const publication = useProjectStore.getState().lastMutationPublication;
+      if (!publication) throw new Error('Native structural mutation omitted graph publication.');
+      await authoringDependencyGraphService.publish(publication);
+      const renamedId = 'renamed-native-structural-room';
+      const renamed = await useCommandStore.getState().executeCommandAsync({
+        type: 'entity.renameId',
+        label: 'Rename native room',
+        payload: { collection: 'rooms', fromId: createdId, toId: renamedId },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      });
+      expect(renamed.ok, JSON.stringify(renamed.diagnostics)).toBe(true);
+      expect(useProjectStore.getState().savedDocument).toMatchObject({
+        rooms: { [renamedId]: { id: renamedId } },
+      });
+      expect(
+        (useProjectStore.getState().savedDocument as { rooms: Record<string, unknown> }).rooms[
+          createdId
+        ],
+      ).toBeUndefined();
+      expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
+      expect(useProjectStore.getState().savedDocument).toMatchObject({
+        rooms: { [createdId]: { id: createdId } },
+      });
+      expect(save).toHaveBeenCalledTimes(5);
+      const postUndoPublication = useProjectStore.getState().lastMutationPublication;
+      if (!postUndoPublication)
+        throw new Error('Native undo omitted dependency graph publication.');
+      await authoringDependencyGraphService.publish(postUndoPublication);
+      requireDeleteCommentApproval = true;
+      const deleting = useCommandStore.getState().executeCommandAsync({
+        type: 'entity.deleteRecord',
+        label: 'Delete native room',
+        payload: { collection: 'rooms', entityId: createdId, force: true },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      });
+      let earlyResult: Awaited<typeof deleting> | undefined;
+      void deleting.then((result) => {
+        earlyResult = result;
+      });
+      await vi.waitFor(() =>
+        expect(save.mock.calls.length, JSON.stringify(earlyResult?.diagnostics)).toBe(6),
+      );
+      resolveProjectComments('delete');
+      expect((await deleting).ok).toBe(true);
+      expect(save).toHaveBeenCalledTimes(7);
+      expect(save.mock.calls[6]?.[3].comments).toBe('remove');
+      expect(
+        (useProjectStore.getState().savedDocument as { rooms: Record<string, unknown> }).rooms[
+          createdId
+        ],
+      ).toBeUndefined();
+    } finally {
+      stopGraph();
+    }
+  });
+  it('rolls back a rejected native structural Save without publishing document or history', async () => {
+    const id = 'rejected-native-room';
+    const initial = useProjectStore.getState().document!;
+    const saved = useProjectStore.getState().savedDocument;
+    let working: JsonValue = initial;
+    let revision = 0;
+    const patch = vi.fn(
+      async (_session: string, expected: number, patches: Parameters<typeof applyJsonPatch>[1]) => {
+        expect(expected).toBe(revision);
+        working = applyJsonPatch(working, patches).document;
+        revision++;
+        const recordOwner = `rooms/${id}`;
+        return {
+          ...nativeAck('Saved Project', revision),
+          affectedRecords: [recordOwner],
+          snapshot: {
+            ...nativeAck('Saved Project', revision).snapshot,
+            source: working,
+            recordSnapshots: hasJsonAtPointer(working, `/${recordOwner}`)
+              ? { [recordOwner]: { source: getJsonAtPointer(working, `/${recordOwner}`) } }
+              : {},
+          },
+        };
+      },
+    );
+    const save = vi.fn(async () => ({
+      ...nativeAck('Saved Project', 1, false),
+      error: 'WORKSPACE_REVISION_CONFLICT',
+    }));
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: patch,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: save,
+    });
+    const result = await useCommandStore.getState().executeCommandAsync({
+      type: 'entity.createRecord',
+      label: 'Create rejected native room',
+      payload: { collection: 'rooms', entityId: id, label: 'Rejection Test' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(result.ok).toBe(false);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(patch).toHaveBeenCalledTimes(2);
+    expect(working).toEqual(initial);
+    expect(useProjectStore.getState().document).toEqual(initial);
+    expect(useProjectStore.getState().savedDocument).toEqual(saved);
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(2);
+  });
+  it('does not attempt a structural Save after the native patch itself is rejected', async () => {
+    const patch = vi.fn(async () => nativeAck('Saved Project', 0, false));
+    const save = vi.fn();
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: patch,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: save,
+    });
+    const rejected = await useCommandStore.getState().executeCommandAsync({
+      type: 'entity.createRecord',
+      payload: { collection: 'rooms', entityId: 'native-patch-denied', label: 'Denied Room' },
+      originSaveUnitId: 'workflow:new-entity',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(rejected.ok).toBe(false);
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+    expect(useCommandStore.getState().nativeMutationPending).toBe(false);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
+  });
   it('stages dirty text through the serialized native queue without publishing Project edits', async () => {
     const stage = vi.fn().mockResolvedValue({
       ...nativeAck('Saved Project', 1),
@@ -65,15 +347,26 @@ describe('native-backed renderer commands', () => {
       textSourceDiskRevision: 'sha256:' + 'a'.repeat(64),
     });
     Object.defineProperty(window.noveltea, 'nativeProjectStageText', {
-      configurable: true, writable: true, value: stage,
+      configurable: true,
+      writable: true,
+      value: stage,
     });
     const revisionBefore = useProjectStore.getState().projectRevision;
-    const result = await useCommandStore.getState().stageNativeTextAsync(
-      'scripts/demo.lua', 'return 17', 'sha256:' + 'a'.repeat(64), revisionBefore,
-    );
+    const result = await useCommandStore
+      .getState()
+      .stageNativeTextAsync(
+        'scripts/demo.lua',
+        'return 17',
+        'sha256:' + 'a'.repeat(64),
+        revisionBefore,
+      );
     expect(result.ok).toBe(true);
     expect(stage).toHaveBeenCalledWith(
-      sessionId, 0, 'scripts/demo.lua', 'sha256:' + 'a'.repeat(64), 'return 17',
+      sessionId,
+      0,
+      'scripts/demo.lua',
+      'sha256:' + 'a'.repeat(64),
+      'return 17',
     );
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
     expect(useProjectStore.getState().projectRevision).toBe(revisionBefore);
@@ -83,7 +376,10 @@ describe('native-backed renderer commands', () => {
   it('queues text Save behind native editing and advances revision only on worker acknowledgment', async () => {
     let release!: (value: ReturnType<typeof nativeAck>) => void;
     vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
-      () => new Promise((resolve) => { release = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
     );
     const sourceRevision = 'sha256:' + 'f'.repeat(64);
     const nativeSaveText = vi.fn().mockResolvedValue({
@@ -91,20 +387,31 @@ describe('native-backed renderer commands', () => {
       textSourceDiskRevisions: { 'scripts/demo.lua': sourceRevision },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveText', {
-      configurable: true, writable: true, value: nativeSaveText,
+      configurable: true,
+      writable: true,
+      value: nativeSaveText,
     });
     const command = useCommandStore.getState().executeCommandAsync(request('Edited'));
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
     const expectedProjectRevision = useProjectStore.getState().projectRevision + 1;
-    const saving = useCommandStore.getState().saveNativeTextAsync(
-      'scripts/demo.lua', 'return true', 'sha256:' + 'a'.repeat(64), expectedProjectRevision,
-    );
+    const saving = useCommandStore
+      .getState()
+      .saveNativeTextAsync(
+        'scripts/demo.lua',
+        'return true',
+        'sha256:' + 'a'.repeat(64),
+        expectedProjectRevision,
+      );
     expect(nativeSaveText).not.toHaveBeenCalled();
     release(nativeAck('Edited', 1));
     expect((await command).ok).toBe(true);
     expect(await saving).toEqual({ ok: true, contentHash: sourceRevision });
     expect(nativeSaveText).toHaveBeenCalledWith(
-      sessionId, 1, 'scripts/demo.lua', 'sha256:' + 'a'.repeat(64), 'return true',
+      sessionId,
+      1,
+      'scripts/demo.lua',
+      'sha256:' + 'a'.repeat(64),
+      'return true',
     );
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(3);
     expect(useCommandStore.getState().nativeMutationPending).toBe(false);
@@ -116,12 +423,18 @@ describe('native-backed renderer commands', () => {
       error: 'WORKSPACE_REVISION_CONFLICT',
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveText', {
-      configurable: true, writable: true, value: nativeSaveText,
+      configurable: true,
+      writable: true,
+      value: nativeSaveText,
     });
-    const result = await useCommandStore.getState().saveNativeTextAsync(
-      'scripts/demo.lua', 'return edited', 'sha256:' + 'b'.repeat(64),
-      useProjectStore.getState().projectRevision,
-    );
+    const result = await useCommandStore
+      .getState()
+      .saveNativeTextAsync(
+        'scripts/demo.lua',
+        'return edited',
+        'sha256:' + 'b'.repeat(64),
+        useProjectStore.getState().projectRevision,
+      );
     expect(result.ok).toBe(false);
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
     expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
@@ -130,18 +443,23 @@ describe('native-backed renderer commands', () => {
   it('serializes scoped native Save after acknowledged edits without changing editor history', async () => {
     let release!: (value: ReturnType<typeof nativeAck>) => void;
     const patch = vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
-      () => new Promise((resolve) => { release = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
     );
     const save = vi.fn().mockResolvedValue(nativeAck('Edited', 1));
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: save,
+      configurable: true,
+      writable: true,
+      value: save,
     });
     const command = useCommandStore.getState().executeCommandAsync(request('Edited'));
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
     const atRevision = useProjectStore.getState().projectRevision;
-    const saved = useCommandStore.getState().saveNativeUnitAsync(
-      'project:settings', atRevision + 1, { comments: 'keep' },
-    );
+    const saved = useCommandStore
+      .getState()
+      .saveNativeUnitAsync('project:settings', atRevision + 1, { comments: 'keep' });
     expect(save).not.toHaveBeenCalled();
     release(nativeAck('Edited', 1));
     expect((await command).ok).toBe(true);
@@ -164,15 +482,12 @@ describe('native-backed renderer commands', () => {
       return nativeAck('Next change', 1);
     });
     const originalRevision = useProjectStore.getState().projectRevision;
-    const saving = useCommandStore.getState().saveNativeUnitAsync(
-      'project:settings',
-      originalRevision,
-      { comments: 'keep' },
-      () => {
+    const saving = useCommandStore
+      .getState()
+      .saveNativeUnitAsync('project:settings', originalRevision, { comments: 'keep' }, () => {
         order.push('saved-baseline');
         expect(useProjectStore.getState().projectRevision).toBe(originalRevision);
-      },
-    );
+      });
     const next = useCommandStore.getState().executeCommandAsync(request('Next change'));
     expect((await saving).ok).toBe(true);
     expect((await next).ok).toBe(true);
@@ -183,20 +498,22 @@ describe('native-backed renderer commands', () => {
   it('keeps native Save failure from creating a saved baseline or enabling a legacy writer', async () => {
     const save = vi.fn().mockResolvedValue(nativeAck('Saved Project', 0, false));
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: save,
+      configurable: true,
+      writable: true,
+      value: save,
     });
     const current = useProjectStore.getState().projectRevision;
-    const denied = await useCommandStore.getState().saveNativeUnitAsync(
-      'project:settings', current, { comments: 'keep' },
-    );
+    const denied = await useCommandStore
+      .getState()
+      .saveNativeUnitAsync('project:settings', current, { comments: 'keep' });
     expect(denied.ok).toBe(false);
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(0);
     expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
     expect(useCommandStore.getState().executeCommand(request('Legacy writer')).ok).toBe(false);
     save.mockRejectedValueOnce(new Error('Worker stopped before Save reply'));
-    const unknown = await useCommandStore.getState().saveNativeUnitAsync(
-      'project:settings', current, {},
-    );
+    const unknown = await useCommandStore
+      .getState()
+      .saveNativeUnitAsync('project:settings', current, {});
     expect(unknown.ok).toBe(false);
     expect(useCommandStore.getState().nativeMutationFailure).toContain('Worker stopped');
     expect(save).toHaveBeenCalledTimes(2);
@@ -266,14 +583,24 @@ describe('native-backed renderer commands', () => {
       snapshot: { ...nativeAck('irrelevant', 1).snapshot, recordSnapshots: {} },
     };
     const accepted = await confirmNativeCommand(
-      original, proposal, proposal.historyEntry!.patches, sessionId, 0,
+      original,
+      proposal,
+      proposal.historyEntry!.patches,
+      sessionId,
+      0,
       async () => acknowledged,
     );
     expect(accepted.result.ok).toBe(true);
-    await expect(confirmNativeCommand(
-      original, proposal, proposal.historyEntry!.patches, sessionId, 0,
-      async () => ({ ...acknowledged, affectedRecords: [] }),
-    )).rejects.toThrow('did not acknowledge');
+    await expect(
+      confirmNativeCommand(
+        original,
+        proposal,
+        proposal.historyEntry!.patches,
+        sessionId,
+        0,
+        async () => ({ ...acknowledged, affectedRecords: [] }),
+      ),
+    ).rejects.toThrow('did not acknowledge');
   });
 
   beforeEach(() => {
@@ -428,7 +755,10 @@ describe('native-backed renderer commands', () => {
   it('does not block commands in a new Project while an old native worker reply is pending', async () => {
     let release!: (value: ReturnType<typeof nativeAck>) => void;
     const patch = vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
-      () => new Promise((resolve) => { release = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
     );
     const previous = useCommandStore.getState().executeCommandAsync(request('Old Project Edit'));
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
@@ -438,10 +768,12 @@ describe('native-backed renderer commands', () => {
     patch.mockResolvedValueOnce(nativeAck('New Project Edit', 1));
 
     const current = useCommandStore.getState().executeCommandAsync(request('New Project Edit'));
-    expect((await Promise.race([
-      current.then((value) => value.ok),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
-    ]))).toBe(true);
+    expect(
+      await Promise.race([
+        current.then((value) => value.ok),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
+      ]),
+    ).toBe(true);
     expect(projectName()).toBe('New Project Edit');
     expect(patch).toHaveBeenCalledTimes(2);
     release(nativeAck('Old Project Edit', 1));
