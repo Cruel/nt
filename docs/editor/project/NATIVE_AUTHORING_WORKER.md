@@ -482,6 +482,27 @@ Save coordinator, source watcher, validation, and runtime preparation still
 use the existing TypeScript Project model until one coordinated production
 handoff can guarantee the complete editor corpus and recovery behavior.
 
+The Electron main process now has a **real Open/Create/Close lifecycle** for
+native editor sessions, enabled for cutover testing with
+`--certify-native-authoring-open`. On successful Project activation it opens
+the main-authorized native worker, requests the complete effective native
+Project, and compares tracked saved content to the existing editor Workspace.
+Disagreement, unavailable native binaries, invalid native source and worker
+failure reject admission without falling back to a second authoring writer.
+Project switching, close and app exit revoke the native session; superseded
+asynchronous opens cannot close a newer activation. Development launches use
+`NOVELTEA_AUTHORING_NODE_ADDON`; packaged editor certification uses
+`resources/authoring/noveltea-authoring-node.node`. A failing new Open does
+not discard a still-active previous Project. Both mock lifecycle and real
+Feature Lab worker tests exercise the gate.
+
+The flag is **read-only certification**, not native editing mode: it does not
+publish native patches to the renderer, run parallel Save transactions, or
+replace the production TypeScript command/recovery/watch pipeline. Those
+operations must be routed together before enabling native ownership by
+default. Full native Project validation at Open is too expensive to impose
+on regular editor starts before the migration's performance gates pass.
+
 ## Native CLI compatibility and physical Asset transactions (#501)
 
 The certification-only native CLI command boundary supports atomic Project

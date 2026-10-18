@@ -94,6 +94,13 @@ export class ActiveProjectSessionService {
     return this.projectActivationGeneration;
   }
 
+  /** Distinguish a superseded in-flight open from an active Project that has
+   * not yet been replaced by the newer open. The older opener must not close
+   * the newer user's session merely because its native admission failed. */
+  isProjectActivationCurrent(generation: number): boolean {
+    return generation === this.projectActivationGeneration;
+  }
+
   async activateProjectFile(
     projectFilePath: string,
     expectedActivationGeneration?: number,
