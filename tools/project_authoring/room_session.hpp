@@ -280,6 +280,11 @@ private:
     std::map<std::string, Diagnostic> validation_source_errors_;
     std::set<std::string> validation_source_paths_;
     std::optional<RoomSessionSnapshot> validation_snapshot_;
+    // RAM-only source evidence for a verified imported exact-result generation.
+    // The disk cache never persists parsed records or semantic contributions.
+    std::optional<RoomSessionSnapshot> imported_clean_validation_;
+    std::map<std::string, std::string> imported_clean_sources_;
+    std::map<std::string, std::string> imported_clean_revisions_;
     mutable ValidationWork validation_work_;
     mutable bool validation_view_active_ = false;
     struct ValidationContribution {

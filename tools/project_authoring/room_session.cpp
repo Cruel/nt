@@ -1597,7 +1597,8 @@ RoomSessionSnapshot ProjectSession::validate_project()
     // Validation can be expensive for a cold Project. Confirm that its input
     // authority did not advance while we were building the diagnostic set.
     const auto final_observation = observe_sources();
-    if (!final_observation.authoritative && !final_observation.scoped_authority) {
+    if (final_observation.full_rescan ||
+        (!final_observation.authoritative && !final_observation.scoped_authority)) {
         result.valid = false;
         result.diagnostics.push_back(
             {"/", "source.authority", "Project source authority was lost during validation."});
@@ -1606,9 +1607,11 @@ RoomSessionSnapshot ProjectSession::validate_project()
         result.diagnostics.push_back(
             {"/", "source.revision", "Project sources changed during validation; retry."});
     }
-    if ((!final_observation.authoritative && !final_observation.scoped_authority) ||
+    if (final_observation.full_rescan ||
+        (!final_observation.authoritative && !final_observation.scoped_authority) ||
         !final_observation.delta_revisions.empty()) {
-        if (!final_observation.authoritative && !final_observation.scoped_authority)
+        if (final_observation.full_rescan ||
+            (!final_observation.authoritative && !final_observation.scoped_authority))
             result.diagnostics.back().source_path = "project.yaml";
         else if (!final_observation.delta_revisions.empty())
             result.diagnostics.back().source_path = "project.yaml";
@@ -2647,7 +2650,19 @@ SourceObservation ProjectSession::observe_sources()
     auto observed = source_authority_->observe();
     for (const auto& [path, revision] : observed.delta_revisions)
         validation_pending_source_revisions_.insert_or_assign(path, revision);
-    if (!observed.authoritative && !observed.scoped_authority)
+    // A separate watcher poll may consume the coverage-loss event before the
+    // next clean-validation request. Keep that revocation pending even if the
+    // full rescan re-established physical authority without a byte delta.
+    if (observed.full_rescan) {
+        // This is a Project-session-wide invalidation, not just a flag for the
+        // cache-import path. Already-warm sessions must revoke their resident
+        // contributors before they can claim to have revalidated this source.
+        validation_snapshot_.reset();
+        validation_source_revisions_.clear();
+        validation_contributions_.clear();
+        validation_room_map_cache_.reset();
+    }
+    if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority))
         validation_pending_uncertain_ = true;
     if (observed.authoritative || observed.scoped_authority) {
         for (const auto& path : observed.delta.removed) {

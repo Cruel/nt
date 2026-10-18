@@ -1114,6 +1114,35 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     const auto editor_hit = editor->validate_clean_project();
     require(editor_hit.cache_hit && signature(editor_hit.snapshot) == signature(cold),
             "Independently opened editor session consumes the native CLI generation");
+    const std::string cache_room = "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto cache_room_bytes = read(temp.root / cache_room);
+    const auto before_label = cache_room_bytes.find("label: ");
+    require(before_label != std::string::npos, "Cache fixture Room label is present");
+    auto changed_label = cache_room_bytes;
+    changed_label.replace(before_label, changed_label.find('\n', before_label) - before_label,
+                          "label: Native cache changed");
+    write(temp.root / cache_room, changed_label);
+    const auto editor_first_change = editor->validate_clean_project();
+    require(!editor_first_change.cache_hit && editor_first_change.snapshot.valid &&
+                signature(editor_first_change.snapshot) == signature(cold) &&
+                editor->validation_work().rechecked_records == 1 &&
+                editor->validation_work().rechecked_contributions == 1 &&
+                editor->validation_work().retained_records > 0,
+            "First presentation-only disk edit after cross-host cache import rechecks one owner");
+    auto independent_cli = ProjectSession::open(temp.root, error);
+    require(independent_cli && independent_cli->validate_clean_project().cache_hit,
+            "Presentation-only edit publishes a clean generation consumable by a new CLI owner");
+    write(temp.root / cache_room, cache_room_bytes);
+    const auto editor_revert = editor->validate_clean_project();
+    require(!editor_revert.cache_hit && signature(editor_revert.snapshot) == signature(cold) &&
+                editor->validation_work().rechecked_records == 1,
+            "Reverting a cached presentation-only source retains contributor incrementality");
+    // The daemon's owner eviction/restart drops RAM state but the new owner
+    // can still re-prove and reuse the unchanged portable exact result.
+    independent_cli.reset();
+    independent_cli = ProjectSession::open(temp.root, error);
+    require(independent_cli && independent_cli->validate_clean_project().cache_hit,
+            "Eviction and fresh daemon owner admission recheck physical cache proof");
     const auto cache_bytes = read(cached_path);
     const auto unsaved = editor->patch(
         editor->snapshot().working_revision,
@@ -1126,13 +1155,8 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     require(cli != nullptr && cli->validate_clean_project().cache_hit,
             "CLI Project still consumes the clean generation after an unsaved editor edit");
 
-    const std::string cache_room = "records/rooms/room-lifecycle-roundtrip.yaml";
-    const auto cache_room_bytes = read(temp.root / cache_room);
-    const auto before_label = cache_room_bytes.find("label: ");
-    require(before_label != std::string::npos, "Cache fixture Room label is present");
-    auto changed_label = cache_room_bytes;
-    changed_label.replace(before_label, changed_label.find('\n', before_label) - before_label,
-                          "label: Native cache changed");
+    // Unlike an imported result, this independently validated warm owner has
+    // real in-memory dependency contributions for all tracked record families.
     write(temp.root / cache_room, changed_label);
     const auto incremental = project->validate_clean_project();
     require(!incremental.cache_hit && incremental.snapshot.valid &&
@@ -1148,6 +1172,11 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     cli = ProjectSession::open(temp.root, error);
     require(cli && !cli->validate_clean_project().cache_hit,
             "Legacy or malformed validation cache is rejected without a migration reader");
+    project->source_watch_coverage_lost();
+    const auto recovered_authority = project->validate_clean_project();
+    require(!recovered_authority.cache_hit && recovered_authority.snapshot.valid &&
+                project->validation_work().rechecked_records > 0,
+            "Watch coverage loss requires a fresh native validation before result reuse");
 
     const std::string path = "scripts/notice-board.lua";
     const auto original = read(temp.root / path);
@@ -1275,6 +1304,34 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                 project->record_snapshots().at("rooms/room-lifecycle-roundtrip").dirty,
             "External edits cannot replace an unsaved record's validation evidence");
 }
+
+void clean_cache_recovery_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto daemon_owner = ProjectSession::open(temp.root, error);
+    require(daemon_owner != nullptr, "Native daemon admission failed: " + error);
+    const auto cold = daemon_owner->validate_clean_project();
+    require(!cold.cache_hit && cold.snapshot.valid,
+            "First daemon-owned generation is validated without an imported cache");
+
+    // Closing the only owner simulates eviction and daemon process restart.
+    daemon_owner.reset();
+    auto editor = ProjectSession::open(temp.root, error);
+    require(editor && editor->validate_clean_project().cache_hit,
+            "A new editor host imports the daemon's exact clean generation");
+    editor->source_watch_coverage_lost();
+    const auto observed = editor->observe_sources();
+    require(observed.full_rescan && observed.authoritative,
+            "A separate native worker poll consumes the lost-coverage hint");
+    const auto recovered = editor->validate_clean_project();
+    require(!recovered.cache_hit && recovered.snapshot.valid &&
+                editor->validation_work().rechecked_records > 0,
+            "Watcher coverage loss forces full resident revalidation, not stale cache reuse");
+    auto restarted_daemon = ProjectSession::open(temp.root, error);
+    require(restarted_daemon && restarted_daemon->validate_clean_project().cache_hit,
+            "Fresh daemon owner reuses the newly certified physical generation");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1327,6 +1384,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--project-validation") {
             project_validation_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-recovery") {
+            clean_cache_recovery_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 5 && std::string_view(argv[1]) == "--normalized-record") {
