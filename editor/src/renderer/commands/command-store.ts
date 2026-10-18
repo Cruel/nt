@@ -41,6 +41,19 @@ interface CommandStoreState {
     saveUnitIds: string | string[],
     expectedProjectRevision: number,
     options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' },
+    onAcknowledged?: () => void,
+  ) => Promise<CommandExecutionResult>;
+  saveNativeTextAsync: (
+    path: string,
+    text: string,
+    diskRevision: string,
+    expectedProjectRevision: number,
+  ) => Promise<{ ok: boolean; contentHash?: string; error?: string }>;
+  stageNativeTextAsync: (
+    path: string,
+    text: string,
+    diskRevision: string,
+    expectedProjectRevision: number,
   ) => Promise<CommandExecutionResult>;
   executeCommandBatchAsync: (
     transaction: CommandTransactionRequest,
@@ -432,7 +445,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
     });
   },
-  saveNativeUnitAsync: async (saveUnitIds, expectedProjectRevision, options) => {
+  saveNativeUnitAsync: async (saveUnitIds, expectedProjectRevision, options, onAcknowledged) => {
     if (get().nativeWorkingRevision === null)
       return nativeOnlyResult('Native Project Save requires native authoring mode.');
     return queueNativeCommand(async () => {
@@ -471,6 +484,10 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         }
         if (saved.snapshot.workingRevision < revision)
           throw new Error('Native Save acknowledged an older working Project revision.');
+        // Adopt the scoped saved baseline *while the shared mutation queue is
+        // still held*. Otherwise a queued native editor command could publish
+        // between the physical Save acknowledgment and the recovery rebase.
+        onAcknowledged?.();
         set({
           nativeMutationPending: false,
           nativeWorkingRevision: saved.snapshot.workingRevision,
@@ -482,6 +499,128 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         if (current.projectSessionId !== session || current.projectInstanceId !== instance)
           return nativeOnlyResult('Native Save was superseded by another Project session.');
         const message = error instanceof Error ? error.message : 'Native Project Save failed.';
+        set({
+          nativeMutationPending: false,
+          nativeMutationFailure: message,
+          lastDiagnostics: [{ severity: 'error', message }],
+        });
+        return nativeOnlyResult(message);
+      }
+    });
+  },
+  saveNativeTextAsync: async (path, text, diskRevision, expectedProjectRevision) => {
+    if (get().nativeWorkingRevision === null)
+      return { ok: false, error: 'Native source Save requires native authoring mode.' };
+    const result = await queueNativeCommand(async () => {
+      const state = get();
+      const project = useProjectStore.getState();
+      const session = project.projectSessionId;
+      const instance = project.projectInstanceId;
+      const revision = state.nativeWorkingRevision;
+      if (state.nativeMutationFailure) return nativeOnlyResult(state.nativeMutationFailure);
+      if (
+        revision === null || !session || !instance ||
+        state.nativeProjectSessionId !== session ||
+        state.nativeProjectionRevision !== project.projectRevision ||
+        project.projectRevision !== expectedProjectRevision
+      ) return nativeOnlyResult('Project changed before its native source Save could begin.');
+      set({ nativeMutationPending: true });
+      try {
+        const saved = await window.noveltea.nativeProjectSaveText(
+          session, revision, path, diskRevision, text,
+        );
+        const current = useProjectStore.getState();
+        if (
+          current.projectSessionId !== session ||
+          current.projectInstanceId !== instance ||
+          current.projectRevision !== expectedProjectRevision ||
+          get().nativeWorkingRevision !== revision
+        ) throw new Error('Native text Save completed after the Project changed.');
+        if (saved.snapshot.workingRevision < revision)
+          throw new Error('Native text Save acknowledged a stale revision.');
+        if (saved.accepted && !saved.textSourceDiskRevisions?.[path])
+          throw new Error('Native text Save omitted its committed exact source revision.');
+        set({
+          nativeWorkingRevision: saved.snapshot.workingRevision,
+          nativeMutationPending: false,
+          lastDiagnostics: saved.accepted ? [] : [
+            { severity: 'error', message: saved.error || 'Native source Save refused.' },
+          ],
+        });
+        if (!saved.accepted) return nativeOnlyResult(saved.error || 'Native source Save refused.');
+        return {
+          ok: true,
+          projectChanged: false,
+          diagnostics: [],
+          contentHash: saved.textSourceDiskRevisions![path],
+        };
+      } catch (error) {
+        const current = useProjectStore.getState();
+        if (current.projectSessionId !== session || current.projectInstanceId !== instance)
+          return nativeOnlyResult('Native text Save belongs to a superseded session.');
+        const message = error instanceof Error ? error.message : 'Native text Save failed.';
+        set({
+          nativeMutationPending: false,
+          nativeMutationFailure: message,
+          lastDiagnostics: [{ severity: 'error', message }],
+        });
+        return nativeOnlyResult(message);
+      }
+    });
+    return {
+      ok: result.ok,
+      ...(result.ok && 'contentHash' in result && typeof result.contentHash === 'string'
+        ? { contentHash: result.contentHash }
+        : { error: result.diagnostics[0]?.message ?? 'Native source Save failed.' }),
+    };
+  },
+  stageNativeTextAsync: async (path, text, diskRevision, expectedProjectRevision) => {
+    if (get().nativeWorkingRevision === null)
+      return nativeOnlyResult('Native source staging requires native authoring mode.');
+    return queueNativeCommand(async () => {
+      const state = get();
+      const project = useProjectStore.getState();
+      const session = project.projectSessionId;
+      const instance = project.projectInstanceId;
+      const revision = state.nativeWorkingRevision;
+      if (state.nativeMutationFailure) return nativeOnlyResult(state.nativeMutationFailure);
+      if (
+        revision === null || !session || !instance ||
+        state.nativeProjectSessionId !== session ||
+        state.nativeProjectionRevision !== project.projectRevision ||
+        expectedProjectRevision !== project.projectRevision
+      ) return nativeOnlyResult('Native Project changed before source staging began.');
+      set({ nativeMutationPending: true });
+      try {
+        const staged = await window.noveltea.nativeProjectStageText(
+          session, revision, path, diskRevision, text,
+        );
+        const current = useProjectStore.getState();
+        if (
+          current.projectSessionId !== session ||
+          current.projectInstanceId !== instance ||
+          current.projectRevision !== expectedProjectRevision ||
+          get().nativeWorkingRevision !== revision
+        ) throw new Error('Native source stage completed after the Project changed.');
+        if (staged.snapshot.workingRevision < revision)
+          throw new Error('Native source stage acknowledged an old working revision.');
+        if (staged.accepted && staged.textSourceStaged === undefined)
+          throw new Error('Native source stage acknowledgment lacked staging evidence.');
+        set({
+          nativeMutationPending: false,
+          nativeWorkingRevision: staged.snapshot.workingRevision,
+          lastDiagnostics: staged.accepted ? [] : [
+            { severity: 'error', message: staged.error || 'Native source stage rejected.' },
+          ],
+        });
+        return staged.accepted
+          ? { ok: true, projectChanged: false, diagnostics: [] }
+          : nativeOnlyResult(staged.error || 'Native source stage rejected.');
+      } catch (error) {
+        const current = useProjectStore.getState();
+        if (current.projectSessionId !== session || current.projectInstanceId !== instance)
+          return nativeOnlyResult('Native source stage belongs to a superseded Project.');
+        const message = error instanceof Error ? error.message : 'Native source stage failed.';
         set({
           nativeMutationPending: false,
           nativeMutationFailure: message,

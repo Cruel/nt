@@ -63,6 +63,7 @@ export const nativeAuthoringResultSchema = z
     diagnosticsRemoved: z.array(nativeAuthoringDiagnosticSchema),
     textSourceStaged: z.boolean().optional(),
     textSourceDiskRevision: z.string().optional(),
+    textSourceDiskRevisions: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 export type NativeAuthoringPatchResult = z.infer<typeof nativeAuthoringResultSchema>;
@@ -164,6 +165,15 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       path: z.string().min(1).max(2048),
       text: z.string().max(4 * 1024 * 1024),
       diskPrecondition: z.string().min(1).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('saveTextSources'),
+      expectedRevision: z.number().int().nonnegative(),
+      paths: z.array(z.string().min(1).max(2048)).min(1).max(128),
+      diskPreconditions: z.record(z.string(), z.string()),
     })
     .strict(),
   z

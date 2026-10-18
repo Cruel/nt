@@ -11,6 +11,8 @@ import { createNodeProjectWorkspaceService } from '../../shared/project-workspac
 import {
   nativeProjectPatchArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
+  nativeProjectSaveTextArgumentsSchema,
+  nativeProjectValidateArgumentsSchema,
 } from '../../main/editor-ipc-trust-boundary';
 import { toJsonValue } from '../project/json-value';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
@@ -65,7 +67,19 @@ function fixture() {
     snapshot: { workingRevision: 0 },
     affectedRecords: ['project'],
   }));
-  const working = { open, prepareCompleteWorking, applyRevisionedPatches, snapshot, saveUnits };
+  const stageTextSource = vi.fn(async () => ({
+    accepted: true, error: '', snapshot: { workingRevision: 1 },
+  }));
+  const saveTextSources = vi.fn(async () => ({
+    accepted: true, error: '', snapshot: { workingRevision: 2 },
+    textSourceDiskRevisions: {
+      'scripts/game.lua': 'sha256:' + 'a'.repeat(64),
+    },
+  }));
+  const working = {
+    open, prepareCompleteWorking, applyRevisionedPatches, snapshot,
+    saveUnits, stageTextSource, saveTextSources,
+  };
   const controller = new NativeEditorSessionController(
     authority,
     bridge,
@@ -79,6 +93,8 @@ function fixture() {
     prepareCompleteWorking,
     applyRevisionedPatches,
     saveUnits,
+    stageTextSource,
+    saveTextSources,
     snapshot,
     controller,
     setActive(id: string) {
@@ -91,6 +107,71 @@ function fixture() {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('runs native working-generation validation without supplying a TypeScript authoring Project', async () => {
+    const test = fixture();
+    const session = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
+    expect(nativeProjectValidateArgumentsSchema.safeParse([session, 0]).success).toBe(true);
+    expect(nativeProjectValidateArgumentsSchema.safeParse([session, -1]).success).toBe(false);
+    expect(nativeProjectValidateArgumentsSchema.safeParse([session, 0, {}]).success).toBe(false);
+    await expect(test.controller.validate('one', 0)).rejects.toThrow('not admitted');
+    await test.controller.admit('one', test.saved);
+    await expect(test.controller.validate('one', 9)).rejects.toThrow('Stale');
+    test.prepareCompleteWorking.mockResolvedValueOnce({
+      ...test.preparation,
+      accepted: false,
+      error: 'Working Room source is invalid.',
+      diagnostics: [{
+        code: 'room.bounds.invalid',
+        severity: 'error',
+        path: '/rooms/start/data',
+        message: 'Room invalid',
+        sourcePath: 'records/rooms/start.yaml',
+        line: 7,
+      }],
+    });
+    await expect(test.controller.validate('one', 0)).resolves.toMatchObject({
+      ok: true,
+      success: false,
+      diagnostics: [expect.objectContaining({
+        code: 'room.bounds.invalid',
+        severity: 'error',
+        category: 'Native authoring validation',
+        message: expect.stringContaining('records/rooms/start.yaml:7'),
+      })],
+    });
+    test.controller.dispose();
+  });
+  it('guards source Save schema and resolves revisioned Stage/Save through the admitted owner', async () => {
+    const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
+    const hash = 'sha256:' + '1'.repeat(64);
+    expect(nativeProjectSaveTextArgumentsSchema.safeParse([
+      id, 0, 'scripts/game.lua', hash, 'return true',
+    ]).success).toBe(true);
+    for (const path of ['../escape.lua', '/tmp/script.lua', '.noveltea/config.lua'])
+      expect(nativeProjectSaveTextArgumentsSchema.safeParse([
+        id, 0, path, hash, 'return true',
+      ]).success).toBe(false);
+    expect(nativeProjectSaveTextArgumentsSchema.safeParse([
+      id, 0, 'scripts/game.lua', 'wrong', 'return true',
+    ]).success).toBe(false);
+    const test = fixture();
+    await expect(test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'))
+      .rejects.toThrow('not admitted');
+    await test.controller.admit('one', test.saved);
+    await expect(test.controller.saveText('one', 9, 'scripts/game.lua', hash, 'return true'))
+      .rejects.toThrow('Stale');
+    await expect(test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'))
+      .resolves.toMatchObject({ accepted: true });
+    expect(test.stageTextSource).toHaveBeenCalledWith('scripts/game.lua', 'return true', hash);
+    expect(test.saveTextSources).toHaveBeenCalledWith(1, ['scripts/game.lua']);
+    await expect(test.controller.stageText('one', 0, 'scripts/game.lua', hash, 'return 2'))
+      .resolves.toMatchObject({ accepted: true });
+    expect(test.stageTextSource).toHaveBeenLastCalledWith('scripts/game.lua', 'return 2', hash);
+    test.setActive('two');
+    await expect(test.controller.saveText('one', 0, 'scripts/game.lua', hash, 'return true'))
+      .rejects.toThrow('not admitted');
+    test.controller.dispose();
+  });
   it('validates native scoped Save input without allowing arbitrary filesystem paths', () => {
     const sessionId = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     expect(

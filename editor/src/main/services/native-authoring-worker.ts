@@ -42,6 +42,7 @@ interface NativeBinding {
     text: string,
     diskPrecondition?: string,
   ): string;
+  saveTextSources(handle: unknown, revision: number, paths: string, preconditions: string): string;
 }
 
 interface WorkerStartup {
@@ -181,6 +182,19 @@ parent.on('message', (raw: unknown) => {
                 ...(command.diskPrecondition !== undefined ? [command.diskPrecondition] : []),
               ),
             ),
+          ),
+        };
+        break;
+      case 'saveTextSources':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(binding.saveTextSources(
+              handle, command.expectedRevision, JSON.stringify(command.paths),
+              JSON.stringify(command.diskPreconditions),
+            )),
           ),
         };
         break;

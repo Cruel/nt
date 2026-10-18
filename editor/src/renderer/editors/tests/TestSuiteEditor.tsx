@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useProjectStore } from '@/project/project-store';
+import { flushNativeProjectSources } from '@/project/project-source-store';
+import { useCommandStore } from '@/commands/command-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
@@ -155,12 +157,25 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const activeProject = project;
 
   async function runTest(testId: string) {
-    const result = await window.noveltea.runPlaybackTest(
-      projectSessionId,
-      activeProject,
-      testId,
-      usePendingInputStore.getState().entriesBySaveUnitId,
-    );
+    let result;
+    try {
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      result = nativeRevision !== null && projectSessionId
+        ? await window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, testId)
+        : await window.noveltea.runPlaybackTest(
+            projectSessionId,
+            activeProject,
+            testId,
+            usePendingInputStore.getState().entriesBySaveUnitId,
+          );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Native Test preparation failed.';
+      setLastPlaybackReport({ ok: false, success: false, error: message });
+      setStatusMessage(message);
+      return;
+    }
     setLastPlaybackReport(result.report ?? result);
     const message = result.ok
       ? t('tests.ranTest', { testId })
@@ -177,11 +192,16 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   async function runAll() {
     setRunningSuite(true);
     try {
-      const result = await window.noveltea.runPlaybackSuite(
-        projectSessionId,
-        activeProject,
-        usePendingInputStore.getState().entriesBySaveUnitId,
-      );
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      const result = nativeRevision !== null && projectSessionId
+        ? await window.noveltea.nativeProjectRunSuite(projectSessionId, nativeRevision)
+        : await window.noveltea.runPlaybackSuite(
+            projectSessionId,
+            activeProject,
+            usePendingInputStore.getState().entriesBySaveUnitId,
+          );
       const report = parseSuiteReport(result.report);
       setSuiteReport(report);
       const message = result.ok
@@ -191,6 +211,8 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
         : (result.error ?? t('tests.suiteFailed'));
       setStatusMessage(message);
       addTimelineEntry({ source: 'playback', message, detail: result });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Native Test suite failed.');
     } finally {
       setRunningSuite(false);
     }

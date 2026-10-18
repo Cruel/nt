@@ -37,6 +37,7 @@ interface ProjectSourceStoreState {
   reconcileExternal: (projectSessionId: string) => Promise<void>;
   restoreRecovery: (entries: Readonly<Record<string, EditorSourceRecoveryEntry>>) => void;
   setText: (sourceId: string, text: string) => void;
+  flushNativeStages: () => Promise<boolean>;
   save: (sourceId: string, acceptExternalBase?: boolean) => Promise<boolean>;
   useDisk: (sourceId: string) => void;
   discard: (sourceId: string) => void;
@@ -46,6 +47,14 @@ interface ProjectSourceStoreState {
 
 const READ_BATCH_SIZE = 8;
 const sourceRefreshesBySession = new Map<string, Promise<boolean>>();
+const sourceStageTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const touchedNativeSources = new Set<string>();
+let sourceTouchIdentity: { session: string; instance: string } | null = null;
+function cancelSourceStage(sourceId: string) {
+  const timer = sourceStageTimers.get(sourceId);
+  if (timer) clearTimeout(timer);
+  sourceStageTimers.delete(sourceId);
+}
 
 async function loadSourceSnapshot(projectSessionId: string) {
   const listed = await window.noveltea.listProjectSourceFiles({ projectSessionId });
@@ -169,7 +178,10 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
   buffersById: {},
   loading: false,
   error: null,
-  clear: () =>
+  clear: () => {
+    for (const sourceId of sourceStageTimers.keys()) cancelSourceStage(sourceId);
+    touchedNativeSources.clear();
+    sourceTouchIdentity = null;
     set({
       projectSessionId: null,
       files: [],
@@ -178,7 +190,8 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       buffersById: {},
       loading: false,
       error: null,
-    }),
+    });
+  },
   refresh: (projectSessionId) => {
     const inFlight = sourceRefreshesBySession.get(projectSessionId);
     if (inFlight) return inFlight;
@@ -267,7 +280,8 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         textById,
       };
     }),
-  setText: (sourceId, text) =>
+  setText: (sourceId, text) => {
+    if (!get().buffersById[sourceId]) return;
     set((state) => {
       const prior = state.buffersById[sourceId];
       if (!prior) return state;
@@ -276,8 +290,92 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         buffersById: { ...state.buffersById, [sourceId]: buffer },
         textById: { ...state.textById, [sourceId]: text },
       };
-    }),
+    });
+    if (useCommandStore.getState().nativeWorkingRevision === null) return;
+    const session = get().projectSessionId;
+    const project = useProjectStore.getState();
+    const revision = project.projectRevision;
+    const instance = project.projectInstanceId;
+    if (!session || !instance) return;
+    if (
+      sourceTouchIdentity?.session !== session ||
+      sourceTouchIdentity.instance !== instance
+    ) {
+      for (const stale of sourceStageTimers.keys()) cancelSourceStage(stale);
+      touchedNativeSources.clear();
+      sourceTouchIdentity = { session, instance };
+    }
+    touchedNativeSources.add(sourceId);
+    cancelSourceStage(sourceId);
+    // Coalesce high-frequency editor typing. The Save operation itself
+    // re-stages the latest buffer under the same serialized native queue, so
+    // a trailing timer can never be required to make a Save durable.
+    const timer = setTimeout(() => {
+      sourceStageTimers.delete(sourceId);
+      const current = get();
+      const latestProject = useProjectStore.getState();
+      if (
+        current.projectSessionId !== session ||
+        latestProject.projectInstanceId !== instance ||
+        latestProject.projectRevision !== revision
+      ) return;
+      const buffer = current.buffersById[sourceId];
+      if (!buffer) return;
+      void useCommandStore.getState().stageNativeTextAsync(
+        sourceId, buffer.text, buffer.baseContentHash, revision,
+      ).then((result) => {
+        if (!result.ok && get().projectSessionId === session)
+          set({ error: result.diagnostics[0]?.message ?? 'Native source staging failed.' });
+      });
+    }, 150);
+    sourceStageTimers.set(sourceId, timer);
+  },
+  flushNativeStages: async () => {
+    if (useCommandStore.getState().nativeWorkingRevision === null) return true;
+    const state = get();
+    const project = useProjectStore.getState();
+    if (touchedNativeSources.size === 0) return true;
+    if (
+      sourceTouchIdentity?.session !== state.projectSessionId ||
+      sourceTouchIdentity.instance !== project.projectInstanceId
+    ) {
+      for (const stale of sourceStageTimers.keys()) cancelSourceStage(stale);
+      touchedNativeSources.clear();
+      sourceTouchIdentity = null;
+      return true;
+    }
+    if (!state.projectSessionId || !project.projectInstanceId) return false;
+    const initialInstance = project.projectInstanceId;
+    const initialSession = state.projectSessionId;
+    for (const sourceId of touchedNativeSources) cancelSourceStage(sourceId);
+    // Stages already in flight are serialized by the shared native Project
+    // queue; append a final exact-text submission for each locally touched
+    // source before allowing validation/preview/Test consumers to proceed.
+    for (const sourceId of [...touchedNativeSources].sort()) {
+      const current = get();
+      const workingProject = useProjectStore.getState();
+      if (
+        current.projectSessionId !== initialSession ||
+        workingProject.projectInstanceId !== initialInstance
+      ) return false;
+      const buffer = current.buffersById[sourceId];
+      if (!buffer) continue;
+      const result = await useCommandStore.getState().stageNativeTextAsync(
+        sourceId,
+        buffer.text,
+        buffer.baseContentHash,
+        workingProject.projectRevision,
+      );
+      if (!result.ok) {
+        if (get().projectSessionId === initialSession)
+          set({ error: result.diagnostics[0]?.message ?? 'Native source staging failed.' });
+        return false;
+      }
+    }
+    return true;
+  },
   save: async (sourceId, acceptExternalBase = false) => {
+    cancelSourceStage(sourceId);
     const state = get();
     const projectSessionId = state.projectSessionId;
     const buffer = state.buffersById[sourceId];
@@ -287,12 +385,28 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         ? buffer.conflict.externalContentHash
         : buffer.baseContentHash;
     const submittedText = buffer.text;
-    const result = await window.noveltea.writeProjectSource({
-      projectSessionId,
-      sourceId,
-      expectedRevision,
-      text: submittedText,
-    });
+    const nativeMode = useCommandStore.getState().nativeWorkingRevision !== null;
+    const nativeResult = nativeMode
+      ? await useCommandStore.getState().saveNativeTextAsync(
+          sourceId,
+          submittedText,
+          expectedRevision,
+          useProjectStore.getState().projectRevision,
+        )
+      : null;
+    const result = nativeResult
+      ? {
+          success: nativeResult.ok,
+          contentHash: nativeResult.contentHash as `sha256:${string}` | undefined,
+          error: nativeResult.error,
+        }
+      : await window.noveltea.writeProjectSource({
+          projectSessionId,
+          sourceId,
+          expectedRevision,
+          text: submittedText,
+        });
+    if (get().projectSessionId !== projectSessionId) return false;
     if (!result.success || !result.contentHash) {
       set({ error: result.error ?? 'Source save failed.' });
       return false;
@@ -435,6 +549,17 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       .usages;
   },
 }));
+
+/** Native consumers must not observe an unflushed debounced text edit.
+ * Drain the same per-Project native mutation queue before taking a revision
+ * for Play, Validation or authored Tests. */
+export async function flushNativeProjectSources(): Promise<void> {
+  if (!(await useProjectSourceStore.getState().flushNativeStages()))
+    throw new Error(
+      useProjectSourceStore.getState().error ??
+      'Native source staging did not accept every pending text edit.',
+    );
+}
 
 export function findProjectSourceByAssetId(
   files: readonly ProjectSourceFile[],

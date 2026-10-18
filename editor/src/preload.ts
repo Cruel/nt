@@ -100,6 +100,37 @@ const api: NovelTeaElectronApi = {
       saveUnitIds,
       options,
     ),
+  nativeProjectSaveText: (projectSessionId, expectedRevision, path, diskRevision, text) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_SAVE_TEXT,
+      projectSessionId,
+      expectedRevision,
+      path,
+      diskRevision,
+      text,
+    ),
+  nativeProjectStageText: (projectSessionId, expectedRevision, path, diskRevision, text) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_STAGE_TEXT,
+      projectSessionId,
+      expectedRevision,
+      path,
+      diskRevision,
+      text,
+    ),
+  nativeProjectValidate: (projectSessionId, expectedRevision) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, projectSessionId, expectedRevision),
+  nativeProjectPrepareRuntime: (projectSessionId, expectedRevision, shaderVariant) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
+      projectSessionId,
+      expectedRevision,
+      shaderVariant,
+    ),
+  nativeProjectRunTest: (projectSessionId, expectedRevision, testId) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST, projectSessionId, expectedRevision, testId),
+  nativeProjectRunSuite: (projectSessionId, expectedRevision) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_SUITE, projectSessionId, expectedRevision),
   validateProject: (
     projectSessionId: string,
     project: unknown,

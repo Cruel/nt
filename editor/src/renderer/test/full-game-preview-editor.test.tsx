@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
 import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -65,6 +66,7 @@ beforeEach(() => {
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   usePendingInputStore.getState().resetPendingInputs();
   useAssetProfilerStore.getState().resetForEditorReload();
@@ -384,6 +386,44 @@ async function postInputSnapshot(
 }
 
 describe('FullGamePreviewEditor', () => {
+  it('prepares Play through the exact-revision native Project without invoking legacy preparation', async () => {
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    useCommandStore.getState().resetCommandHistory();
+    useCommandStore.getState().enableNativeCommandMode(8);
+    const nativePrepare = vi.fn().mockResolvedValue({
+      status: 'blocked',
+      diagnostics: [{
+        code: 'native.runtime.prepare',
+        severity: 'error',
+        category: 'Native runtime preparation',
+        path: '/rooms/start',
+        message: 'Native working Room invalid',
+        boundaries: ['runtime-package'],
+        ownerPaths: ['/rooms/start'],
+      }],
+      buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
+      cache: { scope: 'session-local', status: 'prepared' },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectPrepareRuntime', {
+      configurable: true, writable: true, value: nativePrepare,
+    });
+    try {
+      await renderConnectedPreview();
+      await waitFor(() => expect(nativePrepare).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111', 8, 'glsl-330',
+      ));
+      expect(window.noveltea.prepareEditorRuntime).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectPrepareRuntime');
+    }
+  });
   it('connects the asset profiler when the open Play host advertises profiler support', async () => {
     await renderConnectedPreview(['asset-profiler-v1']);
 

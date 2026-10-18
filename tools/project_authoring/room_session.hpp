@@ -176,6 +176,12 @@ public:
     // Source text is not inserted into YAML, and CLI sessions see only disk.
     RoomSessionResult stage_text_source(std::uint64_t revision, std::string_view relative_path,
                                         std::string source_text);
+    // Exact-revision physical publication of previously admitted Lua/RML/RCSS
+    // overlays. Uses the Project YAML transaction journal for crash recovery,
+    // but writes verbatim text without interpreting it as YAML.
+    RoomSessionResult save_text_sources(std::uint64_t revision,
+                                        const std::vector<std::string>& paths,
+                                        const std::map<std::string, std::string>& disk_preconditions);
     const std::map<std::string, SourceAnalysis>& source_analyses() const;
     const std::map<std::string, std::string>& text_source_overlays() const
     {

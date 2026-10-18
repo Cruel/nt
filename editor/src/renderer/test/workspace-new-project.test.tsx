@@ -627,6 +627,94 @@ describe('WorkspacePage new project modal', () => {
     expect(isAuthoringProject(useWorkspaceStore.getState().project)).toBe(true);
   });
 
+  it('does not let the legacy watcher publish external Project edits into native working state', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    render(<WorkspacePage />);
+    await waitFor(() => expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalled());
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    const documentBefore = useProjectStore.getState().document;
+    const revisionBefore = useProjectStore.getState().projectRevision;
+    act(() => {
+      callback?.({
+        projectSessionId: 'opened-project-session',
+        changedPaths: ['records/rooms/hall.yaml'],
+        authoringChangedPaths: ['records/rooms/hall.yaml'],
+        assetChangedPaths: [],
+        authoring: {
+          success: true,
+          diagnostics: [],
+          affectedPaths: ['/rooms/hall/description'],
+          externalValueByPath: {
+            '/rooms/hall/description': { exists: true, value: 'Changed on disk' },
+          },
+          fileRevisions: { 'records/rooms/hall.yaml': `sha256:${'c'.repeat(64)}` },
+          scriptSourcePaths: {},
+        },
+      });
+    });
+    expect(useProjectStore.getState().document).toBe(documentBefore);
+    expect(useProjectStore.getState().projectRevision).toBe(revisionBefore);
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(0);
+    expect(useWorkspaceStore.getState().statusMessage).toContain('native reconciliation');
+  });
+
+  it('routes Validate through the native revision and does not use legacy Project validation', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    useCommandStore.getState().enableNativeCommandMode(4);
+    const nativeValidate = vi.fn().mockResolvedValue({
+      ok: true,
+      success: false,
+      diagnostics: [{
+        code: 'native.room.invalid',
+        severity: 'error',
+        category: 'Native authoring validation',
+        path: '/rooms/start',
+        message: 'Native Room validation issue',
+      }],
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true, writable: true, value: nativeValidate,
+    });
+    render(<WorkspacePage />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'validate' }),
+      );
+    });
+    await waitFor(() => expect(nativeValidate).toHaveBeenCalledWith('opened-project-session', 4));
+    await waitFor(() => expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'native.room.invalid', severity: 'error' }),
+    ));
+    expect(window.noveltea.validateProject).not.toHaveBeenCalled();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+  });
+
   it('keeps the workbench mounted when the bottom panel is toggled', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({

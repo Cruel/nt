@@ -537,18 +537,46 @@ transaction, checks the revision again inside the native worker serialization,
 and returns its acknowledgment. The renderer's Save coordinator updates
 only the saved units' baselines and retains unrelated dirty recovery overlays.
 Rejection does not invoke the old TS writer, and lost/uncertain acknowledgment
-freezes native editing. Native source-file Save remains blocked until staged
-text and physical source transactions are integrated.
+freezes native editing. The source editor now stages dirty Lua/RML/RCSS buffers
+through `NATIVE_PROJECT_STAGE_TEXT` (coalescing rapid typing) and saves
+through `NATIVE_PROJECT_SAVE_TEXT`. Native main validates the current session,
+working revision, path, and exact disk baseline; the native worker first stages
+the text and then durably publishes the exact bytes through the shared Project
+transaction journal. The renderer accepts the new source content hash only
+after native acknowledgment. Before Validation, Play or authored Tests,
+the renderer drains debounced text staging into the same serialized native
+Project mutation queue and captures the resulting working revision; stale
+or rejected staging blocks consumption. Logical YAML Save adopts its scoped
+saved-document/recovery baseline before releasing the native mutation queue
+so a concurrent editor command cannot race it. Disk conflicts preserve unsaved source text,
+including across native worker recovery. Neither operation falls back to
+`writeProjectSource`.
 
 The trusted IPC registrar continues to block legacy Project Save, source and
 Asset writers, validation, preview, Tests and export operations in
 native-edit certification mode where they could act on divergent Project
-state. Recovered dirty Project state is rejected on native-edit admission
+state. Separate native-only validation, Play preparation, and authored
+Test/Tests-suite IPC paths now use the fully native-prepared working Project,
+including accepted dirty overlays and exact working-revision guards, instead
+of passing an independently mutable renderer Project to legacy handlers.
+Prepared runtime inputs are reverified after compilation; the limited
+native runtime cache owns temporary overlay roots through eviction and
+Project close. Existing Test UIs and Play select the native endpoints while
+native editing is enabled. Native Play and Test certification remains distinct
+from the actual production cutover.
+
+Recovered dirty Project state is rejected on native-edit admission
 until replay integration is complete. This flag **remains certification-only,
-not yet a usable complete native editor**: structural auto-commit, text-source
-Save, native watcher/reconciliation, validation, preview, authored Tests and
-export have not yet migrated. No production cutover should enable it by
-default before those coordinated ownership paths are certified.
+not yet a usable complete native editor**: structural auto-commit, coordinated
+multi-owner Save All across both YAML and source text, native watcher
+reconciliation with full conflict UI, and editable/exportable Package operations
+have not yet migrated. The legacy renderer watcher cannot publish external
+TypeScript authoring merges into an active native Project; it retains
+notification/asset auditing, while native source authority refuses stale disk
+revisions. The certification UI explicitly reports that native
+reconciliation is required until native external-delta publication is
+implemented. No production cutover should enable the flag by default before
+those coordinated ownership paths are certified.
 
 ## Native CLI compatibility and physical Asset transactions (#501)
 

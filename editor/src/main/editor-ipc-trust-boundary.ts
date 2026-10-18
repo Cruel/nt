@@ -630,6 +630,33 @@ export const nativeProjectSaveUnitArgumentsSchema = z.tuple([
     comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']).optional(),
   }).strict(),
 ]);
+export const nativeProjectSaveTextArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  projectRelativePathSchema.refine(
+    (value) =>
+      /^(?:scripts|assets)\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:lua|rml|rcss)$/u.test(value) ||
+      /^records\/layouts\/[a-z][a-z0-9-]*\/layout\.(?:lua|rml|rcss)$/u.test(value),
+    'Native text Save must target an admitted Lua/RML/RCSS source.',
+  ),
+  z.string().min(7).max(71).regex(/^sha256:[0-9a-f]{64}$/u),
+  z.string().refine((value) => utf8ByteLength(value) <= 4 * 1024 * 1024),
+]);
+export const nativeProjectValidateArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+]);
+export const nativeProjectPrepareRuntimeArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  shaderVariantSchema,
+]);
+export const nativeProjectRunTestArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH).regex(/^[a-z][a-z0-9-]*$/u),
+]);
+export const nativeProjectRunSuiteArgumentsSchema = nativeProjectValidateArgumentsSchema;
 export const projectAssetIdentityArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(512),

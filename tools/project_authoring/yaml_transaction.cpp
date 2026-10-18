@@ -408,8 +408,12 @@ fs::path safe_source_path(const fs::path& root, std::string_view relative)
     const bool layout_text = std::regex_match(
         std::string(relative),
         std::regex(R"(^records/layouts/[a-z][a-z0-9]*(?:-[a-z0-9]+)*/layout\.(rml|rcss|lua)$)"));
+    const bool admitted_text_path =
+        (relative.starts_with("scripts/") || relative.starts_with("assets/")) &&
+        (relative.ends_with(".lua") || relative.ends_with(".rml") ||
+         relative.ends_with(".rcss"));
     if (!path_safe(relative) || relative.starts_with(".noveltea/") ||
-        (!relative.ends_with(".yaml") && !layout_text))
+        (!relative.ends_with(".yaml") && !layout_text && !admitted_text_path))
         throw std::runtime_error("Invalid tracked YAML transaction target: " +
                                  std::string(relative));
     const auto target = root / fs::path(relative);
@@ -680,9 +684,25 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 target.path,
                 std::regex(
                     R"(^records/layouts/[a-z][a-z0-9]*(?:-[a-z0-9]+)*/layout\.(rml|rcss|lua)$)"));
-            if (layout_text && (!target.edits.empty() || (!target.create_source && !target.erase)))
+            const bool raw_text = target.raw_text_source.has_value();
+            const bool admitted_text_path =
+                layout_text ||
+                ((target.path.starts_with("scripts/") || target.path.starts_with("assets/")) &&
+                 (target.path.ends_with(".lua") || target.path.ends_with(".rml") ||
+                  target.path.ends_with(".rcss")));
+            if (admitted_text_path && !raw_text && !target.erase &&
+                !target.create_source)
+                throw std::runtime_error(
+                    "Tracked text sources require exact raw text replacement.");
+            if (layout_text && (!target.edits.empty() ||
+                                (!target.create_source && !target.erase && !raw_text)))
                 throw std::runtime_error("Layout companion transaction only supports whole-file "
                                          "creation or deletion.");
+            if (raw_text &&
+                (target.erase || target.create_source || target.replacement_source ||
+                 target.semantic_compaction_family || !target.edits.empty() ||
+                 !admitted_text_path))
+                throw std::runtime_error("Raw source replacement must be a tracked text-only edit.");
             const auto absolute = checked_path(target.path);
             if (!used.insert(target.path).second)
                 throw std::runtime_error("Duplicate YAML transaction target.");
@@ -713,6 +733,7 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 throw std::runtime_error("YAML source changed during preparation.");
             if (current_revision != target.expected_revision) {
                 if (current_revision == "absent" || target.erase || target.create_source ||
+                    raw_text ||
                     target.replacement_source || target.expected_revision == "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
                 const auto baseline = open_yaml_source(target.baseline_source);
@@ -741,6 +762,11 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                         if (location.has_comment)
                             prepared.affected_comments.push_back(location.path);
                 }
+            } else if (raw_text) {
+                if (current_revision == "absent")
+                    throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing text source.");
+                prepared.after_source = *target.raw_text_source;
+                prepared.after_revision = exact_source_revision(prepared.after_source);
             } else if (target.create_source) {
                 if (current_revision != "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: existing target.");
