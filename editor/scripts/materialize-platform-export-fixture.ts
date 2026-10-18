@@ -36,12 +36,16 @@ async function main(): Promise<void> {
   const revision = Number(value('--revision') ?? '1');
   const abi = (value('--abi') ?? 'x86_64') as 'x86_64' | 'arm64-v8a';
   const flavor = (value('--flavor') ?? 'debug') as 'debug' | 'release';
+  const playerVariant = (value('--variant') ?? 'standard') as 'standard' | 'devtools';
+  if (!['standard', 'devtools'].includes(playerVariant))
+    throw new Error(`Unsupported player variant '${playerVariant}'.`);
   const artifact = (value('--artifact') ?? 'apk') as 'apk' | 'aab' | 'both';
   const fixture = await materializePlatformExportAcceptanceFixture({
     root: path.resolve(root),
     target,
     architecture: target === 'web' ? 'wasm32' : abi === 'arm64-v8a' ? 'arm64' : 'x86_64',
     buildFlavor: flavor,
+    playerVariant,
     ...(target === 'android' ? { androidAbi: abi, androidArtifact: artifact } : {}),
     contentRevision: revision,
     fontSourcePath: path.join(repositoryRoot(), fontRelativePath),

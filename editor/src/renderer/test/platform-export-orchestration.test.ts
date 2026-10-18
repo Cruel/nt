@@ -95,6 +95,7 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
     compiledFeatures: ['lua'],
     capabilities: [],
     buildFlavor: 'release',
+    playerVariant: 'standard',
     packageAccessModes: ['sidecar'],
     files: [
       {

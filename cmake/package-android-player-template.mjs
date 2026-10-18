@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { resolveAndroidPlayerBuild } from './android-player-build.mjs';
 
-const [rootArg, stageArg, releaseTag, abi, flavor, bundletoolArg, bgfxVersion] = process.argv.slice(2);
+const [rootArg, stageArg, releaseTag, abi, flavor, bundletoolArg, bgfxVersion, sourceFlavor = flavor, variant = flavor] = process.argv.slice(2);
 if (!rootArg || !stageArg || !releaseTag || !abi || !flavor || !bundletoolArg || !bgfxVersion) throw new Error('Expected root, stage, release tag, ABI, flavor, bundletool JAR, and bgfx version.');
 const root = path.resolve(rootArg); const stage = path.resolve(stageArg); const source = path.join(stage, 'source');
 const architecture = abi === 'arm64-v8a' ? 'arm64' : abi === 'x86_64' ? 'x86_64' : (() => { throw new Error(`Unsupported ABI ${abi}`); })();
@@ -12,7 +12,17 @@ await rm(stage, { recursive: true, force: true }); await mkdir(source, { recursi
 const ignored = (sourcePath) => !/(?:^|[/\\])(?:build|\.gradle|\.cxx|\.idea|local\.properties|\.DS_Store)(?:$|[/\\])/.test(sourcePath);
 await cp(path.join(root, 'android'), path.join(source, 'android'), { recursive: true, filter: ignored });
 
-const { nativeRoot, buildRoot, nativeLibraryPath } = await resolveAndroidPlayerBuild(root, abi, flavor);
+// The optimized devtools player retains release packaging/signing semantics.
+if (sourceFlavor !== flavor || !['release', 'debug', 'devtools'].includes(variant) ||
+    (variant === 'devtools' && flavor !== 'release') ||
+    (variant === 'debug' && flavor !== 'debug'))
+  throw new Error(`Unsupported Android source/template variant: ${sourceFlavor}/${flavor}/${variant}`);
+const { nativeRoot, buildRoot, nativeLibraryPath } = await resolveAndroidPlayerBuild(root, abi, sourceFlavor);
+const configured = await readFile(path.join(buildRoot, 'CMakeCache.txt'), 'utf8');
+const devtools = /^NOVELTEA_ENABLE_DEVTOOLS:BOOL=(ON|OFF)$/m.exec(configured)?.[1];
+const requiredDevtools = variant === 'devtools' || flavor === 'debug' ? 'ON' : 'OFF';
+if (devtools !== requiredDevtools)
+  throw new Error(`Android ${variant} template requires devtools ${requiredDevtools}, found ${devtools}.`);
 const nativeDestination = path.join(source, 'android', 'prebuilt-native', abi);
 await mkdir(nativeDestination, { recursive: true });
 for (const entry of await readdir(nativeRoot, { withFileTypes: true }))
@@ -67,14 +77,14 @@ for (const relative of await files(stage)) {
   const role = relative.startsWith('licenses/') ? 'notice' : relative.includes('/prebuilt-system/') ? 'system-asset' : relative.endsWith('.aar') ? 'native-dependency' : 'support';
   inventory.push({ path: relative, size: info.size, mode: info.mode & 0o777, sha256: await sha(path.join(stage, relative)), role });
 }
-const templateId = `android-${abi}-${flavor}`; const buildId = `${releaseTag}-android-${abi}-${flavor}`;
+const templateId = `android-${abi}-${variant}`; const buildId = `${releaseTag}-${templateId}`;
 const archiveExtension = process.platform === 'win32' ? 'zip' : 'tar.gz';
 const descriptor = {
   format: 'noveltea.player-template', formatVersion: 1, templateId, buildId, engineVersion: releaseTag,
   platform: 'android', architecture, abi, minimumPlatformVersion: 'Android API 24', graphicsBackends: ['opengles'], shaderVariants: ['essl-300'],
   compiledProjectFormatVersion: 1, playerRuntimeApiVersion: 1,
   compiledFeatures: ['lua', 'rmlui', 'audio', 'save', 'android-private-copy'], capabilities: ['network.client', 'external-url', 'gamepad', 'vibration', 'microphone', 'notifications', 'billing'],
-  buildFlavor: flavor, packageAccessModes: ['android-private-copy'], files: inventory, runtimeDependencies: inventory.filter((entry) => entry.role === 'notice').map((entry) => ({ path: entry.path, kind: 'notice' })),
+  buildFlavor: flavor, playerVariant: variant === 'devtools' ? 'devtools' : 'standard', packageAccessModes: ['android-private-copy'], files: inventory, runtimeDependencies: inventory.filter((entry) => entry.role === 'notice').map((entry) => ({ path: entry.path, kind: 'notice' })),
   artifacts: { archive: `noveltea-player-template-${releaseTag}-${templateId}.${archiveExtension}`, symbols: `noveltea-player-symbols-${releaseTag}-${templateId}.zip`, sbom: 'SBOM.cdx.json', notices: 'licenses/index.json' },
   provenance: { provider: 'github-attestation', source: releaseTag }, host: { assembly: 'any', requiresToolchain: true, tools: ['java', 'android-sdk', 'bundletool'] },
   android: {

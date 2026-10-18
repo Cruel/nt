@@ -23,6 +23,7 @@ export interface MaterializePlatformExportAcceptanceFixtureOptions {
   target: ExportPlatform;
   architecture?: 'x64' | 'arm64' | 'wasm32' | 'x86_64';
   buildFlavor?: 'debug' | 'release';
+  playerVariant?: 'standard' | 'devtools';
   androidAbi?: 'arm64-v8a' | 'x86_64';
   androidArtifact?: 'apk' | 'aab' | 'both';
   webBasePath?: string;
@@ -82,6 +83,7 @@ function profileFor(
       architecture: 'wasm32',
       packageAccess: 'web-fetch',
       buildFlavor: flavor,
+      playerVariant: options.playerVariant ?? 'standard',
       compression: 'default',
       includeDebugSymbols: false,
       localization,
@@ -105,6 +107,7 @@ function profileFor(
       architecture: abi === 'arm64-v8a' ? 'arm64' : 'x86_64',
       packageAccess: 'android-private-copy',
       buildFlavor: flavor,
+      playerVariant: options.playerVariant ?? 'standard',
       compression: 'default',
       includeDebugSymbols: false,
       localization,
@@ -123,6 +126,7 @@ function profileFor(
     architecture,
     packageAccess,
     buildFlavor: flavor,
+    playerVariant: options.playerVariant ?? 'standard',
     compression: 'default',
     includeDebugSymbols: true,
     localization,

@@ -316,7 +316,8 @@ export async function listPlayerTemplates(
         item &&
         (!query.platform || item.descriptor.platform === query.platform) &&
         (!query.architecture || item.descriptor.architecture === query.architecture) &&
-        (!query.buildFlavor || item.descriptor.buildFlavor === query.buildFlavor)
+        (!query.buildFlavor || item.descriptor.buildFlavor === query.buildFlavor) &&
+        (!query.playerVariant || item.descriptor.playerVariant === query.playerVariant)
       )
         output.push(item);
     }
@@ -454,6 +455,7 @@ export async function resolvePlayerTemplate(
     platform: requirements.profile.target,
     architecture: requirements.profile.architecture,
     buildFlavor: requirements.profile.buildFlavor,
+    playerVariant: requirements.profile.playerVariant,
   });
   const diagnostics: TemplateCompatibilityDiagnostic[] = [];
   const compatible: InstalledTemplate[] = [];
@@ -480,7 +482,7 @@ export async function resolvePlayerTemplate(
       issue(
         'template-missing',
         '/template',
-        'No installed template matches the selected target, architecture, and build flavor.',
+        'No installed template matches the selected target, architecture, build flavor, and player variant.',
       ),
     );
   if (compatible.length === 1) {

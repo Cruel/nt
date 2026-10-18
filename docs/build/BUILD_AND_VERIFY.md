@@ -82,6 +82,9 @@ cmake --preset web-release
 cmake --build --preset web-release --target noveltea-player
 NOVELTEA_WEB_SMOKE_ANGLE_BACKEND=gl node scripts/web-player-package-smoke.mjs \
   --build-dir build/web-release --video --start-via-title --package /path/to/video.ntpkg
+# A devtools-enabled standalone player must render ImGui after F10 and hide it after a second F10:
+node scripts/web-player-package-smoke.mjs \
+  --build-dir build/web-release --imgui --package /path/to/feature-lab.ntpkg
 # Debug builds can miss short color intervals if a directed browser seek takes longer than the
 # interval; debug is for tracing seek/upload boundaries, not certifying the full color sequence.
 cmake --preset web-debug-no-threads
@@ -108,6 +111,14 @@ cmake --build --preset linux-debug --target format
 
 CI runs the same repository formatter driver as an early gate before shader compilation and the
 platform build fan-out.
+
+Release CI publishes optimized production (`-release`, devtools off) and developer
+(`-devtools`, devtools on) player variants for desktop, threaded/non-threaded Web, and Android
+ARM64. Both use the `release` export build flavor and its packaging/signing rules. Export profiles
+select `playerVariant: standard | devtools` independently of `buildFlavor: release | debug`;
+old profiles default to `standard`. The developer variants use `*-release-devtools` CMake
+presets instead of Debug optimization settings. Android x86_64 retains its separately published
+true Debug/emulator template. Each variant has its own certification evidence.
 
 The `web-editor-preview` preset is intentionally different from a production Web build: it enables
 `NOVELTEA_ENABLE_DEVTOOLS` so the editor can request the shared Devtools Snapshot and versioned
@@ -268,7 +279,21 @@ host CLI, configures the canonical release Web player template, exports the sele
 fixture), and serves the result. Pass `--project` and optionally `--export-profile` to select a saved
 project. The script selects canonical threaded `web-release` for a profile with
 `web.threaded: true` and compatibility `web-release-no-threads` for a single-threaded profile. It
-enables COOP/COEP only for the threaded artifact.
+enables COOP/COEP only for the threaded artifact. For local runs, the script enables
+`NOVELTEA_ENABLE_DEVTOOLS` and `NOVELTEA_ENABLE_RENDER_PERF` by default; disable them independently
+with `--no-devtools` and `--no-render-perf`. The latter also controls the exported player's
+`?renderPerf=1` startup argument (and the gallery's equivalent), so counters are actually logged
+at runtime. Explicit `--devtools` and `--render-perf` re-enable either setting. These overrides
+apply only to builds configured by this local runner, not ordinary release exports. The runner's
+`local-run-web` template deliberately keeps the Project's `release` export-profile flavor while
+using an instrumented player; this narrowly scoped local override cannot be used for published
+release templates, which distinguish devtools-on `devtools` from devtools-off `standard` using
+`playerVariant` while preserving `buildFlavor: release`. The local runner
+allows localization-quality warnings for test projects, cleans both its previous export directory and
+ZIP on reruns, and recovers `EMSDK` from an existing Web build's compiler when needed for packaging.
+Devtools-enabled standalone Web player builds include the Dear ImGui debugger, toggled with F10;
+web editor-preview builds retain instrumentation but omit ImGui entirely. Use browser developer tools
+for JavaScript/Wasm CPU and rendering profiling.
 `--readback-gallery` serves the sandbox gallery instead; the legacy `--release` and
 `--profile` modes imply that gallery path so they continue to select their matching Web presets.
 

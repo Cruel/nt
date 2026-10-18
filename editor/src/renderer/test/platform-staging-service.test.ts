@@ -25,6 +25,11 @@ import {
 import { createTemplateLicenseFixture } from './player-template-license-fixture';
 
 const roots: string[] = [];
+const nativeSmokePlayerVariant =
+  (process.env.NOVELTEA_NATIVE_TEST_PLAYER_VARIANT as 'standard' | 'devtools' | undefined) ??
+  'standard';
+const nativeSmokeBuildFlavor =
+  (process.env.NOVELTEA_NATIVE_TEST_BUILD_FLAVOR as 'debug' | 'release' | undefined) ?? 'release';
 const linuxTemplateArchive = process.env.NOVELTEA_LINUX_TEMPLATE_ARCHIVE;
 const linuxRuntimePackage = process.env.NOVELTEA_LINUX_RUNTIME_PACKAGE;
 const linuxAppImageTool = process.env.NOVELTEA_LINUX_APPIMAGE_TOOL;
@@ -218,6 +223,7 @@ async function fixture() {
     compiledFeatures: [],
     capabilities: [],
     buildFlavor: 'release',
+    playerVariant: 'standard',
     packageAccessModes: ['sidecar'],
     files: [
       { path: 'bin/player', size: player.length, mode, sha256: sha(player), role: 'player' },
@@ -545,6 +551,7 @@ describe('platform staging service', () => {
       compiledFeatures: ['web-single-threaded'],
       capabilities: [],
       buildFlavor: 'release',
+      playerVariant: 'standard',
       packageAccessModes: ['web-fetch'],
       files: [...entries, ...licenseFixture.files],
       runtimeDependencies: [
@@ -649,7 +656,11 @@ describe('platform staging service', () => {
     expect(index).toContain("window.addEventListener('pageshow',measureCanvas)");
     expect(index).toContain("document.addEventListener('visibilitychange'");
     expect(index).toContain("const requestedRmluiSnap=(params.get('rmluiSnap')||'all')");
+    expect(index).toContain(
+      "const renderPerf=['1','true','yes'].includes((params.get('renderPerf')||'').toLowerCase())",
+    );
     expect(index).toContain("const args=['--rmlui-snap',rmluiSnap]");
+    expect(index).toContain("if(renderPerf)args.push('--render-perf')");
 
     const resolveSurface = loadWebPlayerSurfaceMetricsResolver(index);
     const oneX = resolveSurface(600, 400, 1);
@@ -780,6 +791,7 @@ describe('platform staging service', () => {
       compiledFeatures: [],
       capabilities: [],
       buildFlavor: 'release',
+      playerVariant: 'standard',
       packageAccessModes: ['sidecar'],
       files: [...entries, ...licenseFixture.files],
       runtimeDependencies: [
@@ -987,6 +999,7 @@ describe('platform staging service', () => {
       compiledFeatures: [],
       capabilities: ['network.client', 'microphone'],
       buildFlavor: 'release',
+      playerVariant: 'standard',
       packageAccessModes: ['bundle-resource'],
       files: [...entries, ...licenseFixture.files],
       runtimeDependencies: [
@@ -1145,6 +1158,7 @@ describe('platform staging service', () => {
       compiledFeatures: [],
       capabilities: [],
       buildFlavor: 'release',
+      playerVariant: 'standard',
       packageAccessModes: ['bundle-resource'],
       files: [
         {
@@ -1268,7 +1282,8 @@ describe.runIf(process.platform === 'win32' && !!windowsTemplateArchive && !!win
           target: 'windows',
           architecture: 'x64',
           packageAccess: 'sidecar',
-          buildFlavor: 'release',
+          buildFlavor: nativeSmokeBuildFlavor,
+          playerVariant: nativeSmokePlayerVariant,
           compression: 'default',
           includeDebugSymbols: true,
           excludeUnusedAssets: true,
@@ -1425,7 +1440,8 @@ describe.runIf(
         target: 'linux',
         architecture: 'x64',
         packageAccess: 'sidecar',
-        buildFlavor: 'release',
+        buildFlavor: nativeSmokeBuildFlavor,
+        playerVariant: nativeSmokePlayerVariant,
         compression: 'default',
         includeDebugSymbols: true,
         excludeUnusedAssets: true,
@@ -1590,7 +1606,8 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
           target: 'macos',
           architecture: 'arm64',
           packageAccess: 'bundle-resource',
-          buildFlavor: 'release',
+          buildFlavor: nativeSmokeBuildFlavor,
+          playerVariant: nativeSmokePlayerVariant,
           compression: 'default',
           includeDebugSymbols: true,
           excludeUnusedAssets: true,

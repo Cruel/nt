@@ -117,11 +117,13 @@ export async function downloadPlayerTemplateForRelease(
       (template) =>
         template.platform === parsedRequest.platform &&
         template.architecture === parsedRequest.architecture &&
-        template.buildFlavor === parsedRequest.buildFlavor,
+        template.buildFlavor === parsedRequest.buildFlavor &&
+        template.playerVariant === (parsedRequest.playerVariant ?? 'standard') &&
+        (parsedRequest.platform !== 'web' || template.webThreaded === parsedRequest.webThreaded),
     );
     if (matches.length !== 1) {
       throw new Error(
-        `Release ${releaseTag} contains ${matches.length} templates for ${parsedRequest.platform}/${parsedRequest.architecture}/${parsedRequest.buildFlavor}.`,
+        `Release ${releaseTag} contains ${matches.length} templates for ${parsedRequest.platform}/${parsedRequest.architecture}/${parsedRequest.buildFlavor}/${parsedRequest.playerVariant ?? 'standard'}${parsedRequest.platform === 'web' ? `/${parsedRequest.webThreaded ? 'threads' : 'single-threaded'}` : ''}.`,
       );
     }
     const selected = matches[0]!;
