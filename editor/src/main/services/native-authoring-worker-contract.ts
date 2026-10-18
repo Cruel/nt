@@ -211,6 +211,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       keepMine: z.boolean(),
       comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']),
       pathsByOwner: z.record(z.string(), z.array(z.string().startsWith('/'))).optional(),
+      textPaths: z.array(z.string().min(1).max(2048)).max(128).optional(),
     })
     .strict(),
   z

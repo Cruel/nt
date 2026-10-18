@@ -238,8 +238,8 @@ Session& session_arg(napi_env env, napi_value value)
 napi_value call(napi_env env, napi_callback_info info)
 {
     void* callback_data = nullptr;
-    napi_value argv[6]{};
-    std::size_t argc = 6;
+    napi_value argv[7]{};
+    std::size_t argc = 7;
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
@@ -374,7 +374,7 @@ napi_value call(napi_env env, napi_callback_info info)
             return js_string(env, result_json(*session.project, result).to_string());
         }
         if (name == "saveOwners") {
-            if (argc != 5 && argc != 6)
+            if (argc != 5 && argc != 6 && argc != 7)
                 throw std::runtime_error("saveOwners needs revision, owners, keepMine, comments.");
             std::int64_t revision = -1;
             bool keep_mine = false;
@@ -395,7 +395,7 @@ napi_value call(napi_env env, napi_callback_info info)
                 : choice == "perEdit" ? noveltea::authoring::TransactionDecision::UseEditDecisions
                                       : throw std::runtime_error("Invalid comment decision.");
             std::map<std::string, std::vector<std::string>> paths;
-            if (argc == 6) {
+            if (argc >= 6) {
                 const auto logical = Json::parse(string_arg(env, argv[5]));
                 if (!logical.is_object() || logical.size() > 256)
                     throw std::runtime_error("Invalid logical Save selections.");
@@ -406,9 +406,25 @@ napi_value call(napi_env env, napi_callback_info info)
                         paths[item.key()].push_back(value.as<std::string>());
                 }
             }
+            std::vector<std::string> text_paths;
+            if (argc == 7) {
+                const auto text = Json::parse(string_arg(env, argv[6]));
+                if (!text.is_array() || text.size() > 128)
+                    throw std::runtime_error("Invalid native mixed Save text source list.");
+                for (const auto& path : text.array_range())
+                    text_paths.push_back(path.as<std::string>());
+            }
             const auto saved = session.project->save_owners(static_cast<std::uint64_t>(revision),
-                                                            selected, keep_mine, decision, paths);
-            return js_string(env, result_json(*session.project, saved).to_string());
+                                                            selected, keep_mine, decision, paths,
+                                                            text_paths);
+            auto response = result_json(*session.project, saved);
+            if (saved.accepted && !text_paths.empty()) {
+                response["textSourceDiskRevisions"] = Json::object();
+                for (const auto& path : text_paths)
+                    response["textSourceDiskRevisions"][path] =
+                        session.project->text_source_disk_revisions().at(path);
+            }
+            return js_string(env, response.to_string());
         }
         if (name == "observe") {
             if (argc != 1)

@@ -2889,16 +2889,23 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
         const auto disk = read_bytes(canonical);
         if (exact_source_revision(disk) != text_disk_revisions_.at(path))
             throw std::runtime_error("External source conflict for " + path);
+        if (const auto baseline = text_overlay_disk_revisions_.find(path);
+            baseline != text_overlay_disk_revisions_.end() &&
+            exact_source_revision(disk) != baseline->second)
+            throw std::runtime_error("External changes conflict with unsaved text: " + path);
         const auto current = text_source_overlays_.find(path);
         const auto prior = current == text_source_overlays_.end() ? disk : current->second;
         if (prior == source_text) {
             response.accepted = true;
             return response;
         }
-        if (source_text == disk)
+        if (source_text == disk) {
             text_source_overlays_.erase(path);
-        else
+            text_overlay_disk_revisions_.erase(path);
+        } else {
+            text_overlay_disk_revisions_.try_emplace(path, exact_source_revision(disk));
             text_source_overlays_.insert_or_assign(path, std::move(source_text));
+        }
         text_analysis_cache_.erase(path);
         localization_cache_.reset();
         ++working_revision_;
@@ -2947,7 +2954,8 @@ RoomSessionResult ProjectSession::save_text_sources(std::uint64_t revision,
                 continue;
             const auto original = disk_preconditions.find(path);
             if (original == disk_preconditions.end() ||
-                original->second != text_disk_revisions_.at(path))
+                original->second != text_disk_revisions_.at(path) ||
+                original->second != text_overlay_disk_revisions_.at(path))
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: staged text baseline " +
                                          path);
             const auto root = std::filesystem::canonical(root_);
@@ -2980,6 +2988,7 @@ RoomSessionResult ProjectSession::save_text_sources(std::uint64_t revision,
         for (const auto& target : prepared.targets) {
             text_disk_revisions_[target.path] = target.after_revision;
             text_source_overlays_.erase(target.path);
+            text_overlay_disk_revisions_.erase(target.path);
             response.affected_records.push_back("source:" + target.path);
             if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
@@ -3385,7 +3394,8 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
 RoomSessionResult
 ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
                             bool keep_mine, TransactionDecision comments,
-                            const std::map<std::string, std::vector<std::string>>& paths)
+                            const std::map<std::string, std::vector<std::string>>& paths,
+                            const std::vector<std::string>& text_paths)
 {
     RoomSessionResult response;
     response.snapshot = snapshot();
@@ -3599,6 +3609,32 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             targets.push_back({session->source_path().lexically_relative(root_).generic_string(),
                                session->disk_revision_, session->disk_source_, std::move(edits)});
         }
+        std::set<std::string> selected_text;
+        for (const auto& path : text_paths) {
+            if (!selected_text.insert(path).second || !analyzable_text_path(path) ||
+                !text_source_paths_.contains(path) || !text_disk_revisions_.contains(path) ||
+                path.starts_with("inline/"))
+                throw std::runtime_error("Unknown or duplicate native text Save source: " + path);
+            const auto overlay = text_source_overlays_.find(path);
+            if (overlay == text_source_overlays_.end())
+                throw std::runtime_error("Native mixed Save requires staged text: " + path);
+            const auto root = std::filesystem::canonical(root_);
+            const auto canonical = std::filesystem::canonical(root_ / path);
+            const auto relative = canonical.lexically_relative(root);
+            if (relative.empty() || relative == "." || *relative.begin() == ".." ||
+                relative.generic_string() != path)
+                throw std::runtime_error("Native text Save escapes Project root: " + path);
+            const auto original = read_bytes(canonical);
+            if (exact_source_revision(original) != text_disk_revisions_.at(path) ||
+                exact_source_revision(original) != text_overlay_disk_revisions_.at(path))
+                throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + path);
+            YamlTransactionTarget text_target;
+            text_target.path = path;
+            text_target.expected_revision = text_disk_revisions_.at(path);
+            text_target.baseline_source = original;
+            text_target.raw_text_source = overlay->second;
+            targets.push_back(std::move(text_target));
+        }
         if (targets.empty()) {
             response.accepted = true;
             return response;
@@ -3612,6 +3648,11 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             throw std::runtime_error(
                 "Native Save cannot treat an unapplied dirty owner as successfully persisted.");
         for (const auto& proposed : prepared.targets) {
+            if (selected_text.contains(proposed.path)) {
+                if (proposed.after_source != text_source_overlays_.at(proposed.path))
+                    throw std::runtime_error("Native text Save projection differs from staged bytes.");
+                continue;
+            }
             const auto reopened = open_yaml_source(proposed.after_source);
             if (!reopened.accepted)
                 throw std::runtime_error("Proposed Save source cannot be reopened.");
@@ -3667,6 +3708,16 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             ++session->working_revision_;
             response.affected_records.push_back(owner);
             if (!source_authority_->acknowledge_own_write(it->path, it->after_revision))
+                source_authority_->coverage_lost();
+        }
+        for (const auto& target : prepared.targets) {
+            if (!selected_text.contains(target.path)) continue;
+            text_disk_revisions_.insert_or_assign(target.path, target.after_revision);
+            text_source_overlays_.erase(target.path);
+            text_overlay_disk_revisions_.erase(target.path);
+            text_analysis_cache_.erase(target.path);
+            response.affected_records.push_back("source:" + target.path);
+            if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
         }
         ++working_revision_;
