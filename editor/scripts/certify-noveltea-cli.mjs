@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { inflateRawSync } from 'node:zlib';
 import { Document, isMap, isScalar, isSeq, parse as parseYaml } from 'yaml';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 import { waitForDaemonState } from './cli-certification-synchronization.mjs';
@@ -161,6 +162,51 @@ function requireDaemonStatus(label, environment, timeoutMs = stateTransitionWatc
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+// The compiler's actual `game` entry, not a metadata-only package assertion.
+// Resolve its bytes from the ZIP central directory so a streaming writer's
+// local header or data descriptor cannot be mistaken for the entry size.
+function runtimePackageEntry(bytes, wanted) {
+  const eocdSignature = Buffer.from([0x50, 0x4b, 0x05, 0x06]);
+  const end = bytes.lastIndexOf(eocdSignature);
+  if (end < 0 || end + 22 > bytes.length)
+    fail('Runtime Package ZIP has no complete end-of-central-directory record.');
+  const count = bytes.readUInt16LE(end + 10);
+  let offset = bytes.readUInt32LE(end + 16);
+  for (let index = 0; index < count; index += 1) {
+    if (offset + 46 > bytes.length || bytes.readUInt32LE(offset) !== 0x02014b50)
+      fail('Runtime Package ZIP central directory is corrupt.');
+    const compression = bytes.readUInt16LE(offset + 10);
+    const compressedSize = bytes.readUInt32LE(offset + 20);
+    const uncompressedSize = bytes.readUInt32LE(offset + 24);
+    const nameSize = bytes.readUInt16LE(offset + 28);
+    const extraSize = bytes.readUInt16LE(offset + 30);
+    const commentSize = bytes.readUInt16LE(offset + 32);
+    if (offset + 46 + nameSize + extraSize + commentSize > bytes.length)
+      fail('Runtime Package ZIP central entry extends outside the archive.');
+    const name = bytes.toString('utf8', offset + 46, offset + 46 + nameSize);
+    if (name === wanted) {
+      const local = bytes.readUInt32LE(offset + 42);
+      if (local + 30 > bytes.length || bytes.readUInt32LE(local) !== 0x04034b50)
+        fail(`Runtime Package ZIP has no local header for '${wanted}'.`);
+      const start = local + 30 + bytes.readUInt16LE(local + 26) + bytes.readUInt16LE(local + 28);
+      if (start + compressedSize > bytes.length)
+        fail(`Runtime Package ZIP entry '${wanted}' is truncated.`);
+      const payload = bytes.subarray(start, start + compressedSize);
+      const decoded =
+        compression === 8
+          ? inflateRawSync(payload, { maxOutputLength: 128 * 1024 * 1024 })
+          : compression === 0
+            ? payload
+            : fail(`Runtime Package ZIP uses unsupported compression for '${wanted}'.`);
+      if (decoded.length !== uncompressedSize)
+        fail(`Runtime Package ZIP '${wanted}' has a mismatched uncompressed size.`);
+      return decoded;
+    }
+    offset += 46 + nameSize + extraSize + commentSize;
+  }
+  fail(`Runtime Package ZIP is missing '${wanted}'.`);
 }
 
 async function verifyWindowsPeStackReserve() {
@@ -4332,13 +4378,21 @@ async function certifyNativeOperations(tempRoot, pristine) {
     fail(`Cached malformed stdin returned exit ${malformedStdin.status}.`);
   assertIslandTrace('runtime-cache malformed stdin canonical diagnostics', malformedStdin, true);
 
+  // The earlier runtime-cache exercises mutate a synthetic Project whose RML
+  // fragment and localization roots are intentionally incomplete. It is a
+  // valid CLI runtime-cache test fixture but not a valid native Project. Run
+  // strict native authoring and package compilation against the real Feature
+  // Lab on a separate, clean copy instead of weakening native validation.
+  const packageRoot = path.join(tempRoot, 'native-package-parity');
+  await resetCase(path.join(repositoryRoot, 'tests', 'projects', 'feature-lab'), packageRoot);
+  await rm(path.join(packageRoot, '.noveltea'), { recursive: true, force: true });
   const output = path.join(tempRoot, 'certification.ntpkg');
   requireSuccess(
     'package export',
     runNative(
       [
         '--project',
-        root,
+        packageRoot,
         '--json',
         'package',
         'export',
@@ -4347,7 +4401,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
         '--allow-localization-warnings',
       ],
       {
-        cwd: root,
+        cwd: packageRoot,
       },
     ),
   );
@@ -4360,12 +4414,12 @@ async function certifyNativeOperations(tempRoot, pristine) {
   const preparationRequest = path.join(tempRoot, 'native-runtime-preparation-request.json');
   await writeJson(preparationRequest, {
     action: 'runtime-package-preparation',
-    projectRoot: root,
+    projectRoot: packageRoot,
   });
   const preparedNative = requireSuccess(
     'native Runtime Package preparation',
     runNativeWithStdinFile(['__editor-native', 'native-project-commands'], preparationRequest, {
-      cwd: root,
+      cwd: packageRoot,
     }),
   );
   const nativePackage = JSON.parse(preparedNative.stdout);
@@ -4392,7 +4446,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
       relative.split('/').some((part) => part === '..' || part === '.')
     )
       fail(`Native Runtime Package preparation returned an unsafe physical owner: ${relative}`);
-    const bytes = await readFile(path.join(root, relative));
+    const bytes = await readFile(path.join(packageRoot, relative));
     const expected = `sha256:${sha256(bytes)}`;
     if (nativePackage.sourceRevisions[relative] !== expected)
       fail(`Native Runtime Package preparation missed a changed source: ${relative}`);
@@ -4409,7 +4463,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
     runNative(
       [
         '--project',
-        root,
+        packageRoot,
         '--json',
         'package',
         'export',
@@ -4419,7 +4473,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
         nativePackage.profile.id,
         '--allow-localization-warnings',
       ],
-      { cwd: root },
+      { cwd: packageRoot },
     ),
   );
   const oracleHash = sha256(await readFile(output));
@@ -4428,15 +4482,40 @@ async function certifyNativeOperations(tempRoot, pristine) {
     fail(
       `Native-selected Runtime Package differs from installed CLI oracle: implicit=${oracleHash} native=${nativeSelectedHash}`,
     );
+  // The native preparation result must also lower to *identical gameplay*.
+  // Run its Project through the installed ScriptC compiler and shader/media
+  // host adapters. Comparing the compiled gameplay entry catches differences
+  // in localization, Asset closure, materials, Scene lowering, and runtime
+  // semantics that an export-profile or package-shape check cannot detect.
+  const nativeCompilationRequest = path.join(tempRoot, 'native-runtime-compile-request.json');
+  await writeJson(nativeCompilationRequest, { projectRoot: packageRoot });
+  const nativeCompiled = requireSuccess(
+    'native Project through installed Runtime Package compiler',
+    runNativeWithStdinFile(
+      ['__editor-native', 'native-runtime-compile-certify'],
+      nativeCompilationRequest,
+      { cwd: packageRoot },
+    ),
+  );
+  const nativeCompiledResult = JSON.parse(nativeCompiled.stdout);
+  const actualGameplayHash = `sha256:${sha256(runtimePackageEntry(await readFile(output), 'game'))}`;
+  if (
+    nativeCompiledResult.ok !== true ||
+    nativeCompiledResult.status !== 'prepared' ||
+    nativeCompiledResult.gameplaySha256 !== actualGameplayHash
+  )
+    fail(
+      `Native prepared Project did not compile to the installed Runtime Package gameplay: expected ${actualGameplayHash}, native ${nativeCompiled.stdout}`,
+    );
   await writeJson(preparationRequest, {
     action: 'runtime-package-preparation',
-    projectRoot: root,
+    projectRoot: packageRoot,
     profileId: 'not-the-selected-profile',
   });
   const mismatchedNativeProfile = runNativeWithStdinFile(
     ['__editor-native', 'native-project-commands'],
     preparationRequest,
-    { cwd: root },
+    { cwd: packageRoot },
   );
   if (
     mismatchedNativeProfile.status !== 1 ||

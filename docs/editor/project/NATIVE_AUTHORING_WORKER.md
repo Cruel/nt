@@ -458,8 +458,14 @@ cross-checks the parallel native `runtime-package-preparation` boundary against
 the same exact source revision manifest and selected runtime profile, and
 passes that native-selected profile into the installed compiler/export path.
 The resulting `.ntpkg` must be byte-identical to the implicit-profile oracle
-export. Native
-preparation does not pretend to be a replacement artifact compiler.
+export. A second, stricter certification also takes the **native-prepared
+effective Project**, reconstructs only omitted schema defaults, and feeds it
+through the installed ScriptC compiler with the standard shader and media
+adapters. It compares the SHA-256 of the compiled gameplay bytes against the
+actual `game` entry in the exported `.ntpkg`, thereby exercising authored
+localization, runtime lowering, scene/material/resource closure and shader
+resolution rather than merely comparing selected export options. Native
+preparation does not replace the existing compiler or change public commands.
 
 Run `pnpm -C editor run noveltea:certify:native-project-commands` after
 building `noveltea-tooling-bridge` and the standalone CLI to compare the

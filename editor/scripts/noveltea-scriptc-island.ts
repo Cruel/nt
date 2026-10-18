@@ -497,6 +497,79 @@ async function runInternalCommand(
     if (input.action !== 'runtime-package-preparation')
       return result(2, '', 'Internal native Project preparation requires a runtime intent.\n');
     response = JSON.parse(invokeHost('native-project-commands', JSON.stringify(input)));
+  } else if (operation === 'native-runtime-compile-certify') {
+    // Certificate-only parity seam: consume the exact native Project result
+    // through the same existing runtime artifact compiler as the public CLI,
+    // not a second native compiler or a profile-only export comparison.
+    if (typeof input.projectRoot !== 'string' || !input.projectRoot)
+      return result(2, '', 'Native runtime compilation requires a Project root.\n');
+    const nativePrepared = JSON.parse(
+      invokeHost(
+        'native-project-commands',
+        JSON.stringify({
+          action: 'runtime-package-preparation',
+          projectRoot: input.projectRoot,
+        }),
+      ),
+    ) as { ok?: boolean; project?: unknown; profile?: unknown };
+    if (!nativePrepared.ok || !nativePrepared.project || !nativePrepared.profile)
+      return result(
+        1,
+        `${JSON.stringify({ ok: false, error: 'Native runtime preparation failed.' })}\n`,
+      );
+    const cryptoModule = await import('../src/shared/web-crypto');
+    cryptoModule.configureSha256BytesImplementation(async (bytes) =>
+      createHash('sha256').update(bytes).digest('hex'),
+    );
+    await configureScriptcPlatformHost(invokeHost);
+    const [schema, preparation, adapters] = await Promise.all([
+      import('../src/shared/project-schema/authoring-project'),
+      import('../src/shared/runtime-artifact-preparation'),
+      import('../src/main/services/node-runtime-artifact-adapters'),
+    ]);
+    const nativeProject = nativePrepared.project as Record<string, unknown>;
+    const identity = nativeProject.project as { id: string; name: string };
+    const defaults = schema.createAuthoringProject({ id: identity.id, name: identity.name });
+    const project = schema.authoringProjectSchema.parse({
+      ...defaults,
+      ...nativeProject,
+      editor: { ...defaults.editor, ...(nativeProject.editor as Record<string, unknown>) },
+    });
+    const prepared = await preparation.prepareRuntimeArtifact({
+      project,
+      projectRoot: input.projectRoot,
+      profile:
+        nativePrepared.profile as import('../src/shared/project-schema/authoring-export').ExportProfileData,
+      intent: 'runtime-package-export',
+      shaderCompiler: adapters.nodeShaderCompilerAdapter((shaderProject, options) =>
+        nativeTools.compileShaders(shaderProject, options),
+      ),
+      paths: adapters.createNodeRuntimeArtifactPaths(
+        () => invokeHost('cli-executable-path', ''),
+        hostMediaToolRunner(invokeHost),
+        hostNativeAlphaEncoder(invokeHost),
+      ),
+    });
+    const gameplay = prepared.status === 'prepared' ? prepared.assessment.gameplayJson : undefined;
+    const diagnostics =
+      prepared.status === 'prepared' ? prepared.assessment.diagnostics : prepared.diagnostics;
+    response = {
+      ok: prepared.status === 'prepared' && typeof gameplay === 'string',
+      status: prepared.status,
+      gameplayPresent: typeof gameplay === 'string',
+      ...(gameplay
+        ? { gameplaySha256: `sha256:${createHash('sha256').update(gameplay).digest('hex')}` }
+        : {}),
+      diagnostics: diagnostics
+        .filter((issue) => issue.severity === 'error')
+        .map((issue) => ({
+          code: issue.code,
+          severity: issue.severity,
+          path: issue.path,
+          message: issue.message,
+        }))
+        .slice(0, 16),
+    };
   } else return result(2, '', `Unknown internal editor native operation '${operation}'.\n`);
 
   const record =
