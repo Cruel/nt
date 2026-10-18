@@ -236,6 +236,13 @@ std::string exact_source_revision(std::string_view source)
 
 namespace {
 
+std::string source_revision_or_absent(const std::filesystem::path& path)
+{
+    if (!std::filesystem::exists(path) && !std::filesystem::is_symlink(path))
+        return "absent";
+    return exact_source_revision(read_bytes(path));
+}
+
 std::string parse_pointer_token(std::string_view token)
 {
     std::string decoded;
@@ -954,6 +961,38 @@ std::unique_ptr<RoomSession> RoomSession::open_record(const std::filesystem::pat
         record->validation_contract_ = record_contracts().at(family);
         error.clear();
         return record;
+    } catch (const std::exception& exception) {
+        error = exception.what();
+        return nullptr;
+    }
+}
+
+std::unique_ptr<RoomSession> RoomSession::stage_new_record(
+    const std::filesystem::path& project_root, std::string family, std::string id,
+    std::string source_json, std::string& error)
+{
+    try {
+        if (!is_id(id) || !record_contracts().contains(family))
+            throw std::runtime_error("Invalid new record owner.");
+        const auto path = family == "layouts"
+                              ? project_root / "records" / family / id / "layout.yaml"
+                              : project_root / "records" / family / (id + ".yaml");
+        if (std::filesystem::exists(path) || std::filesystem::is_symlink(path))
+            throw std::runtime_error("Record source already exists: " + family + "/" + id);
+        const auto value = Json::parse(source_json);
+        if (!value.is_object() || !value.contains("id") || value.at("id") != id)
+            throw std::runtime_error("New record ID must match its source filename.");
+        auto result = std::unique_ptr<RoomSession>(new RoomSession(path, id, "", "{}"));
+        result->disk_revision_ = "absent";
+        result->working_json_ = std::move(source_json);
+        result->record_family_ = family;
+        result->is_map_ = family == "maps";
+        if (family != "rooms" && family != "maps")
+            result->validation_contract_ = record_contracts().at(family);
+        if (!result->snapshot().valid)
+            throw std::runtime_error("Invalid new record source: " + family + "/" + id);
+        error.clear();
+        return result;
     } catch (const std::exception& exception) {
         error = exception.what();
         return nullptr;
@@ -3125,7 +3164,7 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
             (!record_contracts().contains(family) || !is_id(id))) {
             result.error = "Unsupported native record owner.";
         } else if (const auto found = records_.find(name); found != records_.end()) {
-            if (exact_source_revision(read_bytes(found->second->source_path())) !=
+            if (source_revision_or_absent(found->second->source_path()) !=
                 found->second->snapshot().disk_source_revision)
                 result.error = "External source conflict for " + name;
             else
@@ -3494,6 +3533,22 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             const auto state = session->snapshot();
             if (!state.dirty)
                 continue;
+            if (state.disk_source_revision == "absent") {
+                if (!state.valid)
+                    throw std::runtime_error("Cannot create invalid Project record: " + owner);
+                const auto source_path =
+                    session->source_path().lexically_relative(root_).generic_string();
+                if (std::filesystem::exists(session->source_path()) ||
+                    std::filesystem::is_symlink(session->source_path()))
+                    throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + source_path);
+                projected.emplace(owner, Json::parse(state.source_json));
+                YamlTransactionTarget creation;
+                creation.path = source_path;
+                creation.expected_revision = "absent";
+                creation.create_source = state.source_json;
+                targets.push_back(std::move(creation));
+                continue;
+            }
             auto filter = paths.find(owner);
             if (filter != paths.end() && filter->second.size() == 1 &&
                 filter->second.front() == "/")
@@ -3653,7 +3708,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 path = family == "layouts" ? root_ / "records" / family / id / "layout.yaml"
                                            : root_ / "records" / family / (id + ".yaml");
             }
-            if (exact_source_revision(read_bytes(path)) != expected)
+            if (source_revision_or_absent(path) != expected)
                 throw std::runtime_error("Recovery source conflict for " + owner);
         }
     } catch (const std::exception& error) {
@@ -3682,7 +3737,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                         throw std::runtime_error("Cannot admit localization source: " + error);
                     it = staged.emplace(destination->owner, std::move(fragment)).first;
                 }
-                if (exact_source_revision(read_bytes(it->second->source_path())) !=
+                if (source_revision_or_absent(it->second->source_path()) !=
                     it->second->snapshot().disk_source_revision)
                     throw std::runtime_error("External localization source conflict.");
                 auto relative = operation;
@@ -3720,6 +3775,34 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             const auto field = family == "editor" || family == "traits"
                                    ? first
                                    : operation.path.find('/', first + 1);
+            if (record_contracts().contains(family) && field == std::string::npos &&
+                operation.operation == RoomPatch::Operation::Remove) {
+                const auto id = operation.path.substr(first + 1);
+                const auto owner = family + "/" + id;
+                const auto found = staged.find(owner);
+                if (!is_id(id) || found == staged.end() ||
+                    found->second->snapshot().disk_source_revision != "absent")
+                    throw std::runtime_error("Deleting persisted records requires structural Save.");
+                if (source_revision_or_absent(found->second->source_path()) != "absent")
+                    throw std::runtime_error("External source conflict for " + owner);
+                staged.erase(found);
+                affected.insert(owner);
+                continue;
+            }
+            if (record_contracts().contains(family) && field == std::string::npos &&
+                operation.operation == RoomPatch::Operation::Add) {
+                const auto id = operation.path.substr(first + 1);
+                if (!is_id(id) || staged.contains(family + "/" + id))
+                    throw std::runtime_error("New record ID is invalid or already admitted.");
+                std::string error;
+                auto created = RoomSession::stage_new_record(
+                    root_, family, id, operation.value_json, error);
+                if (!created)
+                    throw std::runtime_error("Cannot create " + family + "/" + id + ": " + error);
+                staged.emplace(family + "/" + id, std::move(created));
+                affected.insert(family + "/" + id);
+                continue;
+            }
             if (field == std::string::npos ||
                 (family != "editor" && family != "traits" && field == first + 1))
                 throw std::runtime_error("Record patch requires a non-root field path.");
@@ -3747,7 +3830,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             }
             // A source that changed on disk cannot silently receive a dirty edit
             // based on the old record. Recovery must explicitly rebase it instead.
-            if (exact_source_revision(read_bytes(it->second->source_path())) !=
+            if (source_revision_or_absent(it->second->source_path()) !=
                 it->second->snapshot().disk_source_revision)
                 throw std::runtime_error("External source conflict for " + owner);
             auto relative = operation;
@@ -3777,6 +3860,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
             affected.insert(owner);
         }
     }
+    for (const auto& [owner, _] : records_)
+        if (!staged.contains(owner))
+            affected.insert(owner);
     if (affected.empty()) {
         response.accepted = true;
         return response;
@@ -3786,7 +3872,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     records_ = std::move(staged);
     for (const auto& owner : affected)
         if (indexed_text_owner(owner))
-            index_text_owner(owner, records_.at(owner)->snapshot().source_json);
+            index_text_owner(owner, records_.contains(owner)
+                                        ? records_.at(owner)->snapshot().source_json
+                                        : "{}");
     if (std::any_of(affected.begin(), affected.end(), localization_record_owner))
         localization_cache_.reset();
     for (const auto& owner : affected)
@@ -4169,7 +4257,7 @@ RoomSessionResult RoomSession::reconcile_disk()
 RoomSessionResult RoomSession::use_disk()
 {
     try {
-        if (exact_source_revision(read_bytes(path_)) != disk_revision_)
+        if (source_revision_or_absent(path_) != disk_revision_)
             return result(false, "External source changed since conflict was reviewed.");
         const auto before = snapshot();
         const bool changed = before.dirty || !conflicting_paths_.empty();
@@ -4189,7 +4277,7 @@ RoomSessionResult RoomSession::use_disk()
 RoomSessionResult RoomSession::use_disk_paths(const std::vector<std::string>& paths)
 {
     try {
-        if (exact_source_revision(read_bytes(path_)) != disk_revision_)
+        if (source_revision_or_absent(path_) != disk_revision_)
             return result(false, "External source changed since conflict was reviewed.");
         const auto before = snapshot();
         Json next = Json::parse(working_json_);

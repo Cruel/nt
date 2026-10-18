@@ -51,6 +51,66 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('stages and transactionally creates a new generic record without a legacy writer', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const existing = await readFile(path.join(root, roomRelative), 'utf8');
+    const newId = 'created-natively';
+    const newPath = path.join(root, `records/rooms/${newId}.yaml`);
+    const candidate = {
+      ...(working.snapshot()!.recordSnapshots![owner]!.source as Record<string, unknown>),
+      id: newId,
+    };
+    const initial = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: `/rooms/${newId}`, value: candidate },
+    ]);
+    expect(initial).toMatchObject({ accepted: true, affectedRecords: [`rooms/${newId}`] });
+    expect((await working.inspectRecord(`rooms/${newId}`)).accepted).toBe(true);
+    const renamed = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: `/rooms/${newId}/label`, value: 'Created with native editing' },
+    ]);
+    expect(renamed.accepted).toBe(true);
+    await expect(readFile(newPath)).rejects.toThrow();
+    const replayed = await working.reopenAndReplay('native-reconcile-test');
+    expect(replayed.recordSnapshots?.[`rooms/${newId}`]?.source).toMatchObject({
+      label: 'Created with native editing',
+    });
+    const saved = await working.saveOwners([`rooms/${newId}`]);
+    expect(saved).toMatchObject({ accepted: true });
+    expect(await readFile(newPath, 'utf8')).toContain('Created with native editing');
+    expect(await readFile(path.join(root, roomRelative), 'utf8')).toBe(existing);
+
+    const abandonedId = 'cancelled-before-save';
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: `/rooms/${abandonedId}`, value: { ...candidate, id: abandonedId } },
+    ])).accepted).toBe(true);
+    const cancelled = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'remove', path: `/rooms/${abandonedId}` },
+    ]);
+    expect(cancelled).toMatchObject({ accepted: true, affectedRecords: [`rooms/${abandonedId}`] });
+    expect(working.snapshot()?.recordSnapshots?.[`rooms/${abandonedId}`]).toBeUndefined();
+    const survivingId = 'surviving-new-record';
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: `/rooms/${survivingId}`, value: { ...candidate, id: survivingId } },
+    ])).accepted).toBe(true);
+    expect((await working.reopenAndReplay('native-reconcile-test')).recordSnapshots?.[`rooms/${abandonedId}`])
+      .toBeUndefined();
+    expect(working.snapshot()?.recordSnapshots?.[`rooms/${survivingId}`]?.source)
+      .toMatchObject({ id: survivingId });
+    await expect(readFile(path.join(root, `records/rooms/${abandonedId}.yaml`))).rejects.toThrow();
+
+    const colliding = { ...candidate, id: 'taken-externally' };
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: '/rooms/taken-externally', value: colliding },
+    ])).accepted).toBe(true);
+    const collisionFile = path.join(root, 'records/rooms/taken-externally.yaml');
+    await writeFile(collisionFile, 'id: taken-externally\nlabel: Disk owns this file\n');
+    expect((await working.saveOwners(['rooms/taken-externally'])).accepted).toBe(false);
+    expect(await readFile(collisionFile, 'utf8')).toContain('Disk owns this file');
+  }, 120_000);
   it('saves a staged RML text source transactionally, retaining exact bytes and disk preconditions', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-source-save-'));
     await cp(fixture, root, { recursive: true });
