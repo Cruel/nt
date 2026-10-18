@@ -467,10 +467,33 @@ async function commitSelectedNativeSaveUnits(
     };
   }
   const saveUnitIds = [...selectedIds].sort();
+  const acknowledged = { remainingDirtySaveUnitIds: null as string[] | null };
   const submitted = await useCommandStore.getState().saveNativeUnitAsync(
     saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
     current.projectRevision,
     { comments: 'keep' },
+    () => {
+      const latest = useProjectStore.getState();
+      if (
+        !latest.document ||
+        latest.projectInstanceId !== current.projectInstanceId ||
+        latest.projectRevision !== current.projectRevision
+      ) throw new Error('Native Save was accepted after the editor Project changed.');
+      const rebased = rebaseRecoveryOverlays(
+        snapshot.recovery,
+        candidateContent,
+        latest.document,
+        selectedIds,
+      );
+      const savedEditorState = editorStateForContentCandidate(snapshot, candidateContent, rebased);
+      const workingEditorState = editorStateForContentCandidate(snapshot, latest.document, rebased);
+      useProjectStore.getState().markSaved({
+        document: mergeEditorProjectState(candidateContent, savedEditorState),
+      });
+      setLoadedEditorProjectState(workingEditorState);
+      useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
+      acknowledged.remainingDirtySaveUnitIds = Object.keys(rebased.saveUnitsById).sort();
+    },
   );
   if (!submitted.ok) {
     return {
@@ -487,8 +510,7 @@ async function commitSelectedNativeSaveUnits(
       remainingDirtySaveUnitIds: remaining,
     };
   }
-  const latest = useProjectStore.getState();
-  if (!latest.document || latest.projectInstanceId !== current.projectInstanceId) {
+  if (acknowledged.remainingDirtySaveUnitIds === null) {
     return {
       success: false,
       status: 'failed',
@@ -497,26 +519,13 @@ async function commitSelectedNativeSaveUnits(
         severity: 'error',
         category: 'Project save',
         path: '/',
-        message: 'Native Save completed after the Project was replaced.',
+        message: 'Native Save was accepted but its editor baseline was not acknowledged.',
       }],
       savedSaveUnitIds: [],
       remainingDirtySaveUnitIds: remaining,
     };
   }
-  const rebased = rebaseRecoveryOverlays(
-    snapshot.recovery,
-    candidateContent,
-    latest.document,
-    selectedIds,
-  );
-  const savedEditorState = editorStateForContentCandidate(snapshot, candidateContent, rebased);
-  const workingEditorState = editorStateForContentCandidate(snapshot, latest.document, rebased);
-  useProjectStore.getState().markSaved({
-    document: mergeEditorProjectState(candidateContent, savedEditorState),
-  });
-  setLoadedEditorProjectState(workingEditorState);
-  useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
-  const remainingDirtySaveUnitIds = Object.keys(rebased.saveUnitsById).sort();
+  const remainingDirtySaveUnitIds = acknowledged.remainingDirtySaveUnitIds;
   return {
     success: true,
     status: remainingDirtySaveUnitIds.length ? 'partially-saved' : 'saved',
@@ -541,21 +550,6 @@ export async function saveActiveSaveUnit(
     explicitSaveUnitId ?? (resolution?.status === 'savable' ? resolution.descriptor.id : null);
   const sourceId = saveUnitId ? sourceIdFromSaveUnitId(saveUnitId) : null;
   if (sourceId) {
-    if (useCommandStore.getState().nativeWorkingRevision !== null) {
-      return {
-        success: false,
-        status: 'blocked',
-        diagnostics: [{
-          code: 'editor.native-save.source-unavailable',
-          severity: 'error',
-          category: 'Project save',
-          path: sourceId,
-          message: 'Source buffers must be staged and saved by the native worker; the legacy writer is disabled.',
-        }],
-        savedSaveUnitIds: [],
-        remainingDirtySaveUnitIds: [saveUnitId!],
-      };
-    }
     const sourceStore = useProjectSourceStore.getState();
     const buffer = sourceStore.buffersById[sourceId];
     if (!buffer?.dirty) {

@@ -110,6 +110,91 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('flushes the latest debounced source buffer through native staging before runtime use', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    useProjectSourceStore.setState({
+      projectSessionId: 'test-project-session',
+      files: [helperSource],
+      textById: { [helperSource.id]: 'return clean' },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return clean',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: false,
+          conflict: null,
+        },
+      },
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const stage = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 1 },
+      textSourceStaged: true,
+      textSourceDiskRevision: sourceRevision,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectStageText', {
+      configurable: true, writable: true, value: stage,
+    });
+    useProjectSourceStore.getState().setText(helperSource.id, 'return outdated');
+    useProjectSourceStore.getState().setText(helperSource.id, 'return latest');
+    expect(stage).not.toHaveBeenCalled();
+    expect(await useProjectSourceStore.getState().flushNativeStages()).toBe(true);
+    expect(stage).toHaveBeenCalledTimes(1);
+    expect(stage).toHaveBeenCalledWith(
+      'test-project-session', 0, helperSource.id, sourceRevision, 'return latest',
+    );
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
+    useProjectSourceStore.getState().clear();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectStageText');
+  });
+
+  it('routes text buffer Save through native Stage/Save without invoking the retired writer', async () => {
+    const project = projectWithRooms();
+    loadProject(project, structuredClone(project), emptyEditorProjectState());
+    useProjectSourceStore.setState({
+      projectSessionId: 'test-project-session',
+      files: [helperSource],
+      textById: { [helperSource.id]: 'return edited' },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return edited',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: true,
+          conflict: null,
+        },
+      },
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    useWorkbenchStore.getState().openTab(buildProjectSourceTab(helperSource));
+    const savedHash = `sha256:${'e'.repeat(64)}`;
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 2 },
+      textSourceDiskRevisions: { [helperSource.id]: savedHash },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveText', {
+      configurable: true, writable: true, value: nativeSave,
+    });
+    const result = await saveActiveSaveUnit();
+    expect(result).toMatchObject({
+      success: true, status: 'saved',
+      savedSaveUnitIds: [`source-file:${helperSource.id}`],
+    });
+    expect(nativeSave).toHaveBeenCalledWith(
+      'test-project-session', 0, helperSource.id, sourceRevision, 'return edited',
+    );
+    expect(window.noveltea.writeProjectSource).not.toHaveBeenCalled();
+    expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
+      dirty: false, baseContentHash: savedHash,
+    });
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveText');
+  });
+
   it('uses native scoped Save to persist one owner without marking unrelated dirty owners saved', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

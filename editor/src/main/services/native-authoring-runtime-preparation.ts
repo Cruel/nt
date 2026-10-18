@@ -25,6 +25,7 @@ import type { ActiveProjectWorkspaceSession } from './active-project-workspace-s
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 import { compileShaders } from './editor-tool-service';
 import type { Sha256Digest } from '../../shared/project-text-sources';
+import type { ShaderVariant } from '../../shared/shader-variants';
 import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
 import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 
@@ -220,6 +221,8 @@ export class NativeWorkingRuntimePreparationCache {
     const content = JSON.stringify([
       options.projectRoot,
       Boolean(options.testId),
+      Boolean(options.testSuite),
+      options.shaderVariant ?? null,
       { ...effective, tests: {} },
       prepared.project,
       runtimeOverrides,
@@ -329,6 +332,8 @@ export interface NativeWorkingRuntimeOptions {
   savedFiles?: Pick<LoadedProjectWorkspaceSnapshot, 'fileRevisions'>;
   projectRoot: string;
   testId?: string;
+  testSuite?: boolean;
+  shaderVariant?: ShaderVariant;
   shaderCompiler?: RuntimeArtifactShaderCompilerAdapter;
   paths?: RuntimeArtifactPathAdapter;
 }
@@ -432,8 +437,11 @@ export async function prepareNativeWorkingRuntime(
     const runtime = await prepareRuntimeArtifact({
       project,
       projectRoot,
-      profile: selectedExportProfile(project),
-      intent: test ? 'test-playback' : 'play',
+      profile: {
+        ...selectedExportProfile(project),
+        ...(options.shaderVariant ? { shaderVariants: [options.shaderVariant] } : {}),
+      },
+      intent: test || options.testSuite ? 'test-playback' : 'play',
       shaderCompiler: {
         compile: (shaderProject, shaderOptions) =>
           baseCompiler.compile(shaderProject, {
@@ -447,6 +455,10 @@ export async function prepareNativeWorkingRuntime(
       await rm(root, { recursive: true, force: true });
       return { status: 'blocked', diagnostics: runtime.diagnostics };
     }
+    // Compilation may read physical sources after its initial preflight.
+    // Recheck the complete pinned revision manifest before admitting the
+    // compiled artifact; a concurrent external edit invalidates the build.
+    await verifyCompleteNativeSources(options);
     return {
       status: 'prepared',
       artifact: runtime.artifact,

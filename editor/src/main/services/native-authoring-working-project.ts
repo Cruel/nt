@@ -228,7 +228,9 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
-  async stageTextSource(path: string, text: string): Promise<PatchResult> {
+  async stageTextSource(
+    path: string, text: string, diskPrecondition?: string,
+  ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
       const result = await this.bridge.request({
@@ -236,6 +238,7 @@ export class NativeAuthoringWorkingProject {
         expectedRevision: this.view.workingRevision,
         path,
         text,
+        ...(diskPrecondition ? { diskPrecondition } : {}),
       });
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a text-source result.');
@@ -246,6 +249,42 @@ export class NativeAuthoringWorkingProject {
         if (result.textSourceStaged)
           this.retainedTextSources.set(path, { text, diskRevision: result.textSourceDiskRevision });
         else this.retainedTextSources.delete(path);
+      }
+      return result;
+    });
+  }
+
+  async saveTextSources(
+    expectedRevision: number,
+    paths: readonly string[],
+  ): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view || this.view.workingRevision !== expectedRevision)
+        throw new Error('Stale native Project text Save revision.');
+      const result = await this.bridge.request({
+        operation: 'saveTextSources',
+        expectedRevision,
+        paths: [...paths],
+        diskPreconditions: Object.fromEntries(
+          paths.flatMap((path) => {
+            const retained = this.retainedTextSources.get(path);
+            return retained ? [[path, retained.diskRevision]] : [];
+          }),
+        ),
+      });
+      if (!result || !('accepted' in result))
+        throw new Error('Native Project did not acknowledge the physical text Save.');
+      if (result.accepted) {
+        if (!result.textSourceDiskRevisions)
+          throw new Error('Native text Save omitted its physical source revision evidence.');
+        for (const path of paths) {
+          if (!result.textSourceDiskRevisions[path])
+            throw new Error('Native text Save omitted source revision for ' + path);
+          this.retainedTextSources.delete(path);
+        }
+        this.view = this.mergeSnapshot(result.snapshot);
+        this.checkpointDirtyWorkingState();
+        return { ...result, snapshot: this.view };
       }
       return result;
     });

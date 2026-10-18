@@ -41,6 +41,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { PanelResizeSeparator } from '@/components/resize-separator';
 import { useProjectStore } from '@/project/project-store';
+import { flushNativeProjectSources } from '@/project/project-source-store';
 import { useCommandStore } from '@/commands/command-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
@@ -540,12 +541,41 @@ async function compiledProjectDiagnosticEntries(
     };
   }
   if (projectSessionId) {
-    const shared = await window.noveltea.prepareEditorRuntime(
-      projectSessionId,
-      project,
-      recoveryFingerprint,
-      activeShaderVariant,
-    );
+    const nativeMode = useCommandStore.getState().nativeWorkingRevision !== null;
+    if (nativeMode) {
+      try {
+        await flushNativeProjectSources();
+      } catch (error) {
+        return {
+          ok: false,
+          compiledProject: null,
+          shaderMaterialMetadata: null,
+          previewAssets: [],
+          noticeIndexText: undefined,
+          sourceFingerprint: null,
+          blockers: [],
+          entries: [{
+            label: 'Native source staging failed',
+            detail: error instanceof Error ? error.message : String(error),
+            severity: 'error',
+          }],
+        };
+      }
+    }
+    const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+    const shared =
+      nativeRevision === null
+        ? await window.noveltea.prepareEditorRuntime(
+            projectSessionId,
+            project,
+            recoveryFingerprint,
+            activeShaderVariant,
+          )
+        : await window.noveltea.nativeProjectPrepareRuntime(
+            projectSessionId,
+            nativeRevision,
+            activeShaderVariant,
+          );
     if (shared.status === 'prepared') {
       const diagnostics = collectProjectValidationDiagnostics(shared.artifact.diagnostics);
       return {

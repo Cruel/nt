@@ -51,6 +51,47 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('saves a staged RML text source transactionally, retaining exact bytes and disk preconditions', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-source-save-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    );
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('native-source-save');
+    const relative = 'records/layouts/notice-board/layout.rml';
+    const file = path.join(root, relative);
+    const original = await readFile(file, 'utf8');
+    const first = original + '\n<!-- accepted native edit -->\n';
+    const staged = await working.stageTextSource(relative, first);
+    expect(staged).toMatchObject({ accepted: true, textSourceStaged: true });
+    expect(await readFile(file, 'utf8')).toBe(original);
+    const saved = await working.saveTextSources(working.snapshot()!.workingRevision, [relative]);
+    expect(saved).toMatchObject({
+      accepted: true,
+      textSourceDiskRevisions: {
+        [relative]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      },
+    });
+    expect(await readFile(file, 'utf8')).toBe(first);
+    expect((await working.prepareWorking()).textOverlays[relative]).toBeUndefined();
+    bridge.close();
+    await working.reopenAndReplay('native-source-save');
+    expect((await working.prepareWorking()).textOverlays[relative]).toBeUndefined();
+
+    const second = first + '<!-- unsaved overlay -->\n';
+    expect((await working.stageTextSource(relative, second)).accepted).toBe(true);
+    await writeFile(file, first + '<!-- external edit -->\n');
+    const rejected = await working.saveTextSources(working.snapshot()!.workingRevision, [relative]);
+    expect(rejected).toMatchObject({ accepted: false });
+    expect(await readFile(file, 'utf8')).toContain('external edit');
+  }, 120_000);
+
   it('replays acknowledged unsaved RML text with exact disk preconditions and rejects changed sources', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-text-replay-'));
     await cp(fixture, root, { recursive: true });

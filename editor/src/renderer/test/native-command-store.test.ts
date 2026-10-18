@@ -58,6 +58,75 @@ function nativeAck(name: string, revision: number, accepted = true) {
 }
 
 describe('native-backed renderer commands', () => {
+  it('stages dirty text through the serialized native queue without publishing Project edits', async () => {
+    const stage = vi.fn().mockResolvedValue({
+      ...nativeAck('Saved Project', 1),
+      textSourceStaged: true,
+      textSourceDiskRevision: 'sha256:' + 'a'.repeat(64),
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectStageText', {
+      configurable: true, writable: true, value: stage,
+    });
+    const revisionBefore = useProjectStore.getState().projectRevision;
+    const result = await useCommandStore.getState().stageNativeTextAsync(
+      'scripts/demo.lua', 'return 17', 'sha256:' + 'a'.repeat(64), revisionBefore,
+    );
+    expect(result.ok).toBe(true);
+    expect(stage).toHaveBeenCalledWith(
+      sessionId, 0, 'scripts/demo.lua', 'sha256:' + 'a'.repeat(64), 'return 17',
+    );
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
+    expect(useProjectStore.getState().projectRevision).toBe(revisionBefore);
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
+  });
+
+  it('queues text Save behind native editing and advances revision only on worker acknowledgment', async () => {
+    let release!: (value: ReturnType<typeof nativeAck>) => void;
+    vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    const sourceRevision = 'sha256:' + 'f'.repeat(64);
+    const nativeSaveText = vi.fn().mockResolvedValue({
+      ...nativeAck('Edited', 3),
+      textSourceDiskRevisions: { 'scripts/demo.lua': sourceRevision },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveText', {
+      configurable: true, writable: true, value: nativeSaveText,
+    });
+    const command = useCommandStore.getState().executeCommandAsync(request('Edited'));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const expectedProjectRevision = useProjectStore.getState().projectRevision + 1;
+    const saving = useCommandStore.getState().saveNativeTextAsync(
+      'scripts/demo.lua', 'return true', 'sha256:' + 'a'.repeat(64), expectedProjectRevision,
+    );
+    expect(nativeSaveText).not.toHaveBeenCalled();
+    release(nativeAck('Edited', 1));
+    expect((await command).ok).toBe(true);
+    expect(await saving).toEqual({ ok: true, contentHash: sourceRevision });
+    expect(nativeSaveText).toHaveBeenCalledWith(
+      sessionId, 1, 'scripts/demo.lua', 'sha256:' + 'a'.repeat(64), 'return true',
+    );
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(3);
+    expect(useCommandStore.getState().nativeMutationPending).toBe(false);
+  });
+
+  it('retains native staged revision after source disk conflict, without falling back', async () => {
+    const nativeSaveText = vi.fn().mockResolvedValue({
+      ...nativeAck('Saved Project', 1, false),
+      error: 'WORKSPACE_REVISION_CONFLICT',
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveText', {
+      configurable: true, writable: true, value: nativeSaveText,
+    });
+    const result = await useCommandStore.getState().saveNativeTextAsync(
+      'scripts/demo.lua', 'return edited', 'sha256:' + 'b'.repeat(64),
+      useProjectStore.getState().projectRevision,
+    );
+    expect(result.ok).toBe(false);
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(useCommandStore.getState().executeCommand(request('Legacy')).ok).toBe(false);
+  });
   it('serializes scoped native Save after acknowledged edits without changing editor history', async () => {
     let release!: (value: ReturnType<typeof nativeAck>) => void;
     const patch = vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
@@ -81,6 +150,34 @@ describe('native-backed renderer commands', () => {
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
     expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
     expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('adopts a saved baseline before allowing the next queued native edit to publish', async () => {
+    const order: string[] = [];
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      writable: true,
+      value: vi.fn(async () => nativeAck('Saved Project', 0)),
+    });
+    vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(async () => {
+      order.push('next-command');
+      return nativeAck('Next change', 1);
+    });
+    const originalRevision = useProjectStore.getState().projectRevision;
+    const saving = useCommandStore.getState().saveNativeUnitAsync(
+      'project:settings',
+      originalRevision,
+      { comments: 'keep' },
+      () => {
+        order.push('saved-baseline');
+        expect(useProjectStore.getState().projectRevision).toBe(originalRevision);
+      },
+    );
+    const next = useCommandStore.getState().executeCommandAsync(request('Next change'));
+    expect((await saving).ok).toBe(true);
+    expect((await next).ok).toBe(true);
+    expect(order).toEqual(['saved-baseline', 'next-command']);
+    expect(projectName()).toBe('Next change');
   });
 
   it('keeps native Save failure from creating a saved baseline or enabling a legacy writer', async () => {
@@ -170,6 +267,8 @@ describe('native-backed renderer commands', () => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectPatch');
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveText');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectStageText');
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
   });

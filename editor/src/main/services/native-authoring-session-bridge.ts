@@ -50,8 +50,9 @@ export interface NativeAuthoringSessionOptions {
 }
 
 /**
- * Opt-in certification bridge; intentionally not wired to preload or renderer IPC.
- * The trusted main-owned active session is the only source of the worker's root.
+ * Opt-in certification bridge. Only the trusted main admission controller
+ * can expose guarded native operations to preload/renderer IPC. The trusted
+ * main-owned active session is the only source of the worker's filesystem root.
  */
 export class NativeAuthoringSessionBridge {
   private current: OpenSession | null = null;

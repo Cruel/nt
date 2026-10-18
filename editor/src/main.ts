@@ -206,6 +206,11 @@ import {
   noArgumentsSchema,
   nativeProjectPatchArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
+  nativeProjectSaveTextArgumentsSchema,
+  nativeProjectValidateArgumentsSchema,
+  nativeProjectPrepareRuntimeArgumentsSchema,
+  nativeProjectRunTestArgumentsSchema,
+  nativeProjectRunSuiteArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
@@ -1298,7 +1303,8 @@ void app.whenReady().then(async () => {
     (projectSessionId, expectedRevision, patches) => {
       // Never activate a second writable Project behind the normal Save
       // pipeline. This endpoint is enabled only by an explicit cutover
-      // certification launch, and its mutations stay in native working memory.
+      // certification launch; physical Save uses a separate revision-checked
+      // native transaction boundary, never the legacy Workspace writer.
       if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
         throw new Error('Native Project mutation is not enabled for this editor.');
       return nativeEditorAdmission.applyRevisionedPatches(
@@ -1321,6 +1327,70 @@ void app.whenReady().then(async () => {
         saveUnitIds,
         options,
       );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_SAVE_TEXT,
+    (arguments_) => nativeProjectSaveTextArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, path, diskRevision, text) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project text Save is not enabled for this editor.');
+      return nativeEditorAdmission.saveText(
+        projectSessionId, expectedRevision, path, diskRevision, text,
+      );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_STAGE_TEXT,
+    (arguments_) => nativeProjectSaveTextArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, path, diskRevision, text) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project text staging is not enabled for this editor.');
+      return nativeEditorAdmission.stageText(
+        projectSessionId, expectedRevision, path, diskRevision, text,
+      );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,
+    (arguments_) => nativeProjectValidateArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project validation is not enabled for this editor.');
+      return nativeEditorAdmission.validate(projectSessionId, expectedRevision);
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
+    (arguments_) => nativeProjectPrepareRuntimeArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, shaderVariant) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native runtime preparation is not enabled for this editor.');
+      return nativeEditorAdmission.prepareRuntime(projectSessionId, expectedRevision, shaderVariant);
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST,
+    (arguments_) => nativeProjectRunTestArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, testId) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native authored Tests are not enabled for this editor.');
+      return nativeEditorAdmission.runTest(projectSessionId, expectedRevision, testId);
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_RUN_SUITE,
+    (arguments_) => nativeProjectRunSuiteArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native authored Test suite is not enabled for this editor.');
+      return nativeEditorAdmission.runSuite(projectSessionId, expectedRevision);
     },
   );
 

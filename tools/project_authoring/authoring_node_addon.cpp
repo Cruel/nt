@@ -600,6 +600,36 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             return js_string(env, result.to_string());
         }
+        if (name == "saveTextSources") {
+            if (argc != 4)
+                throw std::runtime_error(
+                    "Native text Save needs revision, source paths and exact disk preconditions.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid native text Save revision.");
+            const auto paths = Json::parse(string_arg(env, argv[2]));
+            if (!paths.is_array() || paths.empty() || paths.size() > 128)
+                throw std::runtime_error("Invalid native text Save source selection.");
+            std::vector<std::string> selected;
+            for (const auto& path : paths.array_range())
+                selected.push_back(path.as<std::string>());
+            const auto preconditions = Json::parse(string_arg(env, argv[3]));
+            if (!preconditions.is_object() || preconditions.size() > 128)
+                throw std::runtime_error("Invalid native text Save disk preconditions.");
+            std::map<std::string, std::string> revisions;
+            for (const auto& item : preconditions.object_range())
+                revisions[item.key()] = item.value().as<std::string>();
+            auto response = session.project->save_text_sources(
+                static_cast<std::uint64_t>(revision), selected, revisions);
+            auto result = result_json(*session.project, response);
+            if (response.accepted) {
+                Json revisions = Json::object();
+                for (const auto& path : selected)
+                    revisions[path] = session.project->text_source_disk_revisions().at(path);
+                result["textSourceDiskRevisions"] = std::move(revisions);
+            }
+            return js_string(env, result.to_string());
+        }
         if (name == "stageShaderSource" || name == "publishMaterialCompilerResult") {
             if (argc != 4)
                 throw std::runtime_error(
@@ -692,6 +722,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "stageShaderSource",
                                     "textSourceOverlays",
                                     "stageTextSource",
+                                    "saveTextSources",
                                     "sourceAnalyses",
                                     "prepareWorking",
                                     "prepareCompleteWorking",

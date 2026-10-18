@@ -2876,6 +2876,85 @@ RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
     return response;
 }
 
+RoomSessionResult ProjectSession::save_text_sources(std::uint64_t revision,
+                                                   const std::vector<std::string>& paths,
+                                                   const std::map<std::string, std::string>& disk_preconditions)
+{
+    RoomSessionResult response;
+    const auto before = snapshot();
+    response.snapshot = before;
+    if (revision != working_revision_) {
+        response.error = "Stale working revision.";
+        return response;
+    }
+    if (source_authority_->uncertain()) {
+        response.error = "Cannot save text with uncertain Project source authority.";
+        return response;
+    }
+    if (paths.empty() || paths.size() > 128) {
+        response.error = "Native text Save requires a bounded nonempty source selection.";
+        return response;
+    }
+    try {
+        std::set<std::string> used;
+        std::vector<YamlTransactionTarget> targets;
+        for (const auto& path : paths) {
+            if (!used.insert(path).second || !analyzable_text_path(path) ||
+                !text_source_paths_.contains(path) || path.starts_with("inline/") ||
+                !text_disk_revisions_.contains(path))
+                throw std::runtime_error("Unknown or duplicate admitted text source: " + path);
+            const auto overlay = text_source_overlays_.find(path);
+            if (overlay == text_source_overlays_.end())
+                continue;
+            const auto original = disk_preconditions.find(path);
+            if (original == disk_preconditions.end() ||
+                original->second != text_disk_revisions_.at(path))
+                throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: staged text baseline " +
+                                         path);
+            const auto root = std::filesystem::canonical(root_);
+            const auto canonical = std::filesystem::canonical(root_ / path);
+            const auto relative = canonical.lexically_relative(root);
+            if (relative.empty() || relative == "." || *relative.begin() == "..")
+                throw std::runtime_error("Text source escapes the Project root.");
+            const auto baseline = read_bytes(canonical);
+            const auto expected = text_disk_revisions_.at(path);
+            if (exact_source_revision(baseline) != expected)
+                throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + path);
+            YamlTransactionTarget target;
+            target.path = path;
+            target.expected_revision = expected;
+            target.baseline_source = baseline;
+            target.raw_text_source = overlay->second;
+            targets.push_back(std::move(target));
+        }
+        if (targets.empty()) {
+            response.accepted = true;
+            return response;
+        }
+        YamlTransactionService writer(root_);
+        const auto prepared = writer.prepare(targets, TransactionDecision::KeepComments);
+        if (!prepared.accepted)
+            throw std::runtime_error(prepared.error);
+        const auto saved = writer.commit(prepared, TransactionDecision::KeepComments);
+        if (!saved.accepted)
+            throw std::runtime_error(saved.error);
+        for (const auto& target : prepared.targets) {
+            text_disk_revisions_[target.path] = target.after_revision;
+            text_source_overlays_.erase(target.path);
+            response.affected_records.push_back("source:" + target.path);
+            if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
+                source_authority_->coverage_lost();
+        }
+        ++working_revision_;
+        response.accepted = true;
+        response.snapshot = snapshot();
+        diagnostic_delta(response, before);
+    } catch (const std::exception& error) {
+        response.error = error.what();
+    }
+    return response;
+}
+
 std::optional<std::string> ProjectSession::resolved_material(std::string_view material_id) const
 {
     const auto found = records_.find("materials/" + std::string(material_id));

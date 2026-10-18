@@ -27,6 +27,10 @@ struct YamlTransactionTarget {
     // Atomic whole-source formatting; unlike a normal edit, content must
     // decode to the same source value as its baseline.
     std::optional<std::string> replacement_source = std::nullopt;
+    // Only a native ProjectSession-admitted Lua/RML/RCSS source can request a
+    // raw byte replacement. The transaction journal still checks the exact
+    // original source revision and performs crash-safe multi-file publication.
+    std::optional<std::string> raw_text_source = std::nullopt;
     // Only permitted for a canonical record source, when native validation
     // proves that omission of explicit defaults leaves its effective value
     // exactly unchanged.

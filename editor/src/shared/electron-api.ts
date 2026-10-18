@@ -92,6 +92,42 @@ interface NovelTeaElectronApiContract {
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
+  nativeProjectSaveText(
+    projectSessionId: string,
+    expectedRevision: number,
+    projectRelativePath: string,
+    diskRevision: string,
+    text: string,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectStageText(
+    projectSessionId: string,
+    expectedRevision: number,
+    projectRelativePath: string,
+    diskRevision: string,
+    text: string,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectValidate(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<ValidationResponse>;
+  nativeProjectPrepareRuntime(
+    projectSessionId: string,
+    expectedRevision: number,
+    shaderVariant: import('./shader-variants').ShaderVariant,
+  ): Promise<import('./editor-runtime-cache').EditorRuntimePreparationResult>;
+  nativeProjectRunTest(
+    projectSessionId: string,
+    expectedRevision: number,
+    testId: string,
+  ): Promise<import('./editor-tooling').PlaybackReportResponse>;
+  nativeProjectRunSuite(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<import('./editor-tooling').PlaybackReportResponse>;
   validateProject(
     projectSessionId: string,
     project: unknown,

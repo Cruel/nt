@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
+import { flushNativeProjectSources } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
@@ -934,12 +935,25 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
       return;
     }
-    const result = await window.noveltea.runPlaybackTest(
-      projectSessionId,
-      activeProject,
-      activeTestId,
-      usePendingInputStore.getState().entriesBySaveUnitId,
-    );
+    let result;
+    try {
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      result = nativeRevision !== null && projectSessionId
+        ? await window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, activeTestId)
+        : await window.noveltea.runPlaybackTest(
+            projectSessionId,
+            activeProject,
+            activeTestId,
+            usePendingInputStore.getState().entriesBySaveUnitId,
+          );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Native Test preparation failed.';
+      setStatusMessage(message);
+      setLastPlaybackReport({ ok: false, success: false, error: message });
+      return;
+    }
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${activeTestId}` : (result.error ?? 'Test run failed'));
     addTimelineEntry({

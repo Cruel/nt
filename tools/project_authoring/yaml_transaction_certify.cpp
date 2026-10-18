@@ -87,6 +87,36 @@ void certify()
     write(second, source_b);
     write(temp.root / "unrelated.bin", std::string_view("\0binary", 7));
 
+    // Native staged text sources are not YAML. They still need the identical
+    // exact-revision lock/journal/recovery guarantees as Project authoring.
+    const auto script = temp.root / "scripts/game.lua";
+    write(script, "return 1\n");
+    YamlTransactionTarget text_change;
+    text_change.path = "scripts/game.lua";
+    text_change.baseline_source = "return 1\n";
+    text_change.expected_revision = exact_source_revision(text_change.baseline_source);
+    text_change.raw_text_source = "return 2 -- full-source edit\n";
+    const auto text_prepared = writer.prepare({text_change}, TransactionDecision::KeepComments);
+    require(text_prepared.accepted && text_prepared.targets.size() == 1,
+            "Native raw text preflight accepts tracked script content without a YAML parse");
+    require(writer.commit(text_prepared, TransactionDecision::KeepComments).accepted &&
+                read(script) == *text_change.raw_text_source,
+            "Raw Lua Save is durable and retains exact edited bytes");
+    require(!writer.commit(text_prepared, TransactionDecision::KeepComments).accepted,
+            "A raw text Save approval cannot replay over its newly published source");
+    text_change.baseline_source = read(script);
+    text_change.expected_revision = exact_source_revision(text_change.baseline_source);
+    text_change.raw_text_source = "return 3\n";
+    const auto text_stale = writer.prepare({text_change}, TransactionDecision::KeepComments);
+    require(text_stale.accepted, "Raw text stale-revision fixture is prepared");
+    write(script, "return external\n");
+    require(!writer.commit(text_stale, TransactionDecision::KeepComments).accepted &&
+                read(script) == "return external\n",
+            "Raw text Save refuses an intervening physical source change");
+    text_change.path = "scripts/../../outside.lua";
+    require(!writer.prepare({text_change}, TransactionDecision::KeepComments).accepted,
+            "Raw text Save refuses a path traversal");
+
     auto edit_a = change("records/rooms/one.yaml", source_a, "/label", "\"Updated\"");
     const auto reviewed = writer.prepare({edit_a}, TransactionDecision::KeepComments);
     require(reviewed.accepted && reviewed.targets.size() == 1 &&

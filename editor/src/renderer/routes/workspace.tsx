@@ -52,7 +52,7 @@ import {
 import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
-import { useProjectSourceStore } from '@/project/project-source-store';
+import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
@@ -982,6 +982,27 @@ export function WorkspacePage() {
         )
           return;
         const authoring = event.authoring;
+        if (useCommandStore.getState().nativeWorkingRevision !== null) {
+          // The legacy watcher is still useful as a file/asset notification,
+          // but only the native observer owns the live Project snapshot in
+          // certification mode. Never publish a TypeScript external merge
+          // into an acknowledged native revision.
+          if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
+            void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
+          if (event.assetChangedPaths.length > 0) void runAssetAudit(latestProject);
+          if (event.authoringChangedPaths.length > 0) {
+            setStatusMessage('External Project changes detected; native reconciliation is required');
+            if (!authoring?.success && authoring?.diagnostics.length) {
+              setDiagnostics([
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...authoring.diagnostics,
+              ]);
+              useBottomPanelStore.getState().setActivePanelId('problems');
+              setBottomPanelVisible(true);
+            }
+          }
+          return;
+        }
         if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
           void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
         if ((event.sourceChangedPaths?.length ?? 0) > 0)
@@ -1696,29 +1717,48 @@ export function WorkspacePage() {
 
   async function validate() {
     if (!project || !projectSessionId) return;
+    const nativeMode = useCommandStore.getState().nativeWorkingRevision !== null;
+    let preparationFailure: string | null = null;
+    if (nativeMode) {
+      try {
+        await flushNativeProjectSources();
+      } catch (error) {
+        preparationFailure = error instanceof Error ? error.message : String(error);
+      }
+    }
+    const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
     const authority = saveDirty ? 'session-local' : 'disk-authoritative';
-    let diagnostics = saveDirty
+    let diagnostics = nativeRevision !== null
+      ? [...persistentRecoveryDiagnosticsRef.current]
+      : saveDirty
       ? collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current)
       : [...persistentRecoveryDiagnosticsRef.current];
     try {
-      const native = await window.noveltea.validateProject(projectSessionId, project, authority);
-      const nativeDiagnostics = saveDirty
+      if (preparationFailure) throw new Error(preparationFailure);
+      const native = nativeRevision !== null
+        ? await window.noveltea.nativeProjectValidate(projectSessionId, nativeRevision)
+        : await window.noveltea.validateProject(projectSessionId, project, authority);
+      const nativeDiagnostics = nativeRevision === null && saveDirty
         ? native.diagnostics.filter((diagnostic) =>
             diagnostic.code?.startsWith('localization.font_coverage'),
           )
         : native.diagnostics;
       diagnostics = mergeEditorValidationDiagnostics(diagnostics, nativeDiagnostics);
     } catch (error) {
-      if (!saveDirty)
+      if (!saveDirty && nativeRevision === null)
         diagnostics = collectWorkspaceProjectDiagnostics(
           project,
           persistentRecoveryDiagnosticsRef.current,
         );
       diagnostics.push({
-        code: 'localization.font_coverage.tool',
+        code: nativeRevision === null
+          ? 'localization.font_coverage.tool'
+          : 'editor.native-validation.failed',
         severity: 'error',
-        category: 'Localization font coverage',
-        path: '/localization',
+        category: nativeRevision === null
+          ? 'Localization font coverage'
+          : 'Native authoring validation',
+        path: nativeRevision === null ? '/localization' : '/',
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1869,7 +1909,7 @@ export function WorkspacePage() {
     }
   }
 
-  function runFirstTest() {
+  async function runFirstTest() {
     setLastPlaybackReport(null);
     const latestProject = useProjectStore.getState().document;
     const authoringProject = authoringProjectForEditor(latestProject);
@@ -1890,9 +1930,15 @@ export function WorkspacePage() {
       setStatusMessage('No playback tests are available.');
       return;
     }
-    void window.noveltea
-      .runPlaybackTest(projectSessionId, latestProject, tests[0]!.id, pendingInputEntries)
-      .then((result) => {
+    try {
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      const result = await (nativeRevision !== null && projectSessionId
+        ? window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, tests[0]!.id)
+        : window.noveltea.runPlaybackTest(
+            projectSessionId, latestProject, tests[0]!.id, pendingInputEntries,
+          ));
         setLastPlaybackReport(result.report ?? result);
         setStatusMessage(
           result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
@@ -1902,7 +1948,9 @@ export function WorkspacePage() {
           message: result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
           detail: result,
         });
-      });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Test preparation failed.');
+    }
   }
 
   function exportRuntimePackage() {
@@ -1945,7 +1993,7 @@ export function WorkspacePage() {
           void importAssets();
           break;
         case 'run-first-test':
-          runFirstTest();
+          void runFirstTest();
           break;
         case 'export-package':
           exportRuntimePackage();
