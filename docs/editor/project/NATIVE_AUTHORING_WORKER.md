@@ -402,11 +402,22 @@ Lua/RML or shader buffers remain exclusively working-session diagnostics and
 cannot publish or replace disk generations. Ordinary warm sessions retain
 unaffected validation contributors on single-source edits. Imported cache
 hits avoid initial full semantic validation, but native Project admission
-and physical source proof are still mandatory; the first later source change
-rebuilds resident contributors before normal incrementality resumes.
+and physical source proof are still mandatory. When an imported clean result
+is followed by a Room or Map edit limited to the source's `label` and
+`description`, the session retains its exact-result diagnostics, verifies the
+changed record's local schema and revision, and updates only that owner's
+contribution. The original source evidence is retained **only in session RAM**;
+the persistent cache format remains result-only. Any edit affecting substantive
+fields, a previous diagnostic owned by that record, or other source dependencies
+falls back conservatively to full validation and constructs resident semantic
+contributors for subsequent incremental checks. A lost watcher authority
+coverage event also forbids an unvalidated cache hit until a fresh full
+validation has completed, even when the physical rescan finds unchanged bytes.
 
 This is an opt-in certification seam, not the coordinated production cutover
 of #474. Feature Lab Project-session certification covers reuse between
 independently opened CLI/editor-style sessions, dirty isolation, single-Room
-rechecks and legacy-cache rejection; the editor worker test exercises the
+rechecks (including the first presentation-only edit after a cache hit),
+eviction/restart re-admission, watcher recovery, and legacy-cache rejection;
+the editor worker test exercises the
 typed response including source-aware diagnostics.
