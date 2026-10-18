@@ -124,7 +124,7 @@ interface HotspotFocusStoreState {
   delete: (tabId: string, hotspotId: string) => void;
   undo: (tabId: string) => void;
   redo: (tabId: string) => void;
-  commit: (tabId: string) => boolean;
+  commit: (tabId: string) => Promise<boolean>;
   discard: (tabId: string) => boolean;
   reset: () => void;
 }
@@ -569,7 +569,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
     });
     syncDraftEntry(get().sessionsByTabId[tabId]);
   },
-  commit: (tabId) => {
+  commit: async (tabId) => {
     const session = get().sessionsByTabId[tabId];
     if (!session) return true;
     if (!hotspotGeometryChanged(session.initialItems, session.history.present)) {
@@ -628,7 +628,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
                 })(),
           );
     if (operation.diagnostics?.some((item) => item.severity === 'error')) return false;
-    const result = useCommandStore.getState().executeCommand({
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label:
         session.ownerKind === 'room'

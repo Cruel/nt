@@ -340,7 +340,7 @@ export function WorkspacePage() {
   const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
   const commandHistory = useCommandStore((state) => state.history);
   const undoCommand = useCommandStore((state) => state.undo);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const redoCommand = useCommandStore((state) => state.redo);
   const deletedAssetTrash = useAssetTrashStore((state) => state.deletedAssets);
   const forgetDeletedAsset = useAssetTrashStore((state) => state.forgetDeletedAsset);
@@ -1746,7 +1746,7 @@ export function WorkspacePage() {
       setAlert({ title: 'Asset import failed', message });
       return;
     }
-    const command = executeCommand({
+    const command = await executeCommand({
       type: 'asset.importFiles',
       label: `Import ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`,
       payload: { assets: result.assets, fileOrigin: 'existing-project-file' },
@@ -1841,7 +1841,7 @@ export function WorkspacePage() {
         }
         return;
       }
-      const command = executeCommand({
+      const command = await executeCommand({
         type: 'asset.importFiles',
         label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
         payload: { assets: result.assets, fileOrigin: 'copied-by-import' },

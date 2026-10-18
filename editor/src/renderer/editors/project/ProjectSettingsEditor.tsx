@@ -338,8 +338,9 @@ function pathsOverlap(left: string, right: string) {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
-function commandSucceeded(result: ReturnType<typeof runProjectCommand>) {
-  return !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+async function commandSucceeded(resultPromise: ReturnType<typeof runProjectCommand>) {
+  const result = await resultPromise;
+  return result.ok && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
 function cursorTargetSelection(target: ProjectCursorSettings['defaults']['hotspot']) {
@@ -402,7 +403,7 @@ interface PendingNumberInputProps {
   value: number | undefined;
   optional?: boolean;
   invalid: boolean;
-  onCommit: (value: number | undefined) => boolean;
+  onCommit: (value: number | undefined) => boolean | Promise<boolean>;
 }
 
 function PendingNumberInput({
@@ -427,23 +428,27 @@ function PendingNumberInput({
       value={rawValue}
       aria-invalid={invalid || Boolean(pending)}
       data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[path]}
-      onChange={(event) => {
+      onChange={async (event) => {
         const raw = event.currentTarget.value;
-        if (optional && raw === '') {
-          if (onCommit(undefined)) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-          return;
-        }
-        if (/^[+-]?\d+$/.test(raw)) {
-          const parsed = Number(raw);
-          if (Number.isSafeInteger(parsed) && onCommit(parsed)) {
-            clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-            return;
-          }
-        }
         setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path, {
           value: raw,
           diagnosticCode: 'editor.pending-input.number.invalid',
         });
+        if (optional && raw === '') {
+          if (await onCommit(undefined)) {
+            const latest = usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path];
+            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+          }
+          return;
+        }
+        if (/^[+-]?\d+$/.test(raw)) {
+          const parsed = Number(raw);
+          if (Number.isSafeInteger(parsed) && await onCommit(parsed)) {
+            const latest = usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path];
+            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+            return;
+          }
+        }
       }}
     />
   );
@@ -454,7 +459,7 @@ interface PendingDecimalInputProps {
   path: string;
   value: number;
   invalid: boolean;
-  onCommit: (value: number) => boolean;
+  onCommit: (value: number) => boolean | Promise<boolean>;
 }
 
 function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDecimalInputProps) {
@@ -472,19 +477,20 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
       value={rawValue}
       aria-invalid={invalid || Boolean(pending)}
       data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[path]}
-      onChange={(event) => {
+      onChange={async (event) => {
         const raw = event.currentTarget.value;
-        if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
-          const parsed = Number(raw);
-          if (Number.isFinite(parsed) && onCommit(parsed)) {
-            clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-            return;
-          }
-        }
         setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path, {
           value: raw,
           diagnosticCode: 'editor.pending-input.number.invalid',
         });
+        if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed) && await onCommit(parsed)) {
+            const latest = usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path];
+            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+            return;
+          }
+        }
       }}
     />
   );
@@ -540,7 +546,7 @@ function nextInventoryInstanceId(project: AuthoringProject, definitionId: string
 }
 
 function runProjectCommand(type: string, payload: unknown, label: string) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type,
     label,
     payload,
@@ -590,7 +596,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
     });
     instance.id = instanceId;
     instance.quantity = quantity;
-    runProjectCommand(
+    void runProjectCommand(
       'project.addAtPath',
       { path: `/interactableInstances/${instanceId}`, value: instance },
       `Add ${selected.record.label} to Inventory`,
@@ -634,7 +640,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
                         const next = Number(event.currentTarget.value);
                         if (!Number.isSafeInteger(next) || next <= 0) return;
                         const clamped = Math.min(next, data.stackLimit ?? Number.MAX_SAFE_INTEGER);
-                        runProjectCommand(
+                        void runProjectCommand(
                           'project.replaceAtPath',
                           {
                             path: `/interactableInstances/${instance.id}/quantity`,
@@ -748,7 +754,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
   }, [policies, selectedPolicy, selectedPolicyId]);
 
   function replacePolicies(next: AssetMemoryPolicyDefinition[], label: string) {
-    runProjectCommand(
+    void runProjectCommand(
       'project.replaceAtPath',
       { path: '/export/assetMemoryPolicies', value: next },
       label,
@@ -1513,7 +1519,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
-  function renameNamedCursor(fromId: string, toId: string) {
+  async function renameNamedCursor(fromId: string, toId: string) {
     const normalized = toId.trim();
     if (normalized === fromId) return true;
     const result = runProjectCommand(
@@ -1521,7 +1527,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       { fromId, toId: normalized },
       t('projectSettings.cursors.renameCommand', { id: fromId }),
     );
-    if (commandSucceeded(result)) {
+    if (await commandSucceeded(result)) {
       if (testingCursorId === fromId) setTestingCursorId(normalized);
       setCursorIdDrafts((drafts) => {
         const next = { ...drafts };
@@ -1534,7 +1540,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     return false;
   }
 
-  function removeNamedCursor(index: number, force = false) {
+  async function removeNamedCursor(index: number, force = false) {
     const removed = currentSettings.cursors.named[index];
     if (!removed) return false;
     const result = runProjectCommand(
@@ -1547,13 +1553,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         { id: removed.id },
       ),
     );
-    const succeeded = commandSucceeded(result);
+    const succeeded = await commandSucceeded(result);
     if (succeeded) {
       if (testingCursorId === removed.id) setTestingCursorId(null);
       if (pendingCursorForceDeleteId === removed.id) setPendingCursorForceDeleteId(null);
     } else if (
       !force &&
-      result.diagnostics.some(
+      (await result).diagnostics.some(
         (diagnostic) =>
           diagnostic.severity === 'error' && diagnostic.message.includes('Force Delete'),
       )
@@ -1847,7 +1853,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   onChange={(event) => {
                     const assetId = event.currentTarget.value;
                     if (assetId && !projectFontStack.some((ref) => ref.$ref.id === assetId))
-                      setProjectFontStack([...projectFontStack.map((ref) => ref.$ref.id), assetId]);
+                      void setProjectFontStack([...projectFontStack.map((ref) => ref.$ref.id), assetId]);
                     event.currentTarget.value = '';
                   }}
                 >
@@ -1876,7 +1882,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                         onClick={() => {
                           const ids = projectFontStack.map((entry) => entry.$ref.id);
                           [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
-                          setProjectFontStack(ids);
+                          void setProjectFontStack(ids);
                         }}
                         aria-label={`Move ${ref.$ref.id} earlier`}
                       >
@@ -1891,7 +1897,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                         onClick={() => {
                           const ids = projectFontStack.map((entry) => entry.$ref.id);
                           [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];
-                          setProjectFontStack(ids);
+                          void setProjectFontStack(ids);
                         }}
                         aria-label={`Move ${ref.$ref.id} later`}
                       >
@@ -2838,7 +2844,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     onBlur={(event) => {
                       const displayName = event.currentTarget.value.trim() || undefined;
                       if (displayName === notice.displayName) return;
-                      setDistributionNotices(
+                      void setDistributionNotices(
                         settings.distributionNotices.map((item, position) =>
                           position === index ? { ...item, displayName } : item,
                         ),
@@ -2925,7 +2931,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     return;
                   }
                   setNoticeValidationError(null);
-                  if (setDistributionNotices([...notices, { path: relativePath }]))
+                  if (await setDistributionNotices([...notices, { path: relativePath }]))
                     setNoticePathDraft('');
                 }}
               >
@@ -3124,7 +3130,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             item.collection === 'scenes' ||
             item.collection === 'dialogues'
           ) {
-            setEntrypoint({
+            void setEntrypoint({
               kind: item.collection.slice(0, -1) as 'room' | 'scene' | 'dialogue',
               id: item.entityId,
             });
@@ -3141,7 +3147,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         selectedId={`record:scripts:${project.bootstrapModule.$ref.id}`}
         onSelect={(item) => {
           if (item.collection !== 'scripts' || !item.entityId) return;
-          runProjectCommand(
+          void runProjectCommand(
             'project.setBootstrapModule',
             { scriptId: item.entityId },
             'Set Bootstrap Module',
@@ -3169,7 +3175,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         }
         onSelect={(item) => {
           if (!systemLayoutSelectorRole || !item.entityId) return;
-          setSystemLayout(systemLayoutSelectorRole, item.entityId);
+          void setSystemLayout(systemLayoutSelectorRole, item.entityId);
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
       />
@@ -3200,7 +3206,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 const index = currentSettings.cursors.named.findIndex(
                   (cursor) => cursor.id === pendingCursorForceDeleteId,
                 );
-                if (index >= 0) removeNamedCursor(index, true);
+                if (index >= 0) void removeNamedCursor(index, true);
               }}
             >
               {t('projectSettings.cursors.forceDelete')}
@@ -3253,10 +3259,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             <Button
               type="button"
               disabled={!resolutionDialogValid}
-              onClick={() => {
+              onClick={async () => {
                 if (
                   resolutionDialogValid &&
-                  setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight)
+                  await setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight)
                 )
                   setResolutionDialogOpen(false);
               }}

@@ -28,7 +28,7 @@ export class NativeEditorSessionController {
     private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'>,
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
-      'open' | 'prepareCompleteWorking' | 'applyRevisionedPatches'
+      'open' | 'prepareCompleteWorking' | 'applyRevisionedPatches' | 'saveUnits' | 'snapshot'
     >,
   ) {
     this.unsubscribeFailure = bridge.onFailure(() => this.close());
@@ -90,6 +90,28 @@ export class NativeEditorSessionController {
     const result = await this.working.applyRevisionedPatches(expectedRevision, patches);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project mutation completed for a superseded session.');
+    return result;
+  }
+
+  async saveUnit(
+    projectSessionId: string,
+    expectedRevision: number,
+    saveUnitIds: string | readonly string[],
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' },
+  ) {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Native Project is not admitted for this editor session.');
+    const generation = this.generation;
+    this.authority.requireActiveProjectRoot(projectSessionId);
+    if (this.working.snapshot()?.workingRevision !== expectedRevision)
+      throw new Error('Stale native Project Save revision.');
+    const result = await this.working.saveUnits(
+      typeof saveUnitIds === 'string' ? [saveUnitIds] : saveUnitIds,
+      options,
+      expectedRevision,
+    );
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Native Project Save completed for a superseded session.');
     return result;
   }
 

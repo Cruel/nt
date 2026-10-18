@@ -110,6 +110,147 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('uses native scoped Save to persist one owner without marking unrelated dirty owners saved', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Native Foyer';
+    working.rooms.kitchen!.label = 'Still Dirty';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+      'record:rooms:kitchen': {
+        sequence: 2,
+        patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Still Dirty' }],
+        affectedPaths: ['/rooms/kitchen/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    loadProject(saved, working, editorState);
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 0 },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: nativeSave,
+    });
+    const result = await saveActiveSaveUnit('record:rooms:foyer');
+    expect(result).toMatchObject({
+      success: true,
+      status: 'partially-saved',
+      savedSaveUnitIds: ['record:rooms:foyer'],
+      remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
+    });
+    expect(nativeSave).toHaveBeenCalledWith(
+      'test-project-session', 0, 'record:rooms:foyer', { comments: 'keep' },
+    );
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    const state = useProjectStore.getState();
+    expect((state.savedDocument as typeof saved).rooms.foyer?.label).toBe('Native Foyer');
+    expect((state.savedDocument as typeof saved).rooms.kitchen?.label).toBe('Kitchen');
+    expect((state.document as typeof working).rooms.kitchen?.label).toBe('Still Dirty');
+    expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
+    expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).not.toHaveProperty('record:rooms:foyer');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
+  it('never falls back to legacy writer when native Save refuses or Save All spans owners', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Native Foyer';
+    working.rooms.kitchen!.label = 'Still Dirty';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+      'record:rooms:kitchen': {
+        sequence: 2,
+        patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Still Dirty' }],
+        affectedPaths: ['/rooms/kitchen/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    loadProject(saved, working, editorState);
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: false,
+      error: 'Physical YAML changed on disk.',
+      snapshot: { workingRevision: 0 },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: nativeSave,
+    });
+    expect((await saveActiveSaveUnit('record:rooms:foyer')).success).toBe(false);
+    expect((await saveAllSaveUnits()).status).toBe('failed');
+    expect(nativeSave).toHaveBeenCalledTimes(2);
+    expect(nativeSave.mock.calls[1]?.[2]).toEqual(['record:rooms:foyer', 'record:rooms:kitchen']);
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer?.label).toBe('Foyer');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
+  it('saves all native working owners in one revision-scoped atomic transaction', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Native Foyer';
+    working.rooms.kitchen!.label = 'Native Kitchen';
+    const editorState = recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+      'record:rooms:kitchen': {
+        sequence: 2,
+        patches: [{ op: 'replace', path: '/rooms/kitchen/label', value: 'Native Kitchen' }],
+        affectedPaths: ['/rooms/kitchen/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    });
+    loadProject(saved, working, editorState);
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 0 },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: nativeSave,
+    });
+    const result = await saveAllSaveUnits();
+    expect(result).toMatchObject({
+      success: true,
+      status: 'saved',
+      savedSaveUnitIds: ['record:rooms:foyer', 'record:rooms:kitchen'],
+      remainingDirtySaveUnitIds: [],
+    });
+    expect(nativeSave).toHaveBeenCalledTimes(1);
+    expect(nativeSave.mock.calls[0]?.[2]).toEqual(['record:rooms:foyer', 'record:rooms:kitchen']);
+    expect((useProjectStore.getState().savedDocument as typeof working).rooms.foyer?.label).toBe(
+      'Native Foyer',
+    );
+    expect((useProjectStore.getState().savedDocument as typeof working).rooms.kitchen?.label).toBe(
+      'Native Kitchen',
+    );
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('routes active source-file Save through the shared save coordinator', async () => {
     const project = projectWithRooms();
     loadProject(project, structuredClone(project), emptyEditorProjectState());

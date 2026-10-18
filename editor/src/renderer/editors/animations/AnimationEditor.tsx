@@ -184,7 +184,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     return <div className="p-4">{t('animationEditor.unavailable')}</div>;
   const commit = (next: AnimationData) => {
     if (!animationDataSchema.safeParse(next).success) return;
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'entity.replaceRecord',
       label: t('animationEditor.edit'),
       payload: { collection: 'animations', entityId: id, record: { ...record, data: next } },

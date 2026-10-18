@@ -44,7 +44,7 @@ function AssetContextMenu({
   onClose: () => void;
 }) {
   const openTab = useWorkbenchStore((store) => store.openTab);
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
 
   useEffect(() => {
     if (!state) return;
@@ -62,15 +62,15 @@ function AssetContextMenu({
   const itemClass =
     'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent disabled:opacity-50';
 
-  function deleteAsset() {
-    executeCommand({
+  async function deleteAsset() {
+    const result = await executeCommand({
       type: 'asset.deleteAsset',
       label: `Delete ${asset.id}`,
       payload: { assetId: asset.id, force: false },
       originSaveUnitId: structuralSaveUnitId('assets'),
       persistencePolicy: 'auto-commit',
     });
-    onClose();
+    if (result.ok) onClose();
   }
 
   return (
@@ -152,7 +152,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
       [kind, query, selectedTags],
     ),
   );
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const allAssets = useMemo(() => {
     if (!project) return [];
     return Object.entries(project.assets)
@@ -225,13 +225,13 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
     setEditingName('');
   }
 
-  function saveRename(asset: AssetListItem) {
+  async function saveRename(asset: AssetListItem) {
     const nextName = editingName.trim();
     if (!nextName || nextName === asset.label) {
       cancelRename();
       return;
     }
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'entity.updateMetadata',
       label: `Rename asset ${asset.label}`,
       payload: { collection: 'assets', entityId: asset.id, label: nextName },
@@ -332,7 +332,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
                         value={editingName}
                         onChange={(event) => setEditingName(event.currentTarget.value)}
                         onKeyDown={(event) => {
-                          if (event.key === 'Enter') saveRename(asset);
+                          if (event.key === 'Enter') void saveRename(asset);
                           if (event.key === 'Escape') cancelRename();
                         }}
                         aria-label={`Edit name for ${asset.label}`}

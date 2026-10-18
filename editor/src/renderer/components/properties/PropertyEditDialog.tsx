@@ -18,6 +18,7 @@ export function PropertyEditDialog({
   schemaReadOnly = false,
   descriptionPlaceholder,
   message,
+  pending = false,
   onDraftChange,
   onOpenChange,
   onSubmit,
@@ -33,13 +34,14 @@ export function PropertyEditDialog({
   schemaReadOnly?: boolean;
   descriptionPlaceholder?: string;
   message?: string | null;
+  pending?: boolean;
   onDraftChange: (draft: TypedPropertyDraft) => void;
   onOpenChange: (open: boolean) => void;
   onSubmit: () => void;
 }) {
   const { t } = useTranslation('workspace');
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => { if (!pending) onOpenChange(next); }}>
       <DialogPopup className="w-[min(620px,calc(100vw-2rem))]">
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}
@@ -69,10 +71,10 @@ export function PropertyEditDialog({
         )}
         {message ? <p className="text-xs text-destructive">{message}</p> : null}
         <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" disabled={pending} onClick={() => onOpenChange(false)}>
             {t('propertyManager.actions.cancel')}
           </Button>
-          <Button onClick={onSubmit} disabled={mode === 'schema' && !draft.id.trim()}>
+          <Button onClick={onSubmit} disabled={pending || (mode === 'schema' && !draft.id.trim())}>
             {submitLabel}
           </Button>
         </div>

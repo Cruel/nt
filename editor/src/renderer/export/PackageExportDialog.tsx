@@ -258,7 +258,7 @@ function formatMemoryMiB(bytes: number) {
 }
 
 function persistRuntimeProfile(_project: AuthoringProject, profile: ExportProfileData) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type: 'project.replaceAtPath',
     label: 'Update runtime export settings',
     payload: { path: '/export/runtime', value: profile },
@@ -270,7 +270,7 @@ function persistPlatformSettings(
   _project: AuthoringProject,
   settings: ProjectPlatformExportSettings,
 ) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type: 'project.replaceAtPath',
     label: 'Update platform export profiles',
     payload: { path: '/export/profiles', value: settings.profiles },
@@ -592,12 +592,13 @@ export function PackageExportDialog({
       ]
     : [];
 
-  function commitPlatformSettings(next: ProjectPlatformExportSettings) {
-    const result = persistPlatformSettings(currentProject, next);
+  async function commitPlatformSettings(next: ProjectPlatformExportSettings) {
+    const result = await persistPlatformSettings(currentProject, next);
     if (result.ok) setPlatformSettings(next);
+    return result.ok;
   }
 
-  function updateRuntimePackaging(patch: Partial<ExportProfileData>) {
+  async function updateRuntimePackaging(patch: Partial<ExportProfileData>) {
     const next = {
       ...currentRuntimeProfile,
       ...patch,
@@ -605,14 +606,14 @@ export function PackageExportDialog({
         ? { stripShaderSources: !patch.includeShaderSources }
         : {}),
     };
-    const result = persistRuntimeProfile(currentProject, next);
+    const result = await persistRuntimeProfile(currentProject, next);
     if (result.ok) setRuntimeProfile(next);
   }
 
   function updatePlatformPackaging(patch: Partial<PlatformExportProfile>) {
     if (!selectedPlatformProfile) return;
     const next = { ...selectedPlatformProfile, ...patch } as PlatformExportProfile;
-    commitPlatformSettings({
+    void commitPlatformSettings({
       ...currentPlatformSettings,
       profiles: currentPlatformSettings.profiles.map((item) =>
         item.id === selectedPlatformProfile.id ? next : item,
@@ -698,14 +699,14 @@ export function PackageExportDialog({
     );
   }
 
-  function finishProfileEditing() {
+  async function finishProfileEditing() {
     if (!profileDraft || !profileDraftNameIsValid()) return;
     if (profileEditMode === 'creating-config') {
       const next = {
         ...currentPlatformSettings,
         profiles: [...currentPlatformSettings.profiles, profileDraft],
       };
-      commitPlatformSettings(next);
+      if (!(await commitPlatformSettings(next))) return;
       setSelectedPlatformProfileId(profileDraft.id);
       setMode('platform');
       rememberSelectedProfile(profileDraft.id);
@@ -713,12 +714,12 @@ export function PackageExportDialog({
       setSelectedTemplateToken('');
       setSelectedSigningProfileId('');
     } else if (profileEditMode === 'editing') {
-      commitPlatformSettings({
+      if (!(await commitPlatformSettings({
         ...currentPlatformSettings,
         profiles: currentPlatformSettings.profiles.map((item) =>
           item.id === profileDraft.id ? profileDraft : item,
         ),
-      });
+      }))) return;
       setPlatformOutput(outputForProfile(profileDraft));
     }
     setProfileDraft(null);
@@ -730,7 +731,7 @@ export function PackageExportDialog({
     setProfileEditMode('none');
   }
 
-  function duplicateProfile() {
+  async function duplicateProfile() {
     if (!selectedPlatformProfile || profileEditMode !== 'none') return;
     const base = selectedPlatformProfile.label.replace(/ \(\d+\)$/u, '');
     const next = parsePlatformExportProfile({
@@ -738,10 +739,10 @@ export function PackageExportDialog({
       id: uniqueProfileId(selectedPlatformProfile.target),
       label: uniqueProfileLabel(base),
     });
-    commitPlatformSettings({
+    if (!(await commitPlatformSettings({
       ...currentPlatformSettings,
       profiles: [...currentPlatformSettings.profiles, next],
-    });
+    }))) return;
     setSelectedPlatformProfileId(next.id);
     setMode('platform');
     rememberSelectedProfile(next.id);
@@ -750,7 +751,7 @@ export function PackageExportDialog({
     setSelectedSigningProfileId('');
   }
 
-  function deleteProfile() {
+  async function deleteProfile() {
     if (!selectedPlatformProfile || profileEditMode !== 'none') return;
     const key = localProfileKey(selectedPlatformProfile.id);
     const outputDirectories = { ...localState.profileOutputDirectories };
@@ -759,18 +760,12 @@ export function PackageExportDialog({
     delete outputDirectories[key];
     delete templateTokens[key];
     delete signingIds[key];
-    setExportPreferences({
-      profileOutputDirectories: outputDirectories,
-      profileTemplateTokens: templateTokens,
-      profileSigningProfileIds: signingIds,
-    });
-
     const profiles = currentPlatformSettings.profiles.filter(
       (item) => item.id !== selectedPlatformProfile.id,
     );
     if (profiles.length === 0) {
       const nextSettings = { ...currentPlatformSettings, profiles: [] };
-      const result = persistPlatformSettings(currentProject, nextSettings);
+      const result = await persistPlatformSettings(currentProject, nextSettings);
       if (!result.ok) return;
       setPlatformSettings(nextSettings);
       setSelectedPlatformProfileId(null);
@@ -781,11 +776,16 @@ export function PackageExportDialog({
       const selected = [...profiles].sort((a, b) =>
         a.label.localeCompare(b.label, undefined, { numeric: true }),
       )[0]!;
-      commitPlatformSettings({ ...currentPlatformSettings, profiles });
+      if (!(await commitPlatformSettings({ ...currentPlatformSettings, profiles }))) return;
       setSelectedPlatformProfileId(selected.id);
       rememberSelectedProfile(selected.id);
       setPlatformOutput(outputForProfile(selected));
     }
+    setExportPreferences({
+      profileOutputDirectories: outputDirectories,
+      profileTemplateTokens: templateTokens,
+      profileSigningProfileIds: signingIds,
+    });
     setTemplateDiagnostics([]);
     setSelectedTemplateToken('');
     setSelectedSigningProfileId('');
@@ -1354,7 +1354,7 @@ export function PackageExportDialog({
       ? activeRuntimeProfile.localization
       : (selectedPlatformProfile?.localization ?? null);
   const updateLocalizationPolicy = (localization: ExportProfileData['localization']) => {
-    if (mode === 'runtime') updateRuntimePackaging({ localization });
+    if (mode === 'runtime') void updateRuntimePackaging({ localization });
     else updatePlatformPackaging({ localization });
   };
   const localizationOptions = activeLocalizationPolicy ? (
@@ -1458,7 +1458,7 @@ export function PackageExportDialog({
           }
           onChange={(event) => {
             if (mode === 'runtime')
-              updateRuntimePackaging({ excludeUnusedAssets: event.currentTarget.checked });
+              void updateRuntimePackaging({ excludeUnusedAssets: event.currentTarget.checked });
             else updatePlatformPackaging({ excludeUnusedAssets: event.currentTarget.checked });
           }}
         />
@@ -1475,7 +1475,7 @@ export function PackageExportDialog({
             }
             onChange={(event) => {
               if (mode === 'runtime')
-                updateRuntimePackaging({ includeShaderSources: event.currentTarget.checked });
+                void updateRuntimePackaging({ includeShaderSources: event.currentTarget.checked });
               else updatePlatformPackaging({ includeShaderSources: event.currentTarget.checked });
             }}
           />

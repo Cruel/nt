@@ -1,9 +1,37 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { PropertyManager } from '@/components/properties/PropertyManager';
 
 describe('PropertyManager', () => {
+  it('keeps the confirmation open until an async deletion is accepted', async () => {
+    let resolve!: (failure: string | null) => void;
+    const onDelete = vi.fn(() => new Promise<string | null>((done) => { resolve = done; }));
+    const user = userEvent.setup();
+    render(
+      <PropertyManager
+        valueLabel="Value"
+        rows={[{ id: 'remote', label: 'Remote', type: 'boolean', nullable: false, value: true, valueState: 'normal', deletable: true }]}
+        emptyLabel="No Properties."
+        onDelete={onDelete}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Delete Remote' }));
+    const dialog = screen.getByRole('dialog');
+    const confirm = within(dialog).getByRole('button', { name: 'Delete Property' });
+    await user.click(confirm);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(confirm).toBeDisabled();
+    expect(dialog).toBeInTheDocument();
+
+    resolve('Native worker rejected deletion.');
+    expect(await within(dialog).findByText('Native worker rejected deletion.')).toBeVisible();
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    resolve(null);
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
   it('lets a multi-action dropdown trigger toggle closed on the second click', async () => {
     const user = userEvent.setup();
 

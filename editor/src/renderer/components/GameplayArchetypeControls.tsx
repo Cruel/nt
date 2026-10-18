@@ -49,7 +49,7 @@ export function GameplayArchetypeControls({
   const selectedItem = archetypeItems.find((item) => item.entityId === attached);
   const overrideCount = Object.keys(record.archetypeOverrides ?? {}).length;
   const execute = (type: string, label: string, payload: unknown) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type,
       label,
       payload,

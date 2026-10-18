@@ -8,7 +8,10 @@ import { NativeAuthoringSessionBridge } from '../../main/services/native-authori
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
-import { nativeProjectPatchArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
+import {
+  nativeProjectPatchArgumentsSchema,
+  nativeProjectSaveUnitArgumentsSchema,
+} from '../../main/editor-ipc-trust-boundary';
 import { toJsonValue } from '../project/json-value';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
 import { confirmNativeCommand } from '../commands/native-command-execution';
@@ -55,7 +58,14 @@ function fixture() {
     error: '',
     snapshot: { workingRevision: 1 },
   }));
-  const working = { open, prepareCompleteWorking, applyRevisionedPatches };
+  const snapshot = vi.fn(() => ({ workingRevision: 0 }));
+  const saveUnits = vi.fn(async () => ({
+    accepted: true,
+    error: '',
+    snapshot: { workingRevision: 0 },
+    affectedRecords: ['project'],
+  }));
+  const working = { open, prepareCompleteWorking, applyRevisionedPatches, snapshot, saveUnits };
   const controller = new NativeEditorSessionController(
     authority,
     bridge,
@@ -68,6 +78,8 @@ function fixture() {
     preparation,
     prepareCompleteWorking,
     applyRevisionedPatches,
+    saveUnits,
+    snapshot,
     controller,
     setActive(id: string) {
       active = id;
@@ -79,6 +91,58 @@ function fixture() {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('validates native scoped Save input without allowing arbitrary filesystem paths', () => {
+    const sessionId = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
+    expect(
+      nativeProjectSaveUnitArgumentsSchema.safeParse([
+        sessionId,
+        0,
+        'record:rooms:foyer',
+        { comments: 'keep', keepMine: false },
+      ]).success,
+    ).toBe(true);
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([
+      sessionId, 0, ['record:rooms:foyer', 'record:rooms:kitchen'], {},
+    ]).success).toBe(true);
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([
+      sessionId, 0, ['project:settings', '../escape'], {},
+    ]).success).toBe(false);
+    for (const unit of ['', '../escape', 'record:rooms:../../out', 'project/settings', 'a'.repeat(257)])
+      expect(nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, 0, unit, {}]).success).toBe(
+        false,
+      );
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, 0, 'project:settings', { comments: 'override' }]).success).toBe(false);
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([sessionId, -1, 'project:settings', {}]).success).toBe(false);
+  });
+
+  it('authorizes logical native Save only for the exact revision and admitted Project', async () => {
+    const test = fixture();
+    await expect(
+      test.controller.saveUnit('one', 0, 'project:settings', { comments: 'keep' }),
+    ).rejects.toThrow('not admitted');
+    await test.controller.admit('one', test.saved);
+    await expect(
+      test.controller.saveUnit('one', 1, 'project:settings', {}),
+    ).rejects.toThrow('Stale');
+    expect(test.saveUnits).not.toHaveBeenCalled();
+    await expect(
+      test.controller.saveUnit('one', 0, 'project:settings', { comments: 'remove' }),
+    ).resolves.toMatchObject({ accepted: true });
+    expect(test.saveUnits).toHaveBeenCalledWith(['project:settings'], { comments: 'remove' }, 0);
+    await expect(
+      test.controller.saveUnit('one', 0, ['record:rooms:foyer', 'record:rooms:kitchen'], {}),
+    ).resolves.toMatchObject({ accepted: true });
+    expect(test.saveUnits).toHaveBeenLastCalledWith(
+      ['record:rooms:foyer', 'record:rooms:kitchen'], {}, 0,
+    );
+    test.setActive('two');
+    await expect(
+      test.controller.saveUnit('one', 0, 'project:settings', {}),
+    ).rejects.toThrow('not admitted');
+    expect(test.saveUnits).toHaveBeenCalledTimes(2);
+    test.controller.dispose();
+  });
+
   it('rejects malformed, oversized and non-JSON native mutation IPC requests', () => {
     const sessionId = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     const valid = [sessionId, 0, [{ op: 'replace', path: '/project/name', value: 'Next' }]];

@@ -78,7 +78,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
     .sort(([, left], [, right]) => left.label.localeCompare(right.label));
 
   const execute = (type: string, label: string, payload: unknown) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type,
       label,
       payload,
@@ -86,18 +86,16 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
 
-  const saveConfiguration = () => {
+  const saveConfiguration = async () => {
     try {
       const configuration = JSON.parse(source) as unknown;
       setParseError(null);
-      const result = execute('archetype.replaceConfiguration', 'Update Archetype configuration', {
+      const result = await execute('archetype.replaceConfiguration', 'Update Archetype configuration', {
         archetypeId,
         configuration,
       });
-      if (result && 'diagnostics' in result) {
-        const failure = result.diagnostics?.find((item) => item.severity === 'error');
-        if (failure) setParseError(failure.message);
-      }
+      const failure = result.diagnostics.find((item) => item.severity === 'error');
+      if (failure) setParseError(failure.message);
     } catch (error) {
       setParseError(error instanceof Error ? error.message : 'Configuration must be valid JSON.');
     }
@@ -168,7 +166,7 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
                 ? (project.archetypes[data.base.$ref.id]?.label ?? 'Base Archetype')
                 : 'Base Archetype',
             }))}
-            onChange={(state) => {
+            onChange={async (state) => {
               const configuration: InheritableConfiguration = {
                 ...effective,
                 traits: state.traits,
@@ -177,15 +175,13 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
                   state.properties,
                 ),
               };
-              const result = execute(
+              const result = await execute(
                 'archetype.replaceConfiguration',
                 'Update Archetype Properties',
                 { archetypeId, configuration },
               );
-              if (result && 'diagnostics' in result) {
-                const failure = result.diagnostics?.find((item) => item.severity === 'error');
-                if (failure) setParseError(failure.message);
-              }
+              const failure = result.diagnostics.find((item) => item.severity === 'error');
+              if (failure) setParseError(failure.message);
             }}
             traitColorFor={(traitId) =>
               project.editor.recordMetadata.traits?.[traitId]?.color ?? null

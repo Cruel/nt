@@ -82,6 +82,16 @@ interface NovelTeaElectronApiContract {
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
+  /** Revisioned native logical Save. The main-owned worker resolves physical
+   * owners and performs the complete transactional source write. */
+  nativeProjectSaveUnit(
+    projectSessionId: string,
+    expectedRevision: number,
+    saveUnitIds: string | string[],
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' },
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
   validateProject(
     projectSessionId: string,
     project: unknown,

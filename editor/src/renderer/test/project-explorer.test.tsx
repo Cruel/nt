@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { useCommandStore } from '@/commands/command-store';
@@ -350,6 +350,8 @@ describe('ProjectExplorer', () => {
     await user.clear(labelInput);
     await user.type(labelInput, 'Silver Key');
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(useCommandStore.getState().history.activeTransaction).toBeNull();
 
     const document = useProjectStore.getState().document as AuthoringProject;
     expect(document.interactables['silver-key']).toMatchObject({
@@ -388,6 +390,11 @@ describe('ProjectExplorer', () => {
     await user.type(inheritedLabelInput, 'Brass Key');
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
 
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).interactables['brass-key'],
+      ).toBeDefined(),
+    );
     const updatedDocument = useProjectStore.getState().document as AuthoringProject;
     const inherited = updatedDocument.interactables['brass-key']!;
     expect(inherited.archetypeOverrides).not.toHaveProperty('/data/presentation/visual');

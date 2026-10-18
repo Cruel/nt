@@ -67,7 +67,7 @@ function commitScene(
   label: string,
   semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
 ) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'scene.replaceData',
     label,
     payload: { sceneId, data, semanticOwnerMoves },

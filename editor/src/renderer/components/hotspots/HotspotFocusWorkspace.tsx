@@ -58,7 +58,7 @@ interface Props {
   onDone?: (selectedHotspotId: string | null) => void;
   onImagePresentationChange?: (presentation: FocusTransitionImagePresentation | null) => void;
   onImageUrlChange?: (imageUrl: string | null) => void;
-  onRequestClose?: (action: () => boolean) => void;
+  onRequestClose?: (action: () => boolean | Promise<boolean>) => void;
 }
 
 export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Props>(
@@ -336,9 +336,9 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
         ? [{ id: item.id, label: item.label, inputOrder: item.inputOrder, bounds }]
         : [];
     });
-    const requestClose = (action: () => boolean) => {
+    const requestClose = (action: () => boolean | Promise<boolean>) => {
       if (onRequestClose) onRequestClose(action);
-      else action();
+      else void action();
     };
     const nextId = () => {
       const ids = new Set(hotspots.map((item) => item.id));
@@ -633,8 +633,8 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
             size="sm"
             onClick={() => {
               const selectedHotspotId = session.selectedHotspotId;
-              requestClose(() => {
-                const committed = commit(tabId);
+              requestClose(async () => {
+                const committed = await commit(tabId);
                 if (committed) onDone?.(selectedHotspotId);
                 return committed;
               });

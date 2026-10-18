@@ -34,7 +34,7 @@ import {
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-validation';
 import type { SaveUnitId } from './save-unit-types';
-import { recordSaveUnitId } from './save-unit-registry';
+import { recordSaveUnitId, SAVE_UNIT_IDS } from './save-unit-registry';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetTrashMove } from '../../shared/project-asset-audit';
 import {
@@ -320,7 +320,14 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
       ? 'editor-metadata'
       : (rule.persistenceTarget ?? 'project-content');
   if (!input.savedDocument && persistenceTarget !== 'editor-metadata') {
-    if (rule.unsafeRebasePolicy === 'convert-to-manual-save') {
+    // New-entity transactions also contain follow-up setup operations. An
+    // unsaved Project has no disk baseline to auto-commit against, but these
+    // newly-authored in-memory records can remain a single manual Save unit.
+    if (
+      rule.unsafeRebasePolicy === 'convert-to-manual-save' ||
+      (input.commandType === 'transaction' &&
+        input.originSaveUnitId === SAVE_UNIT_IDS.newEntityWorkflow)
+    ) {
       return {
         status: 'convert-to-manual-save',
         reason: 'The project has no saved baseline yet.',

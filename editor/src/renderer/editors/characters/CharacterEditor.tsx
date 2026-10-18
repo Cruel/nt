@@ -106,7 +106,7 @@ function parseCharacterEditorTabState(
 }
 
 function commitCharacter(characterId: string, next: CharacterData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'character.replaceData',
     label,
     payload: { characterId, data: next },
@@ -304,7 +304,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
     localProperties: OwnerLocalProperty[],
     change?: { kind: 'rename'; fromId: string; toId: string },
   ) {
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: `Update ${activeCharacterId} Properties`,
       payload: [
@@ -330,7 +330,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function commitPropertyTraitState(state: OwnerPropertyTraitState) {
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: `Update ${activeCharacterId} Trait Properties`,
       payload: [

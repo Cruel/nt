@@ -519,14 +519,36 @@ freezes further native edits instead of silently falling back to TypeScript.
 Uncommitted transactions and auto-commits are not yet enabled in this mode.
 
 The old synchronous command methods explicitly refuse changes under the
-native-edit flag. The trusted IPC registrar blocks legacy Project Save,
-source/asset writers, validation, preview, Tests and export operations in
-this certification mode so they cannot act on a divergent TypeScript Project.
-Recovered dirty Project state is rejected on native-edit admission until
-replay integration is complete. The flag **does not yet provide a usable
-native editing UI**: existing editors still call the synchronous command
-methods and must be migrated to async entrypoints, together with native Save,
-source editing, watcher and diagnostics, before production activation.
+native-edit flag. Renderer record editors, the New Entity wizard, Room
+composition, Project Explorer, Project Settings, assets, Localization, Test
+record editing and shared Property dialogs now submit through
+`executeCommandAsync`. Pending commands are serialized by Project session,
+constructed against the latest *accepted* revision and cannot be replayed
+into another Project instance; command batches retain atomic undo history.
+Pending dialogs wait for acceptance rather than closing on a speculative
+TypeScript projection. In particular, multi-selection Room ID renames remap
+their selection/expansion state at the accepted generation.
+
+Native certification Save has a separately authenticated
+`NATIVE_PROJECT_SAVE_UNIT` IPC. It accepts one or multiple logical Save-unit
+IDs and an exact working revision. The main-owned native worker resolves
+physical owner scopes, combines linked owners into one atomic YAML
+transaction, checks the revision again inside the native worker serialization,
+and returns its acknowledgment. The renderer's Save coordinator updates
+only the saved units' baselines and retains unrelated dirty recovery overlays.
+Rejection does not invoke the old TS writer, and lost/uncertain acknowledgment
+freezes native editing. Native source-file Save remains blocked until staged
+text and physical source transactions are integrated.
+
+The trusted IPC registrar continues to block legacy Project Save, source and
+Asset writers, validation, preview, Tests and export operations in
+native-edit certification mode where they could act on divergent Project
+state. Recovered dirty Project state is rejected on native-edit admission
+until replay integration is complete. This flag **remains certification-only,
+not yet a usable complete native editor**: structural auto-commit, text-source
+Save, native watcher/reconciliation, validation, preview, authored Tests and
+export have not yet migrated. No production cutover should enable it by
+default before those coordinated ownership paths are certified.
 
 ## Native CLI compatibility and physical Asset transactions (#501)
 

@@ -194,7 +194,7 @@ function EntityOperationDialog({
   project: AuthoringProject | null;
   onClose: () => void;
 }) {
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const projectDocument = useProjectStore((store) => store.document);
   const projectInstanceId = useProjectStore((store) => store.projectInstanceId);
@@ -208,6 +208,7 @@ function EntityOperationDialog({
   const [forceDelete, setForceDelete] = useState(false);
   const [replacementByEdgeId, setReplacementByEdgeId] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [pendingDeleteCommandId, setPendingDeleteCommandId] = useState<string | null>(null);
   const discardedDrafts = useRef<readonly DraftDirtyEntry[]>([]);
   const commentConfirmation = usePendingProjectComments();
@@ -321,7 +322,8 @@ function EntityOperationDialog({
         })()
       : null;
 
-  function finish(result: ReturnType<typeof executeCommand>, success: () => void) {
+  async function finish(resultPromise: ReturnType<typeof executeCommand>, success: () => void) {
+    const result = await resultPromise;
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (!result.ok || failure) {
       setError(failure?.message ?? 'Command failed.');
@@ -378,11 +380,14 @@ function EntityOperationDialog({
     }
   }
 
-  function submit() {
+  async function submit() {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
     const state = activeState;
     if (state.action === 'rename' && state.entityId) {
       const toId = id.trim();
-      finish(
+      await finish(
         executeCommand({
           type: 'entity.renameId',
           label: `Rename ${state.collection}/${state.entityId}`,
@@ -402,7 +407,7 @@ function EntityOperationDialog({
       );
     } else if (state.action === 'duplicate' && state.entityId) {
       const targetId = id.trim();
-      finish(
+      await finish(
         executeCommand({
           type: 'entity.duplicateRecord',
           label: `Duplicate ${state.collection}/${state.entityId}`,
@@ -424,7 +429,7 @@ function EntityOperationDialog({
       // A confirmed structural deletion owns this record. Drop local drafts first
       // so their recovery overlay cannot recreate the removed record.
       discardRecordDrafts(state.collection, state.entityId);
-      const result = executeCommand({
+      const result = await executeCommand({
         type: 'entity.deleteRecord',
         label: `Delete ${state.collection}/${state.entityId}`,
         payload: {
@@ -443,7 +448,7 @@ function EntityOperationDialog({
       } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
       else onClose();
     } else if (state.action === 'metadata' && state.entityId) {
-      finish(
+      await finish(
         executeCommand({
           type: 'entity.updateMetadata',
           label: `Update ${state.collection}/${state.entityId}`,
@@ -460,6 +465,12 @@ function EntityOperationDialog({
         }),
         () => undefined,
       );
+    }
+    } catch (error) {
+      restoreDiscardedDrafts();
+      setError(error instanceof Error ? error.message : 'Command failed.');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -479,7 +490,7 @@ function EntityOperationDialog({
         if (open) return;
         // Escape/backdrop dismissal during an inline comment review must
         // resolve the pending save, not orphan a queued structural transaction.
-        if (pendingDeleteCommandId) {
+        if (submitting || pendingDeleteCommandId) {
           if (inlineDeleteComments) resolveProjectComments('cancel');
           return;
         }
@@ -653,19 +664,20 @@ function EntityOperationDialog({
           />
         ) : (
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={!!pendingDeleteCommandId}>
+            <Button variant="ghost" onClick={onClose} disabled={submitting || !!pendingDeleteCommandId}>
               Cancel
             </Button>
             <Button
               variant={state.action === 'delete' ? 'destructive' : 'default'}
               onClick={submit}
               disabled={
-                state.action === 'delete' &&
+                submitting ||
+                (state.action === 'delete' &&
                 (!!pendingDeleteCommandId ||
                   !graphSnapshot ||
                   (!forceDelete &&
                     deleteRepairPlan !== null &&
-                    deleteRepairPlan.status !== 'ready'))
+                    deleteRepairPlan.status !== 'ready')))
               }
             >
               {pendingDeleteCommandId ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}
@@ -689,22 +701,23 @@ function ProjectHeading({ projectName }: { projectName: string }) {
   const setGroupUnassignedItems = useProjectExplorerStore((state) => state.setGroupUnassignedItems);
   const setHideEmptyCategories = useProjectExplorerStore((state) => state.setHideEmptyCategories);
   const setShowInfoOnHover = useProjectExplorerStore((state) => state.setShowInfoOnHover);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const { t } = useTranslation('workspace');
 
-  function setOption(payload: {
+  async function setOption(payload: {
     followActiveTab?: boolean;
     organizeByChapter?: boolean;
     groupUnassignedItems?: boolean;
     hideEmptyCategories?: boolean;
     showInfoOnHover?: boolean;
   }) {
-    executeCommand({
+    const result = await executeCommand({
       type: 'project.setExplorerOptions',
       label: 'Update explorer options',
       payload,
       ...MUTATION_SURFACE_ATTRIBUTIONS.explorerOptionsAndVisibility,
     });
+    if (!result.ok) return;
     if (payload.followActiveTab !== undefined) setFollowActiveTab(payload.followActiveTab);
     if (payload.organizeByChapter !== undefined) setOrganizeByChapter(payload.organizeByChapter);
     if (payload.groupUnassignedItems !== undefined)
@@ -898,7 +911,7 @@ function ExplorerContextMenu({
   const setActiveNodeId = useProjectExplorerStore((store) => store.setActiveNodeId);
   const projectFilePath = useProjectStore((store) => store.projectFilePath);
   const projectSessionId = useProjectStore((store) => store.projectSessionId);
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const setHiddenCollectionKeys = useProjectExplorerStore((store) => store.setHiddenCollectionKeys);
   const hiddenCollectionKeys = useProjectExplorerStore((store) => store.hiddenCollectionKeys);
   const chapters = useProjectExplorerStore((store) => store.chapters);
@@ -925,24 +938,24 @@ function ExplorerContextMenu({
     collectiveCollectionSet.has(collection) ||
     !node.entityId;
 
-  function run(
+  async function run(
     command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>,
     attribution: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> = {
       ...MUTATION_SURFACE_ATTRIBUTIONS.explorerOptionsAndVisibility,
     },
   ) {
-    const result = executeCommand({ ...command, ...attribution });
+    const result = await executeCommand({ ...command, ...attribution });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) setStatusMessage(failure.message);
     return result.ok && !failure;
   }
 
-  function hideCollection(nextHidden: boolean) {
+  async function hideCollection(nextHidden: boolean) {
     const keys = nextHidden
       ? [...hiddenCollectionKeys, collection]
       : hiddenCollectionKeys.filter((key) => key !== collection);
     if (
-      run({
+      await run({
         type: 'project.setHiddenCollections',
         label: 'Update hidden categories',
         payload: { hiddenCollectionKeys: keys },
@@ -991,7 +1004,7 @@ function ExplorerContextMenu({
         showAlert({ title: 'Asset import failed', message });
       return;
     }
-    const applied = run(
+    const applied = await run(
       {
         type: 'asset.importFiles',
         label: animation
@@ -1203,7 +1216,7 @@ function ExplorerContextMenu({
           <button
             className={itemClass}
             onClick={() => {
-              hideCollection(!isHidden);
+              void hideCollection(!isHidden);
               onClose();
             }}
           >

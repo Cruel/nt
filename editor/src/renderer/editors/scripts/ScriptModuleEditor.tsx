@@ -22,7 +22,7 @@ export function ScriptModuleEditor({ tab }: WorkbenchEditorProps) {
     return <div className="p-4 text-sm text-muted-foreground">Script Module record not found.</div>;
   const lifecycle = scriptModuleLifecycleMetadata(data);
   const commit = (next: typeof data) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type: 'script.replaceData',
       label: 'Update Script Module',
       payload: { scriptId: id, data: next },

@@ -332,8 +332,10 @@ describe('ImageGenerationEditor', () => {
     await screen.findByText(/assets\/generated\/generated.png/);
     fireEvent.click(screen.getByRole('button', { name: 'Add revision to assets' }));
 
-    const revision = useComfyUiGenerationStore.getState().revisionsByTabId[tab.id]?.[0];
-    expect(revision?.assetAddedAt).toBeTruthy();
+    await waitFor(() => {
+      const revision = useComfyUiGenerationStore.getState().revisionsByTabId[tab.id]?.[0];
+      expect(revision?.assetAddedAt).toBeTruthy();
+    });
   });
 
   it('queues image edits using the selected staged revision path', async () => {

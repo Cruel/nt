@@ -64,7 +64,7 @@ import {
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
 function updateMaterial(materialId: string, next: MaterialData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'material.replaceData',
     label,
     payload: { materialId, data: next },
