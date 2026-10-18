@@ -257,7 +257,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !record || !interactableId)
     return <div className="p-4 text-sm text-muted-foreground">Interactable record not found.</div>;
   const commit = (next: InteractableData, label: string) =>
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'interactable.replaceData',
       label,
       payload: { interactableId, data: next },
@@ -265,7 +265,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type,
       label,
       payload: { interactableId, ...payload },
@@ -273,7 +273,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const applyProjectPatches = (label: string, patches: Array<Record<string, unknown>>) =>
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label,
       payload: patches,

@@ -39,7 +39,7 @@ export function DirtyCloseDialog() {
   const setDiagnostics = useWorkspaceStore((state) => state.setDiagnostics);
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const draftEntries = useDraftDirtyStore((state) => state.entriesByKey);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const pendingSaveUnitIds = useMemo(
@@ -165,26 +165,8 @@ export function DirtyCloseDialog() {
     }
   };
 
-  const discardAndClose = () => {
+  const discardAndClose = async () => {
     if (!pendingClose || pendingTabs.length === 0) return;
-    for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
-      if (!dirtyState.draftDirty) continue;
-      const discarded = runDraftActions(
-        selectDraftEntriesForTab(
-          { entriesByKey: useDraftDirtyStore.getState().entriesByKey },
-          dirtyTab.id,
-        ),
-        'discard',
-      );
-      void discarded.then((ok) => {
-        if (!ok) clearDraftDirtyForTab(dirtyTab.id);
-      });
-      clearDraftDirtyForTab(dirtyTab.id);
-    }
-    for (const { tab: dirtyTab } of dirtyTabStates) {
-      if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId)
-        useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId);
-    }
     const restoredSaveUnitIds = new Set<string>();
     const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {
       if (draftOnlyTabIds.has(dirtyTab.id)) return [];
@@ -196,7 +178,7 @@ export function DirtyCloseDialog() {
       return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument, recoveryPaths ?? []);
     });
     if (patches.length > 0) {
-      executeCommand({
+      const result = await executeCommand({
         type: 'project.applyPatch',
         ...MUTATION_SURFACE_ATTRIBUTIONS.discardDirtyUnits,
         label:
@@ -205,6 +187,29 @@ export function DirtyCloseDialog() {
             : t('dirtyClose.discardTabs', { count: dirtyTabStates.length }),
         payload: patches,
       });
+      if (!result.ok) {
+        setStatusMessage(result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Discard failed.');
+        return;
+      }
+    }
+    for (const { tab: dirtyTab, dirty: dirtyState } of dirtyTabStates) {
+      if (!dirtyState.draftDirty) continue;
+      const discarded = await runDraftActions(
+        selectDraftEntriesForTab(
+          { entriesByKey: useDraftDirtyStore.getState().entriesByKey },
+          dirtyTab.id,
+        ),
+        'discard',
+      );
+      if (!discarded) {
+        setStatusMessage('Failed to discard a local editor draft.');
+        return;
+      }
+      clearDraftDirtyForTab(dirtyTab.id);
+    }
+    for (const { tab: dirtyTab } of dirtyTabStates) {
+      if (dirtyTab.resource?.kind === 'source' && dirtyTab.resource.sourceId)
+        useProjectSourceStore.getState().discard(dirtyTab.resource.sourceId);
     }
     discardLoadedRecoverySaveUnits(restoredSaveUnitIds);
     closeApprovedTabs();

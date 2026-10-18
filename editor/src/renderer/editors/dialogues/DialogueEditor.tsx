@@ -240,7 +240,7 @@ function commitDialogue(
   label: string,
   semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
 ) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'dialogue.replaceData',
     label,
     payload: { dialogueId, data: next, semanticOwnerMoves },

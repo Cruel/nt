@@ -47,7 +47,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const assetId = tab.resource?.entityId;
   const record = lookupAsset(project, assetId);
@@ -145,21 +145,21 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
 
   const assetData = data;
 
-  function run(
+  async function run(
     command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>,
     attribution: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> = {
       originSaveUnitId: recordSaveUnitId('assets', assetId!),
       persistencePolicy: 'manual-save',
     },
   ) {
-    const result = executeCommand({ ...command, ...attribution });
+    const result = await executeCommand({ ...command, ...attribution });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     setMessage(failure?.message ?? command.label ?? command.type);
     return result.ok && !failure;
   }
 
   function updateTags(tags: string[]) {
-    run({
+    void run({
       type: 'entity.updateMetadata',
       label: `Update ${assetId} tags`,
       payload: { collection: 'assets', entityId: assetId, tags },
@@ -170,7 +170,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
     const rawData = record?.data;
     const hasAuthoredSampling =
       typeof rawData === 'object' && rawData !== null && Object.hasOwn(rawData, 'sampling');
-    run({
+    void run({
       type: 'project.applyPatch',
       label: `Set ${assetId} image sampling`,
       payload: [
@@ -208,16 +208,16 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
         )
       ).filter((entry): entry is readonly [string, `sha256:${string}`] => !!entry[1]),
     );
-    run({
+    await run({
       type: 'asset.reimportFile',
       label: `Reimport ${assetId}`,
       payload: { assetId, asset: result.asset, sourceRevisions },
     });
   }
 
-  function confirmDelete() {
+  async function confirmDelete() {
     if (
-      run(
+      await run(
         {
           type: 'asset.deleteAsset',
           label: `Delete ${assetId}`,
@@ -411,9 +411,9 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
               />
               <Button
                 size="sm"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    run({
+                    await run({
                       type: 'asset.assignAlias',
                       label: `Assign alias ${aliasDraft}`,
                       payload: { assetId, alias: aliasDraft.trim() },
@@ -439,9 +439,9 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    run({
+                    await run({
                       type: 'asset.renameAlias',
                       label: `Rename alias ${renameFrom}`,
                       payload: { fromAlias: renameFrom.trim(), toAlias: renameTo.trim() },

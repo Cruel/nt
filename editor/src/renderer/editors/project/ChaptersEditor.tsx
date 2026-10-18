@@ -29,7 +29,7 @@ const CHAPTERS_TAB_STATE_SCHEMA = 'noveltea.editor.chapters-tab-state';
 
 export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const project = isAuthoringProject(document) ? document : null;
   const editorState = useMemo(
     () => (project ? editorProjectStateFromProject(project) : null),
@@ -96,8 +96,8 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
 
-  function run(command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>) {
-    const result = executeCommand({
+  async function run(command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>) {
+    const result = await executeCommand({
       ...command,
       originSaveUnitId: SAVE_UNIT_IDS.projectChapters,
       persistencePolicy: 'manual-save',
@@ -107,9 +107,9 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
     return commandSucceeded(result);
   }
 
-  function createChapter() {
+  async function createChapter() {
     if (
-      run({
+      await run({
         type: 'project.createChapter',
         label: 'Create chapter',
         payload: { chapterId: chapterId.trim(), label: label.trim(), color: color.trim() || null },
@@ -123,7 +123,7 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
 
   function renameChapter(id: string, nextLabel: string) {
     if (nextLabel.trim())
-      run({
+      void run({
         type: 'project.renameChapter',
         label: `Rename chapter ${id}`,
         payload: { chapterId: id, label: nextLabel },
@@ -131,7 +131,7 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setChapterColor(id: string, nextColor: string) {
-    run({
+    void run({
       type: 'project.setChapterColor',
       label: `Set chapter color ${id}`,
       payload: { chapterId: id, color: nextColor.trim() || null },
@@ -139,7 +139,7 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function deleteChapter(id: string) {
-    run({
+    void run({
       type: 'project.deleteChapter',
       label: `Delete chapter ${id}`,
       payload: { chapterId: id },
@@ -148,7 +148,7 @@ export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
 
   function applyAssignment() {
     if (!collection || !entityId) return;
-    run({
+    void run({
       type: 'project.assignChapters',
       label: `Assign chapters to ${collection}/${entityId}`,
       payload: { collection, entityId, chapterIds: [...selected] },

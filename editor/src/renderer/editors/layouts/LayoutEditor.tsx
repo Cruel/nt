@@ -154,7 +154,7 @@ function parseLayoutEditorTabState(
 }
 
 function updateLayout(layoutId: string, next: LayoutData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type: 'layout.replaceData',
     label,
     payload: { layoutId, data: next },
@@ -222,7 +222,7 @@ function DependencySelector({
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const layoutId = tab.resource?.entityId;
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
@@ -371,9 +371,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     projectSettingsFromProject(activeProject).display,
   );
   function commit(next: LayoutData, label = 'Update layout') {
-    const result = updateLayout(activeLayoutId, next, label);
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    setMessage(failure?.message ?? null);
+    void updateLayout(activeLayoutId, next, label).then((result) => {
+      const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      setMessage(failure?.message ?? null);
+    });
   }
 
   function setSourceMode(which: 'rml' | 'rcss', sourceMode: LayoutSourceData['sourceMode']) {
@@ -420,8 +421,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, sampleState: parsed.value }, 'Update layout sample state');
   }
 
-  function setTitleSystemLayout(layoutId: string | null) {
-    const result = executeCommand({
+  async function setTitleSystemLayout(layoutId: string | null) {
+    const result = await executeCommand({
       type: 'project.setSystemLayout',
       label: layoutId ? `Set title system layout ${layoutId}` : 'Clear title system layout',
       payload: { role: 'title', layoutId },

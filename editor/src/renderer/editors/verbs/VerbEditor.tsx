@@ -551,7 +551,7 @@ export function VerbEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Verb record not found.</div>;
   const commit = (next: VerbData) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type: 'verb.replaceData',
       label: 'Update verb',
       payload: { verbId: id, data: next },

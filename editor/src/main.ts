@@ -205,6 +205,7 @@ import {
   installEditorNavigationPolicy,
   noArgumentsSchema,
   nativeProjectPatchArgumentsSchema,
+  nativeProjectSaveUnitArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
@@ -1304,6 +1305,21 @@ void app.whenReady().then(async () => {
         projectSessionId,
         expectedRevision,
         patches,
+      );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_SAVE_UNIT,
+    (arguments_) => nativeProjectSaveUnitArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, saveUnitIds, options) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project Save is not enabled for this editor.');
+      return nativeEditorAdmission.saveUnit(
+        projectSessionId,
+        expectedRevision,
+        saveUnitIds,
+        options,
       );
     },
   );

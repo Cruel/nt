@@ -236,7 +236,7 @@ describe('PackageExportDialog', () => {
     expect(screen.getByRole('heading', { name: 'Windows' })).toBeInTheDocument();
   });
 
-  it('edits an existing profile in-place and disables sidebar management until Done or Cancel', () => {
+  it('edits an existing profile in-place and disables sidebar management until Done or Cancel', async () => {
     const project = exportableProject();
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -252,7 +252,7 @@ describe('PackageExportDialog', () => {
     fireEvent.change(name, { target: { value: 'Linux Shipping' } });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
-    expect(screen.getByRole('heading', { name: 'Linux Shipping' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Linux Shipping' })).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Add profile' })).toBeEnabled();
     expect(
       (useProjectStore.getState().document as ReturnType<typeof exportableProject>).export
@@ -260,7 +260,7 @@ describe('PackageExportDialog', () => {
     ).toBe('Linux Shipping');
   });
 
-  it('derives output from the current profile name until the user chooses a custom path', () => {
+  it('derives output from the current profile name until the user chooses a custom path', async () => {
     const project = exportableProject();
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -273,7 +273,9 @@ describe('PackageExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit Profile' }));
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Linux Shipping' } });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(screen.getByLabelText('Output directory')).toHaveValue('/project/dist/linux-shipping');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Output directory')).toHaveValue('/project/dist/linux-shipping'),
+    );
 
     fireEvent.change(screen.getByLabelText('Output directory'), {
       target: { value: '/custom/linux-output' },
@@ -281,7 +283,9 @@ describe('PackageExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit Profile' }));
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Linux Renamed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(screen.getByLabelText('Output directory')).toHaveValue('/custom/linux-output');
+    await waitFor(() =>
+      expect(screen.getByLabelText('Output directory')).toHaveValue('/custom/linux-output'),
+    );
   });
 
   it('keeps Web base-path text editable but refuses Done until it is valid', () => {

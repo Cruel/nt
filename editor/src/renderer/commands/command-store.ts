@@ -37,6 +37,15 @@ interface CommandStoreState {
   nativeMutationFailure: string | null;
   enableNativeCommandMode: (workingRevision: number) => void;
   executeCommandAsync: (request: CommandRequest) => Promise<CommandExecutionResult>;
+  saveNativeUnitAsync: (
+    saveUnitIds: string | string[],
+    expectedProjectRevision: number,
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' },
+  ) => Promise<CommandExecutionResult>;
+  executeCommandBatchAsync: (
+    transaction: CommandTransactionRequest,
+    requests: readonly CommandRequest[],
+  ) => Promise<CommandExecutionResult>;
   undoAsync: () => Promise<CommandExecutionResult>;
   redoAsync: () => Promise<CommandExecutionResult>;
   executeCommand: (request: CommandRequest) => CommandExecutionResult;
@@ -204,6 +213,43 @@ function persistenceBusyResult(): CommandExecutionResult {
 
 let structuralPersistenceQueue: Promise<void> = Promise.resolve();
 
+// The UI can dispatch more than one editor intent before the native worker
+// responds (typing, numeric steppers, drag commits). Construct each proposal
+// against the *latest acknowledged* Project, never a speculative projection.
+// The captured session identity keeps queued intents from leaking into a
+// different Project, even if its revision happens to match.
+const nativeCommandQueues = new Map<string, Promise<void>>();
+
+function queueNativeCommand(
+  run: () => Promise<CommandExecutionResult>,
+): Promise<CommandExecutionResult> {
+  const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+  const queueId = `${projectSessionId}:${projectInstanceId}`;
+  const perform = async () => {
+    const current = useProjectStore.getState();
+    if (
+      !projectSessionId ||
+      !projectInstanceId ||
+      current.projectSessionId !== projectSessionId ||
+      current.projectInstanceId !== projectInstanceId ||
+      useCommandStore.getState().nativeProjectSessionId !== projectSessionId
+    )
+      return nativeOnlyResult('Queued native command belongs to a superseded Project session.');
+    return run();
+  };
+  const previous = nativeCommandQueues.get(queueId) ?? Promise.resolve();
+  const result = previous.then(perform, perform);
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  nativeCommandQueues.set(queueId, tail);
+  void tail.then(() => {
+    if (nativeCommandQueues.get(queueId) === tail) nativeCommandQueues.delete(queueId);
+  });
+  return result;
+}
+
 function commandDiagnostics(
   diagnostics: Array<{ severity: string; message: string; path?: string }>,
 ) {
@@ -362,33 +408,159 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     });
   },
   executeCommandAsync: async (request) => {
-    if (get().nativeWorkingRevision === null) return get().executeCommand(request);
-    if (get().nativeMutationPending || get().nativeMutationFailure)
-      return nativeOnlyResult(get().nativeMutationFailure || 'Native command is pending.');
-    if (get().history.activeTransaction)
-      return nativeOnlyResult('Native Project transactions require asynchronous commit support.');
-    if (request.persistencePolicy !== 'manual-save')
-      return nativeOnlyResult('Native auto-commit is unavailable until native Save is active.');
-    const proposal = executeCommandCore(busStateFromStores(get().history), request);
-    return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
+    if (get().nativeWorkingRevision === null) {
+      if (get().persistencePending) {
+        const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+        await flushStructuralCommandPersistence();
+        const current = useProjectStore.getState();
+        if (
+          current.projectSessionId !== projectSessionId ||
+          current.projectInstanceId !== projectInstanceId ||
+          get().nativeWorkingRevision !== null
+        )
+          return nativeOnlyResult('Project changed while awaiting structural persistence.');
+      }
+      return get().executeCommand(request);
+    }
+    return queueNativeCommand(() => {
+      if (get().nativeMutationFailure) return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      if (get().history.activeTransaction)
+        return Promise.resolve(nativeOnlyResult('Native Project transactions require asynchronous commit support.'));
+      if (request.persistencePolicy !== 'manual-save')
+        return Promise.resolve(nativeOnlyResult('Native auto-commit is unavailable until native Save is active.'));
+      const proposal = executeCommandCore(busStateFromStores(get().history), request);
+      return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
+    });
+  },
+  saveNativeUnitAsync: async (saveUnitIds, expectedProjectRevision, options) => {
+    if (get().nativeWorkingRevision === null)
+      return nativeOnlyResult('Native Project Save requires native authoring mode.');
+    return queueNativeCommand(async () => {
+      const state = get();
+      const project = useProjectStore.getState();
+      const session = project.projectSessionId;
+      const instance = project.projectInstanceId;
+      const revision = state.nativeWorkingRevision;
+      if (state.nativeMutationFailure) return nativeOnlyResult(state.nativeMutationFailure);
+      if (
+        revision === null ||
+        !session ||
+        !instance ||
+        state.nativeProjectSessionId !== session ||
+        project.projectRevision !== expectedProjectRevision ||
+        state.nativeProjectionRevision !== project.projectRevision
+      )
+        return nativeOnlyResult('Project changed before its native Save could begin.');
+      set({ nativeMutationPending: true });
+      try {
+        const saved = await window.noveltea.nativeProjectSaveUnit(
+          session, revision, saveUnitIds, options,
+        );
+        const current = useProjectStore.getState();
+        if (
+          current.projectSessionId !== session ||
+          current.projectInstanceId !== instance ||
+          current.projectRevision !== expectedProjectRevision ||
+          get().nativeWorkingRevision !== revision
+        )
+          throw new Error('Native Project Save completed after its editor session changed.');
+        if (!saved.accepted) {
+          const rejected = nativeOnlyResult(saved.error || 'Native scoped Save rejected.');
+          set({ nativeMutationPending: false, lastDiagnostics: rejected.diagnostics });
+          return rejected;
+        }
+        if (saved.snapshot.workingRevision < revision)
+          throw new Error('Native Save acknowledged an older working Project revision.');
+        set({
+          nativeMutationPending: false,
+          nativeWorkingRevision: saved.snapshot.workingRevision,
+          lastDiagnostics: [],
+        });
+        return { ok: true, projectChanged: false, diagnostics: [] };
+      } catch (error) {
+        const current = useProjectStore.getState();
+        if (current.projectSessionId !== session || current.projectInstanceId !== instance)
+          return nativeOnlyResult('Native Save was superseded by another Project session.');
+        const message = error instanceof Error ? error.message : 'Native Project Save failed.';
+        set({
+          nativeMutationPending: false,
+          nativeMutationFailure: message,
+          lastDiagnostics: [{ severity: 'error', message }],
+        });
+        return nativeOnlyResult(message);
+      }
+    });
+  },
+  executeCommandBatchAsync: async (transaction, requests) => {
+    if (get().nativeWorkingRevision === null) {
+      if (get().persistencePending) {
+        const { projectSessionId, projectInstanceId } = useProjectStore.getState();
+        await flushStructuralCommandPersistence();
+        const current = useProjectStore.getState();
+        if (
+          current.projectSessionId !== projectSessionId ||
+          current.projectInstanceId !== projectInstanceId ||
+          get().nativeWorkingRevision !== null
+        )
+          return nativeOnlyResult('Project changed while awaiting structural persistence.');
+      }
+      if (get().persistencePending) return persistenceBusyResult();
+      if (get().history.activeTransaction)
+        return nativeOnlyResult('Another editor transaction is still active.');
+      get().beginTransaction(transaction);
+      if (!get().history.activeTransaction)
+        return nativeOnlyResult('Cannot start editor command transaction.');
+      for (const request of requests) {
+        const step = get().executeCommand(request);
+        if (!step.ok) {
+          get().cancelTransaction();
+          return step;
+        }
+      }
+      const committed = get().commitTransaction();
+      if (!committed.ok && get().history.activeTransaction) get().cancelTransaction();
+      return committed;
+    }
+    return queueNativeCommand(() => {
+      if (get().nativeMutationFailure)
+        return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      if (get().history.activeTransaction)
+        return Promise.resolve(nativeOnlyResult('Another Project transaction is active.'));
+      if (transaction.persistencePolicy !== 'manual-save')
+        return Promise.resolve(nativeOnlyResult('Native auto-commit is unavailable until native Save is active.'));
+      const initial = busStateFromStores(get().history);
+      let working = beginTransactionCore(initial, transaction);
+      if (!working.history.activeTransaction)
+        return Promise.resolve(nativeOnlyResult('Cannot start native command transaction.'));
+      for (const request of requests) {
+        const step = executeCommandCore(working, request);
+        if (!step.ok)
+          return Promise.resolve({ ...step, document: undefined, projectChanged: false });
+        working = step.state;
+      }
+      const proposal = commitTransactionCore(working);
+      return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
+    });
   },
   undoAsync: async () => {
     if (get().nativeWorkingRevision === null) return get().undo();
-    if (get().nativeMutationPending || get().nativeMutationFailure)
-      return nativeOnlyResult(get().nativeMutationFailure || 'Native command is pending.');
-    const proposal = undoCommandCore(busStateFromStores(get().history));
-    if (proposal.historyEntry?.autoCommitPlan)
-      return nativeOnlyResult('Native undo of auto-committed commands requires native Save.');
-    return submitNativeCommand(proposal, proposal.historyEntry?.inversePatches ?? [], 'undo');
+    return queueNativeCommand(() => {
+      if (get().nativeMutationFailure) return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      const proposal = undoCommandCore(busStateFromStores(get().history));
+      if (proposal.historyEntry?.autoCommitPlan)
+        return Promise.resolve(nativeOnlyResult('Native undo of auto-committed commands requires native Save.'));
+      return submitNativeCommand(proposal, proposal.historyEntry?.inversePatches ?? [], 'undo');
+    });
   },
   redoAsync: async () => {
     if (get().nativeWorkingRevision === null) return get().redo();
-    if (get().nativeMutationPending || get().nativeMutationFailure)
-      return nativeOnlyResult(get().nativeMutationFailure || 'Native command is pending.');
-    const proposal = redoCommandCore(busStateFromStores(get().history));
-    if (proposal.historyEntry?.autoCommitPlan)
-      return nativeOnlyResult('Native redo of auto-committed commands requires native Save.');
-    return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'redo');
+    return queueNativeCommand(() => {
+      if (get().nativeMutationFailure) return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
+      const proposal = redoCommandCore(busStateFromStores(get().history));
+      if (proposal.historyEntry?.autoCommitPlan)
+        return Promise.resolve(nativeOnlyResult('Native redo of auto-committed commands requires native Save.'));
+      return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'redo');
+    });
   },
   executeCommand: (request) => {
     if (get().nativeWorkingRevision !== null)

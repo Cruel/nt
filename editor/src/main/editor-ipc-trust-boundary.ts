@@ -615,6 +615,21 @@ export const nativeProjectPatchArgumentsSchema = z.tuple([
   z.number().int().nonnegative(),
   z.array(nativeProjectPatchSchema).min(1).max(256),
 ]);
+/** Scoped native authoring Save; no renderer-supplied root or disk content. */
+export const nativeProjectSaveUnitArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.union([
+    z.string().min(3).max(256).regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+    z.array(
+      z.string().min(3).max(256).regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+    ).min(1).max(128),
+  ]),
+  z.object({
+    keepMine: z.boolean().optional(),
+    comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']).optional(),
+  }).strict(),
+]);
 export const projectAssetIdentityArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(512),

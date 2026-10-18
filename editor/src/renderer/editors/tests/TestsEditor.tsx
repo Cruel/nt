@@ -121,7 +121,7 @@ function selectedStep(data: TestData) {
 }
 
 function commitTest(testId: string, next: TestData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'test.replaceData',
     label,
     payload: { testId, data: next },

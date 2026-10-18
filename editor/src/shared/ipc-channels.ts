@@ -40,6 +40,7 @@ export const IPC_CHANNELS = {
   PROJECT_IMPORT_REQUESTED_EVENT: 'noveltea:project-import-requested-event',
   CLOSE_ACTIVE_PROJECT: 'noveltea:close-active-project',
   NATIVE_PROJECT_PATCH: 'noveltea:native-project-patch',
+  NATIVE_PROJECT_SAVE_UNIT: 'noveltea:native-project-save-unit',
   VALIDATE_PROJECT: 'noveltea:validate-project',
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
   RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',

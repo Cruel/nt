@@ -333,7 +333,7 @@ describe('Hotspot Focus session', () => {
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']).toBeUndefined();
   });
 
-  it('preserves a recovered dirty draft when the Room source Asset was replaced', () => {
+  it('preserves a recovered dirty draft when the Room source Asset was replaced', async () => {
     const project = projectWithRoomHotspotImage();
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const store = useHotspotFocusStore.getState();
@@ -380,13 +380,13 @@ describe('Hotspot Focus session', () => {
     ).toBe(true);
     expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']?.assetId).toBe('background');
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
-    expect(useHotspotFocusStore.getState().commit('room-tab')).toBe(false);
+    expect(await useHotspotFocusStore.getState().commit('room-tab')).toBe(false);
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
     expect(useHotspotFocusStore.getState().discard('room-tab')).toBe(true);
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']).toBeUndefined();
   });
 
-  it('preserves a recovered dirty custom Interactable draft after the owner mode changes', () => {
+  it('preserves a recovered dirty custom Interactable draft after the owner mode changes', async () => {
     const project = projectWithRoomHotspotImage();
     const data = defaultInteractableData('Door');
     const interactableHotspot = {
@@ -450,7 +450,7 @@ describe('Hotspot Focus session', () => {
     expect(
       useDraftDirtyStore.getState().entriesByKey['hotspot-focus:interactable-tab']?.dirty,
     ).toBe(true);
-    expect(useHotspotFocusStore.getState().commit('interactable-tab')).toBe(false);
+    expect(await useHotspotFocusStore.getState().commit('interactable-tab')).toBe(false);
     const current = useProjectStore.getState().document as typeof project;
     expect(
       parseInteractableData(current.interactables.door?.data)?.presentation.hotspots.kind,
@@ -501,7 +501,7 @@ describe('Hotspot Focus session', () => {
     });
   });
 
-  it('commits all geometry edits as one project undo step', () => {
+  it('commits all geometry edits as one project undo step', async () => {
     const project = projectWithRoomHotspot();
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const store = useHotspotFocusStore.getState();
@@ -516,7 +516,7 @@ describe('Hotspot Focus session', () => {
     store.setBounds('room-tab', 'door', movedBounds);
     store.add('room-tab', { ...hotspot('window'), label: 'Window' });
 
-    expect(store.commit('room-tab')).toBe(true);
+    expect(await store.commit('room-tab')).toBe(true);
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
     const committed = useProjectStore.getState().document;
     if (!committed || typeof committed !== 'object' || !('rooms' in committed))
@@ -532,7 +532,7 @@ describe('Hotspot Focus session', () => {
     expect(undoneRoom?.hotspots[0]?.shape.bounds).toEqual(originalBounds);
   });
 
-  it('refuses stale geometry when another edit replaces the Room background source', () => {
+  it('refuses stale geometry when another edit replaces the Room background source', async () => {
     const project = projectWithRoomHotspotImage();
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const store = useHotspotFocusStore.getState();
@@ -571,7 +571,7 @@ describe('Hotspot Focus session', () => {
     });
     expect(sourceChange.ok).toBe(true);
 
-    expect(store.commit('room-tab')).toBe(false);
+    expect(await store.commit('room-tab')).toBe(false);
     expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toBeDefined();
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
@@ -582,7 +582,7 @@ describe('Hotspot Focus session', () => {
     );
   });
 
-  it('accepts Focus commits when the effective Room background is inherited from an Archetype', () => {
+  it('accepts Focus commits when the effective Room background is inherited from an Archetype', async () => {
     const project = projectWithArchetypedRoomHotspotImage(null, 'background');
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const store = useHotspotFocusStore.getState();
@@ -596,14 +596,14 @@ describe('Hotspot Focus session', () => {
     });
     store.setBounds('room-tab', 'door', movedBounds);
 
-    expect(store.commit('room-tab')).toBe(true);
+    expect(await store.commit('room-tab')).toBe(true);
     const current = useProjectStore.getState().document as typeof project;
     expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.shape.bounds).toEqual(
       movedBounds,
     );
   });
 
-  it('rejects stale geometry when an Archetype changes the effective Room background source', () => {
+  it('rejects stale geometry when an Archetype changes the effective Room background source', async () => {
     const project = projectWithArchetypedRoomHotspotImage('background', 'background');
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const store = useHotspotFocusStore.getState();
@@ -632,14 +632,14 @@ describe('Hotspot Focus session', () => {
     });
     expect(sourceChange.ok).toBe(true);
 
-    expect(store.commit('room-tab')).toBe(false);
+    expect(await store.commit('room-tab')).toBe(false);
     const current = useProjectStore.getState().document as typeof project;
     expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.shape.bounds).toEqual(
       originalBounds,
     );
   });
 
-  it('refuses stale geometry when the source Asset is replaced in place', () => {
+  it('refuses stale geometry when the source Asset is replaced in place', async () => {
     const project = projectWithRoomHotspotImage();
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     const store = useHotspotFocusStore.getState();
@@ -668,12 +668,12 @@ describe('Hotspot Focus session', () => {
     });
     expect(sourceChange.ok).toBe(true);
 
-    expect(store.commit('room-tab')).toBe(false);
+    expect(await store.commit('room-tab')).toBe(false);
     expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toBeDefined();
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
   });
 
-  it('refuses stale geometry when another edit replaces the Interactable sprite source', () => {
+  it('refuses stale geometry when another edit replaces the Interactable sprite source', async () => {
     const project = projectWithRoomHotspotImage();
     const data = defaultInteractableData('Door');
     const interactableHotspot = {
@@ -718,7 +718,7 @@ describe('Hotspot Focus session', () => {
     });
     expect(sourceChange.ok).toBe(true);
 
-    expect(store.commit('interactable-tab')).toBe(false);
+    expect(await store.commit('interactable-tab')).toBe(false);
     expect(useHotspotFocusStore.getState().sessionsByTabId['interactable-tab']).toBeDefined();
     const current = useProjectStore.getState().document as typeof project;
     const currentInteractable = parseInteractableData(current.interactables.door?.data);
@@ -747,7 +747,7 @@ describe('Hotspot Focus session', () => {
       '⟦Hotspot geometry⟧',
     );
 
-    expect(store.commit('room-tab')).toBe(true);
+    expect(await store.commit('room-tab')).toBe(true);
     expect(useCommandStore.getState().history.entries[0]?.label).toBe(
       '⟦Edit Room hotspot geometry⟧',
     );

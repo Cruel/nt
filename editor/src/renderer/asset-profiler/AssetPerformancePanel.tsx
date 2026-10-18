@@ -312,7 +312,7 @@ function PredictionView() {
   const changes = useAssetProfilerStore((state) => state.changes);
   const profilerPayload = useAssetProfilerStore((state) => state.payload);
   const status = useAssetProfilerStore((state) => state.status);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
   const [targetKind, setTargetKind] = useState<PrefetchTargetKind>('scene');
   const [targetId, setTargetId] = useState('');
@@ -376,7 +376,7 @@ function PredictionView() {
       .filter((value): value is NonNullable<typeof value> => value !== null);
   }, [changes, project, staticProjection]);
 
-  const createHint = (target: PrefetchHintTarget, attachment: PrefetchHintAttachment) => {
+  const createHint = async (target: PrefetchHintTarget, attachment: PrefetchHintAttachment) => {
     if (!project) return;
     let ordinal = 1;
     let id = 'prefetch-hint';
@@ -384,23 +384,24 @@ function PredictionView() {
       ordinal += 1;
       id = `prefetch-hint-${ordinal}`;
     }
-    executeCommand({
+    const result = await executeCommand({
       type: 'project.addAtPath',
       label: t('assetProfiler.prediction.addHint'),
       payload: { path: `/prefetchHints/${id}`, value: { id, target, attachment } },
       originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
       persistencePolicy: 'manual-save',
     });
+    return result.ok;
   };
 
-  const addHint = () => {
+  const addHint = async () => {
     if (!project || !targetId || !draftAttachment) return;
-    createHint(prefetchTarget(targetKind, targetId), draftAttachment);
-    setDraftAttachment(null);
+    if (await createHint(prefetchTarget(targetKind, targetId), draftAttachment))
+      setDraftAttachment(null);
   };
 
   const removeHint = (id: string) => {
-    executeCommand({
+    void executeCommand({
       type: 'project.removeAtPath',
       label: t('assetProfiler.prediction.removeHint'),
       payload: { path: `/prefetchHints/${id}` },

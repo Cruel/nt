@@ -50,7 +50,7 @@ export function MapEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Map record not found.</div>;
   const commit = (next: typeof data) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type: 'map.replaceData',
       label: 'Update map',
       payload: { mapId: id, data: next },

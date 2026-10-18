@@ -58,6 +58,74 @@ function nativeAck(name: string, revision: number, accepted = true) {
 }
 
 describe('native-backed renderer commands', () => {
+  it('serializes scoped native Save after acknowledged edits without changing editor history', async () => {
+    let release!: (value: ReturnType<typeof nativeAck>) => void;
+    const patch = vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    const save = vi.fn().mockResolvedValue(nativeAck('Edited', 1));
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: save,
+    });
+    const command = useCommandStore.getState().executeCommandAsync(request('Edited'));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const atRevision = useProjectStore.getState().projectRevision;
+    const saved = useCommandStore.getState().saveNativeUnitAsync(
+      'project:settings', atRevision + 1, { comments: 'keep' },
+    );
+    expect(save).not.toHaveBeenCalled();
+    release(nativeAck('Edited', 1));
+    expect((await command).ok).toBe(true);
+    expect((await saved).ok).toBe(true);
+    expect(save).toHaveBeenCalledWith(sessionId, 1, 'project:settings', { comments: 'keep' });
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(patch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps native Save failure from creating a saved baseline or enabling a legacy writer', async () => {
+    const save = vi.fn().mockResolvedValue(nativeAck('Saved Project', 0, false));
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: save,
+    });
+    const current = useProjectStore.getState().projectRevision;
+    const denied = await useCommandStore.getState().saveNativeUnitAsync(
+      'project:settings', current, { comments: 'keep' },
+    );
+    expect(denied.ok).toBe(false);
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(0);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(useCommandStore.getState().executeCommand(request('Legacy writer')).ok).toBe(false);
+    save.mockRejectedValueOnce(new Error('Worker stopped before Save reply'));
+    const unknown = await useCommandStore.getState().saveNativeUnitAsync(
+      'project:settings', current, {},
+    );
+    expect(unknown.ok).toBe(false);
+    expect(useCommandStore.getState().nativeMutationFailure).toContain('Worker stopped');
+    expect(save).toHaveBeenCalledTimes(2);
+  });
+
+  it('submits grouped editor commands as one native mutation and one undo entry', async () => {
+    const patch = vi.spyOn(window.noveltea, 'nativeProjectPatch');
+    patch.mockResolvedValueOnce(nativeAck('Second name', 1));
+    const result = await useCommandStore.getState().executeCommandBatchAsync(
+      {
+        label: 'Edit project name twice',
+        originSaveUnitId: 'project:settings',
+        persistencePolicy: 'manual-save',
+      },
+      [request('First name'), request('Second name')],
+    );
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(patch).toHaveBeenCalledTimes(1);
+    expect(patch.mock.calls[0]?.[2]).toHaveLength(2);
+    expect(projectName()).toBe('Second name');
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+    patch.mockResolvedValueOnce(nativeAck('Saved Project', 2));
+    expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
+    expect(projectName()).toBe('Saved Project');
+  });
+
   it('confirms JSON Patch array append against the final native parent array', async () => {
     const original = createInitialCommandBusState({ project: { tags: ['a'] } });
     const proposal = executeCommand(original, {
@@ -101,6 +169,7 @@ describe('native-backed renderer commands', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectPatch');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
   });
@@ -120,25 +189,32 @@ describe('native-backed renderer commands', () => {
     expect(useCommandStore.getState().history.cursor).toBe(-1);
     expect(useCommandStore.getState().nativeMutationPending).toBe(true);
     expect(useCommandStore.getState().executeCommand(request('Unsafe fallback')).ok).toBe(false);
-    expect((await state.executeCommandAsync(request('Concurrent'))).ok).toBe(false);
+    const queued = state.executeCommandAsync(request('Concurrent'));
     expect(patch).toHaveBeenCalledTimes(1);
     expect(patch.mock.calls[0]?.slice(0, 2)).toEqual([sessionId, 0]);
+    patch.mockResolvedValueOnce(nativeAck('Concurrent', 2));
     release(nativeAck('Native Edition', 1));
     expect((await pending).ok).toBe(true);
     expect(projectName()).toBe('Native Edition');
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
     expect(useCommandStore.getState().history.cursor).toBe(0);
 
-    patch.mockResolvedValueOnce(nativeAck('Saved Project', 2));
-    expect((await state.undoAsync()).ok).toBe(true);
-    expect(projectName()).toBe('Saved Project');
-    expect(useCommandStore.getState().history.cursor).toBe(-1);
+    const queuedResult = await queued;
+    expect(queuedResult.ok, JSON.stringify(queuedResult.diagnostics)).toBe(true);
+    expect(projectName()).toBe('Concurrent');
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(2);
+    expect(useCommandStore.getState().history.cursor).toBe(1);
 
     patch.mockResolvedValueOnce(nativeAck('Native Edition', 3));
-    expect((await state.redoAsync()).ok).toBe(true);
+    expect((await state.undoAsync()).ok).toBe(true);
     expect(projectName()).toBe('Native Edition');
     expect(useCommandStore.getState().history.cursor).toBe(0);
-    expect(useCommandStore.getState().nativeWorkingRevision).toBe(3);
+
+    patch.mockResolvedValueOnce(nativeAck('Concurrent', 4));
+    expect((await state.redoAsync()).ok).toBe(true);
+    expect(projectName()).toBe('Concurrent');
+    expect(useCommandStore.getState().history.cursor).toBe(1);
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(4);
   });
 
   it('rejects denied native patches without changing the document or history', async () => {
@@ -223,5 +299,30 @@ describe('native-backed renderer commands', () => {
     expect(projectName()).toBe('New Project');
     expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
     expect(useCommandStore.getState().executeCommand(request('TS New Project')).ok).toBe(true);
+  });
+
+  it('does not block commands in a new Project while an old native worker reply is pending', async () => {
+    let release!: (value: ReturnType<typeof nativeAck>) => void;
+    const patch = vi.spyOn(window.noveltea, 'nativeProjectPatch').mockImplementationOnce(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    const previous = useCommandStore.getState().executeCommandAsync(request('Old Project Edit'));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    const staleQueued = useCommandStore.getState().executeCommandAsync(request('Never Apply'));
+    setProject('New Project', newSessionId);
+    useCommandStore.getState().enableNativeCommandMode(0);
+    patch.mockResolvedValueOnce(nativeAck('New Project Edit', 1));
+
+    const current = useCommandStore.getState().executeCommandAsync(request('New Project Edit'));
+    expect((await Promise.race([
+      current.then((value) => value.ok),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
+    ]))).toBe(true);
+    expect(projectName()).toBe('New Project Edit');
+    expect(patch).toHaveBeenCalledTimes(2);
+    release(nativeAck('Old Project Edit', 1));
+    expect((await previous).ok).toBe(false);
+    expect((await staleQueued).ok).toBe(false);
+    expect(projectName()).toBe('New Project Edit');
   });
 });

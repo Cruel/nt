@@ -319,10 +319,16 @@ export class NativeAuthoringWorkingProject {
       keepMine?: boolean;
       comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
       pathsByOwner?: Record<string, string[]>;
+      expectedRevision?: number;
     } = {},
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view) throw new Error('Native working Project has not opened.');
+      if (
+        options.expectedRevision !== undefined &&
+        options.expectedRevision !== this.view.workingRevision
+      )
+        throw new Error('Stale native working Project Save revision.');
       const result = await this.bridge.request({
         operation: 'saveOwners',
         owners: [...owners],
@@ -343,19 +349,35 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
-  async saveUnit(
-    saveUnitId: string,
+  async saveUnits(
+    saveUnitIds: readonly string[],
     options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
+    expectedRevision?: number,
   ): Promise<PatchResult> {
     if (!this.view) throw new Error('Native working Project has not opened.');
-    const pathsByOwner = logicalSaveUnitPaths(saveUnitId, this.view);
+    const pathsByOwner: Record<string, string[]> = {};
+    for (const saveUnitId of [...new Set(saveUnitIds)].sort()) {
+      const scopes = logicalSaveUnitPaths(saveUnitId, this.view);
+      for (const [owner, paths] of Object.entries(scopes))
+        pathsByOwner[owner] = [...new Set([...(pathsByOwner[owner] ?? []), ...paths])].sort();
+    }
     for (const owner of Object.keys(pathsByOwner))
       if (owner !== 'project' && !this.view?.recordSnapshots?.[owner]) {
         const inspected = await this.inspectRecord(owner);
         if (!inspected.accepted)
           throw new Error(`Native Save unit owner ${owner} is unavailable: ${inspected.error}`);
       }
-    return this.saveOwners(Object.keys(pathsByOwner), { ...options, pathsByOwner });
+    return this.saveOwners(Object.keys(pathsByOwner).sort(), {
+      ...options, pathsByOwner, expectedRevision,
+    });
+  }
+
+  async saveUnit(
+    saveUnitId: string,
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit' } = {},
+    expectedRevision?: number,
+  ): Promise<PatchResult> {
+    return this.saveUnits([saveUnitId], options, expectedRevision);
   }
 
   async useDiskUnit(saveUnitId: string): Promise<PatchResult> {

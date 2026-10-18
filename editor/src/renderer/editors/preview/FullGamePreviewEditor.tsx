@@ -2733,7 +2733,7 @@ export function FullGamePreviewEditor({
     () => (isAuthoringProject(projectDocument) ? projectDocument : null),
     [projectDocument],
   );
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const openTab = useWorkbenchStore((store) => store.openTab);
   const restoredAssetMemory = (() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
@@ -3267,7 +3267,7 @@ export function FullGamePreviewEditor({
     replayActions(recorderDraft.actions, 'idle');
   }, [recorderDraft.actions, replayActions]);
 
-  const saveRecordingAsNewTest = useCallback(() => {
+  const saveRecordingAsNewTest = useCallback(async () => {
     const testId = nextRecordedTestId(project);
     const label = `Recorded Test ${new Date().toLocaleString()}`;
     const conversion = recordedTestDraftToTestData(recorderDraft, { label });
@@ -3277,7 +3277,7 @@ export function FullGamePreviewEditor({
       setRecorderDraft((current) => ({ ...current, saveError: message }));
       return;
     }
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'entity.createRecord',
       label: `Create recorded test ${testId}`,
       payload: { collection: 'tests', entityId: testId, label, data: conversion.data },
@@ -3302,7 +3302,7 @@ export function FullGamePreviewEditor({
     openTab(buildTestDetailTabForRecord(testId, label));
   }, [executeCommand, openTab, project, recorderDraft]);
 
-  const applyRecordingToExistingTest = useCallback(() => {
+  const applyRecordingToExistingTest = useCallback(async () => {
     const testId = normalizeTestId(targetTestId);
     if (!testId) {
       setRecorderDraft((current) => ({
@@ -3330,7 +3330,7 @@ export function FullGamePreviewEditor({
       setRecorderDraft((current) => ({ ...current, saveError: message }));
       return;
     }
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'test.replaceData',
       label: `Apply recording to ${testId}`,
       payload: { testId, data: conversion.data },
