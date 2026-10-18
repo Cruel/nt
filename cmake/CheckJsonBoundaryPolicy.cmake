@@ -8,7 +8,9 @@ if(NOT EXISTS "${ALLOWLIST}")
     message(FATAL_ERROR "JSON boundary allowlist does not exist: ${ALLOWLIST}")
 endif()
 
+# Benchmark report import/export is an external JSON codec, isolated from engine models.
 set(approved_header_paths
+    "apps/benchmark/benchmark_comparison.hpp"
     "engine/include/noveltea/core/compiled_package_codec.hpp"
     "engine/include/noveltea/core/compiled_project_codec.hpp"
     "engine/include/noveltea/core/editor_protocol.hpp"
@@ -26,6 +28,11 @@ list(APPEND approved_header_paths
     "engine/src/core/motion_policy_codec.hpp"
     "engine/src/core/save_state_codec/internal.hpp")
 set(approved_source_paths
+    "apps/benchmark/benchmark_capacity_tests.cpp"
+    "apps/benchmark/benchmark_comparison.cpp"
+    "apps/benchmark/benchmark_comparison_tests.cpp"
+    "apps/benchmark/benchmark_report.cpp"
+    "apps/benchmark/benchmark_report_tests.cpp"
     "apps/editor_preview/editor_preview_app.cpp"
     "engine/src/assets/resource_aliases.cpp"
     "engine/src/core/compiled_package_codec.cpp"

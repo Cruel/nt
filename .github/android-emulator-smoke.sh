@@ -15,8 +15,20 @@ apk_v1=${1:?first APK required}
 apk_v2=${2:?updated APK required}
 application_id=${3:-org.noveltea.platformexportacceptance}
 abi=${4:-x86_64}
+android_api=unknown
+
+dump_android_activity_snapshot() {
+  local phase=${1:?phase required}
+  echo "--- Android window focus (API $android_api, $phase) ---"
+  "$adb" shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp|mDreamingLockscreen|mShowingLockscreen|mTopFocusedDisplayId' || true
+  echo "--- Android power (API $android_api, $phase) ---"
+  "$adb" shell dumpsys power | grep -E 'mWakefulness=|mInteractive=|mIsPowered=|mHoldingDisplaySuspendBlocker=' || true
+  echo "--- Android resumed Activity (API $android_api, $phase) ---"
+  "$adb" shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|ResumedActivity' || true
+}
 
 dump_startup_diagnostics() {
+  dump_android_activity_snapshot 'failed launch'
   local pid
   pid=$("$adb" shell pidof "$application_id" 2>/dev/null | tr -d '\r' || true)
   echo '--- Android process state ---' >&2
@@ -76,6 +88,11 @@ wait_for_package_manager_idle() {
 
 "$adb" wait-for-device
 until [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; do sleep 2; done
+android_api=$("$adb" shell getprop ro.build.version.sdk | tr -d '\r')
+echo "NovelTea emulator smoke: API $android_api, ABI $abi"
+# API 35 can show a first-run immersive-mode confirmation over the player,
+# stealing Activity window focus indefinitely in an unattended emulator.
+"$adb" shell settings put secure immersive_mode_confirmations confirmed
 "$adb" logcat -c
 "$adb" install -r "$apk_v1"
 wait_for_package_manager_idle
