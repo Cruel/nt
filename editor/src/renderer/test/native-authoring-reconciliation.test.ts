@@ -51,6 +51,50 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('commits YAML and staged RML atomically and refuses a conflicting mixed transaction', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-mixed-transaction-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    );
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('mixed-transaction');
+    const room = 'rooms/room-lifecycle-roundtrip';
+    expect((await working.inspectRecord(room)).accepted).toBe(true);
+    const yamlPath = path.join(root, roomRelative);
+    const initialYaml = await readFile(yamlPath, 'utf8');
+    const textPath = 'records/layouts/notice-board/layout.rml';
+    const textFile = path.join(root, textPath);
+    const initialText = await readFile(textFile, 'utf8');
+    const newLabel = 'Mixed native YAML commit';
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: `/rooms/${roomId}/label`, value: newLabel },
+    ])).accepted).toBe(true);
+    expect((await working.stageTextSource(textPath, `${initialText}\n<!-- mixed native -->\n`)).accepted)
+      .toBe(true);
+    const result = await working.saveOwners([room], { textPaths: [textPath] });
+    expect(result).toMatchObject({ accepted: true, textSourceDiskRevisions: {
+      [textPath]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    } });
+    expect(await readFile(yamlPath, 'utf8')).toContain(newLabel);
+    expect(await readFile(textFile, 'utf8')).toContain('mixed native');
+
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: `/rooms/${roomId}/label`, value: 'Must not persist' },
+    ])).accepted).toBe(true);
+    expect((await working.stageTextSource(textPath, `${initialText}\n<!-- pending -->\n`)).accepted)
+      .toBe(true);
+    await writeFile(textFile, `${initialText}\n<!-- external change -->\n`);
+    expect((await working.saveOwners([room], { textPaths: [textPath] })).accepted).toBe(false);
+    expect(await readFile(yamlPath, 'utf8')).toContain(newLabel);
+    expect(await readFile(textFile, 'utf8')).toContain('external change');
+    expect(await readFile(yamlPath, 'utf8')).not.toBe(initialYaml);
+  }, 120_000);
   it('stages and transactionally creates a new generic record without a legacy writer', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {

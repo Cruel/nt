@@ -25,6 +25,7 @@ interface NativeBinding {
     keepMine: boolean,
     comments: string,
     paths?: string,
+    textPaths?: string,
   ): string;
   restoreConflicts(handle: unknown, revision: number, conflicts: string): string;
   useDiskOwners(handle: unknown, revision: number, paths: string): string;
@@ -261,7 +262,9 @@ parent.on('message', (raw: unknown) => {
                 JSON.stringify(command.owners),
                 command.keepMine,
                 command.comments,
-                ...(command.pathsByOwner ? [JSON.stringify(command.pathsByOwner)] : []),
+                ...(command.textPaths
+                  ? [JSON.stringify(command.pathsByOwner ?? {}), JSON.stringify(command.textPaths)]
+                  : command.pathsByOwner ? [JSON.stringify(command.pathsByOwner)] : []),
               ),
             ),
           ),

@@ -358,6 +358,7 @@ export class NativeAuthoringWorkingProject {
       keepMine?: boolean;
       comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
       pathsByOwner?: Record<string, string[]>;
+      textPaths?: string[];
       expectedRevision?: number;
     } = {},
   ): Promise<PatchResult> {
@@ -375,12 +376,20 @@ export class NativeAuthoringWorkingProject {
         keepMine: options.keepMine ?? false,
         comments: options.comments ?? 'keep',
         ...(options.pathsByOwner ? { pathsByOwner: options.pathsByOwner } : {}),
+        ...(options.textPaths ? { textPaths: options.textPaths } : {}),
       });
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a scoped Save result.');
       if (result.accepted) {
         const merged = this.mergeSnapshot(result.snapshot);
         this.view = merged;
+        if (options.textPaths?.length) {
+          for (const path of options.textPaths) {
+            if (!result.textSourceDiskRevisions?.[path])
+              throw new Error(`Native mixed Save omitted text source acknowledgment: ${path}`);
+            this.retainedTextSources.delete(path);
+          }
+        }
         this.checkpointDirtyWorkingState();
         return { ...result, snapshot: merged };
       }

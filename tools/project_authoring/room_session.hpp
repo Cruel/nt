@@ -227,7 +227,8 @@ public:
     RoomSessionResult
     save_owners(std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
                 TransactionDecision comments,
-                const std::map<std::string, std::vector<std::string>>& paths = {});
+                const std::map<std::string, std::vector<std::string>>& paths = {},
+                const std::vector<std::string>& text_paths = {});
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     // Immutable disk-validation contributors, including lazily uninspected
     // record owners. Valid only after validate_project() has refreshed proof.
@@ -317,6 +318,9 @@ private:
     std::optional<ValidationResult> validation_room_map_cache_;
     std::map<std::string, std::string> shader_overlays_;
     std::map<std::string, std::string> text_source_overlays_;
+    // Baseline at the first unsaved text edit. Source observation may advance
+    // the *current* disk revision, but must never rebase an overlay silently.
+    std::map<std::string, std::string> text_overlay_disk_revisions_;
     std::map<std::string, std::string> inline_text_sources_;
     std::map<std::string, std::string> inline_source_diagnostic_paths_;
     std::set<std::string> text_source_paths_;
