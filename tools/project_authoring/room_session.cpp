@@ -3332,6 +3332,15 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
                                                     : nullptr;
             if (!record)
                 throw std::runtime_error("Unknown logical Use Disk owner.");
+            if (owner != "project" && record->snapshot().disk_source_revision == "absent") {
+                if (fields.size() != 1 || fields.front() != "/")
+                    throw std::runtime_error("Uncommitted record requires whole-owner Use Disk.");
+                if (source_revision_or_absent(record->source_path()) != "absent")
+                    throw std::runtime_error("External source changed since conflict was reviewed.");
+                staged.erase(owner);
+                response.affected_records.push_back(owner);
+                continue;
+            }
             const auto result = fields.size() == 1 && fields.front() == "/"
                                     ? record->use_disk()
                                     : record->use_disk_paths(fields);
@@ -3346,7 +3355,9 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
             records_ = std::move(staged);
             for (const auto& owner : response.affected_records)
                 if (indexed_text_owner(owner))
-                    index_text_owner(owner, records_.at(owner)->snapshot().source_json);
+                    index_text_owner(owner, records_.contains(owner)
+                                                ? records_.at(owner)->snapshot().source_json
+                                                : "{}");
             if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
                             localization_record_owner))
                 localization_cache_.reset();

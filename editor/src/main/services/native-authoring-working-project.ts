@@ -438,7 +438,7 @@ export class NativeAuthoringWorkingProject {
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a logical Use Disk result.');
       if (result.accepted) {
-        this.view = this.mergeSnapshot(result.snapshot);
+        this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
         const paths = Object.entries(pathsByOwner).flatMap(([owner, fields]) =>
           fields.map((field) => ownerPath(owner, field)),
         );

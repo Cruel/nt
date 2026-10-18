@@ -100,6 +100,11 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
       .toBeUndefined();
     expect(working.snapshot()?.recordSnapshots?.[`rooms/${survivingId}`]?.source)
       .toMatchObject({ id: survivingId });
+    const discarded = await working.useDiskUnit(`record:rooms:${survivingId}`);
+    expect(discarded).toMatchObject({ accepted: true });
+    expect(working.snapshot()?.recordSnapshots?.[`rooms/${survivingId}`]).toBeUndefined();
+    expect((await working.reopenAndReplay('native-reconcile-test')).recordSnapshots?.[`rooms/${survivingId}`])
+      .toBeUndefined();
     await expect(readFile(path.join(root, `records/rooms/${abandonedId}.yaml`))).rejects.toThrow();
 
     const colliding = { ...candidate, id: 'taken-externally' };
