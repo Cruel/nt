@@ -34,7 +34,13 @@ interface NativeBinding {
   patch(handle: unknown, revision: number, operations: string, preconditions?: string): string;
   save(handle: unknown, revision: string): string;
   prepareWorking(handle: unknown, revision: number, testId: string): string;
-  stageTextSource(handle: unknown, revision: number, path: string, text: string): string;
+  stageTextSource(
+    handle: unknown,
+    revision: number,
+    path: string,
+    text: string,
+    diskPrecondition?: string,
+  ): string;
 }
 
 interface WorkerStartup {
@@ -154,7 +160,13 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
             JSON.parse(
-              binding.stageTextSource(handle, command.expectedRevision, command.path, command.text),
+              binding.stageTextSource(
+                handle,
+                command.expectedRevision,
+                command.path,
+                command.text,
+                ...(command.diskPrecondition !== undefined ? [command.diskPrecondition] : []),
+              ),
             ),
           ),
         };

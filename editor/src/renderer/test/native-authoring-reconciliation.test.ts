@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -51,6 +51,125 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('replays acknowledged unsaved RML text with exact disk preconditions and rejects changed sources', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-text-replay-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    );
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('text-replay');
+    const source = 'records/layouts/notice-board/layout.rml';
+    const physical = path.join(root, source);
+    const original = await readFile(physical, 'utf8');
+    const dirty = `${original}\n<!-- Native unsaved RML -->\n`;
+    expect(await working.stageTextSource('scripts/not-admitted.lua', 'return true')).toMatchObject({
+      accepted: false,
+      error: expect.stringContaining('admitted canonical'),
+    });
+    expect(working.snapshot()).not.toBeNull();
+    expect(
+      (
+        await working.applyAction(
+          [{ op: 'replace', path: '/project/name', value: 'Unsaved alongside RML' }],
+          [{ op: 'replace', path: '/project/name', value: 'Feature Lab' }],
+        )
+      ).accepted,
+    ).toBe(true);
+    expect(await working.stageTextSource(source, dirty)).toMatchObject({
+      accepted: true,
+      textSourceStaged: true,
+    });
+    expect(await readFile(physical, 'utf8')).toBe(original);
+    bridge.close();
+    const replayed = await working.reopenAndReplay('text-replay');
+    expect(replayed.source).toMatchObject({ project: { name: 'Unsaved alongside RML' } });
+    const restored = await working.prepareWorking();
+    expect(restored.accepted).toBe(true);
+    expect(restored.textOverlays[source]).toBe(dirty);
+
+    expect(await working.stageTextSource(source, original)).toMatchObject({
+      accepted: true,
+      textSourceStaged: false,
+    });
+    bridge.close();
+    await working.reopenAndReplay('text-replay');
+    expect((await working.prepareWorking()).textOverlays[source]).toBeUndefined();
+
+    expect((await working.stageTextSource(source, dirty)).accepted).toBe(true);
+    await writeFile(physical, `${original}\n<!-- External change -->\n`);
+    bridge.close();
+    await expect(working.reopenAndReplay('text-replay')).rejects.toThrow(
+      `Native Project text-source recovery conflict for ${source}`,
+    );
+    expect(working.snapshot()).toBeNull();
+    expect(await readFile(physical, 'utf8')).toContain('External change');
+  }, 120_000);
+
+  it('routes collection and export-profile Save units without committing unrelated owners', async () => {
+    const { root, bridge, working, roomPath } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const variablePath = path.join(root, 'records/variables/board-ticket.yaml');
+    const projectPath = path.join(root, 'project.yaml');
+    const originalRoom = await readFile(roomPath, 'utf8');
+    const originalProject = await readFile(projectPath, 'utf8');
+    const originalVariable = await readFile(variablePath, 'utf8');
+    const changes = await working.applyAction(
+      [
+        { op: 'replace', path: '/variables/board-ticket/label', value: 'Collection edit' },
+        { op: 'replace', path: labelPath, value: 'Unrelated dirty Room' },
+        { op: 'replace', path: '/export/runtime/label', value: 'Native Runtime Package' },
+      ],
+      [],
+    );
+    expect(changes.accepted).toBe(true);
+    expect(await working.saveUnit('collection:variables')).toMatchObject({ accepted: true });
+    expect(await readFile(variablePath, 'utf8')).toContain('Collection edit');
+    expect(await readFile(roomPath, 'utf8')).toBe(originalRoom);
+    expect(await readFile(projectPath, 'utf8')).toBe(originalProject);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(true);
+    expect(await working.saveUnit('project:platform-export-profiles')).toMatchObject({
+      accepted: true,
+    });
+    expect(await readFile(projectPath, 'utf8')).toContain('Native Runtime Package');
+    expect(await readFile(variablePath, 'utf8')).not.toBe(originalVariable);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(true);
+  }, 45_000);
+
+  it('routes localization Save to its physical source owners without saving a dirty Room', async () => {
+    const { root, bridge, working, roomPath } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const messagesPath = path.join(root, 'i18n/messages.yaml');
+    const originalRoom = await readFile(roomPath, 'utf8');
+    const edited = await working.applyAction(
+      [
+        {
+          op: 'replace',
+          path: '/localization/messages/25700000-0000-4000-8000-000000000002/source',
+          value: 'Read a different letter',
+        },
+        { op: 'replace', path: labelPath, value: 'Unrelated Room change' },
+      ],
+      [],
+    );
+    expect(edited.accepted).toBe(true);
+    expect(await working.saveUnit('project:localization')).toMatchObject({ accepted: true });
+    expect(await readFile(messagesPath, 'utf8')).toContain('Read a different letter');
+    expect(await readFile(roomPath, 'utf8')).toBe(originalRoom);
+    expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(true);
+  }, 45_000);
+
   it('saves Traits, Tags, and one record metadata unit without publishing unrelated dirty owners', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {

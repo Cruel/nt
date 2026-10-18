@@ -432,6 +432,33 @@ eviction/restart re-admission, watcher recovery, and legacy-cache rejection;
 the editor worker test exercises the
 typed response including source-aware diagnostics.
 
+## Editor migration adapter certification (#504, in progress)
+
+`NativeAuthoringWorkingProject` maps logical editor Save units to native
+physical owners instead of treating a collection or Localization tab as one
+manifest file. In addition to individual records and Project Settings, it
+selects dirty record owners in Assets, Materials, Tests, Variables and Traits
+collections, their tracked editor metadata, changed Localization `i18n/`
+fragments, runtime export profiles and Project Explorer metadata. The selected
+owners are saved with the existing native revision-checked transaction;
+unrelated dirty owners remain in the native working session. Source-file Save
+and other production coordination paths are not yet admitted by this adapter.
+
+Unsaved Lua/RML/RCSS buffers staged in the native working session retain their
+exact admitted disk-source revisions in the main-owned replay journal. On
+worker restart, the authorized same-Project session verifies each text
+source's original disk revision before restaging its last acknowledged
+overlay. Returning to the saved bytes removes the overlay. A changed or
+missing source rejects replay and closes the new worker rather than losing
+unsaved text or overwriting the external edit. This is memory-only recovery,
+not durable recovery after Electron main-process termination.
+
+These additions are certified through the real addon and worker, **not** an
+independent production editor authority. The current renderer Command Store,
+Save coordinator, source watcher, validation, and runtime preparation still
+use the existing TypeScript Project model until one coordinated production
+handoff can guarantee the complete editor corpus and recovery behavior.
+
 ## Native CLI compatibility and physical Asset transactions (#501)
 
 The certification-only native CLI command boundary supports atomic Project

@@ -181,6 +181,10 @@ public:
     {
         return text_source_overlays_;
     }
+    const std::map<std::string, std::string>& text_source_disk_revisions() const
+    {
+        return text_disk_revisions_;
+    }
     struct WorkingPreparation {
         bool accepted = false;
         std::string error;
