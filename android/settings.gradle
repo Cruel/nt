@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "NovelTea"
 include(":app")
+include(":benchmark")

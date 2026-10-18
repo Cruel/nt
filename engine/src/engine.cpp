@@ -1836,6 +1836,11 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
 #if defined(_WIN32)
     std::fprintf(stderr, "[engine] resolving native window handles\n");
 #endif
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // Asset setup can span an Activity pause/surface replacement. Recheck
+    // after SDL_CreateWindow and before obtaining the window for EGL.
+    sdl_platform::wait_for_android_player_graphics();
+#endif
     const NativeWindowHandles handles = m_platform.native_window_handles();
 #if defined(_WIN32)
     std::fprintf(stderr, "[engine] native window handle resolution returned\n");
@@ -2031,6 +2036,8 @@ bool Engine::Impl::tick()
 {
     if (!m_running)
         return false;
+    if (m_benchmark_frame_timing_enabled)
+        m_benchmark_frame_timing.reset();
 
     if (m_job_shutdown_started) {
         handle_events();
@@ -2041,16 +2048,49 @@ bool Engine::Impl::tick()
         return true;
     }
 
+    // A throttled/early-return tick must never expose the prior frame's stages.
     if (throttle_frame_start()) {
         return true;
     }
 
-    // Opt-in owner-thread frame timings. No clock reads on the ordinary release path.
-    const bool measure_perf = m_render_perf_logging;
+    // Opt-in owner-thread frame timings; neither mode adds clocks to Clean ticks.
+    const bool measure_perf = m_render_perf_logging || m_benchmark_frame_timing_enabled;
     std::array<uint64_t, 7> perf_checkpoints{};
     if (measure_perf)
         perf_checkpoints[0] = SDL_GetPerformanceCounter();
     handle_events();
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // The UI thread may destroy the Android surface when the device sleeps.
+    // Do not submit bgfx work against the old EGL surface. Keep the same
+    // Engine, game session, assets and UI state alive across the suspension.
+    if (!sdl_platform::android_player_graphics_ready()) {
+        m_android_surface_suspended = true;
+        if (m_game_host.suspend_host())
+            m_audio.pause();
+        SDL_Delay(50);
+        return true;
+    }
+    const auto android_window = m_platform.native_window_handles().window;
+    if (!android_window) {
+        m_android_surface_suspended = true;
+        SDL_Delay(50);
+        return true;
+    }
+    if (m_android_surface_suspended || !m_renderer.matches_android_surface(android_window)) {
+        if (!m_renderer.rebind_android_surface(android_window)) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "[player] Android EGL surface rebind failed");
+            m_android_surface_suspended = true;
+            SDL_Delay(50);
+            return true;
+        }
+        m_android_surface_suspended = false;
+        m_platform.refresh_surface_metrics();
+        resize(m_platform.surface());
+        if (m_game_host.resume_host())
+            m_audio.resume();
+    }
+#endif
     if (measure_perf)
         perf_checkpoints[1] = SDL_GetPerformanceCounter();
     const auto asset_urgency = m_asset_progress.urgency_on_owner();
@@ -2084,7 +2124,28 @@ bool Engine::Impl::tick()
     render();
     if (measure_perf) {
         perf_checkpoints[6] = SDL_GetPerformanceCounter();
-        record_frame_perf_sample(perf_checkpoints);
+        if (m_render_perf_logging)
+            record_frame_perf_sample(perf_checkpoints);
+        if (m_benchmark_frame_timing_enabled) {
+            const auto frequency = SDL_GetPerformanceFrequency();
+            if (frequency != 0) {
+                const double factor = 1.0 / static_cast<double>(frequency);
+                const auto elapsed = [&](std::size_t index) {
+                    return static_cast<double>(perf_checkpoints[index + 1] -
+                                               perf_checkpoints[index]) *
+                           factor;
+                };
+                m_benchmark_frame_timing = EngineBenchmarkFrameTiming{
+                    .events_seconds = elapsed(0),
+                    .jobs_seconds = elapsed(1),
+                    .assets_seconds = elapsed(2),
+                    .update_seconds =
+                        static_cast<double>(perf_checkpoints[5] - perf_checkpoints[1]) * factor,
+                    .runtime_seconds = elapsed(3),
+                    .layout_seconds = elapsed(4),
+                    .render_seconds = elapsed(5)};
+            }
+        }
     }
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (m_editor_asset_profiler != nullptr)
@@ -2660,6 +2721,17 @@ void Engine::Impl::handle_events()
     m_platform.poll_events();
 
     for (const SDL_Event& event : sdl_platform::events(m_platform)) {
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+        // Android may deliver pause and resume (or a surface resize) in the
+        // same SDL event batch, so capture the invalidation even if the
+        // Activity is focused again by the time tick() checks readiness.
+        if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+            event.type == SDL_EVENT_WINDOW_MINIMIZED || event.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
+            event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
+            event.type == SDL_EVENT_WINDOW_RESIZED) {
+            m_android_surface_suspended = true;
+        }
+#endif
         const auto layout_input = m_game_host.runtime_layouts().evaluate_input_policy();
         const auto normalized = host::normalize_host_event(event, m_platform.surface());
         auto routed = m_input_router.route(
@@ -2730,6 +2802,12 @@ void Engine::Impl::handle_events()
                         if (m_game_host.resume_host())
                             m_audio.resume();
                     } else if constexpr (std::is_same_v<T, host::RefreshHostSurfaceAction>) {
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+                        // A stale EGL surface must be rebound before any bgfx
+                        // resize, including a resize delivered during pause.
+                        if (m_android_surface_suspended)
+                            return;
+#endif
                         m_platform.refresh_surface_metrics();
                         resize(m_platform.surface());
                     }
@@ -3952,6 +4030,11 @@ void Engine::shutdown()
 
 void Engine::request_stop() { m_impl->request_stop(); }
 
+bool EngineTooling::host_quit_requested(const Engine& engine) noexcept
+{
+    return engine.m_impl->m_platform.should_quit();
+}
+
 bool EngineTooling::request_screenshot(Engine& engine, std::string path,
                                        ToolingScreenshotOptions options)
 {
@@ -4211,6 +4294,78 @@ void EngineTooling::record_debugger_console(Engine& engine, std::string message,
                                              engine.m_impl->m_frame_count);
 }
 #endif
+
+void EngineTooling::set_engine_benchmark_timing(Engine& engine, bool enabled)
+{
+    engine.m_impl->m_benchmark_frame_timing_enabled = enabled;
+    engine.m_impl->m_benchmark_frame_timing.reset();
+}
+
+std::optional<EngineBenchmarkFrameTiming>
+EngineTooling::engine_benchmark_frame_timing(const Engine& engine)
+{
+    return engine.m_impl->m_benchmark_frame_timing;
+}
+
+void EngineTooling::set_ui_benchmark_timing(Engine& engine, bool enabled)
+{
+    ui::rmlui::RuntimeUiFacadeAccess::set_benchmark_timing(engine.m_impl->m_runtime_ui, enabled);
+}
+
+std::optional<std::pair<double, double>>
+EngineTooling::ui_benchmark_frame_timing(const Engine& engine)
+{
+    return ui::rmlui::RuntimeUiFacadeAccess::benchmark_frame_timing(engine.m_impl->m_runtime_ui);
+}
+
+bool EngineTooling::load_ui_fixture_context(Engine& engine, std::string id, std::string markup,
+                                            uint32_t group, bool visible, bool empty)
+{
+    if (!engine.m_impl->m_initialized || !engine.m_impl->m_runtime_ui.is_initialized() ||
+        group == 0 || group > 24)
+        return false;
+    const core::MountedLayoutPolicy policy{
+        .plane = core::PresentationPlane::GameUi,
+        .clock = core::LayoutClockDomain::Gameplay,
+        .input = core::LayoutInputMode::None,
+        .gameplay_pause = core::GameplayPausePolicy::Continue,
+        .visibility = visible ? core::LayoutVisibility::Visible : core::LayoutVisibility::Hidden,
+        .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+        .entrance_operation = std::nullopt,
+        .exit_operation = std::nullopt,
+    };
+    auto& ui = engine.m_impl->m_runtime_ui;
+    if (!ui.load_document_from_memory_for_layout(id, markup, "benchmark://" + id + ".rml",
+                                                 visible && !empty, policy, group))
+        return false;
+    return !empty || ui.unload_document(id);
+}
+
+bool EngineTooling::runtime_ui_document_ready(const Engine& engine, std::string_view id)
+{
+    return engine.m_impl->m_initialized && engine.m_impl->m_runtime_ui.is_initialized() &&
+           engine.m_impl->m_runtime_ui.has_document(std::string(id));
+}
+
+std::optional<UiRenderConfiguration>
+EngineTooling::runtime_ui_render_configuration(const Engine& engine)
+{
+    if (!engine.m_impl->m_initialized)
+        return std::nullopt;
+    return ui::rmlui::RuntimeUiFacadeAccess::game_ui_render_configuration(
+        engine.m_impl->m_runtime_ui);
+}
+
+void EngineTooling::set_ui_effect_observation(Engine& engine, bool enabled)
+{
+    ui::rmlui::RuntimeUiFacadeAccess::set_game_ui_effect_observation(engine.m_impl->m_runtime_ui,
+                                                                     enabled);
+}
+
+std::optional<UiEffectActivity> EngineTooling::ui_effect_activity(const Engine& engine)
+{
+    return ui::rmlui::RuntimeUiFacadeAccess::game_ui_effect_activity(engine.m_impl->m_runtime_ui);
+}
 
 Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_impl->m_renderer; }
 

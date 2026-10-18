@@ -110,6 +110,7 @@ option(NOVELTEA_BUILD_EDITOR_PREVIEW "Build the Web-only editor preview applicat
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
 option(NOVELTEA_BUILD_HOST_TOOLS "Build native editor and host-tool targets" ON)
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
+option(NOVELTEA_BUILD_BENCHMARK_APP "Build the standalone SDL3/bgfx graphics benchmark (Linux/Android/Web)" OFF)
 option(NOVELTEA_FETCH_BGFX "Fetch/build the pinned bgfx/bx/bimg source bundle via FetchContent" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build the pinned patched RmlUi source via FetchContent" ON)
 option(NOVELTEA_FETCH_RMLUI_BGFX "Fetch rmlui-bgfx via FetchContent when it is not installed" ON)
@@ -370,6 +371,19 @@ if(NOVELTEA_FETCH_BGFX)
     endif()
 
     FetchContent_MakeAvailable(bgfx.cmake)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+        # Apply on every configure as well as first fetch: an existing Gradle
+        # .cxx source cache may predate this Android-only EGL lifecycle fix.
+        FetchContent_GetProperties(bgfx.cmake SOURCE_DIR NOVELTEA_BGFX_ANDROID_SOURCE_DIR)
+        execute_process(
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/patch-bgfx-android-surface-rebind.cmake
+            WORKING_DIRECTORY "${NOVELTEA_BGFX_ANDROID_SOURCE_DIR}"
+            RESULT_VARIABLE NOVELTEA_BGFX_ANDROID_PATCH_RESULT
+        )
+        if(NOT NOVELTEA_BGFX_ANDROID_PATCH_RESULT EQUAL 0)
+            message(FATAL_ERROR "Cannot apply pinned bgfx Android surface lifecycle fix")
+        endif()
+    endif()
     if(NOT EMSCRIPTEN)
         target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MAX_VIEWS=512)
     endif()
@@ -545,6 +559,10 @@ if(NOVELTEA_BUILD_HOST_TOOLS AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQU
     if(NOVELTEA_BUILD_BENCHMARKS)
         add_subdirectory(tools/benchmark)
     endif()
+endif()
+
+if(NOVELTEA_BUILD_BENCHMARK_APP)
+    add_subdirectory(apps/benchmark)
 endif()
 
 if(NOVELTEA_BUILD_SANDBOX)

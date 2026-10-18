@@ -2,6 +2,7 @@ package org.noveltea.player;
 
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -12,6 +13,15 @@ import org.libsdl.app.SDLActivity;
 
 /** Stable Android entrypoint for immutable NovelTea player templates. */
 public class MainActivity extends SDLActivity {
+    /** SDL's native thread may start even after Android pauses the Activity.
+     * Do not initialize or present to EGL while the screen is asleep or the
+     * player is not the foreground window. */
+    public boolean isPlayerGraphicsReady() {
+        PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+        return power != null && power.isInteractive() && hasWindowFocus()
+                && !isFinishing() && !isDestroyed();
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);

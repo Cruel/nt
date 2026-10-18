@@ -5,6 +5,7 @@
 #include "ui/rmlui/rmlui_system_interface_sdl3.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <string>
 
@@ -179,6 +180,8 @@ RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentati
 
 void RmlUiHost::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
+    m_benchmark_update_seconds = 0.0;
+    m_benchmark_render_seconds = 0.0;
     m_rendered_contexts.clear();
     m_contexts_submitted_this_frame = 0;
     m_clocks = clocks;
@@ -188,6 +191,8 @@ void RmlUiHost::begin_frame(const core::RuntimeClockUpdate& clocks)
 
 void RmlUiHost::update_contexts()
 {
+    const auto start = m_benchmark_timing ? std::chrono::steady_clock::now()
+                                          : std::chrono::steady_clock::time_point{};
     for (auto& record : m_contexts) {
         set_context_clock(record.key);
         Rml::Context* previous_cursor_context = m_active_cursor_context;
@@ -195,6 +200,9 @@ void RmlUiHost::update_contexts()
         record.context->Update();
         m_active_cursor_context = previous_cursor_context;
     }
+    if (m_benchmark_timing)
+        m_benchmark_update_seconds +=
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
 void RmlUiHost::set_final_output_framebuffer(std::uint16_t framebuffer)
@@ -287,7 +295,12 @@ void RmlUiHost::render_context(ContextRecord& record)
     }
     if (m_context_render_observer)
         m_context_render_observer(record.key, record.metrics);
+    const auto render_start = m_benchmark_timing ? std::chrono::steady_clock::now()
+                                                 : std::chrono::steady_clock::time_point{};
     record.context->Render();
+    if (m_benchmark_timing)
+        m_benchmark_render_seconds +=
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - render_start).count();
     if (renderer != m_plane_renderers.end() && renderer->bgfx)
         renderer->bgfx->end_frame();
     m_rendered_contexts.insert(record.context);

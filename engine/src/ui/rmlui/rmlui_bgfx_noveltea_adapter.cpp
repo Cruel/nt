@@ -278,6 +278,8 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                                             rmlui_bgfx::Diagnostics,
                                             rmlui_bgfx::PerfLogger,
                                             rmlui_bgfx::MaterialShaderProvider {
+    bool capture_effect_errors = false;
+    uint32_t effect_errors = 0;
     explicit Adapter(const PresentationMetrics& presentation, const ResolvedContextMetrics& context,
                      const assets::AssetManager& asset_manager,
                      const ShaderMaterialProject* shader_material_project)
@@ -343,6 +345,8 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 
     void error(std::string_view message) override
     {
+        if (capture_effect_errors)
+            ++effect_errors;
         std::fprintf(stderr, "[rmlui] %.*s\n", int(message.size()), message.data());
     }
 
@@ -834,6 +838,12 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
     config.render_path = render_path_from_env();
     config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
     config.preserve_backbuffer = true;
+    m_render_configuration.reference_msaa_samples = config.reference_msaa_samples;
+    m_render_configuration.preserve_backbuffer = config.preserve_backbuffer;
+    m_render_configuration.optimized_render_path =
+        config.render_path == rmlui_bgfx::RenderPath::Optimized;
+    m_render_configuration.viewport_width = m_viewport.width;
+    m_render_configuration.viewport_height = m_viewport.height;
     config.route_transient_geometry_to_active_renderer =
         m_surface == RmlUiRenderSurface::HostSurface;
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
@@ -864,6 +874,8 @@ void BgfxRenderInterface::configure_context(const PresentationMetrics& presentat
     if (!m_core || !surface)
         return;
     m_context_metrics = context;
+    m_render_configuration.viewport_width = m_viewport.width;
+    m_render_configuration.viewport_height = m_viewport.height;
     m_adapter->set_presentation(presentation, context);
     m_core->resize(*surface, m_viewport);
 }
@@ -899,11 +911,14 @@ void BgfxRenderInterface::set_perf_logging_enabled(bool enabled)
 }
 void BgfxRenderInterface::set_base_direct_compatibility(bool enabled)
 {
+    m_render_configuration.base_direct_compatibility_requested = enabled;
     m_core->set_base_direct_compatibility(enabled);
 }
 
 void BgfxRenderInterface::set_raster_snapping(bool geometry_enabled, bool text_enabled)
 {
+    m_render_configuration.geometry_raster_snapping = geometry_enabled;
+    m_render_configuration.text_raster_snapping = text_enabled;
     m_geometry_raster_snapping = geometry_enabled;
     m_text_raster_snapping = text_enabled;
 }
@@ -924,6 +939,7 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
                                                  const PresentationMetrics& presentation,
                                                  bool local_viewport)
 {
+    m_render_configuration.output_framebuffer_bound = bgfx::isValid(framebuffer);
     m_core->set_output_framebuffer(framebuffer);
     m_viewport =
         local_viewport ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,
@@ -987,13 +1003,42 @@ void BgfxRenderInterface::ReleaseTexture(Rml::TextureHandle texture)
     m_core->ReleaseTexture(texture);
 }
 
-void BgfxRenderInterface::EnableScissorRegion(bool enable) { m_core->EnableScissorRegion(enable); }
+void BgfxRenderInterface::set_effect_observation(bool enabled)
+{
+    m_capture_effects = enabled;
+    if (enabled) {
+        // Keep error capture active after the preparation-only callback probe
+        // is disabled. Measurement failures must remain observable.
+        m_adapter->capture_effect_errors = true;
+        m_effect_activity = {};
+        m_effect_layer_depth = 0;
+        m_effect_gradient_shaders.clear();
+        m_effect_shadow_filters.clear();
+        m_adapter->effect_errors = 0;
+    }
+}
+
+UiEffectActivity BgfxRenderInterface::effect_activity() const
+{
+    UiEffectActivity activity = m_effect_activity;
+    activity.backend_errors = m_adapter->effect_errors;
+    return activity;
+}
+
+void BgfxRenderInterface::EnableScissorRegion(bool enable)
+{
+    if (m_capture_effects && enable)
+        ++m_effect_activity.clipping_calls;
+    m_core->EnableScissorRegion(enable);
+}
 void BgfxRenderInterface::SetScissorRegion(Rml::Rectanglei region)
 {
     m_core->SetScissorRegion(region);
 }
 void BgfxRenderInterface::SetTransform(const Rml::Matrix4f* transform)
 {
+    if (m_capture_effects && transform)
+        ++m_effect_activity.transforms;
     m_core->SetTransform(transform);
 }
 
@@ -1006,49 +1051,86 @@ void BgfxRenderInterface::RenderToClipMask(Rml::ClipMaskOperation operation,
         m_geometry_raster_snapping
             ? snap_rmlui_submission_translation(translation, m_context_metrics)
             : translation;
+    if (m_capture_effects)
+        ++m_effect_activity.clipping_calls;
     m_core->RenderToClipMask(operation, geometry, submitted_translation);
 }
 
-Rml::LayerHandle BgfxRenderInterface::PushLayer() { return m_core->PushLayer(); }
+Rml::LayerHandle BgfxRenderInterface::PushLayer()
+{
+    if (m_capture_effects) {
+        ++m_effect_activity.layer_pushes;
+        ++m_effect_layer_depth;
+        m_effect_activity.max_layer_depth =
+            std::max(m_effect_activity.max_layer_depth, m_effect_layer_depth);
+    }
+    return m_core->PushLayer();
+}
 
 void BgfxRenderInterface::CompositeLayers(Rml::LayerHandle source, Rml::LayerHandle destination,
                                           Rml::BlendMode blend_mode,
                                           Rml::Span<const Rml::CompiledFilterHandle> filters)
 {
+    if (m_capture_effects) {
+        for (const auto filter : filters) {
+            if (m_effect_shadow_filters.contains(filter)) {
+                ++m_effect_activity.filtered_composites;
+                break;
+            }
+        }
+    }
     m_core->CompositeLayers(source, destination, blend_mode, filters);
 }
 
-void BgfxRenderInterface::PopLayer() { m_core->PopLayer(); }
+void BgfxRenderInterface::PopLayer()
+{
+    if (m_capture_effects && m_effect_layer_depth)
+        --m_effect_layer_depth;
+    m_core->PopLayer();
+}
 Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
 {
     return m_core->SaveLayerAsTexture();
 }
 Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
 {
-    return m_core->SaveLayerAsMaskImage();
+    const auto handle = m_core->SaveLayerAsMaskImage();
+    if (m_capture_effects && handle != 0)
+        ++m_effect_activity.mask_saves;
+    return handle;
 }
 Rml::CompiledFilterHandle BgfxRenderInterface::CompileFilter(const Rml::String& name,
                                                              const Rml::Dictionary& parameters)
 {
-    return m_core->CompileFilter(name, parameters);
+    const auto handle = m_core->CompileFilter(name, parameters);
+    if (m_capture_effects && handle != 0 && name == "drop-shadow")
+        m_effect_shadow_filters.insert(handle);
+    return handle;
 }
 void BgfxRenderInterface::ReleaseFilter(Rml::CompiledFilterHandle filter)
 {
+    m_effect_shadow_filters.erase(filter);
     m_core->ReleaseFilter(filter);
 }
 Rml::CompiledShaderHandle BgfxRenderInterface::CompileShader(const Rml::String& name,
                                                              const Rml::Dictionary& parameters)
 {
-    return m_core->CompileShader(name, parameters);
+    const auto handle = m_core->CompileShader(name, parameters);
+    if (m_capture_effects && name == "linear-gradient")
+        m_effect_gradient_shaders.insert(handle);
+    return handle;
 }
 void BgfxRenderInterface::RenderShader(Rml::CompiledShaderHandle shader,
                                        Rml::CompiledGeometryHandle geometry,
                                        Rml::Vector2f translation, Rml::TextureHandle texture)
 {
+    if (m_capture_effects && m_effect_gradient_shaders.contains(shader))
+        ++m_effect_activity.gradient_draws;
     m_core->RenderShader(shader, geometry, submission_translation(translation, texture), texture);
 }
 void BgfxRenderInterface::ReleaseShader(Rml::CompiledShaderHandle shader)
 {
+    m_effect_gradient_shaders.erase(shader);
     m_core->ReleaseShader(shader);
 }
 
