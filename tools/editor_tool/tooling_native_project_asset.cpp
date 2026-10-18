@@ -431,15 +431,93 @@ Json native_project_asset_audit(const fs::path& root)
     try {
         // Required domains: manifest identity, Asset records, and the Asset
         // filesystem. A broken Room/Map/Scene cannot block this operation.
+        // Mirror the public CLI's scoped-read-only admission: a pending YAML
+        // transaction makes even an Asset-only inventory non-authoritative.
+        const auto transactions = root / ".noveltea/transactions";
+        const auto status = fs::symlink_status(transactions);
+        bool unsettled =
+            status.type() != fs::file_type::not_found && status.type() != fs::file_type::directory;
+        if (!unsettled && status.type() == fs::file_type::directory) {
+            for (const auto& entry : fs::directory_iterator(transactions))
+                if (entry.path().filename() != ".writer-lock") {
+                    unsettled = true;
+                    break;
+                }
+        }
+        const auto import_lock = root / ".noveltea/asset-import.lock";
+        const auto import_staging = root / ".noveltea/asset-import-staging";
+        unsettled = unsettled || fs::exists(import_lock) ||
+                    (fs::exists(import_staging) &&
+                     (!fs::is_directory(import_staging) || !fs::is_empty(import_staging)));
+        if (unsettled) {
+            auto result =
+                failure("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT", "/.noveltea/transactions",
+                        "The workspace has a pending transaction that requires recovery "
+                        "before a read-only dry run.");
+            result["exitCode"] = 5;
+            return result;
+        }
         const auto manifest_source =
             noveltea::authoring::open_yaml_source(bytes_at(root / "project.yaml"));
         if (!manifest_source.accepted)
             return failure("WORKSPACE_SOURCE_READ", "/project.yaml", manifest_source.error);
         const auto manifest = Json::parse(manifest_source.source_json);
-        if (!manifest.is_object() || !manifest.contains("project") ||
-            !manifest.at("project").is_object() || !manifest.at("project").contains("id") ||
-            !manifest.at("project").at("id").is_string())
-            return failure("WORKSPACE_SCHEMA_INVALID", "/project", "Invalid Project identity.");
+        if (!manifest.is_object())
+            return failure("WORKSPACE_MANIFEST_INVALID", "/project.yaml",
+                           "project.yaml must be an object.");
+        // The schema discriminator and version are enforced before the scoped
+        // shape or Asset domain, as in prepareCliProject(). Do not validate
+        // unrelated gameplay record families here.
+        if (manifest.value("schema", Json()) != "noveltea.project.workspace")
+            return failure("WORKSPACE_MANIFEST_INVALID", "/schema",
+                           "project.yaml must use schema 'noveltea.project.workspace'.");
+        if (manifest.value("schemaVersion", Json()) != 1) {
+            auto result = failure("WORKSPACE_VERSION_UNSUPPORTED", "/schemaVersion",
+                                  "Workspace version is unsupported; expected 1.");
+            result["exitCode"] = 3;
+            return result;
+        }
+        static const std::set<std::string> manifest_keys{"schema",
+                                                         "schemaVersion",
+                                                         "project",
+                                                         "settings",
+                                                         "export",
+                                                         "bootstrapModule",
+                                                         "undefinedInteractionProgram",
+                                                         "entrypoint",
+                                                         "inventories",
+                                                         "interactableInstances"};
+        for (const auto& [key, value] : manifest.items())
+            if (!manifest_keys.contains(key))
+                return failure("WORKSPACE_MANIFEST_INVALID", "/project.yaml",
+                               "project.yaml has an unsupported workspace-v1 shape.");
+        for (const auto* key : {"schema", "schemaVersion", "project", "settings", "export",
+                                "bootstrapModule", "inventories", "interactableInstances"})
+            if (!manifest.contains(key))
+                return failure("WORKSPACE_MANIFEST_INVALID", "/project.yaml",
+                               "project.yaml has an unsupported workspace-v1 shape.");
+        const auto identity_failure = [](std::string path, std::string message) {
+            auto result = failure("WORKSPACE_SOURCE_READ", std::move(path), std::move(message));
+            result["exitCode"] = 3;
+            return result;
+        };
+        const auto& identity = manifest.at("project");
+        if (!identity.is_object())
+            return identity_failure("/project", "Invalid Project identity.");
+        for (const auto& [key, value] : identity.items()) {
+            if (key != "id" && key != "name" && key != "version" && key != "author" &&
+                key != "description")
+                return identity_failure("/project/" + key, "Unrecognized Project identity field.");
+            if (!value.is_string())
+                return identity_failure("/project/" + key,
+                                        "Project identity field must be a string.");
+        }
+        if (!identity.contains("id") || !identity.at("id").is_string() ||
+            !std::regex_match(identity.at("id").get<std::string>(),
+                              std::regex(R"(^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$)")))
+            return identity_failure("/project/id", "Invalid Project ID.");
+        if (!identity.contains("name") || !identity.at("name").is_string())
+            return identity_failure("/project/name", "Invalid Project display name.");
         const auto records = root / "records/assets";
         std::set<std::string> tracked;
         if (fs::exists(records)) {

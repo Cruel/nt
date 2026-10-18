@@ -1366,8 +1366,16 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
                 imported->validation_work().retained_records > 0,
             "Imported substantive Room edits recheck only the changed record");
     const auto repeated = project->validate_clean_project();
-    require(has_width_error(repeated.snapshot),
-            "A clean inspected owner cannot replace the newer invalid disk revision");
+    require(has_width_error(repeated.snapshot) &&
+                project->validation_work().rechecked_records == 0 &&
+                project->validation_work().rechecked_contributions == 0,
+            "An unchanged stale clean inspected owner must retain invalid disk diagnostics and "
+            "reuse all validated contributions");
+    const auto unchanged_again = project->validate_clean_project();
+    require(has_width_error(unchanged_again.snapshot) &&
+                project->validation_work().rechecked_records == 0 &&
+                project->validation_work().rechecked_contributions == 0,
+            "Repeated unchanged validation must not invalidate stale clean inspected owners");
     auto other_host = ProjectSession::open(temp.root, error);
     require(other_host != nullptr, "Another host can open the invalid-record Project");
     const auto shared = other_host->validate_clean_project();

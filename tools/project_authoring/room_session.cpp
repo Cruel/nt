@@ -1371,10 +1371,15 @@ RoomSessionSnapshot ProjectSession::validate_project()
             saved == validation_source_revisions_.end() ||
             revision != validation_pending_source_revisions_.end() ||
             (!observation.authoritative && !observation.scoped_authority);
-        const bool working_changed = working != records_.end() &&
-                                     (!validation_records_.contains(owner) ||
-                                      working->second->snapshot().source_json !=
-                                          validation_records_.at(owner)->snapshot().source_json);
+        // A clean editor owner whose physical baseline was superseded must
+        // not keep invalidating an already validated disk contributor. Dirty
+        // owners still participate, so disk/working conflicts remain visible.
+        const bool working_changed =
+            working != records_.end() &&
+            (inspected_matches_disk || working->second->snapshot().dirty) &&
+            (!validation_records_.contains(owner) ||
+             working->second->snapshot().source_json !=
+                 validation_records_.at(owner)->snapshot().source_json);
         if (!physically_changed && !working_changed) {
             ++validation_work_.retained_records;
             continue;
