@@ -188,7 +188,12 @@ actually uses the replacement window handle during reset. ADB launch while
 locked should wait safely until foreground rather than initializing a stale
 EGL window. Exercise initial lock-screen launch, Home/return, lock/unlock and
 repeat surface recreation on a physical device; Android compilation alone does
-not verify EGL lifecycle behavior.
+not verify EGL lifecycle behavior. Before launching the player on either
+emulator API, CI marks Android's one-time immersive-mode confirmation as
+acknowledged. On API 35 that system overlay can otherwise steal Activity focus
+indefinitely during an unattended smoke test. If startup fails, CI captures
+Android window focus, power state, resumed Activity, and player logs without
+relaxing the runtime graphics lifecycle gate.
 
 For repository-local Android development, `scripts/run-android.sh` builds the native player with the
 checked-in `android/` Gradle project, packages and installs an immutable player template in an
