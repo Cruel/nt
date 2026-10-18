@@ -1539,8 +1539,11 @@ export function WorkspacePage() {
     }
   }
 
-  function undoProjectCommand() {
-    const result = undoCommand();
+  async function undoProjectCommand() {
+    const result =
+      useCommandStore.getState().nativeWorkingRevision === null
+        ? undoCommand()
+        : await useCommandStore.getState().undoAsync();
     addTimelineEntry({
       source: 'command',
       message: result.projectChanged
@@ -1550,8 +1553,11 @@ export function WorkspacePage() {
     });
   }
 
-  function redoProjectCommand() {
-    const result = redoCommand();
+  async function redoProjectCommand() {
+    const result =
+      useCommandStore.getState().nativeWorkingRevision === null
+        ? redoCommand()
+        : await useCommandStore.getState().redoAsync();
     addTimelineEntry({
       source: 'command',
       message: result.projectChanged
@@ -1610,11 +1616,11 @@ export function WorkspacePage() {
       if (isTextInput) return;
       if (event.key.toLowerCase() === 'z') {
         event.preventDefault();
-        if (event.shiftKey) redoProjectCommand();
-        else undoProjectCommand();
+        if (event.shiftKey) void redoProjectCommand();
+        else void undoProjectCommand();
       } else if (event.key.toLowerCase() === 'y') {
         event.preventDefault();
-        redoProjectCommand();
+        void redoProjectCommand();
       }
     }
     function onBottomPanelShortcutCapture(event: KeyboardEvent) {
@@ -1954,10 +1960,10 @@ export function WorkspacePage() {
           openWorkbenchTab(buildFullGamePreviewTab());
           break;
         case 'undo':
-          undoProjectCommand();
+          void undoProjectCommand();
           break;
         case 'redo':
-          redoProjectCommand();
+          void redoProjectCommand();
           break;
         case 'save':
           void saveActiveProjectUnit();
