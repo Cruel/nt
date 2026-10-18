@@ -12,6 +12,7 @@ import {
   nativeProjectPatchArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
   nativeProjectSaveTextArgumentsSchema,
+  nativeProjectReconcileArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
 } from '../../main/editor-ipc-trust-boundary';
 import { toJsonValue } from '../project/json-value';
@@ -76,9 +77,13 @@ function fixture() {
       'scripts/game.lua': 'sha256:' + 'a'.repeat(64),
     },
   }));
+  const reconcile = vi.fn(async () => ({
+    accepted: true, error: '', snapshot: { workingRevision: 1 },
+    affectedRecords: ['rooms/hall'],
+  }));
   const working = {
     open, prepareCompleteWorking, applyRevisionedPatches, snapshot,
-    saveUnits, stageTextSource, saveTextSources,
+    saveUnits, stageTextSource, saveTextSources, reconcile,
   };
   const controller = new NativeEditorSessionController(
     authority,
@@ -93,6 +98,7 @@ function fixture() {
     prepareCompleteWorking,
     applyRevisionedPatches,
     saveUnits,
+    reconcile,
     stageTextSource,
     saveTextSources,
     snapshot,
@@ -107,6 +113,24 @@ function fixture() {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('admits only canonical native reconciliation owners and checks session/revision', async () => {
+    const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
+    for (const owner of ['project', 'editor', 'traits', 'rooms/hall', 'i18n/en'])
+      expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(true);
+    for (const owner of ['../project', 'rooms/../bad', 'rooms/hall/file', 'scripts/a.lua', '/project'])
+      expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(false);
+    const test = fixture();
+    await expect(test.controller.reconcile('one', 0, 'rooms/hall')).rejects.toThrow('not admitted');
+    await test.controller.admit('one', test.saved);
+    await expect(test.controller.reconcile('one', 5, 'rooms/hall')).rejects.toThrow('Stale');
+    await expect(test.controller.reconcile('one', 0, 'rooms/hall')).resolves.toMatchObject({
+      accepted: true, affectedRecords: ['rooms/hall'],
+    });
+    expect(test.reconcile).toHaveBeenCalledWith('rooms/hall');
+    test.setActive('other');
+    await expect(test.controller.reconcile('one', 0, 'rooms/hall')).rejects.toThrow('not admitted');
+    test.controller.dispose();
+  });
   it('runs native working-generation validation without supplying a TypeScript authoring Project', async () => {
     const test = fixture();
     const session = 'b107a86e-0e36-472d-8db1-1ab0de300e04';

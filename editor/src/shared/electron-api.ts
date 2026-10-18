@@ -114,6 +114,11 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
   ): Promise<ValidationResponse>;
+  nativeProjectReconcile(
+    projectSessionId: string,
+    expectedRevision: number,
+    owner: string,
+  ): Promise<import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult>;
   nativeProjectPrepareRuntime(
     projectSessionId: string,
     expectedRevision: number,

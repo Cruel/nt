@@ -207,6 +207,7 @@ import {
   nativeProjectPatchArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
   nativeProjectSaveTextArgumentsSchema,
+  nativeProjectReconcileArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
   nativeProjectPrepareRuntimeArgumentsSchema,
   nativeProjectRunTestArgumentsSchema,
@@ -1351,6 +1352,16 @@ void app.whenReady().then(async () => {
       return nativeEditorAdmission.stageText(
         projectSessionId, expectedRevision, path, diskRevision, text,
       );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_RECONCILE,
+    (arguments_) => nativeProjectReconcileArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, owner) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project reconciliation is not enabled for this editor.');
+      return nativeEditorAdmission.reconcile(projectSessionId, expectedRevision, owner);
     },
   );
 
