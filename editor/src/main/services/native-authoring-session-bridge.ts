@@ -2,6 +2,7 @@ import path from 'node:path';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import {
   nativeAuthoringEventSchema,
+  type NativeAuthoringCleanValidation,
   type NativeAuthoringCommand,
   type NativeAuthoringEvent,
   type NativeAuthoringPreparation,
@@ -133,8 +134,13 @@ export class NativeAuthoringSessionBridge {
     command: Extract<Command, { operation: 'prepareWorking' }>,
   ): Promise<NativeAuthoringPreparation>;
   request(
-    command: Exclude<Command, { operation: 'prepareWorking' }>,
-  ): Promise<Exclude<Response['result'], NativeAuthoringPreparation>>;
+    command: Extract<Command, { operation: 'validateClean' }>,
+  ): Promise<NativeAuthoringCleanValidation>;
+  request(
+    command: Exclude<Command, { operation: 'prepareWorking' | 'validateClean' }>,
+  ): Promise<
+    Exclude<Response['result'], NativeAuthoringPreparation | NativeAuthoringCleanValidation>
+  >;
   async request(command: Command): Promise<Response['result']> {
     const state = this.current;
     if (!state || !state.ready || !this.authority.isCurrent(state.sessionId))

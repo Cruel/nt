@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -62,6 +63,8 @@ public:
     void coverage_lost(); // watcher errors, overflow, resume, or a replaced directory
     bool uncertain() const { return uncertain_; }
     std::vector<std::string> invalid_source_paths() const;
+    // Only usable after a successful full observation; never a watcher-only proof.
+    std::optional<std::map<std::string, std::string>> verified_revisions() const;
 
 private:
     struct NativeWatch;

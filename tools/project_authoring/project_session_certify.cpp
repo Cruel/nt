@@ -1102,6 +1102,53 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                           (issue.column ? std::to_string(*issue.column) : ""));
         return result;
     };
+    // CLI-owned native validation and the opt-in editor addon use this same
+    // disk-only cache boundary. A dirty editor view must never overwrite it.
+    const auto cached_path = temp.root / ".noveltea/cache/authoring/native-clean-current.json";
+    const auto published = project->validate_clean_project();
+    require(!published.cache_hit && signature(published.snapshot) == signature(cold) &&
+                std::filesystem::is_regular_file(cached_path),
+            "Native resident validation publishes its exact clean generation");
+    auto editor = ProjectSession::open(temp.root, error);
+    require(editor != nullptr, "Clean editor Project can open: " + error);
+    const auto editor_hit = editor->validate_clean_project();
+    require(editor_hit.cache_hit && signature(editor_hit.snapshot) == signature(cold),
+            "Independently opened editor session consumes the native CLI generation");
+    const auto cache_bytes = read(cached_path);
+    const auto unsaved = editor->patch(
+        editor->snapshot().working_revision,
+        {{RoomPatch::Operation::Replace, "/rooms/room-lifecycle-roundtrip/label", "\"Unsaved\""}});
+    require(unsaved.accepted, "Editor working copy can be patched independently");
+    const auto private_result = editor->validate_clean_project();
+    require(!private_result.cache_hit && read(cached_path) == cache_bytes,
+            "Dirty editor validation remains private and does not replace clean cache bytes");
+    auto cli = ProjectSession::open(temp.root, error);
+    require(cli != nullptr && cli->validate_clean_project().cache_hit,
+            "CLI Project still consumes the clean generation after an unsaved editor edit");
+
+    const std::string cache_room = "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto cache_room_bytes = read(temp.root / cache_room);
+    const auto before_label = cache_room_bytes.find("label: ");
+    require(before_label != std::string::npos, "Cache fixture Room label is present");
+    auto changed_label = cache_room_bytes;
+    changed_label.replace(before_label, changed_label.find('\n', before_label) - before_label,
+                          "label: Native cache changed");
+    write(temp.root / cache_room, changed_label);
+    const auto incremental = project->validate_clean_project();
+    require(!incremental.cache_hit && incremental.snapshot.valid &&
+                project->validation_work().rechecked_records == 1,
+            "One disk Room edit invalidates only its existing resident validation record");
+    cli = ProjectSession::open(temp.root, error);
+    require(cli != nullptr && cli->validate_clean_project().cache_hit,
+            "Editor-written native generation is reusable by an independent CLI owner");
+    write(temp.root / cache_room, cache_room_bytes);
+    require(project->validate_clean_project().snapshot.valid,
+            "Restored disk source regenerates the original clean cache proof");
+    write(cached_path, "{\"schema\":\"noveltea.authoring-cache\"}\n");
+    cli = ProjectSession::open(temp.root, error);
+    require(cli && !cli->validate_clean_project().cache_hit,
+            "Legacy or malformed validation cache is rejected without a migration reader");
+
     const std::string path = "scripts/notice-board.lua";
     const auto original = read(temp.root / path);
     write(temp.root / path, original + "\nText.tr(dynamic)\n");

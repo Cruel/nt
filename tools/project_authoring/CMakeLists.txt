@@ -67,7 +67,7 @@ target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRE
 target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
 # Native Room session remains independent of editor, CLI daemon, and runtime linkage.
-add_library(noveltea_project_authoring_session STATIC room_session.cpp preview_preparation.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp localization_semantics.cpp source_analysis.cpp source_authority.cpp yaml_transaction.cpp)
+add_library(noveltea_project_authoring_session STATIC room_session.cpp clean_validation_cache.cpp preview_preparation.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp localization_semantics.cpp source_analysis.cpp source_authority.cpp yaml_transaction.cpp)
 set_target_properties(noveltea_project_authoring_session PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(noveltea_project_authoring_session PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_session PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -75,6 +75,27 @@ target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_C
 target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
 target_include_directories(noveltea_project_authoring_session SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project_authoring_yaml noveltea_project_authoring_contracts)
+# One deterministic semantic fingerprint for all host binaries, irrespective
+# of whether the session is linked into the daemon or the Node-API addon.
+# Tracked content changes force reconfiguration; old exact-result caches miss.
+file(GLOB NOVELTEA_NATIVE_VALIDATION_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp")
+list(FILTER NOVELTEA_NATIVE_VALIDATION_SOURCES EXCLUDE REGEX "(_certify|authoring_node_addon)\\.cpp$")
+list(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json" "${NOVELTEA_MATERIAL_REGISTRY}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
+set(NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "")
+foreach(input IN LISTS NOVELTEA_NATIVE_VALIDATION_SOURCES)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")
+    file(SHA256 "${input}" digest)
+    # Cache compatibility must not depend on which CI/worktree path compiled
+    # the CLI or editor binary. Only stable source-relative names and bytes.
+    file(RELATIVE_PATH relative_input "${CMAKE_CURRENT_SOURCE_DIR}" "${input}")
+    string(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "${relative_input}:${digest};")
+endforeach()
+string(SHA256 NOVELTEA_NATIVE_VALIDATION_FINGERPRINT "${NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES}")
+set_source_files_properties(clean_validation_cache.cpp PROPERTIES COMPILE_DEFINITIONS
+    "NOVELTEA_NATIVE_VALIDATION_FINGERPRINT=\"${NOVELTEA_NATIVE_VALIDATION_FINGERPRINT}\"")
 # Only an explicitly requested host build creates the Node-API module.
 # The editor packages it as a separate host-only resource for certification;
 # it is never linked into players or the CLI daemon.

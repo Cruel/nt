@@ -379,3 +379,34 @@ normalization differential additionally compares native Feature Lab sparse
 records across families with the authoritative TypeScript/Zod reader before
 the compiler boundary. Other existing family-local and editor/CLI validation
 certifications remain necessary for the final cutover.
+
+## Verified native clean validation reuse (#502)
+
+The certification-only `ProjectSession::validate_clean_project()` is shared by
+the existing CLI daemon Project owner and the editor's opt-in Node-API worker
+(`validateClean`). Both read and publish
+`.noveltea/cache/authoring/native-clean-current.json`, separate from the
+existing TypeScript `current.json` and its semantic key. The native document
+stores only the complete diagnostic result, canonical Project root, semantic
+key, and exact per-source revision manifest: never working source, parsed
+records, dependency contributions, or a mutable session. Legacy TypeScript
+manifests cannot pass native admission and require no migration reader.
+
+Clean cache admission verifies native physical-source authority and exact
+source identities before and after reuse. For referenced binary Assets it
+hashes bytes rather than using watcher size/mtime observations as proof.
+Missing/changed files, uncertain authority, corrupt or incompatible payloads,
+and unavailable cache paths fall back to ordinary full native validation.
+Only a clean disk Project publishes: dirty native record patches and unsaved
+Lua/RML or shader buffers remain exclusively working-session diagnostics and
+cannot publish or replace disk generations. Ordinary warm sessions retain
+unaffected validation contributors on single-source edits. Imported cache
+hits avoid initial full semantic validation, but native Project admission
+and physical source proof are still mandatory; the first later source change
+rebuilds resident contributors before normal incrementality resumes.
+
+This is an opt-in certification seam, not the coordinated production cutover
+of #474. Feature Lab Project-session certification covers reuse between
+independently opened CLI/editor-style sessions, dirty isolation, single-Room
+rechecks and legacy-cache rejection; the editor worker test exercises the
+typed response including source-aware diagnostics.

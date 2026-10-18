@@ -143,6 +143,13 @@ public:
     // includes every tracked record, not just editor-admitted working owners.
     // Validation owners and their physical proofs stay resident across calls.
     RoomSessionSnapshot validate_project();
+    // Portable exact-result cache shared by the opt-in editor worker and the
+    // existing CLI Project owner; dirty working state is never published.
+    struct CleanValidation {
+        RoomSessionSnapshot snapshot;
+        bool cache_hit = false;
+    };
+    CleanValidation validate_clean_project();
     struct ValidationWork {
         std::size_t rechecked_records = 0;
         std::size_t retained_records = 0;

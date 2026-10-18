@@ -283,6 +283,26 @@ napi_value call(napi_env env, napi_callback_info info)
                     result["inventory"].push_back(file.path);
             return js_string(env, result.to_string());
         }
+        if (name == "validateClean") {
+            if (argc != 1)
+                throw std::runtime_error("Clean validation takes only the session handle.");
+            const auto validated = session.project->validate_clean_project();
+            Json result = Json::object();
+            result["valid"] = validated.snapshot.valid;
+            result["cacheHit"] = validated.cache_hit;
+            result["diagnostics"] =
+                Json::parse(noveltea::authoring::validation_result_json(
+                                noveltea::authoring::ValidationResult{
+                                    validated.snapshot.valid, "", validated.snapshot.diagnostics}))
+                    .at("diagnostics");
+            const auto work = session.project->validation_work();
+            result["work"] = Json::object();
+            result["work"]["recheckedRecords"] = work.rechecked_records;
+            result["work"]["retainedRecords"] = work.retained_records;
+            result["work"]["recheckedContributions"] = work.rechecked_contributions;
+            result["work"]["retainedContributions"] = work.retained_contributions;
+            return js_string(env, result.to_string());
+        }
         if (name == "inspect") {
             if (argc != 2)
                 throw std::runtime_error("inspect requires a Project record owner.");
@@ -637,6 +657,7 @@ napi_value initialize(napi_env env, napi_value exports)
     static const char* operations[]{"open",
                                     "close",
                                     "snapshot",
+                                    "validateClean",
                                     "observe",
                                     "inspect",
                                     "reconcile",

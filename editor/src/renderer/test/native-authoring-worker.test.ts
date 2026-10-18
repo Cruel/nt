@@ -152,6 +152,39 @@ describe('native worker session bridge (main-owned authority)', () => {
       result: observation,
     });
     await expect(requested).resolves.toMatchObject(observation);
+    const cleanValidation = bridge.request({ operation: 'validateClean' });
+    expect(workers[0]!.sent.at(-1)).toEqual({ operation: 'validateClean', requestId: 2 });
+    workers[0]!.emit('message', {
+      type: 'response',
+      sessionId: 'A',
+      generation: 1,
+      requestId: 2,
+      result: {
+        valid: false,
+        cacheHit: true,
+        diagnostics: [
+          {
+            code: 'source.yaml',
+            path: '/rooms/foyer',
+            severity: 'error',
+            message: 'Bad YAML',
+            sourcePath: 'records/rooms/foyer.yaml',
+            line: 2,
+            column: 3,
+          },
+        ],
+        work: {
+          recheckedRecords: 0,
+          retainedRecords: 0,
+          recheckedContributions: 0,
+          retainedContributions: 0,
+        },
+      },
+    });
+    await expect(cleanValidation).resolves.toMatchObject({
+      cacheHit: true,
+      diagnostics: [{ line: 2, column: 3 }],
+    });
     workers[0]!.emit('message', {
       type: 'delta',
       sessionId: 'A',

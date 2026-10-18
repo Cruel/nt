@@ -515,6 +515,13 @@ std::vector<std::string> SourceAuthority::invalid_source_paths() const
     return paths;
 }
 
+std::optional<std::map<std::string, std::string>> SourceAuthority::verified_revisions() const
+{
+    if (!initialized_ || uncertain_ || !invalid_sources_.empty())
+        return std::nullopt;
+    return baseline_;
+}
+
 SourceObservation SourceAuthority::observe()
 {
     SourceObservation observation;
