@@ -77,6 +77,20 @@ test("release Linux jobs reuse the shared native dependency setup", () => {
   assert.doesNotMatch(releaseWorkflow, /apt-get (?:update|install)/);
 });
 
+test("cold release CLI builds retry verified bzip2 downloads before vcpkg install", () => {
+  const shaderAssets = job("shader-assets");
+  const seed = shaderAssets.indexOf("name: Seed checksum-pinned bzip2 source with retries");
+  const build = shaderAssets.indexOf("name: Build NovelTea host CLI");
+  assert.ok(seed >= 0 && seed < build);
+  const sourceStep = shaderAssets.slice(seed, build);
+  assert.match(sourceStep, /bzip2-1\.0\.8\.tar\.gz/);
+  assert.match(sourceStep, /sourceware\.org/);
+  assert.match(sourceStep, /mirrorservice\.org/);
+  assert.match(sourceStep, /--retry-all-errors/);
+  assert.match(sourceStep, /sha512sum --check --status/);
+  assert.match(sourceStep, /mv "\$staged" "\$archive"/);
+});
+
 test("release builds leave compile concurrency automatic like regular CI", () => {
   assert.doesNotMatch(releaseWorkflow, /CMAKE_BUILD_PARALLEL_LEVEL:/);
   assert.doesNotMatch(releaseWorkflow, /VCPKG_MAX_CONCURRENCY:/);

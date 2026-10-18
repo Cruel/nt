@@ -116,6 +116,34 @@ jobs:
           restore-keys: |
             debian-12-glibc-2.36-x64-release-shader-host-
 
+      # Cold vcpkg caches must survive intermittent failures from both upstream bzip2 mirrors.
+      - name: Seed checksum-pinned bzip2 source with retries
+        run: |
+          set -euo pipefail
+          archive="$VCPKG_ROOT/downloads/bzip2-1.0.8.tar.gz"
+          checksum=083f5e675d73f3233c7930ebe20425a533feedeaaa9d8cc86831312a6581cefbe6ed0d08d2fa89be81082f2a5abdabca8b3c080bf97218a1bd59dc118a30b9f3
+          mkdir -p "$(dirname "$archive")"
+          if [[ -f "$archive" ]] && printf '%s  %s\n' "$checksum" "$archive" | sha512sum --check --status; then
+            exit 0
+          fi
+          rm -f "$archive"
+          staged="$(mktemp)"
+          trap 'rm -f "$staged"' EXIT
+          for url in \
+            https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz \
+            https://www.mirrorservice.org/sites/sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz; do
+            if curl --fail --location --retry 5 --retry-all-errors --retry-delay 3 \
+              --connect-timeout 10 --max-time 30 --output "$staged" "$url"; then
+              if printf '%s  %s\n' "$checksum" "$staged" | sha512sum --check --status; then
+                mv "$staged" "$archive"
+                exit 0
+              fi
+              echo "bzip2 source checksum mismatch from $url" >&2
+            fi
+          done
+          # A restored vcpkg binary cache may already contain bzip2; do not fail solely on prefetch.
+          echo 'bzip2 prefetch failed; leaving package resolution to vcpkg' >&2
+
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
 
@@ -563,7 +591,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify production player excludes developer components
+      - name: Verify Linux player devtools composition
         if: matrix.platform == 'linux'
         shell: bash
         run: bash scripts/check-native-devtools-symbols.sh build/${{ matrix.preset }}/apps/player/noveltea-player ${{ matrix.variant == 'release' && 'off' || 'on' }}

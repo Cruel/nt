@@ -321,10 +321,19 @@ test('native build and release jobs verify the linked devtools capability matrix
     /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/,
   );
 
-  assert.match(
-    releaseWorkflow,
-    /name: Verify production player excludes developer components[\s\S]*check-native-devtools-symbols\.sh build\/linux-release\/apps\/player\/noveltea-player off/,
-  );
+  const desktopHosts = releaseJob('desktop-hosts');
+  const linuxVariants = [...desktopHosts.matchAll(
+    /- platform: linux\s+arch: x64\s+runner: ubuntu-latest\s+preset: (\S+)\s+variant: (\S+)/g,
+  )].map(([, preset, variant]) => [preset, variant]);
+  assert.deepEqual(linuxVariants, [
+    ['linux-release', 'release'],
+    ['linux-release-devtools', 'devtools'],
+  ]);
+  const verifyRelease = step(desktopHosts, 'Verify Linux player devtools composition');
+  assert.equal(field(verifyRelease, 'if'), "matrix.platform == 'linux'");
+  assert.ok(verifyRelease.includes(
+    "check-native-devtools-symbols.sh build/${{ matrix.preset }}/apps/player/noveltea-player ${{ matrix.variant == 'release' && 'off' || 'on' }}",
+  ));
 });
 
 test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
