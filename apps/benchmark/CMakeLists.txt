@@ -389,6 +389,25 @@ if(BUILD_TESTING AND NOT ANDROID)
                 PROPERTIES LABELS "benchmark;graphics;native-2d;visual;smoke"
                     PASS_REGULAR_EXPRESSION "native 2D inspection smoke complete" TIMEOUT 90)
         endforeach()
+        # The default native renderer must coalesce its single-texture quads into GPU draws.
+        set(NOVELTEA_BATCHED_GEOMETRY_REPORT
+            "${CMAKE_BINARY_DIR}/benchmarks/ctest-native-quad-batching.json")
+        add_test(NAME noveltea_benchmark_native_quad_batching_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario native-2d-geometry --native-quads 256
+                --frames 30 --warmup-seconds 0 --width 640 --height 480
+                --profile diagnostic --output "${NOVELTEA_BATCHED_GEOMETRY_REPORT}")
+        set_tests_properties(noveltea_benchmark_native_quad_batching_smoke PROPERTIES
+            LABELS "benchmark;graphics;native-2d;smoke"
+            FIXTURES_SETUP noveltea_quad_batching_report
+            PASS_REGULAR_EXPRESSION "complete: 30 native 2D frames" TIMEOUT 90)
+        add_test(NAME noveltea_benchmark_native_quad_batching_report
+            COMMAND "${CMAKE_COMMAND}"
+                "-DREPORT=${NOVELTEA_BATCHED_GEOMETRY_REPORT}"
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/verify_native_quad_batching.cmake")
+        set_tests_properties(noveltea_benchmark_native_quad_batching_report PROPERTIES
+            LABELS "benchmark;graphics;native-2d;smoke"
+            FIXTURES_REQUIRED noveltea_quad_batching_report)
         add_test(NAME noveltea_benchmark_native_2d_text_scaling_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario native-2d-text-dynamic --native-glyphs 512

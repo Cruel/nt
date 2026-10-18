@@ -79,6 +79,14 @@ Current view ownership:
 - `UIOverlay`: runtime UI and UI-adjacent presentation.
 - debug UI uses its own high-numbered bgfx views.
 
+The production bgfx renderer merges consecutive compatible **default-shader** `QuadCommand`s into
+one indexed draw (up to 2048 quads per transient allocation). It preserves the authored sequence,
+per-vertex rotation, UV/color/opacity, the effective texture/sampler, scissor and bgfx view.
+Material-backed draws, video alpha masks, and view or texture changes terminate a run. Allocation
+pressure splits the run into smaller ordered draws, with the original one-quad fallback. This is
+backend-local; `QuadBatch`, World Presentation, Engine and RmlUi callers do not change. No automatic
+texture atlas, material batching, or geometry reordering is performed.
+
 RmlUi adapters reserve disjoint contiguous ranges for every `PresentationPlane`. GameUi owns the
 largest general UI/filter range; direct ActiveText uses its final reserved view below MenuOverlay and
 Modal. Contexts in a plane share that plane adapter and render by deterministic composition group,
