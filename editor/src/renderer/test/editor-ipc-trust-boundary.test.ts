@@ -104,6 +104,35 @@ function rejectionCode(error: unknown) {
 }
 
 describe('guarded editor IPC registrar', () => {
+  it('applies a main-owned cutover operation gate after trust and argument checks', async () => {
+    const ipcMain = new FakeIpcMain();
+    const harness = trustedHarness();
+    const protectedService = vi.fn(() => 'unsafe writer called');
+    const safeService = vi.fn(() => 'read allowed');
+    const beforeInvocation = vi.fn((channel: string) => {
+      if (channel === 'legacy-write') throw new Error('Legacy writes are disabled.');
+    });
+    const registrar = createGuardedIpcRegistrar({
+      ipcMain,
+      getOwner: () => harness.window,
+      documentPolicy: createEditorDocumentPolicy(),
+      beforeInvocation,
+    });
+    registrar.handle('legacy-write', (args) => noArgumentsSchema.parse(args), protectedService);
+    registrar.handle('read-only', (args) => noArgumentsSchema.parse(args), safeService);
+    await expect(ipcMain.invoke('legacy-write', harness.event)).rejects.toThrow(
+      'Legacy writes are disabled.',
+    );
+    expect(protectedService).not.toHaveBeenCalled();
+    await expect(ipcMain.invoke('read-only', harness.event)).resolves.toBe('read allowed');
+    expect(safeService).toHaveBeenCalledOnce();
+    beforeInvocation.mockClear();
+    await expect(ipcMain.invoke('legacy-write', harness.event, 'invalid')).rejects.toSatisfy(
+      (error: unknown) => rejectionCode(error) === EDITOR_IPC_FAILURE.INVALID_REQUEST,
+    );
+    expect(beforeInvocation).not.toHaveBeenCalled();
+  });
+
   it('admits named asset-memory policies at the guarded platform-stage boundary', () => {
     const sessionId = '11111111-1111-4111-8111-111111111111';
     const request = {

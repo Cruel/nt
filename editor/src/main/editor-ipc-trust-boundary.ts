@@ -208,6 +208,7 @@ export function createGuardedIpcRegistrar(options: {
   getOwner(): EditorWindow | null;
   documentPolicy: EditorDocumentPolicy;
   onInvocation?: (record: ToolingActivityRecord) => void;
+  beforeInvocation?: (channel: string) => void;
 }) {
   return {
     handle<Arguments extends unknown[], Result>(
@@ -229,6 +230,7 @@ export function createGuardedIpcRegistrar(options: {
         const id = `ipc-${++ipcInvocationSequence}`;
         const startedAt = Date.now();
         try {
+          options.beforeInvocation?.(channel);
           const result = await handler(...parsedArguments);
           options.onInvocation?.({
             id,
@@ -584,6 +586,35 @@ export const saveProjectCopyAsArgumentsSchema = z.tuple([
   scriptSourcePathsSchema,
 ]);
 export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+
+/** Native cutover command IPC: edits are JSON-only, bounded and required to
+ * carry the working revision that the renderer based its command intent on.
+ * The worker still independently checks every pointer, owner and revision. */
+const nativeProjectPointerSchema = z
+  .string()
+  .min(2)
+  .max(2048)
+  .startsWith('/')
+  .refine(
+    (value) =>
+      value
+        .slice(1)
+        .split('/')
+        .every((segment) => /^(?:[^~]|~0|~1)*$/u.test(segment)),
+    'Native Project mutation paths must be canonical JSON Pointers.',
+  );
+const nativeProjectPatchSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('add'), path: nativeProjectPointerSchema, value: z.json() }).strict(),
+  z
+    .object({ op: z.literal('replace'), path: nativeProjectPointerSchema, value: z.json() })
+    .strict(),
+  z.object({ op: z.literal('remove'), path: nativeProjectPointerSchema }).strict(),
+]);
+export const nativeProjectPatchArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.array(nativeProjectPatchSchema).min(1).max(256),
+]);
 export const projectAssetIdentityArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(512),

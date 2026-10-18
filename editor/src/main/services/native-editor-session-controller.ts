@@ -4,6 +4,7 @@ import { projectFromNativeCompletePreparation } from './native-authoring-runtime
 import type { NativeAuthoringSessionBridge } from './native-authoring-session-bridge';
 import type { NativeAuthoringWorkingProject } from './native-authoring-working-project';
 import type { ActiveProjectSessionService } from './active-project-session-service';
+import type { JsonPatchOperation } from '../../renderer/project/json-patch';
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
@@ -27,7 +28,7 @@ export class NativeEditorSessionController {
     private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'>,
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
-      'open' | 'prepareCompleteWorking'
+      'open' | 'prepareCompleteWorking' | 'applyRevisionedPatches'
     >,
   ) {
     this.unsubscribeFailure = bridge.onFailure(() => this.close());
@@ -40,7 +41,7 @@ export class NativeEditorSessionController {
     this.bridge.close();
   }
 
-  async admit(projectSessionId: string, saved: AuthoringProject): Promise<void> {
+  async admit(projectSessionId: string, saved: AuthoringProject): Promise<number> {
     // There is no arbitrary renderer-selected worker root. The trusted main
     // Project session is rechecked before and after asynchronous admission.
     this.authority.requireActiveProjectRoot(projectSessionId);
@@ -62,6 +63,7 @@ export class NativeEditorSessionController {
       )
         throw new Error('Native Project admission differs from the saved editor Workspace.');
       this.activeId = projectSessionId;
+      return prepared.workingRevision;
     } catch (error) {
       if (generation === this.generation) this.close();
       throw error;
@@ -71,6 +73,24 @@ export class NativeEditorSessionController {
   /** No native mutations are exposed until the entire editor switches owners. */
   isAdmitted(projectSessionId: string): boolean {
     return this.activeId === projectSessionId && this.authority.isCurrent(projectSessionId);
+  }
+
+  /** The first mutation boundary for native-backed renderer commands. It is
+   * only callable from a trusted, separately gated main IPC handler, never
+   * the legacy TypeScript Save path. Native is the sole mutation authority. */
+  async applyRevisionedPatches(
+    projectSessionId: string,
+    expectedRevision: number,
+    patches: readonly JsonPatchOperation[],
+  ) {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Native Project is not admitted for this editor session.');
+    const generation = this.generation;
+    this.authority.requireActiveProjectRoot(projectSessionId);
+    const result = await this.working.applyRevisionedPatches(expectedRevision, patches);
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Native Project mutation completed for a superseded session.');
+    return result;
   }
 
   dispose(): void {

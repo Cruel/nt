@@ -204,6 +204,7 @@ import {
   writeProjectSourceArgumentsSchema,
   installEditorNavigationPolicy,
   noArgumentsSchema,
+  nativeProjectPatchArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
@@ -356,33 +357,61 @@ const activeProjectSessions = new ActiveProjectSessionService();
 // The cutover admission gate is intentionally explicit until #504/#506 have
 // migrated synchronous renderer mutation, Save and watcher ownership together.
 // It operates on the actual main-owned Project lifecycle, not a test-only root.
-const nativeEditorAdmission = process.argv.includes('--certify-native-authoring-open')
-  ? (() => {
-      const addonPath =
-        process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
-        path.join(process.resourcesPath, 'authoring', 'noveltea-authoring-node.node');
-      const bridge = new NativeAuthoringSessionBridge(activeProjectSessions, { addonPath });
-      return new NativeEditorSessionController(
-        activeProjectSessions,
-        bridge,
-        new NativeAuthoringWorkingProject(bridge),
-      );
-    })()
-  : null;
+const nativeEditorMutationEnabled = process.argv.includes('--certify-native-authoring-edit');
+const incompatibleLegacyNativeEditChannels = new Set<string>([
+  IPC_CHANNELS.SAVE_PROJECT_CONTENT,
+  IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
+  IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
+  IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
+  IPC_CHANNELS.WRITE_PROJECT_SOURCE,
+  IPC_CHANNELS.IMPORT_ASSETS,
+  IPC_CHANNELS.REIMPORT_ASSET,
+  IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
+  IPC_CHANNELS.ORGANIZE_UNTRACKED_PROJECT_ASSET,
+  IPC_CHANNELS.IMPORT_PROJECT_ATTACHMENT_FILES,
+  IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
+  IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES,
+  IPC_CHANNELS.PURGE_PROJECT_TRASH,
+  IPC_CHANNELS.VALIDATE_PROJECT,
+  IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
+  IPC_CHANNELS.RUN_PLAYBACK_TEST,
+  IPC_CHANNELS.RUN_PLAYBACK_SUITE,
+  IPC_CHANNELS.RUN_PLAYBACK_SPEC,
+  IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
+  IPC_CHANNELS.COMPILE_SHADERS,
+  IPC_CHANNELS.EXPORT_PACKAGE,
+  IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
+  IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
+]);
+const nativeEditorAdmission =
+  nativeEditorMutationEnabled || process.argv.includes('--certify-native-authoring-open')
+    ? (() => {
+        const addonPath =
+          process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
+          path.join(process.resourcesPath, 'authoring', 'noveltea-authoring-node.node');
+        const bridge = new NativeAuthoringSessionBridge(activeProjectSessions, { addonPath });
+        return new NativeEditorSessionController(
+          activeProjectSessions,
+          bridge,
+          new NativeAuthoringWorkingProject(bridge),
+        );
+      })()
+    : null;
 
 async function admitNativeEditorProject(
   result: { success?: boolean; projectSessionId?: string },
   activationGeneration: number,
-): Promise<void> {
+): Promise<number | undefined> {
   if (!nativeEditorAdmission || !result.success || !result.projectSessionId) return;
   const sessionId = result.projectSessionId;
   try {
-    await nativeEditorAdmission.admit(
+    const revision = await nativeEditorAdmission.admit(
       sessionId,
       activeProjectSessions.requireActiveWorkspace(sessionId).project(),
     );
     if (!activeProjectSessions.isProjectActivationCurrent(activationGeneration))
       throw new Error('Project activation was superseded.');
+    return nativeEditorMutationEnabled ? revision : undefined;
   } catch (error) {
     // A second Open/Create request may already be in progress while its old
     // Project is still the current ID. Never revoke that newer activation.
@@ -910,6 +939,12 @@ void app.whenReady().then(async () => {
     getOwner: () => mainWindow,
     documentPolicy: editorDocumentPolicy,
     onInvocation: emitToolingActivity,
+    beforeInvocation: (channel) => {
+      if (nativeEditorMutationEnabled && incompatibleLegacyNativeEditChannels.has(channel))
+        throw new Error(
+          `Legacy Project operation ${channel} is disabled during native-edit certification.`,
+        );
+    },
   });
 
   guardedIpc.handle(
@@ -1211,8 +1246,10 @@ void app.whenReady().then(async () => {
         await openProject(projectPath),
         activationGeneration,
       );
-      await admitNativeEditorProject(result, activationGeneration);
-      return rememberPreviewProjectRoot(result);
+      const nativeWorkingRevision = await admitNativeEditorProject(result, activationGeneration);
+      return rememberPreviewProjectRoot(
+        nativeWorkingRevision === undefined ? result : { ...result, nativeWorkingRevision },
+      );
     },
   );
 
@@ -1225,8 +1262,10 @@ void app.whenReady().then(async () => {
         await createProject(request),
         activationGeneration,
       );
-      await admitNativeEditorProject(result, activationGeneration);
-      return rememberPreviewProjectRoot(result);
+      const nativeWorkingRevision = await admitNativeEditorProject(result, activationGeneration);
+      return rememberPreviewProjectRoot(
+        nativeWorkingRevision === undefined ? result : { ...result, nativeWorkingRevision },
+      );
     },
   );
 
@@ -1249,6 +1288,23 @@ void app.whenReady().then(async () => {
       await stopProjectWorkspaceWatcher();
       nativeEditorAdmission?.close();
       activeProjectSessions.closeActiveProject();
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_PATCH,
+    (arguments_) => nativeProjectPatchArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, patches) => {
+      // Never activate a second writable Project behind the normal Save
+      // pipeline. This endpoint is enabled only by an explicit cutover
+      // certification launch, and its mutations stay in native working memory.
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project mutation is not enabled for this editor.');
+      return nativeEditorAdmission.applyRevisionedPatches(
+        projectSessionId,
+        expectedRevision,
+        patches,
+      );
     },
   );
 
@@ -1483,6 +1539,8 @@ void app.whenReady().then(async () => {
     (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
     async (projectSessionId, request, editorState) => {
       try {
+        if (nativeEditorMutationEnabled)
+          throw new Error('Legacy Project Save is disabled in native mutation certification mode.');
         activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         const workspace = activeProjectSessions.requireActiveWorkspace(projectSessionId);
         const result = await saveActiveProjectContent(workspace, request, editorState, () =>
@@ -1506,6 +1564,10 @@ void app.whenReady().then(async () => {
     (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
     async (projectSessionId, editorState, recoveryFileOwnershipHints) => {
       try {
+        if (nativeEditorMutationEnabled)
+          throw new Error(
+            'Legacy editor metadata Save is disabled in native mutation certification mode.',
+          );
         activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await saveActiveProjectEditorMetadata(
           activeProjectSessions.requireActiveWorkspace(projectSessionId),

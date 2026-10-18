@@ -73,6 +73,15 @@ interface NovelTeaElectronApiContract {
   onProjectImportRequested(callback: () => void): () => void;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
+  /** Revisioned native working Project mutation. Only enabled in the explicit
+   * editor cutover certification mode; never a direct filesystem write. */
+  nativeProjectPatch(
+    projectSessionId: string,
+    expectedRevision: number,
+    patches: import('../renderer/project/json-patch').JsonPatchOperation[],
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
   validateProject(
     projectSessionId: string,
     project: unknown,

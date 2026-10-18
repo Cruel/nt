@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
@@ -7,6 +8,10 @@ import { NativeAuthoringSessionBridge } from '../../main/services/native-authori
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
+import { nativeProjectPatchArgumentsSchema } from '../../main/editor-ipc-trust-boundary';
+import { toJsonValue } from '../project/json-value';
+import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
+import { confirmNativeCommand } from '../commands/native-command-execution';
 
 function fixture() {
   const saved = createAuthoringProject({ id: 'native-open', name: 'Open Project' });
@@ -45,7 +50,12 @@ function fixture() {
   };
   const open = vi.fn(async () => ({}));
   const prepareCompleteWorking = vi.fn(async () => preparation);
-  const working = { open, prepareCompleteWorking };
+  const applyRevisionedPatches = vi.fn(async () => ({
+    accepted: true,
+    error: '',
+    snapshot: { workingRevision: 1 },
+  }));
+  const working = { open, prepareCompleteWorking, applyRevisionedPatches };
   const controller = new NativeEditorSessionController(
     authority,
     bridge,
@@ -57,6 +67,7 @@ function fixture() {
     open,
     preparation,
     prepareCompleteWorking,
+    applyRevisionedPatches,
     controller,
     setActive(id: string) {
       active = id;
@@ -68,6 +79,64 @@ function fixture() {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('rejects malformed, oversized and non-JSON native mutation IPC requests', () => {
+    const sessionId = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
+    const valid = [sessionId, 0, [{ op: 'replace', path: '/project/name', value: 'Next' }]];
+    expect(nativeProjectPatchArgumentsSchema.safeParse(valid).success).toBe(true);
+    for (const patches of [
+      [{ op: 'replace', path: '/project/~2bad', value: 'bad' }],
+      [{ op: 'replace', path: '', value: 'bad' }],
+      [{ op: 'replace', path: '/project/name', value: undefined }],
+      [{ op: 'remove', path: '/project/name', value: true }],
+      [{ op: 'add', path: '/project/name', value: Number.POSITIVE_INFINITY }],
+      Array.from({ length: 257 }, () => ({ op: 'remove', path: '/project/name' })),
+    ])
+      expect(nativeProjectPatchArgumentsSchema.safeParse([sessionId, 0, patches]).success).toBe(
+        false,
+      );
+    expect(nativeProjectPatchArgumentsSchema.safeParse([sessionId, -1, valid[2]]).success).toBe(
+      false,
+    );
+  });
+
+  it('authorizes revision-checked generic patches for the currently admitted session only', async () => {
+    const test = fixture();
+    const patches = [{ op: 'replace' as const, path: '/project/name', value: 'New Name' }];
+    await expect(test.controller.applyRevisionedPatches('one', 0, patches)).rejects.toThrow(
+      'not admitted',
+    );
+    await test.controller.admit('one', test.saved);
+    await expect(test.controller.applyRevisionedPatches('one', 0, patches)).resolves.toMatchObject({
+      accepted: true,
+    });
+    expect(test.applyRevisionedPatches).toHaveBeenCalledWith(0, patches);
+    test.setActive('two');
+    await expect(test.controller.applyRevisionedPatches('one', 1, patches)).rejects.toThrow(
+      'not admitted',
+    );
+    expect(test.applyRevisionedPatches).toHaveBeenCalledTimes(1);
+    test.controller.dispose();
+  });
+
+  it('does not publish a late native response after session close', async () => {
+    const test = fixture();
+    await test.controller.admit('one', test.saved);
+    let release!: () => void;
+    test.applyRevisionedPatches.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ accepted: true, error: '', snapshot: { workingRevision: 1 } });
+        }),
+    );
+    const pending = test.controller.applyRevisionedPatches('one', 0, [
+      { op: 'replace', path: '/project/name', value: 'New' },
+    ]);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    test.controller.close();
+    release();
+    await expect(pending).rejects.toThrow('superseded');
+    test.controller.dispose();
+  });
   it('tracks in-flight activation generations independently of the current Project ID', () => {
     const sessions = new ActiveProjectSessionService();
     const first = sessions.beginProjectActivation();
@@ -163,6 +232,46 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       const id = await sessions.activateProjectFile(path.join(fixture, 'project.yaml'));
       await controller.admit(id, opened.snapshot.project);
       expect(controller.isAdmitted(id)).toBe(true);
+      const before = await readFile(path.join(fixture, 'project.yaml'), 'utf8');
+      const edited = await controller.applyRevisionedPatches(id, 0, [
+        { op: 'replace', path: '/project/name', value: 'Unsaved Native Name' },
+      ]);
+      expect(edited.accepted, edited.error).toBe(true);
+      expect(edited.snapshot.workingRevision).toBe(1);
+      expect(edited.snapshot.source).toMatchObject({ project: { name: 'Unsaved Native Name' } });
+      const beforeCommand = createInitialCommandBusState(
+        toJsonValue({
+          ...opened.snapshot.project,
+          project: { ...opened.snapshot.project.project, name: 'Unsaved Native Name' },
+        }),
+      );
+      const proposal = executeCommand(beforeCommand, {
+        type: 'project.replaceAtPath',
+        payload: { path: '/project/name', value: 'Native Command Edition' },
+        originSaveUnitId: 'project:settings',
+        persistencePolicy: 'manual-save',
+      });
+      expect(proposal.ok).toBe(true);
+      const confirmed = await confirmNativeCommand(
+        beforeCommand,
+        proposal,
+        proposal.historyEntry!.patches,
+        id,
+        1,
+        (session, revision, patches) =>
+          controller.applyRevisionedPatches(session, revision, patches),
+      );
+      expect(confirmed.result.ok).toBe(true);
+      expect(confirmed.workingRevision).toBe(2);
+      expect(confirmed.result.state.document).toMatchObject({
+        project: { name: 'Native Command Edition' },
+      });
+      await expect(
+        controller.applyRevisionedPatches(id, 0, [
+          { op: 'replace', path: '/project/name', value: 'Stale Edit' },
+        ]),
+      ).rejects.toThrow('Stale native Project mutation revision');
+      expect(await readFile(path.join(fixture, 'project.yaml'), 'utf8')).toBe(before);
       controller.close();
       expect(controller.isAdmitted(id)).toBe(false);
       await expect(controller.admit('stale-id', opened.snapshot.project)).rejects.toThrow('stale');
