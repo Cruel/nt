@@ -359,6 +359,7 @@ export class NativeAuthoringWorkingProject {
       comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
       pathsByOwner?: Record<string, string[]>;
       textPaths?: string[];
+      textContents?: Record<string, string>;
       expectedRevision?: number;
     } = {},
   ): Promise<PatchResult> {
@@ -369,6 +370,12 @@ export class NativeAuthoringWorkingProject {
         options.expectedRevision !== this.view.workingRevision
       )
         throw new Error('Stale native working Project Save revision.');
+      if (options.textPaths?.length) {
+        for (const path of options.textPaths)
+          if (!this.retainedTextSources.has(path) ||
+              this.retainedTextSources.get(path)!.text !== options.textContents?.[path])
+            throw new Error(`Native staged source changed before mixed Save: ${path}`);
+      }
       const result = await this.bridge.request({
         operation: 'saveOwners',
         owners: [...owners],
@@ -399,7 +406,7 @@ export class NativeAuthoringWorkingProject {
 
   async saveUnits(
     saveUnitIds: readonly string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[] } = {},
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> } = {},
     expectedRevision?: number,
   ): Promise<PatchResult> {
     if (!this.view) throw new Error('Native working Project has not opened.');

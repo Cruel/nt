@@ -636,10 +636,22 @@ export const nativeProjectSaveUnitArgumentsSchema = z.tuple([
         'Native mixed Save must target an admitted Lua/RML/RCSS source.',
       ),
     ).min(1).max(128).optional(),
+    textContents: z.record(z.string(), z.string().refine(
+      (value) => utf8ByteLength(value) <= 4 * 1024 * 1024,
+    )).optional(),
   }).strict(),
 ]).refine(([, , owners, options]) =>
   typeof owners === 'string' || owners.length > 0 || Boolean(options.textPaths?.length),
   'Native Save must include a logical Save unit or staged text source.',
+).refine(([, , , options]) => {
+  if (!options.textPaths?.length) return !options.textContents;
+  if (!options.textContents) return false;
+  const paths = Object.keys(options.textContents);
+  return paths.length === options.textPaths.length &&
+    paths.every((path) => options.textPaths!.includes(path)) &&
+    paths.reduce((count, path) => count + utf8ByteLength(options.textContents![path]!), 0)
+      <= 16 * 1024 * 1024;
+}, 'Native mixed Save requires matching bounded staged source contents',
 );
 export const nativeProjectSaveTextArgumentsSchema = z.tuple([
   projectSessionIdSchema,

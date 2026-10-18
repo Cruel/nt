@@ -193,6 +193,18 @@ describe('native admission at the editor main Project lifecycle', () => {
   it('guards source Save schema and resolves revisioned Stage/Save through the admitted owner', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     const hash = 'sha256:' + '1'.repeat(64);
+    const mixed = { textPaths: ['scripts/game.lua'], textContents: { 'scripts/game.lua': 'return true' } };
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], mixed]).success).toBe(true);
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], {
+      textPaths: ['scripts/game.lua'],
+    }]).success).toBe(false);
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], {
+      textPaths: ['../escape.lua'], textContents: { '../escape.lua': 'return true' },
+    }]).success).toBe(false);
+    expect(nativeProjectSaveUnitArgumentsSchema.safeParse([id, 0, [], {
+      textPaths: ['scripts/game.lua'], textContents: { 'scripts/game.lua': 'return true',
+        'scripts/other.lua': 'return false' },
+    }]).success).toBe(false);
     expect(nativeProjectSaveTextArgumentsSchema.safeParse([
       id, 0, 'scripts/game.lua', hash, 'return true',
     ]).success).toBe(true);

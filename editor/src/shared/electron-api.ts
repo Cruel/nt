@@ -88,7 +88,7 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
     saveUnitIds: string | string[],
-    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[] },
+    options: { keepMine?: boolean; comments?: 'keep' | 'remove' | 'cancel' | 'perEdit'; textPaths?: string[]; textContents?: Record<string, string> },
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
