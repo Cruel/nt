@@ -503,6 +503,31 @@ operations must be routed together before enabling native ownership by
 default. Full native Project validation at Open is too expensive to impose
 on regular editor starts before the migration's performance gates pass.
 
+The separate `--certify-native-authoring-edit` flag now enables the real
+renderer-to-main `NATIVE_PROJECT_PATCH` route for migration testing. Native
+mutation requests carry trusted active Project session identity, exact working
+revision and a strictly bounded JSON Patch batch; the native worker remains
+the only accepted mutation authority. The main-owned bridge serializes edits,
+preserves acknowledged replay evidence, rejects stale/out-of-order requests,
+and refuses replies for closed or superseded sessions. The renderer's new
+`executeCommandAsync`, `undoAsync` and `redoAsync` methods use the current
+TypeScript command handlers only to **construct edit intent**; documents and
+history publish only after native acknowledgment and exact changed-value
+comparison against affected native source owners. Native refusal leaves the
+current editor unchanged; a missing, contradictory, or lost accepted reply
+freezes further native edits instead of silently falling back to TypeScript.
+Uncommitted transactions and auto-commits are not yet enabled in this mode.
+
+The old synchronous command methods explicitly refuse changes under the
+native-edit flag. The trusted IPC registrar blocks legacy Project Save,
+source/asset writers, validation, preview, Tests and export operations in
+this certification mode so they cannot act on a divergent TypeScript Project.
+Recovered dirty Project state is rejected on native-edit admission until
+replay integration is complete. The flag **does not yet provide a usable
+native editing UI**: existing editors still call the synchronous command
+methods and must be migrated to async entrypoints, together with native Save,
+source editing, watcher and diagnostics, before production activation.
+
 ## Native CLI compatibility and physical Asset transactions (#501)
 
 The certification-only native CLI command boundary supports atomic Project

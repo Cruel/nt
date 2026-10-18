@@ -393,6 +393,21 @@ export class NativeAuthoringWorkingProject {
 
   // Existing editor CommandHandlerResult.patches and history.inversePatches are
   // passed verbatim as intent, not translated into per-action native commands.
+  /** The production IPC command seam supplies its own undo/redo intent and
+   * authoritative expected revision. Unlike applyAction this does not keep
+   * a second main-side command-history cursor: the editor's history remains
+   * UI intent, while only the native worker can admit an actual mutation. */
+  async applyRevisionedPatches(
+    expectedRevision: number,
+    patches: readonly JsonPatchOperation[],
+  ): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view || this.view.workingRevision !== expectedRevision)
+        throw new Error('Stale native Project mutation revision.');
+      return this.submit(nativePatches(patches));
+    });
+  }
+
   async applyAction(
     patches: readonly JsonPatchOperation[],
     inversePatches: readonly JsonPatchOperation[],

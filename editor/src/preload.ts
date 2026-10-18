@@ -90,6 +90,8 @@ const api: NovelTeaElectronApi = {
   },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
+  nativeProjectPatch: (projectSessionId, expectedRevision, patches) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_PATCH, projectSessionId, expectedRevision, patches),
   validateProject: (
     projectSessionId: string,
     project: unknown,

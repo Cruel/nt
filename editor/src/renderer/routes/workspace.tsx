@@ -49,7 +49,7 @@ import {
   externalConflictDiagnostic,
   reconcileExternalProjectChange,
 } from '@/project/project-external-reconciliation';
-import { toJsonValue } from '@/project/json-value';
+import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
@@ -816,6 +816,16 @@ export function WorkspacePage() {
           currentFileRevisions: loaded.recoveryFileRevisions,
         },
       );
+      if (
+        loaded.nativeWorkingRevision !== undefined &&
+        !jsonValuesEqual(
+          toJsonValue(reconstructed.workingDocument),
+          toJsonValue(reconstructed.savedDocument),
+        )
+      )
+        throw new Error(
+          'Native edit certification cannot open a Project with unreplayed unsaved recovery. Reopen without native-edit certification to recover it.',
+        );
       externalSourceDiagnosticsRef.current = [];
       externalAssetDiagnosticsRef.current = [];
       persistentRecoveryDiagnosticsRef.current = [
@@ -837,6 +847,8 @@ export function WorkspacePage() {
         loaded.scriptSourcePaths,
         diagnostics,
       );
+      if (loaded.nativeWorkingRevision !== undefined)
+        useCommandStore.getState().enableNativeCommandMode(loaded.nativeWorkingRevision);
       refreshRecentProjectEntry(
         reconstructed.workingDocument,
         loaded.projectPath,

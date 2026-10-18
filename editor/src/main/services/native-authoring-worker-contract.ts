@@ -65,6 +65,7 @@ export const nativeAuthoringResultSchema = z
     textSourceDiskRevision: z.string().optional(),
   })
   .strict();
+export type NativeAuthoringPatchResult = z.infer<typeof nativeAuthoringResultSchema>;
 
 export const nativeAuthoringPreparationSchema = z
   .object({

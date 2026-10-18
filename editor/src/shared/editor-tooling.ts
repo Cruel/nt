@@ -31,6 +31,8 @@ export interface OpenProjectResponse {
   projectPath: string;
   projectFilePath: string;
   projectSessionId?: string;
+  /** Present only in explicit native-edit certification launches. */
+  nativeWorkingRevision?: number;
 }
 
 export interface SaveProjectEditorMetadataResponse {
