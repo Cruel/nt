@@ -1786,6 +1786,18 @@ no flags restores the last interactive settings. Explicit command-line/JSON
 launch configurations always take precedence. Named presets are **not** the
 built-in `--ui-preset` reference workloads. Invalid saved state is rejected
 rather than migrated; users may regenerate it by editing dashboard settings.
+Missing native settings leave defaults intact. Filesystem inspection/read/write
+failures return diagnostics and preserve the previously loaded settings; a later
+successful save can recover without restarting. Browser storage access remains
+inside JavaScript `try`/`catch` blocks because browser privacy/quota restrictions
+can reject `localStorage` operations; these are not C++ exceptions.
+
+The benchmark report/configuration and comparison codecs, plus their JSON fixture
+tests, are explicit boundaries in `cmake/CheckJsonBoundaryPolicy.cmake`.
+`benchmark_comparison.hpp` owns the imported report document; engine models do not
+acquire JSON types from it. JSON extraction uses the shared checked `json_access`
+helpers after schema/type validation. Each JSON consumer links nlohmann-json
+privately rather than propagating the dependency through the runner's interface.
 Results and screenshots remain separately stored/exported, never tracked in
 the repository.
 

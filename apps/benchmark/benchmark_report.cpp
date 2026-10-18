@@ -1,4 +1,5 @@
 #include "benchmark_report.hpp"
+#include "noveltea/core/json_access.hpp"
 #include "benchmark_capacity.hpp"
 #include "reference_scene.hpp"
 #include "reference_workloads.hpp"
@@ -259,13 +260,13 @@ bool has_fields(const Json& value, std::initializer_list<const char*> keys)
 
 bool numeric(const Json& value, const char* key)
 {
-    return value[key].is_number() && std::isfinite(value[key].get<double>());
+    return value[key].is_number() && std::isfinite((*core::json_access::get<double>(value[key])));
 }
 
 bool unsigned_integer(const Json& value, const char* key)
 {
     return value[key].is_number_integer() &&
-           (value[key].is_number_unsigned() || value[key].get<int64_t>() >= 0);
+           (value[key].is_number_unsigned() || (*core::json_access::get<int64_t>(value[key])) >= 0);
 }
 } // namespace
 
@@ -279,14 +280,15 @@ bool decode_configuration(std::string_view source, Options& options, std::string
                            "clock_policy", "settings", "alternate"}) ||
         !root["format"].is_string() || root["format"] != kConfigFormat ||
         !root["version"].is_number_integer() || root["version"] != 1 ||
-        !root["scenario"].is_string() || root["scenario"].get<std::string>().empty() ||
+        !root["scenario"].is_string() ||
+        (*core::json_access::get<std::string>(root["scenario"])).empty() ||
         !root["scenario_version"].is_number_integer() || root["scenario_version"] != 1 ||
         !root["parameters"].is_object() || !root["clock_policy"].is_string() ||
         (root["clock_policy"] != "realtime" && root["clock_policy"] != "fixed-step")) {
         reason = "invalid or unsupported benchmark configuration schema";
         return false;
     }
-    const std::string scenario = root["scenario"].get<std::string>();
+    const std::string scenario = (*core::json_access::get<std::string>(root["scenario"]));
     const auto& parameters = root["parameters"];
     if (is_native_2d_scenario(scenario)) {
         if (!has_fields(parameters, {"geometry_quads", "glyphs", "texture_edge", "font",
@@ -294,11 +296,12 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             !unsigned_integer(parameters, "geometry_quads") ||
             !unsigned_integer(parameters, "glyphs") ||
             !unsigned_integer(parameters, "texture_edge") ||
-            parameters["geometry_quads"].get<uint64_t>() < 1 ||
-            parameters["geometry_quads"].get<uint64_t>() > 2048 ||
-            parameters["glyphs"].get<uint64_t>() < 1 ||
-            parameters["glyphs"].get<uint64_t>() > 4096 ||
-            parameters["texture_edge"].get<uint64_t>() > 1024 || !parameters["font"].is_string() ||
+            (*core::json_access::get<uint64_t>(parameters["geometry_quads"])) < 1 ||
+            (*core::json_access::get<uint64_t>(parameters["geometry_quads"])) > 2048 ||
+            (*core::json_access::get<uint64_t>(parameters["glyphs"])) < 1 ||
+            (*core::json_access::get<uint64_t>(parameters["glyphs"])) > 4096 ||
+            (*core::json_access::get<uint64_t>(parameters["texture_edge"])) > 1024 ||
+            !parameters["font"].is_string() ||
             parameters["font"] != "system:/fonts/LiberationSans.ttf" ||
             !unsigned_integer(parameters, "font_size_px") || parameters["font_size_px"] != 12 ||
             !parameters["reference"].is_string() ||
@@ -314,11 +317,12 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             !unsigned_integer(parameters, "passes") || !numeric(parameters, "tint") ||
             !parameters["composition_path"].is_string() || !parameters["scope"].is_string() ||
             !parameters["reference"].is_string() ||
-            parameters["geometry_quads"].get<uint64_t>() < 1 ||
-            parameters["geometry_quads"].get<uint64_t>() > 2048 ||
-            parameters["texture_edge"].get<uint64_t>() > 1024 ||
-            parameters["passes"].get<uint64_t>() > 4 || parameters["tint"].get<double>() < 0.0 ||
-            parameters["tint"].get<double>() > 1.0 ||
+            (*core::json_access::get<uint64_t>(parameters["geometry_quads"])) < 1 ||
+            (*core::json_access::get<uint64_t>(parameters["geometry_quads"])) > 2048 ||
+            (*core::json_access::get<uint64_t>(parameters["texture_edge"])) > 1024 ||
+            (*core::json_access::get<uint64_t>(parameters["passes"])) > 4 ||
+            (*core::json_access::get<double>(parameters["tint"])) < 0.0 ||
+            (*core::json_access::get<double>(parameters["tint"])) > 1.0 ||
             parameters["reference"] != "native-shader-grid-tint-v1") {
             reason = "invalid native shader material benchmark parameters";
             return false;
@@ -342,8 +346,9 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     } else if (is_asset_scenario(scenario)) {
         if (!has_fields(parameters, {"work_units", "cache", "input", "reference"}) ||
             !unsigned_integer(parameters, "work_units") ||
-            parameters["work_units"].get<uint64_t>() < 1 ||
-            parameters["work_units"].get<uint64_t>() > 64 || !parameters["cache"].is_string() ||
+            (*core::json_access::get<uint64_t>(parameters["work_units"])) < 1 ||
+            (*core::json_access::get<uint64_t>(parameters["work_units"])) > 64 ||
+            !parameters["cache"].is_string() ||
             (parameters["cache"] != "cold" && parameters["cache"] != "warm") ||
             !parameters["input"].is_string() ||
             parameters["input"] != (scenario == "asset-project-prepare"
@@ -356,8 +361,9 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     } else if (is_cpu_scenario(scenario)) {
         if (!has_fields(parameters, {"work_units", "input"}) ||
             !unsigned_integer(parameters, "work_units") ||
-            parameters["work_units"].get<uint64_t>() < 1 ||
-            parameters["work_units"].get<uint64_t>() > 4096 || !parameters["input"].is_string() ||
+            (*core::json_access::get<uint64_t>(parameters["work_units"])) < 1 ||
+            (*core::json_access::get<uint64_t>(parameters["work_units"])) > 4096 ||
+            !parameters["input"].is_string() ||
             parameters["input"] != (scenario == "cpu-lua"
                                         ? "Lua ScriptRuntime benchmark_step/64 additions"
                                         : "compiled-project-golden/minimal.json")) {
@@ -385,19 +391,22 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             !unsigned_integer(parameters, "gradients") ||
             !unsigned_integer(parameters, "filters") || !unsigned_integer(parameters, "masks") ||
             !unsigned_integer(parameters, "nested_layers") ||
-            parameters["clipping"].get<uint64_t>() > 16 ||
-            parameters["transforms"].get<uint64_t>() > 16 ||
-            parameters["gradients"].get<uint64_t>() > 16 ||
-            parameters["filters"].get<uint64_t>() > 16 ||
-            parameters["masks"].get<uint64_t>() > 16 ||
-            parameters["nested_layers"].get<uint64_t>() > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["clipping"])) > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["transforms"])) > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["gradients"])) > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["filters"])) > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["masks"])) > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["nested_layers"])) > 16 ||
             !valid_ui_effects_parameters(
-                {static_cast<uint32_t>(parameters["clipping"].get<uint64_t>()),
-                 static_cast<uint32_t>(parameters["transforms"].get<uint64_t>()),
-                 static_cast<uint32_t>(parameters["gradients"].get<uint64_t>()),
-                 static_cast<uint32_t>(parameters["filters"].get<uint64_t>()),
-                 static_cast<uint32_t>(parameters["masks"].get<uint64_t>()),
-                 static_cast<uint32_t>(parameters["nested_layers"].get<uint64_t>())})) {
+                {static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["clipping"]))),
+                 static_cast<uint32_t>(
+                     (*core::json_access::get<uint64_t>(parameters["transforms"]))),
+                 static_cast<uint32_t>(
+                     (*core::json_access::get<uint64_t>(parameters["gradients"]))),
+                 static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["filters"]))),
+                 static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["masks"]))),
+                 static_cast<uint32_t>(
+                     (*core::json_access::get<uint64_t>(parameters["nested_layers"])))})) {
             reason = "invalid RmlUi effects reference parameters";
             return false;
         }
@@ -411,33 +420,38 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             !unsigned_integer(parameters, "empty_contexts") ||
             !unsigned_integer(parameters, "hidden_contexts") ||
             !parameters["text_mode"].is_string() || !parameters["redraw"].is_string() ||
-            parameters["elements"].get<uint64_t>() > 2048 ||
-            parameters["text_lines"].get<uint64_t>() > 256 ||
-            parameters["dynamic_lines"].get<uint64_t>() > 256 ||
+            (*core::json_access::get<uint64_t>(parameters["elements"])) > 2048 ||
+            (*core::json_access::get<uint64_t>(parameters["text_lines"])) > 256 ||
+            (*core::json_access::get<uint64_t>(parameters["dynamic_lines"])) > 256 ||
             (parameters["text_mode"] == "dynamic" &&
-             parameters["dynamic_lines"].get<uint64_t>() >
-                 parameters["text_lines"].get<uint64_t>()) ||
-            parameters["visible_contexts"].get<uint64_t>() > 8 ||
-            parameters["empty_contexts"].get<uint64_t>() > 16 ||
-            parameters["hidden_contexts"].get<uint64_t>() > 16 ||
+             (*core::json_access::get<uint64_t>(parameters["dynamic_lines"])) >
+                 (*core::json_access::get<uint64_t>(parameters["text_lines"]))) ||
+            (*core::json_access::get<uint64_t>(parameters["visible_contexts"])) > 8 ||
+            (*core::json_access::get<uint64_t>(parameters["empty_contexts"])) > 16 ||
+            (*core::json_access::get<uint64_t>(parameters["hidden_contexts"])) > 16 ||
             !valid_ui_scaling_parameters(
-                static_cast<uint32_t>(parameters["elements"].get<uint64_t>()),
-                static_cast<uint32_t>(parameters["text_lines"].get<uint64_t>()),
-                static_cast<uint32_t>(parameters["visible_contexts"].get<uint64_t>()),
-                static_cast<uint32_t>(parameters["empty_contexts"].get<uint64_t>()),
-                static_cast<uint32_t>(parameters["hidden_contexts"].get<uint64_t>()),
-                parameters["text_mode"].get<std::string>(),
-                parameters["redraw"].get<std::string>())) {
+                static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["elements"]))),
+                static_cast<uint32_t>(
+                    (*core::json_access::get<uint64_t>(parameters["text_lines"]))),
+                static_cast<uint32_t>(
+                    (*core::json_access::get<uint64_t>(parameters["visible_contexts"]))),
+                static_cast<uint32_t>(
+                    (*core::json_access::get<uint64_t>(parameters["empty_contexts"]))),
+                static_cast<uint32_t>(
+                    (*core::json_access::get<uint64_t>(parameters["hidden_contexts"]))),
+                (*core::json_access::get<std::string>(parameters["text_mode"])),
+                (*core::json_access::get<std::string>(parameters["redraw"])))) {
             reason = "invalid RmlUi scaling reference parameters";
             return false;
         }
     } else if (scenario == "raw-bgfx-geometry") {
         if (!has_fields(parameters, {"rect_count", "rect_scale"}) ||
             !unsigned_integer(parameters, "rect_count") || !numeric(parameters, "rect_scale") ||
-            parameters["rect_count"].get<uint64_t>() > kMaxReferenceRects ||
+            (*core::json_access::get<uint64_t>(parameters["rect_count"])) > kMaxReferenceRects ||
             !valid_geometry_parameters(
-                static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>()),
-                parameters["rect_scale"].get<double>())) {
+                static_cast<uint32_t>(
+                    (*core::json_access::get<uint64_t>(parameters["rect_count"]))),
+                (*core::json_access::get<double>(parameters["rect_scale"])))) {
             reason = "invalid geometry reference parameters";
             return false;
         }
@@ -450,9 +464,9 @@ bool decode_configuration(std::string_view source, Options& options, std::string
             !numeric(parameters, "target_scale") || !unsigned_integer(parameters, "msaa_samples") ||
             !parameters["transparent_overlay"].is_boolean() ||
             !unsigned_integer(parameters, "texture_size") || !numeric(parameters, "coverage") ||
-            parameters["composite_passes"].get<uint64_t>() > 4 ||
-            parameters["msaa_samples"].get<uint64_t>() > 4 ||
-            parameters["texture_size"].get<uint64_t>() > 2048) {
+            (*core::json_access::get<uint64_t>(parameters["composite_passes"])) > 4 ||
+            (*core::json_access::get<uint64_t>(parameters["msaa_samples"])) > 4 ||
+            (*core::json_access::get<uint64_t>(parameters["texture_size"])) > 2048) {
             reason = "invalid composition reference parameters";
             return false;
         }
@@ -471,11 +485,11 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         }
         if ((variable && (!unsigned_integer(parameters, "draw_calls") ||
                           !unsigned_integer(parameters, "quad_count") ||
-                          parameters["draw_calls"].get<uint64_t>() > 1024 ||
-                          parameters["quad_count"].get<uint64_t>() > 512)) ||
+                          (*core::json_access::get<uint64_t>(parameters["draw_calls"])) > 1024 ||
+                          (*core::json_access::get<uint64_t>(parameters["quad_count"])) > 512)) ||
             ((variable || textured) &&
              (!unsigned_integer(parameters, "texture_size") || !numeric(parameters, "coverage") ||
-              parameters["texture_size"].get<uint64_t>() > 2048)) ||
+              (*core::json_access::get<uint64_t>(parameters["texture_size"])) > 2048)) ||
             (scaled && !numeric(parameters, "target_scale"))) {
             reason = "invalid raw workload parameter values";
             return false;
@@ -504,99 +518,124 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         reason = "invalid benchmark configuration settings";
         return false;
     }
-    const uint64_t width = settings["width"].get<uint64_t>();
-    const uint64_t height = settings["height"].get<uint64_t>();
-    const uint64_t repeats = settings["repeats"].get<uint64_t>();
+    const uint64_t width = (*core::json_access::get<uint64_t>(settings["width"]));
+    const uint64_t height = (*core::json_access::get<uint64_t>(settings["height"]));
+    const uint64_t repeats = (*core::json_access::get<uint64_t>(settings["repeats"]));
     if (width > 8192 || height > 8192 || repeats > 20) {
         reason = "benchmark configuration exceeds supported limits";
         return false;
     }
     Options next;
     next.scenario = scenario;
-    next.clock_policy = root["clock_policy"].get<std::string>();
+    next.clock_policy = (*core::json_access::get<std::string>(root["clock_policy"]));
     if (is_native_2d_scenario(scenario)) {
-        next.native_quads = static_cast<uint32_t>(parameters["geometry_quads"].get<uint64_t>());
-        next.native_glyphs = static_cast<uint32_t>(parameters["glyphs"].get<uint64_t>());
+        next.native_quads = static_cast<uint32_t>(
+            (*core::json_access::get<uint64_t>(parameters["geometry_quads"])));
+        next.native_glyphs =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["glyphs"])));
         next.native_texture_size =
-            static_cast<uint32_t>(parameters["texture_edge"].get<uint64_t>());
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["texture_edge"])));
     }
     if (is_shader_scenario(scenario)) {
-        next.native_quads = static_cast<uint32_t>(parameters["geometry_quads"].get<uint64_t>());
+        next.native_quads = static_cast<uint32_t>(
+            (*core::json_access::get<uint64_t>(parameters["geometry_quads"])));
         next.native_texture_size =
-            static_cast<uint32_t>(parameters["texture_edge"].get<uint64_t>());
-        next.composition_path = parameters["composition_path"].get<std::string>();
-        next.composite_passes = static_cast<uint32_t>(parameters["passes"].get<uint64_t>());
-        next.shader_tint = parameters["tint"].get<double>();
-        next.shader_scope = parameters["scope"].get<std::string>();
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["texture_edge"])));
+        next.composition_path =
+            (*core::json_access::get<std::string>(parameters["composition_path"]));
+        next.composite_passes =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["passes"])));
+        next.shader_tint = (*core::json_access::get<double>(parameters["tint"]));
+        next.shader_scope = (*core::json_access::get<std::string>(parameters["scope"]));
     }
     if (is_cpu_scenario(scenario) || is_asset_scenario(scenario))
-        next.cpu_work_units = static_cast<uint32_t>(parameters["work_units"].get<uint64_t>());
+        next.cpu_work_units =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["work_units"])));
     if (is_asset_scenario(scenario))
-        next.asset_cache = parameters["cache"].get<std::string>();
+        next.asset_cache = (*core::json_access::get<std::string>(parameters["cache"]));
     if (scenario == "engine-feature-lab")
-        next.feature_lab_package = parameters["package_path"].get<std::string>();
+        next.feature_lab_package =
+            (*core::json_access::get<std::string>(parameters["package_path"]));
     if (is_ui_effects_scenario(scenario)) {
-        next.ui_clipping = static_cast<uint32_t>(parameters["clipping"].get<uint64_t>());
-        next.ui_transforms = static_cast<uint32_t>(parameters["transforms"].get<uint64_t>());
-        next.ui_gradients = static_cast<uint32_t>(parameters["gradients"].get<uint64_t>());
-        next.ui_filters = static_cast<uint32_t>(parameters["filters"].get<uint64_t>());
-        next.ui_masks = static_cast<uint32_t>(parameters["masks"].get<uint64_t>());
-        next.ui_nested_layers = static_cast<uint32_t>(parameters["nested_layers"].get<uint64_t>());
+        next.ui_clipping =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["clipping"])));
+        next.ui_transforms =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["transforms"])));
+        next.ui_gradients =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["gradients"])));
+        next.ui_filters =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["filters"])));
+        next.ui_masks =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["masks"])));
+        next.ui_nested_layers =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["nested_layers"])));
     }
     if (is_ui_scaling_scenario(scenario)) {
-        next.ui_elements = static_cast<uint32_t>(parameters["elements"].get<uint64_t>());
-        next.ui_text_lines = static_cast<uint32_t>(parameters["text_lines"].get<uint64_t>());
-        next.ui_dynamic_lines = static_cast<uint32_t>(parameters["dynamic_lines"].get<uint64_t>());
-        next.ui_visible_contexts =
-            static_cast<uint32_t>(parameters["visible_contexts"].get<uint64_t>());
-        next.ui_empty_contexts =
-            static_cast<uint32_t>(parameters["empty_contexts"].get<uint64_t>());
-        next.ui_hidden_contexts =
-            static_cast<uint32_t>(parameters["hidden_contexts"].get<uint64_t>());
-        next.ui_text_mode = parameters["text_mode"].get<std::string>();
-        next.ui_redraw = parameters["redraw"].get<std::string>();
+        next.ui_elements =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["elements"])));
+        next.ui_text_lines =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["text_lines"])));
+        next.ui_dynamic_lines =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["dynamic_lines"])));
+        next.ui_visible_contexts = static_cast<uint32_t>(
+            (*core::json_access::get<uint64_t>(parameters["visible_contexts"])));
+        next.ui_empty_contexts = static_cast<uint32_t>(
+            (*core::json_access::get<uint64_t>(parameters["empty_contexts"])));
+        next.ui_hidden_contexts = static_cast<uint32_t>(
+            (*core::json_access::get<uint64_t>(parameters["hidden_contexts"])));
+        next.ui_text_mode = (*core::json_access::get<std::string>(parameters["text_mode"]));
+        next.ui_redraw = (*core::json_access::get<std::string>(parameters["redraw"]));
     }
     if (scenario == "raw-bgfx-geometry") {
-        next.rect_count = static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>());
-        next.rect_scale = parameters["rect_scale"].get<double>();
+        next.rect_count =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["rect_count"])));
+        next.rect_scale = (*core::json_access::get<double>(parameters["rect_scale"]));
     }
     if (scenario == "raw-bgfx-offscreen")
-        next.target_scale = parameters["target_scale"].get<double>();
+        next.target_scale = (*core::json_access::get<double>(parameters["target_scale"]));
     if (scenario == "raw-bgfx-composition") {
-        next.composition_path = parameters["composition_path"].get<std::string>();
-        next.composite_passes =
-            static_cast<uint32_t>(parameters["composite_passes"].get<uint64_t>());
-        next.target_scale = parameters["target_scale"].get<double>();
-        next.msaa_samples = static_cast<uint32_t>(parameters["msaa_samples"].get<uint64_t>());
-        next.transparent_overlay = parameters["transparent_overlay"].get<bool>();
+        next.composition_path =
+            (*core::json_access::get<std::string>(parameters["composition_path"]));
+        next.composite_passes = static_cast<uint32_t>(
+            (*core::json_access::get<uint64_t>(parameters["composite_passes"])));
+        next.target_scale = (*core::json_access::get<double>(parameters["target_scale"]));
+        next.msaa_samples =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["msaa_samples"])));
+        next.transparent_overlay =
+            (*core::json_access::get<bool>(parameters["transparent_overlay"]));
     }
     if (scenario == "raw-bgfx-draw-calls") {
-        next.draw_calls = static_cast<uint32_t>(parameters["draw_calls"].get<uint64_t>());
-        next.quad_count = static_cast<uint32_t>(parameters["quad_count"].get<uint64_t>());
+        next.draw_calls =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["draw_calls"])));
+        next.quad_count =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["quad_count"])));
     }
     if (scenario == "raw-bgfx-draw-calls" || scenario == "raw-bgfx-textured" ||
         scenario == "raw-bgfx-offscreen" || scenario == "raw-bgfx-composition") {
-        next.texture_size = static_cast<uint32_t>(parameters["texture_size"].get<uint64_t>());
-        next.coverage = parameters["coverage"].get<double>();
+        next.texture_size =
+            static_cast<uint32_t>((*core::json_access::get<uint64_t>(parameters["texture_size"])));
+        next.coverage = (*core::json_access::get<double>(parameters["coverage"]));
     }
     next.width = static_cast<int>(width);
     next.height = static_cast<int>(height);
-    next.warmup_seconds = settings["warmup_seconds"].get<double>();
-    next.duration_seconds = settings["measurement_seconds"].get<double>();
-    next.measurement_frames = settings["measurement_frames"].get<uint64_t>();
+    next.warmup_seconds = (*core::json_access::get<double>(settings["warmup_seconds"]));
+    next.duration_seconds = (*core::json_access::get<double>(settings["measurement_seconds"]));
+    next.measurement_frames = (*core::json_access::get<uint64_t>(settings["measurement_frames"]));
     next.repeats = static_cast<uint32_t>(repeats);
-    next.ready_timeout_seconds = settings["ready_timeout_seconds"].get<double>();
-    next.raw_samples = settings["raw_samples"].get<bool>();
-    next.profile = settings["profile"].get<std::string>();
-    next.no_ui = settings["no_ui"].get<bool>();
-    next.quick_suite = settings["quick_suite"].get<bool>();
-    next.vsync = settings["vsync"].get<bool>();
-    next.native_resolution = settings["native_resolution"].get<bool>();
-    next.output_path = settings["output"].get<std::string>();
-    next.capacity_dimension = settings["capacity_dimension"].get<std::string>();
-    next.capacity_target = settings["capacity_target"].get<std::string>();
-    next.capacity_threshold = settings["capacity_threshold"].get<double>();
-    next.capacity_mode = settings["capacity_mode"].get<std::string>();
+    next.ready_timeout_seconds =
+        (*core::json_access::get<double>(settings["ready_timeout_seconds"]));
+    next.raw_samples = (*core::json_access::get<bool>(settings["raw_samples"]));
+    next.profile = (*core::json_access::get<std::string>(settings["profile"]));
+    next.no_ui = (*core::json_access::get<bool>(settings["no_ui"]));
+    next.quick_suite = (*core::json_access::get<bool>(settings["quick_suite"]));
+    next.vsync = (*core::json_access::get<bool>(settings["vsync"]));
+    next.native_resolution = (*core::json_access::get<bool>(settings["native_resolution"]));
+    next.output_path = (*core::json_access::get<std::string>(settings["output"]));
+    next.capacity_dimension =
+        (*core::json_access::get<std::string>(settings["capacity_dimension"]));
+    next.capacity_target = (*core::json_access::get<std::string>(settings["capacity_target"]));
+    next.capacity_threshold = (*core::json_access::get<double>(settings["capacity_threshold"]));
+    next.capacity_mode = (*core::json_access::get<std::string>(settings["capacity_mode"]));
     if (!root["alternate"].is_null()) {
         if (!root["alternate"].is_object()) {
             reason = "alternate comparison configuration must be an object or null";

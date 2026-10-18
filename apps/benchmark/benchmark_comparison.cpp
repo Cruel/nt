@@ -1,4 +1,5 @@
 #include "benchmark_comparison.hpp"
+#include "noveltea/core/json_access.hpp"
 #include "benchmark_report.hpp"
 
 #include <algorithm>
@@ -23,13 +24,14 @@ bool fields(const Json& object, std::initializer_list<const char*> keys)
 
 bool finite_nonnegative(const Json& number)
 {
-    return number.is_number() && std::isfinite(number.get<double>()) && number.get<double>() >= 0.0;
+    return number.is_number() && std::isfinite((*core::json_access::get<double>(number))) &&
+           (*core::json_access::get<double>(number)) >= 0.0;
 }
 
 bool unsigned_count(const Json& number)
 {
     return number.is_number_integer() &&
-           (number.is_number_unsigned() || number.get<int64_t>() >= 0);
+           (number.is_number_unsigned() || (*core::json_access::get<int64_t>(number)) >= 0);
 }
 
 bool valid_raw_samples(const Json& samples)
@@ -68,7 +70,7 @@ bool count_matches(const Json& distribution, uint64_t count)
 {
     return count == 0 ? distribution.is_null()
                       : distribution.is_object() && valid_distribution(distribution) &&
-                            distribution["samples"].get<uint64_t>() == count;
+                            (*core::json_access::get<uint64_t>(distribution["samples"])) == count;
 }
 
 bool valid_trial_group(const Json& group, uint64_t completed, const Json& trials,
@@ -78,7 +80,7 @@ bool valid_trial_group(const Json& group, uint64_t completed, const Json& trials
                         "trial_wall_p95_ms", "trial_cpu_p95_ms", "trial_wall_p99_ms",
                         "trial_cpu_p99_ms"}) ||
         !unsigned_count(group["completed_trials"]) ||
-        group["completed_trials"].get<uint64_t>() != completed)
+        (*core::json_access::get<uint64_t>(group["completed_trials"])) != completed)
         return false;
     for (const auto* metric : {"trial_wall_medians_ms", "trial_cpu_medians_ms", "trial_wall_p95_ms",
                                "trial_cpu_p95_ms", "trial_wall_p99_ms", "trial_cpu_p99_ms"}) {
@@ -92,8 +94,8 @@ bool valid_trial_group(const Json& group, uint64_t completed, const Json& trials
         std::vector<FrameSample> observations;
         for (const auto& trial : trials)
             if (trial["outcome"] == "complete" && trial["arm"] == arm) {
-                const double ms =
-                    trial[wall ? "frame_wall_ms" : "cpu_operation_ms"][percentile].get<double>();
+                const double ms = (*core::json_access::get<double>(
+                    trial[wall ? "frame_wall_ms" : "cpu_operation_ms"][percentile]));
                 observations.push_back({ms / 1000.0, 0.0});
             }
         const auto expected = summarize(observations, true);
@@ -101,7 +103,7 @@ bool valid_trial_group(const Json& group, uint64_t completed, const Json& trials
             continue;
         const auto& recorded = group[metric];
         const auto equal = [&](const char* key, double value) {
-            const double actual = recorded[key].get<double>();
+            const double actual = (*core::json_access::get<double>(recorded[key]));
             return std::abs(actual - value) <=
                    1e-7 * std::max({1.0, std::abs(value), std::abs(actual)});
         };
@@ -116,7 +118,8 @@ bool valid_trial_group(const Json& group, uint64_t completed, const Json& trials
 
 bool valid_percentage(const Json& value)
 {
-    return value.is_null() || (value.is_number() && std::isfinite(value.get<double>()));
+    return value.is_null() ||
+           (value.is_number() && std::isfinite((*core::json_access::get<double>(value))));
 }
 
 bool valid_warnings(const Json& warnings)
@@ -184,7 +187,8 @@ bool valid_diagnostic(const Json& value)
         return false;
     for (const auto* field : {"stats_scope", "gpu_scope", "view_scope", "engine_scope",
                               "rmlui_scope", "ui_fixture_scope", "stage_additivity"})
-        if (!value[field].is_string() || value[field].get<std::string>().empty())
+        if (!value[field].is_string() ||
+            (*core::json_access::get<std::string>(value[field])).empty())
             return false;
     for (const auto* field :
          {"cpu_update_ms", "cpu_submission_ms", "rmlui_update_ms", "rmlui_render_ms",
@@ -224,7 +228,7 @@ bool valid_graphics(const Json& value)
     for (const auto* key :
          {"video_decode_backend", "video_decode_fallback", "video_upload_pipeline"})
         if (!value[key].is_null() &&
-            (!value[key].is_string() || value[key].get<std::string>().empty()))
+            (!value[key].is_string() || (*core::json_access::get<std::string>(value[key])).empty()))
             return false;
     if (!value["video_hardware_decode_confirmed"].is_null() &&
         !value["video_hardware_decode_confirmed"].is_boolean())
@@ -280,8 +284,8 @@ void add_metric(ReportComparison& result, const std::string& scenario, const cha
 {
     if (left.is_null() || right.is_null())
         return;
-    const double a = left[field].get<double>();
-    const double b = right[field].get<double>();
+    const double a = (*core::json_access::get<double>(left[field]));
+    const double b = (*core::json_access::get<double>(right[field]));
     ComparisonMetric metric;
     metric.scenario = scenario;
     metric.name = name;
@@ -290,10 +294,10 @@ void add_metric(ReportComparison& result, const std::string& scenario, const cha
     metric.delta = b - a;
     if (a != 0.0)
         metric.percent = 100.0 * (b - a) / a;
-    metric.baseline_stddev = left["standard_deviation_ms"].get<double>();
-    metric.candidate_stddev = right["standard_deviation_ms"].get<double>();
-    metric.baseline_samples = left["samples"].get<uint64_t>();
-    metric.candidate_samples = right["samples"].get<uint64_t>();
+    metric.baseline_stddev = (*core::json_access::get<double>(left["standard_deviation_ms"]));
+    metric.candidate_stddev = (*core::json_access::get<double>(right["standard_deviation_ms"]));
+    metric.baseline_samples = (*core::json_access::get<uint64_t>(left["samples"]));
+    metric.candidate_samples = (*core::json_access::get<uint64_t>(right["samples"]));
     result.metrics.push_back(std::move(metric));
 }
 
@@ -351,7 +355,7 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             error = "invalid scenario or graphics metadata";
             return false;
         }
-        const auto id = scenario["id"].get<std::string>();
+        const auto id = (*core::json_access::get<std::string>(scenario["id"]));
         const auto& graphics = scenario["graphics"];
         if (scenario["outcome"] == "complete" && (is_asset_scenario(id) || is_video_scenario(id)) &&
             !graphics.is_object()) {
@@ -459,7 +463,8 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
             for (const auto* metric : {"wall_delta_percent", "cpu_delta_percent",
                                        "wall_drift_percent", "cpu_drift_percent"})
                 if (!detail[metric].is_null() &&
-                    (!detail[metric].is_number() || !std::isfinite(detail[metric].get<double>()))) {
+                    (!detail[metric].is_number() ||
+                     !std::isfinite((*core::json_access::get<double>(detail[metric]))))) {
                     error = "invalid A/B/A percentage";
                     return false;
                 }
@@ -514,7 +519,7 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                     return false;
                 }
             if (trial["interrupted_attempts"].size() !=
-                trial["interruption_retries"].get<uint64_t>()) {
+                (*core::json_access::get<uint64_t>(trial["interruption_retries"]))) {
                 error = "inconsistent retry metadata";
                 return false;
             }
@@ -528,7 +533,8 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                 error = "CPU trial must report batch throughput without frame cadence";
                 return false;
             }
-            const uint64_t count = complete ? trial["measured_frames"].get<uint64_t>() : 0;
+            const uint64_t count =
+                complete ? (*core::json_access::get<uint64_t>(trial["measured_frames"])) : 0;
             if ((complete && count == 0) || !count_matches(trial["frame_wall_ms"], count) ||
                 !count_matches(trial["cpu_operation_ms"], count) ||
                 (!trial["raw_samples"].is_null() &&
@@ -540,18 +546,19 @@ bool decode_imported_report(std::string_view source, std::string name, ImportedR
                 ++(trial["arm"] == "B" ? completed_b : completed_a);
                 frames += count;
                 if (!finite_nonnegative(trial["measured_wall_seconds"]) ||
-                    trial["measured_wall_seconds"].get<double>() <= 0.0) {
+                    (*core::json_access::get<double>(trial["measured_wall_seconds"])) <= 0.0) {
                     error = "completed trial lacks elapsed wall time";
                     return false;
                 }
-                wall_seconds += trial["measured_wall_seconds"].get<double>();
+                wall_seconds += (*core::json_access::get<double>(trial["measured_wall_seconds"]));
             }
             ++ordinal;
         }
         const uint64_t completed = completed_a + completed_b;
         const uint64_t expected = static_cast<uint64_t>(config.repeats) * (alternating ? 3u : 1u);
-        if (frames != aggregate["measured_frames"].get<uint64_t>() ||
-            !near_seconds(wall_seconds, aggregate["measured_wall_seconds"].get<double>()) ||
+        if (frames != (*core::json_access::get<uint64_t>(aggregate["measured_frames"])) ||
+            !near_seconds(wall_seconds,
+                          (*core::json_access::get<double>(aggregate["measured_wall_seconds"]))) ||
             !count_matches(aggregate["frame_wall_ms"], frames) ||
             !count_matches(aggregate["cpu_operation_ms"], frames) ||
             scenario["trials"].size() > expected ||
@@ -630,7 +637,7 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
         mismatch(result, key, ac["settings"], bc["settings"], key);
     }
     for (const auto& scenario : a["scenarios"]) {
-        const auto id = scenario["id"].get<std::string>();
+        const auto id = (*core::json_access::get<std::string>(scenario["id"]));
         const auto* other = by_id(b["scenarios"], id);
         if (!other) {
             result.controlled = false;
@@ -711,7 +718,7 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
         for (const auto* label : {"baseline", "candidate"}) {
             const auto& measured = std::string_view(label) == "baseline" ? scenario : *other;
             for (const auto& trial : measured["trials"]) {
-                if (trial["interruption_retries"].get<uint64_t>() > 0) {
+                if ((*core::json_access::get<uint64_t>(trial["interruption_retries"])) > 0) {
                     result.warnings.push_back(id + ": " + label +
                                               " required interruption recovery / fresh warmup");
                     break;
@@ -725,12 +732,13 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
                     return;
                 const auto& detail = source["alternating"];
                 for (const auto& warning : detail["warnings"]) {
-                    result.warnings.push_back(id + ": " + label +
-                                              " A/B/A: " + warning.get<std::string>());
+                    result.warnings.push_back(id + ": " + label + " A/B/A: " +
+                                              (*core::json_access::get<std::string>(warning)));
                     result.controlled = false;
                 }
                 for (const auto* drift : {"wall_drift_percent", "cpu_drift_percent"}) {
-                    if (!detail[drift].is_null() && std::abs(detail[drift].get<double>()) > 10.0) {
+                    if (!detail[drift].is_null() &&
+                        std::abs((*core::json_access::get<double>(detail[drift]))) > 10.0) {
                         result.controlled = false;
                         result.warnings.push_back(id + ": " + label + " " + drift + " exceeds 10%");
                     }
@@ -762,8 +770,8 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
                 return;
             const auto& detail = source["repeated"];
             for (const auto& warning : detail["warnings"]) {
-                result.warnings.push_back(id + ": " + label +
-                                          " repeated trials: " + warning.get<std::string>());
+                result.warnings.push_back(id + ": " + label + " repeated trials: " +
+                                          (*core::json_access::get<std::string>(warning)));
                 result.controlled = false;
             }
         };
@@ -777,8 +785,9 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
                            right, field);
             if (!left.is_null() && !right.is_null()) {
                 const auto noisy = [](const Json& v) {
-                    return v["mean_ms"].get<double>() > 0.0 &&
-                           v["standard_deviation_ms"].get<double>() / v["mean_ms"].get<double>() >
+                    return (*core::json_access::get<double>(v["mean_ms"])) > 0.0 &&
+                           (*core::json_access::get<double>(v["standard_deviation_ms"])) /
+                                   (*core::json_access::get<double>(v["mean_ms"])) >
                                0.15;
                 };
                 if (noisy(left) || noisy(right))
@@ -788,10 +797,10 @@ ReportComparison compare_reports(const ImportedReport& baseline, const ImportedR
         }
     }
     for (const auto& scenario : b["scenarios"])
-        if (!by_id(a["scenarios"], scenario["id"].get<std::string>())) {
+        if (!by_id(a["scenarios"], (*core::json_access::get<std::string>(scenario["id"])))) {
             result.controlled = false;
             result.warnings.push_back("Scenario absent from baseline: " +
-                                      scenario["id"].get<std::string>());
+                                      (*core::json_access::get<std::string>(scenario["id"])));
         }
     if (result.metrics.empty()) {
         result.controlled = false;
@@ -838,7 +847,7 @@ bool decode_dashboard_preferences(std::string_view source, DashboardPreferences&
             error = "invalid named preset";
             return false;
         }
-        const auto name = value["name"].get<std::string>();
+        const auto name = (*core::json_access::get<std::string>(value["name"]));
         if (!valid_name(name) || !names.insert(name).second) {
             error = "invalid or duplicate preset name";
             return false;
