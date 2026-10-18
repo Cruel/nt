@@ -646,6 +646,16 @@ export const nativeProjectValidateArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
 ]);
+export const nativeProjectReconcileArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.union([
+    z.literal('project'),
+    z.literal('editor'),
+    z.literal('traits'),
+    z.string().max(128).regex(/^(?:animations|archetypes|assets|characters|dialogues|interactables|interactions|layouts|maps|materials|rooms|scenes|scripts|tests|variables|verbs|i18n)\/[a-z][a-z0-9-]*$/u),
+  ]),
+]);
 export const nativeProjectPrepareRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
