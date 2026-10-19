@@ -279,13 +279,22 @@ export async function runNovelTeaCli(
       );
       if (nativeShaders) return nativeShaders;
     }
-    const { runNativeProjectLifecycleCli } = await import('./native-project-lifecycle-cli');
-    const nativeLifecycle = await runNativeProjectLifecycleCli(
-      globals,
-      cwd,
-      options.nativeProjectCommands,
-    );
-    if (nativeLifecycle) return nativeLifecycle;
+    // Native portable Project export is disk-backed. A heavy daemon owner must first admit
+    // the generation, and its pinned worker must use the exact-live-input bundle contract
+    // rather than silently packaging newer source files from disk.
+    const pinnedPortableExport =
+      globals.command[0] === 'project' &&
+      globals.command[1] === 'export' &&
+      options.trustPinnedResidentSnapshot === true;
+    if (!options.prepareResidentSnapshotOnly && !pinnedPortableExport) {
+      const { runNativeProjectLifecycleCli } = await import('./native-project-lifecycle-cli');
+      const nativeLifecycle = await runNativeProjectLifecycleCli(
+        globals,
+        cwd,
+        options.nativeProjectCommands,
+      );
+      if (nativeLifecycle) return nativeLifecycle;
+    }
     const { runNativeProjectReadsCli } = await import('./native-project-reads-cli');
     const nativeRead = await runNativeProjectReadsCli(globals, cwd, options.nativeProjectCommands);
     if (nativeRead) return nativeRead;
