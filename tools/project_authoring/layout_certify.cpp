@@ -124,9 +124,9 @@ void certify(const std::filesystem::path& source)
     // YAML metadata location, while their logical pointer remains editable.
     write(markup, "<div>fragment body</div>\n");
     layout = RoomSession::open_record(fixture.root, "layouts", "notice-board", error);
-    require(layout && !layout->snapshot().valid &&
+    require(layout && layout->snapshot().valid &&
                 has(layout->snapshot().diagnostics, "/data/rml/sourceText"),
-            "Document Layout requires document tags in its RML source");
+            "Document Layout missing document tags emits a nonblocking source warning");
     bool physical = false;
     for (const auto& issue : layout->snapshot().diagnostics)
         if (issue.path == "/data/rml/sourceText" &&

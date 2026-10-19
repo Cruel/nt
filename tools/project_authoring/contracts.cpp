@@ -1549,10 +1549,16 @@ ValidationResult validate_layout_source(std::string_view source_json,
                 add("/data/rml/sourceText", "Inline RML source cannot be empty.", physical);
             else if (normalized.at("layoutKind") == "fragment" &&
                      (has_tag("rml") || has_tag("head") || has_tag("body")))
-                add("/data/rml/sourceText", "Fragment RML cannot contain document tags.", physical);
+                result.diagnostics.push_back(
+                    {"/data/rml/sourceText", "layout.source",
+                     "Fragment layout RML should not include <rml>, <head>, or <body> tags.",
+                     "warning", physical});
             else if (normalized.at("layoutKind") == "document" &&
                      (!has_tag("rml") || !has_tag("body")))
-                add("/data/rml/sourceText", "Document RML requires rml and body tags.", physical);
+                result.diagnostics.push_back(
+                    {"/data/rml/sourceText", "layout.source",
+                     "Document layout RML should include an <rml> root and <body> tag.", "warning",
+                     physical});
         }
         const auto& rcss = normalized.at("rcss");
         if (rcss.at("sourceMode") == "inline" &&

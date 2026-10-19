@@ -98,8 +98,10 @@ void certify_owner_session_reuse()
                                 {"projectRoot", fixture.root.string()},
                                 {"collection", "rooms"},
                                 {"id", "native-cache-room"}});
-    require(added.value("ok", false) && added.value("nativeOwnerReused", false),
-            "The retained native Project admits a newly committed record without reopening.");
+    // A disk writer discards the retained read session. The next read must open the
+    // committed generation, never reuse the pre-mutation baseline.
+    require(added.value("ok", false) && !added.value("nativeOwnerReused", true),
+            "The native Project reopens after mutation and sees the newly committed record.");
 
     const auto manifest = fixture.root / "project.yaml";
     auto text = read(manifest);
@@ -1278,15 +1280,17 @@ void certify_shader_preparation(const std::filesystem::path& source)
     Fixture fixture(source);
     const auto root = fixture.root.string();
     const auto prepared = command({{"action", "shader-preparation"}, {"projectRoot", root}});
-    require(prepared.value("ok", false) && prepared.at("project").at("materials").is_object() &&
-                prepared.at("sourceOverlays").contains("shaders/lab-grade.fs.sc") &&
-                prepared.at("sourceRevisions").contains("project.yaml") &&
-                prepared.at("sourceRevisions").contains("shaders/lab-grade.fs.sc") &&
-                prepared.at("sourceRevisions").at("shaders/lab-grade.fs.sc") ==
-                    noveltea::authoring::exact_source_revision(
-                        prepared.at("sourceOverlays").at("shaders/lab-grade.fs.sc").get<std::string>()),
-            "Native shader preparation supplies effective Materials and captured source text: " +
-                prepared.dump().substr(0, 300));
+    require(
+        prepared.value("ok", false) && prepared.at("project").at("materials").is_object() &&
+            prepared.at("project").at("prefetchHints") == Json::object() &&
+            prepared.at("sourceOverlays").contains("shaders/lab-grade.fs.sc") &&
+            prepared.at("sourceRevisions").contains("project.yaml") &&
+            prepared.at("sourceRevisions").contains("shaders/lab-grade.fs.sc") &&
+            prepared.at("sourceRevisions").at("shaders/lab-grade.fs.sc") ==
+                noveltea::authoring::exact_source_revision(
+                    prepared.at("sourceOverlays").at("shaders/lab-grade.fs.sc").get<std::string>()),
+        "Native shader preparation supplies effective Materials and captured source text: " +
+            prepared.dump().substr(0, 300));
     const auto generation = prepared.at("sourceGeneration");
     const Json proof{{"action", "source-generation-proof"},
                      {"projectRoot", root},

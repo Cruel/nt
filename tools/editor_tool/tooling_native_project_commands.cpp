@@ -18,6 +18,7 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <regex>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -218,20 +219,43 @@ Json operate(const Json& request)
     for (const auto& diagnostic : validation.diagnostics) {
         // This is an editor-side authoring explanation, not a public CLI
         // diagnostic. Match the disk-validation CLI projection policy.
-        if (diagnostic.severity == "error" ||
+        const bool blocked_test_semantic = diagnostic.severity == "error" &&
+                                           diagnostic.path.starts_with("/tests/") &&
+                                           diagnostic.code == "authoring.test.steps-required";
+        if ((diagnostic.severity == "error" && !blocked_test_semantic) ||
             diagnostic.code == "authoring.interaction.selector-conditional")
             continue;
         // Public CLI diagnostics retain the established schema-family code
         // even where the native spatial validator has a shorter internal ID.
         const auto code = diagnostic.code == "room.description.empty"
                               ? "authoring.rooms.rooms.record.data.description"
-                              : diagnostic.code.c_str();
+                          : diagnostic.code == "layout.source" &&
+                                  diagnostic.path.ends_with("/data/rml/sourceText") &&
+                                  diagnostic.severity == "warning"
+                              ? "authoring.layouts.layouts.record.data.rml.sourcetext"
+                          : diagnostic.code == "authoring.test.preview-step"
+                              ? "authoring.tests.tests.record.data.preview.selectedstepid"
+                          : blocked_test_semantic ? "authoring.tests.tests.record.data.steps"
+                                                  : diagnostic.code.c_str();
         authoring_diagnostics.push_back({{"code", code},
                                          {"path", diagnostic.path},
                                          {"severity", diagnostic.severity},
                                          {"message", diagnostic.message}});
     }
     const auto effective = Json::parse(session->snapshot().normalized_json, nullptr, false);
+    if (effective.is_object() && effective.contains("project") &&
+        effective.at("project").is_object() && effective.at("project").contains("version") &&
+        effective.at("project").at("version").is_string()) {
+        const auto version =
+            trim_ecmascript(effective.at("project").at("version").get<std::string>());
+        static const std::regex semver(R"(^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$)");
+        if (!version.empty() && !std::regex_match(version, semver))
+            authoring_diagnostics.push_back(
+                {{"code", "authoring.project.version.semver-recommended"},
+                 {"path", "/project/version"},
+                 {"severity", "warning"},
+                 {"message", "Project version should use a semver-like value such as 0.1.0."}});
+    }
     if (validation.valid && effective.is_object() &&
         (!effective.contains("entrypoint") || effective.at("entrypoint").is_null())) {
         authoring_diagnostics.push_back({{"code", "authoring.entrypoint.missing"},
@@ -250,8 +274,16 @@ Json operate(const Json& request)
     if (action == "shader-preparation") {
         const auto prepared =
             session->prepare_complete_working(session->snapshot().working_revision);
-        if (!prepared.accepted)
-            return with_diagnostics(failure(prepared.error));
+        if (!prepared.accepted) {
+            auto result = with_diagnostics(failure(prepared.error));
+            result["projectDiagnostics"] = Json::array();
+            for (const auto& diagnostic : prepared.diagnostics)
+                result["projectDiagnostics"].push_back({{"code", diagnostic.code},
+                                                        {"path", diagnostic.path},
+                                                        {"severity", diagnostic.severity},
+                                                        {"message", diagnostic.message}});
+            return result;
+        }
         Json overlays = Json::object();
         Json source_revisions = Json::object();
         for (const auto& [relative, revision] : prepared.source_revisions) {
