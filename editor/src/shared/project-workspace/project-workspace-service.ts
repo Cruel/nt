@@ -627,7 +627,7 @@ const recordFile = (collection: AuthoringCollectionKey, id: string) => {
   return `${stem}.yaml`;
 };
 
-function sourceContributionOwnerPaths(
+export function sourceContributionOwnerPaths(
   file: string,
   scriptSourcePaths: Readonly<Record<string, string>>,
 ): readonly string[] {
@@ -1248,7 +1248,7 @@ export function projectWorkspaceSaveUnitFileOwnership(
   return ownershipFor(project, scriptSourcePaths);
 }
 
-function externalDescriptors(
+export function externalDescriptors(
   project: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   sourceTexts?: ReadonlyMap<string, string>,

@@ -24,10 +24,12 @@ import {
 } from '../../shared/project-workspace';
 import { ResidentProjectWorkspaceSession } from '../../shared/project-workspace/resident-project-workspace-session';
 import {
+  NativeResidentProjectAdmissionError,
   ResidentProjectWorkspaceService,
   type ResidentProjectAuthority,
   type ResidentProjectAuthorityObservation,
 } from '../../shared/project-workspace/resident-project-workspace-service';
+import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-validation';
 
 const ROOT = '/projects/resident-session';
 
@@ -2946,11 +2948,58 @@ describe('ResidentProjectWorkspaceSession', () => {
     ).toBe(false);
   });
 
+  it('reports native semantic admission failures without falling back to TypeScript Project loading', async () => {
+    const project = createAuthoringProject({ id: 'native-invalid', name: 'Native Invalid' });
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, text]) => [
+        `${ROOT}/${relative}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const authority = createProjectAuthorityProbe().authority;
+    const diagnostics = classifyProjectValidationDiagnostics(
+      [
+        {
+          severity: 'error',
+          code: 'authoring.project.invalid',
+          path: '/project/id',
+          message: 'Native Project identity could not be admitted.',
+        },
+      ],
+      { producer: 'authoring' },
+    );
+    const nativeOwner = new ResidentProjectWorkspaceService(
+      fileSystem,
+      (fs) => {
+        const workspace = new ProjectWorkspaceService(fs);
+        workspace.open = async () => {
+          throw new Error('TypeScript YAML reader must never be a native admission fallback.');
+        };
+        return workspace;
+      },
+      {
+        ...authority,
+        async prepareNativeProject() {
+          throw new NativeResidentProjectAdmissionError(diagnostics);
+        },
+        async proveNativeProject() {
+          throw new Error('A rejected native Project must never reach source proof.');
+        },
+      },
+    );
+    const result = await nativeOwner.open(ROOT);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('Invalid native Project was incorrectly accepted.');
+    expect(result.diagnostics).toEqual(diagnostics);
+    expect(nativeOwner.residentSessionCount()).toBe(0);
+  });
+
   it('transports native preparation in one pinned generation and rejects mismatched source revisions', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Pinned Native' });
     project.rooms.foyer = { id: 'foyer', label: 'Before', data: defaultRoomData('Before') };
     const shaderText = '#include "common.sh"\nvoid main() {}\n';
-    const includeText = '#define CAPTURED 1\n';
+    let includeText = '#define CAPTURED 1\n';
     const files = Object.fromEntries(
       Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
         `${ROOT}/${relativePath}`,
@@ -2963,7 +3012,17 @@ describe('ResidentProjectWorkspaceSession', () => {
     const probe = createProjectAuthorityProbe();
     probe.setManifestEntries([{ path: 'shaders/custom.fs.sc' }, { path: 'shaders/common.sh' }]);
     let admittedProject = structuredClone(project);
-    let revisions: Record<string, string> = {};
+    // The fixture's native admission is authoritative even if a competing reader would differ.
+    admittedProject.rooms.foyer.label = 'Native Normalization';
+    const revisions: Record<string, string> = Object.fromEntries(
+      Object.entries(files).map(([absolute, text]) => [
+        absolute.slice(ROOT.length + 1),
+        sha256PrefixedUtf8(text),
+      ]),
+    );
+    // The native tracked-source manifest includes explicitly absent retired JSON candidates.
+    revisions['project.json'] = 'absent';
+    revisions['assets/images/external.png'] = 'physical:268:-4645218520928355714';
     let proofAccepted = true;
     const sourceGeneration = `sha256:${'b'.repeat(64)}`;
     const prepareNativeProject = vi.fn(async () => ({
@@ -2988,17 +3047,25 @@ describe('ResidentProjectWorkspaceSession', () => {
         return proofAccepted;
       },
     };
-    const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, authority);
+    const owner = new ResidentProjectWorkspaceService(
+      fileSystem,
+      (raw) => {
+        const workspace = new ProjectWorkspaceService(raw);
+        workspace.open = async () => {
+          throw new Error('Native Project admission must not invoke the TypeScript YAML reader.');
+        };
+        return workspace;
+      },
+      authority,
+    );
     const opened = await owner.open(ROOT);
     expect(opened.ok).toBe(true);
     if (!opened.ok) throw new Error('Owner Project could not be opened.');
-    admittedProject = structuredClone(opened.snapshot.project);
-    revisions = Object.fromEntries(
-      Object.entries(opened.snapshot.fileRevisions).map(([relativePath, value]) => [
-        relativePath,
-        value.contentHash,
-      ]),
-    );
+    expect(opened.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    expect(opened.sourceContributions['records/rooms/foyer.yaml']?.ownerPaths).toEqual([
+      '/rooms/foyer',
+    ]);
+    expect(opened.sourceContributions['project.yaml']?.ownerPaths).toContain('/project');
 
     revisions['project.yaml'] = `sha256:${'0'.repeat(64)}`;
     expect(await owner.preparePortableSnapshot(ROOT)).toBeNull();
@@ -3008,6 +3075,20 @@ describe('ResidentProjectWorkspaceSession', () => {
     proofAccepted = true;
     const prepared = await owner.preparePortableSnapshot(ROOT);
     if (!prepared) throw new Error('Native Project generation was not prepared.');
+    const portable = JSON.parse(prepared.snapshotText) as {
+      snapshot: { project: { rooms: { foyer: { label: string } } } };
+      nativePreparation: {
+        sourceRevisions: Record<string, string>;
+      };
+    };
+    expect(portable.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    portable.nativePreparation.sourceRevisions['project.yaml'] = sha256PrefixedUtf8('corrupt');
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(portable),
+      ),
+    ).toBe(false);
 
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'After';
@@ -3020,11 +3101,56 @@ describe('ResidentProjectWorkspaceSession', () => {
     const disposable = new ResidentProjectWorkspaceService(fileSystem);
     expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
     const pinned = await disposable.pinnedPortableInputs(ROOT);
-    expect(pinned?.nativePreparation?.project.rooms.foyer.label).toBe('Before');
+    expect(pinned?.nativePreparation?.project.rooms.foyer.label).toBe('Native Normalization');
+    const hydrated = await disposable.open(ROOT);
+    expect(hydrated.ok).toBe(true);
+    if (!hydrated.ok) throw new Error('Pinned native Project was not hydrated.');
+    expect(hydrated.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
     expect(pinned?.nativePreparation?.sourceOverlays['shaders/common.sh']).toBe(includeText);
     expect(pinned?.nativePreparation?.sourceGeneration).toBe(sourceGeneration);
     expect(pinned?.projectTextSources['shaders/common.sh']?.text).toBe(includeText);
-    expect(prepareNativeProject).toHaveBeenCalledTimes(3);
+    expect(prepareNativeProject).toHaveBeenCalledTimes(4);
+
+    // A later owner promotion must leave the old disposable's native source text untouched.
+    const latest = structuredClone(changed);
+    admittedProject = latest;
+    revisions['records/rooms/foyer.yaml'] = sha256PrefixedUtf8(
+      projectWorkspaceFiles(changed, changed.editor)['records/rooms/foyer.yaml']!,
+    );
+    includeText = '#define CAPTURED 2\n';
+    revisions['shaders/common.sh'] = sha256PrefixedUtf8(includeText);
+    probe.change('records/rooms/foyer.yaml', 'shaders/common.sh');
+    await owner.reconcileResidentSessions();
+    const next = await owner.preparePortableSnapshot(ROOT);
+    if (!next) throw new Error('Native Project owner did not advance after external edits.');
+    expect(next.identity.generation).toBe(prepared.identity.generation + 1);
+    expect(JSON.parse(next.snapshotText).snapshot.project.rooms.foyer.label).toBe('After');
+    expect(pinned?.nativePreparation?.sourceOverlays['shaders/common.sh']).toBe(
+      '#define CAPTURED 1\n',
+    );
+
+    // A replacement owner has no trusted watcher baseline. An untracked/full-rescan
+    // observation must re-admit native disk state rather than serve its retained old snapshot.
+    const freshProbe = createProjectAuthorityProbe();
+    const replacement = new ResidentProjectWorkspaceService(fileSystem, undefined, {
+      ...freshProbe.authority,
+      prepareNativeProject,
+      proveNativeProject: authority.proveNativeProject,
+    });
+    expect(
+      await replacement.rehydratePortableSnapshot(
+        ROOT,
+        prepared.snapshotText,
+        prepared.ownerMetadataText,
+      ),
+    ).toBe(true);
+    const resumed = await replacement.open(ROOT);
+    expect(resumed.ok).toBe(true);
+    if (!resumed.ok) throw new Error('Native owner failed to reopen after replacement.');
+    expect(resumed.snapshot.project.rooms.foyer.label).toBe('After');
+    expect((await replacement.residentGenerationIdentity(ROOT))?.generation).toBe(
+      prepared.identity.generation + 1,
+    );
   });
 
   it('hydrates a pinned portable generation without admitting newer structural disk state', async () => {
@@ -3138,6 +3264,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     };
     const layout = defaultLayoutData('HUD', 'document');
     layout.dependencies.scripts = ['scripts/layout-helper.lua'];
+    layout.rml.sourceText = '<rml><body>Generation One</body></rml>';
+    layout.rcss.sourceText = 'body { color: white; }';
     project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
     const files = Object.fromEntries(
       Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
@@ -3149,6 +3277,12 @@ describe('ResidentProjectWorkspaceSession', () => {
     files[`${ROOT}/scripts/layout-helper.lua`] = 'return "generation-one-layout"\n';
     const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
     const probe = createProjectAuthorityProbe();
+    probe.setManifestEntries(
+      Object.keys(files)
+        .map((absolute) => absolute.slice(ROOT.length + 1))
+        .filter((relative) => /^records\/layouts\/hud\/layout\.(?:rml|rcss)$/u.test(relative))
+        .map((relative) => ({ path: relative })),
+    );
     const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
     const opened = await owner.open(ROOT);
     expect(opened.ok).toBe(true);
@@ -3160,6 +3294,10 @@ describe('ResidentProjectWorkspaceSession', () => {
     await fileSystem.writeTextAtomic(
       `${ROOT}/scripts/layout-helper.lua`,
       'return "generation-two-layout"\n',
+    );
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/records/layouts/hud/layout.rml`,
+      '<rml><body>Generation Two</body></rml>',
     );
 
     const disposable = new ResidentProjectWorkspaceService(fileSystem);
@@ -3174,6 +3312,12 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(inputs?.projectTextSources['scripts/layout-helper.lua']).toMatchObject({
       text: 'return "generation-one-layout"\n',
     });
+    expect(inputs?.projectTextSources['records/layouts/hud/layout.rml']?.text).toBe(
+      '<rml><body>Generation One</body></rml>',
+    );
+    expect(inputs?.projectTextSources['records/layouts/hud/layout.rcss']?.text).toBe(
+      'body { color: white; }',
+    );
   });
 
   it('pins distribution notice text in portable generations', async () => {

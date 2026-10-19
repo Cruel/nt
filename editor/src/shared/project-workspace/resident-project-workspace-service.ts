@@ -10,6 +10,8 @@ import { parseMaterialData } from '../project-schema/authoring-materials';
 import type { AuthoringProject } from '../project-schema/authoring-project';
 import { projectSettingsFromProject } from '../project-schema/authoring-project-settings';
 import { parseScriptModuleData } from '../project-schema/authoring-script-modules';
+import { classifyProjectValidationDiagnostics } from '../project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../project-schema/project-validation';
 import {
   stripEditorProjectState,
   type EditorProjectState,
@@ -24,12 +26,18 @@ import {
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import {
   assetSourcePaths,
+  externalDescriptors,
+  projectWorkspaceSaveUnitFileOwnership,
+  sourceContributionOwnerPaths,
   ProjectWorkspaceService,
   type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceDependencyAnalysis,
   type ProjectWorkspaceOpenOptions,
   type ProjectWorkspaceOpenResult,
   type ProjectWorkspaceSnapshot,
+  type ProjectWorkspaceFileRevision,
+  type ProjectWorkspaceSourceContributions,
+  type ProjectWorkspaceSourceWork,
   type ProjectWorkspaceWriteOptions,
 } from './project-workspace-service';
 import { ProjectWorkspaceMutationError } from './project-workspace-transaction';
@@ -244,6 +252,16 @@ export type NativeResidentProjectPreparation = Readonly<{
   }>[];
 }>;
 
+/** Semantic native admission rejection, distinguished from transport/protocol failure. */
+export class NativeResidentProjectAdmissionError extends Error {
+  constructor(readonly diagnostics: readonly ProjectValidationDiagnostic[]) {
+    super(
+      diagnostics.find((item) => item.severity === 'error')?.message ??
+        'Native Project preparation rejected authored sources.',
+    );
+  }
+}
+
 type PortableResidentProjectSnapshot = Readonly<{
   identity: ResidentProjectGenerationIdentity;
   snapshot: LoadedProjectWorkspaceSnapshot;
@@ -379,7 +397,13 @@ function nativePreparationValid(value: unknown): value is NativeResidentProjectP
     candidate !== null &&
     typeof candidate === 'object' &&
     !Array.isArray(candidate) &&
-    Object.entries(candidate).every(([key, text]) => key.length > 0 && typeof text === 'string');
+    Object.entries(candidate).every(
+      ([key, text]) =>
+        key.length > 0 &&
+        !key.includes('\\') &&
+        key.split('/').every((part) => part !== '' && part !== '.' && part !== '..') &&
+        typeof text === 'string',
+    );
   return (
     preparation.project !== null &&
     typeof preparation.project === 'object' &&
@@ -387,6 +411,12 @@ function nativePreparationValid(value: unknown): value is NativeResidentProjectP
     typeof preparation.sourceGeneration === 'string' &&
     /^sha256:[0-9a-f]{64}$/u.test(preparation.sourceGeneration) &&
     textMap(preparation.sourceRevisions) &&
+    Object.values(preparation.sourceRevisions as Record<string, string>).every(
+      (revision) =>
+        revision === 'absent' ||
+        /^sha256:[0-9a-f]{64}$/u.test(revision) ||
+        /^physical:[0-9]+:-?[0-9]+$/u.test(revision),
+    ) &&
     textMap(preparation.sourceOverlays) &&
     Array.isArray(preparation.cliDiagnostics) &&
     (preparation.cliDiagnostics as unknown[]).every(
@@ -633,11 +663,233 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     }
   }
 
+  /**
+   * Candidate disk owner: native validation/normalization is the only Project admission.
+   * TypeScript reads raw bytes to construct the portable source index, but never parses or
+   * validates the authored YAML. A generation is promoted only after the native proof and
+   * the resident physical-authority proof agree with every captured text revision.
+   */
+  private async openNativeCold(
+    canonicalRoot: string,
+    identity?: ResidentProjectGenerationIdentity,
+  ): Promise<ProjectWorkspaceOpenResult> {
+    const authority = this.nativeAuthority;
+    if (!authority?.prepareNativeProject || !authority.proveNativeProject)
+      throw new Error('Native Project owner preparation/proof is unavailable.');
+    await this.observeNativeAuthority(canonicalRoot, []);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let native: NativeResidentProjectPreparation;
+      try {
+        native = await authority.prepareNativeProject(canonicalRoot);
+      } catch (error) {
+        if (!(error instanceof NativeResidentProjectAdmissionError)) throw error;
+        return {
+          ok: false,
+          projectRoot: canonicalRoot,
+          manifestPath: this.residentFileSystem.joinPath(canonicalRoot, 'project.yaml'),
+          diagnostics: error.diagnostics,
+        };
+      }
+      if (!nativePreparationValid(native))
+        throw new Error('Native Project preparation returned invalid data.');
+      const sourcePaths = Object.keys(native.sourceRevisions)
+        .filter(
+          (name) =>
+            native.sourceRevisions[name] !== 'absent' &&
+            (name === 'project.yaml' ||
+              name === 'editor.yaml' ||
+              name === 'traits.yaml' ||
+              /^records\/.+\.(?:yaml|lua|rml|rcss)$/u.test(name) ||
+              /^scripts\/.+\.lua$/u.test(name) ||
+              /^i18n\/.+\.yaml$/u.test(name)),
+        )
+        .sort();
+      if (!sourcePaths.includes('project.yaml'))
+        throw new Error('Native Project preparation omitted its manifest source revision.');
+      const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
+      const sourceTexts = new Map<string, string>();
+      let raced = false;
+      for (const relativePath of sourcePaths) {
+        const expected = native.sourceRevisions[relativePath];
+        if (!expected || !/^sha256:[0-9a-f]{64}$/u.test(expected)) {
+          raced = true;
+          break;
+        }
+        try {
+          const bytes = await this.residentFileSystem.readBytes(
+            this.residentFileSystem.joinPath(canonicalRoot, relativePath),
+          );
+          if ((await sha256PrefixedBytes(bytes)) !== expected) {
+            raced = true;
+            break;
+          }
+          fileRevisions[relativePath] = {
+            contentHash: expected as `sha256:${string}`,
+            byteSize: bytes.byteLength,
+          };
+          sourceTexts.set(relativePath, new TextDecoder().decode(bytes).replace(/^\uFEFF/u, ''));
+        } catch {
+          raced = true;
+          break;
+        }
+      }
+      if (raced || !(await authority.proveNativeProject(canonicalRoot, native.sourceGeneration)))
+        continue;
+      const assets = Object.freeze(assetSourcePaths(native.project));
+      const observation = await this.observeNativeAuthority(canonicalRoot, assets);
+      if (semanticObservationDelta(observation).paths.length > 0 || !observation.unchanged)
+        continue;
+      const scriptSourcePaths = Object.fromEntries(
+        Object.entries(native.project.scripts).flatMap(([id, record]) => {
+          const source = parseScriptModuleData(record.data)?.source;
+          return source?.kind === 'project-file'
+            ? [[id, source.path]]
+            : sourcePaths.includes(`scripts/${id}.lua`)
+              ? [[id, `scripts/${id}.lua`]]
+              : [];
+        }),
+      );
+      const sourceContributions: Record<string, ProjectWorkspaceSourceContributions[string]> = {};
+      for (const [relativePath, text] of sourceTexts) {
+        const revision = fileRevisions[relativePath]!;
+        const base = {
+          path: relativePath,
+          contentHash: revision.contentHash,
+          byteSize: revision.byteSize,
+          schemaValid: true as const,
+          // Preserve the existing source-to-owner attribution for cache invalidation and
+          // mutations; only semantic admission and effective values come from native C++.
+          ownerPaths: sourceContributionOwnerPaths(relativePath, scriptSourcePaths),
+          localDiagnostics: [],
+        };
+        if (relativePath.endsWith('.yaml')) {
+          // The native effective Project is the semantic product. Retain the original authored
+          // YAML bytes for immutable source evidence without decoding them through the TS codec.
+          const record = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(relativePath);
+          const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(relativePath);
+          const family = record?.[1];
+          const id = record?.[2];
+          const nativeRecord =
+            family && id
+              ? (native.project as unknown as Record<string, Record<string, unknown>>)[family]?.[id]
+              : layout
+                ? native.project.layouts[layout[1]!]
+                : undefined;
+          sourceContributions[relativePath] = {
+            ...base,
+            kind: 'json',
+            parsed:
+              nativeRecord ??
+              (relativePath === 'traits.yaml'
+                ? native.project.traits
+                : relativePath === 'editor.yaml'
+                  ? native.project.editor
+                  : relativePath.startsWith('i18n/')
+                    ? native.project.localization
+                    : native.project),
+            sourceText: text,
+          };
+        } else {
+          sourceContributions[relativePath] = { ...base, kind: 'text', text };
+        }
+      }
+      const sourceWork: ProjectWorkspaceSourceWork = {
+        authoredFilesReread: sourcePaths.length,
+        parsedJsonSources: 0,
+        reusedJsonSources: 0,
+        readTextSources: sourceTexts.size,
+        reusedTextSources: 0,
+        projectedJsonSources: 0,
+        wholeProjectSchemaParses: 0,
+        fullProjectTraversals: 0,
+        fullProjectProjections: 0,
+        foregroundSerializations: 0,
+        foregroundSerializedBytes: 0,
+        localizationCoverageInputsChanged: true,
+        localizationCoverageDependencyRevision: native.sourceGeneration as `sha256:${string}`,
+      };
+      const snapshot: LoadedProjectWorkspaceSnapshot = Object.freeze({
+        snapshotKind: 'loaded',
+        projectRoot: canonicalRoot,
+        manifestPath: this.residentFileSystem.joinPath(canonicalRoot, 'project.yaml'),
+        project: native.project,
+        workspaceRevision: native.sourceGeneration as `sha256:${string}`,
+        sourceRevision: native.sourceGeneration as `sha256:${string}`,
+        canonicalSourceFiles: Object.freeze(sourcePaths),
+        fileRevisions: Object.freeze(fileRevisions),
+        saveUnitFileOwnership: projectWorkspaceSaveUnitFileOwnership(
+          native.project,
+          scriptSourcePaths,
+        ),
+        externalSourceDescriptors: externalDescriptors(
+          native.project,
+          scriptSourcePaths,
+          sourceTexts,
+        ),
+        scriptSourcePaths: Object.freeze(scriptSourcePaths),
+      });
+      const opened: SuccessfulOpen = {
+        ok: true,
+        snapshot,
+        diagnostics: classifyProjectValidationDiagnostics(native.cliDiagnostics, {
+          producer: 'authoring',
+        }),
+        editorState: native.project.editor,
+        repairs: [],
+        contentProject: stripEditorProjectState(native.project),
+        savedContentProject: stripEditorProjectState(native.project),
+        sourceContributions,
+        validationContributions: [],
+        validationWork: { executed: 0, reused: 0 },
+        sourceWork,
+      };
+      const session = ResidentProjectWorkspaceSession.fromOpenedWithHost(
+        opened,
+        {
+          fileSystem: this.residentFileSystem,
+          createWorkspaceService: this.createSessionWorkspace,
+        },
+        identity ??
+          (this.residentSessionEpoch === undefined
+            ? undefined
+            : { sessionEpoch: this.residentSessionEpoch, generation: 1 }),
+      );
+      // The native diagnostics are the admitted generation's semantic validation product.
+      // Preflight and compiler consumers must not fall back to a fresh TS authoring validation
+      // simply because this generation was created by a cold owner rather than hydrated.
+      await session.service().restoreReusableSnapshotState(opened);
+      const entry: ResidentEntry = {
+        canonicalRoot,
+        session,
+        immutablePinned: false,
+        authority: null,
+        pendingNativeSemanticPaths: new Set(),
+        pendingNativeStructuralChange: false,
+        pendingNativeExternalAssetChange: false,
+        pendingNativeExternalAssetPaths: new Set(),
+        nativeAssetSourcePaths: assets,
+        nativeAssetSourcePathSet: new Set(assets),
+        lastUsedAtMilliseconds: Date.now(),
+        portableSnapshot: null,
+        pinnedPhysicalAuthority: null,
+        pinnedExternalAssets: null,
+        pinnedProjectTextSources: null,
+        pinnedNativePreparation: null,
+      };
+      this.sessions.set(canonicalRoot, entry);
+      this.bindSnapshot(entry, snapshot);
+      return opened;
+    }
+    throw new Error('Project sources changed while preparing the native Project owner.');
+  }
+
   private async openCold(
     canonicalRoot: string,
     options: ProjectWorkspaceOpenOptions,
     identity?: ResidentProjectGenerationIdentity,
   ): Promise<ProjectWorkspaceOpenResult> {
+    if (this.nativeAuthority?.prepareNativeProject)
+      return this.openNativeCold(canonicalRoot, identity);
     const workspace = this.createSessionWorkspace(this.residentFileSystem);
     const admittedIdentity =
       identity ??
@@ -773,6 +1025,27 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     current: SuccessfulOpen,
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
+    if (this.nativeAuthority?.prepareNativeProject) {
+      const observation = await this.observeNativeAuthority(
+        entry.canonicalRoot,
+        entry.nativeAssetSourcePaths,
+      );
+      const delta = this.recordNativeObservation(entry, observation);
+      if (
+        observation.unchanged &&
+        !observation.fullRescan &&
+        delta.paths.length === 0 &&
+        !entry.pendingNativeExternalAssetChange &&
+        entry.pendingNativeSemanticPaths.size === 0 &&
+        !entry.pendingNativeStructuralChange
+      )
+        return current;
+      const previous = entry.session.generationIdentity();
+      return this.openNativeCold(entry.canonicalRoot, {
+        sessionEpoch: previous.sessionEpoch,
+        generation: previous.generation + 1,
+      });
+    }
     const admissionStart = Date.now();
     const pendingPaths = new Set([
       ...entry.pendingNativeSemanticPaths,
@@ -1526,10 +1799,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       this.residentFileSystem.resolvePath(projectRoot),
     );
     const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
-    if (!entry || entry.session.coherenceState() !== 'coherent') return null;
+    if (!entry || entry.session.coherenceState() !== 'coherent')
+      return rejectNative('no coherent entry');
     return entry.session.runExclusive(async () => {
       let opened = entry.session.openedGeneration();
-      if (!opened) return null;
+      if (!opened) return rejectNative('no opened generation');
 
       let externalAssets: PortableResidentProjectSnapshot['externalAssets'] = [];
       let physicalAuthority: PortableResidentProjectSnapshot['physicalAuthority'] = [];
@@ -1547,7 +1821,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           entry.pendingNativeExternalAssetChange
         ) {
           const reconciled = await this.reconcileNative(entry, opened, {});
-          if (!reconciled.ok || entry.session.coherenceState() !== 'coherent') return null;
+          if (!reconciled.ok || entry.session.coherenceState() !== 'coherent')
+            return rejectNative('native reconciliation failed during snapshot preparation');
           opened = reconciled;
 
           // Snapshot maintenance may be the operation that first consumed a watcher delta. Reprove
@@ -1564,12 +1839,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
             entry.pendingNativeSemanticPaths.size > 0 ||
             entry.pendingNativeStructuralChange
           )
-            return null;
+            return rejectNative('post reconcile physical authority changed');
         }
         if (entry.pendingNativeExternalAssetChange) {
           const previous = entry.session.snapshot();
           const advanced = entry.session.advanceAuthorityGeneration();
-          if (!advanced) return null;
+          if (!advanced) return rejectNative('external Asset authority generation unavailable');
           entry.pendingNativeExternalAssetChange = false;
           entry.session
             .service()
@@ -1611,7 +1886,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
 
       const portableTextPaths = new Set(portableProjectTextSourcePaths(opened.snapshot.project));
       for (const candidate of physicalAuthority)
-        if (/^scripts\/.+\.lua$/u.test(candidate.path) || candidate.path.startsWith('shaders/'))
+        if (
+          /^scripts\/.+\.lua$/u.test(candidate.path) ||
+          /^records\/layouts\/[^/]+\/layout\.(?:rml|rcss|lua)$/u.test(candidate.path) ||
+          candidate.path.startsWith('shaders/')
+        )
           portableTextPaths.add(candidate.path);
       const projectTextSources: Record<string, PortableResidentProjectTextSource> = {};
       for (const relativePath of [...portableTextPaths].sort()) {
@@ -1632,7 +1911,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
             text: new TextDecoder().decode(bytes).replace(/^\uFEFF/u, ''),
           });
         } catch {
-          return null;
+          return rejectNative(`cannot capture portable text source: ${relativePath}`);
         }
       }
       if (this.nativeAuthority) {
@@ -1642,7 +1921,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           true,
         );
         this.recordNativeObservation(entry, postSourceProof);
-        if (!postSourceProof.unchanged) return null;
+        if (!postSourceProof.unchanged)
+          return rejectNative('portable text source physical proof failed');
         physicalAuthority = Object.freeze([...postSourceProof.manifest.entries]);
         externalAssets = Object.freeze(
           postSourceProof.manifest.entries.filter((candidate) =>
@@ -1707,7 +1987,9 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
 
       const snapshot: PortableResidentProjectSnapshot = {
         identity,
-        snapshot: opened.snapshot,
+        snapshot: nativePreparation
+          ? { ...opened.snapshot, project: nativePreparation.project }
+          : opened.snapshot,
         editorState: opened.editorState,
         diagnostics: opened.diagnostics,
         sourceContributions: opened.sourceContributions,
@@ -1813,15 +2095,50 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     )
       return false;
 
+    if (portable.nativePreparation) {
+      const native = portable.nativePreparation;
+      if (
+        JSON.stringify(portable.snapshot.project) !== JSON.stringify(native.project) ||
+        portable.snapshot.projectRoot !== canonicalRoot ||
+        Object.entries(portable.snapshot.fileRevisions).some(
+          ([relativePath, revision]) =>
+            !revision || native.sourceRevisions[relativePath] !== revision.contentHash,
+        ) ||
+        Object.entries(native.sourceOverlays).some(
+          ([relativePath, source]) =>
+            portable.projectTextSources[relativePath]?.text !== source ||
+            portable.projectTextSources[relativePath]?.contentHash !==
+              native.sourceRevisions[relativePath],
+        )
+      )
+        return false;
+      for (const [relativePath, source] of Object.entries(native.sourceOverlays)) {
+        if (
+          (await sha256PrefixedBytes(new TextEncoder().encode(source))) !==
+          native.sourceRevisions[relativePath]
+        )
+          return false;
+      }
+    }
+
     try {
+      // Native-authoritative disposable generations take their effective Project from the
+      // owner's certified native preparation. The historical workspace projection is retained
+      // only for physical ownership/source bookkeeping during the candidate cutover.
+      const admittedSnapshot = portable.nativePreparation
+        ? ({
+            ...portable.snapshot,
+            project: portable.nativePreparation.project,
+          } as LoadedProjectWorkspaceSnapshot)
+        : portable.snapshot;
       const opened: SuccessfulOpen = {
         ok: true,
-        snapshot: portable.snapshot,
+        snapshot: admittedSnapshot,
         diagnostics: portable.diagnostics,
         editorState: portable.editorState,
         repairs: [],
-        contentProject: stripEditorProjectState(portable.snapshot.project),
-        savedContentProject: stripEditorProjectState(portable.snapshot.project),
+        contentProject: stripEditorProjectState(admittedSnapshot.project),
+        savedContentProject: stripEditorProjectState(admittedSnapshot.project),
         sourceContributions: portable.sourceContributions,
         validationContributions: portable.validationContributions,
         validationWork: portable.validationWork,
