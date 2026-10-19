@@ -128,6 +128,47 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
     return value;
   };
   return {
+    ...(process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
+    process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
+      ? {
+          async prepareNativeProject(projectRoot: string) {
+            const result = JSON.parse(
+              invokeResidentHost(
+                'native-project-commands',
+                JSON.stringify({ action: 'shader-preparation', projectRoot }),
+              ),
+            ) as Record<string, unknown>;
+            if (result.ok !== true)
+              throw new Error(
+                typeof result.error === 'string'
+                  ? result.error
+                  : 'Native Project preparation could not admit the resident generation.',
+              );
+            // The native command envelope contains transport bookkeeping (ok, reused owner).
+            // Persist only the exact immutable preparation contract into the generation.
+            return {
+              project: result.project,
+              sourceGeneration: result.sourceGeneration,
+              sourceRevisions: result.sourceRevisions,
+              sourceOverlays: result.sourceOverlays,
+              cliDiagnostics: result.cliDiagnostics,
+            } as import('../src/shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation;
+          },
+          async proveNativeProject(projectRoot: string, sourceGeneration: string) {
+            const result = JSON.parse(
+              invokeResidentHost(
+                'native-project-commands',
+                JSON.stringify({
+                  action: 'source-generation-proof',
+                  projectRoot,
+                  expectedSourceGeneration: sourceGeneration,
+                }),
+              ),
+            ) as Record<string, unknown>;
+            return result.ok === true;
+          },
+        }
+      : {}),
     async observe(request) {
       const value = JSON.parse(
         invokeResidentHost('daemon-project-observe', JSON.stringify(request)),
@@ -286,8 +327,7 @@ function createNativeTools(
           shaderProject,
           options: { ...nativeOptions, projectRoot },
         }) as Awaited<ReturnType<NovelTeaCliNativeToolService['compileShaders']>>;
-      if (!sourceOverlays || Object.keys(sourceOverlays).length === 0 || !nativeOptions.projectRoot)
-        return invokeCompile();
+      if (sourceOverlays === undefined || !nativeOptions.projectRoot) return invokeCompile();
 
       const overlayRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-pinned-shaders-'));
       try {
@@ -792,6 +832,9 @@ async function runNovelTeaScriptcIslandScoped(
   let pinnedProjectTextSources:
     | import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs['projectTextSources']
     | undefined;
+  let pinnedNativePreparation:
+    | import('../src/shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation
+    | null = null;
   let pinnedRuntimeBuildCacheInputs:
     | import('../src/shared/runtime-build-cache').PinnedRuntimeBuildCacheInputs
     | null
@@ -905,6 +948,7 @@ async function runNovelTeaScriptcIslandScoped(
           throw new Error('Pinned Project generation did not retain its decoded portable inputs.');
         pinnedExternalAssets = pinnedInputs.externalAssets;
         pinnedProjectTextSources = pinnedInputs.projectTextSources;
+        pinnedNativePreparation = pinnedInputs.nativePreparation;
         const { pinnedRuntimeBuildCacheInputsFromAuthority } =
           await import('../src/shared/runtime-build-cache');
         const openedPinned = await residentWorkspace.open(pinned.projectRoot);
@@ -1038,6 +1082,10 @@ async function runNovelTeaScriptcIslandScoped(
               pinnedExternalAssets,
               pinnedProjectTextSources,
               pinnedRuntimeBuildCacheInputs,
+              pinnedNativePreparation: {
+                projectRoot: invocationContext.pinnedProjectSnapshot.projectRoot,
+                preparation: pinnedNativePreparation,
+              },
             }
           : {}),
         onAuthoringValidationInstrumentation:

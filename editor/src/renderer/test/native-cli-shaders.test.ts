@@ -163,3 +163,69 @@ it('rejects invalid shader options before native Project admission', async () =>
   );
   expect(result?.exitCode).toBe(2);
 });
+
+it('uses only the owner-pinned native preparation in a disposable shader worker', async () => {
+  const projectRoot = await root();
+  const project = createAuthoringProject({ id: 'pinned-shaders', name: 'Pinned Shaders' });
+  const captured = { 'shaders/common.sh': '#define GENERATION 1\n' };
+  let compileCalls = 0;
+  const result = await runNativeProjectShadersCli(
+    parseNovelTeaCliGlobals(['--json', 'shaders', 'compile', '--variant', 'metal']),
+    '/not-the-owner',
+    () => {
+      throw new Error('A pinned disposable must never re-admit the live Project');
+    },
+    {
+      async compileShaders(_materialProject, options) {
+        compileCalls++;
+        expect(options.projectRoot).toBe(projectRoot);
+        expect(options.sourceOverlays).toEqual(captured);
+        expect(options.shaderVariants).toEqual(['metal']);
+        return { ok: true, success: true, outputs: [], diagnostics: [] };
+      },
+    },
+    {
+      projectRoot,
+      preparation: {
+        project,
+        sourceGeneration: `sha256:${'a'.repeat(64)}`,
+        sourceRevisions: {},
+        sourceOverlays: captured,
+        cliDiagnostics: [
+          {
+            code: 'authoring.entrypoint.missing',
+            path: '/entrypoint',
+            message: 'No project entrypoint is configured yet.',
+            severity: 'warning',
+          },
+        ],
+      },
+    },
+  );
+  expect(result?.exitCode).toBe(0);
+  expect(compileCalls).toBe(1);
+  expect(result?.envelope.diagnostics).toContainEqual({
+    code: 'authoring.entrypoint.missing',
+    path: '/entrypoint',
+    message: 'No project entrypoint is configured yet.',
+    severity: 'warning',
+  });
+});
+
+it('fails closed instead of reading disk when a pinned native preparation is missing', async () => {
+  const result = await runNativeProjectShadersCli(
+    parseNovelTeaCliGlobals(['--json', 'shaders', 'compile']),
+    '/unused',
+    () => {
+      throw new Error('must not invoke native disk admission');
+    },
+    {
+      async compileShaders() {
+        throw new Error('must not compile');
+      },
+    },
+    { projectRoot: '/snapshot-owner', preparation: null },
+  );
+  expect(result?.exitCode).toBe(70);
+  expect(result?.envelope.diagnostics[0]?.message).toContain('Refusing disk re-admission');
+});

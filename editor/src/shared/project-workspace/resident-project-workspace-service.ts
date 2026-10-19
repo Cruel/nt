@@ -78,6 +78,9 @@ export interface ResidentProjectAuthorityObservation {
 export interface ResidentProjectAuthority {
   observe(request: ResidentProjectAuthorityRequest): Promise<ResidentProjectAuthorityObservation>;
   release(projectRoot: string): void;
+  /** Certification candidate: capture native complete preparation in the disk owner, never a disposable. */
+  prepareNativeProject?(projectRoot: string): Promise<NativeResidentProjectPreparation>;
+  proveNativeProject?(projectRoot: string, sourceGeneration: string): Promise<boolean>;
 }
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
@@ -90,7 +93,7 @@ const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.f
     excludedPrefixes: [],
   },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
-  { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
+  { root: 'shaders', extensions: ['.sc', '.sh', '.inc', '.glsl', '.h'], excludedPrefixes: [] },
 ]);
 
 function certificationDelay(name: string): void {
@@ -228,6 +231,19 @@ export type PortableResidentProjectTextSource = Readonly<{
   text: string;
 }>;
 
+export type NativeResidentProjectPreparation = Readonly<{
+  project: AuthoringProject;
+  sourceGeneration: string;
+  sourceRevisions: Readonly<Record<string, string>>;
+  sourceOverlays: Readonly<Record<string, string>>;
+  cliDiagnostics: readonly Readonly<{
+    code: string;
+    path: string;
+    message: string;
+    severity: 'warning' | 'info' | 'error';
+  }>[];
+}>;
+
 type PortableResidentProjectSnapshot = Readonly<{
   identity: ResidentProjectGenerationIdentity;
   snapshot: LoadedProjectWorkspaceSnapshot;
@@ -240,6 +256,7 @@ type PortableResidentProjectSnapshot = Readonly<{
   externalAssets: readonly PortableResidentProjectAuthorityEntry[];
   physicalAuthority: readonly PortableResidentProjectAuthorityEntry[];
   projectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>>;
+  nativePreparation: NativeResidentProjectPreparation | null;
 }>;
 
 type PortableResidentProjectOwnerMetadata = Readonly<{
@@ -270,6 +287,7 @@ type ResidentEntry = {
   pinnedPhysicalAuthority: readonly PortableResidentProjectAuthorityEntry[] | null;
   pinnedExternalAssets: readonly PortableResidentProjectAuthorityEntry[] | null;
   pinnedProjectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>> | null;
+  pinnedNativePreparation: NativeResidentProjectPreparation | null;
 };
 
 export type PinnedPortableResidentProjectInputs = Readonly<{
@@ -277,6 +295,7 @@ export type PinnedPortableResidentProjectInputs = Readonly<{
   physicalAuthority: readonly PortableResidentProjectAuthorityEntry[];
   externalAssets: readonly PortableResidentProjectAuthorityEntry[];
   projectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>>;
+  nativePreparation: NativeResidentProjectPreparation | null;
 }>;
 
 function portableProjectTextSourcePaths(project: AuthoringProject): readonly string[] {
@@ -344,6 +363,53 @@ function portableTextSourcesValid(
   });
 }
 
+function nativePreparationValid(value: unknown): value is NativeResidentProjectPreparation {
+  if (
+    !hasExactKeys(value, [
+      'project',
+      'sourceGeneration',
+      'sourceRevisions',
+      'sourceOverlays',
+      'cliDiagnostics',
+    ])
+  )
+    return false;
+  const preparation = value as Record<string, unknown>;
+  const textMap = (candidate: unknown) =>
+    candidate !== null &&
+    typeof candidate === 'object' &&
+    !Array.isArray(candidate) &&
+    Object.entries(candidate).every(([key, text]) => key.length > 0 && typeof text === 'string');
+  return (
+    preparation.project !== null &&
+    typeof preparation.project === 'object' &&
+    !Array.isArray(preparation.project) &&
+    typeof preparation.sourceGeneration === 'string' &&
+    /^sha256:[0-9a-f]{64}$/u.test(preparation.sourceGeneration) &&
+    textMap(preparation.sourceRevisions) &&
+    textMap(preparation.sourceOverlays) &&
+    Array.isArray(preparation.cliDiagnostics) &&
+    (preparation.cliDiagnostics as unknown[]).every(
+      (candidate) =>
+        candidate !== null &&
+        typeof candidate === 'object' &&
+        !Array.isArray(candidate) &&
+        typeof (candidate as Record<string, unknown>).code === 'string' &&
+        typeof (candidate as Record<string, unknown>).path === 'string' &&
+        typeof (candidate as Record<string, unknown>).message === 'string' &&
+        ['warning', 'info', 'error'].includes(
+          String((candidate as Record<string, unknown>).severity),
+        ),
+    ) &&
+    Object.keys(preparation.sourceOverlays as Record<string, string>).every(
+      (path) =>
+        path.startsWith('shaders/') &&
+        !path.includes('\\') &&
+        path.split('/').every((part) => part !== '' && part !== '.' && part !== '..'),
+    )
+  );
+}
+
 function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const actual = Object.keys(value).sort();
@@ -363,6 +429,7 @@ const PORTABLE_RESIDENT_PROJECT_SNAPSHOT_KEYS = Object.freeze([
   'externalAssets',
   'physicalAuthority',
   'projectTextSources',
+  'nativePreparation',
 ] as const);
 
 const PORTABLE_RESIDENT_PROJECT_OWNER_METADATA_KEYS = Object.freeze([
@@ -509,7 +576,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       ...observation.delta.added,
       ...observation.delta.changed,
       ...observation.delta.removed,
-    ].filter((path) => entry.nativeAssetSourcePathSet.has(path) || /^shaders\/.+\.sc$/u.test(path));
+    ].filter((path) => entry.nativeAssetSourcePathSet.has(path) || path.startsWith('shaders/'));
     if (externalAssetPaths.length > 0) {
       entry.portableSnapshot = null;
       entry.pendingNativeExternalAssetChange = true;
@@ -625,6 +692,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           pinnedPhysicalAuthority: null,
           pinnedExternalAssets: null,
           pinnedProjectTextSources: null,
+          pinnedNativePreparation: null,
         };
         this.sessions.set(canonicalRoot, entry);
         this.bindSnapshot(entry, opened.snapshot);
@@ -663,6 +731,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pinnedPhysicalAuthority: null,
         pinnedExternalAssets: null,
         pinnedProjectTextSources: null,
+        pinnedNativePreparation: null,
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
@@ -1448,6 +1517,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
   async preparePortableSnapshot(
     projectRoot: string,
   ): Promise<PreparedPortableResidentProjectSnapshot | null> {
+    const rejectNative = (reason: string): null => {
+      if (process.env.NOVELTEA_CLI_CERTIFICATION === '1' && process.env.NOVELTEA_CLI_TRACE === '1')
+        process.stderr.write(`[native-pinned-preparation] ${reason}\n`);
+      return null;
+    };
     const canonicalRoot = await this.canonicalProjectRoot(
       this.residentFileSystem.resolvePath(projectRoot),
     );
@@ -1537,7 +1611,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
 
       const portableTextPaths = new Set(portableProjectTextSourcePaths(opened.snapshot.project));
       for (const candidate of physicalAuthority)
-        if (/^(?:scripts\/.+\.lua|shaders\/.+\.sc)$/u.test(candidate.path))
+        if (/^scripts\/.+\.lua$/u.test(candidate.path) || candidate.path.startsWith('shaders/'))
           portableTextPaths.add(candidate.path);
       const projectTextSources: Record<string, PortableResidentProjectTextSource> = {};
       for (const relativePath of [...portableTextPaths].sort()) {
@@ -1577,6 +1651,53 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         );
       }
 
+      let nativePreparation: NativeResidentProjectPreparation | null = null;
+      if (this.nativeAuthority?.prepareNativeProject) {
+        if (!this.nativeAuthority.proveNativeProject)
+          throw new Error('Native resident preparation requires a final native source proof.');
+        const candidate = await this.nativeAuthority.prepareNativeProject(entry.canonicalRoot);
+        if (!nativePreparationValid(candidate))
+          return rejectNative('Native preparation shape invalid');
+        if (candidate.project.project?.id !== opened.snapshot.project.project.id)
+          return rejectNative('Native and resident Project identities differ');
+        for (const relativePath of opened.snapshot.canonicalSourceFiles) {
+          const revision = opened.snapshot.fileRevisions[relativePath]?.contentHash;
+          if (revision && candidate.sourceRevisions[relativePath] !== revision)
+            return rejectNative(`Source revision mismatch: ${relativePath}`);
+        }
+        for (const [relativePath, source] of Object.entries(candidate.sourceOverlays)) {
+          if (
+            candidate.sourceRevisions[relativePath] !==
+            (await sha256PrefixedBytes(new TextEncoder().encode(source)))
+          )
+            return rejectNative(`Shader source revision mismatch: ${relativePath}`);
+        }
+        // The native complete Project and every captured include must be admitted before the
+        // last owner proof. Otherwise new disk bytes could be attached to the old generation.
+        const finalProof = await this.observeNativeAuthority(
+          entry.canonicalRoot,
+          entry.nativeAssetSourcePaths,
+          true,
+        );
+        this.recordNativeObservation(entry, finalProof);
+        if (!finalProof.unchanged || entry.pendingNativeExternalAssetChange)
+          return rejectNative('Resident physical authority changed during preparation');
+        if (
+          !(await this.nativeAuthority.proveNativeProject(
+            entry.canonicalRoot,
+            candidate.sourceGeneration,
+          ))
+        )
+          return rejectNative('Native source generation changed during preparation');
+        nativePreparation = candidate;
+        physicalAuthority = Object.freeze([...finalProof.manifest.entries]);
+        externalAssets = Object.freeze(
+          finalProof.manifest.entries.filter((source) =>
+            entry.nativeAssetSourcePathSet.has(source.path),
+          ),
+        );
+      }
+
       const identity = entry.session.generationIdentity();
       if (
         entry.portableSnapshot?.identity.sessionEpoch === identity.sessionEpoch &&
@@ -1596,6 +1717,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         externalAssets,
         physicalAuthority,
         projectTextSources: Object.freeze(projectTextSources),
+        nativePreparation,
       };
       const ownerMetadata: PortableResidentProjectOwnerMetadata = {
         canonicalRoot: entry.canonicalRoot,
@@ -1686,7 +1808,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       !portable.sourceWork ||
       !portableAuthorityEntriesValid(portable.externalAssets) ||
       !portableAuthorityEntriesValid(portable.physicalAuthority) ||
-      !portableTextSourcesValid(portable.projectTextSources)
+      !portableTextSourcesValid(portable.projectTextSources) ||
+      (portable.nativePreparation !== null && !nativePreparationValid(portable.nativePreparation))
     )
       return false;
 
@@ -1729,6 +1852,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pinnedPhysicalAuthority: Object.freeze([...portable.physicalAuthority]),
         pinnedExternalAssets: Object.freeze([...portable.externalAssets]),
         pinnedProjectTextSources: Object.freeze({ ...portable.projectTextSources }),
+        pinnedNativePreparation: portable.nativePreparation,
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, opened.snapshot);
@@ -1759,6 +1883,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       physicalAuthority: entry.pinnedPhysicalAuthority,
       externalAssets: entry.pinnedExternalAssets,
       projectTextSources: entry.pinnedProjectTextSources,
+      nativePreparation: entry.pinnedNativePreparation,
     });
   }
 

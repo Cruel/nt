@@ -149,9 +149,16 @@ try {
   family(['localization', 'sync', '--dry-run']);
   family(['entity', 'create', 'variables', 'native-cutover-dry-run', '--dry-run']);
   family(['fmt', 'project.yaml', '--check']);
-  // Native heavy-command preparation is local-only until it can be carried
-  // by the daemon's immutable generation transport without reopening live disk.
-  compare(['shaders', 'compile', '--variant', 'essl-300'], true, true, [fixtureLegacy, fixtureCandidate]);
+  // Verify both local and daemon generation-pinned compilation. Daemon preparation
+  // belongs to the resident owner, not a disposable worker reopening current disk.
+  compare(['shaders', 'compile', '--variant', 'essl-300'], true, true, [
+    fixtureLegacy,
+    fixtureCandidate,
+  ]);
+  compare(['shaders', 'compile', '--variant', 'essl-300'], true, false, [
+    fixtureLegacy,
+    fixtureCandidate,
+  ]);
 
   console.log(`Native CLI Project routing differential PASSED: ${verified} public commands.`);
 } finally {

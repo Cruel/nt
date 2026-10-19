@@ -253,7 +253,9 @@ Json operate(const Json& request)
         if (!prepared.accepted)
             return with_diagnostics(failure(prepared.error));
         Json overlays = Json::object();
+        Json source_revisions = Json::object();
         for (const auto& [relative, revision] : prepared.source_revisions) {
+            source_revisions[relative] = revision;
             if (!relative.starts_with("shaders/"))
                 continue;
             const auto source = root / relative;
@@ -277,6 +279,7 @@ Json operate(const Json& request)
         return with_diagnostics({{"ok", true},
                                  {"project", Json::parse(prepared.complete_project_json)},
                                  {"sourceGeneration", shader_generation},
+                                 {"sourceRevisions", std::move(source_revisions)},
                                  {"sourceOverlays", std::move(overlays)}});
     }
 

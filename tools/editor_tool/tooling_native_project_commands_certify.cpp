@@ -1279,7 +1279,12 @@ void certify_shader_preparation(const std::filesystem::path& source)
     const auto root = fixture.root.string();
     const auto prepared = command({{"action", "shader-preparation"}, {"projectRoot", root}});
     require(prepared.value("ok", false) && prepared.at("project").at("materials").is_object() &&
-                prepared.at("sourceOverlays").contains("shaders/lab-grade.fs.sc"),
+                prepared.at("sourceOverlays").contains("shaders/lab-grade.fs.sc") &&
+                prepared.at("sourceRevisions").contains("project.yaml") &&
+                prepared.at("sourceRevisions").contains("shaders/lab-grade.fs.sc") &&
+                prepared.at("sourceRevisions").at("shaders/lab-grade.fs.sc") ==
+                    noveltea::authoring::exact_source_revision(
+                        prepared.at("sourceOverlays").at("shaders/lab-grade.fs.sc").get<std::string>()),
             "Native shader preparation supplies effective Materials and captured source text: " +
                 prepared.dump().substr(0, 300));
     const auto generation = prepared.at("sourceGeneration");
