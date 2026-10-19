@@ -64,6 +64,9 @@ export const nativeAuthoringResultSchema = z
     textSourceStaged: z.boolean().optional(),
     textSourceDiskRevision: z.string().optional(),
     textSourceDiskRevisions: z.record(z.string(), z.string()).optional(),
+    assetTrashMoves: z
+      .array(z.object({ projectRelativePath: z.string(), trashRelativePath: z.string() }).strict())
+      .optional(),
     commentImpacts: z
       .array(
         z
@@ -224,6 +227,28 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']),
       pathsByOwner: z.record(z.string(), z.array(z.string().startsWith('/'))).optional(),
       textPaths: z.array(z.string().min(1).max(2048)).max(128).optional(),
+      assetTransition: z
+        .discriminatedUnion('kind', [
+          z
+            .object({
+              kind: z.literal('trash'),
+              projectRelativePaths: z.array(z.string()).max(128),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal('restore'),
+              moves: z
+                .array(
+                  z
+                    .object({ projectRelativePath: z.string(), trashRelativePath: z.string() })
+                    .strict(),
+                )
+                .max(128),
+            })
+            .strict(),
+        ])
+        .optional(),
     })
     .strict(),
   z
@@ -266,6 +291,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
         )
         .max(256),
       diskPreconditions: z.record(z.string(), z.string()).optional(),
+      layoutCopySources: z.record(z.string(), z.string()).optional(),
     })
     .strict(),
   z

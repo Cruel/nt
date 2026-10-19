@@ -578,8 +578,14 @@ the YAML deletion and new-source creation together under revision checks.
 Whole-owner Use Disk restores a pending deletion. Reopen/replay retains its
 deletion intent and source precondition, while native working runtime preparation
 excludes deleted owners instead of accidentally falling back to their still-
-present disk files. A Layout deletion now includes its existing RML/RCSS/Lua
-companions in the same native journal rather than leaving orphaned sources.
+present disk files. Layout deletion and identity changes now journal existing
+RML/RCSS/Lua companions with the metadata. Deletion preserves those bytes in
+`.noveltea/trash/layouts/<id>/` until a same-owner Undo restores them, even
+across a native worker restart; the restore consumes the archive atomically and
+rejects changed archived bytes. Duplicates and renames carry bounded, validated
+source-owner hints through the generic patch boundary rather than guessing
+among Layouts with identical source selectors; source companions are
+byte-pinned through Save and external edits reject the entire journal.
 Structural editor commands can now stage YAML-owner patches and commit their
 scoped native Save atomically before publishing UI/history. The editor can undo
 or redo those committed changes and restores a rejected candidate through an
@@ -589,10 +595,14 @@ on confirmation. Logical localization edits resolve to their owning
 `i18n/*.yaml` fragments (not the manifest), so structural reference and
 message-identity updates commit in the same journal as record changes. The
 native route also updates script identity mappings and
-recovery selection for structural remaps. File moves and generated/copied Asset
-trash transitions are not yet atomically supported by this path; commands whose
-policy allows conversion can fall back to *native manual Save*, not a legacy writer,
-while destructive file transitions remain guarded.
+recovery selection for structural remaps. Existing copied Asset imports and
+deletions now journal source-byte moves into generated Project trash paths with
+the associated YAML changes. A successful journal returns the exact trash
+identity for native undo/redo restoration; an occupied restore destination or
+changed physical source rejects the entire operation. An already-copied import
+whose metadata Save fails is cleaned up through the same native journal after
+the working patch is reversed. Commands whose policy permits conversion can
+still use *native manual Save*, never a legacy writer.
 Native mixed Save All now sends selected YAML owners and previously staged
 Lua/RML/RCSS buffers through **one** physical transaction. Native staging
 retains the original source revision even when later file observation changes
@@ -603,10 +613,10 @@ have authenticated IPC boundaries, but the renderer's external-change workflow
 does not yet publish their results.
 
 This flag **remains certification-only, not yet a usable complete native
-editor**: structural auto-commit, native watcher reconciliation with full
-conflict UI, durable dirty recovery across editor restart, physical Asset trash
-transitions and some companion/source identity moves, and editable/exportable
-Package operations have not yet migrated.
+editor**: native watcher reconciliation with full conflict UI, durable dirty
+recovery across editor restart, and editable/exportable Package operations
+have not yet migrated. Structural source operations are covered by this
+certification path but do not themselves authorize the production cutover.
 The legacy renderer watcher cannot publish external
 TypeScript authoring merges into an active native Project; it retains
 notification/asset auditing, while native source authority refuses stale disk

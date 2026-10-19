@@ -220,6 +220,71 @@ void certify()
                 !fs::exists(blank),
             "Explicit deletion participates in grouped atomic source transactions");
 
+    // Binary Asset trash is a typed native transaction, not a YAML edit or a
+    // second best-effort filesystem operation after the metadata is saved.
+    const auto binary = temp.root / "assets/imports/certified.bin";
+    const auto trashed =
+        temp.root / ".noveltea/trash/assets/certified/assets/imports/certified.bin";
+    const std::string binary_bytes("\0asset\xff", 7);
+    write(binary, binary_bytes);
+    YamlTransactionTarget asset_delete;
+    asset_delete.path = "assets/imports/certified.bin";
+    asset_delete.expected_revision = exact_source_revision(binary_bytes);
+    asset_delete.baseline_source = binary_bytes;
+    asset_delete.erase = true;
+    asset_delete.raw_asset_file = true;
+    YamlTransactionTarget asset_create;
+    asset_create.path = ".noveltea/trash/assets/certified/assets/imports/certified.bin";
+    asset_create.expected_revision = "absent";
+    asset_create.create_source = binary_bytes;
+    asset_create.raw_asset_file = true;
+    require(!writer.prepare({asset_create}, TransactionDecision::KeepComments).targets.empty(),
+            "Admitted binary Asset may be written into Project trash");
+    auto binary_plan =
+        writer.prepare({asset_delete, asset_create}, TransactionDecision::KeepComments);
+    require(binary_plan.accepted && binary_plan.targets.size() == 2,
+            "Binary trash source and destination share one exact-CAS approval");
+    writer.set_after_target_hook_for_certification([](std::size_t index) {
+        if (index == 0)
+            throw std::runtime_error("Simulated binary trash publication failure");
+    });
+    require(!writer.commit(binary_plan, TransactionDecision::KeepComments).accepted &&
+                read(binary) == binary_bytes && !fs::exists(trashed),
+            "Partial binary trash publication rolls back both source and destination");
+    writer.set_after_target_hook_for_certification({});
+    write(binary, "external edit");
+    require(!writer.commit(binary_plan, TransactionDecision::KeepComments).accepted &&
+                read(binary) == "external edit" && !fs::exists(trashed),
+            "Binary Asset trash commit rejects an external edit after preflight");
+    write(binary, binary_bytes);
+    require(writer.commit(binary_plan, TransactionDecision::KeepComments).accepted &&
+                !fs::exists(binary) && read(trashed) == binary_bytes,
+            "Binary Asset trash persists exactly through native journal");
+    require(!writer
+                 .prepare({YamlTransactionTarget{.path = ".noveltea/trash/other.bin",
+                                                 .expected_revision = "absent",
+                                                 .create_source = binary_bytes,
+                                                 .raw_asset_file = true}},
+                          TransactionDecision::KeepComments)
+                 .accepted,
+            "Binary journal rejects paths outside admitted Asset and Asset-trash roots");
+    YamlTransactionTarget asset_restore;
+    asset_restore.path = asset_create.path;
+    asset_restore.expected_revision = exact_source_revision(binary_bytes);
+    asset_restore.baseline_source = binary_bytes;
+    asset_restore.erase = true;
+    asset_restore.raw_asset_file = true;
+    asset_delete.erase = false;
+    asset_delete.expected_revision = "absent";
+    asset_delete.create_source = binary_bytes;
+    asset_delete.baseline_source.clear();
+    auto restore_plan =
+        writer.prepare({asset_restore, asset_delete}, TransactionDecision::KeepComments);
+    require(restore_plan.accepted &&
+                writer.commit(restore_plan, TransactionDecision::KeepComments).accepted &&
+                read(binary) == binary_bytes && !fs::exists(trashed),
+            "Binary Asset restoration uses the same journal with absent destination CAS");
+
     const auto invalid = temp.root / "records/rooms/invalid.yaml";
     write(invalid, "broken: [\n");
     writer.set_invalid_sources({"records/rooms/invalid.yaml"}, false);

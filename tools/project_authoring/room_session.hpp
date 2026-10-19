@@ -47,6 +47,16 @@ struct RoomSessionResult {
     std::vector<Diagnostic> diagnostics_added;
     std::vector<Diagnostic> diagnostics_removed;
     RoomSessionSnapshot snapshot;
+    std::vector<std::pair<std::string, std::string>> asset_trash_moves;
+};
+
+struct ProjectAssetTransition {
+    enum class Kind {
+        Trash,
+        Restore
+    } kind = Kind::Trash;
+    std::vector<std::string> paths;
+    std::vector<std::pair<std::string, std::string>> moves;
 };
 
 enum class ProjectFileKind {
@@ -73,10 +83,10 @@ public:
                                                     std::string& error);
     // Stage a generic new record without touching disk. Physical creation is
     // owned by the same revision-checked transaction as normal scoped Save.
-    static std::unique_ptr<RoomSession> stage_new_record(const std::filesystem::path& project_root,
-                                                         std::string family, std::string id,
-                                                         std::string source_json,
-                                                         std::string& error);
+    static std::unique_ptr<RoomSession>
+    stage_new_record(const std::filesystem::path& project_root, std::string family, std::string id,
+                     std::string source_json, std::string& error,
+                     std::map<std::string, std::string> layout_companions = {});
     // The same generic patch/save boundary with a different admitted source owner.
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
@@ -129,6 +139,10 @@ private:
     bool is_map_ = false;
     std::string record_family_ = "rooms";
     std::string validation_contract_;
+    // Bytes belonging to a staged Layout clone/rename. They do not exist at
+    // the destination until the entire native Save journal is committed.
+    std::map<std::string, std::string> layout_companion_sources_;
+    std::string layout_companion_origin_;
     std::vector<std::string> conflicting_paths_;
     std::vector<ProjectFile> file_inventory_;
     mutable std::optional<RoomSessionSnapshot> snapshot_cache_;
@@ -164,7 +178,8 @@ public:
     };
     ValidationWork validation_work() const { return validation_work_; }
     RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
-                            const std::map<std::string, std::string>& disk_preconditions = {});
+                            const std::map<std::string, std::string>& disk_preconditions = {},
+                            const std::map<std::string, std::string>& layout_copy_sources = {});
     RoomSessionResult inspect_record(std::string_view owner);
     RoomSessionResult reconcile_owner(std::string_view owner);
     RoomSessionResult use_disk(std::uint64_t revision, std::string_view owner,
@@ -225,10 +240,12 @@ public:
     {
         return shader_overlays_;
     }
-    RoomSessionResult save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
-                                  bool keep_mine, TransactionDecision comments,
-                                  const std::map<std::string, std::vector<std::string>>& paths = {},
-                                  const std::vector<std::string>& text_paths = {});
+    RoomSessionResult
+    save_owners(std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
+                TransactionDecision comments,
+                const std::map<std::string, std::vector<std::string>>& paths = {},
+                const std::vector<std::string>& text_paths = {},
+                const std::optional<ProjectAssetTransition>& assets = std::nullopt);
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     // Immutable disk-validation contributors, including lazily uninspected
     // record owners. Valid only after validate_project() has refreshed proof.

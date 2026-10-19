@@ -725,7 +725,11 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     TemporaryProject temp(fixture);
     const auto original_layout = temp.root / "records/layouts/notice-board";
     const auto removed_layout = temp.root / "records/layouts/structural-sidecar";
+    const auto movable_layout = temp.root / "records/layouts/structural-movable";
+    const auto renamed_layout = temp.root / "records/layouts/structural-renamed";
     std::filesystem::copy(original_layout, removed_layout,
+                          std::filesystem::copy_options::recursive);
+    std::filesystem::copy(original_layout, movable_layout,
                           std::filesystem::copy_options::recursive);
     auto layout_source = read(removed_layout / "layout.yaml");
     const auto layout_id = layout_source.find("id: notice-board");
@@ -733,15 +737,37 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     layout_source.replace(layout_id, std::string("id: notice-board").size(),
                           "id: structural-sidecar");
     write(removed_layout / "layout.yaml", layout_source);
+    auto movable_source = read(movable_layout / "layout.yaml");
+    const auto movable_id = movable_source.find("id: notice-board");
+    require(movable_id != std::string::npos, "Layout fixture has expected identity");
+    movable_source.replace(movable_id, std::string("id: notice-board").size(),
+                           "id: structural-movable");
+    write(movable_layout / "layout.yaml", movable_source);
+    const auto original_asset = temp.root / "assets/native-structural/clip.bin";
+    std::filesystem::create_directories(original_asset.parent_path());
+    const auto asset_bytes = std::string("\0asset\xff", 7);
+    write(original_asset, asset_bytes);
     const auto old_file = temp.root / "records/variables/board-stock-copy.yaml";
     const auto new_file = temp.root / "records/variables/board-stock-renamed.yaml";
     std::string error;
     auto project = ProjectSession::open(temp.root, error);
     require(project != nullptr, "Structural source Project opens with sidecar fixture");
+    require(project->inspect_record("layouts/structural-sidecar").accepted,
+            "Deleted Layout has a native source snapshot for undo");
+    const auto deleted_layout_value =
+        project->record_snapshots().at("layouts/structural-sidecar").source_json;
+    const auto deleted_rml = read(removed_layout / "layout.rml");
     const auto remove_layout =
         project->patch(project->snapshot().working_revision,
                        {{RoomPatch::Operation::Remove, "/layouts/structural-sidecar", ""}});
     require(remove_layout.accepted, "Native Layout deletion stages its source and companions");
+    write(removed_layout / "layout.rml", deleted_rml + "external edit");
+    const auto concurrent_delete = project->save_owners(remove_layout.snapshot.working_revision,
+                                                        {"layouts/structural-sidecar"}, false,
+                                                        TransactionDecision::RemoveComments);
+    require(!concurrent_delete.accepted && std::filesystem::exists(removed_layout / "layout.yaml"),
+            "A changed companion after Delete staging rejects the whole native transaction");
+    write(removed_layout / "layout.rml", deleted_rml);
     const auto deleted_layout = project->save_owners(remove_layout.snapshot.working_revision,
                                                      {"layouts/structural-sidecar"}, false,
                                                      TransactionDecision::RemoveComments);
@@ -751,6 +777,120 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
                 !std::filesystem::exists(removed_layout / "layout.lua"),
             "A native Layout removal journals YAML and all local source companions together: " +
                 deleted_layout.error);
+    const auto archived_rml = temp.root / ".noveltea/trash/layouts/structural-sidecar/layout.rml";
+    require(read(archived_rml) == deleted_rml,
+            "Deleted Layout companions remain in journal-owned undo storage");
+    // Simulate the worker restarting between a committed deletion and Undo.
+    project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Committed Layout deletion reopens");
+    const auto undo_layout = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Add, "/layouts/structural-sidecar", deleted_layout_value}}, {},
+        {{"layouts/structural-sidecar", "layouts/structural-sidecar"}});
+    require(undo_layout.accepted && undo_layout.snapshot.valid,
+            "Layout undo stages archived companions after a native worker restart: " +
+                undo_layout.error);
+    write(archived_rml, deleted_rml + "external archive mutation");
+    const auto undo_race =
+        project->save_owners(undo_layout.snapshot.working_revision, {"layouts/structural-sidecar"},
+                             false, TransactionDecision::KeepComments);
+    require(!undo_race.accepted && !std::filesystem::exists(removed_layout / "layout.yaml"),
+            "An altered archived companion rejects atomic Layout undo");
+    write(archived_rml, deleted_rml);
+    const auto undo_saved =
+        project->save_owners(undo_layout.snapshot.working_revision, {"layouts/structural-sidecar"},
+                             false, TransactionDecision::KeepComments);
+    require(undo_saved.accepted && read(removed_layout / "layout.rml") == deleted_rml &&
+                !std::filesystem::exists(archived_rml),
+            "Layout undo atomically restores YAML and companions and consumes the tombstone: " +
+                undo_saved.error);
+    require(project->inspect_record("layouts/structural-movable").accepted,
+            "Layout with source companions can be inspected before structural rename");
+    const auto moved_bytes = read(movable_layout / "layout.rml");
+    auto moving =
+        Json::parse(project->record_snapshots().at("layouts/structural-movable").source_json);
+    moving.at("id") = "structural-renamed";
+    const auto rename_layout = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Remove, "/layouts/structural-movable", ""},
+         {RoomPatch::Operation::Add, "/layouts/structural-renamed", moving.to_string()}},
+        {}, {{"layouts/structural-renamed", "layouts/structural-movable"}});
+    require(rename_layout.accepted && rename_layout.snapshot.valid &&
+                !std::filesystem::exists(renamed_layout),
+            "Native Layout rename stages complete valid source without prematurely moving files: " +
+                rename_layout.error);
+    write(movable_layout / "layout.rml", "<div>concurrent external Layout edit</div>");
+    const auto raced_layout =
+        project->save_owners(rename_layout.snapshot.working_revision,
+                             {"layouts/structural-movable", "layouts/structural-renamed"}, false,
+                             TransactionDecision::RemoveComments);
+    require(!raced_layout.accepted && !std::filesystem::exists(renamed_layout) &&
+                read(movable_layout / "layout.rml") != moved_bytes,
+            "Concurrent Layout companion modification prevents partial native rename");
+    write(movable_layout / "layout.rml", moved_bytes);
+    const auto moved =
+        project->save_owners(rename_layout.snapshot.working_revision,
+                             {"layouts/structural-movable", "layouts/structural-renamed"}, false,
+                             TransactionDecision::RemoveComments);
+    require(moved.accepted && !std::filesystem::exists(movable_layout / "layout.yaml") &&
+                !std::filesystem::exists(movable_layout / "layout.rml") &&
+                read(renamed_layout / "layout.rml") == moved_bytes &&
+                std::filesystem::exists(renamed_layout / "layout.yaml"),
+            "Native Layout identity change atomically journals the metadata and companions: " +
+                moved.error);
+    auto undo_moving = moving;
+    undo_moving.at("id") = "structural-movable";
+    const auto reverse = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Remove, "/layouts/structural-renamed", ""},
+         {RoomPatch::Operation::Add, "/layouts/structural-movable", undo_moving.to_string()}},
+        {}, {{"layouts/structural-movable", "layouts/structural-renamed"}});
+    require(reverse.accepted, "Native Layout rename Undo stages the archived destination");
+    const auto reversed =
+        project->save_owners(reverse.snapshot.working_revision,
+                             {"layouts/structural-renamed", "layouts/structural-movable"}, false,
+                             TransactionDecision::RemoveComments);
+    require(reversed.accepted && read(movable_layout / "layout.rml") == moved_bytes &&
+                !std::filesystem::exists(temp.root /
+                                         ".noveltea/trash/layouts/structural-movable/layout.rml"),
+            "Native rename Undo consumes prior destination archive atomically: " + reversed.error);
+    const auto forward_again = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Remove, "/layouts/structural-movable", ""},
+         {RoomPatch::Operation::Add, "/layouts/structural-renamed", moving.to_string()}},
+        {}, {{"layouts/structural-renamed", "layouts/structural-movable"}});
+    require(forward_again.accepted, "Native Layout rename Redo stages its own archive");
+    const auto redone =
+        project->save_owners(forward_again.snapshot.working_revision,
+                             {"layouts/structural-movable", "layouts/structural-renamed"}, false,
+                             TransactionDecision::RemoveComments);
+    require(redone.accepted && read(renamed_layout / "layout.rml") == moved_bytes &&
+                !std::filesystem::exists(temp.root /
+                                         ".noveltea/trash/layouts/structural-renamed/layout.rml"),
+            "Native rename Undo/Redo consumes archives without an occupied-path collision: " +
+                redone.error);
+    const auto duplicate_layout = temp.root / "records/layouts/structural-duplicate";
+    auto duplicate =
+        Json::parse(project->record_snapshots().at("layouts/structural-renamed").source_json);
+    duplicate.at("id") = "structural-duplicate";
+    duplicate.at("label") = "Copied structural Layout";
+    const auto duplicated = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Add, "/layouts/structural-duplicate", duplicate.to_string()}}, {},
+        {{"layouts/structural-duplicate", "layouts/structural-renamed"}});
+    require(duplicated.accepted && duplicated.snapshot.valid &&
+                !std::filesystem::exists(duplicate_layout / "layout.rml"),
+            "Explicit generic Layout copy source resolves ambiguous matching physical owners: " +
+                duplicated.error);
+    const auto duplicate_saved =
+        project->save_owners(duplicated.snapshot.working_revision, {"layouts/structural-duplicate"},
+                             false, TransactionDecision::KeepComments);
+    require(duplicate_saved.accepted &&
+                read(duplicate_layout / "layout.rml") == read(renamed_layout / "layout.rml") &&
+                std::filesystem::exists(renamed_layout / "layout.rml"),
+            "Generic structural duplicate journals copied Layout companions without deleting "
+            "the original: " +
+                duplicate_saved.error);
     require(project && project->inspect_record("variables/board-stock").accepted,
             "Existing record must be inspectable before structural patch");
     auto copied = Json::parse(project->record_snapshots().at("variables/board-stock").source_json);
@@ -758,12 +898,46 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     const auto seeded = project->patch(
         project->snapshot().working_revision,
         {{RoomPatch::Operation::Add, "/variables/board-stock-copy", copied.to_string()}});
-    require(seeded.accepted && seeded.snapshot.valid &&
-                project
-                    ->save_owners(seeded.snapshot.working_revision, {"variables/board-stock-copy"},
-                                  false, TransactionDecision::KeepComments)
-                    .accepted,
-            "A new unrelated record is persisted before testing persisted-record rename");
+    require(seeded.accepted && seeded.snapshot.valid && !std::filesystem::exists(old_file),
+            "New record and native Asset transition are staged before journaled Save");
+    ProjectAssetTransition trash;
+    trash.paths = {"assets/native-structural/clip.bin"};
+    std::filesystem::remove(original_asset);
+    const auto asset_conflict =
+        project->save_owners(seeded.snapshot.working_revision, {"variables/board-stock-copy"},
+                             false, TransactionDecision::KeepComments, {}, {}, trash);
+    require(!asset_conflict.accepted && !std::filesystem::exists(old_file) &&
+                !std::filesystem::exists(original_asset),
+            "Missing Asset source prevents partial YAML structural Save");
+    write(original_asset, asset_bytes);
+    const auto asset_saved =
+        project->save_owners(seeded.snapshot.working_revision, {"variables/board-stock-copy"},
+                             false, TransactionDecision::KeepComments, {}, {}, trash);
+    require(asset_saved.accepted && asset_saved.asset_trash_moves.size() == 1 &&
+                std::filesystem::exists(old_file) && !std::filesystem::exists(original_asset),
+            "Native journal creates YAML and trashes original binary asset atomically: " +
+                asset_saved.error);
+    const auto trash_path = temp.root / asset_saved.asset_trash_moves.front().second;
+    require(read(trash_path) == asset_bytes,
+            "Binary trash preserves byte-exact content including embedded NUL");
+    ProjectAssetTransition restore;
+    restore.kind = ProjectAssetTransition::Kind::Restore;
+    restore.moves = asset_saved.asset_trash_moves;
+    write(original_asset, "occupied");
+    const auto restore_conflict =
+        project->save_owners(asset_saved.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, restore);
+    require(!restore_conflict.accepted && read(original_asset) == "occupied" &&
+                read(trash_path) == asset_bytes,
+            "Native Asset restore refuses occupied destination without touching trash");
+    std::filesystem::remove(original_asset);
+    const auto restored_asset =
+        project->save_owners(asset_saved.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, restore);
+    require(restored_asset.accepted && read(original_asset) == asset_bytes &&
+                !std::filesystem::exists(trash_path),
+            "Native Asset restore commits exact binary and trash deletion together: " +
+                restored_asset.error);
     const auto source = read(old_file);
     copied.at("id") = "board-stock-renamed";
     const auto structural = project->patch(

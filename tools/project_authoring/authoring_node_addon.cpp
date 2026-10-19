@@ -135,6 +135,15 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
     };
     value["diagnosticsAdded"] = diagnostics(result.diagnostics_added);
     value["diagnosticsRemoved"] = diagnostics(result.diagnostics_removed);
+    if (!result.asset_trash_moves.empty()) {
+        value["assetTrashMoves"] = Json::array();
+        for (const auto& [source, trash] : result.asset_trash_moves) {
+            Json entry = Json::object();
+            entry["projectRelativePath"] = source;
+            entry["trashRelativePath"] = trash;
+            value["assetTrashMoves"].push_back(std::move(entry));
+        }
+    }
     return value;
 }
 
@@ -238,8 +247,8 @@ Session& session_arg(napi_env env, napi_value value)
 napi_value call(napi_env env, napi_callback_info info)
 {
     void* callback_data = nullptr;
-    napi_value argv[7]{};
-    std::size_t argc = 7;
+    napi_value argv[8]{};
+    std::size_t argc = 8;
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
@@ -316,13 +325,13 @@ napi_value call(napi_env env, napi_callback_info info)
             return js_string(env, result_json(*session.project, reconciled).to_string());
         }
         if (name == "useDisk") {
-            if (argc != 3 && argc != 4)
+            if (argc < 3 || argc > 5)
                 throw std::runtime_error("useDisk requires working revision and owner.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
                 throw std::runtime_error("Invalid working revision.");
             std::vector<std::string> paths;
-            if (argc == 4) {
+            if (argc >= 4) {
                 const auto selection = Json::parse(string_arg(env, argv[3]));
                 if (!selection.is_array() || selection.size() > 256)
                     throw std::runtime_error("Invalid logical Use Disk paths.");
@@ -374,7 +383,7 @@ napi_value call(napi_env env, napi_callback_info info)
             return js_string(env, result_json(*session.project, result).to_string());
         }
         if (name == "saveOwners") {
-            if (argc != 5 && argc != 6 && argc != 7)
+            if (argc < 5 || argc > 8)
                 throw std::runtime_error("saveOwners needs revision, owners, keepMine, comments.");
             std::int64_t revision = -1;
             bool keep_mine = false;
@@ -407,16 +416,46 @@ napi_value call(napi_env env, napi_callback_info info)
                 }
             }
             std::vector<std::string> text_paths;
-            if (argc == 7) {
+            if (argc >= 7) {
                 const auto text = Json::parse(string_arg(env, argv[6]));
                 if (!text.is_array() || text.size() > 128)
                     throw std::runtime_error("Invalid native mixed Save text source list.");
                 for (const auto& path : text.array_range())
                     text_paths.push_back(path.as<std::string>());
             }
-            const auto saved = session.project->save_owners(static_cast<std::uint64_t>(revision),
-                                                            selected, keep_mine, decision, paths,
-                                                            text_paths);
+            std::optional<noveltea::authoring::ProjectAssetTransition> assets;
+            if (argc == 8) {
+                const auto value = Json::parse(string_arg(env, argv[7]));
+                if (!value.is_object() || !value.contains("kind") || !value.at("kind").is_string())
+                    throw std::runtime_error("Invalid native Asset transition.");
+                noveltea::authoring::ProjectAssetTransition selected_assets;
+                const auto kind = value.at("kind").as<std::string>();
+                if (kind == "trash" && value.size() == 2 &&
+                    value.contains("projectRelativePaths") &&
+                    value.at("projectRelativePaths").is_array()) {
+                    selected_assets.kind = noveltea::authoring::ProjectAssetTransition::Kind::Trash;
+                    for (const auto& path : value.at("projectRelativePaths").array_range())
+                        selected_assets.paths.push_back(path.as<std::string>());
+                } else if (kind == "restore" && value.size() == 2 && value.contains("moves") &&
+                           value.at("moves").is_array()) {
+                    selected_assets.kind =
+                        noveltea::authoring::ProjectAssetTransition::Kind::Restore;
+                    for (const auto& move : value.at("moves").array_range()) {
+                        if (!move.is_object() || move.size() != 2 ||
+                            !move.contains("projectRelativePath") ||
+                            !move.contains("trashRelativePath"))
+                            throw std::runtime_error("Invalid native Asset restoration entry.");
+                        selected_assets.moves.emplace_back(
+                            move.at("projectRelativePath").as<std::string>(),
+                            move.at("trashRelativePath").as<std::string>());
+                    }
+                } else
+                    throw std::runtime_error("Unsupported native Asset transition.");
+                assets = std::move(selected_assets);
+            }
+            const auto saved =
+                session.project->save_owners(static_cast<std::uint64_t>(revision), selected,
+                                             keep_mine, decision, paths, text_paths, assets);
             auto response = result_json(*session.project, saved);
             if (saved.accepted && !text_paths.empty()) {
                 response["textSourceDiskRevisions"] = Json::object();
@@ -635,8 +674,8 @@ napi_value call(napi_env env, napi_callback_info info)
             std::map<std::string, std::string> revisions;
             for (const auto& item : preconditions.object_range())
                 revisions[item.key()] = item.value().as<std::string>();
-            auto response = session.project->save_text_sources(
-                static_cast<std::uint64_t>(revision), selected, revisions);
+            auto response = session.project->save_text_sources(static_cast<std::uint64_t>(revision),
+                                                               selected, revisions);
             auto result = result_json(*session.project, response);
             if (response.accepted) {
                 Json revisions = Json::object();
@@ -672,7 +711,7 @@ napi_value call(napi_env env, napi_callback_info info)
                          .to_string());
         }
         if (name == "patch") {
-            if (argc != 3 && argc != 4)
+            if (argc < 3 || argc > 5)
                 throw std::runtime_error("patch requires working revision and operations JSON.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
@@ -692,7 +731,7 @@ napi_value call(napi_env env, napi_callback_info info)
                                    entry.contains("value") ? entry.at("value").to_string() : ""});
             }
             std::map<std::string, std::string> disk_preconditions;
-            if (argc == 4) {
+            if (argc >= 4) {
                 const auto preconditions = Json::parse(string_arg(env, argv[3]));
                 if (!preconditions.is_object() || preconditions.size() > 256)
                     throw std::runtime_error("Invalid recovery source preconditions.");
@@ -702,8 +741,19 @@ napi_value call(napi_env env, napi_callback_info info)
                     disk_preconditions.emplace(entry.key(), entry.value().as<std::string>());
                 }
             }
-            const auto updated = session.project->patch(static_cast<std::uint64_t>(revision),
-                                                        patches, disk_preconditions);
+            std::map<std::string, std::string> layout_sources;
+            if (argc == 5) {
+                const auto source = Json::parse(string_arg(env, argv[4]));
+                if (!source.is_object() || source.size() > 128)
+                    throw std::runtime_error("Invalid Layout copy source selection.");
+                for (const auto& entry : source.object_range()) {
+                    if (!entry.value().is_string())
+                        throw std::runtime_error("Invalid Layout copy source owner.");
+                    layout_sources.emplace(entry.key(), entry.value().as<std::string>());
+                }
+            }
+            const auto updated = session.project->patch(
+                static_cast<std::uint64_t>(revision), patches, disk_preconditions, layout_sources);
             return js_string(env, result_json(*session.project, updated).to_string());
         }
         throw std::runtime_error("Unknown native Project operation.");
