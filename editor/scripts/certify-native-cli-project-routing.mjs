@@ -122,6 +122,15 @@ try {
   // Daemon transport must reach the same native Project authority without
   // changing public output, including successive owner reads after a write.
   compare(['entity', 'inspect', 'rooms', 'intro'], true, false);
+  compare(['entity', 'inspect', 'rooms', 'intro'], true, false);
+  for (const project of [legacy, candidate]) {
+    const source = path.join(project, 'records/rooms/intro.yaml');
+    await writeFile(
+      source,
+      (await readFile(source, 'utf8')) + '\n# Native owner changed-source proof\n',
+    );
+  }
+  compare(['entity', 'inspect', 'rooms', 'intro'], true, false);
   compare(['usages', 'rooms', 'intro'], true, false);
 
   // A malformed sibling source must fail at the actual physical YAML owner,
@@ -139,6 +148,15 @@ try {
   ]);
   const family = (command, success = true) =>
     compare(command, success, false, [fixtureLegacy, fixtureCandidate]);
+  family(['entity', 'inspect', 'rooms', 'room-lifecycle-roundtrip']);
+  family(['entity', 'inspect', 'rooms', 'room-lifecycle-roundtrip']);
+  for (const project of [fixtureLegacy, fixtureCandidate]) {
+    const source = path.join(project, 'records/rooms/room-lifecycle-roundtrip.yaml');
+    await writeFile(
+      source,
+      (await readFile(source, 'utf8')) + '\n# Native owner changed-source proof\n',
+    );
+  }
   family(['entity', 'inspect', 'rooms', 'room-lifecycle-roundtrip']);
   family(['entity', 'inspect', 'characters', 'pilot-guide']);
   family(['entity', 'inspect', 'materials', 'engine2d-draw-contract']);

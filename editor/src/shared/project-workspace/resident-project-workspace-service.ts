@@ -2040,11 +2040,22 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     } catch {
       return false;
     }
+    let expectedAssetSourcePaths: readonly string[];
+    try {
+      const snapshot = JSON.parse(snapshotText) as PortableResidentProjectSnapshot;
+      expectedAssetSourcePaths = assetSourcePaths(snapshot.snapshot.project);
+    } catch {
+      return false;
+    }
     if (
       !hasExactKeys(ownerMetadata, PORTABLE_RESIDENT_PROJECT_OWNER_METADATA_KEYS) ||
       ownerMetadata.canonicalRoot !== canonicalRoot ||
       !Array.isArray(ownerMetadata.nativeAssetSourcePaths) ||
       ownerMetadata.nativeAssetSourcePaths.some((path) => typeof path !== 'string') ||
+      ownerMetadata.nativeAssetSourcePaths.length !== expectedAssetSourcePaths.length ||
+      expectedAssetSourcePaths.some(
+        (path, index) => ownerMetadata.nativeAssetSourcePaths[index] !== path,
+      ) ||
       !(await this.hydratePortableSnapshot(projectRoot, snapshotText))
     )
       return false;
