@@ -3,14 +3,17 @@
 // No runtime flag is enabled for production callers by this test.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
+const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
 const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-native-routing-'));
 const legacy = path.join(root, 'legacy');
 const candidate = path.join(root, 'candidate');
+const fixtureLegacy = path.join(root, 'fixture-legacy');
+const fixtureCandidate = path.join(root, 'fixture-native');
 const baseline = {
   ...process.env,
   NOVELTEA_CLI_CERTIFICATION: '1',
@@ -54,7 +57,11 @@ function execute(project, native, args, noDaemon = true) {
 
 function normalized(value) {
   if (typeof value === 'string')
-    return value.replaceAll(legacy, '<project>').replaceAll(candidate, '<project>');
+    return value
+      .replaceAll(legacy, '<project>')
+      .replaceAll(candidate, '<project>')
+      .replaceAll(fixtureLegacy, '<fixture>')
+      .replaceAll(fixtureCandidate, '<fixture>');
   if (Array.isArray(value)) return value.map(normalized);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
@@ -65,9 +72,9 @@ function normalized(value) {
 }
 
 let verified = 0;
-function compare(args, expectSuccess = true, noDaemon = true) {
-  const oracle = execute(legacy, false, args, noDaemon);
-  const result = execute(candidate, true, args, noDaemon);
+function compare(args, expectSuccess = true, noDaemon = true, projects = [legacy, candidate]) {
+  const oracle = execute(projects[0], false, args, noDaemon);
+  const result = execute(projects[1], true, args, noDaemon);
   assert.deepEqual(
     normalized(result),
     normalized(oracle),
@@ -76,6 +83,7 @@ function compare(args, expectSuccess = true, noDaemon = true) {
   if (expectSuccess) assert.equal(result.success, true, JSON.stringify(result.diagnostics));
   else assert.equal(result.success, false);
   verified += 1;
+  console.log(`  ${verified}: ${noDaemon ? 'cold' : 'daemon'} ${args.join(' ')}`);
   return result;
 }
 
@@ -85,6 +93,7 @@ try {
   const native = execute(null, true, ['project', 'create', candidate, '--name', name]);
   assert.deepEqual(normalized(native), normalized(oracle));
   verified += 1;
+  console.log(`  ${verified}: cold project create`);
 
   compare(['asset', 'audit']);
   compare(['localization', 'sync', '--dry-run']);
@@ -118,6 +127,26 @@ try {
   for (const project of [legacy, candidate])
     await writeFile(path.join(project, 'records/rooms/intro.yaml'), 'broken: [\n');
   compare(['entity', 'inspect', 'scripts', 'bootstrap'], false);
+
+  // Populate both owners with the authored Feature Lab fixture. These real
+  // families include cross-record refs, sparse fields, locale fragments and
+  // nontrivial usages that the public blank scaffold cannot exercise.
+  await Promise.all([
+    cp(fixture, fixtureLegacy, { recursive: true }),
+    cp(fixture, fixtureCandidate, { recursive: true }),
+  ]);
+  const family = (command, success = true) =>
+    compare(command, success, false, [fixtureLegacy, fixtureCandidate]);
+  family(['entity', 'inspect', 'rooms', 'room-lifecycle-roundtrip']);
+  family(['entity', 'inspect', 'characters', 'pilot-guide']);
+  family(['entity', 'inspect', 'materials', 'engine2d-draw-contract']);
+  family(['entity', 'inspect', 'variables', 'world-composition-enabled']);
+  family(['usages', 'rooms', 'room-lifecycle-roundtrip']);
+  family(['usages', 'assets', 'pilot-room-backdrop']);
+  family(['localization', 'view', 'fr']);
+  family(['localization', 'sync', '--dry-run']);
+  family(['entity', 'create', 'variables', 'native-cutover-dry-run', '--dry-run']);
+  family(['fmt', 'project.yaml', '--check']);
 
   console.log(`Native CLI Project routing differential PASSED: ${verified} public commands.`);
 } finally {

@@ -157,7 +157,10 @@ Json operate(const Json& request)
     Json authoring_diagnostics = Json::array();
     const auto validation = session->validate_project();
     for (const auto& diagnostic : validation.diagnostics) {
-        if (diagnostic.severity == "error")
+        // This is an editor-side authoring explanation, not a public CLI
+        // diagnostic. Match the disk-validation CLI projection policy.
+        if (diagnostic.severity == "error" ||
+            diagnostic.code == "authoring.interaction.selector-conditional")
             continue;
         // Public CLI diagnostics retain the established schema-family code
         // even where the native spatial validator has a shorter internal ID.
