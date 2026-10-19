@@ -67,7 +67,11 @@ Json snapshot_json(const RoomSessionSnapshot& state)
     result["workingRevision"] = state.working_revision;
     result["diskSourceRevision"] = state.disk_source_revision;
     result["source"] = Json::parse(state.source_json);
-    result["baseline"] = Json::parse(state.baseline_json);
+    // Absence is not an empty record; a deleted or newly staged physical
+    // owner has no saved semantic value.
+    result["baseline"] = state.disk_source_revision == "absent"
+                             ? Json::null()
+                             : Json::parse(state.baseline_json);
     result["dirty"] = state.dirty;
     result["valid"] = state.valid;
     result["normalized"] =
@@ -135,6 +139,17 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
     };
     value["diagnosticsAdded"] = diagnostics(result.diagnostics_added);
     value["diagnosticsRemoved"] = diagnostics(result.diagnostics_removed);
+    if (!result.comment_impacts.empty()) {
+        value["commentImpacts"] = Json::array();
+        for (const auto& impact : result.comment_impacts) {
+            Json entry = Json::object();
+            entry["file"] = impact.file;
+            entry["path"] = impact.path;
+            entry["comment"] = impact.comment;
+            entry["kind"] = impact.kind;
+            value["commentImpacts"].push_back(std::move(entry));
+        }
+    }
     if (!result.asset_trash_moves.empty()) {
         value["assetTrashMoves"] = Json::array();
         for (const auto& [source, trash] : result.asset_trash_moves) {

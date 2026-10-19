@@ -51,6 +51,15 @@ override and remains subject to exact physical revision checks; **Cancel** close
 the conflict dialog without discarding either side. Ordinary Save still refuses
 unresolved native conflicts, and the dialog can be reopened on the next Save.
 Conflicts and reconciliation errors do not cause an automatic legacy reload.
+An external deletion of a clean optional YAML owner removes the renderer's
+admitted record; a dirty owner instead retains its local value and publishes a
+whole-owner conflict with an `absent` disk revision. Ordinary native Save cannot
+recreate that record until Keep Mine explicitly authorizes the overwrite.
+Native YAML parse failures remain attributed to the physical owner and clear
+once that source becomes valid; external Lua/RML/RCSS diagnostics continue to
+use their source watcher path. For native scoped Save, comment-bearing record
+deletions require a review of every affected file before a single grouped
+Remove Comments approval is allowed to enter the revision-checked transaction.
 
 Overlapping changes preserve `B`, `L`, and `E` in ignored editor recovery state and block ordinary Save for that save unit. The conflict dialog identifies the affected unit and logical paths and offers:
 

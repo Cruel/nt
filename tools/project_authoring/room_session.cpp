@@ -46,6 +46,44 @@ std::string read_bytes(const std::filesystem::path& path)
     return result;
 }
 
+std::string review_comment(const std::string& source, std::string_view path)
+{
+    const auto first_comment = [&]() -> std::string {
+        std::istringstream input(source);
+        std::string line;
+        while (std::getline(input, line)) {
+            const auto hash = line.find('#');
+            if (hash != std::string::npos &&
+                (hash == 0 || std::isspace(static_cast<unsigned char>(line[hash - 1]))))
+                return line.substr(hash);
+        }
+        return {};
+    };
+    const auto decoded = open_yaml_source(source);
+    if (!decoded.accepted) return first_comment();
+    std::size_t line = 0;
+    for (const auto& location : decoded.locations)
+        if (location.path == path && location.has_comment) {
+            line = location.line;
+            break;
+        }
+    std::vector<std::string> lines;
+    std::istringstream stream(source);
+    std::string value;
+    while (std::getline(stream, value)) lines.push_back(value);
+    if (line == 0 || line > lines.size()) return first_comment();
+    std::string comments;
+    if (const auto hash = lines[line - 1].find('#'); hash != std::string::npos)
+        comments = lines[line - 1].substr(hash);
+    for (std::size_t i = line - 1; i > 0;) {
+        const auto& previous = lines[--i];
+        const auto first = previous.find_first_not_of(" \t");
+        if (first == std::string::npos || previous[first] != '#') break;
+        comments = previous.substr(first) + (comments.empty() ? "" : "\n" + comments);
+    }
+    return comments.empty() ? first_comment() : comments;
+}
+
 bool analyzable_text_path(std::string_view path)
 {
     return (path.ends_with(".lua") || path.ends_with(".rml") || path.ends_with(".rcss")) &&
@@ -3250,8 +3288,67 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
         response = source_->reconcile_disk();
     } else {
         const auto name = std::string(owner);
+        const auto slash = name.find('/');
+        const auto family = name.substr(0, slash);
+        const auto id = slash == std::string::npos ? std::string() : name.substr(slash + 1);
+        const bool optional_record = record_contracts().contains(family) && is_id(id);
+        const bool optional_locale =
+            (name.starts_with("i18n/locales/") || name.starts_with("i18n/assets/")) &&
+            name.ends_with(".yaml") && name.find("/", sizeof("i18n/locales/") - 1) == std::string::npos;
+        if (optional_record || optional_locale) {
+            const auto path = optional_record
+                ? (family == "layouts" ? root_ / "records" / family / id / "layout.yaml"
+                                       : root_ / "records" / family / (id + ".yaml"))
+                : root_ / name;
+            try {
+                if (source_revision_or_absent(path) == "absent") {
+                    if (auto found = records_.find(name); found != records_.end()) {
+                        if (found->second->snapshot().disk_source_revision == "absent") {
+                            response.accepted = true;
+                        } else if (found->second->snapshot().dirty) {
+                            response = found->second->reconcile_deleted_disk();
+                        } else {
+                            records_.erase(found);
+                            response.accepted = true;
+                            response.affected_records = {name};
+                        }
+                    } else {
+                        // Even an uninspected file may still exist in the
+                        // renderer's admitted snapshot. Publish its removal.
+                        response.accepted = true;
+                        response.affected_records = {name};
+                    }
+                    if (response.accepted && !response.affected_records.empty()) {
+                        if (indexed_text_owner(name)) index_text_owner(name, "{}");
+                        if (localization_record_owner(name) || name.starts_with("i18n/") ||
+                            name.starts_with("assets/"))
+                            localization_cache_.reset();
+                        if (name.starts_with("assets/"))
+                            reindex_asset_consumers(name.substr(sizeof("assets/") - 1));
+                        if (name.starts_with("materials/"))
+                            material_compiler_results_.clear();
+                        if (name.starts_with("interactions/")) {
+                            interaction_sources_.reset();
+                            interaction_resolver_cache_.reset();
+                        }
+                        ++working_revision_;
+                    }
+                    response.snapshot = snapshot();
+                    diagnostic_delta(response, before);
+                    return response;
+                }
+            } catch (const std::exception& error) {
+                response.error = error.what();
+                response.snapshot = snapshot();
+                return response;
+            }
+        }
         if (!records_.contains(name)) {
             response = inspect_record(owner);
+            if (response.accepted && !response.affected_records.empty())
+                ++working_revision_;
+            response.snapshot = snapshot();
+            diagnostic_delta(response, before);
             return response;
         }
         response = records_.at(name)->reconcile_disk();
@@ -3609,6 +3706,21 @@ RoomSessionResult ProjectSession::save_owners(
         }
         std::vector<YamlTransactionTarget> targets;
         std::map<std::string, Json> projected;
+        // The approval covers one atomic Save, not one record. Collect every
+        // deletion impact before returning the confirmation request; approval
+        // for the first record must never silently authorize the others.
+        if (comments == TransactionDecision::KeepComments) {
+            for (const auto& [owner, session] : deletions) {
+                const auto comment = review_comment(session->disk_source_, "/");
+                if (!comment.empty())
+                    response.comment_impacts.push_back({
+                        session->source_path().lexically_relative(root_).generic_string(),
+                        "/", comment, "deleted"});
+            }
+            if (!response.comment_impacts.empty())
+                throw std::runtime_error(
+                    "Deleting commented records requires explicit Remove Comments approval.");
+        }
         for (const auto& [owner, session] : deletions) {
             const auto state = session->snapshot();
             const auto filter = paths.find(owner);
@@ -3674,6 +3786,9 @@ RoomSessionResult ProjectSession::save_owners(
             const auto state = session->snapshot();
             if (!state.dirty)
                 continue;
+            if (!keep_mine && state.disk_source_revision == "absent" &&
+                !state.conflicting_paths.empty())
+                throw std::runtime_error("Unresolved external deletion conflict: " + owner);
             if (state.disk_source_revision == "absent") {
                 if (!state.valid)
                     throw std::runtime_error("Cannot create invalid Project record: " + owner);
@@ -3883,6 +3998,17 @@ RoomSessionResult ProjectSession::save_owners(
         if (prepared.targets.size() != targets.size())
             throw std::runtime_error(
                 "Native Save cannot treat an unapplied dirty owner as successfully persisted.");
+        if (comments == TransactionDecision::KeepComments) {
+            for (const auto& proposed : prepared.targets)
+                if (proposed.erase)
+                    for (const auto& path : proposed.affected_comments)
+                        response.comment_impacts.push_back({
+                            proposed.path, path, review_comment(proposed.before_source, path),
+                            "deleted"});
+            if (!response.comment_impacts.empty())
+                throw std::runtime_error(
+                    "Deleting commented records requires explicit Remove Comments approval.");
+        }
         for (const auto& proposed : prepared.targets) {
             if (const auto asset = std::find_if(targets.begin(), targets.end(),
                                                 [&](const auto& target) {
@@ -3928,10 +4054,6 @@ RoomSessionResult ProjectSession::save_owners(
                 if (deleted == deletions.end() || proposed.after_revision != "absent")
                     throw std::runtime_error(
                         "Native structural deletion projected an unknown source.");
-                if (comments == TransactionDecision::KeepComments &&
-                    !proposed.affected_comments.empty())
-                    throw std::runtime_error(
-                        "Deleting commented records requires explicit Remove Comments approval.");
                 continue;
             }
             if (proposed.path.starts_with(".noveltea/trash/layouts/")) {
@@ -4803,6 +4925,32 @@ RoomSessionResult RoomSession::reconcile_disk()
         std::vector<RoomPatch> remaining;
         json_delta(&external, &merged, "", remaining);
         unsaved_patches_ = std::move(remaining);
+        ++working_revision_;
+        auto response = result(true, {}, true);
+        diagnostic_delta(response, before);
+        return response;
+    } catch (const std::exception& exception) {
+        return result(false, exception.what());
+    }
+}
+
+RoomSessionResult RoomSession::reconcile_deleted_disk()
+{
+    try {
+        if (source_revision_or_absent(path_) != "absent")
+            return result(false, "Deleted source was recreated during reconciliation.");
+        if (disk_revision_ == "absent") return result(true);
+        const auto before = snapshot();
+        disk_source_.clear();
+        disk_revision_ = "absent";
+        disk_json_ = "{}";
+        // Deletion overlaps the entire dirty record, even if each local edit
+        // touched a disjoint field. Explicit Use Disk or Keep Mine decides.
+        conflicting_paths_ = {"/"};
+        unsaved_patches_.clear();
+        const auto absent = Json::parse(disk_json_);
+        const auto local = Json::parse(working_json_);
+        json_delta(&absent, &local, "", unsaved_patches_);
         ++working_revision_;
         auto response = result(true, {}, true);
         diagnostic_delta(response, before);

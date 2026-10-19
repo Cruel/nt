@@ -51,6 +51,107 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('admits a deleted tracked Room, preserving dirty edits as a native conflict until Use Disk', async () => {
+    const { root, bridge, working, roomPath } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    await rm(roomPath);
+    const clean = await working.reconcile(owner);
+    expect(clean.accepted, clean.error).toBe(true);
+    expect(clean.affectedRecords).toContain(owner);
+    expect(clean.snapshot.recordSnapshots?.[owner]).toBeUndefined();
+    await writeFile(roomPath, (await readFile(path.join(fixture, roomRelative))).toString());
+    const readded = await working.reconcile(owner);
+    expect(readded.accepted, readded.error).toBe(true);
+    expect(readded.snapshot.recordSnapshots?.[owner]?.source).toBeDefined();
+    const local = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: labelPath, value: 'Local Room' },
+    ]);
+    expect(local.accepted, local.error).toBe(true);
+    await rm(roomPath);
+    const conflicted = await working.reconcile(owner);
+    expect(conflicted.accepted, conflicted.error).toBe(true);
+    expect(conflicted.snapshot.recordSnapshots?.[owner]).toMatchObject({
+      source: expect.objectContaining({ label: 'Local Room' }),
+      baseline: null,
+      diskSourceRevision: 'absent',
+      conflictingPaths: ['/'],
+    });
+    const discarded = await working.useDiskUnit(`record:rooms:${roomId}`);
+    expect(discarded.accepted, discarded.error).toBe(true);
+    expect(discarded.snapshot.recordSnapshots?.[owner]).toBeUndefined();
+    await writeFile(roomPath, await readFile(path.join(fixture, roomRelative)));
+    expect((await working.reconcile(owner)).accepted).toBe(true);
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: labelPath, value: 'Kept Local Room' },
+    ])).accepted).toBe(true);
+    await rm(roomPath);
+    expect((await working.reconcile(owner)).accepted).toBe(true);
+    expect((await working.saveOwners([owner])).accepted).toBe(false);
+    const kept = await working.saveOwners([owner], { keepMine: true });
+    expect(kept.accepted, kept.error).toBe(true);
+    expect(await readFile(roomPath, 'utf8')).toContain('Kept Local Room');
+    await working.reopenAndReplay('native-reconcile-test');
+    expect((await working.inspectRecord(owner)).snapshot.recordSnapshots?.[owner]?.source)
+      .toMatchObject({ label: 'Kept Local Room' });
+  }, 120_000);
+
+  it('offers comment review before deleting native YAML and requires the selected disposition', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const id = 'native-comment-review';
+    const createdOwner = `rooms/${id}`;
+    const roomPath = path.join(root, `records/rooms/${id}.yaml`);
+    const original = working.snapshot()!.recordSnapshots![owner]!.source as Record<string, JsonValue>;
+    const created = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: `/rooms/${id}`, value: { ...original, id } },
+    ]);
+    expect(created.accepted, created.error).toBe(true);
+    expect((await working.saveOwners([createdOwner])).accepted).toBe(true);
+    const bytes = await readFile(roomPath, 'utf8');
+    // New native owners may initially be serialized in JSON (also valid YAML),
+    // so use a leading YAML comment rather than assuming a `label:` line.
+    await writeFile(roomPath, '# important native comment\n' + bytes);
+    expect((await working.reconcile(createdOwner)).accepted).toBe(true);
+    const anotherId = 'native-comment-review-two';
+    const anotherOwner = `rooms/${anotherId}`;
+    const anotherPath = path.join(root, `records/rooms/${anotherId}.yaml`);
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: `/rooms/${anotherId}`, value: { ...original, id: anotherId } },
+    ])).accepted).toBe(true);
+    expect((await working.saveOwners([anotherOwner])).accepted).toBe(true);
+    await writeFile(anotherPath, '# second native comment\n' + (await readFile(anotherPath, 'utf8')));
+    expect((await working.reconcile(anotherOwner)).accepted).toBe(true);
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'remove', path: `/rooms/${id}` },
+      { op: 'remove', path: `/rooms/${anotherId}` },
+    ])).accepted).toBe(true);
+    const blocked = await working.saveOwners([createdOwner, anotherOwner], { comments: 'keep' });
+    expect(blocked.accepted, blocked.error).toBe(false);
+    expect(blocked.commentImpacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        file: `records/rooms/${id}.yaml`,
+        kind: 'deleted',
+        comment: expect.stringContaining('# important native comment'),
+      }),
+      expect.objectContaining({
+        file: `records/rooms/${anotherId}.yaml`,
+        kind: 'deleted',
+        comment: expect.stringContaining('# second native comment'),
+      }),
+    ]));
+    expect(await readFile(roomPath, 'utf8')).toContain('# important native comment');
+    expect(await readFile(anotherPath, 'utf8')).toContain('# second native comment');
+    const approved = await working.saveOwners([createdOwner, anotherOwner], { comments: 'remove' });
+    expect(approved.accepted, approved.error).toBe(true);
+    await expect(readFile(roomPath)).rejects.toThrow();
+    await expect(readFile(anotherPath)).rejects.toThrow();
+  }, 120_000);
   it('moves and restores binary Asset bytes through the real worker and native journal', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {

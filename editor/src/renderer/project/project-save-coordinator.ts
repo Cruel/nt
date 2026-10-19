@@ -54,6 +54,7 @@ import { rebaseRecoveryOverlays } from './project-recovery-rebase';
 import { projectNativeExternalResult } from './native-external-projection';
 import { applyProjectMutationValues, buildProjectContentSaveRequest } from './project-save-request';
 import { saveProjectContentWithComments } from './save-project-content-with-comments';
+import { confirmProjectComments } from './project-comment-confirmation';
 
 export type ProjectSaveCoordinatorStatus =
   | 'saved'
@@ -482,10 +483,13 @@ async function commitSelectedNativeSaveUnits(
     return [id, { text: buffer.text, baseContentHash: buffer.baseContentHash }];
   }));
   const acknowledged = { remainingDirtySaveUnitIds: null as string[] | null };
-  const submitted = await useCommandStore.getState().saveNativeUnitAsync(
+  let comments: 'keep' | 'remove' = 'keep';
+  let submitted: Awaited<ReturnType<ReturnType<typeof useCommandStore.getState>['saveNativeUnitAsync']>>;
+  for (let attempt = 0; ; attempt += 1) {
+    submitted = await useCommandStore.getState().saveNativeUnitAsync(
     saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
     current.projectRevision,
-    { comments: 'keep', ...(keepMine ? { keepMine: true } : {}), ...(sourceIds.length ? {
+    { comments, ...(keepMine ? { keepMine: true } : {}), ...(sourceIds.length ? {
       textPaths: [...sourceIds],
       textContents: Object.fromEntries(Object.entries(submittedSources).map(
         ([id, source]) => [id, source.text],
@@ -550,7 +554,21 @@ async function commitSelectedNativeSaveUnits(
           .map(([id]) => sourceSaveUnitId(id)),
       ]);
     },
-  );
+    );
+    if (submitted.ok || !submitted.commentImpacts?.length || attempt >= 3) break;
+    const decision = await confirmProjectComments(submitted.commentImpacts, 'Save Project');
+    if (decision === 'cancel') {
+      return {
+        success: false,
+        status: 'cancelled',
+        diagnostics: [],
+        savedSaveUnitIds: [],
+        remainingDirtySaveUnitIds: remaining,
+      };
+    }
+    if (decision === 'keep') break;
+    comments = 'remove';
+  }
   if (!submitted.ok) {
     return {
       success: false,

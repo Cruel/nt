@@ -710,6 +710,48 @@ describe('WorkspacePage new project modal', () => {
       .toBe(useProjectStore.getState().projectRevision);
   });
 
+  it('attributes invalid external YAML to its owner and clears the error when corrected', async () => {
+    const project = createAuthoringProject({ id: 'native-invalid', name: 'Native Invalid' });
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({
+      project, projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    window.noveltea.nativeProjectReconcile = vi.fn()
+      .mockResolvedValueOnce({ accepted: false, error: 'Invalid external YAML source: malformed',
+        affectedRecords: [], snapshot: { workingRevision: 0 } })
+      .mockResolvedValueOnce({ accepted: true, error: '', affectedRecords: [],
+        snapshot: { workingRevision: 0 }, diagnosticsAdded: [], diagnosticsRemoved: [] });
+    render(<WorkspacePage />);
+    const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
+    const event = {
+      projectSessionId: 'opened-project-session',
+      changedPaths: ['records/rooms/hall.yaml'],
+      authoringChangedPaths: ['records/rooms/hall.yaml'],
+      assetChangedPaths: [],
+    };
+    act(() => callback?.(event));
+    await waitFor(() => expect(useWorkspaceStore.getState().diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({
+        code: 'editor.native-external.reconciliation-failed',
+        path: '/rooms/hall',
+      })]),
+    ));
+    act(() => callback?.(event));
+    await waitFor(() => expect(window.noveltea.nativeProjectReconcile).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(useWorkspaceStore.getState().diagnostics.some(
+      (diagnostic) => diagnostic.code === 'editor.native-external.reconciliation-failed',
+    )).toBe(false));
+  });
+
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({

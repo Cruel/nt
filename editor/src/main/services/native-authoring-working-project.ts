@@ -188,7 +188,7 @@ export class NativeAuthoringWorkingProject {
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a record snapshot.');
       if (result.accepted) {
-        const merged = this.mergeSnapshot(result.snapshot);
+        const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
         this.view = merged;
         return { ...result, snapshot: merged };
       }
@@ -303,7 +303,7 @@ export class NativeAuthoringWorkingProject {
         throw new Error('Native Project did not return a reconciliation result.');
       if (result.accepted) {
         const prior = this.view;
-        const merged = this.mergeSnapshot(result.snapshot);
+        const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
         this.view = merged;
         const previous = owner === 'project' ? prior : prior?.recordSnapshots?.[owner];
         const current = owner === 'project' ? merged : merged.recordSnapshots?.[owner];

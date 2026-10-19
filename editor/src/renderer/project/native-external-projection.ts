@@ -18,7 +18,7 @@ type Source = {
   conflictingPaths?: string[];
 };
 
-function nativePath(owner: string): string {
+export function nativeExternalOwnerPath(owner: string): string {
   if (owner === 'project') return '';
   if (owner === 'editor' || owner === 'traits') return `/${owner}`;
   const localized = /^i18n\/(locales|assets)\/([^/]+)\.yaml$/.exec(owner);
@@ -51,7 +51,7 @@ export function nativeOwnersForChangedSources(paths: readonly string[]): string[
       owners.add(path);
     else if (/^i18n\/(?:locales|assets)\/[^/]+\.yaml$/.test(path)) owners.add(path);
     else {
-      const layout = /^records\/layouts\/([^/]+)\/[^/]+$/.exec(path);
+      const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/.exec(path);
       const record = /^records\/([^/]+)\/([^/]+)\.yaml$/.exec(path);
       if (layout) owners.add(`layouts/${layout[1]}`);
       else if (record) owners.add(`${record[1]}/${record[2]}`);
@@ -68,7 +68,7 @@ function diskPath(owner: string): string {
 }
 
 function fieldPath(owner: string, relative: string): JsonPointer {
-  const prefix = nativePath(owner);
+  const prefix = nativeExternalOwnerPath(owner);
   if (!prefix) return relative as JsonPointer;
   if (relative === '/' || relative === '') return prefix as JsonPointer;
   return `${prefix}${relative}` as JsonPointer;
@@ -120,7 +120,7 @@ function applySource(document: JsonValue, owner: string, source: unknown): JsonV
     }
     return next;
   }
-  const root = nativePath(owner);
+  const root = nativeExternalOwnerPath(owner);
   if (!root) {
     if (!source || typeof source !== 'object' || Array.isArray(source))
       throw new Error('Native manifest projection is not an object.');
@@ -245,7 +245,7 @@ export function projectNativeExternalResult(input: {
     if (
       input.result.affectedRecords.some((owner) =>
         entry.externalConflict!.conflictingPaths.some(
-          (path) => path === nativePath(owner) || path.startsWith(`${nativePath(owner)}/`),
+          (path) => path === nativeExternalOwnerPath(owner) || path.startsWith(`${nativeExternalOwnerPath(owner)}/`),
         ),
       )
     ) {

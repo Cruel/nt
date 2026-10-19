@@ -81,7 +81,9 @@ interface CommandStoreState {
     onAcknowledged?: (
       result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
     ) => void,
-  ) => Promise<CommandExecutionResult>;
+  ) => Promise<CommandExecutionResult & {
+    commentImpacts?: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult['commentImpacts'];
+  }>;
   saveNativeTextAsync: (
     path: string,
     text: string,
@@ -846,9 +848,11 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       set({ nativeMutationPending: true });
       let final: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult | null = null;
       const changed = new Set<string>();
+      let failedOwner: string | null = null;
       let publicationAttempted = false;
       try {
         for (const owner of [...new Set(owners)].sort()) {
+          failedOwner = owner;
           const result = await window.noveltea.nativeProjectReconcile(session, revision, owner);
           if (useProjectStore.getState().projectInstanceId !== instance ||
               useProjectStore.getState().projectRevision !== project.projectRevision ||
@@ -887,7 +891,10 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         if (publicationAttempted && get().nativeProjectionRevision !== useProjectStore.getState().projectRevision)
           set({ nativeMutationFailure: 'Native reconciliation lost editor projection parity.' });
         set({ nativeMutationPending: false, lastDiagnostics: [{ severity: 'error', message }] });
-        return nativeOnlyResult(message);
+        return {
+          ...nativeOnlyResult(message),
+          diagnostics: [{ severity: 'error', message, ...(failedOwner ? { path: failedOwner } : {}) }],
+        };
       }
     });
   },
@@ -1000,7 +1007,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         if (!saved.accepted) {
           const rejected = nativeOnlyResult(saved.error || 'Native scoped Save rejected.');
           set({ nativeMutationPending: false, lastDiagnostics: rejected.diagnostics });
-          return rejected;
+          return { ...rejected, commentImpacts: saved.commentImpacts };
         }
         if (saved.snapshot.workingRevision < revision)
           throw new Error('Native Save acknowledged an older working Project revision.');
