@@ -2925,6 +2925,10 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const legacySnapshot = JSON.stringify({ ...snapshot, version: 2 });
     const legacyMetadata = JSON.stringify({ ...ownerMetadata, version: 2 });
+    const mismatchedAssetMetadata = JSON.stringify({
+      ...ownerMetadata,
+      nativeAssetSourcePaths: ['assets/not-in-project.bin'],
+    });
     const { nativePreparation: _omittedNativePreparation, ...missingNativePreparation } = snapshot;
     expect(
       await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
@@ -2945,6 +2949,13 @@ describe('ResidentProjectWorkspaceSession', () => {
         undefined,
         probe.authority,
       ).rehydratePortableSnapshot(ROOT, prepared.snapshotText, legacyMetadata),
+    ).toBe(false);
+    expect(
+      await new ResidentProjectWorkspaceService(
+        fileSystem,
+        undefined,
+        probe.authority,
+      ).rehydratePortableSnapshot(ROOT, prepared.snapshotText, mismatchedAssetMetadata),
     ).toBe(false);
   });
 
