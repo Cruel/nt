@@ -2923,6 +2923,13 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const legacySnapshot = JSON.stringify({ ...snapshot, version: 2 });
     const legacyMetadata = JSON.stringify({ ...ownerMetadata, version: 2 });
+    const { nativePreparation: _omittedNativePreparation, ...missingNativePreparation } = snapshot;
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(missingNativePreparation),
+      ),
+    ).toBe(false);
     expect(
       await new ResidentProjectWorkspaceService(
         fileSystem,
@@ -2937,6 +2944,87 @@ describe('ResidentProjectWorkspaceSession', () => {
         probe.authority,
       ).rehydratePortableSnapshot(ROOT, prepared.snapshotText, legacyMetadata),
     ).toBe(false);
+  });
+
+  it('transports native preparation in one pinned generation and rejects mismatched source revisions', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Pinned Native' });
+    project.rooms.foyer = { id: 'foyer', label: 'Before', data: defaultRoomData('Before') };
+    const shaderText = '#include "common.sh"\nvoid main() {}\n';
+    const includeText = '#define CAPTURED 1\n';
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    files[`${ROOT}/shaders/custom.fs.sc`] = shaderText;
+    files[`${ROOT}/shaders/common.sh`] = includeText;
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    probe.setManifestEntries([{ path: 'shaders/custom.fs.sc' }, { path: 'shaders/common.sh' }]);
+    let admittedProject = structuredClone(project);
+    let revisions: Record<string, string> = {};
+    let proofAccepted = true;
+    const sourceGeneration = `sha256:${'b'.repeat(64)}`;
+    const prepareNativeProject = vi.fn(async () => ({
+      project: admittedProject,
+      sourceGeneration,
+      sourceRevisions: {
+        ...revisions,
+        'shaders/custom.fs.sc': sha256PrefixedUtf8(shaderText),
+        'shaders/common.sh': sha256PrefixedUtf8(includeText),
+      },
+      sourceOverlays: {
+        'shaders/custom.fs.sc': shaderText,
+        'shaders/common.sh': includeText,
+      },
+      cliDiagnostics: [],
+    }));
+    const authority: ResidentProjectAuthority = {
+      ...probe.authority,
+      prepareNativeProject,
+      async proveNativeProject(_root, generation) {
+        expect(generation).toBe(sourceGeneration);
+        return proofAccepted;
+      },
+    };
+    const owner = new ResidentProjectWorkspaceService(fileSystem, undefined, authority);
+    const opened = await owner.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error('Owner Project could not be opened.');
+    admittedProject = structuredClone(opened.snapshot.project);
+    revisions = Object.fromEntries(
+      Object.entries(opened.snapshot.fileRevisions).map(([relativePath, value]) => [
+        relativePath,
+        value.contentHash,
+      ]),
+    );
+
+    revisions['project.yaml'] = `sha256:${'0'.repeat(64)}`;
+    expect(await owner.preparePortableSnapshot(ROOT)).toBeNull();
+    revisions['project.yaml'] = opened.snapshot.fileRevisions['project.yaml']!.contentHash;
+    proofAccepted = false;
+    expect(await owner.preparePortableSnapshot(ROOT)).toBeNull();
+    proofAccepted = true;
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    if (!prepared) throw new Error('Native Project generation was not prepared.');
+
+    const changed = structuredClone(project);
+    changed.rooms.foyer.label = 'After';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/records/rooms/foyer.yaml`,
+      projectWorkspaceFiles(changed, changed.editor)['records/rooms/foyer.yaml']!,
+    );
+    await fileSystem.writeTextAtomic(`${ROOT}/shaders/common.sh`, '#define CAPTURED 2\n');
+
+    const disposable = new ResidentProjectWorkspaceService(fileSystem);
+    expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
+    const pinned = await disposable.pinnedPortableInputs(ROOT);
+    expect(pinned?.nativePreparation?.project.rooms.foyer.label).toBe('Before');
+    expect(pinned?.nativePreparation?.sourceOverlays['shaders/common.sh']).toBe(includeText);
+    expect(pinned?.nativePreparation?.sourceGeneration).toBe(sourceGeneration);
+    expect(pinned?.projectTextSources['shaders/common.sh']?.text).toBe(includeText);
+    expect(prepareNativeProject).toHaveBeenCalledTimes(3);
   });
 
   it('hydrates a pinned portable generation without admitting newer structural disk state', async () => {

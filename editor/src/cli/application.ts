@@ -163,6 +163,12 @@ export interface RunNovelTeaCliOptions {
   readonly prepareResidentSnapshotOnly?: boolean;
   /** Internal disposable-worker contract: native already pinned the supplied immutable generation. */
   readonly trustPinnedResidentSnapshot?: boolean;
+  readonly pinnedNativePreparation?: Readonly<{
+    projectRoot: string;
+    preparation:
+      | import('../shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation
+      | null;
+  }>;
   readonly pinnedExternalAssets?: readonly import('./pinned-external-assets').PinnedExternalAssetExpectation[];
   readonly pinnedProjectTextSources?: Readonly<
     Record<string, Readonly<{ text: string; contentHash?: string }>>
@@ -257,12 +263,11 @@ export async function runNovelTeaCli(
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   if (options.nativeProjectCommands) {
-    // Heavy daemon commands must consume their pinned owner generation. Until
-    // native preparation participates in that transport, stage local shaders only.
+    // Disposable shaders consume the native preparation embedded in the pinned snapshot.
+    // Never invoke disk-backed native Project admission in a disposable worker.
     if (
-      !options.residentWorkspace &&
       !options.prepareResidentSnapshotOnly &&
-      !options.trustPinnedResidentSnapshot
+      (!options.residentWorkspace || options.trustPinnedResidentSnapshot)
     ) {
       const { runNativeProjectShadersCli } = await import('./native-project-shaders-cli');
       const nativeShaders = await runNativeProjectShadersCli(
@@ -270,6 +275,7 @@ export async function runNovelTeaCli(
         cwd,
         options.nativeProjectCommands,
         nativeTools,
+        options.pinnedNativePreparation,
       );
       if (nativeShaders) return nativeShaders;
     }

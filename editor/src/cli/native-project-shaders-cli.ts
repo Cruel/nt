@@ -11,13 +11,15 @@ import {
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import { nativeProjectDiagnostics } from './native-project-results';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
+import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
 
-/** Local certification candidate. Resident/disposable generation transport is staged separately. */
+/** Certification candidate: local native admission or immutable daemon-pinned native preparation. */
 export async function runNativeProjectShadersCli(
   globals: ParsedGlobalArguments,
   cwd: string,
   native: NativeProjectCommandCall,
   nativeTools: Pick<NovelTeaCliNativeToolService, 'compileShaders'>,
+  pinned?: Readonly<{ projectRoot: string; preparation: NativeResidentProjectPreparation | null }>,
 ): Promise<NovelTeaCliCommandResult | null> {
   if (globals.command[0] !== 'shaders' || globals.command[1] !== 'compile') return null;
   let options;
@@ -29,7 +31,7 @@ export async function runNativeProjectShadersCli(
       globals.json,
     );
   }
-  const projectRoot = await nativeProjectRoot(cwd, globals.project);
+  const projectRoot = pinned?.projectRoot ?? (await nativeProjectRoot(cwd, globals.project));
   const fail = (code: string, message: string, exitCode: 3 | 4 | 6 | 70) =>
     formatCliResult(
       {
@@ -58,7 +60,15 @@ export async function runNativeProjectShadersCli(
       { failure: 'No NovelTea project.yaml was found from the current directory upward.' },
     );
   try {
-    const prepared = await native({ action: 'shader-preparation', projectRoot });
+    if (pinned && !pinned.preparation)
+      return fail(
+        'CLI_INTERNAL',
+        'Pinned Project generation has no native preparation. Refusing disk re-admission.',
+        70,
+      );
+    const prepared = pinned?.preparation
+      ? { ok: true as const, ...pinned.preparation }
+      : await native({ action: 'shader-preparation', projectRoot });
     if (!prepared.ok)
       return fail(
         prepared.kind === 'conflict' ? 'WORKSPACE_REVISION_CONFLICT' : 'WORKSPACE_SOURCE_READ',
@@ -91,18 +101,20 @@ export async function runNativeProjectShadersCli(
       options,
       prepared.sourceOverlays as Record<string, string>,
     );
-    const proof = await native({
-      action: 'source-generation-proof',
-      projectRoot,
-      expectedSourceGeneration: prepared.sourceGeneration,
-    });
-    if (!proof.ok)
-      return fail(
-        'WORKSPACE_REVISION_CONFLICT',
-        proof.error ?? 'Project sources changed during shader compilation.',
-        3,
-      );
-    const diagnostics = [...nativeProjectDiagnostics(prepared), ...semantic.diagnostics];
+    if (!pinned) {
+      const proof = await native({
+        action: 'source-generation-proof',
+        projectRoot,
+        expectedSourceGeneration: prepared.sourceGeneration,
+      });
+      if (!proof.ok)
+        return fail(
+          'WORKSPACE_REVISION_CONFLICT',
+          proof.error ?? 'Project sources changed during shader compilation.',
+          3,
+        );
+    }
+    const diagnostics = [...nativeProjectDiagnostics({ ...prepared }), ...semantic.diagnostics];
     const exitCode = semantic.ok
       ? 0
       : diagnostics.some((item) => item.code.startsWith('native.'))
