@@ -670,6 +670,7 @@ jobs:
           NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}\dist\noveltea-native-smoke-windows-x64-${{ matrix.variant }}.json
           NOVELTEA_PLAYER_HEADLESS_ERRORS: "1"
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}\build\${{ matrix.preset }}\tools\editor_tool\noveltea-tooling-bridge.exe
+          NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}\build\${{ matrix.preset }}\tools\editor_tool\noveltea-ui-test-runner.exe
         run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Finalize and launch Linux portable export on X11
@@ -1344,12 +1345,12 @@ jobs:
             --allow-localization-warnings
           pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
-      - name: Export and inspect optimized ARM64 developer APK through public CLI
+      - name: Export and inspect optimized ARM64 developer APK plus AAB through public CLI
         env:
           NOVELTEA_ANDROID_ABI: arm64-v8a
           NOVELTEA_ANDROID_FLAVOR: release
           NOVELTEA_CANONICAL_PLAYER_VARIANT: devtools
-          NOVELTEA_ANDROID_ARTIFACT: apk
+          NOVELTEA_ANDROID_ARTIFACT: both
           NOVELTEA_CANONICAL_EXPORT_TARGET: android
           NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-android-arm64-v8a-devtools.tar.gz
           NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-android-arm64-devtools
@@ -1362,7 +1363,7 @@ jobs:
           config="$RUNNER_TEMP/noveltea-android-arm64-devtools-export-config.json"
           pnpm android:export-config -- --output "$config"
           fixture_root="$RUNNER_TEMP/noveltea-android-arm64-devtools-fixture"
-          pnpm -C editor run android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --variant devtools --artifact apk
+          pnpm -C editor run android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --variant devtools --artifact both
           export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry-arm64-devtools"
           "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install \
             "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-devtools.tar.gz" --force
