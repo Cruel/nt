@@ -49,6 +49,10 @@ import {
   externalConflictDiagnostic,
   reconcileExternalProjectChange,
 } from '@/project/project-external-reconciliation';
+import {
+  nativeOwnersForChangedSources,
+  projectNativeExternalResult,
+} from '@/project/native-external-projection';
 import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
@@ -98,6 +102,7 @@ import {
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type { NativeAuthoringPatchResult } from '../../main/services/native-authoring-worker-contract';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import {
   canonicalProjectPersistenceContentJson,
@@ -257,6 +262,7 @@ export function WorkspacePage() {
   >([]);
   const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const [externalConflictBusy, setExternalConflictBusy] = useState(false);
+  const [dismissedExternalConflict, setDismissedExternalConflict] = useState<string | null>(null);
   const lastObservedCommandId = useRef<string | null>(null);
   const didAttemptStartupRestore = useRef(false);
   const ignoredUntrackedAssetPaths = useRef<Set<string>>(new Set());
@@ -357,6 +363,9 @@ export function WorkspacePage() {
       ? { saveUnitId: entry[0], conflict: entry[1].externalConflict }
       : null;
   }, [project]);
+  const externalConflictIdentity = externalConflict
+    ? `${externalConflict.saveUnitId}:${JSON.stringify(externalConflict.conflict.externalFileRevisions)}:${JSON.stringify(externalConflict.conflict.conflictingPaths)}`
+    : null;
 
   if (!imageThumbnailPrewarmRef.current) {
     imageThumbnailPrewarmRef.current = new ImageThumbnailPrewarmCoordinator();
@@ -944,6 +953,62 @@ export function WorkspacePage() {
     clearComfyUiProjectQueue(projectFilePath);
   }, [clearComfyUiProjectQueue, projectFilePath]);
 
+  const publishNativeExternalResult = useCallback((result: NativeAuthoringPatchResult) => {
+    const state = useProjectStore.getState();
+    if (!state.document || !state.savedDocument || !state.projectSessionId)
+      throw new Error('Native reconciliation has no active editor Project.');
+    const snapshot = buildEditorProjectStateSnapshot();
+    const reconciled = projectNativeExternalResult({
+      saved: state.savedDocument,
+      working: state.document,
+      recovery: snapshot.recovery,
+      result,
+    });
+    const workingTracked = editorProjectStateFromProject(reconciled.working);
+    const savedTracked = editorProjectStateFromProject(reconciled.saved);
+    const workingEditorState: EditorProjectState = {
+      ...snapshot,
+      chapters: workingTracked.chapters,
+      tags: workingTracked.tags,
+      recordMetadata: workingTracked.recordMetadata,
+      recovery: reconciled.recovery,
+    };
+    const savedEditorState: EditorProjectState = {
+      ...snapshot,
+      chapters: savedTracked.chapters,
+      tags: savedTracked.tags,
+      recordMetadata: savedTracked.recordMetadata,
+      recovery: reconciled.recovery,
+    };
+    const working = mergeEditorProjectState(reconciled.working, workingEditorState);
+    const saved = mergeEditorProjectState(reconciled.saved, savedEditorState);
+    if (!useProjectStore.getState().publishExternalReconciliation({
+      document: working,
+      savedDocument: saved,
+      scriptSourcePaths: state.scriptSourcePaths,
+      affectedPaths: reconciled.affectedPaths,
+    })) throw new Error('Native reconciliation produced an inadmissible editor Project.');
+    setLoadedEditorProjectState(workingEditorState);
+    externalSourceDiagnosticsRef.current = [];
+    setProject(working as AuthoringProject);
+    const conflicts = Object.entries(reconciled.recovery.saveUnitsById)
+      .filter(([, entry]) => entry.externalConflict)
+      .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!));
+    setDiagnostics(collectWorkspaceProjectDiagnostics(working, [
+      ...persistentRecoveryDiagnosticsRef.current,
+      ...externalPhysicalSourceDiagnosticsRef.current,
+      ...externalAssetDiagnosticsRef.current,
+      ...conflicts,
+    ]));
+    if (conflicts.length) {
+      useBottomPanelStore.getState().setActivePanelId('problems');
+      setBottomPanelVisible(true);
+    }
+    setStatusMessage(conflicts.length
+      ? 'External changes require conflict resolution'
+      : 'Reloaded external project changes');
+  }, [setBottomPanelVisible, setDiagnostics, setProject, setStatusMessage]);
+
   useEffect(() => {
     const currentProjectFilePath = projectFilePath ?? null;
     if (lastAssetAuditProjectFilePath.current !== currentProjectFilePath) {
@@ -983,23 +1048,40 @@ export function WorkspacePage() {
           return;
         const authoring = event.authoring;
         if (useCommandStore.getState().nativeWorkingRevision !== null) {
-          // The legacy watcher is still useful as a file/asset notification,
-          // but only the native observer owns the live Project snapshot in
-          // certification mode. Never publish a TypeScript external merge
-          // into an acknowledged native revision.
           if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
             void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
-          if (event.assetChangedPaths.length > 0) void runAssetAudit(latestProject);
-          if (event.authoringChangedPaths.length > 0) {
-            setStatusMessage('External Project changes detected; native reconciliation is required');
-            if (!authoring?.success && authoring?.diagnostics.length) {
-              setDiagnostics([
-                ...persistentRecoveryDiagnosticsRef.current,
-                ...authoring.diagnostics,
-              ]);
-              useBottomPanelStore.getState().setActivePanelId('problems');
-              setBottomPanelVisible(true);
-            }
+          const owners = nativeOwnersForChangedSources(event.authoringChangedPaths);
+          if (owners.length) {
+            void useCommandStore.getState().reconcileNativeExternalAsync(owners, (result) => {
+              if (useProjectStore.getState().projectSessionId !== latestProjectSessionId)
+                throw new Error('External reconciliation completed for a superseded Project.');
+              publishNativeExternalResult(result);
+            }).then((result) => {
+              if (useProjectStore.getState().projectSessionId !== latestProjectSessionId) return;
+              if (!result.ok) {
+                externalSourceDiagnosticsRef.current = [createProjectValidationDiagnostic({
+                  code: 'editor.native-external.reconciliation-failed',
+                  severity: 'error',
+                  category: 'External project source',
+                  path: '/',
+                  message: result.diagnostics[0]?.message ?? 'Native reconciliation rejected.',
+                  boundaries: ['authoring'],
+                  ownerPaths: ['/'],
+                })];
+                setDiagnostics(collectWorkspaceProjectDiagnostics(
+                  useProjectStore.getState().document,
+                  [...persistentRecoveryDiagnosticsRef.current, ...externalSourceDiagnosticsRef.current],
+                ));
+                useBottomPanelStore.getState().setActivePanelId('problems');
+                setBottomPanelVisible(true);
+                setStatusMessage('External project changes require attention');
+              } else if (event.assetChangedPaths.length) {
+                const current = useProjectStore.getState().document;
+                if (current) void runAssetAudit(current as AuthoringProject);
+              }
+            });
+          } else if (event.assetChangedPaths.length) {
+            void runAssetAudit(latestProject);
           }
           return;
         }
@@ -1209,7 +1291,7 @@ export function WorkspacePage() {
           setStatusMessage(message);
         }
       }),
-    [runAssetAudit, setBottomPanelVisible, setDiagnostics, setProject, setStatusMessage],
+    [publishNativeExternalResult, runAssetAudit, setBottomPanelVisible, setDiagnostics, setProject, setStatusMessage],
   );
 
   useEffect(() => {
@@ -1394,7 +1476,20 @@ export function WorkspacePage() {
     if (!externalConflict || externalConflictBusy) return;
     setExternalConflictBusy(true);
     try {
-      if (!resolveExternalConflictUseDisk(externalConflict.saveUnitId)) return;
+      if (useCommandStore.getState().nativeWorkingRevision !== null) {
+        const result = await useCommandStore.getState().useNativeDiskUnitAsync(
+          externalConflict.saveUnitId,
+          (acknowledged) => {
+            useCommandStore.getState().discardSaveUnitHistory(externalConflict.saveUnitId);
+            usePendingInputStore.getState().clearPendingInputsForSaveUnit(externalConflict.saveUnitId);
+            publishNativeExternalResult(acknowledged);
+          },
+        );
+        if (!result.ok) {
+          setStatusMessage(result.diagnostics[0]?.message ?? 'Native Use Disk failed');
+          return;
+        }
+      } else if (!resolveExternalConflictUseDisk(externalConflict.saveUnitId)) return;
       const latestProject = useProjectStore.getState().document;
       if (latestProject) {
         setProject(latestProject);
@@ -1413,6 +1508,7 @@ export function WorkspacePage() {
   }
 
   async function saveActiveProjectUnit() {
+    setDismissedExternalConflict(null);
     if (!project) return false;
     try {
       const workbench = useWorkbenchStore.getState();
@@ -2314,11 +2410,12 @@ export function WorkspacePage() {
         onMoveFile={moveUntrackedAsset}
       />
       <ProjectExternalConflictDialog
-        saveUnitId={externalConflict?.saveUnitId ?? null}
-        conflict={externalConflict?.conflict ?? null}
+        saveUnitId={externalConflictIdentity !== dismissedExternalConflict ? (externalConflict?.saveUnitId ?? null) : null}
+        conflict={externalConflictIdentity !== dismissedExternalConflict ? (externalConflict?.conflict ?? null) : null}
         busy={externalConflictBusy}
         onUseDisk={() => void handleUseDiskExternalConflict()}
         onKeepMine={() => void keepMineForExternalConflict()}
+        onCancel={() => setDismissedExternalConflict(externalConflictIdentity)}
       />
       <Dialog
         open={alert !== null}

@@ -55,6 +55,18 @@ interface CommandStoreState {
   nativeProjectionRevision: number | null;
   nativeMutationPending: boolean;
   nativeMutationFailure: string | null;
+  reconcileNativeExternalAsync: (
+    owners: readonly string[],
+    onAcknowledged: (
+      result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
+    ) => void,
+  ) => Promise<CommandExecutionResult>;
+  useNativeDiskUnitAsync: (
+    saveUnitId: string,
+    onAcknowledged: (
+      result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
+    ) => void,
+  ) => Promise<CommandExecutionResult>;
   enableNativeCommandMode: (workingRevision: number) => void;
   executeCommandAsync: (request: CommandRequest) => Promise<CommandExecutionResult>;
   saveNativeUnitAsync: (
@@ -821,6 +833,104 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       nativeMutationFailure: null,
     });
   },
+  reconcileNativeExternalAsync: async (owners, onAcknowledged) => {
+    if (get().nativeWorkingRevision === null) return nativeOnlyResult('Not a native Project.');
+    return queueNativeCommand(async () => {
+      const project = useProjectStore.getState();
+      const session = project.projectSessionId;
+      const instance = project.projectInstanceId;
+      let revision = get().nativeWorkingRevision;
+      if (!session || !instance || revision === null || get().nativeProjectSessionId !== session ||
+          get().nativeProjectionRevision !== project.projectRevision || get().nativeMutationFailure)
+        return nativeOnlyResult('Native reconciliation has a stale editor projection.');
+      set({ nativeMutationPending: true });
+      let final: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult | null = null;
+      const changed = new Set<string>();
+      let publicationAttempted = false;
+      try {
+        for (const owner of [...new Set(owners)].sort()) {
+          const result = await window.noveltea.nativeProjectReconcile(session, revision, owner);
+          if (useProjectStore.getState().projectInstanceId !== instance ||
+              useProjectStore.getState().projectRevision !== project.projectRevision ||
+              get().nativeWorkingRevision !== revision)
+            throw new Error('Native reconciliation was superseded by a Project edit.');
+          if (!result.accepted) throw new Error(result.error || `Native reconciliation failed: ${owner}`);
+          if (result.snapshot.workingRevision < revision)
+            throw new Error('Native reconciliation returned an older working revision.');
+          revision = result.snapshot.workingRevision;
+          result.affectedRecords.forEach((affected) => changed.add(affected));
+          final = result;
+          // Keep the revision gate current during a multi-owner batch. The
+          // renderer publication remains atomic at the end of this queue slot.
+          set({ nativeWorkingRevision: revision });
+        }
+        if (final && changed.size) {
+          publicationAttempted = true;
+          onAcknowledged({ ...final, affectedRecords: [...changed].sort() });
+          set({ nativeProjectionRevision: useProjectStore.getState().projectRevision });
+        }
+        set({ nativeMutationPending: false, lastDiagnostics: [] });
+        return { ok: true, projectChanged: Boolean(changed.size), diagnostics: [] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Native reconciliation failed.';
+        if (final && changed.size && !publicationAttempted &&
+            useProjectStore.getState().projectInstanceId === instance &&
+            useProjectStore.getState().projectRevision === project.projectRevision) {
+          try {
+            publicationAttempted = true;
+            onAcknowledged({ ...final, affectedRecords: [...changed].sort() });
+            set({ nativeProjectionRevision: useProjectStore.getState().projectRevision });
+          } catch {
+            set({ nativeMutationFailure: 'Native reconciliation lost editor projection parity.' });
+          }
+        }
+        if (publicationAttempted && get().nativeProjectionRevision !== useProjectStore.getState().projectRevision)
+          set({ nativeMutationFailure: 'Native reconciliation lost editor projection parity.' });
+        set({ nativeMutationPending: false, lastDiagnostics: [{ severity: 'error', message }] });
+        return nativeOnlyResult(message);
+      }
+    });
+  },
+  useNativeDiskUnitAsync: async (saveUnitId, onAcknowledged) => {
+    if (get().nativeWorkingRevision === null) return nativeOnlyResult('Not a native Project.');
+    return queueNativeCommand(async () => {
+      const project = useProjectStore.getState();
+      const session = project.projectSessionId;
+      const instance = project.projectInstanceId;
+      const revision = get().nativeWorkingRevision;
+      if (!session || !instance || revision === null || get().nativeProjectSessionId !== session ||
+          get().nativeProjectionRevision !== project.projectRevision || get().nativeMutationFailure)
+        return nativeOnlyResult('Native Use Disk has a stale editor projection.');
+      set({ nativeMutationPending: true });
+      try {
+        const result = await window.noveltea.nativeProjectUseDiskUnit(session, revision, saveUnitId);
+        if (useProjectStore.getState().projectInstanceId !== instance ||
+            useProjectStore.getState().projectRevision !== project.projectRevision ||
+            get().nativeWorkingRevision !== revision)
+          throw new Error('Native Use Disk was superseded by a Project edit.');
+        if (!result.accepted) throw new Error(result.error || 'Native Use Disk rejected.');
+        if (result.snapshot.workingRevision < revision)
+          throw new Error('Native Use Disk returned an older working revision.');
+        try {
+          onAcknowledged(result);
+        } catch (error) {
+          set({ nativeMutationFailure: 'Native Use Disk lost editor projection parity.' });
+          throw error;
+        }
+        set({
+          nativeMutationPending: false,
+          nativeWorkingRevision: result.snapshot.workingRevision,
+          nativeProjectionRevision: useProjectStore.getState().projectRevision,
+          lastDiagnostics: [],
+        });
+        return { ok: true, projectChanged: true, diagnostics: [] };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Native Use Disk failed.';
+        set({ nativeMutationPending: false, lastDiagnostics: [{ severity: 'error', message }] });
+        return nativeOnlyResult(message);
+      }
+    });
+  },
   executeCommandAsync: async (request) => {
     if (get().nativeWorkingRevision === null) {
       if (get().persistencePending) {
@@ -901,6 +1011,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         set({
           nativeMutationPending: false,
           nativeWorkingRevision: saved.snapshot.workingRevision,
+          nativeProjectionRevision: useProjectStore.getState().projectRevision,
           lastDiagnostics: [],
         });
         return { ok: true, projectChanged: false, diagnostics: [] };

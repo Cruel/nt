@@ -51,6 +51,7 @@ import {
   reconcileExternalProjectChange,
 } from './project-external-reconciliation';
 import { rebaseRecoveryOverlays } from './project-recovery-rebase';
+import { projectNativeExternalResult } from './native-external-projection';
 import { applyProjectMutationValues, buildProjectContentSaveRequest } from './project-save-request';
 import { saveProjectContentWithComments } from './save-project-content-with-comments';
 
@@ -453,6 +454,7 @@ async function commitSelectedNativeSaveUnits(
   snapshot: EditorProjectState,
   candidateContent: JsonValue,
   sourceIds: readonly string[] = [],
+  keepMine = false,
 ): Promise<ProjectSaveCoordinatorResult> {
   const current = useProjectStore.getState();
   const remaining = Object.keys(snapshot.recovery.saveUnitsById).sort();
@@ -483,7 +485,7 @@ async function commitSelectedNativeSaveUnits(
   const submitted = await useCommandStore.getState().saveNativeUnitAsync(
     saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
     current.projectRevision,
-    { comments: 'keep', ...(sourceIds.length ? {
+    { comments: 'keep', ...(keepMine ? { keepMine: true } : {}), ...(sourceIds.length ? {
       textPaths: [...sourceIds],
       textContents: Object.fromEntries(Object.entries(submittedSources).map(
         ([id, source]) => [id, source.text],
@@ -496,21 +498,49 @@ async function commitSelectedNativeSaveUnits(
         latest.projectInstanceId !== current.projectInstanceId ||
         latest.projectRevision !== current.projectRevision
       ) throw new Error('Native Save was accepted after the editor Project changed.');
+      // An exact-CAS native Save may incorporate a disjoint external edit in
+      // the same physical owner. Its saved/working source is authoritative;
+      // the renderer's pre-Save candidate is not a valid disk projection then.
+      const authoritative = saved.affectedRecords?.length
+        ? projectNativeExternalResult({
+            saved: latest.savedDocument!,
+            working: latest.document,
+            recovery: snapshot.recovery,
+            result: saved,
+          })
+        : null;
+      const savedContent = authoritative?.saved ?? candidateContent;
+      const workingContent = authoritative?.working ?? latest.document;
       const rebased = rebaseRecoveryOverlays(
         snapshot.recovery,
-        candidateContent,
-        latest.document,
+        savedContent,
+        workingContent,
         selectedIds,
       );
-      const savedEditorState = editorStateForContentCandidate(snapshot, candidateContent, rebased);
-      const workingEditorState = editorStateForContentCandidate(snapshot, latest.document, rebased);
+      const savedEditorState = editorStateForContentCandidate(snapshot, savedContent, rebased);
+      const workingEditorState = editorStateForContentCandidate(snapshot, workingContent, rebased);
       if (sourceIds.length)
         acknowledgeNativeSavedSources(
           latest.projectSessionId!, submittedSources, saved.textSourceDiskRevisions ?? {},
         );
-      useProjectStore.getState().markSaved({
-        document: mergeEditorProjectState(candidateContent, savedEditorState),
-      });
+      const persisted = mergeEditorProjectState(savedContent, savedEditorState);
+      const projected = mergeEditorProjectState(workingContent, workingEditorState);
+      if (
+        authoritative &&
+        !jsonValuesEqual(
+          stripLocalEditorProjectState(latest.document),
+          stripLocalEditorProjectState(workingContent),
+        )
+      ) {
+        if (!useProjectStore.getState().publishExternalReconciliation({
+          document: projected,
+          savedDocument: persisted,
+          scriptSourcePaths: latest.scriptSourcePaths,
+          affectedPaths: authoritative.affectedPaths,
+        })) throw new Error('Native Save produced an inadmissible external editor projection.');
+      } else {
+        useProjectStore.getState().markSaved({ document: persisted });
+      }
       setLoadedEditorProjectState(workingEditorState);
       useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
       acknowledged.remainingDirtySaveUnitIds = uniqueSorted([
@@ -720,7 +750,9 @@ export async function saveActiveSaveUnit(
       };
     }
     return useCommandStore.getState().nativeWorkingRevision !== null
-      ? await commitSelectedNativeSaveUnits(selectedIds, snapshot, candidateContent)
+      ? await commitSelectedNativeSaveUnits(
+          selectedIds, snapshot, candidateContent, [], options.allowExternalConflict ?? false,
+        )
       : await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
   } catch (error) {
     const diagnostic = createProjectValidationDiagnostic({
