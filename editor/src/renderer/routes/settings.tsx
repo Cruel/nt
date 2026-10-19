@@ -71,6 +71,8 @@ import {
   RotateCcw,
   SquareTerminal,
   Sun,
+  Trash2,
+  AlertCircle,
   WandSparkles,
 } from 'lucide-react';
 import type {
@@ -480,6 +482,11 @@ export function SettingsPage({
   const installedTemplates = useTemplateRegistryStore((state) => state.templates);
   const ensureTemplatesLoaded = useTemplateRegistryStore((state) => state.ensureLoaded);
   const refreshTemplates = useTemplateRegistryStore((state) => state.refresh);
+  const [templateActionPending, setTemplateActionPending] = useState(false);
+  const [templateActionError, setTemplateActionError] = useState<{
+    title: string;
+    messages: string[];
+  } | null>(null);
   const [signingDraft, setSigningDraft] = useState<SigningDraft | null>(null);
   const [signingDraftError, setSigningDraftError] = useState<string | null>(null);
   const [localActiveCategory, setLocalActiveCategory] =
@@ -839,27 +846,49 @@ export function SettingsPage({
   }
 
   async function installTemplateFromSettings() {
-    const archivePath = await window.noveltea.selectTemplateArchivePath();
-    if (!archivePath) return;
-    let installed = await window.noveltea.installPlayerTemplate({
-      archivePath,
-      origin: archivePath,
-    });
-    if (
-      !installed.success &&
-      installed.diagnostics.some((item) => item.message.includes('already installed')) &&
-      window.confirm(t('settings:exportSettings.replaceTemplateConfirm'))
-    ) {
-      installed = await window.noveltea.installPlayerTemplate({
+    if (templateActionPending) return;
+    setTemplateActionPending(true);
+    setTemplateActionError(null);
+    try {
+      const archivePath = await window.noveltea.selectTemplateArchivePath();
+      if (!archivePath) return;
+      let installed = await window.noveltea.installPlayerTemplate({
         archivePath,
         origin: archivePath,
-        force: true,
       });
+      if (
+        !installed.success &&
+        installed.diagnostics.some((item) => item.message.includes('already installed')) &&
+        window.confirm(t('settings:exportSettings.replaceTemplateConfirm'))
+      ) {
+        installed = await window.noveltea.installPlayerTemplate({
+          archivePath,
+          origin: archivePath,
+          force: true,
+        });
+      }
+      if (!installed.success) {
+        setTemplateActionError({
+          title: t('settings:exportSettings.templates.installFailed'),
+          messages: installed.diagnostics.length
+            ? installed.diagnostics.map((item) => item.message)
+            : [t('settings:exportSettings.templates.unknownFailure')],
+        });
+        return;
+      }
+      await refreshTemplates();
+    } catch (error) {
+      setTemplateActionError({
+        title: t('settings:exportSettings.templates.installFailed'),
+        messages: [error instanceof Error ? error.message : String(error)],
+      });
+    } finally {
+      setTemplateActionPending(false);
     }
-    if (installed.success) await refreshTemplates();
   }
 
   async function deleteInstalledTemplate(template: InstalledTemplate) {
+    if (templateActionPending) return;
     if (
       !window.confirm(
         t('settings:exportSettings.deleteTemplateConfirm', {
@@ -868,11 +897,22 @@ export function SettingsPage({
       )
     )
       return;
-    await window.noveltea.removePlayerTemplate(
-      template.descriptor.templateId,
-      template.descriptor.buildId,
-    );
-    await refreshTemplates();
+    setTemplateActionPending(true);
+    setTemplateActionError(null);
+    try {
+      await window.noveltea.removePlayerTemplate(
+        template.descriptor.templateId,
+        template.descriptor.buildId,
+      );
+      await refreshTemplates();
+    } catch (error) {
+      setTemplateActionError({
+        title: t('settings:exportSettings.templates.deleteFailed'),
+        messages: [error instanceof Error ? error.message : String(error)],
+      });
+    } finally {
+      setTemplateActionPending(false);
+    }
   }
 
   async function chooseDefaultExportDirectory() {
@@ -2022,55 +2062,73 @@ export function SettingsPage({
       ) : null}
 
       {activeCategory === 'templates' ? (
-        <Card size="sm" data-workbench-anchor="settings.templates">
-          <CardHeader className="gap-0">
-            <CardTitle>{t('settings:exportSettings.templates.title')}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm text-muted-foreground">
-                {t('settings:exportSettings.templates.description')}
-              </p>
-              <Button type="button" variant="outline" onClick={installTemplateFromSettings}>
-                {t('settings:exportSettings.templates.install')}
-              </Button>
-            </div>
-            {installedTemplates.length === 0 ? (
-              <div className="rounded border border-dashed p-8 text-center text-sm text-muted-foreground">
-                {t('settings:exportSettings.templates.none')}
+        <section className="grid gap-5" data-workbench-anchor="settings.templates">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {t('settings:exportSettings.templates.description')}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={templateActionPending}
+              onClick={() => void installTemplateFromSettings()}
+            >
+              {t('settings:exportSettings.templates.install')}
+            </Button>
+          </div>
+          {templateActionError ? (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              <div className="min-w-0 space-y-1">
+                <p className="font-medium">{templateActionError.title}</p>
+                {templateActionError.messages.map((message, index) => (
+                  <p key={index} className="break-words">
+                    {message}
+                  </p>
+                ))}
               </div>
-            ) : (
-              <div className="grid gap-4">
-                {(['windows', 'linux', 'macos', 'web', 'android'] as ExportPlatform[]).map(
-                  (platform) => {
-                    const items = installedTemplates
-                      .filter((item) => item.descriptor.platform === platform)
-                      .sort(
-                        (a, b) =>
-                          a.descriptor.templateId.localeCompare(b.descriptor.templateId) ||
-                          a.descriptor.buildId.localeCompare(b.descriptor.buildId),
-                      );
-                    if (items.length === 0) return null;
-                    return (
-                      <div key={platform} className="grid gap-2">
-                        <div className="text-sm font-medium">
-                          {platform === 'macos'
-                            ? 'macOS'
-                            : platform === 'web'
-                              ? 'Web'
-                              : platform === 'android'
-                                ? 'Android'
-                                : platform === 'windows'
-                                  ? 'Windows'
-                                  : 'Linux'}
-                        </div>
+            </div>
+          ) : null}
+          {installedTemplates.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              {t('settings:exportSettings.templates.none')}
+            </p>
+          ) : (
+            <div className="grid gap-5">
+              {(['windows', 'linux', 'macos', 'web', 'android'] as ExportPlatform[]).map(
+                (platform) => {
+                  const items = installedTemplates
+                    .filter((item) => item.descriptor.platform === platform)
+                    .sort(
+                      (a, b) =>
+                        a.descriptor.templateId.localeCompare(b.descriptor.templateId) ||
+                        a.descriptor.buildId.localeCompare(b.descriptor.buildId),
+                    );
+                  if (items.length === 0) return null;
+                  return (
+                    <section key={platform} className="grid gap-1">
+                      <h3 className="px-2 text-sm font-medium">
+                        {platform === 'macos'
+                          ? 'macOS'
+                          : platform === 'web'
+                            ? 'Web'
+                            : platform === 'android'
+                              ? 'Android'
+                              : platform === 'windows'
+                                ? 'Windows'
+                                : 'Linux'}
+                      </h3>
+                      <div className="grid gap-0.5">
                         {items.map((template) => (
                           <div
                             key={`${template.descriptor.templateId}/${template.descriptor.buildId}`}
-                            className="flex items-center justify-between gap-4 rounded border p-3"
+                            className="group flex min-w-0 items-center justify-between gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-muted/40"
                           >
                             <div className="min-w-0">
-                              <div className="font-medium">
+                              <div className="break-all text-sm font-medium">
                                 {template.descriptor.templateId}@{template.descriptor.buildId}
                               </div>
                               <div className="text-xs text-muted-foreground">
@@ -2085,22 +2143,28 @@ export function SettingsPage({
                             </div>
                             <Button
                               type="button"
-                              size="sm"
-                              variant="outline"
+                              size="icon-sm"
+                              variant="ghost"
+                              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={t('settings:exportSettings.templates.deleteNamed', {
+                                template: `${template.descriptor.templateId}@${template.descriptor.buildId}`,
+                              })}
+                              title={t('settings:exportSettings.templates.delete')}
+                              disabled={templateActionPending}
                               onClick={() => void deleteInstalledTemplate(template)}
                             >
-                              {t('settings:exportSettings.templates.delete')}
+                              <Trash2 aria-hidden="true" />
                             </Button>
                           </div>
                         ))}
                       </div>
-                    );
-                  },
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    </section>
+                  );
+                },
+              )}
+            </div>
+          )}
+        </section>
       ) : null}
 
       {activeCategory === 'comfyui' ? (

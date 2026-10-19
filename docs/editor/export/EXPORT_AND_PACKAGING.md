@@ -218,7 +218,10 @@ When automatic template resolution finds more than one compatible installation i
 exact `<template-id>@<build-id>` choices; no lexical or inferred-version winner is selected. The
 editor shows a template selector only when there is a real choice, and when no compatible template
 exists it offers Download and Install actions in place. Editor Settings has a separate installed
-Template manager with Install/Delete only. The editor and CLI share `~/.noveltea/templates`.
+Template manager with Install/Delete only. It groups installed templates by platform and displays
+archive validation failures from the shared installer inline; a failed install does not refresh or
+modify the installed list. Delete remains confirmation-gated. The editor and CLI share
+`~/.noveltea/templates`.
 
 Export profiles do not expose capabilities. NovelTea derives the fixed requirements consumed by
 template compatibility and platform packaging: external-URL launching is required where supported,

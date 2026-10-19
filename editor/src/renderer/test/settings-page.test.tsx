@@ -4,6 +4,7 @@ import { SettingsPage } from '@/routes/settings';
 import { SettingsTabEditor } from '@/editors/utility/SettingsTabEditor';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
+import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
@@ -13,7 +14,10 @@ import type {
   ComfyUiWorkflowClassification,
 } from '../../shared/comfyui-workflows';
 import { NOVELTEA_VERSION } from '../../shared/product-version';
-import { defaultUserExportConfig } from '../../shared/project-schema/platform-export-contracts';
+import {
+  defaultUserExportConfig,
+  type InstalledTemplate,
+} from '../../shared/project-schema/platform-export-contracts';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({ value, themeId }: { value: string; themeId?: string }) => (
@@ -106,6 +110,12 @@ describe('SettingsPage code editor theme selector', () => {
       },
     });
     useComfyUiStore.getState().hydrateFromPreferences();
+    useTemplateRegistryStore.setState({
+      templates: [],
+      loaded: false,
+      loading: false,
+      error: null,
+    });
     useWorkbenchStore.getState().resetWorkbench();
     clearWorkbenchTabStates();
     vi.spyOn(window.noveltea, 'getDefaultProjectDirectory').mockResolvedValue(
@@ -113,6 +123,74 @@ describe('SettingsPage code editor theme selector', () => {
     );
     vi.spyOn(window.noveltea, 'selectDirectory').mockResolvedValue('/tmp/NovelTea');
     vi.spyOn(window.noveltea, 'validateDirectory').mockResolvedValue(true);
+  });
+
+  it('presents installed templates as borderless rows with accessible destructive actions', async () => {
+    useTemplateRegistryStore.setState({
+      templates: [
+        {
+          descriptor: {
+            templateId: 'windows-x64-devtools',
+            buildId: 'v1.0.0',
+            platform: 'windows',
+            architecture: 'x64',
+            buildFlavor: 'release',
+          } as InstalledTemplate['descriptor'],
+          entry: { trust: 'local-untrusted' } as InstalledTemplate['entry'],
+          status: 'untrusted',
+        },
+      ],
+      loaded: true,
+    });
+    await renderSettingsPage();
+    selectSettingsCategory('Player Templates');
+
+    const section = document.querySelector('[data-workbench-anchor="settings.templates"]');
+    expect(section?.tagName).toBe('SECTION');
+    expect(section?.querySelector('[data-slot="card"]')).toBeNull();
+    expect(within(section as HTMLElement).getByText('Windows')).toBeInTheDocument();
+    const deleteButton = screen.getByRole('button', {
+      name: 'Delete windows-x64-devtools@v1.0.0',
+    });
+    expect(deleteButton).toHaveClass('text-destructive');
+    expect(deleteButton.querySelector('svg')).toHaveClass('lucide-trash-2');
+  });
+
+  it('shows template install validation diagnostics instead of silently failing', async () => {
+    vi.mocked(window.noveltea.installPlayerTemplate).mockResolvedValueOnce({
+      success: false,
+      diagnostics: [
+        {
+          code: 'template-install-failed',
+          path: '/archive',
+          message: 'Template archive must contain template.json at its root.',
+        },
+      ],
+    });
+    await renderSettingsPage();
+    selectSettingsCategory('Player Templates');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Install…' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Template archive must contain template.json at its root.',
+    );
+    expect(window.noveltea.installPlayerTemplate).toHaveBeenCalledWith({
+      archivePath: '/mock/template.tar.gz',
+      origin: '/mock/template.tar.gz',
+    });
+  });
+
+  it('shows template install failures when the IPC call rejects', async () => {
+    vi.mocked(window.noveltea.installPlayerTemplate).mockRejectedValueOnce(
+      new Error('Unable to read template archive.'),
+    );
+    await renderSettingsPage();
+    selectSettingsCategory('Player Templates');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Install…' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unable to read template archive.');
   });
 
   it('opens a preview dialog and applies the cycled theme', async () => {

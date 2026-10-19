@@ -152,6 +152,10 @@
     "templates": {
       "corrupted": "corrompido",
       "delete": "Excluir",
+      "deleteNamed": "Excluir {{template}}",
+      "deleteFailed": "Não foi possível excluir o template",
+      "installFailed": "Não foi possível instalar o template",
+      "unknownFailure": "A operação falhou sem detalhes adicionais.",
       "description": "Templates instalados são compartilhados com a CLI headless do noveltea.",
       "install": "Instalar…",
       "local": "local",
