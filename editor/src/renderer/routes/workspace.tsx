@@ -749,7 +749,10 @@ export function WorkspacePage() {
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
     if (projectSessionId) await window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
-    if (projectSessionId) await window.noveltea.purgeProjectTrash(projectSessionId);
+    // Native Undo/Redo archives belong to the native journal; the legacy
+    // trash purge must not run when closing its certification session.
+    if (projectSessionId && useCommandStore.getState().nativeWorkingRevision === null)
+      await window.noveltea.purgeProjectTrash(projectSessionId);
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
     await window.noveltea.closeActiveProject();
     refreshRecentProjectEntry(project, projectPath, projectFilePath);

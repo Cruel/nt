@@ -51,6 +51,7 @@ export interface AssetReimportPayload {
   assetId: string;
   asset: ImportedAssetMetadata;
   sourceRevisions?: Record<string, string>;
+  fileOrigin?: 'copied-by-import';
 }
 
 export interface AssetDeletePayload {

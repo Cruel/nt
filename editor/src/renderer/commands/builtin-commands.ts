@@ -712,6 +712,7 @@ const assetReimportSchema = z.object({
   assetId: entityIdSchema,
   asset: importedAssetMetadataSchema,
   sourceRevisions: z.record(z.string(), z.string().regex(/^sha256:[0-9a-f]{64}$/u)).optional(),
+  fileOrigin: z.literal('copied-by-import').optional(),
 });
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });

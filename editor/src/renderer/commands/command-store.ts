@@ -81,9 +81,11 @@ interface CommandStoreState {
     onAcknowledged?: (
       result: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult,
     ) => void,
-  ) => Promise<CommandExecutionResult & {
-    commentImpacts?: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult['commentImpacts'];
-  }>;
+  ) => Promise<
+    CommandExecutionResult & {
+      commentImpacts?: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult['commentImpacts'];
+    }
+  >;
   saveNativeTextAsync: (
     path: string,
     text: string,
@@ -180,7 +182,8 @@ function nativeAssetTransition(
   const trash =
     operation.kind === 'trash-project-assets' ? direction !== 'undo' : direction === 'undo';
   if (trash) return { kind: 'trash', projectRelativePaths: operation.projectRelativePaths };
-  if (direction === 'command' && operation.kind === 'staged-project-assets') return undefined;
+  if (direction === 'command' && operation.kind === 'staged-project-assets')
+    return { kind: 'publish', projectRelativePaths: operation.projectRelativePaths };
   const moves = nativeAssetTrashByCommandId.get(entry!.id);
   if (!moves?.length || moves.length !== operation.projectRelativePaths.length)
     throw new Error('Native structural Asset restoration has no committed trash identity.');
@@ -251,6 +254,10 @@ async function submitNativeCommand(
       plan?.unsafeRebasePolicy !== 'convert-to-manual-save' ||
       !effectiveProposal.historyEntry
     )
+      return false;
+    // Staged imports must publish their bytes and metadata together; an
+    // ordinary later Save cannot safely publish unowned binary files.
+    if (plan.filesystemOperations.some((operation) => operation.kind === 'staged-project-assets'))
       return false;
     const entry = {
       ...effectiveProposal.historyEntry,
@@ -350,9 +357,8 @@ async function submitNativeCommand(
         };
         if (kind === 'undo') {
           for (const patch of patches) {
-            const match = patch.op === 'add'
-              ? patch.path.match(/^\/layouts\/([a-z][a-z0-9-]*)$/u)
-              : null;
+            const match =
+              patch.op === 'add' ? patch.path.match(/^\/layouts\/([a-z][a-z0-9-]*)$/u) : null;
             if (match) {
               const owner = `layouts/${match[1]}`;
               layoutCopySources[owner] ??= owner;
@@ -467,7 +473,16 @@ async function submitNativeCommand(
                 (operation) => operation.kind === 'staged-project-assets',
               )
             : undefined;
-        if (stagedImport) {
+        if (stagedImport && assetTransition?.kind === 'publish') {
+          const cleanup = await window.noveltea.trashProjectAssetFiles(
+            projectSessionId,
+            stagedImport.projectRelativePaths,
+          );
+          if (!cleanup.ok)
+            throw new Error(
+              `Native structural Save rejected (${saved.error}); staged Asset cleanup failed: ${cleanup.error}`,
+            );
+        } else if (stagedImport) {
           // An importer may have already copied bytes into the Project before
           // asking the editor to commit metadata. Failed metadata persistence
           // must not leave those copied files behind as unowned active Assets.
@@ -842,11 +857,19 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       const session = project.projectSessionId;
       const instance = project.projectInstanceId;
       let revision = get().nativeWorkingRevision;
-      if (!session || !instance || revision === null || get().nativeProjectSessionId !== session ||
-          get().nativeProjectionRevision !== project.projectRevision || get().nativeMutationFailure)
+      if (
+        !session ||
+        !instance ||
+        revision === null ||
+        get().nativeProjectSessionId !== session ||
+        get().nativeProjectionRevision !== project.projectRevision ||
+        get().nativeMutationFailure
+      )
         return nativeOnlyResult('Native reconciliation has a stale editor projection.');
       set({ nativeMutationPending: true });
-      let final: import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult | null = null;
+      let final:
+        | import('../../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+        | null = null;
       const changed = new Set<string>();
       let failedOwner: string | null = null;
       let publicationAttempted = false;
@@ -854,11 +877,14 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         for (const owner of [...new Set(owners)].sort()) {
           failedOwner = owner;
           const result = await window.noveltea.nativeProjectReconcile(session, revision, owner);
-          if (useProjectStore.getState().projectInstanceId !== instance ||
-              useProjectStore.getState().projectRevision !== project.projectRevision ||
-              get().nativeWorkingRevision !== revision)
+          if (
+            useProjectStore.getState().projectInstanceId !== instance ||
+            useProjectStore.getState().projectRevision !== project.projectRevision ||
+            get().nativeWorkingRevision !== revision
+          )
             throw new Error('Native reconciliation was superseded by a Project edit.');
-          if (!result.accepted) throw new Error(result.error || `Native reconciliation failed: ${owner}`);
+          if (!result.accepted)
+            throw new Error(result.error || `Native reconciliation failed: ${owner}`);
           if (result.snapshot.workingRevision < revision)
             throw new Error('Native reconciliation returned an older working revision.');
           revision = result.snapshot.workingRevision;
@@ -877,9 +903,13 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         return { ok: true, projectChanged: Boolean(changed.size), diagnostics: [] };
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Native reconciliation failed.';
-        if (final && changed.size && !publicationAttempted &&
-            useProjectStore.getState().projectInstanceId === instance &&
-            useProjectStore.getState().projectRevision === project.projectRevision) {
+        if (
+          final &&
+          changed.size &&
+          !publicationAttempted &&
+          useProjectStore.getState().projectInstanceId === instance &&
+          useProjectStore.getState().projectRevision === project.projectRevision
+        ) {
           try {
             publicationAttempted = true;
             onAcknowledged({ ...final, affectedRecords: [...changed].sort() });
@@ -888,12 +918,17 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
             set({ nativeMutationFailure: 'Native reconciliation lost editor projection parity.' });
           }
         }
-        if (publicationAttempted && get().nativeProjectionRevision !== useProjectStore.getState().projectRevision)
+        if (
+          publicationAttempted &&
+          get().nativeProjectionRevision !== useProjectStore.getState().projectRevision
+        )
           set({ nativeMutationFailure: 'Native reconciliation lost editor projection parity.' });
         set({ nativeMutationPending: false, lastDiagnostics: [{ severity: 'error', message }] });
         return {
           ...nativeOnlyResult(message),
-          diagnostics: [{ severity: 'error', message, ...(failedOwner ? { path: failedOwner } : {}) }],
+          diagnostics: [
+            { severity: 'error', message, ...(failedOwner ? { path: failedOwner } : {}) },
+          ],
         };
       }
     });
@@ -905,15 +940,27 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       const session = project.projectSessionId;
       const instance = project.projectInstanceId;
       const revision = get().nativeWorkingRevision;
-      if (!session || !instance || revision === null || get().nativeProjectSessionId !== session ||
-          get().nativeProjectionRevision !== project.projectRevision || get().nativeMutationFailure)
+      if (
+        !session ||
+        !instance ||
+        revision === null ||
+        get().nativeProjectSessionId !== session ||
+        get().nativeProjectionRevision !== project.projectRevision ||
+        get().nativeMutationFailure
+      )
         return nativeOnlyResult('Native Use Disk has a stale editor projection.');
       set({ nativeMutationPending: true });
       try {
-        const result = await window.noveltea.nativeProjectUseDiskUnit(session, revision, saveUnitId);
-        if (useProjectStore.getState().projectInstanceId !== instance ||
-            useProjectStore.getState().projectRevision !== project.projectRevision ||
-            get().nativeWorkingRevision !== revision)
+        const result = await window.noveltea.nativeProjectUseDiskUnit(
+          session,
+          revision,
+          saveUnitId,
+        );
+        if (
+          useProjectStore.getState().projectInstanceId !== instance ||
+          useProjectStore.getState().projectRevision !== project.projectRevision ||
+          get().nativeWorkingRevision !== revision
+        )
           throw new Error('Native Use Disk was superseded by a Project edit.');
         if (!result.accepted) throw new Error(result.error || 'Native Use Disk rejected.');
         if (result.snapshot.workingRevision < revision)

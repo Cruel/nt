@@ -613,7 +613,7 @@ const nativeProjectPatchSchema = z.discriminatedUnion('op', [
 export const nativeProjectPatchArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
-  z.array(nativeProjectPatchSchema).min(1).max(256),
+  z.array(nativeProjectPatchSchema).min(1).max(2100),
   z
     .record(
       z.string().regex(/^layouts\/[a-z][a-z0-9-]*$/u),
@@ -655,10 +655,23 @@ export const nativeProjectSaveUnitArgumentsSchema = z
               ),
             z.array(z.string().startsWith('/').max(512)).min(1).max(128),
           )
-          .refine((owners) => Object.keys(owners).length <= 256, 'Too many native Save owners.')
+          .refine((owners) => Object.keys(owners).length <= 2100, 'Too many native Save owners.')
           .optional(),
         assetTransition: z
           .discriminatedUnion('kind', [
+            z
+              .object({
+                kind: z.literal('publish'),
+                projectRelativePaths: z
+                  .array(
+                    projectRelativePathSchema.refine(
+                      (value) => value.startsWith('assets/') && isSafeProjectAssetPath(value),
+                    ),
+                  )
+                  .min(1)
+                  .max(2000),
+              })
+              .strict(),
             z
               .object({
                 kind: z.literal('trash'),
@@ -669,7 +682,7 @@ export const nativeProjectSaveUnitArgumentsSchema = z
                     ),
                   )
                   .min(1)
-                  .max(128),
+                  .max(2000),
               })
               .strict(),
             z
@@ -698,7 +711,7 @@ export const nativeProjectSaveUnitArgumentsSchema = z
                       }),
                   )
                   .min(1)
-                  .max(128),
+                  .max(2000),
               })
               .strict(),
           ])
@@ -785,7 +798,10 @@ export const nativeProjectReconcileArgumentsSchema = z.tuple([
       'i18n/tracking.yaml',
       'i18n/orphans.yaml',
     ]),
-    z.string().max(128).regex(/^i18n\/(?:locales|assets)\/[a-z][a-zA-Z0-9-]*\.yaml$/u),
+    z
+      .string()
+      .max(128)
+      .regex(/^i18n\/(?:locales|assets)\/[a-z][a-zA-Z0-9-]*\.yaml$/u),
     z
       .string()
       .max(128)

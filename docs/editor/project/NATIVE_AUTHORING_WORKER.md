@@ -623,10 +623,41 @@ recovery selection for structural remaps. Existing copied Asset imports and
 deletions now journal source-byte moves into generated Project trash paths with
 the associated YAML changes. A successful journal returns the exact trash
 identity for native undo/redo restoration; an occupied restore destination or
-changed physical source rejects the entire operation. An already-copied import
-whose metadata Save fails is cleaned up through the same native journal after
-the working patch is reversed. Commands whose policy permits conversion can
+changed physical source rejects the entire operation. In legacy mode, a
+previously copied import with rejected metadata is moved to trash. Native
+certification instead discards unpublished staged files; an Asset import may
+not fall back to a metadata-only manual Save. Other eligible commands may
 still use *native manual Save*, never a legacy writer.
+
+Issue #511 extends the native editor Asset lifecycle with a **private,
+main-process-owned staging area** under `.noveltea/native-asset-import/`.
+Picker-selected image, animation and binary imports are byte-hashed and staged
+without creating active `assets/` files. A renderer structural command can
+only select staged Project-relative destinations: the native worker verifies
+their physical hashes and journals creation of both the Asset records and the
+exact binary bytes in one transaction. Rejected Saves leave no active unowned
+Asset file; accepted imports support native trash/restore Undo and Redo.
+The native patch boundary permits an otherwise valid new Asset record to be
+dirty while its source file is not yet published; Save accepts that missing
+source only when the same journal publishes that record's exact destination.
+Other validation errors and missing sources without matching publication
+remain blockers. Session revocation and rejected imports discard their staged
+bytes, not live Asset files.
+Reimport in certification mode is deliberately non-destructive: it publishes
+a new versioned source path and changes the existing Asset record's source
+descriptor, retaining the previous physical file for Undo. A later untracked
+Asset audit may find the former file. Support-file attachments under `support/`
+use the same stage/publish journal; standalone Asset trash and restore IPC
+operations and untracked Asset organization also use native transactions in
+certification mode.
+
+Runtime package and playable platform exports in certification mode now obtain
+the **saved and clean** Project from the admitted native session rather than
+trusting the renderer's submitted Project. Dirty, conflicted or stale
+native source revisions block export before publication. Native mode prepares
+runtime packages and platform builds from the native-selected content and
+rechecks admission before committing outputs. Normal editor operation remains
+on its existing authoring paths until the coordinated production cutover.
 Native mixed Save All now sends selected YAML owners and previously staged
 Lua/RML/RCSS buffers through **one** physical transaction. Native staging
 retains the original source revision even when later file observation changes
@@ -637,17 +668,14 @@ have authenticated IPC boundaries, but the renderer's external-change workflow
 does not yet publish their results.
 
 This flag **remains certification-only, not yet a usable complete native
-editor**: native watcher reconciliation with full conflict UI, durable dirty
-recovery across editor restart, and editable/exportable Package operations
-have not yet migrated. Structural source operations are covered by this
-certification path but do not themselves authorize the production cutover.
-The legacy renderer watcher cannot publish external
-TypeScript authoring merges into an active native Project; it retains
-notification/asset auditing, while native source authority refuses stale disk
-revisions. The certification UI explicitly reports that native
-reconciliation is required until native external-delta publication is
-implemented. No production cutover should enable the flag by default before
-those coordinated ownership paths are certified.
+editor**: the coordinated production cutover, including final parity for
+remaining auxiliary Project file utilities, is not
+authorized by this implementation. Structural source operations and the
+clean native export path do not themselves authorize the production cutover.
+Native external-delta publication and conflict resolution are owned by the
+preceding #509 migration; #511 does not replace that reconciliation path.
+No production cutover should enable the flag by default before all
+coordinated ownership paths are certified.
 
 ## Native CLI compatibility and physical Asset transactions (#501)
 

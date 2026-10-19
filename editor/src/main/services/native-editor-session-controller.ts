@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { yamlCommentImpacts } from '../../shared/project-workspace/yaml-comment-impact';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -22,6 +23,7 @@ import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
 import type { NativeDirtyCheckpoint } from './native-authoring-working-project';
+import { NativeAssetStagingService } from './native-asset-staging-service';
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
@@ -41,6 +43,7 @@ export class NativeEditorSessionController {
   private checkpointWrites: Promise<void> = Promise.resolve();
   private recoveredProject: AuthoringProject | null = null;
   private recoveryFailure: string | null = null;
+  private assetStaging: NativeAssetStagingService | null = null;
 
   constructor(
     private readonly authority: Pick<
@@ -154,6 +157,8 @@ export class NativeEditorSessionController {
 
   /** Revoke the native session on replacement, explicit close or failure. */
   close(): void {
+    this.assetStaging?.close();
+    this.assetStaging = null;
     this.generation++;
     this.activeId = null;
     this.projectIdentity = null;
@@ -211,6 +216,7 @@ export class NativeEditorSessionController {
         finalRevision = recovered.workingRevision;
       }
       this.projectIdentity = saved.project.id;
+      this.assetStaging = new NativeAssetStagingService(root);
       this.activeId = projectSessionId;
       return finalRevision;
     } catch (error) {
@@ -230,6 +236,109 @@ export class NativeEditorSessionController {
     const revision = this.working.snapshot()?.workingRevision;
     if (revision === undefined) throw new Error('Native Project working revision is unavailable.');
     return revision;
+  }
+
+  async stageAsset(projectSessionId: string, path: string, bytes: Uint8Array): Promise<void> {
+    if (!this.isAdmitted(projectSessionId) || !this.assetStaging)
+      throw new Error('Native Project Asset import requires an admitted Project session.');
+    const generation = this.generation;
+    await this.assetStaging.stage(path, bytes);
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Native Project Asset import was superseded.');
+  }
+
+  async discardStagedAssets(projectSessionId: string, paths: string[]): Promise<void> {
+    if (!this.isAdmitted(projectSessionId) || !this.assetStaging)
+      throw new Error('Native Asset staging cleanup requires an admitted Project session.');
+    await this.assetStaging.discard(paths);
+  }
+
+  async publishAttachments(
+    projectSessionId: string,
+    files: ReadonlyArray<{ path: string; bytes: Uint8Array }>,
+  ): Promise<void> {
+    if (!files.every((file) => file.path.startsWith('support/') || file.path.startsWith('assets/')))
+      throw new Error('Native supporting files must be placed under support/ or assets/.');
+    const staged: string[] = [];
+    try {
+      for (const file of files) {
+        await this.stageAsset(projectSessionId, file.path, file.bytes);
+        staged.push(file.path);
+      }
+      const saved = await this.saveUnit(
+        projectSessionId,
+        this.currentRevision(projectSessionId),
+        [],
+        {
+          structuralPathsByOwner: {},
+          assetTransition: { kind: 'publish', projectRelativePaths: staged },
+        },
+      );
+      if (!saved.accepted)
+        throw new Error(saved.error || 'Native supporting file publication failed.');
+    } catch (error) {
+      if (staged.length && this.assetStaging?.hasAll(staged))
+        await this.assetStaging.discard(staged);
+      throw error;
+    }
+  }
+
+  async transitionAssetFiles(
+    projectSessionId: string,
+    transition: Exclude<
+      NonNullable<
+        import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition']
+      >,
+      { kind: 'publish' }
+    >,
+  ) {
+    const result = await this.saveUnit(
+      projectSessionId,
+      this.currentRevision(projectSessionId),
+      [],
+      {
+        structuralPathsByOwner: {},
+        assetTransition: transition,
+      },
+    );
+    if (!result.accepted) throw new Error(result.error || 'Native Asset file transition rejected.');
+    return result;
+  }
+
+  async trashOrDiscardAssetFiles(projectSessionId: string, paths: string[]) {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Native Project Asset cleanup requires an admitted session.');
+    if (this.assetStaging?.hasAll(paths)) {
+      await this.assetStaging.discard(paths);
+      return { ok: true, success: true, diagnostics: [], moved: [] };
+    }
+    const result = await this.transitionAssetFiles(projectSessionId, {
+      kind: 'trash',
+      projectRelativePaths: paths,
+    });
+    return { ok: true, success: true, diagnostics: [], moved: result.assetTrashMoves ?? [] };
+  }
+
+  async organizeUntrackedAsset(
+    projectSessionId: string,
+    fromPath: string,
+    toPath: string,
+  ): Promise<void> {
+    if (
+      !fromPath.startsWith('assets/') ||
+      !(toPath.startsWith('assets/') || toPath.startsWith('support/'))
+    )
+      throw new Error('Native Asset organization has invalid Project-relative paths.');
+    const result = await this.saveUnit(
+      projectSessionId,
+      this.currentRevision(projectSessionId),
+      [],
+      {
+        structuralPathsByOwner: {},
+        assetTransition: { kind: 'move', moves: [{ fromPath, toPath }] },
+      },
+    );
+    if (!result.accepted) throw new Error(result.error || 'Native Asset organization rejected.');
   }
 
   /** The first mutation boundary for native-backed renderer commands. It is
@@ -273,13 +382,19 @@ export class NativeEditorSessionController {
     this.authority.requireActiveProjectRoot(projectSessionId);
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native Project Save revision.');
+    if (options.assetTransition?.kind === 'publish' && !this.assetStaging)
+      throw new Error('Native Asset staging authority is unavailable.');
+    const assetTransition =
+      options.assetTransition?.kind === 'publish'
+        ? this.assetStaging!.publication(options.assetTransition.projectRelativePaths)
+        : options.assetTransition;
     const result = options.structuralPathsByOwner
       ? await this.working.saveOwners(Object.keys(options.structuralPathsByOwner).sort(), {
           pathsByOwner: options.structuralPathsByOwner,
           comments: options.comments,
           keepMine: options.keepMine,
           expectedRevision,
-          assetTransition: options.assetTransition,
+          assetTransition,
         })
       : await this.working.saveUnits(
           typeof saveUnitIds === 'string' ? [saveUnitIds] : saveUnitIds,
@@ -288,7 +403,11 @@ export class NativeEditorSessionController {
         );
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project Save completed for a superseded session.');
-    if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);
+    if (result.accepted) {
+      if (options.assetTransition?.kind === 'publish')
+        this.assetStaging?.committed(options.assetTransition.projectRelativePaths);
+      await this.persistAcknowledged(projectSessionId, generation);
+    }
     if (
       options.structuralPathsByOwner &&
       !result.accepted &&
@@ -452,6 +571,87 @@ export class NativeEditorSessionController {
         prepared.accepted && !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
       diagnostics,
     };
+  }
+
+  /** Read-only Asset discovery and other editor file consumers use the same
+   * native working generation as commands and source editing, even when a
+   * different Save unit remains dirty. */
+  async currentWorkingProject(projectSessionId: string): Promise<AuthoringProject> {
+    const generation = this.generation;
+    const revision = this.currentRevision(projectSessionId);
+    const prepared = await this.working.prepareCompleteWorking();
+    if (!prepared.accepted || !prepared.completeProject)
+      throw new Error(prepared.error || 'Native working Project is unavailable.');
+    if (
+      generation !== this.generation ||
+      !this.isAdmitted(projectSessionId) ||
+      revision !== this.currentRevision(projectSessionId)
+    )
+      throw new Error('Native working Project changed during Asset discovery.');
+    return projectFromNativeCompletePreparation(prepared);
+  }
+
+  /** Export uses admitted, *saved* native source, never a renderer document or
+   * the TypeScript workspace reader. Check every admitted source against the
+   * physical bytes at the start and publication boundary. */
+  async prepareCleanExport(projectSessionId: string): Promise<AuthoringProject> {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Export requires an admitted native Project.');
+    const revision = this.currentRevision(projectSessionId);
+    const dirty = this.working.dirtyCheckpoint();
+    if (
+      dirty.batches.length ||
+      Object.keys(dirty.textSources).length ||
+      Object.keys(dirty.pendingFields).length ||
+      Object.keys(dirty.conflicts).length
+    )
+      throw new Error('Save or resolve all dirty Project and source files before exporting.');
+    const prepared = await this.working.prepareCompleteWorking();
+    if (
+      !prepared.accepted ||
+      !prepared.completeProject ||
+      prepared.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
+    )
+      throw new Error(prepared.error || 'Native Project export source is invalid.');
+    const root = this.authority.requireActiveProjectRoot(projectSessionId);
+    const canonicalRoot = await realpath(root);
+    for (const [relative, revisionHash] of Object.entries(prepared.sourceRevisions)) {
+      if (
+        !relative ||
+        path.isAbsolute(relative) ||
+        relative.includes('\\') ||
+        path.posix.normalize(relative) !== relative ||
+        relative.split('/').includes('..')
+      )
+        throw new Error('Invalid native export source path.');
+      const absolute = path.resolve(root, relative);
+      const canonical = await realpath(absolute).catch((error: NodeJS.ErrnoException) => {
+        if (revisionHash === 'absent' && error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (revisionHash === 'absent') {
+        if (canonical !== null)
+          throw new Error(`Native export source unexpectedly exists: ${relative}`);
+        continue;
+      }
+      if (
+        !canonical ||
+        path.relative(canonicalRoot, canonical) !== relative.split('/').join(path.sep)
+      )
+        throw new Error(`Native export source escaped its verified path: ${relative}`);
+      const file = await open(canonical, constants.O_RDONLY | constants.O_NOFOLLOW);
+      let bytes: Buffer;
+      try {
+        bytes = await file.readFile();
+      } finally {
+        await file.close();
+      }
+      if (`sha256:${createHash('sha256').update(bytes).digest('hex')}` !== revisionHash)
+        throw new Error(`Native export source changed since admission: ${relative}`);
+    }
+    if (revision !== this.currentRevision(projectSessionId))
+      throw new Error('Native Project changed during export preparation.');
+    return projectFromNativeCompletePreparation(prepared);
   }
 
   /** Prepare playable content from the native complete Project, including

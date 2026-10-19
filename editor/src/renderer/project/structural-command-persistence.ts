@@ -149,6 +149,12 @@ export const STRUCTURAL_AUTO_COMMIT_RULES: readonly AutoCommitRule[] = [
     filesystem: 'asset-import',
   },
   {
+    commandType: 'asset.reimportFile',
+    unsafeRebasePolicy: 'reject-command',
+    allowedOriginPrefixes: ['structure:assets'],
+    filesystem: 'asset-import',
+  },
+  {
     commandType: 'asset.deleteAsset',
     unsafeRebasePolicy: 'reject-command',
     allowedOriginPrefixes: ['structure:assets'],
@@ -256,7 +262,7 @@ function assetDeleteFilesystemPlan(
 function assetImportFilesystemPlan(payload: unknown): AutoCommitFilesystemOperation[] {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [];
   const value = payload as Record<string, unknown>;
-  const assets = Array.isArray(value.assets) ? value.assets : [];
+  const assets = Array.isArray(value.assets) ? value.assets : value.asset ? [value.asset] : [];
   const projectRelativePaths = uniqueSorted(
     assets
       .map((asset) =>

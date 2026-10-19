@@ -405,8 +405,10 @@ void write_journal(const fs::path& directory, const Journal& journal)
 
 fs::path safe_source_path(const fs::path& root, std::string_view relative)
 {
-    const bool asset_bytes =
-        relative.starts_with("assets/") || relative.starts_with(".noveltea/trash/assets/");
+    const bool staged_asset = std::regex_match(
+        std::string(relative), std::regex(R"(^\.noveltea/native-asset-import/[0-9a-f-]{36}$)"));
+    const bool asset_bytes = relative.starts_with("support/") || relative.starts_with("assets/") ||
+                             relative.starts_with(".noveltea/trash/assets/") || staged_asset;
     const bool layout_text = std::regex_match(
         std::string(relative),
         std::regex(
@@ -416,7 +418,7 @@ fs::path safe_source_path(const fs::path& root, std::string_view relative)
         (relative.ends_with(".lua") || relative.ends_with(".rml") || relative.ends_with(".rcss"));
     if (!path_safe(relative) ||
         (relative.starts_with(".noveltea/") && !relative.starts_with(".noveltea/trash/assets/") &&
-         !layout_text) ||
+         !layout_text && !staged_asset) ||
         (!asset_bytes && !relative.ends_with(".yaml") && !layout_text && !admitted_text_path))
         throw std::runtime_error("Invalid tracked YAML transaction target: " +
                                  std::string(relative));
@@ -684,8 +686,11 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
             throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: unknown source owner.");
         std::set<std::string> used;
         for (const auto& target : targets) {
-            const bool asset_bytes = target.path.starts_with("assets/") ||
-                                     target.path.starts_with(".noveltea/trash/assets/");
+            const bool asset_bytes =
+                target.path.starts_with("support/") || target.path.starts_with("assets/") ||
+                target.path.starts_with(".noveltea/trash/assets/") ||
+                std::regex_match(target.path,
+                                 std::regex(R"(^\.noveltea/native-asset-import/[0-9a-f-]{36}$)"));
             if (target.raw_asset_file &&
                 (!asset_bytes || !target.edits.empty() || target.replacement_source ||
                  target.raw_text_source || target.semantic_compaction_family ||

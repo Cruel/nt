@@ -208,11 +208,26 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
         )
       ).filter((entry): entry is readonly [string, `sha256:${string}`] => !!entry[1]),
     );
-    await run({
-      type: 'asset.reimportFile',
-      label: `Reimport ${assetId}`,
-      payload: { assetId, asset: result.asset, sourceRevisions },
-    });
+    const native = useCommandStore.getState().nativeWorkingRevision !== null;
+    const applied = await run(
+      {
+        type: 'asset.reimportFile',
+        label: `Reimport ${assetId}`,
+        payload: {
+          assetId,
+          asset: result.asset,
+          sourceRevisions,
+          ...(native ? { fileOrigin: 'copied-by-import' as const } : {}),
+        },
+      },
+      native
+        ? { originSaveUnitId: structuralSaveUnitId('assets'), persistencePolicy: 'auto-commit' }
+        : undefined,
+    );
+    if (!applied && native)
+      await window.noveltea.trashProjectAssetFiles(projectSessionId, [
+        result.asset.projectRelativePath,
+      ]);
   }
 
   async function confirmDelete() {
