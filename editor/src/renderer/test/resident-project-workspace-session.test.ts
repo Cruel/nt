@@ -3082,6 +3082,28 @@ describe('ResidentProjectWorkspaceSession', () => {
       };
     };
     expect(portable.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    const missingNativeAuthority = structuredClone(portable) as {
+      nativePreparation: { sourceRevisions: Record<string, string> } | null;
+    };
+    missingNativeAuthority.nativePreparation = null;
+    const previousCertification = process.env.NOVELTEA_CLI_CERTIFICATION;
+    const previousLifecycle = process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE;
+    try {
+      process.env.NOVELTEA_CLI_CERTIFICATION = '1';
+      process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE = '1';
+      expect(
+        await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+          ROOT,
+          JSON.stringify(missingNativeAuthority),
+        ),
+      ).toBe(false);
+    } finally {
+      if (previousCertification === undefined) delete process.env.NOVELTEA_CLI_CERTIFICATION;
+      else process.env.NOVELTEA_CLI_CERTIFICATION = previousCertification;
+      if (previousLifecycle === undefined)
+        delete process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE;
+      else process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE = previousLifecycle;
+    }
     const missingRevision = structuredClone(portable) as typeof portable & {
       snapshot: { fileRevisions: Record<string, unknown> };
     };

@@ -2095,6 +2095,15 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     )
       return false;
 
+    // Certification-only native cutover may never hydrate a TypeScript-authoritative
+    // snapshot if the owner omitted its native admission proof.
+    if (
+      process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1' &&
+      !portable.nativePreparation
+    )
+      return false;
+
     if (portable.nativePreparation) {
       const native = portable.nativePreparation;
       if (
