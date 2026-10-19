@@ -14,6 +14,8 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNELS } from './shared/ipc-channels';
+import type { EditorProjectState } from './shared/project-schema/editor-project-state';
+import { withNativeRecoveredTextSources } from './main/services/native-recovery-editor-state';
 import { setNovelTeaNativeOperationObserver } from './shared/noveltea-cli-subprocess';
 import { NOVELTEA_VERSION } from './shared/product-version';
 import { EnginePreviewServer } from './main/engine-preview-server';
@@ -100,6 +102,7 @@ import {
   createProject,
   saveActiveProjectContent,
   saveActiveProjectEditorMetadata,
+  saveProjectEditorMetadata,
   saveProjectCopyAs,
 } from './main/services/project-file-service';
 import {
@@ -368,7 +371,6 @@ const activeProjectSessions = new ActiveProjectSessionService();
 const nativeEditorMutationEnabled = process.argv.includes('--certify-native-authoring-edit');
 const incompatibleLegacyNativeEditChannels = new Set<string>([
   IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-  IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
   IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
   IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
   IPC_CHANNELS.WRITE_PROJECT_SOURCE,
@@ -407,9 +409,17 @@ const nativeEditorAdmission =
     : null;
 
 async function admitNativeEditorProject(
-  result: { success?: boolean; projectSessionId?: string },
+  result: { success?: boolean; projectSessionId?: string; editorState?: EditorProjectState },
   activationGeneration: number,
-): Promise<number | undefined> {
+): Promise<
+  | {
+      nativeWorkingRevision: number;
+      nativeRecoveredContentProject?: unknown;
+      nativeRecoveredConflicts?: Record<string, { paths: string[]; revision: string }>;
+      editorState?: EditorProjectState;
+    }
+  | undefined
+> {
   if (!nativeEditorAdmission || !result.success || !result.projectSessionId) return;
   const sessionId = result.projectSessionId;
   try {
@@ -419,7 +429,30 @@ async function admitNativeEditorProject(
     );
     if (!activeProjectSessions.isProjectActivationCurrent(activationGeneration))
       throw new Error('Project activation was superseded.');
-    return nativeEditorMutationEnabled ? revision : undefined;
+    const recovered = nativeEditorAdmission.recoveredContentProject();
+    const textSources = nativeEditorAdmission.recoveredTextSources();
+    const editorState =
+      nativeEditorMutationEnabled && result.editorState && Object.keys(textSources).length
+        ? await withNativeRecoveredTextSources(
+            activeProjectSessions.requireActiveProjectRoot(sessionId),
+            result.editorState,
+            (await activeProjectSessions.listProjectSourceFiles({ projectSessionId: sessionId }))
+              .files,
+            textSources,
+          )
+        : result.editorState;
+    if (!activeProjectSessions.isProjectActivationCurrent(activationGeneration))
+      throw new Error('Project recovery admission was superseded.');
+    return nativeEditorMutationEnabled
+      ? {
+          nativeWorkingRevision: revision,
+          ...(recovered ? { nativeRecoveredContentProject: recovered } : {}),
+          ...(recovered
+            ? { nativeRecoveredConflicts: nativeEditorAdmission.recoveredConflicts() }
+            : {}),
+          ...(editorState ? { editorState } : {}),
+        }
+      : undefined;
   } catch (error) {
     // A second Open/Create request may already be in progress while its old
     // Project is still the current ID. Never revoke that newer activation.
@@ -1254,9 +1287,9 @@ void app.whenReady().then(async () => {
         await openProject(projectPath),
         activationGeneration,
       );
-      const nativeWorkingRevision = await admitNativeEditorProject(result, activationGeneration);
+      const nativeRecovery = await admitNativeEditorProject(result, activationGeneration);
       return rememberPreviewProjectRoot(
-        nativeWorkingRevision === undefined ? result : { ...result, nativeWorkingRevision },
+        nativeRecovery === undefined ? result : { ...result, ...nativeRecovery },
       );
     },
   );
@@ -1270,9 +1303,9 @@ void app.whenReady().then(async () => {
         await createProject(request),
         activationGeneration,
       );
-      const nativeWorkingRevision = await admitNativeEditorProject(result, activationGeneration);
+      const nativeRecovery = await admitNativeEditorProject(result, activationGeneration);
       return rememberPreviewProjectRoot(
-        nativeWorkingRevision === undefined ? result : { ...result, nativeWorkingRevision },
+        nativeRecovery === undefined ? result : { ...result, ...nativeRecovery },
       );
     },
   );
@@ -1685,10 +1718,15 @@ void app.whenReady().then(async () => {
     (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
     async (projectSessionId, editorState, recoveryFileOwnershipHints) => {
       try {
-        if (nativeEditorMutationEnabled)
-          throw new Error(
-            'Legacy editor metadata Save is disabled in native mutation certification mode.',
+        if (nativeEditorMutationEnabled) {
+          // This writes only .noveltea/editor/state.json, never tracked source or
+          // the native working Project. Native replay remains authoritative.
+          return await saveProjectEditorMetadata(
+            activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+            editorState,
+            () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
           );
+        }
         activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await saveActiveProjectEditorMetadata(
           activeProjectSessions.requireActiveWorkspace(projectSessionId),

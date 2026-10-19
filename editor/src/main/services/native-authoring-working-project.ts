@@ -25,6 +25,15 @@ type RetainedBatch = Readonly<{
 }>;
 type RetainedTextSource = Readonly<{ text: string; diskRevision: string }>;
 
+/** A checkpoint contains only worker-acknowledged mutations. Renderer drafts and
+ * pending invalid inputs remain in the existing local editor-state file. */
+export interface NativeDirtyCheckpoint {
+  batches: RetainedBatch[];
+  textSources: Record<string, RetainedTextSource>;
+  conflicts: Record<string, string[]>;
+  pendingFields: Record<string, string>;
+}
+
 function nativePatches(patches: readonly JsonPatchOperation[]): NativePatch[] {
   return patches.map((patch) =>
     patch.op === 'remove'
@@ -46,10 +55,12 @@ function sourceRevisions(snapshot: Snapshot, owners: readonly string[]): Record<
   return result;
 }
 
-function patchOwner(path: string): string {
+export function patchOwner(path: string): string {
+  if (path === '/editor') return 'editor';
+  if (path === '/traits') return 'traits';
   if (path.startsWith('/editor/')) return 'editor';
   if (path.startsWith('/traits/')) return 'traits';
-  const match = /^\/([^/]+)\/([^/]+)\//.exec(path);
+  const match = /^\/([^/]+)\/([^/]+)(?:\/|$)/.exec(path);
   const recordFamilies = new Set([
     'animations',
     'archetypes',
@@ -160,6 +171,57 @@ export class NativeAuthoringWorkingProject {
   setPendingFieldText(path: string, text: string | null): void {
     if (text === null) this.pendingFields.delete(path);
     else this.pendingFields.set(path, text);
+  }
+
+  dirtyCheckpoint(): NativeDirtyCheckpoint {
+    const conflicts: Record<string, string[]> = {};
+    for (const [owner, source] of [
+      ...Object.entries(this.view?.recordSnapshots ?? {}),
+      ...(this.view ? [['project', this.view] as const] : []),
+    ])
+      if (source.conflictingPaths?.length) conflicts[owner] = [...source.conflictingPaths];
+    return {
+      batches: this.currentDirtyBatches().map((entry) => ({
+        patches: structuredClone(entry.patches),
+        diskPreconditions: { ...entry.diskPreconditions },
+        ...(entry.layoutCopySources ? { layoutCopySources: { ...entry.layoutCopySources } } : {}),
+      })),
+      textSources: Object.fromEntries(this.retainedTextSources),
+      conflicts,
+      pendingFields: Object.fromEntries(this.pendingFields),
+    };
+  }
+
+  hasDirtyCheckpoint(): boolean {
+    const checkpoint = this.dirtyCheckpoint();
+    return Boolean(
+      checkpoint.batches.length ||
+      Object.keys(checkpoint.textSources).length ||
+      Object.keys(checkpoint.conflicts).length ||
+      Object.keys(checkpoint.pendingFields).length,
+    );
+  }
+
+  /** Only valid after opening the matching main-authorized Project. A failed
+   * replay leaves the durable checkpoint untouched for explicit recovery. */
+  async restoreDirtyCheckpoint(
+    sessionId: string,
+    checkpoint: NativeDirtyCheckpoint,
+  ): Promise<Snapshot> {
+    if (!this.projectSessionId || this.projectSessionId !== sessionId)
+      throw new Error('Cannot restore native recovery into another Project session.');
+    this.retained = structuredClone(checkpoint.batches);
+    this.retainedTextSources.clear();
+    for (const [path, source] of Object.entries(checkpoint.textSources))
+      this.retainedTextSources.set(path, { ...source });
+    this.pendingFields.clear();
+    for (const [path, text] of Object.entries(checkpoint.pendingFields))
+      this.pendingFields.set(path, text);
+    // Undo/redo intent is renderer-local; restored edits form a new baseline
+    // for subsequent session history, matching the existing reopen policy.
+    this.history = [];
+    this.cursor = 0;
+    return this.replayDirtyCheckpoint(sessionId, checkpoint.conflicts);
   }
 
   async open(sessionId: string): Promise<Snapshot> {
@@ -573,6 +635,13 @@ export class NativeAuthoringWorkingProject {
   }
 
   async reopenAndReplay(sessionId: string): Promise<Snapshot> {
+    return this.replayDirtyCheckpoint(sessionId, this.dirtyCheckpoint().conflicts);
+  }
+
+  private async replayDirtyCheckpoint(
+    sessionId: string,
+    conflicts: Record<string, string[]>,
+  ): Promise<Snapshot> {
     return this.serial(async () => {
       if (!this.projectSessionId || this.projectSessionId !== sessionId)
         throw new Error('Cannot replay native edits into a different Project session.');
@@ -581,12 +650,6 @@ export class NativeAuthoringWorkingProject {
       // original exact source identity, not the worker's new revision zero.
       const batches = [...this.retained];
       const textSources = [...this.retainedTextSources];
-      const conflicts: Record<string, string[]> = {};
-      for (const [owner, source] of [
-        ...Object.entries(this.view?.recordSnapshots ?? {}),
-        ...(this.view ? [['project', this.view] as const] : []),
-      ])
-        if (source.conflictingPaths?.length) conflicts[owner] = [...source.conflictingPaths];
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
       this.pendingDeletedOwners.clear();
@@ -726,7 +789,11 @@ export class NativeAuthoringWorkingProject {
   /** Recreate a minimal replayable journal from the current verified baselines.
    * This is necessary after reconciliation or Save advances source revisions. */
   private checkpointDirtyWorkingState(): void {
-    if (!this.view) return;
+    this.retained = this.currentDirtyBatches();
+  }
+
+  private currentDirtyBatches(): RetainedBatch[] {
+    if (!this.view) return [];
     const batches: RetainedBatch[] = [];
     const owners: Array<[string, Snapshot | NonNullable<Snapshot['recordSnapshots']>[string]]> = [
       ['project', this.view],
@@ -764,7 +831,7 @@ export class NativeAuthoringWorkingProject {
         patches: [{ operation: 'remove', path: `/${owner}` }],
         diskPreconditions: { [owner]: revision },
       });
-    this.retained = batches;
+    return batches;
   }
 
   private async requestPatch(

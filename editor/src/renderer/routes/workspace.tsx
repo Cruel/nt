@@ -78,6 +78,7 @@ import {
   editorProjectStateFromProject,
   mergeEditorProjectState,
   reconstructEditorProject,
+  adoptNativeRecoveredProject,
   restoreEditorProjectState,
   restoreNoProjectEditorSession,
   saveLocalEditorSessionSnapshot,
@@ -817,7 +818,7 @@ export function WorkspacePage() {
         });
         return;
       }
-      const reconstructed = reconstructEditorProject(
+      let reconstructed = reconstructEditorProject(
         toJsonValue(loaded.savedContentProject ?? loaded.contentProject),
         toJsonValue(loaded.contentProject),
         loaded.editorState,
@@ -826,8 +827,16 @@ export function WorkspacePage() {
           currentFileRevisions: loaded.recoveryFileRevisions,
         },
       );
+      if (loaded.nativeWorkingRevision !== undefined && loaded.nativeRecoveredContentProject) {
+        reconstructed = adoptNativeRecoveredProject(
+          reconstructed,
+          toJsonValue(loaded.nativeRecoveredContentProject),
+          loaded.nativeRecoveredConflicts,
+        );
+      }
       if (
         loaded.nativeWorkingRevision !== undefined &&
+        !loaded.nativeRecoveredContentProject &&
         !jsonValuesEqual(
           toJsonValue(reconstructed.workingDocument),
           toJsonValue(reconstructed.savedDocument),
@@ -881,7 +890,12 @@ export function WorkspacePage() {
       setProject(null);
       setDiagnostics([]);
       setPlaybackTests([]);
-      if (projectPathOverride) {
+      if (message.includes('Native Project') || message.includes('Native recovery')) {
+        setAlert({
+          title: 'Native project recovery requires attention',
+          message: `${message}\n\nUnsaved recovery files were preserved. Resolve any changed source on disk, or reopen without native-edit certification to inspect local recovery.`,
+        });
+      } else if (projectPathOverride) {
         removeRecentProject(projectPathOverride);
         setAlert({
           title: 'Unable to open project',

@@ -33,6 +33,9 @@ export interface OpenProjectResponse {
   projectSessionId?: string;
   /** Present only in explicit native-edit certification launches. */
   nativeWorkingRevision?: number;
+  /** Native-only acknowledged working content restored from a local replay checkpoint. */
+  nativeRecoveredContentProject?: unknown;
+  nativeRecoveredConflicts?: Record<string, { paths: string[]; revision: string }>;
 }
 
 export interface SaveProjectEditorMetadataResponse {

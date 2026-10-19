@@ -566,8 +566,32 @@ Project close. Existing Test UIs and Play select the native endpoints while
 native editing is enabled. Native Play and Test certification remains distinct
 from the actual production cutover.
 
-Recovered dirty Project state is rejected on native-edit admission
-until replay integration is complete. Native generic record creation now stages
+Native-edit certification now persists a current-only, main-owned replay checkpoint
+under `.noveltea/editor/native-dirty-state.json`. Only worker-acknowledged
+generic patches, staged text with exact physical source revisions, unresolved
+conflict paths and pending-field text enter that checkpoint. It is atomically
+published and synced before a successful mutation IPC response is returned.
+The tracked Project source remains untouched until native scoped Save.
+On Project reopen or editor restart, native admission first proves that clean
+disk Project content agrees with the existing Workspace, then replays the
+checkpoint under native exact-source preconditions. The renderer adopts the
+recovered native content as dirty against current saved baselines, restores
+unresolved conflict actions and preserves independently persisted local-only
+drafts and pending input from `.noveltea/editor/state.json`. Stageable source
+text is rehydrated into the existing source-buffer UI using its physical file
+identity, including Layout companion sources. Changed sources, invalid or
+partial journals, and mismatched Project identities fail closed without
+discarding the journal or altering tracked source.
+
+Worker failure revokes renderer mutation authority immediately. Main may
+reopen and replay only the last durable checkpoint; the renderer must reopen
+the Project to resynchronize revision, working projection and undo/redo intent.
+Unacknowledged in-flight edits are not guessed or promoted. Native edit mode
+can write local editor session metadata but still cannot write tracked Project
+source through the TypeScript authoring engine. This remains a certification
+route, not an enabled-by-default production migration.
+
+Native generic record creation now stages
 new YAML owners in the working Project, supports edits and cancellation before
 Save, and journals their physical creation through the existing revision-checked
 transaction. Use Disk discards an unsaved new owner. The native Project session

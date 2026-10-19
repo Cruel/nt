@@ -13,6 +13,7 @@ import { getTabDirtyState } from '@/workbench/dirty-state';
 import { selectPendingSaveUnitIds, usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildEditorProjectStateSnapshot,
+  adoptNativeRecoveredProject,
   reconstructEditorProject,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
@@ -25,6 +26,58 @@ beforeEach(() => {
 });
 
 describe('project recovery reconstruction', () => {
+  it('adopts the native acknowledged working content instead of stale local recovery patches', () => {
+    const saved = createAuthoringProject({ id: 'native-recovery', name: 'Saved' });
+    const disk = toJsonValue(stripEditorProjectState(saved));
+    const staleMetadata = {
+      ...emptyEditorProjectState(),
+      recovery: {
+        sequence: 3,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 3,
+            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Old pending copy' }],
+            affectedPaths: ['/project/name'],
+            pendingRawInputByPath: { '/project/name': { value: 'invalid pending form input' } },
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+    const reconstructed = reconstructEditorProject(disk, disk, staleMetadata, []);
+    const recovered = adoptNativeRecoveredProject(
+      reconstructed,
+      toJsonValue({
+        ...saved,
+        project: { ...saved.project, name: 'Native accepted value' },
+      }),
+    );
+    expect((recovered.savedDocument as typeof saved).project.name).toBe('Saved');
+    expect((recovered.workingDocument as typeof saved).project.name).toBe('Native accepted value');
+    expect(recovered.editorState.recovery.saveUnitsById['project:settings']).toMatchObject({
+      patches: [{ op: 'replace', path: '/project/name', value: 'Native accepted value' }],
+      pendingRawInputByPath: { '/project/name': { value: 'invalid pending form input' } },
+    });
+  });
+
+  it('reinstates verified native conflicts even when the metadata write had not flushed', () => {
+    const saved = createAuthoringProject({ id: 'native-conflict', name: 'Saved' });
+    const disk = toJsonValue(stripEditorProjectState(saved));
+    const recovered = adoptNativeRecoveredProject(
+      reconstructEditorProject(disk, disk, emptyEditorProjectState(), []),
+      toJsonValue({ ...saved, project: { ...saved.project, name: 'Local' } }),
+      { project: { paths: ['/project/name'], revision: `sha256:${'d'.repeat(64)}` } },
+    );
+    expect(
+      recovered.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
+    ).toMatchObject({
+      conflictingPaths: ['/project/name'],
+      localValueByPath: { '/project/name': { exists: true, value: 'Local' } },
+      externalValueByPath: { '/project/name': { exists: true, value: 'Saved' } },
+      externalFileRevisions: { 'project.yaml': `sha256:${'d'.repeat(64)}` },
+    });
+  });
+
   it('replays save units by sequence and then stable save-unit ID', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     const content = toJsonValue(stripEditorProjectState(project));

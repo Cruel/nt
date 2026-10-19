@@ -20,6 +20,8 @@ import type { EditorRuntimePreparationResult } from '../../shared/editor-runtime
 import type { PlaybackReportResponse } from '../../shared/editor-tooling';
 import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
+import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
+import type { NativeDirtyCheckpoint } from './native-authoring-working-project';
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
@@ -36,6 +38,9 @@ export class NativeEditorSessionController {
   private generation = 0;
   private readonly unsubscribeFailure: () => void;
   private readonly runtimeCache = new NativeWorkingRuntimePreparationCache();
+  private checkpointWrites: Promise<void> = Promise.resolve();
+  private recoveredProject: AuthoringProject | null = null;
+  private recoveryFailure: string | null = null;
 
   constructor(
     private readonly authority: Pick<
@@ -55,15 +60,105 @@ export class NativeEditorSessionController {
       | 'snapshot'
       | 'reconcile'
       | 'useDiskUnit'
+      | 'dirtyCheckpoint'
+      | 'restoreDirtyCheckpoint'
+      | 'reopenAndReplay'
     >,
+    private readonly checkpoints: Pick<
+      NativeDirtyCheckpointStore,
+      'read' | 'write'
+    > = new NativeDirtyCheckpointStore(),
   ) {
-    this.unsubscribeFailure = bridge.onFailure(() => this.close());
+    this.unsubscribeFailure = bridge.onFailure((error) => {
+      const sessionId = this.activeId;
+      if (!sessionId) return;
+      this.activeId = null;
+      const generation = ++this.generation;
+      this.recoveryFailure = `Native Project worker failed: ${error.message}. Reopen the Project to restore acknowledged unsaved changes.`;
+      void this.recoverWorker(sessionId, generation);
+    });
+  }
+
+  private async recoverWorker(sessionId: string, generation: number): Promise<void> {
+    try {
+      await this.checkpointWrites;
+      if (generation !== this.generation || !this.authority.isCurrent(sessionId)) return;
+      const root = this.authority.requireActiveProjectRoot(sessionId);
+      const projectId = this.projectIdentity;
+      if (!projectId) throw new Error('Native Project identity is no longer available.');
+      const checkpoint = await this.checkpoints.read(root, projectId);
+      if (generation !== this.generation || !this.authority.isCurrent(sessionId)) return;
+      if (checkpoint) await this.working.restoreDirtyCheckpoint(sessionId, checkpoint);
+      else await this.working.open(sessionId);
+      if (generation !== this.generation || !this.authority.isCurrent(sessionId)) return;
+      // A renderer whose request was interrupted has an uncertain revision;
+      // reopen is required to resynchronize its command and Save baselines.
+    } catch (error) {
+      if (generation === this.generation)
+        this.recoveryFailure = `Native Project recovery blocked: ${error instanceof Error ? error.message : String(error)}. Unsaved changes remain in the local recovery journal; resolve the changed source or reopen in normal mode.`;
+    }
+  }
+
+  private async persistAcknowledged(projectSessionId: string, generation: number): Promise<void> {
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Native Project changed before recovery checkpoint publication.');
+    const root = this.authority.requireActiveProjectRoot(projectSessionId);
+    const projectId = this.projectIdentity;
+    if (!projectId) throw new Error('Native recovery Project identity is unavailable.');
+    const checkpoint = this.working.dirtyCheckpoint();
+    const next = this.checkpointWrites.then(() =>
+      this.checkpoints.write(root, projectId, checkpoint),
+    );
+    this.checkpointWrites = next.catch(() => undefined);
+    try {
+      await next;
+    } catch (error) {
+      this.recoveryFailure = `Native recovery checkpoint failed: ${error instanceof Error ? error.message : String(error)}. Reopen this Project before editing.`;
+      this.activeId = null;
+      this.bridge.close();
+      throw error;
+    }
+    if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+      throw new Error('Native Project was superseded during recovery checkpoint publication.');
+  }
+
+  private projectIdentity: string | null = null;
+
+  recoveredContentProject(): AuthoringProject | null {
+    return this.recoveredProject;
+  }
+
+  recoveredTextSources(): NativeDirtyCheckpoint['textSources'] {
+    return this.recoveredProject ? this.working.dirtyCheckpoint().textSources : {};
+  }
+
+  recoveredConflicts(): Record<string, { paths: string[]; revision: string }> {
+    if (!this.recoveredProject) return {};
+    const snapshot = this.working.snapshot();
+    const sources = [
+      ...(snapshot ? [['project', snapshot] as const] : []),
+      ...Object.entries(snapshot?.recordSnapshots ?? {}),
+    ];
+    return Object.fromEntries(
+      sources.flatMap(([owner, source]) =>
+        source.conflictingPaths?.length
+          ? [[owner, { paths: [...source.conflictingPaths], revision: source.diskSourceRevision }]]
+          : [],
+      ),
+    );
+  }
+
+  recoveryError(): string | null {
+    return this.recoveryFailure;
   }
 
   /** Revoke the native session on replacement, explicit close or failure. */
   close(): void {
     this.generation++;
     this.activeId = null;
+    this.projectIdentity = null;
+    this.recoveredProject = null;
+    this.recoveryFailure = null;
     this.bridge.close();
     void this.runtimeCache.clear().catch((error) => {
       console.error('Failed to release native Project runtime cache:', error);
@@ -77,6 +172,11 @@ export class NativeEditorSessionController {
     this.close();
     const generation = this.generation;
     try {
+      await this.checkpointWrites;
+      if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
+        throw new Error('Native Project admission was superseded.');
+      const root = this.authority.requireActiveProjectRoot(projectSessionId);
+      const checkpoint = await this.checkpoints.read(root, saved.project.id);
       await this.working.open(projectSessionId);
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Native Project admission was superseded.');
@@ -91,8 +191,28 @@ export class NativeEditorSessionController {
         canonicalProjectPersistenceContentJson(saved)
       )
         throw new Error('Native Project admission differs from the saved editor Workspace.');
+      let finalRevision = prepared.workingRevision;
+      if (
+        checkpoint &&
+        (checkpoint.batches.length ||
+          Object.keys(checkpoint.textSources).length ||
+          Object.keys(checkpoint.conflicts).length ||
+          Object.keys(checkpoint.pendingFields).length)
+      ) {
+        await this.working.restoreDirtyCheckpoint(projectSessionId, checkpoint);
+        if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
+          throw new Error('Native Project recovery was superseded.');
+        const recovered = await this.working.prepareCompleteWorking();
+        if (!recovered.accepted)
+          throw new Error(
+            `Native Project recovery cannot prepare dirty content: ${recovered.error}`,
+          );
+        this.recoveredProject = projectFromNativeCompletePreparation(recovered);
+        finalRevision = recovered.workingRevision;
+      }
+      this.projectIdentity = saved.project.id;
       this.activeId = projectSessionId;
-      return prepared.workingRevision;
+      return finalRevision;
     } catch (error) {
       if (generation === this.generation) this.close();
       throw error;
@@ -130,6 +250,7 @@ export class NativeEditorSessionController {
       : await this.working.applyRevisionedPatches(expectedRevision, patches);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project mutation completed for a superseded session.');
+    if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);
     return result;
   }
 
@@ -167,6 +288,7 @@ export class NativeEditorSessionController {
         );
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project Save completed for a superseded session.');
+    if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);
     if (
       options.structuralPathsByOwner &&
       !result.accepted &&
@@ -233,9 +355,11 @@ export class NativeEditorSessionController {
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native text source stage was superseded by another Project.');
     if (!staged.accepted) return staged;
+    await this.persistAcknowledged(projectSessionId, generation);
     const saved = await this.working.saveTextSources(staged.snapshot.workingRevision, [path]);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native text source Save was superseded by another Project.');
+    if (saved.accepted) await this.persistAcknowledged(projectSessionId, generation);
     return saved;
   }
 
@@ -255,6 +379,7 @@ export class NativeEditorSessionController {
     const staged = await this.working.stageTextSource(path, text, diskRevision);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native text source stage completed for a superseded Project.');
+    if (staged.accepted) await this.persistAcknowledged(projectSessionId, generation);
     return staged;
   }
 
@@ -269,6 +394,7 @@ export class NativeEditorSessionController {
     const result = await this.working.reconcile(owner);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native reconciliation completed for a superseded Project.');
+    if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);
     return result;
   }
 
@@ -284,6 +410,7 @@ export class NativeEditorSessionController {
     const result = await this.working.useDiskUnit(saveUnitId);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Use Disk completed for a superseded Project.');
+    if (result.accepted) await this.persistAcknowledged(projectSessionId, generation);
     return result;
   }
 
