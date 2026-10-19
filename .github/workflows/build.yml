@@ -486,6 +486,9 @@ jobs:
             "$PWD/build/linux-authoring-release/tools/editor_tool/noveltea-cli-native-certify" \
             tests/projects/feature-lab
 
+      - name: Certify staged native CLI Project routing parity
+        run: node editor/scripts/certify-native-cli-project-routing.mjs "$PWD/build/cli/linux/noveltea"
+
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
         with:

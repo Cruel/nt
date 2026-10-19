@@ -19,7 +19,7 @@ import {
   type NovelTeaCliExitCode,
 } from './contracts';
 
-function parseProjectExport(command: readonly string[]): { output: string } {
+export function parseProjectExport(command: readonly string[]): { output: string } {
   let output: string | undefined;
   for (let index = 2; index < command.length; index += 1) {
     const argument = command[index];
@@ -34,7 +34,10 @@ function parseProjectExport(command: readonly string[]): { output: string } {
   return { output };
 }
 
-function parseProjectImport(command: readonly string[]): { bundle: string; destination: string } {
+export function parseProjectImport(command: readonly string[]): {
+  bundle: string;
+  destination: string;
+} {
   if (command.length !== 4)
     throw new Error('Usage: noveltea project import <bundle.ntproject> <destination-directory>.');
   const bundle = command[2];

@@ -287,6 +287,9 @@ Json native_project_localization(const Json& request, ProjectSession& session,
     if (locale == localization.at("sourceLocale") || !localization.at("locales").contains(locale))
         return failure("Invalid target translation locale.");
     const auto path = "i18n/locales/" + locale + ".yaml";
+    const auto source_revision = std::filesystem::is_regular_file(root / path)
+                                     ? exact_source_revision(bytes_at(root / path))
+                                     : std::string("absent");
     const auto owner = path;
     const auto view = native_project_localization_view({{"locale", locale}}, session);
     if (!view.value("ok", false))
@@ -326,6 +329,7 @@ Json native_project_localization(const Json& request, ProjectSession& session,
                 {"messageIds", request.at("messageIds")},
                 {"dryRun", dry_run},
                 {"sourceGeneration", generation},
+                {"sourceRevision", source_revision},
                 {"fingerprints", std::move(fingerprints)},
                 {"writes", Json::array()}};
     if (operation == "inspect" || dry_run || patches.empty())
@@ -676,8 +680,8 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
     static const std::set<std::string> message_families{"characters",   "rooms",  "interactables",
                                                         "dialogues",    "scenes", "verbs",
                                                         "interactions", "maps"};
-    const AuthoringRecordResolver resolve_record = [&](std::string_view family, std::string_view id)
-        -> std::optional<std::string> {
+    const AuthoringRecordResolver resolve_record =
+        [&](std::string_view family, std::string_view id) -> std::optional<std::string> {
         const auto found = record_snapshots.find(std::string(family) + "/" + std::string(id));
         return found == record_snapshots.end() || !found->second.valid
                    ? std::nullopt
@@ -696,8 +700,8 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         if (!message_families.contains(family))
             continue;
         if (family == "rooms" || family == "characters" || family == "interactables") {
-            const auto resolved = validate_archetype_owner(family, snapshot.normalized_json,
-                                                            resolve_record);
+            const auto resolved =
+                validate_archetype_owner(family, snapshot.normalized_json, resolve_record);
             if (!resolved.accepted)
                 return failure("Native localization cannot resolve effective Archetype owner: " +
                                owner);
@@ -725,9 +729,8 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         // A Project-level fallback is a schema-owned Message source, just like
         // the program on a gameplay record.
         Json wrapper{{"data", program}};
-        for (const auto& [path, source] :
-             native_localization_effective_structured_sources("project", "fallback",
-                                                              wrapper.dump())) {
+        for (const auto& [path, source] : native_localization_effective_structured_sources(
+                 "project", "fallback", wrapper.dump())) {
             const auto suffix = path.substr(std::string("/project/fallback/data").size());
             const auto semantic_path = "/undefinedInteractionProgram" + suffix;
             add_structured(semantic_path, source, semantic_value(program, suffix));
@@ -740,8 +743,8 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
             continue;
         const auto archetype_id = owner.substr(sizeof("archetypes/") - 1);
         const auto archetype = Json::parse(snapshot.normalized_json);
-        const auto effective = validate_archetype_dependencies(archetype_id, snapshot.normalized_json,
-                                                               resolve_record);
+        const auto effective =
+            validate_archetype_dependencies(archetype_id, snapshot.normalized_json, resolve_record);
         if (!effective.accepted || effective.effective_json.empty())
             return failure("Native localization cannot resolve Archetype configuration: " +
                            archetype_id);

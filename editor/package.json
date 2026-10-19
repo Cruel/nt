@@ -42,6 +42,7 @@
     "noveltea:build": "node scripts/build-noveltea-cli.mjs",
     "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
     "noveltea:certify:native-project-commands": "node scripts/certify-native-project-command-differential.mjs",
+    "noveltea:certify:native-cli-project-routing": "node scripts/certify-native-cli-project-routing.mjs",
     "android:fixture": "node scripts/run-platform-export-fixture.mjs",
     "web:fixture": "node scripts/run-platform-export-fixture.mjs --target web",
     "goldens:compiled-project": "vp pack && node dist-electron/tools/generate-compiled-project-goldens.mjs",
