@@ -138,16 +138,52 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
                 JSON.stringify({ action: 'shader-preparation', projectRoot }),
               ),
             ) as Record<string, unknown>;
-            if (result.ok !== true)
+            if (result.ok !== true) {
+              const { NativeResidentProjectAdmissionError } =
+                await import('../src/shared/project-workspace/resident-project-workspace-service');
+              const { classifyProjectValidationDiagnostics } =
+                await import('../src/shared/project-schema/project-validation');
+              const errors = Array.isArray(result.projectDiagnostics)
+                ? result.projectDiagnostics.filter(
+                    (
+                      item,
+                    ): item is {
+                      code: string;
+                      path: string;
+                      message: string;
+                      severity: 'error' | 'warning' | 'info';
+                    } =>
+                      item !== null &&
+                      typeof item === 'object' &&
+                      typeof item.code === 'string' &&
+                      typeof item.path === 'string' &&
+                      typeof item.message === 'string' &&
+                      ['error', 'warning', 'info'].includes(item.severity),
+                  )
+                : [];
+              // A transport/source-proof failure can contain advisory warnings. Only a
+              // genuine native validation error is a semantic Project rejection.
+              if (errors.some((diagnostic) => diagnostic.severity === 'error'))
+                throw new NativeResidentProjectAdmissionError(
+                  classifyProjectValidationDiagnostics(errors, { producer: 'authoring' }),
+                );
               throw new Error(
                 typeof result.error === 'string'
                   ? result.error
                   : 'Native Project preparation could not admit the resident generation.',
               );
+            }
+            // Empty collection maps are the required in-memory Project transport structure;
+            // admission and normalization of their contents remain native-owned.
+            const { authoringCollectionKeys } =
+              await import('../src/shared/project-schema/authoring-collections');
+            const project = { ...(result.project as Record<string, unknown>) };
+            for (const family of authoringCollectionKeys)
+              if (!(family in project)) project[family] = {};
             // The native command envelope contains transport bookkeeping (ok, reused owner).
             // Persist only the exact immutable preparation contract into the generation.
             return {
-              project: result.project,
+              project,
               sourceGeneration: result.sourceGeneration,
               sourceRevisions: result.sourceRevisions,
               sourceOverlays: result.sourceOverlays,
