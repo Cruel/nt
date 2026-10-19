@@ -1540,7 +1540,6 @@ export function WorkspacePage() {
         const result = await useCommandStore.getState().useNativeDiskUnitAsync(
           externalConflict.saveUnitId,
           (acknowledged) => {
-            useCommandStore.getState().discardSaveUnitHistory(externalConflict.saveUnitId);
             usePendingInputStore.getState().clearPendingInputsForSaveUnit(externalConflict.saveUnitId);
             publishNativeExternalResult(acknowledged);
           },

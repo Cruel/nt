@@ -50,10 +50,10 @@ export function nativeLocalizationTarget(
     return { owner: `i18n/${file}.yaml`, relative: buildJsonPointer(segments.slice(2)) };
   }
   if (field === 'translations' || field === 'assets') {
-    if (segments.length < 4 || !locale) return null;
+    if (segments.length < 3 || !locale) return null;
     return {
       owner: `i18n/${field === 'translations' ? 'locales' : 'assets'}/${locale}.yaml`,
-      relative: buildJsonPointer(segments.slice(3)),
+      relative: segments.length === 3 ? '/' : buildJsonPointer(segments.slice(3)),
     };
   }
   if (['sourceLocale', 'sourceLocaleLock', 'defaultLocale', 'locales'].includes(field!))
@@ -116,18 +116,28 @@ export function assertNativeProjection(
       )
         continue;
     }
+    if (
+      patch.op === 'remove' && segments.length === 3 &&
+      segments[0] === 'localization' &&
+      (segments[1] === 'translations' || segments[1] === 'assets')
+    ) {
+      const owner = nativeLocalizationTarget(patch.path)?.owner;
+      if (owner && acknowledged.affectedRecords.includes(owner) &&
+          !acknowledged.snapshot.recordSnapshots?.[owner] &&
+          !hasJsonAtPointer(proposal, patch.path)) continue;
+    }
     const verifiedPath =
       segments.at(-1) === '-' ? buildJsonPointer(segments.slice(0, -1)) : patch.path;
     const native = authoritativeSource(acknowledged, verifiedPath);
     const locallyPresent = hasJsonAtPointer(proposal, verifiedPath);
-    const nativePresent = hasJsonAtPointer(native.source, native.pointer);
+    const nativePresent = native.pointer === '/' || hasJsonAtPointer(native.source, native.pointer);
     if (
       locallyPresent !== nativePresent ||
       (locallyPresent &&
         nativePresent &&
         !jsonValuesEqual(
           getJsonAtPointer(proposal, verifiedPath),
-          getJsonAtPointer(native.source, native.pointer),
+          native.pointer === '/' ? native.source : getJsonAtPointer(native.source, native.pointer),
         ))
     )
       throw new Error(

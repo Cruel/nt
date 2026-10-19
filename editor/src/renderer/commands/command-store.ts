@@ -222,6 +222,46 @@ function nativeStructuralOwners(patches: readonly JsonPatchOperation[]): Record<
   );
 }
 
+/** One logical translation collection spans independently revisioned YAML
+ * fragments. Expand a whole-collection edit to a *single batch* of physical
+ * locale-owner patches rather than routing it into project.yaml or saving
+ * fragments separately. Preserve the original editor undo/redo intent. */
+export function nativeLocalizationFragmentPatches(
+  patches: readonly JsonPatchOperation[],
+  before: JsonValue,
+  after: JsonValue,
+): JsonPatchOperation[] {
+  const result: JsonPatchOperation[] = [];
+  for (const patch of patches) {
+    if (patch.path !== '/localization/translations' &&
+        patch.path !== '/localization/assets') {
+      result.push(patch);
+      continue;
+    }
+    const collection = patch.path;
+    const previous = hasJsonAtPointer(before, collection)
+      ? getJsonAtPointer(before, collection) : {};
+    const proposed = hasJsonAtPointer(after, collection)
+      ? getJsonAtPointer(after, collection) : {};
+    if (!previous || typeof previous !== 'object' || Array.isArray(previous) ||
+        !proposed || typeof proposed !== 'object' || Array.isArray(proposed))
+      throw new Error('Localization collection must be an object of locale fragments.');
+    const oldFragments = previous as Record<string, JsonValue>;
+    const newFragments = proposed as Record<string, JsonValue>;
+    for (const locale of [...new Set([...Object.keys(oldFragments), ...Object.keys(newFragments)])].sort()) {
+      const path = `${collection}/${locale.replace(/~/g, '~0').replace(/\//g, '~1')}`;
+      if (!Object.hasOwn(newFragments, locale)) {
+        result.push({ op: 'remove', path });
+      } else if (!Object.hasOwn(oldFragments, locale)) {
+        result.push({ op: 'add', path, value: newFragments[locale]! });
+      } else if (!jsonValuesEqual(oldFragments[locale]!, newFragments[locale]!)) {
+        result.push({ op: 'replace', path, value: newFragments[locale]! });
+      }
+    }
+  }
+  return result;
+}
+
 /** This is the asynchronous production command boundary, not speculative
  * publication followed by an optional worker check. A candidate command,
  * undo or redo remains invisible until native acceptance and value parity. */
@@ -245,6 +285,11 @@ async function submitNativeCommand(
   if (state.nativeMutationPending || state.nativeMutationFailure)
     return nativeOnlyResult(state.nativeMutationFailure || 'A native Project command is pending.');
   if (!proposal.ok || !proposal.projectChanged) return proposal;
+  try {
+    patches = nativeLocalizationFragmentPatches(patches, project.document!, proposal.document!);
+  } catch (error) {
+    return nativeOnlyResult(error instanceof Error ? error.message : 'Invalid localization patches.');
+  }
   let effectiveProposal = proposal;
   let plan = proposal.historyEntry?.autoCommitPlan;
   const originalPlan = plan;
@@ -352,8 +397,8 @@ async function submitNativeCommand(
         );
         layoutCopySources = {
           ...planHints,
-          ...(nativeLayoutCopyByCommandId.get(effectiveProposal.historyEntry.id) ?? {}),
-          ...(layoutCopySources ?? {}),
+          ...nativeLayoutCopyByCommandId.get(effectiveProposal.historyEntry.id),
+          ...layoutCopySources,
         };
         if (kind === 'undo') {
           for (const patch of patches) {
@@ -388,7 +433,7 @@ async function submitNativeCommand(
           return from && to ? [[`layouts/${to[1]}`, `layouts/${from[1]}`]] : [];
         }),
       ),
-      ...(layoutCopySources ?? {}),
+      ...layoutCopySources,
     };
   }
   const generation = project.projectRevision;
@@ -971,7 +1016,19 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           set({ nativeMutationFailure: 'Native Use Disk lost editor projection parity.' });
           throw error;
         }
+        // Native Use Disk already invalidated the worker's overlapping edits.
+        // Prune the corresponding UI undo entries only after the native result
+        // and its renderer projection have both been acknowledged. Calling the
+        // legacy discardSaveUnitHistory() here deliberately freezes native edits.
+        const history = get().history;
+        const removedApplied = history.entries
+          .slice(0, history.cursor + 1)
+          .filter((entry) => entry.originSaveUnitId === saveUnitId).length;
+        const entries = history.entries.filter((entry) => entry.originSaveUnitId !== saveUnitId);
+        const cursor = Math.max(-1, history.cursor - removedApplied);
+        useProjectStore.getState().setHistoryCursor(cursor);
         set({
+          history: { ...history, entries, cursor },
           nativeMutationPending: false,
           nativeWorkingRevision: result.snapshot.workingRevision,
           nativeProjectionRevision: useProjectStore.getState().projectRevision,

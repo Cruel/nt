@@ -4,7 +4,7 @@ import { useProjectStore } from '../project/project-store';
 import { toJsonValue, type JsonValue } from '../project/json-value';
 import { applyJsonPatch } from '../project/json-patch';
 import { getJsonAtPointer, hasJsonAtPointer } from '../project/json-pointer';
-import { useCommandStore } from '../commands/command-store';
+import { nativeLocalizationFragmentPatches, useCommandStore } from '../commands/command-store';
 import {
   confirmNativeCommand,
   nativeLocalizationTarget,
@@ -68,6 +68,25 @@ function nativeAck(name: string, revision: number, accepted = true) {
 }
 
 describe('native-backed renderer commands', () => {
+  it('expands a whole translation collection into one batch of per-locale source patches', () => {
+    const previous = { localization: { translations: { fr: { a: { text: 'Old' } }, de: {} } } };
+    const proposed = { localization: { translations: { fr: { a: { text: 'New' } }, es: {} } } };
+    expect(nativeLocalizationFragmentPatches(
+      [{ op: 'replace', path: '/localization/translations', value: proposed.localization.translations }],
+      previous,
+      proposed,
+    )).toEqual([
+      { op: 'remove', path: '/localization/translations/de' },
+      { op: 'add', path: '/localization/translations/es', value: {} },
+      { op: 'replace', path: '/localization/translations/fr', value: { a: { text: 'New' } } },
+    ]);
+    expect(nativeLocalizationTarget('/localization/translations/es')).toEqual({
+      owner: 'i18n/locales/es.yaml', relative: '/',
+    });
+    expect(nativeLocalizationTarget('/localization/assets/es')).toEqual({
+      owner: 'i18n/assets/es.yaml', relative: '/',
+    });
+  });
   it('journals copied Asset trash on undo and restores its exact native move on redo', async () => {
     const asset = {
       originalPath: '/tmp/logo.png',
@@ -712,6 +731,7 @@ describe('native-backed renderer commands', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveText');
     Reflect.deleteProperty(window.noveltea, 'nativeProjectStageText');
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectUseDiskUnit');
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
   });
@@ -757,6 +777,34 @@ describe('native-backed renderer commands', () => {
     expect(projectName()).toBe('Concurrent');
     expect(useCommandStore.getState().history.cursor).toBe(1);
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(4);
+  });
+
+  it('Use Disk prunes acknowledged native history without blocking the next edit', async () => {
+    vi.spyOn(window.noveltea, 'nativeProjectPatch')
+      .mockResolvedValueOnce(nativeAck('Dirty Project', 1))
+      .mockResolvedValueOnce(nativeAck('After Use Disk', 3));
+    expect((await useCommandStore.getState().executeCommandAsync(request('Dirty Project'))).ok)
+      .toBe(true);
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+    Object.defineProperty(window.noveltea, 'nativeProjectUseDiskUnit', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue(nativeAck('Saved Project', 2)),
+    });
+    const used = await useCommandStore.getState().useNativeDiskUnitAsync('project:settings', () => {
+      expect(useProjectStore.getState().publishExternalReconciliation({
+        document: useProjectStore.getState().savedDocument!,
+        savedDocument: useProjectStore.getState().savedDocument!,
+        scriptSourcePaths: {},
+        affectedPaths: ['/project/name'],
+      })).toBe(true);
+    });
+    expect(used.ok).toBe(true);
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
+    expect((await useCommandStore.getState().executeCommandAsync(request('After Use Disk'))).ok)
+      .toBe(true);
+    expect(projectName()).toBe('After Use Disk');
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
   });
 
   it('rejects denied native patches without changing the document or history', async () => {
