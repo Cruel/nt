@@ -1655,6 +1655,38 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
   });
 
+  it('bypasses disk-backed native export during owner preparation and pinned execution', async () => {
+    const value = fixture();
+    const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
+    const outputPath = `${root}/pinned-project.ntproject`;
+    const nativeCalls: string[] = [];
+    const nativeProjectCommands = async (request: Readonly<Record<string, unknown>>) => {
+      nativeCalls.push(String(request.action));
+      return { ok: false, error: 'A pinned Project may not use disk-backed native export.' };
+    };
+    const command = ['--project', root, '--json', 'project', 'export', '--output', outputPath];
+    const ownerPreparation = await runNovelTeaCli(command, {
+      ...options(value),
+      residentWorkspace,
+      prepareResidentSnapshotOnly: true,
+      nativeProjectCommands,
+    });
+    expect(ownerPreparation.exitCode).toBe(0);
+    expect(nativeCalls).toEqual([]);
+
+    const exported = await runNovelTeaCli(command, {
+      ...options(value),
+      residentWorkspace,
+      trustPinnedResidentSnapshot: true,
+      nativeProjectCommands,
+    });
+    // The in-memory fixture has no physical ZIP writer; the installed-daemon certification
+    // exercises publication. This test protects which authority handles that publication.
+    expect(exported.exitCode).toBe(5);
+    expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
+    expect(nativeCalls).toEqual([]);
+  });
+
   it('classifies invalid resident project export preparation as a semantic failure', async () => {
     const project = validProject();
     const value = fixture(project);

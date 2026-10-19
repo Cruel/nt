@@ -26,28 +26,44 @@ native cutover under #474. Certification-only diagnostics are not persisted.
 
 ## Parallel native Project command certification (#501)
 
-### Generation-pinned shader preparation (#514 candidate)
+### Native resident Project preparation (#514 candidate)
 
 Under `NOVELTEA_CLI_CERTIFICATION=1` and
-`NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE=1`, the resident Project owner
-prepares shader compilation from the native disk Project session before publishing
-its portable, immutable generation. This preparation includes the effective
-Project, native source-generation identity, exact source revisions, native
-authoring warnings, and captured shader stage/include bytes. The owner verifies
-native source authority and the matching resident source revisions before the
-snapshot is registered with the daemon broker. An immutable disposable worker
-consumes those captured bytes and never reruns native Project admission or
-source-generation proof against newer live disk state. A missing native
-preparation fails closed; a standalone `--no-daemon` invocation retains the
-native prepare/compile/final-proof path. Shader includes outside `.sc` (such as
-`.sh`) participate in native-authority invalidation and portable source capture.
+`NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE=1`, a cold resident Project owner
+opens through native `ProjectSession` full validation/normalization. It reconstructs
+the RAM source index from exact original bytes and native source revisions without
+invoking the TypeScript YAML decoder or Project-admission validator; native source
+and resident physical proofs must both succeed before the owner can publish its
+portable immutable generation. Changed sources are re-admitted by the native
+owner with a new generation, leaving already pinned workers unchanged.
+
+The retained preparation includes the effective native Project, source-generation
+identity, exact source revisions, native authoring warnings, and captured shader
+stage/include bytes. The portable Project value is native-owned, not the former
+TypeScript Project projection. Captured Lua, Layout RML/RCSS/Lua, shader/include,
+and supporting text inputs are retained for disposable downstream consumers.
+An immutable disposable worker never reruns native Project admission or source
+proof against newer live disk state. Missing or mismatched native preparation
+fails closed; standalone `--no-daemon shaders compile` retains its native
+prepare/compile/final-proof path. Shader includes outside `.sc` (such as `.sh`)
+participate in source invalidation and portable capture.
 The native preparation document is daemon-internal and has no separate persisted
 version or compatibility fallback.
 
+This is staged groundwork for #523–#525, **not** their completion: snapshot
+index restoration and shared runtime compiler preparation still invoke existing
+TypeScript dependency/authoring analysis. #523 must replace that shared
+generation analysis with native products; #524 must remove duplicate downstream
+authoring authority. Existing candidate Test and diagnostic parity fixes do not
+complete the separate public boundaries in #513 and #515.
+
 This certification candidate does **not** switch production routing or the
-remaining Runtime Package, Test, and platform preparation to native ownership.
-Those cutovers still require the complete #514/#474 acceptance work; the
-canonical CLI and production daemon keep their existing semantics.
+native-authoritative candidate for Runtime Package, Test, and platform preparation
+to production. Those consumers continue to share `prepareRuntimeArtifact` and
+the existing native compiler/package boundary, using the pinned native Project
+when executing under the certification flags. #506 owns the coordinated production
+switch and removal of superseded authoring code; the canonical production CLI
+and daemon keep their existing semantics until that switch.
 
 The host-only native Project command adapter exposes `entity-inspect` (including
 sparse-source provenance), `scoped-edit` (a generic patch batch with dry-run and
