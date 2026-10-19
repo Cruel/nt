@@ -32,6 +32,14 @@ std::string read(const std::filesystem::path& file)
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
 }
 
+void write(const std::filesystem::path& file, std::string_view bytes)
+{
+    std::ofstream output(file, std::ios::binary | std::ios::trunc);
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    output.close();
+    require(static_cast<bool>(output), "Certification file cannot be written.");
+}
+
 Json command(const Json& request)
 {
     const auto serialized = request.dump();
@@ -707,7 +715,8 @@ void certify(const std::filesystem::path& source)
                                     {"id", "room-lifecycle-roundtrip"}});
     require(after_fmt.value("ok", false) &&
                 after_fmt.at("fields").at("record") == before_fmt.at("fields").at("record"),
-            "Native formatter retains exact effective Project record semantics.");
+            "Native formatter retains exact effective Project record semantics: " +
+                after_fmt.dump().substr(0, 800));
 
     const auto variable_path = fixture.root / "records/variables/background-deliveries.yaml";
     const auto original_variable = read(variable_path);
@@ -1264,6 +1273,36 @@ void certify(const std::filesystem::path& source)
     require(command({{"action", "export-preparation"}, {"projectRoot", root}}).value("ok", false),
             "Native Character repair transaction leaves the complete Project valid.");
 }
+void certify_shader_preparation(const std::filesystem::path& source)
+{
+    Fixture fixture(source);
+    const auto root = fixture.root.string();
+    const auto prepared = command({{"action", "shader-preparation"}, {"projectRoot", root}});
+    require(prepared.value("ok", false) && prepared.at("project").at("materials").is_object() &&
+                prepared.at("sourceOverlays").contains("shaders/lab-grade.fs.sc"),
+            "Native shader preparation supplies effective Materials and captured source text: " +
+                prepared.dump().substr(0, 300));
+    const auto generation = prepared.at("sourceGeneration");
+    const Json proof{{"action", "source-generation-proof"},
+                     {"projectRoot", root},
+                     {"expectedSourceGeneration", generation}};
+    require(command(proof).value("ok", false),
+            "Unchanged native shader preparation retains source authority.");
+    const auto shader_path = fixture.root / "shaders/lab-grade.fs.sc";
+    write(shader_path, read(shader_path) + "\n// physical shader race\n");
+    require(!command(proof).value("ok", false),
+            "A physical shader edit revokes native preparation authority.");
+    const auto refreshed = command({{"action", "shader-preparation"}, {"projectRoot", root}});
+    require(refreshed.value("ok", false) && refreshed.at("sourceGeneration") != generation &&
+                refreshed.at("sourceOverlays").at("shaders/lab-grade.fs.sc") == read(shader_path),
+            "A retained native owner captures the new shader generation after an external edit.");
+    const auto added = fixture.root / "shaders/native-added.sh";
+    write(added, "// new include\n");
+    auto refreshed_proof = proof;
+    refreshed_proof["expectedSourceGeneration"] = refreshed.at("sourceGeneration");
+    require(!command(refreshed_proof).value("ok", false),
+            "A newly discovered shader source revokes the captured generation.");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1301,6 +1340,7 @@ int main(int argc, char** argv)
         }
         require(argc == 2, "Expected one Project fixture root.");
         certify(argv[1]);
+        certify_shader_preparation(argv[1]);
         std::cout << "Native CLI Project certification passed.\n";
         return 0;
     } catch (const std::exception& error) {

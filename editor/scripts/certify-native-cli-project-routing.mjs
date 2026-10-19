@@ -96,6 +96,8 @@ try {
   console.log(`  ${verified}: cold project create`);
 
   compare(['asset', 'audit']);
+  compare(['shaders', 'compile', '--variant', 'essl-300']);
+  compare(['shaders', 'compile', '--variant', 'unsupported'], false);
   compare(['localization', 'sync', '--dry-run']);
   compare(['fmt', '--check']);
   compare(['entity', 'create', 'rooms', 'intro', '--dry-run']);
@@ -147,6 +149,9 @@ try {
   family(['localization', 'sync', '--dry-run']);
   family(['entity', 'create', 'variables', 'native-cutover-dry-run', '--dry-run']);
   family(['fmt', 'project.yaml', '--check']);
+  // Native heavy-command preparation is local-only until it can be carried
+  // by the daemon's immutable generation transport without reopening live disk.
+  compare(['shaders', 'compile', '--variant', 'essl-300'], true, true, [fixtureLegacy, fixtureCandidate]);
 
   console.log(`Native CLI Project routing differential PASSED: ${verified} public commands.`);
 } finally {

@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -66,6 +68,28 @@ Json provenance(const Json& effective, const Json* explicit_source)
 
 Json failure(std::string error) { return {{"ok", false}, {"error", std::move(error)}}; }
 
+bool mutating_request(const Json& request)
+{
+    const auto action =
+        request.is_object() && request.contains("action") && request.at("action").is_string()
+            ? request.at("action").get<std::string>()
+            : std::string{};
+    const auto boolean_flag = [&](std::string_view key, bool default_value) {
+        return request.is_object() && request.contains(std::string(key)) &&
+                       request.at(std::string(key)).is_boolean()
+                   ? request.at(std::string(key)).get<bool>()
+                   : default_value;
+    };
+    return action == "project-create" || action == "project-import" || action == "project-export" ||
+           (action == "asset-import" && !boolean_flag("dryRun", true)) ||
+           (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
+           ((action == "fmt-strip-defaults" || action == "fmt") && !boolean_flag("check", true)) ||
+           ((action == "localization-targets" || action == "localization-sync" ||
+             action == "localization-reconcile" || action == "entity-create" ||
+             action == "entity-rename" || action == "entity-delete") &&
+            !boolean_flag("dryRun", true));
+}
+
 // The existing daemon executes a single Project-owner process per root.
 // Retain native source/revision and semantic caches inside that process;
 // never share dirty editor state or create a second watcher/daemon.
@@ -115,6 +139,15 @@ Json operate(const Json& request)
         response.resize(required);
         return Json::parse(response);
     }
+    if (action == "source-generation-proof") {
+        if (!request.contains("expectedSourceGeneration") ||
+            !request.at("expectedSourceGeneration").is_string())
+            return failure("Source proof requires an expected source generation.");
+        if (!native_project_source_generation_is_current(
+                root, request.at("expectedSourceGeneration").get<std::string>()))
+            return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        return {{"ok", true}};
+    }
     if (action == "asset-audit")
         return native_project_asset_audit(root);
     auto& owner = native_cli_owner();
@@ -127,6 +160,14 @@ Json operate(const Json& request)
         (!request.contains("dryRun") || request.at("dryRun") == false)) {
         if (const auto recovery_error = native_project_asset_recover(root))
             return failure("Native Asset import recovery: " + *recovery_error);
+    }
+    if (owner.session) {
+        const auto observed = owner.session->observe_sources();
+        // The CLI owns only clean disk state. Open record editors must not
+        // retain old source baselines after an external or transactional write.
+        if (observed.full_rescan || !observed.authoritative || !observed.delta.changed.empty() ||
+            !observed.delta.added.empty() || !observed.delta.removed.empty())
+            owner.session.reset();
     }
     std::string error;
     const bool reused_owner = owner.session != nullptr;
@@ -149,6 +190,24 @@ Json operate(const Json& request)
             return {{"ok", false}, {"error", error}, {"kind", "invalid-project"}};
         return failure(error);
     }
+
+    struct DiskSessionReset {
+        NativeCliOwner& owner;
+        bool active;
+        ~DiskSessionReset()
+        {
+            // A writer may have changed disk or left an uncommitted working patch.
+            // Neither state may leak into the next disk-authoritative command.
+            if (active)
+                owner.session.reset();
+        }
+    } disk_session_reset{owner, action == "scoped-edit" || mutating_request(request)};
+
+    // Capture before validation so a disk race cannot attach newer source bytes
+    // to an effective Project assembled from an earlier generation.
+    const auto shader_generation = action == "shader-preparation"
+                                       ? native_project_source_generation(*session, root)
+                                       : std::string{};
 
     // The public CLI reports authoring warnings gathered during workspace
     // admission even when the requested operation itself succeeds. Preserve
@@ -187,6 +246,39 @@ Json operate(const Json& request)
         }
         return result;
     };
+
+    if (action == "shader-preparation") {
+        const auto prepared =
+            session->prepare_complete_working(session->snapshot().working_revision);
+        if (!prepared.accepted)
+            return with_diagnostics(failure(prepared.error));
+        Json overlays = Json::object();
+        for (const auto& [relative, revision] : prepared.source_revisions) {
+            if (!relative.starts_with("shaders/"))
+                continue;
+            const auto source = root / relative;
+            if (std::filesystem::is_symlink(source) || !std::filesystem::is_regular_file(source))
+                return failure("Unsafe native shader source: " + relative);
+            std::ifstream input(source, std::ios::binary);
+            if (!input)
+                return failure("Cannot read native shader source: " + relative);
+            std::string bytes{std::istreambuf_iterator<char>{input},
+                              std::istreambuf_iterator<char>{}};
+            if (input.bad())
+                return failure("Cannot finish native shader source: " + relative);
+            if (exact_source_revision(bytes) != revision)
+                return {{"ok", false},
+                        {"kind", "conflict"},
+                        {"error", "Shader source changed: " + relative}};
+            overlays[relative] = std::move(bytes);
+        }
+        if (!native_project_source_generation_is_current(root, shader_generation))
+            return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        return with_diagnostics({{"ok", true},
+                                 {"project", Json::parse(prepared.complete_project_json)},
+                                 {"sourceGeneration", shader_generation},
+                                 {"sourceOverlays", std::move(overlays)}});
+    }
 
     if (action == "asset-import")
         return with_diagnostics(native_project_asset_import(request, *session, root));
@@ -341,30 +433,7 @@ noveltea_tooling_native_project_commands_json(const std::uint8_t* request,
             // The native API may be used by a two-pass C caller. Such a size
             // probe must never execute a filesystem mutation on its first
             // call or execute with a buffer too small for the result.
-            const auto action =
-                parsed.is_object() && parsed.contains("action") && parsed.at("action").is_string()
-                    ? parsed.at("action").get<std::string>()
-                    : std::string{};
-            const auto boolean_flag = [&](std::string_view key, bool default_value) {
-                return parsed.is_object() && parsed.contains(std::string(key)) &&
-                               parsed.at(std::string(key)).is_boolean()
-                           ? parsed.at(std::string(key)).get<bool>()
-                           : default_value;
-            };
-            const bool mutating =
-                action == "project-create" || action == "project-import" ||
-                action == "project-export" ||
-                (action == "asset-import" && !boolean_flag("dryRun", true)) ||
-                (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
-                (action == "fmt-strip-defaults" && !boolean_flag("check", true)) ||
-                (action == "fmt" && !boolean_flag("check", true)) ||
-                (action == "localization-targets" && !boolean_flag("dryRun", true)) ||
-                (action == "localization-sync" && !boolean_flag("dryRun", true)) ||
-                (action == "localization-reconcile" && !boolean_flag("dryRun", true)) ||
-                ((action == "entity-create" || action == "entity-rename" ||
-                  action == "entity-delete") &&
-                 !boolean_flag("dryRun", true));
-            if (mutating && (!response || response_capacity < 8 * 1024 * 1024))
+            if (mutating_request(parsed) && (!response || response_capacity < 8 * 1024 * 1024))
                 serialized = failure("Mutating native Project commands require a preallocated "
                                      "8 MiB response buffer; probing is forbidden.")
                                  .dump();
