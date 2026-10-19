@@ -91,6 +91,35 @@ test("cold release CLI builds retry verified bzip2 downloads before vcpkg instal
   assert.match(sourceStep, /mv "\$staged" "\$archive"/);
 });
 
+test("Android ARM64 devtools certification checks APK and AAB release artifacts", () => {
+  const android = job("android");
+  const start = android.indexOf(
+    "- name: Export and inspect optimized ARM64 developer APK plus AAB through public CLI",
+  );
+  const end = android.indexOf("- name: Generate Android platform certification reports", start);
+  assert.ok(start >= 0 && end > start);
+  const exportStep = android.slice(start, end);
+  assert.match(exportStep, /NOVELTEA_ANDROID_FLAVOR: release/);
+  assert.match(exportStep, /NOVELTEA_CANONICAL_PLAYER_VARIANT: devtools/);
+  assert.match(exportStep, /NOVELTEA_ANDROID_ARTIFACT: both/);
+  assert.match(exportStep, /--flavor release --variant devtools --artifact both/);
+});
+
+test("Windows desktop release variants use their matching Licenses viewer runner", () => {
+  const desktopHosts = job("desktop-hosts");
+  const start = desktopHosts.indexOf("- name: Finalize and launch Windows portable export");
+  const end = desktopHosts.indexOf(
+    "- name: Finalize and launch Linux portable export on X11",
+    start,
+  );
+  assert.ok(start >= 0 && end > start);
+  const exportStep = desktopHosts.slice(start, end);
+  assert.match(
+    exportStep,
+    /NOVELTEA_LICENSE_VIEWER_RUNNER: \$\{\{ github\.workspace \}\}\\build\\\$\{\{ matrix\.preset \}\}\\tools\\editor_tool\\noveltea-ui-test-runner\.exe/,
+  );
+});
+
 test("release builds leave compile concurrency automatic like regular CI", () => {
   assert.doesNotMatch(releaseWorkflow, /CMAKE_BUILD_PARALLEL_LEVEL:/);
   assert.doesNotMatch(releaseWorkflow, /VCPKG_MAX_CONCURRENCY:/);
