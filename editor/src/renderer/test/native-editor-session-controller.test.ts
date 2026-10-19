@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { cp, readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, readFile, readdir, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
@@ -752,6 +752,151 @@ describe('native admission at the editor main Project lifecycle', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
+  it('publishes Project Explorer files and Material shader copies through the native journal', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-source-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    await mkdir(path.join(root, 'support'), { recursive: true });
+    await writeFile(path.join(root, 'support', 'issue-511-license.txt'), 'Native license\n');
+    const assetRecord = path.join(root, 'records', 'assets', 'counter-template.yaml');
+    await writeFile(
+      assetRecord,
+      (await readFile(assetRecord, 'utf8')) +
+        '  attachments:\n    - path: support/issue-511-license.txt\n      purpose: reference\n',
+    );
+    const saved = await createNodeProjectWorkspaceService().open(root);
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const id = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
+      await controller.admit(id, saved.snapshot.project);
+      const created = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: { kind: 'create-file', path: 'scripts/issue-511.lua', fileKind: 'lua' },
+      });
+      expect(created.success, created.error).toBe(true);
+      expect(created.nativeWorkingRevision).toBeDefined();
+      expect(await readFile(path.join(root, 'scripts/issue-511.lua'), 'utf8')).toBe(
+        '-- NovelTea Lua source\n',
+      );
+      const moved = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: {
+          kind: 'move',
+          fromPath: 'scripts/issue-511.lua',
+          toPath: 'scripts/issue-511-moved.lua',
+        },
+      });
+      expect(moved.success, moved.error).toBe(true);
+      expect(await readFile(path.join(root, 'scripts/issue-511-moved.lua'), 'utf8')).toBe(
+        '-- NovelTea Lua source\n',
+      );
+      await expect(
+        controller.mutateProjectSources({
+          projectSessionId: id,
+          operation: { kind: 'delete', path: 'scripts/issue-511-moved.lua' },
+          expectedRevisions: {
+            'scripts/issue-511-moved.lua': `sha256:${'0'.repeat(64)}`,
+          },
+        }),
+      ).rejects.toThrow('WORKSPACE_REVISION_CONFLICT');
+      const removed = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: { kind: 'delete', path: 'scripts/issue-511-moved.lua' },
+      });
+      expect(removed.success, removed.error).toBe(true);
+      const folder = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: { kind: 'create-folder', path: 'scripts/issue-511-empty' },
+      });
+      expect(folder.success, folder.error).toBe(true);
+      const nestedFile = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: {
+          kind: 'create-file',
+          path: 'scripts/issue-511-empty/helper.lua',
+          fileKind: 'lua',
+        },
+      });
+      expect(nestedFile.success, nestedFile.error).toBe(true);
+      const folderMoved = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: {
+          kind: 'move',
+          fromPath: 'scripts/issue-511-empty',
+          toPath: 'scripts/issue-511-relocated',
+        },
+      });
+      expect(folderMoved.success, folderMoved.error).toBe(true);
+      await expect(readdir(path.join(root, 'scripts', 'issue-511-empty'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+      expect(
+        await readFile(path.join(root, 'scripts', 'issue-511-relocated', 'helper.lua'), 'utf8'),
+      ).toBe('-- NovelTea Lua source\n');
+      const shader = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: {
+          kind: 'material-shader-copy',
+          materialId: 'lab-grade',
+          stage: 'fragment',
+          sourceIdentity: 'project:/shaders/lab-grade.fs.sc',
+        },
+      });
+      expect(shader.success, shader.error).toBe(true);
+      expect(shader.createdSourceIds).toEqual(['shaders/materials/lab-grade/fs.sc']);
+      expect((await controller.currentWorkingProject(id)).materials['lab-grade']).toMatchObject({
+        data: {
+          shader: { fragment: { kind: 'project', path: 'shaders/materials/lab-grade/fs.sc' } },
+        },
+      });
+      expect(await readFile(path.join(root, 'shaders/materials/lab-grade/fs.sc'), 'utf8')).toBe(
+        await readFile(path.join(root, 'shaders/lab-grade.fs.sc'), 'utf8'),
+      );
+      expect(await controller.sourceUsages(id, 'shaders/materials/lab-grade/fs.sc')).toMatchObject({
+        usages: [expect.objectContaining({ owner: 'materials/lab-grade' })],
+      });
+      const attachment = await controller.mutateProjectSources({
+        projectSessionId: id,
+        operation: {
+          kind: 'move-attachment',
+          fromPath: 'support/issue-511-license.txt',
+          toPath: 'assets/issue-511-license.txt',
+        },
+      });
+      expect(attachment.success, attachment.error).toBe(true);
+      expect((await controller.currentWorkingProject(id)).assets['counter-template']).toMatchObject(
+        {
+          data: {
+            attachments: [{ path: 'assets/issue-511-license.txt', purpose: 'reference' }],
+          },
+        },
+      );
+      expect(await readFile(path.join(root, 'assets', 'issue-511-license.txt'), 'utf8')).toBe(
+        'Native license\n',
+      );
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 180_000);
+
   it('admits the exact Feature Lab saved Project and revokes it on close', async () => {
     const fixture = await mkdtemp(path.join(tmpdir(), 'native-editor-lifecycle-'));
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), fixture, {

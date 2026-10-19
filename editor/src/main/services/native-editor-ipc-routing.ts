@@ -5,8 +5,6 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels';
  * build-only shader compilation must remain callable from the workbench. */
 export const incompatibleLegacyNativeEditChannels = new Set<string>([
   IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-  IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
-  IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
   IPC_CHANNELS.WRITE_PROJECT_SOURCE,
   IPC_CHANNELS.PURGE_PROJECT_TRASH,
   IPC_CHANNELS.VALIDATE_PROJECT,

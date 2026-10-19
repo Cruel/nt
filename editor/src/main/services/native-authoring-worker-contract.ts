@@ -192,6 +192,16 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
     })
     .strict(),
   z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('mutateSourceDirectory'),
+      expectedRevision: z.number().int().nonnegative(),
+      kind: z.enum(['create', 'move', 'delete']),
+      from: z.string().min(1).max(2048),
+      to: z.string().max(2048),
+    })
+    .strict(),
+  z
     .object({ requestId: z.number().int().positive(), operation: z.literal('coverageLost') })
     .strict(),
   z
@@ -229,6 +239,26 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       textPaths: z.array(z.string().min(1).max(2048)).max(128).optional(),
       assetTransition: z
         .discriminatedUnion('kind', [
+          z
+            .object({
+              kind: z.literal('source-files'),
+              files: z
+                .array(
+                  z
+                    .object({
+                      path: z.string().min(1).max(2048),
+                      expectedRevision: z.string().max(128),
+                      contents: z
+                        .string()
+                        .max(4 * 1024 * 1024)
+                        .nullable(),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(256),
+            })
+            .strict(),
           z
             .object({
               kind: z.literal('publish'),

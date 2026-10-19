@@ -112,6 +112,7 @@ import {
   saveProjectEditorMetadata,
   saveProjectCopyAs,
 } from './main/services/project-file-service';
+import { saveNativeProjectCopyAs } from './main/services/native-project-copy-service';
 import {
   cancelPlatformExport,
   stagePlatformExport,
@@ -1783,6 +1784,13 @@ void app.whenReady().then(async () => {
     async (projectSessionId, project, workingProjectAssetPaths, scriptSourcePaths) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        if (nativeEditorMutationEnabled) {
+          if (!nativeEditorAdmission?.isAdmitted(projectSessionId))
+            throw new Error('Native Project Copy requires an admitted Project.');
+          return await saveNativeProjectCopyAs(mainWindow, projectRoot, project, () =>
+            nativeEditorAdmission.verifySavedCopySources(projectSessionId),
+          );
+        }
         return await saveProjectCopyAs(
           mainWindow,
           projectRoot,
@@ -2157,14 +2165,28 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.PROJECT_SOURCE_USAGES,
     (arguments_) => projectSourceUsagesArgumentsSchema.parse(arguments_),
-    (request: ProjectSourceUsageRequest) => activeProjectSessions.projectSourceUsages(request),
+    (request: ProjectSourceUsageRequest) =>
+      nativeEditorMutationEnabled
+        ? nativeEditorAdmission!.sourceUsages(request.projectSessionId, request.path)
+        : activeProjectSessions.projectSourceUsages(request),
   );
 
   guardedIpc.handle(
     IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
     (arguments_) => mutateProjectSourcesArgumentsSchema.parse(arguments_),
-    (request: ProjectSourceStructuralRequest) =>
-      activeProjectSessions.mutateProjectSources(request),
+    async (request: ProjectSourceStructuralRequest) => {
+      try {
+        return nativeEditorMutationEnabled
+          ? await nativeEditorAdmission!.mutateProjectSources(request)
+          : await activeProjectSessions.mutateProjectSources(request);
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          error: error instanceof Error ? error.message : 'Project source operation failed.',
+        };
+      }
+    },
   );
 
   guardedIpc.handle(

@@ -297,10 +297,7 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     const revision = project.projectRevision;
     const instance = project.projectInstanceId;
     if (!session || !instance) return;
-    if (
-      sourceTouchIdentity?.session !== session ||
-      sourceTouchIdentity.instance !== instance
-    ) {
+    if (sourceTouchIdentity?.session !== session || sourceTouchIdentity.instance !== instance) {
       for (const stale of sourceStageTimers.keys()) cancelSourceStage(stale);
       touchedNativeSources.clear();
       sourceTouchIdentity = { session, instance };
@@ -318,15 +315,17 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         current.projectSessionId !== session ||
         latestProject.projectInstanceId !== instance ||
         latestProject.projectRevision !== revision
-      ) return;
+      )
+        return;
       const buffer = current.buffersById[sourceId];
       if (!buffer) return;
-      void useCommandStore.getState().stageNativeTextAsync(
-        sourceId, buffer.text, buffer.baseContentHash, revision,
-      ).then((result) => {
-        if (!result.ok && get().projectSessionId === session)
-          set({ error: result.diagnostics[0]?.message ?? 'Native source staging failed.' });
-      });
+      void useCommandStore
+        .getState()
+        .stageNativeTextAsync(sourceId, buffer.text, buffer.baseContentHash, revision)
+        .then((result) => {
+          if (!result.ok && get().projectSessionId === session)
+            set({ error: result.diagnostics[0]?.message ?? 'Native source staging failed.' });
+        });
     }, 150);
     sourceStageTimers.set(sourceId, timer);
   },
@@ -357,15 +356,18 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       if (
         current.projectSessionId !== initialSession ||
         workingProject.projectInstanceId !== initialInstance
-      ) return false;
+      )
+        return false;
       const buffer = current.buffersById[sourceId];
       if (!buffer) continue;
-      const result = await useCommandStore.getState().stageNativeTextAsync(
-        sourceId,
-        buffer.text,
-        buffer.baseContentHash,
-        workingProject.projectRevision,
-      );
+      const result = await useCommandStore
+        .getState()
+        .stageNativeTextAsync(
+          sourceId,
+          buffer.text,
+          buffer.baseContentHash,
+          workingProject.projectRevision,
+        );
       if (!result.ok) {
         if (get().projectSessionId === initialSession)
           set({ error: result.diagnostics[0]?.message ?? 'Native source staging failed.' });
@@ -387,12 +389,14 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     const submittedText = buffer.text;
     const nativeMode = useCommandStore.getState().nativeWorkingRevision !== null;
     const nativeResult = nativeMode
-      ? await useCommandStore.getState().saveNativeTextAsync(
-          sourceId,
-          submittedText,
-          expectedRevision,
-          useProjectStore.getState().projectRevision,
-        )
+      ? await useCommandStore
+          .getState()
+          .saveNativeTextAsync(
+            sourceId,
+            submittedText,
+            expectedRevision,
+            useProjectStore.getState().projectRevision,
+          )
       : null;
     const result = nativeResult
       ? {
@@ -482,7 +486,8 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     if (
       operation.kind === 'move' &&
       (useCommandStore.getState().persistencePending ||
-        useCommandStore.getState().history.activeTransaction)
+        useCommandStore.getState().history.activeTransaction ||
+        useCommandStore.getState().nativeMutationPending)
     )
       return { ok: false, success: false, error: 'Finish the active edit before moving files.' };
     const expectedRevisions = Object.fromEntries(
@@ -540,6 +545,12 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       }));
     }
     await get().refresh(state.projectSessionId);
+    if (
+      result.nativeWorkingRevision !== undefined &&
+      useProjectStore.getState().projectInstanceId === originalProjectInstanceId &&
+      get().projectSessionId === state.projectSessionId
+    )
+      useCommandStore.getState().enableNativeCommandMode(result.nativeWorkingRevision);
     return result;
   },
   usages: async (pathValue) => {
@@ -557,7 +568,7 @@ export async function flushNativeProjectSources(): Promise<void> {
   if (!(await useProjectSourceStore.getState().flushNativeStages()))
     throw new Error(
       useProjectSourceStore.getState().error ??
-      'Native source staging did not accept every pending text edit.',
+        'Native source staging did not accept every pending text edit.',
     );
 }
 
@@ -574,8 +585,11 @@ export function acknowledgeNativeSavedSources(
     throw new Error('Native source Save acknowledgment belongs to another Project.');
   for (const [sourceId, source] of Object.entries(submitted)) {
     const buffer = state.buffersById[sourceId];
-    if (!buffer || buffer.baseContentHash !== source.baseContentHash ||
-      !/^sha256:[0-9a-f]{64}$/u.test(revisions[sourceId] ?? ''))
+    if (
+      !buffer ||
+      buffer.baseContentHash !== source.baseContentHash ||
+      !/^sha256:[0-9a-f]{64}$/u.test(revisions[sourceId] ?? '')
+    )
       throw new Error(`Native source Save acknowledgment is stale or incomplete: ${sourceId}`);
   }
   const buffersById = { ...state.buffersById };

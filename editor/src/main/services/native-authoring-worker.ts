@@ -28,6 +28,13 @@ interface NativeBinding {
     textPaths?: string,
     assetTransition?: string,
   ): string;
+  mutateSourceDirectory(
+    handle: unknown,
+    revision: number,
+    kind: string,
+    from: string,
+    to: string,
+  ): string;
   restoreConflicts(handle: unknown, revision: number, conflicts: string): string;
   useDiskOwners(handle: unknown, revision: number, paths: string): string;
   observe(handle: unknown): string;
@@ -256,6 +263,24 @@ parent.on('message', (raw: unknown) => {
                     JSON.stringify(command.paths),
                   )
                 : binding.useDisk(handle, command.expectedRevision, command.owner),
+            ),
+          ),
+        };
+        break;
+      case 'mutateSourceDirectory':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringResultSchema.parse(
+            JSON.parse(
+              binding.mutateSourceDirectory(
+                handle,
+                command.expectedRevision,
+                command.kind,
+                command.from,
+                command.to,
+              ),
             ),
           ),
         };

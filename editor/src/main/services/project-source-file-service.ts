@@ -94,11 +94,14 @@ function validateFileKind(pathValue: string, kind: 'lua' | 'shader'): void {
     );
 }
 
-function sourceTemplate(kind: 'lua' | 'shader'): string {
+export function sourceTemplate(kind: 'lua' | 'shader'): string {
   return kind === 'lua' ? '-- NovelTea Lua source\n' : '#include "bgfx_shader.sh"\n\n';
 }
 
-function materialShaderCopyPath(materialId: string, stage: 'vertex' | 'fragment' | 'varying') {
+export function materialShaderCopyPath(
+  materialId: string,
+  stage: 'vertex' | 'fragment' | 'varying',
+) {
   const suffix = stage === 'vertex' ? 'vs' : stage === 'fragment' ? 'fs' : 'varying';
   return `shaders/materials/${materialId}/${suffix}.sc`;
 }
@@ -127,7 +130,7 @@ export async function readEngineShaderSource(sourceIdentity: string): Promise<st
   return null;
 }
 
-async function materialShaderSourceText(
+export async function materialShaderSourceText(
   root: string,
   sourceIdentity: string,
 ): Promise<string | null> {
@@ -197,7 +200,7 @@ function moveRemapForFiles(
   return remap;
 }
 
-function rewriteSemanticPaths(
+export function rewriteSemanticPaths(
   project: AuthoringProject,
   scriptSourcePaths: Record<string, string>,
   remap: ReadonlyMap<string, string>,
@@ -294,7 +297,7 @@ function resolveShaderInclude(
   );
 }
 
-function rewriteShaderIncludes(
+export function rewriteShaderIncludes(
   text: string,
   oldConsumerPath: string,
   newConsumerPath: string,
@@ -335,7 +338,7 @@ async function walkFiles(root: string, relative: string): Promise<string[]> {
   return output.sort();
 }
 
-async function sourceFilesAtOrBelow(root: string, sourcePath: string): Promise<string[]> {
+export async function sourceFilesAtOrBelow(root: string, sourcePath: string): Promise<string[]> {
   const absolute = path.join(root, sourcePath);
   try {
     const stat = await fs.stat(absolute);
@@ -348,7 +351,7 @@ async function sourceFilesAtOrBelow(root: string, sourcePath: string): Promise<s
   return [];
 }
 
-async function allShaderFiles(root: string): Promise<string[]> {
+export async function allShaderFiles(root: string): Promise<string[]> {
   return walkFiles(root, 'shaders');
 }
 

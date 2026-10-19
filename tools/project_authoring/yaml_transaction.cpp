@@ -409,6 +409,9 @@ fs::path safe_source_path(const fs::path& root, std::string_view relative)
         std::string(relative), std::regex(R"(^\.noveltea/native-asset-import/[0-9a-f-]{36}$)"));
     const bool asset_bytes = relative.starts_with("support/") || relative.starts_with("assets/") ||
                              relative.starts_with(".noveltea/trash/assets/") || staged_asset;
+    const bool standalone_source =
+        (relative.starts_with("scripts/") && relative.ends_with(".lua")) ||
+        (relative.starts_with("shaders/") && relative.ends_with(".sc"));
     const bool layout_text = std::regex_match(
         std::string(relative),
         std::regex(
@@ -419,7 +422,8 @@ fs::path safe_source_path(const fs::path& root, std::string_view relative)
     if (!path_safe(relative) ||
         (relative.starts_with(".noveltea/") && !relative.starts_with(".noveltea/trash/assets/") &&
          !layout_text && !staged_asset) ||
-        (!asset_bytes && !relative.ends_with(".yaml") && !layout_text && !admitted_text_path))
+        (!asset_bytes && !standalone_source && !relative.ends_with(".yaml") &&
+         !layout_text && !admitted_text_path))
         throw std::runtime_error("Invalid tracked YAML transaction target: " +
                                  std::string(relative));
     const auto target = root / fs::path(relative);
@@ -691,10 +695,15 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 target.path.starts_with(".noveltea/trash/assets/") ||
                 std::regex_match(target.path,
                                  std::regex(R"(^\.noveltea/native-asset-import/[0-9a-f-]{36}$)"));
+            const bool standalone_source =
+                (target.path.starts_with("scripts/") && target.path.ends_with(".lua")) ||
+                (target.path.starts_with("shaders/") && target.path.ends_with(".sc"));
             if (target.raw_asset_file &&
-                (!asset_bytes || !target.edits.empty() || target.replacement_source ||
-                 target.raw_text_source || target.semantic_compaction_family ||
-                 (target.erase == target.create_source.has_value())))
+                ((!asset_bytes && !standalone_source) || !target.edits.empty() ||
+                 target.replacement_source || target.semantic_compaction_family ||
+                 (static_cast<int>(target.erase) +
+                      static_cast<int>(target.create_source.has_value()) +
+                      static_cast<int>(target.raw_text_source.has_value()) != 1)))
                 throw std::runtime_error("Invalid native binary Asset transaction target.");
             if (asset_bytes && !target.raw_asset_file &&
                 target.path.starts_with(".noveltea/trash/"))
@@ -718,7 +727,8 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                                          "creation or deletion.");
             if (raw_text &&
                 (target.erase || target.create_source || target.replacement_source ||
-                 target.semantic_compaction_family || !target.edits.empty() || !admitted_text_path))
+                 target.semantic_compaction_family || !target.edits.empty() ||
+                 (!admitted_text_path && !target.raw_asset_file)))
                 throw std::runtime_error(
                     "Raw source replacement must be a tracked text-only edit.");
             const auto absolute = checked_path(target.path);
