@@ -25,8 +25,9 @@ std::string bytes_at(const std::filesystem::path& path)
 
 } // namespace
 
-ProjectSession::WorkingPreparation ProjectSession::prepare_working(std::uint64_t expected_revision,
-                                                                   std::string_view test_id) const
+ProjectSession::WorkingPreparation
+ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_view test_id,
+                                bool allow_invalid_test_semantics) const
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -45,7 +46,7 @@ ProjectSession::WorkingPreparation ProjectSession::prepare_working(std::uint64_t
         // sources replace those values. No writer or CLI daemon is involved.
         const auto current = snapshot();
         prepared.diagnostics = current.diagnostics;
-        if (!current.valid) {
+        if (!current.valid && !allow_invalid_test_semantics) {
             prepared.error = "Active working Project has validation errors.";
             return prepared;
         }
@@ -225,19 +226,37 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         prepared.error = "Project source generation advanced during complete preparation.";
         return prepared;
     }
-    if (!validated.valid) {
+    // Only a missing Test step list is a structurally normalized but blocked authored Test.
+    // The native Test runner owns that verdict. Other Test semantic failures remain admission
+    // failures, just like invalid Project, source, or physical state.
+    const bool only_test_errors =
+        !validated.valid &&
+        std::any_of(validated.diagnostics.begin(), validated.diagnostics.end(),
+                    [](const auto& d) { return d.severity == "error"; }) &&
+        std::all_of(validated.diagnostics.begin(), validated.diagnostics.end(), [](const auto& d) {
+            return d.severity != "error" ||
+                   (d.path.starts_with("/tests/") && d.code == "authoring.test.steps-required");
+        });
+    if (!validated.valid && !only_test_errors) {
         prepared.diagnostics = validated.diagnostics;
         prepared.error = "Full native working Project validation failed.";
         return prepared;
     }
-    prepared = prepare_working(expected_revision, test_id);
+    prepared = prepare_working(expected_revision, test_id, only_test_errors);
     if (!prepared.accepted)
         return prepared;
     try {
         Json complete = Json::parse(prepared.project_json);
-        const auto contributors = validated_disk_record_snapshots();
+        // The workspace manifest deliberately does not persist prefetch hints yet. The complete
+        // runtime Project nevertheless has the canonical empty registry (as in the generated
+        // AuthoringProject contract), so downstream validation never needs to default it again.
+        if (!complete.contains("prefetchHints"))
+            complete.insert_or_assign("prefetchHints", Json::object());
+        const auto contributors = only_test_errors ? reconciliation_disk_record_snapshots()
+                                                   : validated_disk_record_snapshots();
         for (const auto& [owner, record] : contributors) {
-            if (!record.valid || record.normalized_json.empty())
+            if ((!record.valid && !(only_test_errors && owner.starts_with("tests/"))) ||
+                record.normalized_json.empty())
                 throw std::runtime_error("Invalid native full-Project contributor: " + owner);
             if (owner == "traits" || owner == "editor") {
                 complete.insert_or_assign(owner, Json::parse(record.normalized_json));

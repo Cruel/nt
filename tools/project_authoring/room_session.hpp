@@ -254,7 +254,8 @@ public:
     // The editor's opt-in preparation seam: capture one revision-consistent
     // effective working Project, without persisting it or invoking the CLI.
     WorkingPreparation prepare_working(std::uint64_t expected_revision,
-                                       std::string_view test_id = {}) const;
+                                       std::string_view test_id = {},
+                                       bool allow_invalid_test_semantics = false) const;
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
                                                 std::string_view test_id = {});
     RoomSessionResult publish_material_compiler_result(std::uint64_t revision,
