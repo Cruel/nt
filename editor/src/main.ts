@@ -13,6 +13,12 @@ import {
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { selectedExportProfile } from './shared/project-schema/authoring-export';
+import { prepareRuntimeArtifact } from './shared/runtime-artifact-preparation';
+import {
+  nodeShaderCompilerAdapter,
+  nodeRuntimeArtifactPaths,
+} from './main/services/node-runtime-artifact-adapters';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import type { EditorProjectState } from './shared/project-schema/editor-project-state';
 import { withNativeRecoveredTextSources } from './main/services/native-recovery-editor-state';
@@ -76,6 +82,7 @@ import { ActiveProjectSessionService } from './main/services/active-project-sess
 import { NativeAuthoringSessionBridge } from './main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from './main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from './main/services/native-editor-session-controller';
+import { incompatibleLegacyNativeEditChannels } from './main/services/native-editor-ipc-routing';
 import { readEngineShaderSource } from './main/services/project-source-file-service';
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
@@ -369,30 +376,6 @@ const activeProjectSessions = new ActiveProjectSessionService();
 // migrated synchronous renderer mutation, Save and watcher ownership together.
 // It operates on the actual main-owned Project lifecycle, not a test-only root.
 const nativeEditorMutationEnabled = process.argv.includes('--certify-native-authoring-edit');
-const incompatibleLegacyNativeEditChannels = new Set<string>([
-  IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-  IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
-  IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
-  IPC_CHANNELS.WRITE_PROJECT_SOURCE,
-  IPC_CHANNELS.IMPORT_ASSETS,
-  IPC_CHANNELS.REIMPORT_ASSET,
-  IPC_CHANNELS.IMPORT_UNTRACKED_PROJECT_ASSETS,
-  IPC_CHANNELS.ORGANIZE_UNTRACKED_PROJECT_ASSET,
-  IPC_CHANNELS.IMPORT_PROJECT_ATTACHMENT_FILES,
-  IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,
-  IPC_CHANNELS.RESTORE_PROJECT_ASSET_FILES,
-  IPC_CHANNELS.PURGE_PROJECT_TRASH,
-  IPC_CHANNELS.VALIDATE_PROJECT,
-  IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
-  IPC_CHANNELS.RUN_PLAYBACK_TEST,
-  IPC_CHANNELS.RUN_PLAYBACK_SUITE,
-  IPC_CHANNELS.RUN_PLAYBACK_SPEC,
-  IPC_CHANNELS.RUN_UI_PLAYBACK_SPEC,
-  IPC_CHANNELS.COMPILE_SHADERS,
-  IPC_CHANNELS.EXPORT_PACKAGE,
-  IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
-  IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
-]);
 const nativeEditorAdmission =
   nativeEditorMutationEnabled || process.argv.includes('--certify-native-authoring-open')
     ? (() => {
@@ -1583,9 +1566,31 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.EXPORT_PACKAGE,
     (arguments_) => exportPackageArgumentsSchema.parse(arguments_),
-    (projectSessionId, project, outputPath, options) => {
+    async (projectSessionId, project, outputPath, options) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       assertPackageProjectAuthority(projectRoot, options);
+      if (nativeEditorMutationEnabled) {
+        if (!nativeEditorAdmission)
+          throw new Error('Native runtime package export requires an admitted Project.');
+        const native = await nativeEditorAdmission.prepareCleanExport(projectSessionId);
+        const savedProfile = selectedExportProfile(native);
+        const prepared = await prepareRuntimeArtifact({
+          project: native,
+          projectRoot,
+          profile: { ...savedProfile, outputPath },
+          intent: 'runtime-package-export',
+          shaderCompiler: nodeShaderCompilerAdapter(compileShaders),
+          paths: nodeRuntimeArtifactPaths,
+        });
+        if (prepared.status !== 'prepared')
+          throw new Error('Native Project cannot prepare a valid runtime package.');
+        await nativeEditorAdmission.prepareCleanExport(projectSessionId);
+        return exportPackage(
+          prepared.artifact.compiledProject,
+          outputPath,
+          prepared.artifact.packageOptions,
+        );
+      }
       return exportPackage(project, outputPath, options);
     },
   );
@@ -1593,23 +1598,50 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
     (arguments_) => stagePlatformExportArgumentsSchema.parse(arguments_),
-    (projectSessionId, request) => {
+    async (projectSessionId, request) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       requireProjectContainedPath(projectRoot, request.packagePath, 'Runtime package source');
       if (request.iconSourcePath)
         requireProjectContainedPath(projectRoot, request.iconSourcePath, 'Platform icon source');
       if (request.systemAssetsRoot)
         requireProjectContainedPath(projectRoot, request.systemAssetsRoot, 'System assets root');
+      if (nativeEditorMutationEnabled)
+        await nativeEditorAdmission!.prepareCleanExport(projectSessionId);
       return stagePlatformExport(request);
     },
   );
   guardedIpc.handle(
     IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
     (arguments_) => exportProjectToPlatformArgumentsSchema.parse(arguments_),
-    (projectSessionId, request) => {
+    async (projectSessionId, request) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       if (request.preparedRuntimeArtifact)
         assertPackageProjectAuthority(projectRoot, request.preparedRuntimeArtifact.packageOptions);
+      if (nativeEditorMutationEnabled) {
+        if (!nativeEditorAdmission)
+          throw new Error('Native platform export requires an admitted Project.');
+        const native = await nativeEditorAdmission.prepareCleanExport(projectSessionId);
+        return exportProjectToPlatform(
+          {
+            ...request,
+            project: native,
+            preparedRuntimeArtifact: undefined,
+            projectPath: path.join(projectRoot, 'project.yaml'),
+            projectRoot,
+          },
+          (progress) =>
+            mainWindow?.webContents.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
+          undefined,
+          async () => {
+            try {
+              await nativeEditorAdmission.prepareCleanExport(projectSessionId);
+              return null;
+            } catch (error) {
+              return error instanceof Error ? error.message : String(error);
+            }
+          },
+        );
+      }
       return exportProjectToPlatform(
         {
           ...request,
@@ -1776,8 +1808,18 @@ void app.whenReady().then(async () => {
     async (projectSessionId, options) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await importAssets(mainWindow, path.join(projectRoot, 'project.yaml'), options, () =>
-          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        return await importAssets(
+          mainWindow,
+          path.join(projectRoot, 'project.yaml'),
+          options,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+          nativeEditorMutationEnabled
+            ? (assetPath, bytes) =>
+                nativeEditorAdmission!.stageAsset(projectSessionId, assetPath, bytes)
+            : undefined,
+          nativeEditorMutationEnabled
+            ? (paths) => nativeEditorAdmission!.discardStagedAssets(projectSessionId, paths)
+            : undefined,
         );
       } catch (error) {
         return {
@@ -1802,6 +1844,10 @@ void app.whenReady().then(async () => {
           path.join(projectRoot, 'project.yaml'),
           projectRelativePath,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+          nativeEditorMutationEnabled
+            ? (assetPath, bytes) =>
+                nativeEditorAdmission!.stageAsset(projectSessionId, assetPath, bytes)
+            : undefined,
         );
       } catch (error) {
         return {
@@ -1820,8 +1866,12 @@ void app.whenReady().then(async () => {
     async (projectSessionId, project) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await auditProjectAssets(path.join(projectRoot, 'project.yaml'), project, () =>
-          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        return await auditProjectAssets(
+          path.join(projectRoot, 'project.yaml'),
+          nativeEditorMutationEnabled
+            ? await nativeEditorAdmission!.currentWorkingProject(projectSessionId)
+            : project,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
         const message =
@@ -1868,10 +1918,16 @@ void app.whenReady().then(async () => {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await organizeUntrackedProjectAsset(
           path.join(projectRoot, 'project.yaml'),
-          project,
+          nativeEditorMutationEnabled
+            ? await nativeEditorAdmission!.currentWorkingProject(projectSessionId)
+            : project,
           projectRelativePath,
           action,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+          nativeEditorMutationEnabled
+            ? (fromPath, toPath) =>
+                nativeEditorAdmission!.organizeUntrackedAsset(projectSessionId, fromPath, toPath)
+            : undefined,
         );
       } catch (error) {
         return {
@@ -1898,8 +1954,14 @@ void app.whenReady().then(async () => {
     (arguments_) => importProjectAttachmentFilesArgumentsSchema.parse(arguments_),
     async (request) => {
       const root = activeProjectSessions.requireActiveProjectRoot(request.projectSessionId);
-      return importProjectAttachmentFiles(mainWindow, root, request, () =>
-        activeProjectSessions.requireActiveProjectRoot(request.projectSessionId),
+      return importProjectAttachmentFiles(
+        mainWindow,
+        root,
+        request,
+        () => activeProjectSessions.requireActiveProjectRoot(request.projectSessionId),
+        nativeEditorMutationEnabled
+          ? (files) => nativeEditorAdmission!.publishAttachments(request.projectSessionId, files)
+          : undefined,
       );
     },
   );
@@ -1929,6 +1991,12 @@ void app.whenReady().then(async () => {
     async (projectSessionId, projectRelativePaths) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        if (nativeEditorMutationEnabled) {
+          return nativeEditorAdmission!.trashOrDiscardAssetFiles(
+            projectSessionId,
+            projectRelativePaths,
+          );
+        }
         return await trashProjectAssetFiles(
           path.join(projectRoot, 'project.yaml'),
           projectRelativePaths,
@@ -1951,6 +2019,13 @@ void app.whenReady().then(async () => {
     async (projectSessionId, moves) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        if (nativeEditorMutationEnabled) {
+          await nativeEditorAdmission!.transitionAssetFiles(projectSessionId, {
+            kind: 'restore',
+            moves,
+          });
+          return { ok: true, success: true, diagnostics: [], restored: moves };
+        }
         return await restoreProjectAssetFiles(path.join(projectRoot, 'project.yaml'), moves, () =>
           activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );

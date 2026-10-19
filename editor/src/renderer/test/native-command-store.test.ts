@@ -145,7 +145,10 @@ describe('native-backed renderer commands', () => {
       persistencePolicy: 'auto-commit',
     });
     expect(imported.ok, JSON.stringify(imported.diagnostics)).toBe(true);
-    expect(save.mock.calls[0]?.[3].assetTransition).toBeUndefined();
+    expect(save.mock.calls[0]?.[3].assetTransition).toEqual({
+      kind: 'publish',
+      projectRelativePaths: [asset.projectRelativePath],
+    });
     expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
     expect(save.mock.calls[1]?.[3].assetTransition).toEqual({
       kind: 'trash',

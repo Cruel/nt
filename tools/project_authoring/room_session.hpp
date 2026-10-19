@@ -60,10 +60,18 @@ struct RoomSessionResult {
 struct ProjectAssetTransition {
     enum class Kind {
         Trash,
-        Restore
+        Restore,
+        Publish,
+        Move
     } kind = Kind::Trash;
     std::vector<std::string> paths;
     std::vector<std::pair<std::string, std::string>> moves;
+    struct Publication {
+        std::string project_relative_path;
+        std::string staged_relative_path;
+        std::string source_revision;
+    };
+    std::vector<Publication> publications;
 };
 
 enum class ProjectFileKind {

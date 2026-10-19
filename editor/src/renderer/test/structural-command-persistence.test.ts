@@ -173,6 +173,7 @@ describe('structural command persistence', () => {
       [
         'asset.deleteAsset',
         'asset.importFiles',
+        'asset.reimportFile',
         'entity.createRecord',
         'entity.deleteRecord',
         'entity.duplicateRecord',

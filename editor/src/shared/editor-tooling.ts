@@ -229,7 +229,9 @@ export interface ProjectContentSaveRequest {
   structural?: boolean;
   assetTransition?:
     | { kind: 'trash'; projectRelativePaths: string[] }
-    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] };
+    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] }
+    | { kind: 'publish'; projectRelativePaths: string[] }
+    | { kind: 'move'; moves: Array<{ fromPath: string; toPath: string }> };
 }
 
 export interface ProjectContentSaveResponse {
@@ -264,7 +266,9 @@ export interface ProjectWorkspaceCommitOptions {
   structural?: boolean;
   assetTransition?:
     | { kind: 'trash'; projectRelativePaths: string[] }
-    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] };
+    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] }
+    | { kind: 'publish'; projectRelativePaths: string[] }
+    | { kind: 'move'; moves: Array<{ fromPath: string; toPath: string }> };
 }
 
 export interface CreateProjectRequest {

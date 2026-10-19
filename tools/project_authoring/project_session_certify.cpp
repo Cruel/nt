@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "source_authority.hpp"
 
 #include <jsoncons/json.hpp>
 
@@ -938,6 +939,82 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
                 !std::filesystem::exists(trash_path),
             "Native Asset restore commits exact binary and trash deletion together: " +
                 restored_asset.error);
+    const auto import_stage =
+        temp.root / ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174000";
+    const auto imported_asset = temp.root / "assets/native-structural/published.bin";
+    std::filesystem::create_directories(import_stage.parent_path());
+    write(import_stage, asset_bytes);
+    ProjectAssetTransition publication;
+    publication.kind = ProjectAssetTransition::Kind::Publish;
+    publication.publications.push_back(
+        {"assets/native-structural/published.bin",
+         ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174000",
+         exact_source_revision(asset_bytes)});
+    auto wrong_revision = publication;
+    wrong_revision.publications[0].source_revision = "sha256:invalid";
+    const auto rejected_publication =
+        project->save_owners(restored_asset.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, wrong_revision);
+    require(!rejected_publication.accepted && std::filesystem::exists(import_stage) &&
+                !std::filesystem::exists(imported_asset),
+            "Stale staged Asset bytes reject publication without any partial write");
+    const auto published =
+        project->save_owners(restored_asset.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, publication);
+    require(published.accepted && read(imported_asset) == asset_bytes &&
+                !std::filesystem::exists(import_stage),
+            "Native Asset publication moves immutable staged bytes in one transaction: " +
+                published.error);
+    write(import_stage, asset_bytes);
+    const auto occupied =
+        project->save_owners(published.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, publication);
+    require(!occupied.accepted && read(imported_asset) == asset_bytes &&
+                read(import_stage) == asset_bytes,
+            "Native Asset publication refuses occupied destinations");
+    ProjectAssetTransition organization;
+    organization.kind = ProjectAssetTransition::Kind::Move;
+    organization.moves.emplace_back("assets/native-structural/published.bin",
+                                    "support/published.bin");
+    const auto organized =
+        project->save_owners(published.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, organization);
+    require(organized.accepted && !std::filesystem::exists(imported_asset) &&
+                read(temp.root / "support/published.bin") == asset_bytes,
+            "Native Asset organization journals byte-exact moves into Support: " + organized.error);
+    require(project->inspect_record("assets/counter-document").accepted,
+            "Native Asset source template must be admitted");
+    auto imported_record =
+        Json::parse(project->record_snapshots().at("assets/counter-document").source_json);
+    imported_record.at("id") = "native-published-asset";
+    imported_record.at("label") = "Native published binary";
+    imported_record.at("data").at("kind") = "binary";
+    imported_record.at("data").at("source").at("path") =
+        "assets/native-structural/published-record.bin";
+    imported_record.at("data").at("mimeType") = "application/octet-stream";
+    imported_record.at("data").at("extension") = ".bin";
+    const auto candidate_record = project->patch(
+        organized.snapshot.working_revision,
+        {{RoomPatch::Operation::Add, "/assets/native-published-asset", imported_record.to_string()}});
+    require(candidate_record.accepted,
+            "A new Asset record may be staged while its binary is not yet published");
+    const auto imported_staging = temp.root /
+        ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174001";
+    write(imported_staging, asset_bytes);
+    ProjectAssetTransition imported_publication;
+    imported_publication.kind = ProjectAssetTransition::Kind::Publish;
+    imported_publication.publications.push_back(
+        {"assets/native-structural/published-record.bin",
+         ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174001",
+         exact_source_revision(asset_bytes)});
+    const auto imported_record_file = temp.root / "records/assets/native-published-asset.yaml";
+    const auto import_accepted = project->save_owners(
+        candidate_record.snapshot.working_revision, {"assets/native-published-asset"}, false,
+        TransactionDecision::KeepComments, {}, {}, imported_publication);
+    require(import_accepted.accepted && std::filesystem::exists(imported_record_file) &&
+                read(temp.root / "assets/native-structural/published-record.bin") == asset_bytes,
+            "Native Asset record and binary publication commit atomically: " +
+                import_accepted.error);
     const auto source = read(old_file);
     copied.at("id") = "board-stock-renamed";
     const auto structural = project->patch(
@@ -1727,6 +1804,11 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--structural-only") {
+            structural_record_roundtrip(argv[2]);
+            std::cout << "Native structural transaction certification passed.\n";
+            return 0;
+        }
         if (argc == 2 && (std::string_view(argv[1]) == "--validate" ||
                           std::string_view(argv[1]) == "--validate-traits" ||
                           std::string_view(argv[1]) == "--validate-editor")) {

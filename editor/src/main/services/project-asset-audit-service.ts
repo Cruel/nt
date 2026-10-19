@@ -504,6 +504,7 @@ export async function organizeUntrackedProjectAsset(
   projectRelativePath: string,
   action: ProjectAssetOrganizationAction,
   assertAuthority?: () => void,
+  nativeMove?: (fromPath: string, toPath: string) => Promise<void>,
 ): Promise<ProjectAssetFileOperationResponse> {
   try {
     assertAuthority?.();
@@ -556,13 +557,15 @@ export async function organizeUntrackedProjectAsset(
       }
     }
     assertAuthority?.();
-    await moveProjectAssetFileTransaction(
-      safe.projectRoot,
-      safe.relative,
-      destinationRelativePath,
-      'organize untracked asset',
-      PROJECT_WORKSPACE_ABSENT_REVISION,
-    );
+    if (nativeMove) await nativeMove(safe.relative, destinationRelativePath);
+    else
+      await moveProjectAssetFileTransaction(
+        safe.projectRoot,
+        safe.relative,
+        destinationRelativePath,
+        'organize untracked asset',
+        PROJECT_WORKSPACE_ABSENT_REVISION,
+      );
     return { ok: true, success: true, diagnostics: [] };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not move untracked file.';

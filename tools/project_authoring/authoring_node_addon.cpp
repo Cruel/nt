@@ -69,9 +69,8 @@ Json snapshot_json(const RoomSessionSnapshot& state)
     result["source"] = Json::parse(state.source_json);
     // Absence is not an empty record; a deleted or newly staged physical
     // owner has no saved semantic value.
-    result["baseline"] = state.disk_source_revision == "absent"
-                             ? Json::null()
-                             : Json::parse(state.baseline_json);
+    result["baseline"] =
+        state.disk_source_revision == "absent" ? Json::null() : Json::parse(state.baseline_json);
     result["dirty"] = state.dirty;
     result["valid"] = state.valid;
     result["normalized"] =
@@ -406,7 +405,7 @@ napi_value call(napi_env env, napi_callback_info info)
                 napi_get_value_bool(env, argv[3], &keep_mine) != napi_ok)
                 throw std::runtime_error("Invalid scoped Save revision or conflict decision.");
             const auto owners = Json::parse(string_arg(env, argv[2]));
-            if (!owners.is_array() || owners.size() > 256)
+            if (!owners.is_array() || owners.size() > 2100)
                 throw std::runtime_error("Invalid native Save owner list.");
             std::vector<std::string> selected;
             for (const auto& owner : owners.array_range())
@@ -421,7 +420,7 @@ napi_value call(napi_env env, napi_callback_info info)
             std::map<std::string, std::vector<std::string>> paths;
             if (argc >= 6) {
                 const auto logical = Json::parse(string_arg(env, argv[5]));
-                if (!logical.is_object() || logical.size() > 256)
+                if (!logical.is_object() || logical.size() > 2100)
                     throw std::runtime_error("Invalid logical Save selections.");
                 for (const auto& item : logical.object_range()) {
                     if (!item.value().is_array() || item.value().size() > 256)
@@ -463,6 +462,31 @@ napi_value call(napi_env env, napi_callback_info info)
                         selected_assets.moves.emplace_back(
                             move.at("projectRelativePath").as<std::string>(),
                             move.at("trashRelativePath").as<std::string>());
+                    }
+                } else if (kind == "move" && value.size() == 2 && value.contains("moves") &&
+                           value.at("moves").is_array()) {
+                    selected_assets.kind = noveltea::authoring::ProjectAssetTransition::Kind::Move;
+                    for (const auto& move : value.at("moves").array_range()) {
+                        if (!move.is_object() || move.size() != 2 || !move.contains("fromPath") ||
+                            !move.contains("toPath"))
+                            throw std::runtime_error("Invalid native Asset move entry.");
+                        selected_assets.moves.emplace_back(move.at("fromPath").as<std::string>(),
+                                                           move.at("toPath").as<std::string>());
+                    }
+                } else if (kind == "publish" && value.size() == 2 && value.contains("files") &&
+                           value.at("files").is_array()) {
+                    selected_assets.kind =
+                        noveltea::authoring::ProjectAssetTransition::Kind::Publish;
+                    for (const auto& file : value.at("files").array_range()) {
+                        if (!file.is_object() || file.size() != 3 ||
+                            !file.contains("projectRelativePath") ||
+                            !file.contains("stagedRelativePath") ||
+                            !file.contains("sourceRevision"))
+                            throw std::runtime_error("Invalid native Asset publication entry.");
+                        selected_assets.publications.push_back(
+                            {file.at("projectRelativePath").as<std::string>(),
+                             file.at("stagedRelativePath").as<std::string>(),
+                             file.at("sourceRevision").as<std::string>()});
                     }
                 } else
                     throw std::runtime_error("Unsupported native Asset transition.");
@@ -732,7 +756,7 @@ napi_value call(napi_env env, napi_callback_info info)
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
                 throw std::runtime_error("Invalid working revision.");
             const auto operations = Json::parse(string_arg(env, argv[2]));
-            if (!operations.is_array() || operations.size() > 256)
+            if (!operations.is_array() || operations.size() > 2100)
                 throw std::runtime_error("Patch needs a bounded operation array.");
             std::vector<RoomPatch> patches;
             for (const auto& entry : operations.array_range()) {
@@ -748,7 +772,7 @@ napi_value call(napi_env env, napi_callback_info info)
             std::map<std::string, std::string> disk_preconditions;
             if (argc >= 4) {
                 const auto preconditions = Json::parse(string_arg(env, argv[3]));
-                if (!preconditions.is_object() || preconditions.size() > 256)
+                if (!preconditions.is_object() || preconditions.size() > 2100)
                     throw std::runtime_error("Invalid recovery source preconditions.");
                 for (const auto& entry : preconditions.object_range()) {
                     if (!entry.value().is_string())

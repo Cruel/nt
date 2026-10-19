@@ -427,7 +427,7 @@ export class NativeAuthoringWorkingProject {
       textPaths?: string[];
       textContents?: Record<string, string>;
       expectedRevision?: number;
-      assetTransition?: import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
+      assetTransition?: import('./native-authoring-worker-contract').NativeAssetTransition;
     } = {},
   ): Promise<PatchResult> {
     for (const owner of owners)

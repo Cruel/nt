@@ -155,6 +155,7 @@ export async function importProjectAttachmentFiles(
   root: string,
   request: Omit<ProjectAttachmentImportRequest, 'projectSessionId'>,
   assertAuthority?: () => void,
+  nativePublish?: (files: ReadonlyArray<{ path: string; bytes: Uint8Array }>) => Promise<void>,
 ): Promise<ProjectAttachmentImportResponse> {
   if (!owner) return { paths: [], reused: [], error: 'Editor window unavailable.' };
   const directory = request.destinationDirectory || DEFAULT_DIRECTORIES[request.purpose];
@@ -224,12 +225,11 @@ export async function importProjectAttachmentFiles(
         throw new Error('No available filename for attachment.');
     }
     assertAuthority?.();
-    if (planned.size)
-      await writeProjectAssetFilesTransaction(
-        root,
-        [...planned].map(([filePath, bytes]) => ({ path: filePath, bytes })),
-        'import Project attachments',
-      );
+    if (planned.size) {
+      const files = [...planned].map(([filePath, bytes]) => ({ path: filePath, bytes }));
+      if (nativePublish) await nativePublish(files);
+      else await writeProjectAssetFilesTransaction(root, files, 'import Project attachments');
+    }
     return { paths, reused };
   } catch (error) {
     return {

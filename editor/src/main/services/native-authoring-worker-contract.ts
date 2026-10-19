@@ -221,7 +221,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
     .object({
       requestId: z.number().int().positive(),
       operation: z.literal('saveOwners'),
-      owners: z.array(z.string().min(1).max(2048)).max(256),
+      owners: z.array(z.string().min(1).max(2048)).max(2100),
       expectedRevision: z.number().int().nonnegative(),
       keepMine: z.boolean(),
       comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']),
@@ -231,8 +231,34 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
         .discriminatedUnion('kind', [
           z
             .object({
+              kind: z.literal('publish'),
+              files: z
+                .array(
+                  z
+                    .object({
+                      projectRelativePath: z.string(),
+                      stagedRelativePath: z.string(),
+                      sourceRevision: z.string(),
+                    })
+                    .strict(),
+                )
+                .min(1)
+                .max(2000),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal('move'),
+              moves: z
+                .array(z.object({ fromPath: z.string(), toPath: z.string() }).strict())
+                .min(1)
+                .max(128),
+            })
+            .strict(),
+          z
+            .object({
               kind: z.literal('trash'),
-              projectRelativePaths: z.array(z.string()).max(128),
+              projectRelativePaths: z.array(z.string()).max(2000),
             })
             .strict(),
           z
@@ -244,7 +270,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
                     .object({ projectRelativePath: z.string(), trashRelativePath: z.string() })
                     .strict(),
                 )
-                .max(128),
+                .max(2000),
             })
             .strict(),
         ])
@@ -289,7 +315,7 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
             })
             .strict(),
         )
-        .max(256),
+        .max(2100),
       diskPreconditions: z.record(z.string(), z.string()).optional(),
       layoutCopySources: z.record(z.string(), z.string()).optional(),
     })
@@ -305,5 +331,9 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
 
 export type NativeAuthoringEvent = z.infer<typeof nativeAuthoringEventSchema>;
 export type NativeAuthoringCommand = z.infer<typeof nativeAuthoringCommandSchema>;
+export type NativeAssetTransition = Extract<
+  NativeAuthoringCommand,
+  { operation: 'saveOwners' }
+>['assetTransition'];
 export type NativeAuthoringPreparation = z.infer<typeof nativeAuthoringPreparationSchema>;
 export type NativeAuthoringCleanValidation = z.infer<typeof nativeAuthoringCleanValidationSchema>;

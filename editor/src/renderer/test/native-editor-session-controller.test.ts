@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { cp, readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -166,6 +167,76 @@ function fixture(projectRoot = '/trusted/project') {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('exports only a clean native snapshot whose saved file revisions are still current', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-export-'));
+    try {
+      const source = Buffer.from('project: native\n');
+      await writeFile(path.join(root, 'project.yaml'), source);
+      const test = fixture(root);
+      test.preparation.sourceRevisions = {
+        'project.yaml': `sha256:${createHash('sha256').update(source).digest('hex')}`,
+      };
+      await test.controller.admit('one', test.saved);
+      expect(await test.controller.prepareCleanExport('one')).toEqual(test.saved);
+      test.dirtyCheckpoint.mockReturnValueOnce({
+        batches: [{ patches: [], diskPreconditions: {} }],
+        textSources: {},
+        conflicts: {},
+        pendingFields: {},
+      } as unknown as ReturnType<typeof test.dirtyCheckpoint>);
+      await expect(test.controller.prepareCleanExport('one')).rejects.toThrow(/Save or resolve/);
+      await writeFile(path.join(root, 'project.yaml'), 'project: overwritten\n');
+      await expect(test.controller.prepareCleanExport('one')).rejects.toThrow(
+        /changed since admission/,
+      );
+      test.controller.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('uses main-owned bytes rather than renderer-provided file targets for native publication', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-stage-'));
+    try {
+      const test = fixture(root);
+      await test.controller.admit('one', test.saved);
+      await test.controller.stageAsset(
+        'one',
+        'assets/images/imported.png',
+        Buffer.from([0, 1, 255]),
+      );
+      test.saveOwners.mockResolvedValueOnce({
+        accepted: true,
+        error: '',
+        snapshot: { workingRevision: 0 },
+        affectedRecords: [],
+      });
+      const result = await test.controller.saveUnit('one', 0, [], {
+        structuralPathsByOwner: {},
+        assetTransition: { kind: 'publish', projectRelativePaths: ['assets/images/imported.png'] },
+      });
+      expect(result.accepted).toBe(true);
+      const savedOptions = (
+        test.saveOwners.mock.calls as unknown as Array<[string[], { assetTransition?: unknown }]>
+      ).at(-1)?.[1];
+      expect(savedOptions?.assetTransition).toMatchObject({
+        kind: 'publish',
+        files: [{ projectRelativePath: 'assets/images/imported.png' }],
+      });
+      await expect(
+        test.controller.saveUnit('one', 0, [], {
+          structuralPathsByOwner: {},
+          assetTransition: {
+            kind: 'publish',
+            projectRelativePaths: ['assets/images/imported.png'],
+          },
+        }),
+      ).rejects.toThrow(/not staged/);
+      test.controller.close();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('replays a durable checkpoint only after comparing clean native and editor sources', async () => {
     const test = fixture();
     const checkpoint = {
@@ -181,13 +252,11 @@ describe('native admission at the editor main Project lifecycle', () => {
     };
     test.checkpoints.read.mockResolvedValueOnce(checkpoint);
     const recovered = { ...test.saved, project: { ...test.saved.project, name: 'Dirty' } };
-    test.prepareCompleteWorking
-      .mockResolvedValueOnce(test.preparation)
-      .mockResolvedValueOnce({
-        ...test.preparation,
-        completeProject: recovered,
-        workingRevision: 1,
-      });
+    test.prepareCompleteWorking.mockResolvedValueOnce(test.preparation).mockResolvedValueOnce({
+      ...test.preparation,
+      completeProject: recovered,
+      workingRevision: 1,
+    });
     expect(await test.controller.admit('one', test.saved)).toBe(1);
     expect(test.restoreDirtyCheckpoint).toHaveBeenCalledWith('one', checkpoint);
     expect(test.controller.recoveredContentProject()?.project.name).toBe('Dirty');
@@ -563,7 +632,7 @@ describe('native admission at the editor main Project lifecycle', () => {
       [{ op: 'replace', path: '/project/name', value: undefined }],
       [{ op: 'remove', path: '/project/name', value: true }],
       [{ op: 'add', path: '/project/name', value: Number.POSITIVE_INFINITY }],
-      Array.from({ length: 257 }, () => ({ op: 'remove', path: '/project/name' })),
+      Array.from({ length: 2101 }, () => ({ op: 'remove', path: '/project/name' })),
     ])
       expect(nativeProjectPatchArgumentsSchema.safeParse([sessionId, 0, patches]).success).toBe(
         false,
@@ -685,7 +754,9 @@ const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
   it('admits the exact Feature Lab saved Project and revokes it on close', async () => {
     const fixture = await mkdtemp(path.join(tmpdir(), 'native-editor-lifecycle-'));
-    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), fixture, { recursive: true });
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), fixture, {
+      recursive: true,
+    });
     const opened = await createNodeProjectWorkspaceService().open(fixture);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
@@ -768,10 +839,17 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     const makeController = () => {
       const bridge = new NativeAuthoringSessionBridge(sessions, {
         addonPath: nativeAddon!,
-        workerScript: path.resolve(process.cwd(), 'dist-electron/authoring-worker/native-authoring-worker.cjs'),
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
         pollIntervalMs: 100,
       });
-      return new NativeEditorSessionController(sessions, bridge, new NativeAuthoringWorkingProject(bridge));
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
     };
     let controller = makeController();
     try {
@@ -781,7 +859,9 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
         { op: 'replace', path: '/project/name', value: 'Recovered across restart' },
       ]);
       expect(patched.accepted).toBe(true);
-      expect((await readFile(path.join(root, 'project.yaml'), 'utf8'))).not.toContain('Recovered across restart');
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toContain(
+        'Recovered across restart',
+      );
       controller.dispose();
       sessions.closeActiveProject();
       controller = makeController();
@@ -789,12 +869,16 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(await controller.admit(second, saved.snapshot.project)).toBeGreaterThan(0);
       expect(controller.recoveredContentProject()?.project.name).toBe('Recovered across restart');
       expect(controller.isAdmitted(first)).toBe(false);
-      const failed = await controller.applyRevisionedPatches(first, 1, [
-        { op: 'replace', path: '/project/name', value: 'Stale Project' },
-      ]).catch((error: unknown) => error);
+      const failed = await controller
+        .applyRevisionedPatches(first, 1, [
+          { op: 'replace', path: '/project/name', value: 'Stale Project' },
+        ])
+        .catch((error: unknown) => error);
       expect(failed).toBeInstanceOf(Error);
       // No replay may persist dirty content without an explicit Save.
-      expect((await readFile(path.join(root, 'project.yaml'), 'utf8'))).not.toContain('Recovered across restart');
+      expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toContain(
+        'Recovered across restart',
+      );
     } finally {
       controller.dispose();
       sessions.dispose();

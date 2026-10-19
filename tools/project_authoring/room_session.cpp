@@ -60,7 +60,8 @@ std::string review_comment(const std::string& source, std::string_view path)
         return {};
     };
     const auto decoded = open_yaml_source(source);
-    if (!decoded.accepted) return first_comment();
+    if (!decoded.accepted)
+        return first_comment();
     std::size_t line = 0;
     for (const auto& location : decoded.locations)
         if (location.path == path && location.has_comment) {
@@ -70,15 +71,18 @@ std::string review_comment(const std::string& source, std::string_view path)
     std::vector<std::string> lines;
     std::istringstream stream(source);
     std::string value;
-    while (std::getline(stream, value)) lines.push_back(value);
-    if (line == 0 || line > lines.size()) return first_comment();
+    while (std::getline(stream, value))
+        lines.push_back(value);
+    if (line == 0 || line > lines.size())
+        return first_comment();
     std::string comments;
     if (const auto hash = lines[line - 1].find('#'); hash != std::string::npos)
         comments = lines[line - 1].substr(hash);
     for (std::size_t i = line - 1; i > 0;) {
         const auto& previous = lines[--i];
         const auto first = previous.find_first_not_of(" \t");
-        if (first == std::string::npos || previous[first] != '#') break;
+        if (first == std::string::npos || previous[first] != '#')
+            break;
         comments = previous.substr(first) + (comments.empty() ? "" : "\n" + comments);
     }
     return comments.empty() ? first_comment() : comments;
@@ -1032,7 +1036,24 @@ RoomSession::stage_new_record(const std::filesystem::path& project_root, std::st
         result->is_map_ = family == "maps";
         if (family != "rooms" && family != "maps")
             result->validation_contract_ = record_contracts().at(family);
-        if (!result->snapshot().valid)
+        const auto staged_snapshot = result->snapshot();
+        // Asset imports stage metadata before their source bytes are
+        // published. This one attributable missing-file diagnostic is an
+        // admissible dirty intermediate state; save_owners independently
+        // requires a matching hash-verified native publication to commit it.
+        const bool pending_asset_source =
+            family == "assets" && !staged_snapshot.valid &&
+            std::any_of(staged_snapshot.diagnostics.begin(), staged_snapshot.diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.severity == "error" &&
+                                   diagnostic.code == "asset.source.missing";
+                        }) &&
+            std::all_of(staged_snapshot.diagnostics.begin(), staged_snapshot.diagnostics.end(),
+                        [](const auto& diagnostic) {
+                            return diagnostic.severity != "error" ||
+                                   diagnostic.code == "asset.source.missing";
+                        });
+        if (!staged_snapshot.valid && !pending_asset_source)
             throw std::runtime_error("Invalid new record source: " + family + "/" + id);
         error.clear();
         return result;
@@ -3294,12 +3315,14 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
         const bool optional_record = record_contracts().contains(family) && is_id(id);
         const bool optional_locale =
             (name.starts_with("i18n/locales/") || name.starts_with("i18n/assets/")) &&
-            name.ends_with(".yaml") && name.find("/", sizeof("i18n/locales/") - 1) == std::string::npos;
+            name.ends_with(".yaml") &&
+            name.find("/", sizeof("i18n/locales/") - 1) == std::string::npos;
         if (optional_record || optional_locale) {
-            const auto path = optional_record
-                ? (family == "layouts" ? root_ / "records" / family / id / "layout.yaml"
-                                       : root_ / "records" / family / (id + ".yaml"))
-                : root_ / name;
+            const auto path =
+                optional_record
+                    ? (family == "layouts" ? root_ / "records" / family / id / "layout.yaml"
+                                           : root_ / "records" / family / (id + ".yaml"))
+                    : root_ / name;
             try {
                 if (source_revision_or_absent(path) == "absent") {
                     if (auto found = records_.find(name); found != records_.end()) {
@@ -3319,7 +3342,8 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
                         response.affected_records = {name};
                     }
                     if (response.accepted && !response.affected_records.empty()) {
-                        if (indexed_text_owner(name)) index_text_owner(name, "{}");
+                        if (indexed_text_owner(name))
+                            index_text_owner(name, "{}");
                         if (localization_record_owner(name) || name.starts_with("i18n/") ||
                             name.starts_with("assets/"))
                             localization_cache_.reset();
@@ -3578,6 +3602,42 @@ RoomSessionResult ProjectSession::save_owners(
             if (!session || !selected.emplace(owner, session).second)
                 throw std::runtime_error("Unknown or duplicate native Save owner: " + owner);
         }
+        // A new or reimported Asset is not yet present at its destination
+        // while the working patch is being validated. Admit *only* that
+        // missing-file diagnostic when the very same Save also publishes the
+        // selected destination from an immutable, hash-checked staged file.
+        const auto staged_asset_source = [&](const std::string& owner,
+                                            const RoomSessionSnapshot& state) {
+            if (!assets || assets->kind != ProjectAssetTransition::Kind::Publish ||
+                !owner.starts_with("assets/"))
+                return false;
+            try {
+                const auto record = Json::parse(state.source_json);
+                const auto source = record.at("data").at("source").at("path").as<std::string>();
+                return std::any_of(assets->publications.begin(), assets->publications.end(),
+                                   [&](const auto& file) {
+                                       return file.project_relative_path == source;
+                                   });
+            } catch (...) {
+                return false;
+            }
+        };
+        const auto valid_with_staged_source = [&](const std::string& owner,
+                                                  const RoomSessionSnapshot& state) {
+            if (state.valid)
+                return true;
+            return staged_asset_source(owner, state) &&
+                   std::any_of(state.diagnostics.begin(), state.diagnostics.end(),
+                               [](const auto& diagnostic) {
+                                   return diagnostic.severity == "error" &&
+                                          diagnostic.code == "asset.source.missing";
+                               }) &&
+                   std::all_of(state.diagnostics.begin(), state.diagnostics.end(),
+                               [](const auto& diagnostic) {
+                                   return diagnostic.severity != "error" ||
+                                          diagnostic.code == "asset.source.missing";
+                               });
+        };
         // Save validates the selected dirty owner and its already-inspected
         // dependents. Unrelated invalid owners must not block a scoped Save.
         const auto current = snapshot();
@@ -3602,6 +3662,9 @@ RoomSessionResult ProjectSession::save_owners(
                                                   return paths_overlap("/" + owner + path,
                                                                        diagnostic.path);
                                               }));
+                if (invalid_selected_record && diagnostic.code == "asset.source.missing" &&
+                    staged_asset_source(owner, session->snapshot()))
+                    continue;
                 const bool invalid_localization =
                     owner.starts_with("i18n/") && diagnostic.source_path == owner;
                 const bool trait_dependency =
@@ -3713,9 +3776,9 @@ RoomSessionResult ProjectSession::save_owners(
             for (const auto& [owner, session] : deletions) {
                 const auto comment = review_comment(session->disk_source_, "/");
                 if (!comment.empty())
-                    response.comment_impacts.push_back({
-                        session->source_path().lexically_relative(root_).generic_string(),
-                        "/", comment, "deleted"});
+                    response.comment_impacts.push_back(
+                        {session->source_path().lexically_relative(root_).generic_string(), "/",
+                         comment, "deleted"});
             }
             if (!response.comment_impacts.empty())
                 throw std::runtime_error(
@@ -3790,7 +3853,7 @@ RoomSessionResult ProjectSession::save_owners(
                 !state.conflicting_paths.empty())
                 throw std::runtime_error("Unresolved external deletion conflict: " + owner);
             if (state.disk_source_revision == "absent") {
-                if (!state.valid)
+                if (!valid_with_staged_source(owner, state))
                     throw std::runtime_error("Cannot create invalid Project record: " + owner);
                 const auto source_path =
                     session->source_path().lexically_relative(root_).generic_string();
@@ -3881,7 +3944,7 @@ RoomSessionResult ProjectSession::save_owners(
                 continue;
             auto validation = session->clone();
             validation->working_json_ = target.to_string();
-            if (!validation->snapshot().valid)
+            if (!valid_with_staged_source(owner, validation->snapshot()))
                 throw std::runtime_error("Cannot save invalid working source: " + owner);
             source_diff(&base, &target, "", session->unsaved_patches_, edits);
             projected.emplace(owner, std::move(target));
@@ -3916,12 +3979,18 @@ RoomSessionResult ProjectSession::save_owners(
         }
         std::vector<std::pair<std::string, std::string>> asset_moves;
         if (assets) {
-            if (assets->paths.size() + assets->moves.size() > 128 ||
-                (!assets->paths.empty() && !assets->moves.empty()))
+            if (assets->paths.size() > 2000 || assets->moves.size() > 2000 ||
+                assets->publications.size() > 2000 ||
+                (static_cast<int>(!assets->paths.empty()) +
+                     static_cast<int>(!assets->moves.empty()) +
+                     static_cast<int>(!assets->publications.empty()) >
+                 1))
                 throw std::runtime_error("Invalid native Asset transition selection.");
             const auto safe_path = [&](const std::string& relative, bool trash) {
                 const auto prefix = trash ? ".noveltea/trash/assets/" : "assets/";
-                if (!relative.starts_with(prefix) || relative.size() <= std::strlen(prefix) ||
+                if (!(relative.starts_with(prefix) ||
+                      (!trash && relative.starts_with("support/"))) ||
+                    relative.size() <= std::strlen(prefix) ||
                     relative.find('\\') != std::string::npos ||
                     relative.find(':') != std::string::npos ||
                     relative.find('\0') != std::string::npos ||
@@ -3975,7 +4044,7 @@ RoomSessionResult ProjectSession::save_owners(
                     append_move(source, trash);
                     asset_moves.emplace_back(source, trash);
                 }
-            } else {
+            } else if (assets->kind == ProjectAssetTransition::Kind::Restore) {
                 for (const auto& [source, trash] : assets->moves) {
                     const auto suffix = "/" + source;
                     const auto token_start = std::string_view(".noveltea/trash/assets/").size();
@@ -3983,6 +4052,56 @@ RoomSessionResult ProjectSession::save_owners(
                         trash.find('/', token_start) != trash.size() - suffix.size())
                         throw std::runtime_error("Restore source does not match Asset trash move.");
                     append_move(trash, source);
+                }
+            } else if (assets->kind == ProjectAssetTransition::Kind::Move) {
+                if (assets->moves.empty())
+                    throw std::runtime_error("Native Asset move needs a source and destination.");
+                for (const auto& [source, target] : assets->moves) {
+                    if (!source.starts_with("assets/"))
+                        throw std::runtime_error("Native organization requires an Asset source.");
+                    append_move(source, target);
+                }
+            } else {
+                std::set<std::string> destinations;
+                std::set<std::string> staging_sources;
+                for (const auto& file : assets->publications) {
+                    const auto destination = safe_path(file.project_relative_path, false);
+                    const auto& staging = file.staged_relative_path;
+                    if (!staging.starts_with(".noveltea/native-asset-import/") ||
+                        staging.find('/', std::strlen(".noveltea/native-asset-import/")) !=
+                            std::string::npos ||
+                        staging.find('\\') != std::string::npos ||
+                        std::filesystem::path(staging) !=
+                            std::filesystem::path(staging).lexically_normal() ||
+                        !destinations.insert(file.project_relative_path).second ||
+                        !staging_sources.insert(staging).second)
+                        throw std::runtime_error("Invalid native Asset staging identity.");
+                    // Reuse the same symlink and containment checks as ordinary
+                    // transition files, but restrict staging to its private root.
+                    const auto source = root_ / staging;
+                    const auto canonical_root = std::filesystem::canonical(root_);
+                    if (!std::filesystem::is_regular_file(source) ||
+                        std::filesystem::is_symlink(source) ||
+                        std::filesystem::weakly_canonical(source)
+                                .lexically_relative(canonical_root)
+                                .generic_string() != staging)
+                        throw std::runtime_error("Unsafe native Asset staged source.");
+                    const auto bytes = read_bytes(source);
+                    if (exact_source_revision(bytes) != file.source_revision)
+                        throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + staging);
+                    YamlTransactionTarget remove;
+                    remove.path = staging;
+                    remove.expected_revision = file.source_revision;
+                    remove.baseline_source = bytes;
+                    remove.erase = true;
+                    remove.raw_asset_file = true;
+                    targets.push_back(std::move(remove));
+                    YamlTransactionTarget create;
+                    create.path = file.project_relative_path;
+                    create.expected_revision = "absent";
+                    create.create_source = bytes;
+                    create.raw_asset_file = true;
+                    targets.push_back(std::move(create));
                 }
             }
         }
@@ -4002,9 +4121,9 @@ RoomSessionResult ProjectSession::save_owners(
             for (const auto& proposed : prepared.targets)
                 if (proposed.erase)
                     for (const auto& path : proposed.affected_comments)
-                        response.comment_impacts.push_back({
-                            proposed.path, path, review_comment(proposed.before_source, path),
-                            "deleted"});
+                        response.comment_impacts.push_back(
+                            {proposed.path, path, review_comment(proposed.before_source, path),
+                             "deleted"});
             if (!response.comment_impacts.empty())
                 throw std::runtime_error(
                     "Deleting commented records requires explicit Remove Comments approval.");
@@ -4939,7 +5058,8 @@ RoomSessionResult RoomSession::reconcile_deleted_disk()
     try {
         if (source_revision_or_absent(path_) != "absent")
             return result(false, "Deleted source was recreated during reconciliation.");
-        if (disk_revision_ == "absent") return result(true);
+        if (disk_revision_ == "absent")
+            return result(true);
         const auto before = snapshot();
         disk_source_.clear();
         disk_revision_ = "absent";
