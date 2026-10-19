@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
-import { readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
-import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
+import {
+  NativeAuthoringWorkingProject,
+  type NativeDirtyCheckpoint,
+} from '../../main/services/native-authoring-working-project';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
@@ -101,6 +104,14 @@ function fixture(projectRoot = '/trusted/project') {
     snapshot: { workingRevision: 2 },
     affectedRecords: ['rooms/hall'],
   }));
+  const dirtyCheckpoint = vi.fn(() => ({
+    batches: [],
+    textSources: {},
+    conflicts: {},
+    pendingFields: {},
+  }));
+  const restoreDirtyCheckpoint = vi.fn(async () => ({ workingRevision: 0 }));
+  const reopenAndReplay = vi.fn(async () => ({ workingRevision: 0 }));
   const working = {
     open,
     prepareCompleteWorking,
@@ -112,11 +123,19 @@ function fixture(projectRoot = '/trusted/project') {
     saveTextSources,
     reconcile,
     useDiskUnit,
+    dirtyCheckpoint,
+    restoreDirtyCheckpoint,
+    reopenAndReplay,
+  };
+  const checkpoints = {
+    read: vi.fn(async (): Promise<NativeDirtyCheckpoint | null> => null),
+    write: vi.fn(async () => {}),
   };
   const controller = new NativeEditorSessionController(
     authority,
     bridge,
     working as unknown as ConstructorParameters<typeof NativeEditorSessionController>[2],
+    checkpoints,
   );
   return {
     saved,
@@ -129,6 +148,10 @@ function fixture(projectRoot = '/trusted/project') {
     saveOwners,
     reconcile,
     useDiskUnit,
+    dirtyCheckpoint,
+    restoreDirtyCheckpoint,
+    reopenAndReplay,
+    checkpoints,
     stageTextSource,
     saveTextSources,
     snapshot,
@@ -143,6 +166,65 @@ function fixture(projectRoot = '/trusted/project') {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('replays a durable checkpoint only after comparing clean native and editor sources', async () => {
+    const test = fixture();
+    const checkpoint = {
+      batches: [
+        {
+          patches: [{ operation: 'replace' as const, path: '/project/name', value: 'Dirty' }],
+          diskPreconditions: { project: `sha256:${'a'.repeat(64)}` },
+        },
+      ],
+      textSources: {},
+      conflicts: {},
+      pendingFields: {},
+    };
+    test.checkpoints.read.mockResolvedValueOnce(checkpoint);
+    const recovered = { ...test.saved, project: { ...test.saved.project, name: 'Dirty' } };
+    test.prepareCompleteWorking
+      .mockResolvedValueOnce(test.preparation)
+      .mockResolvedValueOnce({
+        ...test.preparation,
+        completeProject: recovered,
+        workingRevision: 1,
+      });
+    expect(await test.controller.admit('one', test.saved)).toBe(1);
+    expect(test.restoreDirtyCheckpoint).toHaveBeenCalledWith('one', checkpoint);
+    expect(test.controller.recoveredContentProject()?.project.name).toBe('Dirty');
+    test.controller.close();
+    expect(test.controller.recoveredContentProject()).toBeNull();
+    test.controller.dispose();
+  });
+
+  it('blocks publication when an acknowledged native mutation cannot be checkpointed', async () => {
+    const test = fixture();
+    await test.controller.admit('one', test.saved);
+    test.checkpoints.write.mockRejectedValueOnce(new Error('disk full'));
+    await expect(
+      test.controller.applyRevisionedPatches('one', 0, [
+        { op: 'replace', path: '/project/name', value: 'Dirty' },
+      ]),
+    ).rejects.toThrow('disk full');
+    expect(test.controller.isAdmitted('one')).toBe(false);
+    expect(test.controller.recoveryError()).toContain('disk full');
+    test.controller.dispose();
+  });
+
+  it('worker failure restores the durable checkpoint rather than a possibly unacknowledged RAM batch', async () => {
+    const test = fixture();
+    await test.controller.admit('one', test.saved);
+    const checkpoint = { batches: [], textSources: {}, conflicts: {}, pendingFields: {} };
+    test.checkpoints.read.mockResolvedValueOnce(checkpoint);
+    test.fail(new Error('worker exited'));
+    expect(test.controller.isAdmitted('one')).toBe(false);
+    await vi.waitFor(() =>
+      expect(test.restoreDirtyCheckpoint).toHaveBeenCalledWith('one', checkpoint),
+    );
+    // Renderer revision/undo state must be resynchronized by reopening the Project.
+    expect(test.controller.isAdmitted('one')).toBe(false);
+    test.controller.dispose();
+  });
+
   it('guards scoped native Use Disk and rejects stale/conflicting sessions', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     expect(
@@ -171,8 +253,14 @@ describe('native admission at the editor main Project lifecycle', () => {
   it('admits only canonical native reconciliation owners and checks session/revision', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
     for (const owner of [
-      'project', 'editor', 'traits', 'rooms/hall', 'i18n/en',
-      'i18n/project.yaml', 'i18n/messages.yaml', 'i18n/locales/fr-CA.yaml',
+      'project',
+      'editor',
+      'traits',
+      'rooms/hall',
+      'i18n/en',
+      'i18n/project.yaml',
+      'i18n/messages.yaml',
+      'i18n/locales/fr-CA.yaml',
       'i18n/assets/en.yaml',
     ])
       expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(true);
@@ -596,7 +684,8 @@ describe('native admission at the editor main Project lifecycle', () => {
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
   it('admits the exact Feature Lab saved Project and revokes it on close', async () => {
-    const fixture = path.resolve(process.cwd(), '../tests/projects/feature-lab');
+    const fixture = await mkdtemp(path.join(tmpdir(), 'native-editor-lifecycle-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), fixture, { recursive: true });
     const opened = await createNodeProjectWorkspaceService().open(fixture);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
@@ -664,6 +753,52 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     } finally {
       controller.dispose();
       sessions.dispose();
+      await rm(fixture, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('restores real acknowledged native patches after main-controller and worker replacement', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-restart-'));
+    const source = path.resolve(process.cwd(), '../tests/projects/feature-lab');
+    await cp(source, root, { recursive: true });
+    const saved = await createNodeProjectWorkspaceService().open(root);
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    const sessions = new ActiveProjectSessionService();
+    const makeController = () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: nativeAddon!,
+        workerScript: path.resolve(process.cwd(), 'dist-electron/authoring-worker/native-authoring-worker.cjs'),
+        pollIntervalMs: 100,
+      });
+      return new NativeEditorSessionController(sessions, bridge, new NativeAuthoringWorkingProject(bridge));
+    };
+    let controller = makeController();
+    try {
+      const first = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
+      await controller.admit(first, saved.snapshot.project);
+      const patched = await controller.applyRevisionedPatches(first, 0, [
+        { op: 'replace', path: '/project/name', value: 'Recovered across restart' },
+      ]);
+      expect(patched.accepted).toBe(true);
+      expect((await readFile(path.join(root, 'project.yaml'), 'utf8'))).not.toContain('Recovered across restart');
+      controller.dispose();
+      sessions.closeActiveProject();
+      controller = makeController();
+      const second = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
+      expect(await controller.admit(second, saved.snapshot.project)).toBeGreaterThan(0);
+      expect(controller.recoveredContentProject()?.project.name).toBe('Recovered across restart');
+      expect(controller.isAdmitted(first)).toBe(false);
+      const failed = await controller.applyRevisionedPatches(first, 1, [
+        { op: 'replace', path: '/project/name', value: 'Stale Project' },
+      ]).catch((error: unknown) => error);
+      expect(failed).toBeInstanceOf(Error);
+      // No replay may persist dirty content without an explicit Save.
+      expect((await readFile(path.join(root, 'project.yaml'), 'utf8'))).not.toContain('Recovered across restart');
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
 });

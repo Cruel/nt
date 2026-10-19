@@ -1,6 +1,8 @@
 import { useCommandStore } from '@/commands/command-store';
 import { getJsonAtPointer, hasJsonAtPointer, parseJsonPointer } from '@/project/json-pointer';
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
+import { diffJsonDocuments } from '@/project/project-external-reconciliation';
+import { nativeExternalOwnerPath } from '@/project/native-external-projection';
 import { cloneJsonValue, jsonValuesEqual, type JsonValue } from '@/project/json-value';
 import {
   PROJECT_SETTINGS_SAVE_UNIT_ID,
@@ -273,6 +275,116 @@ export function reconstructEditorProject(
   };
   usePendingInputStore.getState().hydratePendingInputs(effectiveRecovery);
   return { savedDocument, workingDocument, editorState: workingEditorState, diagnostics };
+}
+
+/** The native journal, not a potentially older renderer metadata debounce, is
+ * authoritative for recovered content. Rebuild UI Save-unit attribution from
+ * that content while retaining independently persisted pending input. */
+export function adoptNativeRecoveredProject(
+  reconstructed: ReconstructedEditorProject,
+  nativeContent: JsonValue,
+  nativeConflicts: Record<string, { paths: string[]; revision: string }> = {},
+): ReconstructedEditorProject {
+  const saved = reconstructed.savedDocument;
+  const nativeTracked = parseEditorProjectState(
+    isObject(nativeContent) ? nativeContent.editor : undefined,
+  );
+  const recovery = reconstructed.editorState.recovery;
+  const workingState = {
+    ...reconstructed.editorState,
+    chapters: nativeTracked.chapters,
+    tags: nativeTracked.tags,
+    recordMetadata: nativeTracked.recordMetadata,
+  };
+  const working = mergeContentAndEditorState(nativeContent, workingState);
+  const entries: EditorRecoveryState['saveUnitsById'] = {};
+  for (const [id, entry] of Object.entries(recovery.saveUnitsById)) {
+    if (Object.keys(entry.pendingRawInputByPath).length || entry.externalConflict)
+      entries[id] = { ...entry, patches: [], affectedPaths: [] };
+  }
+  let sequence = recovery.sequence;
+  for (const patch of diffJsonDocuments(saved, working)) {
+    if (patch.path.startsWith('/editor/') && !isTrackedEditorProjectStatePath(patch.path)) continue;
+    const previous = Object.entries(recovery.saveUnitsById).find(([, entry]) =>
+      entry.affectedPaths.some((path) => recoveryPathsOverlap(path, patch.path)),
+    );
+    const saveUnitId = previous?.[0] ?? contentSaveUnitForPath(patch.path);
+    const entry = entries[saveUnitId] ?? {
+      sequence: ++sequence,
+      patches: [],
+      affectedPaths: [],
+      pendingRawInputByPath: {},
+      atomicTransactionGroupIds: [],
+      baselineFileRevisions: previous?.[1].baselineFileRevisions ?? {},
+      ...(previous?.[1].externalConflict ? { externalConflict: previous[1].externalConflict } : {}),
+    };
+    entry.patches.push(patch);
+    entry.affectedPaths.push(patch.path);
+    entries[saveUnitId] = entry;
+  }
+  for (const [owner, conflict] of Object.entries(nativeConflicts)) {
+    const prefix = nativeExternalOwnerPath(owner);
+    const file =
+      owner === 'project' || owner === 'editor' || owner === 'traits'
+        ? `${owner}.yaml`
+        : owner.startsWith('i18n/')
+          ? owner
+          : owner.startsWith('layouts/')
+            ? `records/${owner}/layout.yaml`
+            : `records/${owner}.yaml`;
+    for (const relative of conflict.paths) {
+      const path = relative === '/' ? prefix || '/' : `${prefix}${relative}`;
+      const unit =
+        Object.keys(entries).find((id) =>
+          entries[id]?.affectedPaths.some((affected) => recoveryPathsOverlap(affected, path)),
+        ) ?? contentSaveUnitForPath(path);
+      const entry = entries[unit] ?? {
+        sequence: ++sequence,
+        patches: [],
+        affectedPaths: [],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      };
+      const previous = entry.externalConflict;
+      const disk = readOptional(saved, path);
+      const local = readOptional(working, path);
+      entry.externalConflict = {
+        baseValueByPath: { ...previous?.baseValueByPath, [path]: disk },
+        externalValueByPath: { ...previous?.externalValueByPath, [path]: disk },
+        localValueByPath: { ...previous?.localValueByPath, [path]: local },
+        conflictingPaths: [...new Set([...(previous?.conflictingPaths ?? []), path])].sort(),
+        externalFileRevisions: {
+          ...previous?.externalFileRevisions,
+          [file]: conflict.revision as `sha256:${string}` | 'absent',
+        },
+      };
+      if (!entry.affectedPaths.includes(path)) entry.affectedPaths.push(path);
+      entries[unit] = entry;
+    }
+  }
+  const editorState: EditorProjectState = {
+    ...workingState,
+    recovery: { sequence, saveUnitsById: entries },
+  };
+  const savedState: EditorProjectState = {
+    ...editorState,
+    chapters: parseEditorProjectState(isObject(saved) ? saved.editor : undefined).chapters,
+    tags: parseEditorProjectState(isObject(saved) ? saved.editor : undefined).tags,
+    recordMetadata: parseEditorProjectState(isObject(saved) ? saved.editor : undefined)
+      .recordMetadata,
+  };
+  recoveryContext = { editorState: cloneSerializable(editorState), repairs: [] };
+  usePendingInputStore.getState().hydratePendingInputs(editorState.recovery);
+  return {
+    savedDocument: mergeContentAndEditorState(saved, savedState),
+    workingDocument: mergeContentAndEditorState(nativeContent, editorState),
+    editorState,
+    diagnostics: reconstructed.diagnostics.filter(
+      (entry) =>
+        entry.code !== 'editor.recovery.patch.failed' &&
+        entry.code !== 'editor.recovery.baseline-changed',
+    ),
+  };
 }
 
 function readOptional(document: JsonValue, path: string) {
