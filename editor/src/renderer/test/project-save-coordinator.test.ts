@@ -10,6 +10,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useCommandStore } from '@/commands/command-store';
+import { resolveProjectComments } from '@/project/project-comment-confirmation';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
   buildEditorProjectStateSnapshot,
@@ -110,6 +111,39 @@ beforeEach(() => {
 });
 
 describe('project save coordinator', () => {
+  it('reviews native comment impacts and retries with the user-approved removal decision', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Updated';
+    loadProject(saved, working, recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Updated' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    }));
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const nativeSave = vi.fn()
+      .mockResolvedValueOnce({
+        accepted: false, error: 'Comment approval required',
+        commentImpacts: [{ file: 'records/rooms/foyer.yaml', path: '/label',
+          comment: '# note', kind: 'deleted' }],
+      })
+      .mockResolvedValueOnce({ accepted: true, error: '', snapshot: { workingRevision: 1 } });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: nativeSave,
+    });
+    const pending = saveActiveSaveUnit('record:rooms:foyer');
+    await vi.waitFor(() => expect(nativeSave).toHaveBeenCalledTimes(1));
+    resolveProjectComments('delete');
+    const result = await pending;
+    expect(result).toMatchObject({ success: true, status: 'saved' });
+    expect(nativeSave).toHaveBeenNthCalledWith(2,
+      'test-project-session', 0, 'record:rooms:foyer', { comments: 'remove' });
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
   it('flushes the latest debounced source buffer through native staging before runtime use', async () => {
     const project = projectWithRooms();
     loadProject(project, structuredClone(project), emptyEditorProjectState());

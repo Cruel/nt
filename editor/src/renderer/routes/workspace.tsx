@@ -51,6 +51,7 @@ import {
 } from '@/project/project-external-reconciliation';
 import {
   nativeOwnersForChangedSources,
+  nativeExternalOwnerPath,
   projectNativeExternalResult,
 } from '@/project/native-external-projection';
 import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
@@ -1050,6 +1051,32 @@ export function WorkspacePage() {
         if (useCommandStore.getState().nativeWorkingRevision !== null) {
           if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
             void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
+          const sourceDiagnosticUpdate = (event.sourceChangedPaths?.length ?? 0) > 0 ||
+            event.sourceDiagnostics !== undefined;
+          const assetDiagnosticUpdate = event.assetChangedPaths.length > 0 ||
+            event.assetDiagnostics !== undefined;
+          if ((event.sourceChangedPaths?.length ?? 0) > 0)
+            void refreshAuthoringDependencyGraphProjectSources();
+          if (sourceDiagnosticUpdate)
+            externalPhysicalSourceDiagnosticsRef.current = [...(event.sourceDiagnostics ?? [])];
+          if (assetDiagnosticUpdate)
+            externalAssetDiagnosticsRef.current = [...(event.assetDiagnostics ?? [])];
+          if (sourceDiagnosticUpdate || assetDiagnosticUpdate) {
+            setDiagnostics(collectWorkspaceProjectDiagnostics(latestProject, [
+              ...persistentRecoveryDiagnosticsRef.current,
+              ...externalSourceDiagnosticsRef.current,
+              ...externalPhysicalSourceDiagnosticsRef.current,
+              ...externalAssetDiagnosticsRef.current,
+              ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                .filter(([, entry]) => entry.externalConflict)
+                .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!)),
+            ]));
+            if (externalPhysicalSourceDiagnosticsRef.current.length ||
+                externalAssetDiagnosticsRef.current.length) {
+              useBottomPanelStore.getState().setActivePanelId('problems');
+              setBottomPanelVisible(true);
+            }
+          }
           const owners = nativeOwnersForChangedSources(event.authoringChangedPaths);
           if (owners.length) {
             void useCommandStore.getState().reconcileNativeExternalAsync(owners, (result) => {
@@ -1063,19 +1090,35 @@ export function WorkspacePage() {
                   code: 'editor.native-external.reconciliation-failed',
                   severity: 'error',
                   category: 'External project source',
-                  path: '/',
+                  path: nativeExternalOwnerPath(result.diagnostics[0]?.path ?? owners[0]!) || '/',
                   message: result.diagnostics[0]?.message ?? 'Native reconciliation rejected.',
                   boundaries: ['authoring'],
-                  ownerPaths: ['/'],
+                  ownerPaths: [nativeExternalOwnerPath(result.diagnostics[0]?.path ?? owners[0]!) || '/'],
                 })];
                 setDiagnostics(collectWorkspaceProjectDiagnostics(
                   useProjectStore.getState().document,
-                  [...persistentRecoveryDiagnosticsRef.current, ...externalSourceDiagnosticsRef.current],
+                  [...persistentRecoveryDiagnosticsRef.current, ...externalSourceDiagnosticsRef.current,
+                    ...externalPhysicalSourceDiagnosticsRef.current, ...externalAssetDiagnosticsRef.current,
+                    ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                      .filter(([, entry]) => entry.externalConflict)
+                      .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!))],
                 ));
                 useBottomPanelStore.getState().setActivePanelId('problems');
                 setBottomPanelVisible(true);
                 setStatusMessage('External project changes require attention');
-              } else if (event.assetChangedPaths.length) {
+              } else if (externalSourceDiagnosticsRef.current.length > 0) {
+                externalSourceDiagnosticsRef.current = [];
+                const current = useProjectStore.getState().document;
+                if (current) setDiagnostics(collectWorkspaceProjectDiagnostics(current, [
+                  ...persistentRecoveryDiagnosticsRef.current,
+                  ...externalPhysicalSourceDiagnosticsRef.current,
+                  ...externalAssetDiagnosticsRef.current,
+                  ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                    .filter(([, entry]) => entry.externalConflict)
+                    .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!)),
+                ]));
+              }
+              if (result.ok && event.assetChangedPaths.length) {
                 const current = useProjectStore.getState().document;
                 if (current) void runAssetAudit(current as AuthoringProject);
               }
@@ -1497,6 +1540,11 @@ export function WorkspacePage() {
           collectWorkspaceProjectDiagnostics(latestProject, [
             ...persistentRecoveryDiagnosticsRef.current,
             ...externalSourceDiagnosticsRef.current,
+            ...externalPhysicalSourceDiagnosticsRef.current,
+            ...externalAssetDiagnosticsRef.current,
+            ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+              .filter(([, entry]) => entry.externalConflict)
+              .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!)),
           ]),
         );
       }

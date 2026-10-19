@@ -8,6 +8,7 @@ import {
   projectNativeExternalResult,
 } from '../project/native-external-projection';
 import type { JsonValue } from '../project/json-value';
+import { reconcileExternalProjectChange } from '../project/project-external-reconciliation';
 
 const original = createAuthoringProject({ id: 'native-watch', name: 'Native Watch' });
 original.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
@@ -70,6 +71,7 @@ describe('native editor external projection (#509)', () => {
         'records/rooms/hall.yaml',
         'records/rooms/hall.yaml',
         'records/layouts/screen/layout.rml',
+        'records/layouts/screen/layout.yaml',
         'i18n/locales/fr-FR.yaml',
         'notes.md',
         'assets/background.webp',
@@ -118,6 +120,36 @@ describe('native editor external projection (#509)', () => {
     });
   });
 
+  it('matches the independent legacy oracle for disjoint and overlapping owner edits', () => {
+    const base = stripLocalEditorProjectState(structuredClone(original)) as JsonValue;
+    for (const overlapping of [false, true]) {
+      const local = structuredClone(base) as typeof original;
+      local.rooms.hall!.label = 'Mine';
+      const external = structuredClone(base) as typeof original;
+      if (overlapping) external.rooms.hall!.label = 'Theirs';
+      else external.rooms.hall!.description = 'External description';
+      const nativeWorking = structuredClone(external);
+      nativeWorking.rooms.hall!.label = 'Mine';
+      const native = projectNativeExternalResult({
+        saved: base,
+        working: local as JsonValue,
+        recovery,
+        result: result(external.rooms.hall, nativeWorking.rooms.hall,
+          overlapping ? ['/label'] : []),
+      });
+      const legacy = reconcileExternalProjectChange({
+        baseDocument: base,
+        localDocument: local as JsonValue,
+        externalDocument: external as JsonValue,
+        recovery,
+        externalFileRevisions: { 'records/rooms/hall.yaml': `sha256:${'b'.repeat(64)}` },
+      });
+      expect(native.saved).toEqual(legacy.savedDocument);
+      expect(native.working).toEqual(legacy.workingDocument);
+      expect(native.conflictingUnitIds).toEqual(legacy.conflictingSaveUnitIds);
+    }
+  });
+
   it('projects a newly discovered native record and a native-owned removal', () => {
     const added = { ...baseRoom, id: 'new-room', label: 'New on Disk' };
     const incoming = result(added, added);
@@ -141,6 +173,27 @@ describe('native editor external projection (#509)', () => {
     });
     expect((removed.working as typeof original).rooms['new-room']).toBeUndefined();
     expect((removed.working as typeof original).rooms.hall).toEqual(baseRoom);
+  });
+
+  it('preserves unsaved changes as a whole-owner conflict when an external record is deleted', () => {
+    const local = structuredClone(original);
+    local.rooms.hall!.label = 'Mine';
+    const deleted = result(null, local.rooms.hall, ['/']);
+    deleted.snapshot.recordSnapshots!['rooms/hall']!.diskSourceRevision = 'absent';
+    const projection = projectNativeExternalResult({
+      saved: original as JsonValue,
+      working: local as JsonValue,
+      recovery,
+      result: deleted,
+    });
+    expect((projection.saved as typeof original).rooms.hall).toBeUndefined();
+    expect((projection.working as typeof original).rooms.hall!.label).toBe('Mine');
+    expect(projection.conflictingUnitIds).toEqual(['record:rooms:hall']);
+    expect(projection.recovery.saveUnitsById['record:rooms:hall']!.externalConflict).toMatchObject({
+      conflictingPaths: ['/rooms/hall'],
+      externalValueByPath: { '/rooms/hall': { exists: false } },
+      externalFileRevisions: { 'records/rooms/hall.yaml': 'absent' },
+    });
   });
 
   it('projects one localization file without clobbering independent localization files', () => {
@@ -178,16 +231,16 @@ describe('native editor external projection (#509)', () => {
     incoming.snapshot.recordSnapshots = {
       editor: incoming.snapshot.recordSnapshots!['rooms/hall']!,
     };
-    expect((stripLocalEditorProjectState(saved) as typeof saved).editor.schema).toBe(
-      saved.editor.schema,
-    );
+    // Preserve whichever schema marker the admitted stripped document has;
+    // external editor.yaml cannot silently override local state identity.
+    const admittedSchema = (stripLocalEditorProjectState(saved) as typeof saved).editor.schema;
     const projection = projectNativeExternalResult({
       saved: saved as JsonValue,
       working: saved as JsonValue,
       recovery: { sequence: 0, saveUnitsById: {} },
       result: incoming,
     });
-    expect((projection.working as typeof saved).editor.schema).toBe(saved.editor.schema);
+    expect((projection.working as typeof saved).editor.schema).toBe(admittedSchema);
     expect((projection.working as typeof saved).editor.tags).toEqual(unit.tags);
   });
 });

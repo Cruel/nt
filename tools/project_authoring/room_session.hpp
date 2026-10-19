@@ -48,6 +48,13 @@ struct RoomSessionResult {
     std::vector<Diagnostic> diagnostics_removed;
     RoomSessionSnapshot snapshot;
     std::vector<std::pair<std::string, std::string>> asset_trash_moves;
+    struct CommentImpact {
+        std::string file;
+        std::string path;
+        std::string comment;
+        std::string kind;
+    };
+    std::vector<CommentImpact> comment_impacts;
 };
 
 struct ProjectAssetTransition {
@@ -108,6 +115,9 @@ public:
     RoomSessionResult save(std::string_view expected_disk_revision,
                            const std::vector<std::string>& invalid_source_paths = {});
     RoomSessionResult reconcile_disk();
+    // The physical owner was verified absent. A dirty record becomes a
+    // whole-owner conflict; a clean record is removed by ProjectSession.
+    RoomSessionResult reconcile_deleted_disk();
     RoomSessionResult use_disk();
     RoomSessionResult use_disk_paths(const std::vector<std::string>& paths);
     std::unique_ptr<RoomSession> clone() const
