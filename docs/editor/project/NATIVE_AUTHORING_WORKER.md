@@ -664,8 +664,14 @@ retains the original source revision even when later file observation changes
 the current disk revision. The renderer must prove its submitted source text
 matches the native worker's accepted staged bytes before publishing a saved
 baseline; a mismatch fails closed. Native scoped reconciliation and Use Disk
-have authenticated IPC boundaries, but the renderer's external-change workflow
-does not yet publish their results.
+have authenticated IPC boundaries, and the renderer's external-change workflow
+publishes verified native working/saved source baselines and conflict state.
+Use Disk prunes affected native UI history only after native and renderer
+acknowledgment; the legacy history helper is not used in native mode.
+Whole-locale translation and localized-Asset YAML fragments can be staged,
+created or removed under native revision-checked multi-owner transactions.
+Whole translation-collection replacement expands to one atomic per-locale
+patch batch instead of writing the logical collection to project.yaml.
 
 This flag **remains certification-only, not yet a usable complete native
 editor**: the coordinated production cutover, including final parity for

@@ -51,6 +51,70 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('creates, replaces, deletes, and replays whole locale YAML fragments atomically', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-locale-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    );
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('native-locale-test');
+    const fr = 'i18n/locales/fr.yaml';
+    const es = 'i18n/locales/fr-CA.yaml';
+    const originalFr = await readFile(path.join(root, fr), 'utf8');
+    expect((await working.inspectRecord(fr)).accepted).toBe(true);
+    const frSource = structuredClone(working.snapshot()!.recordSnapshots![fr]!.source) as Record<
+      string, { review?: string }
+    >;
+    const firstMessage = Object.keys(frSource)[0]!;
+    const updatedFr = structuredClone(frSource);
+    updatedFr[firstMessage] = { ...updatedFr[firstMessage], review: 'reviewed' };
+    const changed = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'replace', path: '/localization/translations/fr', value: updatedFr },
+      { op: 'add', path: '/localization/translations/fr-CA', value: frSource },
+    ]);
+    expect(changed.accepted, changed.error).toBe(true);
+    expect(changed.affectedRecords).toEqual([es, fr]);
+    await expect(readFile(path.join(root, es))).rejects.toThrow();
+    expect(await readFile(path.join(root, fr), 'utf8')).toBe(originalFr);
+    const replayedCreation = await working.reopenAndReplay('native-locale-test');
+    expect(replayedCreation.recordSnapshots?.[es]?.source).toEqual(frSource);
+    expect(replayedCreation.recordSnapshots?.[fr]?.source).toEqual(updatedFr);
+    const saved = await working.saveOwners([es, fr], { comments: 'remove' });
+    expect(saved.accepted, saved.error).toBe(true);
+    expect(await readFile(path.join(root, es), 'utf8')).toContain(firstMessage);
+    expect(await readFile(path.join(root, fr), 'utf8')).not.toBe(originalFr);
+    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'remove', path: '/localization/translations/fr-CA' },
+    ])).accepted).toBe(true);
+    expect(working.snapshot()?.recordSnapshots?.[es]).toBeUndefined();
+    expect(working.dirtyCheckpoint().batches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ patches: [{ operation: 'remove', path: '/localization/translations/fr-CA' }] }),
+    ]));
+    const replayed = await working.reopenAndReplay('native-locale-test');
+    expect(replayed.recordSnapshots?.[es]).toBeUndefined();
+    const deleted = await working.saveUnit('project:localization');
+    expect(deleted.accepted, deleted.error).toBe(true);
+    await expect(readFile(path.join(root, es))).rejects.toThrow();
+    // Deleting an existing locale that has never been explicitly inspected
+    // must retain its original disk revision for recovery and Use Disk.
+    const ja = 'i18n/locales/ja.yaml';
+    const untouchedJa = await readFile(path.join(root, ja), 'utf8');
+    const directRemoval = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'remove', path: '/localization/translations/ja' },
+    ]);
+    expect(directRemoval.accepted, directRemoval.error).toBe(true);
+    expect(working.dirtyCheckpoint().batches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ patches: [{ operation: 'remove', path: '/localization/translations/ja' }] }),
+    ]));
+    expect((await working.useDiskUnit('project:localization')).accepted).toBe(true);
+    expect(await readFile(path.join(root, ja), 'utf8')).toBe(untouchedJa);
+  }, 120_000);
   it('admits a deleted tracked Room, preserving dirty edits as a native conflict until Use Disk', async () => {
     const { root, bridge, working, roomPath } = await testProject();
     cleanups.push(async () => {

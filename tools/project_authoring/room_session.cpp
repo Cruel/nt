@@ -690,15 +690,14 @@ std::optional<LocalizationPatchTarget> localization_patch_target(std::string_vie
         if (suffix.empty())
             return std::nullopt;
         const auto end = suffix.find('/', 1);
-        if (end == std::string_view::npos)
-            return std::nullopt;
-        const auto locale = suffix.substr(1, end - 1);
+        const auto locale =
+            end == std::string_view::npos ? suffix.substr(1) : suffix.substr(1, end - 1);
         if (!is_canonical_localization_locale(locale))
             return std::nullopt;
         return LocalizationPatchTarget{
             "i18n/" + std::string(field == "translations" ? "locales" : "assets") + "/" +
                 std::string(locale) + ".yaml",
-            std::string(suffix.substr(end))};
+            end == std::string_view::npos ? "/" : std::string(suffix.substr(end))};
     }
     if (field == "sourceLocale" || field == "sourceLocaleLock" || field == "defaultLocale" ||
         field == "locales")
@@ -4391,11 +4390,45 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 const auto destination = localization_patch_target(operation.path);
                 if (!destination)
                     throw std::runtime_error("Unsupported localization edit path.");
+                const bool whole_fragment = destination->relative_path == "/";
+                if (whole_fragment && operation.operation == RoomPatch::Operation::Remove) {
+                    auto it = staged.find(destination->owner);
+                    if (it == staged.end()) {
+                        std::string error;
+                        auto fragment =
+                            RoomSession::open_localization_source(root_, destination->owner, error);
+                        if (!fragment)
+                            throw std::runtime_error("Cannot remove localization fragment: " +
+                                                     error);
+                        it = staged.emplace(destination->owner, std::move(fragment)).first;
+                    }
+                    if (source_revision_or_absent(it->second->source_path()) !=
+                        it->second->snapshot().disk_source_revision)
+                        throw std::runtime_error("External localization source conflict.");
+                    if (it->second->disk_revision_ != "absent")
+                        staged_deletions.emplace(destination->owner, it->second->clone());
+                    staged.erase(it);
+                    affected.insert(destination->owner);
+                    continue;
+                }
                 auto it = staged.find(destination->owner);
                 if (it == staged.end()) {
                     std::string error;
-                    auto fragment =
-                        RoomSession::open_localization_source(root_, destination->owner, error);
+                    std::unique_ptr<RoomSession> fragment;
+                    if (whole_fragment && operation.operation == RoomPatch::Operation::Add &&
+                        !std::filesystem::exists(root_ / destination->owner) &&
+                        !std::filesystem::is_symlink(root_ / destination->owner)) {
+                        fragment.reset(new RoomSession(root_ / destination->owner, "", "", "{}"));
+                        fragment->disk_revision_ = "absent";
+                        fragment->is_localization_ = true;
+                        fragment->validation_contract_ =
+                            destination->owner.starts_with("i18n/locales/")
+                                ? "WorkspaceLocalizationLocale"
+                                : "WorkspaceLocalizationAssets";
+                    } else {
+                        fragment =
+                            RoomSession::open_localization_source(root_, destination->owner, error);
+                    }
                     if (!fragment)
                         throw std::runtime_error("Cannot admit localization source: " + error);
                     it = staged.emplace(destination->owner, std::move(fragment)).first;
@@ -4403,6 +4436,27 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 if (source_revision_or_absent(it->second->source_path()) !=
                     it->second->snapshot().disk_source_revision)
                     throw std::runtime_error("External localization source conflict.");
+                if (whole_fragment) {
+                    if (operation.operation == RoomPatch::Operation::Add &&
+                        it->second->disk_revision_ != "absent" &&
+                        !staged_deletions.contains(destination->owner))
+                        throw std::runtime_error("Localization source already exists.");
+                    const auto replacement = Json::parse(operation.value_json);
+                    if (!replacement.is_object())
+                        throw std::runtime_error("Localization fragment must be an object.");
+                    if (staged_deletions.contains(destination->owner))
+                        staged_deletions.erase(destination->owner);
+                    if (Json::parse(it->second->working_json_) != replacement) {
+                        it->second->working_json_ = replacement.to_string();
+                        it->second->unsaved_patches_.clear();
+                        const auto baseline = Json::parse(it->second->disk_json_);
+                        json_delta(&baseline, &replacement, "", it->second->unsaved_patches_);
+                        ++it->second->working_revision_;
+                        it->second->snapshot_cache_.reset();
+                    }
+                    affected.insert(destination->owner);
+                    continue;
+                }
                 auto relative = operation;
                 relative.path = destination->relative_path;
                 const auto updated =
@@ -4718,7 +4772,10 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.disk_source_revision = disk_revision_;
     state.source_json = working_json_;
     state.baseline_json = disk_json_;
-    state.dirty = Json::parse(disk_json_) != Json::parse(working_json_);
+    // An unsaved new source must be committed even when its valid body is
+    // an empty mapping (e.g. a newly authored locale fragment).
+    state.dirty =
+        disk_revision_ == "absent" || Json::parse(disk_json_) != Json::parse(working_json_);
     state.conflicting_paths = conflicting_paths_;
     const auto result = validate_source(working_json_);
     state.valid = result.accepted;

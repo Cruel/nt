@@ -42,6 +42,20 @@ function nativePatches(patches: readonly JsonPatchOperation[]): NativePatch[] {
   );
 }
 
+function logicalOwnerPath(owner: string): string {
+  const locale = /^i18n\/(locales|assets)\/([^/]+)\.yaml$/.exec(owner);
+  if (locale)
+    return `/localization/${locale[1] === 'locales' ? 'translations' : 'assets'}/${locale[2]}`;
+  const fixed: Record<string, string> = {
+    'i18n/project.yaml': '/localization',
+    'i18n/messages.yaml': '/localization',
+    'i18n/usage-notes.yaml': '/localization/usageNotes',
+    'i18n/tracking.yaml': '/localization/sourceMessageTracking',
+    'i18n/orphans.yaml': '/localization/orphanedMessages',
+  };
+  return fixed[owner] ?? `/${owner}`;
+}
+
 function sourceRevisions(snapshot: Snapshot, owners: readonly string[]): Record<string, string> {
   const result: Record<string, string> = {};
   for (const owner of owners) {
@@ -507,6 +521,9 @@ export class NativeAuthoringWorkingProject {
       for (const [owner, paths] of Object.entries(scopes))
         pathsByOwner[owner] = [...new Set([...(pathsByOwner[owner] ?? []), ...paths])].sort();
     }
+    if (saveUnitIds.includes('project:localization'))
+      for (const owner of this.pendingDeletedOwners.keys())
+        if (owner.startsWith('i18n/')) pathsByOwner[owner] = ['/'];
     for (const owner of Object.keys(pathsByOwner))
       if (
         owner !== 'project' &&
@@ -535,6 +552,9 @@ export class NativeAuthoringWorkingProject {
   async useDiskUnit(saveUnitId: string): Promise<PatchResult> {
     if (!this.view) throw new Error('Native working Project has not opened.');
     const pathsByOwner = logicalSaveUnitPaths(saveUnitId, this.view);
+    if (saveUnitId === 'project:localization')
+      for (const owner of this.pendingDeletedOwners.keys())
+        if (owner.startsWith('i18n/')) pathsByOwner[owner] = ['/'];
     for (const owner of Object.keys(pathsByOwner))
       if (
         owner !== 'project' &&
@@ -585,8 +605,12 @@ export class NativeAuthoringWorkingProject {
       if (!this.view || this.view.workingRevision !== expectedRevision)
         throw new Error('Stale native Project mutation revision.');
       for (const patch of patches) {
-        if (patch.op !== 'remove' || !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path)) continue;
-        const owner = patch.path.slice(1);
+        if (patch.op !== 'remove') continue;
+        const localized = /^\/localization\/(translations|assets)\/([^/]+)$/.exec(patch.path);
+        if (!localized && !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path)) continue;
+        const owner = localized
+          ? `i18n/${localized[1] === 'translations' ? 'locales' : 'assets'}/${localized[2]}.yaml`
+          : patch.path.slice(1);
         if (this.view.recordSnapshots?.[owner] || this.pendingDeletedOwners.has(owner)) continue;
         const inspected = await this.bridge.request({ operation: 'inspect', owner });
         if (!inspected || !('accepted' in inspected) || !inspected.accepted)
@@ -671,9 +695,14 @@ export class NativeAuthoringWorkingProject {
             }
             if (patch.operation === 'remove' && /^\/layouts\/[a-z][a-z0-9-]*$/.test(patch.path))
               this.pendingLayoutCopySources.delete(patch.path.slice(1));
-            if (patch.operation !== 'remove' || !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path))
+            if (patch.operation !== 'remove' ||
+                (!/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path) &&
+                 !/^\/localization\/(translations|assets)\/[^/]+$/.test(patch.path)))
               continue;
-            const owner = patch.path.slice(1);
+            const localized = /^\/localization\/(translations|assets)\/([^/]+)$/.exec(patch.path);
+            const owner = localized
+              ? `i18n/${localized[1] === 'translations' ? 'locales' : 'assets'}/${localized[2]}.yaml`
+              : patch.path.slice(1);
             if (
               !this.view.recordSnapshots?.[owner] &&
               batch.diskPreconditions[owner] &&
@@ -732,8 +761,11 @@ export class NativeAuthoringWorkingProject {
       const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
       this.view = merged;
       for (const patch of patches) {
-        if (!/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path)) continue;
-        const owner = patch.path.slice(1);
+        const localized = /^\/localization\/(translations|assets)\/([^/]+)$/.exec(patch.path);
+        if (!localized && !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path)) continue;
+        const owner = localized
+          ? `i18n/${localized[1] === 'translations' ? 'locales' : 'assets'}/${localized[2]}.yaml`
+          : patch.path.slice(1);
         if (patch.operation === 'add' && merged.recordSnapshots?.[owner])
           this.pendingDeletedOwners.delete(owner);
         if (patch.operation === 'add' && layoutCopySources?.[owner])
@@ -803,7 +835,7 @@ export class NativeAuthoringWorkingProject {
       if (!state.dirty) continue;
       if (state.baseline === undefined)
         throw new Error(`Native owner ${owner} has no saved baseline for recovery.`);
-      const prefix = owner === 'project' ? '' : `/${owner}`;
+      const prefix = owner === 'project' ? '' : logicalOwnerPath(owner);
       const patches =
         state.diskSourceRevision === 'absent' && owner !== 'project'
           ? [{ operation: 'add' as const, path: prefix, value: state.source }]
@@ -828,7 +860,7 @@ export class NativeAuthoringWorkingProject {
     }
     for (const [owner, revision] of this.pendingDeletedOwners)
       batches.push({
-        patches: [{ operation: 'remove', path: `/${owner}` }],
+        patches: [{ operation: 'remove', path: logicalOwnerPath(owner) }],
         diskPreconditions: { [owner]: revision },
       });
     return batches;
