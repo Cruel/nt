@@ -142,6 +142,8 @@ export interface RunNovelTeaCliOptions {
   readonly residentWorkspace?: ResidentCliProjectWorkspace;
   readonly scopedReadAuthority?: CliScopedReadAuthority;
   readonly nativeTools?: NovelTeaCliNativeToolService;
+  /** Native Project lifecycle cutover candidate; supplied only by isolated certification. */
+  readonly nativeProjectCommands?: import('./native-project-lifecycle-cli').NativeProjectCommandCall;
   readonly platformTools?: NovelTeaCliPlatformToolService;
   readonly onPlatformProgress?: (stage: string, message: string) => void;
   readonly onAuthoringValidationInstrumentation?: (
@@ -254,6 +256,43 @@ export async function runNovelTeaCli(
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
+  if (options.nativeProjectCommands) {
+    const { runNativeProjectLifecycleCli } = await import('./native-project-lifecycle-cli');
+    const nativeLifecycle = await runNativeProjectLifecycleCli(
+      globals,
+      cwd,
+      options.nativeProjectCommands,
+    );
+    if (nativeLifecycle) return nativeLifecycle;
+    const { runNativeProjectReadsCli } = await import('./native-project-reads-cli');
+    const nativeRead = await runNativeProjectReadsCli(globals, cwd, options.nativeProjectCommands);
+    if (nativeRead) return nativeRead;
+    const { runNativeProjectMutationsCli } = await import('./native-project-mutations-cli');
+    const nativeMutation = await runNativeProjectMutationsCli(
+      globals,
+      cwd,
+      options.nativeProjectCommands,
+    );
+    if (nativeMutation) return nativeMutation;
+    const { runNativeProjectFmtCli } = await import('./native-project-fmt-cli');
+    const nativeFmt = await runNativeProjectFmtCli(globals, cwd, options.nativeProjectCommands);
+    if (nativeFmt) return nativeFmt;
+    const { runNativeProjectLocalizationCli } = await import('./native-project-localization-cli');
+    const nativeLocalization = await runNativeProjectLocalizationCli(
+      globals,
+      cwd,
+      options.nativeProjectCommands,
+    );
+    if (nativeLocalization) return nativeLocalization;
+    const { runNativeProjectReconcileCli } = await import('./native-project-reconcile-cli');
+    const nativeReconciliation = await runNativeProjectReconcileCli(
+      globals,
+      cwd,
+      options.nativeProjectCommands,
+      () => options.stdinText ?? options.readStdinText?.(),
+    );
+    if (nativeReconciliation) return nativeReconciliation;
+  }
   let fileSystem = options.fileSystem;
   let workspace = options.workspace;
   const projectFileSystem = async () => {

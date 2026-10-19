@@ -1001,6 +1001,13 @@ async function runNovelTeaScriptcIslandScoped(
           ? { scopedReadAuthority: scopedResidentReadAuthority(fileSystem) }
           : {}),
         nativeTools,
+        ...(environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+        environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
+          ? {
+              nativeProjectCommands: (request: Readonly<Record<string, unknown>>) =>
+                JSON.parse(invokeHost('native-project-commands', JSON.stringify(request))),
+            }
+          : {}),
         ...(runtimeArtifactPaths ? { runtimeArtifactPaths } : {}),
         ...(platformTools ? { platformTools } : {}),
         ...(embeddedBuiltInFiles

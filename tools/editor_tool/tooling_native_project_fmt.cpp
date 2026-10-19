@@ -290,6 +290,7 @@ Json native_project_format(const Json& request, ProjectSession& session,
         return failure("Requested format path is not an existing tracked YAML source.");
     std::vector<YamlTransactionTarget> targets;
     Json files = Json::array();
+    Json disk_preconditions = Json::object();
     std::size_t removed_defaults = 0;
     for (const auto& file : selected) {
         const auto source = bytes_at(root / file);
@@ -322,6 +323,7 @@ Json native_project_format(const Json& request, ProjectSession& session,
             continue;
         const auto revision = exact_source_revision(source);
         files.push_back(file);
+        disk_preconditions[file] = revision;
         if (check)
             continue;
         if (!request.contains("diskPreconditions") ||
@@ -341,9 +343,11 @@ Json native_project_format(const Json& request, ProjectSession& session,
     Json response{{"ok", true},
                   {"check", check},
                   {"changed", !files.empty()},
+                  {"checked", selected.size()},
                   {"stripDefaults", strip_defaults},
                   {"removedDefaults", removed_defaults},
                   {"files", files},
+                  {"diskPreconditions", std::move(disk_preconditions)},
                   {"writes", Json::array()}};
     if (!check && !targets.empty()) {
         YamlTransactionService transaction(root);

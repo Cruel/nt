@@ -422,11 +422,8 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         return failure("Possible source reference requires "
                        "--allow-possible-source-references: " +
                        *possible_sources.begin());
-    Json result{{"ok", true},
-                {"collection", family},
-                {"id", id},
-                {"dryRun", dry_run},
-                {"writes", Json::array()}};
+    Json result{{"ok", true},        {"collection", family},       {"id", id},
+                {"dryRun", dry_run}, {"sourceRevision", revision}, {"writes", Json::array()}};
     if (rename)
         result["toId"] = to_id;
     result["rewrittenSources"] = rewritten;
@@ -434,6 +431,25 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
     for (const auto& source_path : possible_sources)
         result["possibleSourceReferences"].push_back(source_path);
 
+    std::set<std::string> reference_repairs;
+    if (rename) {
+        reference_repairs.insert("/" + family + "/" + id);
+        reference_repairs.insert("/" + family + "/" + to_id);
+    }
+    for (const auto& target : reference_targets) {
+        if (!target.path.starts_with("records/"))
+            continue;
+        const auto rest = target.path.substr(sizeof("records/") - 1);
+        const auto split = rest.find('/');
+        if (split == std::string::npos)
+            continue;
+        const auto collection = rest.substr(0, split);
+        const auto suffix = rest.substr(split + 1);
+        const auto record_id = collection == "layouts" ? suffix.substr(0, suffix.find('/'))
+                                                       : suffix.substr(0, suffix.rfind('.'));
+        for (const auto& edit : target.edits)
+            reference_repairs.insert("/" + collection + "/" + record_id + edit.path);
+    }
     std::vector<YamlTransactionTarget> targets;
     targets.insert(targets.end(), reference_targets.begin(), reference_targets.end());
     // Structured Messages normally derive identity from semantic paths.
@@ -467,21 +483,32 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
             // carry a translated Message. Until native orphan preparation
             // owns that case, fail closed instead of discarding the history.
             const auto locales = root / "i18n/locales";
-            for (const auto& locale_file : std::filesystem::directory_iterator(locales)) {
-                if (!locale_file.is_regular_file() || locale_file.path().extension() != ".yaml")
-                    continue;
-                const auto locale = open_yaml_source(read_text(locale_file.path()));
-                if (!locale.accepted)
-                    return failure("Cannot verify dependent translation before record deletion.");
-                if (Json::parse(locale.source_json).contains(id_value))
-                    return failure("Deletion would orphan translated structured Message " +
-                                   id_value + " without a native repair plan.");
-            }
+            const auto status = std::filesystem::symlink_status(locales).type();
+            if (status != std::filesystem::file_type::directory &&
+                status != std::filesystem::file_type::not_found)
+                return failure("Localization chunk directory is not a contained directory.");
+            if (status == std::filesystem::file_type::directory)
+                for (const auto& locale_file : std::filesystem::directory_iterator(locales)) {
+                    if (!locale_file.is_regular_file() || locale_file.path().extension() != ".yaml")
+                        continue;
+                    const auto locale = open_yaml_source(read_text(locale_file.path()));
+                    if (!locale.accepted)
+                        return failure(
+                            "Cannot verify dependent translation before record deletion.");
+                    if (Json::parse(locale.source_json).contains(id_value))
+                        return failure("Deletion would orphan translated structured Message " +
+                                       id_value + " without a native repair plan.");
+                }
         }
         if (rename) {
             if (identities.contains(new_path))
                 return failure("Destination already claims a structured Message identity: " +
                                new_path);
+            // Report semantic repair paths, not the physical YAML writer's
+            // flow-map replacement. A flow replacement may update many keys
+            // even when only these derived Message identities changed.
+            reference_repairs.insert("/localization/structuredMessageIds/" +
+                                     pointer_segment(new_path));
             next_identities[new_path] = id_value;
             identity_edits.push_back({"/structuredMessageIds/" + pointer_segment(new_path),
                                       Json(id_value).dump(), YamlCommentDisposition::Keep,
@@ -564,10 +591,13 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
     }
     std::sort(plan_writes.begin(), plan_writes.end());
     std::sort(plan_deletes.begin(), plan_deletes.end());
+    Json repairs = Json::array();
+    for (const auto& repair : reference_repairs)
+        repairs.push_back(repair);
     result["plan"] = {{"writes", plan_writes},
                       {"deletes", plan_deletes},
                       {"moves", Json::array()},
-                      {"referenceRepairs", Json::array()}};
+                      {"referenceRepairs", std::move(repairs)}};
     if (dry_run)
         return result;
     YamlTransactionService transaction(root);
@@ -887,8 +917,6 @@ Json native_project_entity(const Json& request, ProjectSession& session,
         return failure("Native entity source identity changed during creation.");
     Json result{{"ok", true},        {"collection", family}, {"id", id},
                 {"dryRun", dry_run}, {"sourcePath", path},   {"writes", Json::array()}};
-    if (dry_run)
-        return result;
 
     std::vector<YamlTransactionTarget> targets;
     targets.push_back({.path = path,
@@ -914,6 +942,16 @@ Json native_project_entity(const Json& request, ProjectSession& session,
         if (source.at("companions").size() != 3)
             return failure("Native Layout generator requires three companion sources.");
     }
+    Json planned = Json::array();
+    for (const auto& target : targets)
+        planned.push_back(target.path);
+    std::sort(planned.begin(), planned.end());
+    result["plan"] = {{"writes", std::move(planned)},
+                      {"deletes", Json::array()},
+                      {"moves", Json::array()},
+                      {"referenceRepairs", Json::array({"/" + family + "/" + id})}};
+    if (dry_run)
+        return result;
     YamlTransactionService transaction(root);
     auto prepared = transaction.prepare(targets, TransactionDecision::KeepComments);
     if (!prepared.accepted)

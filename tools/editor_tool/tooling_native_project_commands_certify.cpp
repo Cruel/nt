@@ -55,6 +55,60 @@ Json disk_validate(const Json& request)
     return Json::parse(response.begin(), response.begin() + static_cast<std::ptrdiff_t>(size));
 }
 
+void certify_owner_session_reuse()
+{
+    struct CreatedProject {
+        std::filesystem::path root;
+        ~CreatedProject()
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(root, ignored);
+        }
+    } fixture{std::filesystem::temp_directory_path() /
+              ("noveltea-native-owner-cert-" +
+               std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
+    const auto created = command({{"action", "project-create"},
+                                  {"projectRoot", fixture.root.string()},
+                                  {"name", "Native Cache"}});
+    require(created.value("ok", false), "Native owner fixture creation succeeds.");
+    const Json inspect{{"action", "entity-inspect"},
+                       {"projectRoot", fixture.root.string()},
+                       {"collection", "scripts"},
+                       {"id", "bootstrap"}};
+    const auto first = command(inspect);
+    const auto second = command(inspect);
+    require(first.value("ok", false) && second.value("ok", false) &&
+                !first.value("nativeOwnerReused", true) && second.value("nativeOwnerReused", false),
+            "The CLI command owner reuses its native Project session between requests.");
+    const auto created_room = command({{"action", "entity-create"},
+                                       {"projectRoot", fixture.root.string()},
+                                       {"collection", "rooms"},
+                                       {"id", "native-cache-room"},
+                                       {"dryRun", false}});
+    require(created_room.value("ok", false), "Resident native Project creation commits.");
+    const auto added = command({{"action", "entity-inspect"},
+                                {"projectRoot", fixture.root.string()},
+                                {"collection", "rooms"},
+                                {"id", "native-cache-room"}});
+    require(added.value("ok", false) && added.value("nativeOwnerReused", false),
+            "The retained native Project admits a newly committed record without reopening.");
+
+    const auto manifest = fixture.root / "project.yaml";
+    auto text = read(manifest);
+    const auto offset = text.find("name: \"Native Cache\"");
+    require(offset != std::string::npos, "Native owner manifest contains the original name.");
+    text.replace(offset, std::string("name: \"Native Cache\"").size(), "name: \"External Name\"");
+    {
+        std::ofstream output(manifest, std::ios::binary | std::ios::trunc);
+        output << text;
+    }
+    const auto prepared =
+        command({{"action", "export-preparation"}, {"projectRoot", fixture.root.string()}});
+    require(prepared.value("ok", false) &&
+                prepared.at("project").at("project").at("name") == "External Name",
+            "A retained native Project observes external disk revisions before export.");
+}
+
 struct Fixture {
     std::filesystem::path root;
     explicit Fixture(const std::filesystem::path& source)
@@ -1215,6 +1269,11 @@ void certify(const std::filesystem::path& source)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--owner-session-smoke") {
+            certify_owner_session_reuse();
+            std::cout << "Native CLI owner session certification passed.\n";
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--invalid-manifest-cli") {
             certify_invalid_manifest_boundary(argv[2]);
             return 0;

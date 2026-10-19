@@ -69,11 +69,16 @@ Json localization_from_physical_sources(const std::filesystem::path& root)
                {"orphanedMessages", source_mapping(root / "i18n/orphans.yaml")},
                {"translations", Json::object()}};
     const auto locales = root / "i18n/locales";
-    for (const auto& entry : std::filesystem::directory_iterator(locales)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
-            continue;
-        model["translations"][entry.path().stem().string()] = source_mapping(entry.path());
-    }
+    const auto kind = std::filesystem::symlink_status(locales).type();
+    if (kind != std::filesystem::file_type::not_found &&
+        kind != std::filesystem::file_type::directory)
+        throw std::runtime_error("Localization chunk directory is not a contained directory.");
+    if (kind == std::filesystem::file_type::directory)
+        for (const auto& entry : std::filesystem::directory_iterator(locales)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+                continue;
+            model["translations"][entry.path().stem().string()] = source_mapping(entry.path());
+        }
     return model;
 }
 
@@ -935,12 +940,14 @@ Json native_project_localization_sync(const Json& request, ProjectSession& sessi
         return failure("Native localization sync options are malformed.");
     const bool dry_run = request.value("dryRun", true);
     const auto generation = native_project_source_generation(session, root);
+    const auto source_revision = exact_source_revision(bytes_at(root / "i18n/tracking.yaml"));
     const auto sources = current_sources(session);
     const auto localization = localization_from_physical_sources(root);
     const auto synchronized = synchronize(localization, sources);
     Json result{{"ok", true},
                 {"dryRun", dry_run},
                 {"sourceGeneration", generation},
+                {"sourceRevision", source_revision},
                 {"changed", synchronized.changed},
                 {"materializedMessageIds", synchronized.materialized},
                 {"preservedMessageIds", synchronized.preserved},
@@ -995,12 +1002,25 @@ Json native_project_localization_reconcile(const Json& request, ProjectSession& 
     const bool dry_run = request.value("dryRun", true);
     const auto sources = current_sources(session);
     const auto original = localization_from_physical_sources(root);
-    const auto revision = request.value("workspaceRevision", std::string{});
     const auto generation = native_project_source_generation(session, root);
+    // A native source generation is an opaque, disk-authoritative Project
+    // revision token. The client must not synthesize it from TypeScript state.
+    const auto revision = request.value("workspaceRevision", generation);
     const auto plan = reconciliation_plan(original, sources, revision);
-    if (dry_run)
-        return {{"ok", true}, {"plan", plan}, {"sourceGeneration", generation},
+    if (dry_run) {
+        Json preconditions = Json::object();
+        for (const auto& file : session.file_inventory()) {
+            if (file.kind != ProjectFileKind::TrackedSource || !file.path.starts_with("i18n/") ||
+                !file.path.ends_with(".yaml"))
+                continue;
+            preconditions[file.path] = exact_source_revision(bytes_at(root / file.path));
+        }
+        return {{"ok", true},
+                {"plan", plan},
+                {"sourceGeneration", generation},
+                {"diskPreconditions", std::move(preconditions)},
                 {"writes", Json::array()}};
+    }
     if (!request.contains("expectedWorkspaceRevision") ||
         !request.at("expectedWorkspaceRevision").is_string() || revision.empty() ||
         request.at("expectedWorkspaceRevision") != revision ||
@@ -1205,7 +1225,10 @@ Json native_project_localization_reconcile(const Json& request, ProjectSession& 
             !request.at("diskPreconditions").at(owner).is_string())
             return failure("Missing source revision for reconciliation owner: " + owner);
         const auto expected = request.at("diskPreconditions").at(owner).get<std::string>();
-        if (exact_source_revision(bytes_at(root / owner)) != expected)
+        const auto observed = std::filesystem::is_regular_file(root / owner)
+                                  ? exact_source_revision(bytes_at(root / owner))
+                                  : std::string("absent");
+        if (observed != expected)
             return failure("Stale source revision for reconciliation owner: " + owner);
         preconditions.emplace(owner, expected);
     }
@@ -1227,7 +1250,8 @@ Json native_project_localization_reconcile(const Json& request, ProjectSession& 
     }
     std::vector<std::string> owners(affected.begin(), affected.end());
     if (!native_project_source_generation_is_current(root, generation))
-        return failure("Native localization source generation changed before reconciliation commit.");
+        return failure(
+            "Native localization source generation changed before reconciliation commit.");
     const auto saved = session.save_owners(patched.snapshot.working_revision, owners, false,
                                            TransactionDecision::KeepComments);
     if (!saved.accepted)

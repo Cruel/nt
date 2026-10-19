@@ -328,6 +328,33 @@ The host-only library is not linked, installed, copied, or packaged into any eng
 template. It deliberately uses the normal host C++ exception model and catches failures at its public
 boundary. Its dependency and exemption are recorded in `CXX_RUNTIME_DEPENDENCY_POLICY.md`.
 
+## Staged CLI and daemon command authority (#505)
+
+The installed standalone CLI and existing daemon still use their public routing and JSON envelopes.
+The candidate native Project command transport is enabled **only** when both
+`NOVELTEA_CLI_CERTIFICATION=1` and `NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE=1` are set.
+The candidate is deliberately not production-authoritative until #506 completes the coordinated
+cutover; no permanent legacy fallback is intended. Native Project commands handle Project lifecycle,
+entity inspection and mutations, usages, Assets, formatting, and localization workflows. Native
+Project admission and source edits do not go through the TypeScript Project writer in this mode.
+
+Native mutation planning supplies exact source revisions and source-generation proofs for follow-up
+commits. The caller passes these back unchanged; native transactions recheck authority. Transport
+errors never trigger replay of a possibly completed write. Native Project sessions are retained within
+the existing daemon Project-owner process and revalidate physical source revisions; the editor's dirty
+working Project remains independent of the CLI disk authority. The downstream compiled-Project,
+shader, Runtime Package, authored Test, and platform export stages must retain their established
+semantics during the coordinated cutover. Public validation/compiler diagnostics and full command
+family parity remain explicit certification gates, not assumed consequences of native YAML admission.
+
+The targeted adapter regression suite is
+`editor/src/renderer/test/native-cli-project-lifecycle.test.ts`. The physical Project command
+differential is `editor/scripts/certify-native-project-command-differential.mjs`; its native CLI
+counterpart is `noveltea-cli-native-certify`. The installed transport differential is
+`editor/scripts/certify-native-cli-project-routing.mjs`: it compares public envelopes and exit
+codes for native and legacy Project commands, plus separate daemon owners and malformed sources.
+These do not replace the full CLI/daemon certification suite or Windows/macOS release verification.
+
 ## Verification
 
 A standalone host build avoids the renderer and all runtime dependencies:

@@ -24,7 +24,10 @@ using Json = nlohmann::json;
 using Ordered = nlohmann::ordered_json;
 using namespace noveltea::authoring;
 
-Json failure(std::string message) { return {{"ok", false}, {"error", std::move(message)}}; }
+Json failure(std::string message, std::string_view kind = "mutation")
+{
+    return {{"ok", false}, {"error", std::move(message)}, {"kind", kind}};
+}
 
 std::filesystem::path utf8_path(std::string_view value)
 {
@@ -128,11 +131,12 @@ void project_paths(const Json& effective, const ProjectSession& session,
             (source.kind == ProjectFileKind::ProjectSource && source.path.starts_with("scripts/")))
             files.insert(source.path);
     }
-    const auto& settings = effective.at("settings");
+    const Json empty = Json::object();
+    const auto& settings = effective.contains("settings") ? effective.at("settings") : empty;
     if (settings.contains("distributionNotices"))
         for (const auto& notice : settings.at("distributionNotices"))
             files.insert(notice.at("path").get<std::string>());
-    const auto& assets = effective.at("assets");
+    const auto& assets = effective.contains("assets") ? effective.at("assets") : empty;
     for (const auto& [_, record] : assets.items()) {
         const auto& data = record.at("data");
         files.insert(data.at("source").at("path").get<std::string>());
@@ -140,11 +144,13 @@ void project_paths(const Json& effective, const ProjectSession& session,
             for (const auto& attachment : data.at("attachments"))
                 files.insert(attachment.at("path").get<std::string>());
     }
-    for (const auto& [_, record] : effective.at("layouts").items())
+    const auto& layouts = effective.contains("layouts") ? effective.at("layouts") : empty;
+    for (const auto& [_, record] : layouts.items())
         if (record.at("data").contains("dependencies"))
             for (const auto& script : record.at("data").at("dependencies").at("scripts"))
                 files.insert(script.get<std::string>());
-    for (const auto& [_, record] : effective.at("materials").items()) {
+    const auto& materials = effective.contains("materials") ? effective.at("materials") : empty;
+    for (const auto& [_, record] : materials.items()) {
         const auto& data = record.at("data");
         if (!data.contains("shader") || !data.at("shader").is_object())
             continue;
@@ -253,7 +259,7 @@ Json export_bundle(const Json& request, ProjectSession& session, const std::file
     if (!output.is_absolute() || !ntproject_extension(output))
         return failure("Portable Project export requires an absolute .ntproject destination.");
     if (std::filesystem::exists(output) || std::filesystem::is_symlink(output))
-        return failure("Portable Project bundle destination already exists.");
+        return failure("Portable Project bundle destination already exists.", "conflict");
     const auto effective = complete_project(session);
     std::set<std::string> paths;
     project_paths(effective, session, root, paths);
@@ -295,9 +301,10 @@ Json export_bundle(const Json& request, ProjectSession& session, const std::file
         return failure(archive.value("error", "Native ZIP export failed."));
     for (const auto& [relative, expected] : revisions)
         if (exact_source_revision(bytes_at(checked_source(root, relative))) != expected)
-            return failure("Portable Project source changed during export: " + relative);
+            return failure("Portable Project source changed during export: " + relative,
+                           "source-changed");
     if (std::filesystem::exists(output) || std::filesystem::is_symlink(output))
-        return failure("Portable Project destination changed during export.");
+        return failure("Portable Project destination changed during export.", "conflict");
     std::filesystem::rename(staged, output);
     return {{"ok", true}, {"outputPath", utf8_string(output)}, {"manifest", Json(manifest)}};
 }
@@ -428,14 +435,20 @@ Json import_bundle(const Json& request)
     const auto destination = utf8_path(request.at("destination").get<std::string>());
     if (!input.is_absolute() || !destination.is_absolute() || !ntproject_extension(input) ||
         !std::filesystem::is_regular_file(input))
-        return failure("Native Project import requires an existing absolute .ntproject source.");
+        return failure("Native Project import requires an existing absolute .ntproject source.",
+                       "invalid-bundle");
     if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
-        return failure("Portable Project import destination already exists.");
-    const auto files = parse_zip(bytes_at(input));
+        return failure("Portable Project import destination already exists.", "conflict");
+    std::vector<ArchiveFile> files;
+    try {
+        files = parse_zip(bytes_at(input));
+    } catch (const std::exception& error) {
+        return failure(error.what(), "invalid-bundle");
+    }
     const auto found = std::find_if(files.begin(), files.end(),
                                     [](const auto& file) { return file.path == "ntproject.json"; });
     if (found == files.end())
-        return failure("Portable Project archive is missing its manifest.");
+        return failure("Portable Project archive is missing its manifest.", "invalid-bundle");
     const auto manifest = Json::parse(found->data, nullptr, false);
     const auto string_field = [](const Json& data, std::string_view key) {
         return data.is_object() && data.contains(key) && data.at(key).is_string();
@@ -458,7 +471,8 @@ Json import_bundle(const Json& request)
         manifest.at("project").at("name").get<std::string>().empty() ||
         !manifest.contains("files") || !manifest.at("files").is_array() ||
         manifest.at("files").size() + 1 != files.size())
-        return failure("Portable Project bundle identity or shape is unsupported.");
+        return failure("Portable Project bundle identity or shape is unsupported.",
+                       "invalid-bundle");
     const auto& declared = manifest.at("files");
     std::map<std::string, std::string> data;
     for (const auto& entry : files)
@@ -470,13 +484,15 @@ Json import_bundle(const Json& request)
             !entry.at("path").is_string() || !entry.contains("size") ||
             !entry.at("size").is_number_unsigned() || !entry.contains("sha256") ||
             !entry.at("sha256").is_string())
-            return failure("Portable Project bundle has malformed manifest file entries.");
+            return failure("Portable Project bundle has malformed manifest file entries.",
+                           "invalid-bundle");
         const auto relative = entry.at("path").get<std::string>();
         if (excluded(relative) || relative == "ntproject.json" ||
             (!previous.empty() && previous >= relative) || !data.contains(relative) ||
             entry.at("size").get<std::size_t>() != data.at(relative).size() ||
             entry.at("sha256").get<std::string>() != exact_source_revision(data.at(relative)))
-            return failure("Portable Project bundle manifest inventory is corrupt or unsafe.");
+            return failure("Portable Project bundle manifest inventory is corrupt or unsafe.",
+                           "invalid-bundle");
         previous = relative;
     }
     TempDirectory stage(destination, "import");
@@ -487,19 +503,23 @@ Json import_bundle(const Json& request)
     std::string error;
     auto session = ProjectSession::open(stage.root, error);
     if (!session)
-        return failure("Contained Project Workspace cannot be admitted: " + error);
+        return failure("Contained Project Workspace cannot be admitted: " + error,
+                       "invalid-project");
     const auto project = complete_project(*session);
     if (project.at("project").at("id") != manifest.at("project").at("id") ||
         project.at("project").at("name") != manifest.at("project").at("name"))
-        return failure("Portable Project bundle identity differs from its Project sources.");
+        return failure("Portable Project bundle identity differs from its Project sources.",
+                       "invalid-project");
     std::set<std::string> expected;
     project_paths(project, *session, stage.root, expected);
     if (expected.size() != data.size() ||
         !std::equal(expected.begin(), expected.end(), data.begin(),
                     [](const std::string& left, const auto& right) { return left == right.first; }))
-        return failure("Portable bundle contains files outside the current authoring contract.");
+        return failure("Portable bundle contains files outside the current authoring contract.",
+                       "invalid-bundle");
     if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
-        return failure("Portable Project import destination changed during validation.");
+        return failure("Portable Project import destination changed during validation.",
+                       "conflict");
     std::filesystem::rename(stage.root, destination);
     return {{"ok", true},
             {"projectRoot", utf8_string(destination)},

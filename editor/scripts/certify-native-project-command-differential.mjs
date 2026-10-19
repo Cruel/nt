@@ -113,6 +113,21 @@ try {
     }
   }
 
+  // The established public scaffold legitimately omits empty localization
+  // chunk directories. Native Project admission/export must accept it without
+  // requiring the author to create directories or rewrite any YAML.
+  const originalScaffoldBundle = path.join(temporary, 'original-scaffold.ntproject');
+  const nativeScaffoldExport = await nativeCommand('project-export', {
+    projectRoot: oracle,
+    outputPath: originalScaffoldBundle,
+  });
+  assert.equal(nativeScaffoldExport.ok, true, JSON.stringify(nativeScaffoldExport));
+  const nativeScaffoldImport = await nativeCommand('project-import', {
+    bundlePath: originalScaffoldBundle,
+    destination: path.join(temporary, 'original-scaffold-imported'),
+  });
+  assert.equal(nativeScaffoldImport.ok, true, JSON.stringify(nativeScaffoldImport));
+
   const source = path.join(temporary, 'NovelTea Note.txt');
   await writeFile(source, 'Native and public CLI Asset import source bytes.\n');
   for (const dryRun of [true, false]) {

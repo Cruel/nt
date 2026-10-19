@@ -816,20 +816,25 @@ void append_locales(ValidationResult& result, const std::filesystem::path& root,
     const auto folder = root / std::string(directory);
     std::set<std::string> files;
     std::error_code error;
-    if (!std::filesystem::is_directory(folder, error)) {
-        add(result, std::string(logical), "localization.source.missing",
-            "Required localization directory is missing.", std::string(directory));
-        return;
-    }
-    for (const auto& item : std::filesystem::directory_iterator(folder)) {
-        if (!item.is_regular_file()) {
+    const auto kind = std::filesystem::symlink_status(folder, error);
+    if (kind.type() != std::filesystem::file_type::not_found) {
+        if (error || kind.type() != std::filesystem::file_type::directory) {
             add(result, std::string(logical), "localization.source.kind",
-                "Localization chunk must be a regular YAML source.",
-                item.path().lexically_relative(root).generic_string());
-            continue;
+                "Localization chunk owner must be a directory.", std::string(directory));
+            return;
         }
-        files.insert(item.path().filename().generic_string());
+        for (const auto& item : std::filesystem::directory_iterator(folder)) {
+            if (!item.is_regular_file()) {
+                add(result, std::string(logical), "localization.source.kind",
+                    "Localization chunk must be a regular YAML source.",
+                    item.path().lexically_relative(root).generic_string());
+                continue;
+            }
+            files.insert(item.path().filename().generic_string());
+        }
     }
+    // Missing chunk directories encode the same empty sources as empty
+    // directories. The public Project scaffold does not create them eagerly.
     for (const auto& [name, _] : overlays)
         if (name.starts_with(std::string(directory) + "/") &&
             name.substr(std::string(directory).size() + 1).find('/') == std::string::npos)

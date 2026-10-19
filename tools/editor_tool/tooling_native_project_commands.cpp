@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -64,6 +66,21 @@ Json provenance(const Json& effective, const Json* explicit_source)
 
 Json failure(std::string error) { return {{"ok", false}, {"error", std::move(error)}}; }
 
+// The existing daemon executes a single Project-owner process per root.
+// Retain native source/revision and semantic caches inside that process;
+// never share dirty editor state or create a second watcher/daemon.
+struct NativeCliOwner {
+    std::mutex mutex;
+    std::filesystem::path root;
+    std::unique_ptr<ProjectSession> session;
+};
+
+NativeCliOwner& native_cli_owner()
+{
+    static NativeCliOwner owner;
+    return owner;
+}
+
 Json operate(const Json& request)
 {
     if (!request.is_object() || !request.contains("action") || !request.at("action").is_string())
@@ -83,22 +100,93 @@ Json operate(const Json& request)
         return failure("Native CLI Project operation requires an absolute root.");
     const auto root = std::filesystem::canonical(requested);
     const auto action = request.at("action").get<std::string>();
+    if (action == "project-validate") {
+        const auto serialized = Json{{"projectRoot", root_utf8}, {"action", "validate"}}.dump();
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(serialized.data());
+        // Validation retains a warm owner cache. A length probe would execute
+        // it twice and change the published cold/warm generation between the
+        // calls, just as a mutation probe could execute a write twice.
+        std::string response(16 * 1024 * 1024, '\0');
+        const auto required = noveltea_tooling_native_disk_project_validation_json(
+            bytes, serialized.size(), reinterpret_cast<std::uint8_t*>(response.data()),
+            response.size());
+        if (required > response.size())
+            return failure("Native disk validation result exceeds the command response limit.");
+        response.resize(required);
+        return Json::parse(response);
+    }
     if (action == "asset-audit")
         return native_project_asset_audit(root);
+    auto& owner = native_cli_owner();
+    std::scoped_lock owner_lock(owner.mutex);
+    if (owner.root != root) {
+        owner.session.reset();
+        owner.root = root;
+    }
     if (action == "asset-import" &&
         (!request.contains("dryRun") || request.at("dryRun") == false)) {
         if (const auto recovery_error = native_project_asset_recover(root))
             return failure("Native Asset import recovery: " + *recovery_error);
     }
-    // The isolated certification invocation deliberately opens a fresh disk
-    // session. It never borrows the editor's unsaved working Project.
     std::string error;
-    auto session = ProjectSession::open(root, error);
-    if (!session)
+    const bool reused_owner = owner.session != nullptr;
+    if (!owner.session)
+        owner.session = ProjectSession::open(root, error);
+    auto* session = owner.session.get();
+    if (!session) {
+        constexpr std::string_view malformed_prefix = "Invalid record YAML: ";
+        if (error.starts_with(malformed_prefix)) {
+            const auto source = error.substr(malformed_prefix.size());
+            return {{"ok", false},
+                    {"error", "Record is malformed."},
+                    {"exitCode", 3},
+                    {"diagnostics", Json::array({{{"code", "WORKSPACE_SOURCE_READ"},
+                                                  {"severity", "error"},
+                                                  {"path", "/" + source},
+                                                  {"message", "Record is malformed."}}})}};
+        }
+        if (action == "project-export")
+            return {{"ok", false}, {"error", error}, {"kind", "invalid-project"}};
         return failure(error);
+    }
+
+    // The public CLI reports authoring warnings gathered during workspace
+    // admission even when the requested operation itself succeeds. Preserve
+    // them at the same pre-mutation generation, rather than reconstructing
+    // Project semantics in the ScriptC transport layer.
+    Json authoring_diagnostics = Json::array();
+    const auto validation = session->validate_project();
+    for (const auto& diagnostic : validation.diagnostics) {
+        if (diagnostic.severity == "error")
+            continue;
+        // Public CLI diagnostics retain the established schema-family code
+        // even where the native spatial validator has a shorter internal ID.
+        const auto code = diagnostic.code == "room.description.empty"
+                              ? "authoring.rooms.rooms.record.data.description"
+                              : diagnostic.code.c_str();
+        authoring_diagnostics.push_back({{"code", code},
+                                         {"path", diagnostic.path},
+                                         {"severity", diagnostic.severity},
+                                         {"message", diagnostic.message}});
+    }
+    const auto effective = Json::parse(session->snapshot().normalized_json, nullptr, false);
+    if (validation.valid && effective.is_object() &&
+        (!effective.contains("entrypoint") || effective.at("entrypoint").is_null())) {
+        authoring_diagnostics.push_back({{"code", "authoring.entrypoint.missing"},
+                                         {"severity", "warning"},
+                                         {"path", "/entrypoint"},
+                                         {"message", "No project entrypoint is configured yet."}});
+    }
+    const auto with_diagnostics = [&](Json result) -> Json {
+        if (result.is_object()) {
+            result["cliDiagnostics"] = authoring_diagnostics;
+            result["nativeOwnerReused"] = reused_owner;
+        }
+        return result;
+    };
 
     if (action == "asset-import")
-        return native_project_asset_import(request, *session, root);
+        return with_diagnostics(native_project_asset_import(request, *session, root));
 
     if (action == "entity-inspect") {
         if (!request.contains("collection") || !request.at("collection").is_string() ||
@@ -109,8 +197,15 @@ Json operate(const Json& request)
         const auto id = request.at("id").get<std::string>();
         const auto owner = collection + "/" + id;
         const auto inspected = session->inspect_record(owner);
-        if (!inspected.accepted)
-            return failure(inspected.error);
+        if (!inspected.accepted) {
+            const auto relative = collection == "layouts"
+                                      ? "records/layouts/" + id + "/layout.yaml"
+                                      : "records/" + collection + "/" + id + ".yaml";
+            if (!std::filesystem::exists(root / relative))
+                return with_diagnostics(
+                    {{"ok", false}, {"kind", "not-found"}, {"error", "Record does not exist."}});
+            return with_diagnostics(failure(inspected.error));
+        }
         const auto snapshots = session->record_snapshots();
         const auto found = snapshots.find(owner);
         if (found == snapshots.end() || !found->second.valid)
@@ -121,9 +216,9 @@ Json operate(const Json& request)
             const Json source = Json::parse(found->second.source_json);
             fields["provenance"] = provenance(record, &source);
         }
-        return {{"ok", true},
-                {"fields", std::move(fields)},
-                {"sourceRevision", found->second.disk_source_revision}};
+        return with_diagnostics({{"ok", true},
+                                 {"fields", std::move(fields)},
+                                 {"sourceRevision", found->second.disk_source_revision}});
     }
 
     if (action == "scoped-edit") {
@@ -202,24 +297,24 @@ Json operate(const Json& request)
     }
 
     if (action == "fmt-strip-defaults")
-        return native_project_strip_defaults(request, *session, root);
+        return with_diagnostics(native_project_strip_defaults(request, *session, root));
     if (action == "fmt")
-        return native_project_format(request, *session, root);
+        return with_diagnostics(native_project_format(request, *session, root));
     if (action == "localization-targets")
-        return native_project_localization(request, *session, root);
+        return with_diagnostics(native_project_localization(request, *session, root));
     if (action == "localization-view")
-        return native_project_localization_view(request, *session);
+        return with_diagnostics(native_project_localization_view(request, *session));
     if (action == "localization-sync")
-        return native_project_localization_sync(request, *session, root);
+        return with_diagnostics(native_project_localization_sync(request, *session, root));
     if (action == "localization-reconcile")
-        return native_project_localization_reconcile(request, *session, root);
+        return with_diagnostics(native_project_localization_reconcile(request, *session, root));
     if (action == "entity-create" || action == "entity-rename" || action == "entity-delete")
-        return native_project_entity(request, *session, root);
+        return with_diagnostics(native_project_entity(request, *session, root));
     if (action == "entity-usages")
-        return native_project_entity_usages(request, *session, root);
+        return with_diagnostics(native_project_entity_usages(request, *session, root));
     if (action == "project-export" || action == "export-preparation" ||
         action == "runtime-package-preparation")
-        return native_project_bundle(request, session.get(), root);
+        return native_project_bundle(request, session, root);
 
     return failure("Unknown native CLI Project operation.");
 }

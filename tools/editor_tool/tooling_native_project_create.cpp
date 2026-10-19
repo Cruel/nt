@@ -29,7 +29,10 @@ namespace {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 
-Json failure(std::string error) { return {{"ok", false}, {"error", std::move(error)}}; }
+Json failure(std::string error, std::string_view kind = "mutation")
+{
+    return {{"ok", false}, {"error", std::move(error)}, {"kind", kind}};
+}
 
 std::string id_for(std::string_view name)
 {
@@ -98,7 +101,7 @@ Json native_project_create(const Json& request)
             return failure("Native Project creation requires an absolute destination.");
         const fs::path destination = requested.lexically_normal();
         if (fs::exists(destination) || fs::is_symlink(fs::symlink_status(destination)))
-            return failure("Project destination already exists. Choose a new folder.");
+            return failure("Project destination already exists. Choose a new folder.", "conflict");
         const auto parent = destination.parent_path();
         fs::create_directories(parent);
         const auto real_parent = fs::canonical(parent);
@@ -174,7 +177,8 @@ Json native_project_create(const Json& request)
                                                 result.diagnostics.front().path + " " +
                                                 result.diagnostics.front().message));
         if (fs::exists(destination))
-            return failure("Project destination was created while preparing the Project.");
+            return failure("Project destination was created while preparing the Project.",
+                           "conflict");
         publish_exclusive(staging.root, destination);
         staging.root.clear();
         const auto root_utf8 = destination.u8string();

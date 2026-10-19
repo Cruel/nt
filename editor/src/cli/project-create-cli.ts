@@ -14,7 +14,7 @@ import {
   type NovelTeaCliCommandResult,
 } from './contracts';
 
-function parseProjectCreate(command: readonly string[]) {
+export function parseProjectCreate(command: readonly string[]) {
   const directory = command[2];
   let name: string | undefined;
   if (!directory || directory.startsWith('--')) throw new Error('Project directory is required.');
