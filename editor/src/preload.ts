@@ -90,8 +90,14 @@ const api: NovelTeaElectronApi = {
   },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
-  nativeProjectPatch: (projectSessionId, expectedRevision, patches) =>
-    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_PATCH, projectSessionId, expectedRevision, patches),
+  nativeProjectPatch: (projectSessionId, expectedRevision, patches, layoutCopySources) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_PATCH,
+      projectSessionId,
+      expectedRevision,
+      patches,
+      layoutCopySources,
+    ),
   nativeProjectSaveUnit: (projectSessionId, expectedRevision, saveUnitIds, options) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_SAVE_UNIT,
@@ -123,7 +129,12 @@ const api: NovelTeaElectronApi = {
   nativeProjectReconcile: (projectSessionId, expectedRevision, owner) =>
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RECONCILE, projectSessionId, expectedRevision, owner),
   nativeProjectUseDiskUnit: (projectSessionId, expectedRevision, saveUnitId) =>
-    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT, projectSessionId, expectedRevision, saveUnitId),
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,
+      projectSessionId,
+      expectedRevision,
+      saveUnitId,
+    ),
   nativeProjectPrepareRuntime: (projectSessionId, expectedRevision, shaderVariant) =>
     invokeGuarded(
       IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,

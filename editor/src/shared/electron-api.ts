@@ -79,6 +79,7 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
     patches: import('../renderer/project/json-patch').JsonPatchOperation[],
+    layoutCopySources?: Record<string, string>,
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
   >;
@@ -94,6 +95,7 @@ interface NovelTeaElectronApiContract {
       textPaths?: string[];
       textContents?: Record<string, string>;
       structuralPathsByOwner?: Record<string, string[]>;
+      assetTransition?: import('./editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
     },
   ): Promise<
     import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult

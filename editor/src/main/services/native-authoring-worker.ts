@@ -26,13 +26,20 @@ interface NativeBinding {
     comments: string,
     paths?: string,
     textPaths?: string,
+    assetTransition?: string,
   ): string;
   restoreConflicts(handle: unknown, revision: number, conflicts: string): string;
   useDiskOwners(handle: unknown, revision: number, paths: string): string;
   observe(handle: unknown): string;
   hint(handle: unknown, path: string): void;
   coverageLost(handle: unknown): void;
-  patch(handle: unknown, revision: number, operations: string, preconditions?: string): string;
+  patch(
+    handle: unknown,
+    revision: number,
+    operations: string,
+    preconditions?: string,
+    layoutCopySources?: string,
+  ): string;
   save(handle: unknown, revision: string): string;
   prepareWorking(handle: unknown, revision: number, testId: string): string;
   prepareCompleteWorking(handle: unknown, revision: number, testId: string): string;
@@ -192,10 +199,14 @@ parent.on('message', (raw: unknown) => {
           type: 'response',
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
-            JSON.parse(binding.saveTextSources(
-              handle, command.expectedRevision, JSON.stringify(command.paths),
-              JSON.stringify(command.diskPreconditions),
-            )),
+            JSON.parse(
+              binding.saveTextSources(
+                handle,
+                command.expectedRevision,
+                JSON.stringify(command.paths),
+                JSON.stringify(command.diskPreconditions),
+              ),
+            ),
           ),
         };
         break;
@@ -262,9 +273,20 @@ parent.on('message', (raw: unknown) => {
                 JSON.stringify(command.owners),
                 command.keepMine,
                 command.comments,
-                ...(command.textPaths
-                  ? [JSON.stringify(command.pathsByOwner ?? {}), JSON.stringify(command.textPaths)]
-                  : command.pathsByOwner ? [JSON.stringify(command.pathsByOwner)] : []),
+                ...(command.assetTransition
+                  ? [
+                      JSON.stringify(command.pathsByOwner ?? {}),
+                      JSON.stringify(command.textPaths ?? []),
+                      JSON.stringify(command.assetTransition),
+                    ]
+                  : command.textPaths
+                    ? [
+                        JSON.stringify(command.pathsByOwner ?? {}),
+                        JSON.stringify(command.textPaths),
+                      ]
+                    : command.pathsByOwner
+                      ? [JSON.stringify(command.pathsByOwner)]
+                      : []),
               ),
             ),
           ),
@@ -309,14 +331,26 @@ parent.on('message', (raw: unknown) => {
           requestId: command.requestId,
           result: nativeAuthoringResultSchema.parse(
             JSON.parse(
-              command.diskPreconditions
+              command.layoutCopySources
                 ? binding.patch(
                     handle,
                     command.expectedRevision,
                     JSON.stringify(command.patches),
-                    JSON.stringify(command.diskPreconditions),
+                    JSON.stringify(command.diskPreconditions ?? {}),
+                    JSON.stringify(command.layoutCopySources),
                   )
-                : binding.patch(handle, command.expectedRevision, JSON.stringify(command.patches)),
+                : command.diskPreconditions
+                  ? binding.patch(
+                      handle,
+                      command.expectedRevision,
+                      JSON.stringify(command.patches),
+                      JSON.stringify(command.diskPreconditions),
+                    )
+                  : binding.patch(
+                      handle,
+                      command.expectedRevision,
+                      JSON.stringify(command.patches),
+                    ),
             ),
           ),
         };

@@ -614,6 +614,12 @@ export const nativeProjectPatchArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.number().int().nonnegative(),
   z.array(nativeProjectPatchSchema).min(1).max(256),
+  z
+    .record(
+      z.string().regex(/^layouts\/[a-z][a-z0-9-]*$/u),
+      z.string().regex(/^layouts\/[a-z][a-z0-9-]*$/u),
+    )
+    .optional(),
 ]);
 /** Scoped native authoring Save; no renderer-supplied root or disk content. */
 export const nativeProjectSaveUnitArgumentsSchema = z
@@ -650,6 +656,52 @@ export const nativeProjectSaveUnitArgumentsSchema = z
             z.array(z.string().startsWith('/').max(512)).min(1).max(128),
           )
           .refine((owners) => Object.keys(owners).length <= 256, 'Too many native Save owners.')
+          .optional(),
+        assetTransition: z
+          .discriminatedUnion('kind', [
+            z
+              .object({
+                kind: z.literal('trash'),
+                projectRelativePaths: z
+                  .array(
+                    projectRelativePathSchema.refine(
+                      (value) => value.startsWith('assets/') && isSafeProjectAssetPath(value),
+                    ),
+                  )
+                  .min(1)
+                  .max(128),
+              })
+              .strict(),
+            z
+              .object({
+                kind: z.literal('restore'),
+                moves: z
+                  .array(
+                    z
+                      .object({
+                        projectRelativePath: projectRelativePathSchema.refine(
+                          (value) => value.startsWith('assets/') && isSafeProjectAssetPath(value),
+                        ),
+                        trashRelativePath: projectRelativePathSchema,
+                      })
+                      .strict()
+                      .refine((move) => {
+                        const prefix = '.noveltea/trash/assets/';
+                        const suffix = `/${move.projectRelativePath}`;
+                        if (
+                          !move.trashRelativePath.startsWith(prefix) ||
+                          !move.trashRelativePath.endsWith(suffix)
+                        )
+                          return false;
+                        const id = move.trashRelativePath.slice(prefix.length, -suffix.length);
+                        return id.length > 0 && !id.includes('/');
+                      }),
+                  )
+                  .min(1)
+                  .max(128),
+              })
+              .strict(),
+          ])
           .optional(),
         textPaths: z
           .array(

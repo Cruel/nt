@@ -119,12 +119,15 @@ export class NativeEditorSessionController {
     projectSessionId: string,
     expectedRevision: number,
     patches: readonly JsonPatchOperation[],
+    layoutCopySources?: Record<string, string>,
   ) {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Native Project is not admitted for this editor session.');
     const generation = this.generation;
     this.authority.requireActiveProjectRoot(projectSessionId);
-    const result = await this.working.applyRevisionedPatches(expectedRevision, patches);
+    const result = layoutCopySources
+      ? await this.working.applyRevisionedPatches(expectedRevision, patches, layoutCopySources)
+      : await this.working.applyRevisionedPatches(expectedRevision, patches);
     if (generation !== this.generation || !this.isAdmitted(projectSessionId))
       throw new Error('Native Project mutation completed for a superseded session.');
     return result;
@@ -140,6 +143,7 @@ export class NativeEditorSessionController {
       textPaths?: string[];
       textContents?: Record<string, string>;
       structuralPathsByOwner?: Record<string, string[]>;
+      assetTransition?: import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
     },
   ) {
     if (!this.isAdmitted(projectSessionId))
@@ -154,6 +158,7 @@ export class NativeEditorSessionController {
           comments: options.comments,
           keepMine: options.keepMine,
           expectedRevision,
+          assetTransition: options.assetTransition,
         })
       : await this.working.saveUnits(
           typeof saveUnitIds === 'string' ? [saveUnitIds] : saveUnitIds,

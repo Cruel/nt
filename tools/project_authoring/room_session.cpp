@@ -16,6 +16,9 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <atomic>
+#include <chrono>
+#include <random>
 #include <set>
 #include <cstdint>
 #include <cstring>
@@ -969,7 +972,8 @@ std::unique_ptr<RoomSession> RoomSession::open_record(const std::filesystem::pat
 
 std::unique_ptr<RoomSession>
 RoomSession::stage_new_record(const std::filesystem::path& project_root, std::string family,
-                              std::string id, std::string source_json, std::string& error)
+                              std::string id, std::string source_json, std::string& error,
+                              std::map<std::string, std::string> layout_companions)
 {
     try {
         if (!is_id(id) || !record_contracts().contains(family))
@@ -986,6 +990,7 @@ RoomSession::stage_new_record(const std::filesystem::path& project_root, std::st
         result->disk_revision_ = "absent";
         result->working_json_ = std::move(source_json);
         result->record_family_ = family;
+        result->layout_companion_sources_ = std::move(layout_companions);
         result->is_map_ = family == "maps";
         if (family != "rooms" && family != "maps")
             result->validation_contract_ = record_contracts().at(family);
@@ -3439,11 +3444,10 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
     return response;
 }
 
-RoomSessionResult
-ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
-                            bool keep_mine, TransactionDecision comments,
-                            const std::map<std::string, std::vector<std::string>>& paths,
-                            const std::vector<std::string>& text_paths)
+RoomSessionResult ProjectSession::save_owners(
+    std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
+    TransactionDecision comments, const std::map<std::string, std::vector<std::string>>& paths,
+    const std::vector<std::string>& text_paths, const std::optional<ProjectAssetTransition>& assets)
 {
     RoomSessionResult response;
     response.snapshot = snapshot();
@@ -3605,11 +3609,6 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
         }
         std::vector<YamlTransactionTarget> targets;
         std::map<std::string, Json> projected;
-        const bool creates_layout =
-            std::any_of(selected.begin(), selected.end(), [](const auto& entry) {
-                return entry.first.starts_with("layouts/") &&
-                       entry.second->snapshot().disk_source_revision == "absent";
-            });
         for (const auto& [owner, session] : deletions) {
             const auto state = session->snapshot();
             const auto filter = paths.find(owner);
@@ -3631,25 +3630,43 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                 for (const char* extension : {"rml", "rcss", "lua"}) {
                     const auto file =
                         session->source_path().parent_path() / (std::string("layout.") + extension);
-                    if (!std::filesystem::exists(file) && !std::filesystem::is_symlink(file))
+                    if (!std::filesystem::exists(file) && !std::filesystem::is_symlink(file)) {
+                        if (session->layout_companion_sources_.contains(extension))
+                            throw std::runtime_error(
+                                "WORKSPACE_REVISION_CONFLICT: removed Layout companion.");
                         continue;
+                    }
                     if (!std::filesystem::is_regular_file(file) ||
                         std::filesystem::is_symlink(file))
                         throw std::runtime_error("Unsafe Layout source companion: " +
                                                  file.string());
-                    if (creates_layout)
+                    const auto pinned = session->layout_companion_sources_.find(extension);
+                    if (pinned == session->layout_companion_sources_.end())
                         throw std::runtime_error(
-                            "Layout identity change requires atomic companion relocation.");
+                            "WORKSPACE_REVISION_CONFLICT: added Layout companion.");
                     YamlTransactionTarget sidecar;
                     sidecar.path = file.lexically_relative(root_).generic_string();
                     if (text_source_overlays_.contains(sidecar.path))
                         throw std::runtime_error(
                             "Cannot remove a Layout with an unsaved source companion: " +
                             sidecar.path);
-                    sidecar.baseline_source = read_bytes(file);
+                    // Stage-time bytes are the CAS baseline, never current
+                    // bytes re-read opportunistically during Save.
+                    sidecar.baseline_source = pinned->second;
                     sidecar.expected_revision = exact_source_revision(sidecar.baseline_source);
                     sidecar.erase = true;
+                    // Retain the physical Layout companion in a transactionally
+                    // owned, deterministic tombstone. Undo may occur after a
+                    // worker restart; an in-memory byte cache is insufficient.
+                    // The archive must be absent, so an unrelated historical
+                    // tombstone can never be silently overwritten.
+                    YamlTransactionTarget archive;
+                    archive.path = ".noveltea/trash/layouts/" +
+                                   owner.substr(sizeof("layouts/") - 1) + "/layout." + extension;
+                    archive.expected_revision = "absent";
+                    archive.create_source = sidecar.baseline_source;
                     targets.push_back(std::move(sidecar));
+                    targets.push_back(std::move(archive));
                 }
             }
         }
@@ -3671,6 +3688,50 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                 creation.expected_revision = "absent";
                 creation.create_source = state.source_json;
                 targets.push_back(std::move(creation));
+                if (owner.starts_with("layouts/")) {
+                    if (!session->layout_companion_origin_.empty()) {
+                        const bool archived = session->layout_companion_origin_.starts_with(
+                            ".noveltea/trash/layouts/");
+                        const auto previous =
+                            archived ? root_ / session->layout_companion_origin_
+                                     : root_ / "records" / session->layout_companion_origin_;
+                        for (const char* extension : {"rml", "rcss", "lua"}) {
+                            const auto original = previous / (std::string("layout.") + extension);
+                            const auto staged = session->layout_companion_sources_.find(extension);
+                            if (std::filesystem::is_symlink(original) ||
+                                (staged == session->layout_companion_sources_.end()
+                                     ? std::filesystem::exists(original)
+                                     : !std::filesystem::is_regular_file(original) ||
+                                           read_bytes(original) != staged->second))
+                                throw std::runtime_error(
+                                    "WORKSPACE_REVISION_CONFLICT: Layout companion changed since "
+                                    "staging: " +
+                                    original.string());
+                            if (archived && staged != session->layout_companion_sources_.end()) {
+                                YamlTransactionTarget removal;
+                                removal.path = original.lexically_relative(root_).generic_string();
+                                removal.expected_revision = exact_source_revision(staged->second);
+                                removal.baseline_source = staged->second;
+                                removal.erase = true;
+                                targets.push_back(std::move(removal));
+                            }
+                        }
+                    }
+                    for (const auto& [extension, bytes] : session->layout_companion_sources_) {
+                        YamlTransactionTarget sidecar;
+                        sidecar.path =
+                            (session->source_path().parent_path() / ("layout." + extension))
+                                .lexically_relative(root_)
+                                .generic_string();
+                        if (std::filesystem::exists(root_ / sidecar.path) ||
+                            std::filesystem::is_symlink(root_ / sidecar.path))
+                            throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " +
+                                                     sidecar.path);
+                        sidecar.expected_revision = "absent";
+                        sidecar.create_source = bytes;
+                        targets.push_back(std::move(sidecar));
+                    }
+                }
                 continue;
             }
             auto filter = paths.find(owner);
@@ -3738,6 +3799,78 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             text_target.raw_text_source = overlay->second;
             targets.push_back(std::move(text_target));
         }
+        std::vector<std::pair<std::string, std::string>> asset_moves;
+        if (assets) {
+            if (assets->paths.size() + assets->moves.size() > 128 ||
+                (!assets->paths.empty() && !assets->moves.empty()))
+                throw std::runtime_error("Invalid native Asset transition selection.");
+            const auto safe_path = [&](const std::string& relative, bool trash) {
+                const auto prefix = trash ? ".noveltea/trash/assets/" : "assets/";
+                if (!relative.starts_with(prefix) || relative.size() <= std::strlen(prefix) ||
+                    relative.find('\\') != std::string::npos ||
+                    relative.find(':') != std::string::npos ||
+                    relative.find('\0') != std::string::npos ||
+                    std::filesystem::path(relative).is_absolute() ||
+                    std::filesystem::path(relative) !=
+                        std::filesystem::path(relative).lexically_normal())
+                    throw std::runtime_error("Unsafe native Asset transition path: " + relative);
+                const auto candidate = root_ / relative;
+                const auto contained =
+                    std::filesystem::weakly_canonical(candidate).lexically_relative(
+                        std::filesystem::canonical(root_));
+                if (contained.empty() || *contained.begin() == "..")
+                    throw std::runtime_error("Native Asset transition escapes Project root.");
+                for (auto parent = candidate; parent != root_; parent = parent.parent_path()) {
+                    std::error_code error;
+                    const auto status = std::filesystem::symlink_status(parent, error);
+                    if (!error && std::filesystem::is_symlink(status))
+                        throw std::runtime_error("Native Asset transition follows a symlink.");
+                    if (error && error != std::errc::no_such_file_or_directory)
+                        throw std::runtime_error("Cannot inspect Asset transition path.");
+                }
+                return candidate;
+            };
+            const auto append_move = [&](const std::string& from, const std::string& to) {
+                const auto source = safe_path(from, from.starts_with(".noveltea/"));
+                safe_path(to, to.starts_with(".noveltea/"));
+                if (!std::filesystem::is_regular_file(source))
+                    throw std::runtime_error("Asset transition source is missing: " + from);
+                const auto bytes = read_bytes(source);
+                YamlTransactionTarget remove;
+                remove.path = from;
+                remove.expected_revision = exact_source_revision(bytes);
+                remove.baseline_source = bytes;
+                remove.erase = true;
+                remove.raw_asset_file = true;
+                targets.push_back(std::move(remove));
+                YamlTransactionTarget create;
+                create.path = to;
+                create.expected_revision = "absent";
+                create.create_source = bytes;
+                create.raw_asset_file = true;
+                targets.push_back(std::move(create));
+            };
+            if (assets->kind == ProjectAssetTransition::Kind::Trash) {
+                static std::atomic<std::uint64_t> serial{0};
+                const auto transaction_id =
+                    std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                    "-" + std::to_string(std::random_device{}()) + "-" + std::to_string(++serial);
+                for (const auto& source : assets->paths) {
+                    const auto trash = ".noveltea/trash/assets/" + transaction_id + "/" + source;
+                    append_move(source, trash);
+                    asset_moves.emplace_back(source, trash);
+                }
+            } else {
+                for (const auto& [source, trash] : assets->moves) {
+                    const auto suffix = "/" + source;
+                    const auto token_start = std::string_view(".noveltea/trash/assets/").size();
+                    if (!trash.starts_with(".noveltea/trash/assets/") || !trash.ends_with(suffix) ||
+                        trash.find('/', token_start) != trash.size() - suffix.size())
+                        throw std::runtime_error("Restore source does not match Asset trash move.");
+                    append_move(trash, source);
+                }
+            }
+        }
         if (targets.empty()) {
             response.accepted = true;
             return response;
@@ -3751,7 +3884,33 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             throw std::runtime_error(
                 "Native Save cannot treat an unapplied dirty owner as successfully persisted.");
         for (const auto& proposed : prepared.targets) {
+            if (const auto asset = std::find_if(targets.begin(), targets.end(),
+                                                [&](const auto& target) {
+                                                    return target.raw_asset_file &&
+                                                           target.path == proposed.path;
+                                                });
+                asset != targets.end()) {
+                if (proposed.after_revision !=
+                    (asset->erase ? "absent" : exact_source_revision(*asset->create_source)))
+                    throw std::runtime_error("Native Asset journal changed staged file bytes.");
+                continue;
+            }
             if (proposed.erase) {
+                const auto restored_archive =
+                    std::find_if(selected.begin(), selected.end(), [&](const auto& item) {
+                        if (!item.second->layout_companion_origin_.starts_with(
+                                ".noveltea/trash/layouts/"))
+                            return false;
+                        for (const char* extension : {"rml", "rcss", "lua"})
+                            if ((root_ / item.second->layout_companion_origin_ /
+                                 (std::string("layout.") + extension))
+                                    .lexically_relative(root_)
+                                    .generic_string() == proposed.path)
+                                return true;
+                        return false;
+                    });
+                if (restored_archive != selected.end() && proposed.after_revision == "absent")
+                    continue;
                 const auto deleted =
                     std::find_if(deletions.begin(), deletions.end(), [&](const auto& item) {
                         const auto source = item.second->source_path();
@@ -3775,12 +3934,45 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                         "Deleting commented records requires explicit Remove Comments approval.");
                 continue;
             }
+            if (proposed.path.starts_with(".noveltea/trash/layouts/")) {
+                const auto archived =
+                    std::find_if(deletions.begin(), deletions.end(), [&](const auto& item) {
+                        if (!item.first.starts_with("layouts/"))
+                            return false;
+                        const auto base = ".noveltea/trash/layouts/" +
+                                          item.first.substr(sizeof("layouts/") - 1) + "/";
+                        for (const char* extension : {"rml", "rcss", "lua"})
+                            if (proposed.path == base + "layout." + extension)
+                                return proposed.after_source ==
+                                       read_bytes(item.second->source_path().parent_path() /
+                                                  (std::string("layout.") + extension));
+                        return false;
+                    });
+                if (archived == deletions.end())
+                    throw std::runtime_error("Unrecognized Layout archive creation.");
+                continue;
+            }
             if (selected_text.contains(proposed.path)) {
                 if (proposed.after_source != text_source_overlays_.at(proposed.path))
                     throw std::runtime_error(
                         "Native text Save projection differs from staged bytes.");
                 continue;
             }
+            if (const auto created_sidecar = std::find_if(
+                    selected.begin(), selected.end(),
+                    [&](const auto& item) {
+                        if (!item.first.starts_with("layouts/"))
+                            return false;
+                        const auto& sources = item.second->layout_companion_sources_;
+                        for (const auto& [extension, bytes] : sources)
+                            if ((item.second->source_path().parent_path() / ("layout." + extension))
+                                    .lexically_relative(root_)
+                                    .generic_string() == proposed.path)
+                                return bytes == proposed.after_source;
+                        return false;
+                    });
+                created_sidecar != selected.end())
+                continue;
             const auto reopened = open_yaml_source(proposed.after_source);
             if (!reopened.accepted)
                 throw std::runtime_error("Proposed Save source cannot be reopened.");
@@ -3797,6 +3989,16 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             source_authority_->coverage_lost();
             throw std::runtime_error(committed.error);
         }
+        response.asset_trash_moves = std::move(asset_moves);
+        for (const auto& target : prepared.targets)
+            if (const auto asset = std::find_if(targets.begin(), targets.end(),
+                                                [&](const auto& candidate) {
+                                                    return candidate.raw_asset_file &&
+                                                           candidate.path == target.path;
+                                                });
+                asset != targets.end() && target.path.starts_with("assets/") &&
+                !source_authority_->acknowledge_own_write(target.path, target.after_revision))
+                source_authority_->coverage_lost();
         for (const auto& [owner, session] : selected) {
             const auto it = std::find_if(
                 prepared.targets.begin(), prepared.targets.end(),
@@ -3809,6 +4011,9 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             session->disk_source_ = it->after_source;
             session->disk_revision_ = it->after_revision;
             session->disk_json_ = open_yaml_source(it->after_source).source_json;
+            session->layout_companion_sources_.clear();
+            session->layout_companion_origin_.clear();
+            session->snapshot_cache_.reset();
             auto filter = paths.find(owner);
             if (filter != paths.end() && filter->second.size() == 1 &&
                 filter->second.front() == "/")
@@ -3852,9 +4057,9 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
             }
         }
         for (const auto& target : prepared.targets)
-            if (target.erase && target.path.starts_with("records/layouts/") &&
+            if (target.path.starts_with("records/layouts/") &&
                 !target.path.ends_with("/layout.yaml") &&
-                !source_authority_->acknowledge_own_write(target.path, "absent"))
+                !source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
         for (const auto& target : prepared.targets) {
             if (!selected_text.contains(target.path))
@@ -3887,7 +4092,8 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
 
 RoomSessionResult
 ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
-                      const std::map<std::string, std::string>& disk_preconditions)
+                      const std::map<std::string, std::string>& disk_preconditions,
+                      const std::map<std::string, std::string>& layout_copy_sources)
 {
     RoomSessionResult response;
     response.snapshot = snapshot();
@@ -4008,8 +4214,27 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 if (source_revision_or_absent(found->second->source_path()) !=
                     found->second->snapshot().disk_source_revision)
                     throw std::runtime_error("External source conflict for " + owner);
-                if (found->second->snapshot().disk_source_revision != "absent")
-                    staged_deletions.emplace(owner, found->second->clone());
+                if (found->second->snapshot().disk_source_revision != "absent") {
+                    auto deleted = found->second->clone();
+                    if (family == "layouts") {
+                        // Pin all owned physical companions at mutation time,
+                        // not when a later Save happens to read the directory.
+                        // A concurrent edit/add/remove must reject the entire
+                        // YAML + companion transaction.
+                        for (const char* extension : {"rml", "rcss", "lua"}) {
+                            const auto file = deleted->source_path().parent_path() /
+                                              (std::string("layout.") + extension);
+                            if (!std::filesystem::exists(file) &&
+                                !std::filesystem::is_symlink(file))
+                                continue;
+                            if (std::filesystem::is_symlink(file) ||
+                                !std::filesystem::is_regular_file(file))
+                                throw std::runtime_error("Unsafe Layout source companion.");
+                            deleted->layout_companion_sources_.emplace(extension, read_bytes(file));
+                        }
+                    }
+                    staged_deletions.emplace(owner, std::move(deleted));
+                }
                 staged.erase(found);
                 affected.insert(owner);
                 continue;
@@ -4032,10 +4257,101 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                     continue;
                 }
                 std::string error;
-                auto created =
-                    RoomSession::stage_new_record(root_, family, id, operation.value_json, error);
+                std::map<std::string, std::string> companions;
+                std::string companion_origin;
+                if (family == "layouts") {
+                    // Layout copies/renames carry their local source bytes as
+                    // a staged overlay; the generic journal will publish them.
+                    const auto hint = layout_copy_sources.find(owner);
+                    if (hint != layout_copy_sources.end()) {
+                        if (!hint->second.starts_with("layouts/") ||
+                            !is_id(hint->second.substr(sizeof("layouts/") - 1)))
+                            throw std::runtime_error("Invalid Layout copy source owner.");
+                    }
+                    if (hint != layout_copy_sources.end() &&
+                        (hint->second == owner || staged_deletions.contains(hint->second))) {
+                        // Undoing deletion uses this owner's archive; reversing
+                        // a rename also consumes the destination owner's
+                        // archive before its source becomes a new tombstone.
+                        // Otherwise a rename->undo->redo cycle would collide
+                        // with a left-behind archive from the first rename.
+                        const auto archive = ".noveltea/trash/layouts/" + id;
+                        for (auto parent = root_ / archive; parent != root_;
+                             parent = parent.parent_path())
+                            if (std::filesystem::is_symlink(parent))
+                                throw std::runtime_error("Unsafe archived Layout directory.");
+                        for (const char* extension : {"rml", "rcss", "lua"}) {
+                            const auto path =
+                                root_ / archive / (std::string("layout.") + extension);
+                            if (!std::filesystem::exists(path) &&
+                                !std::filesystem::is_symlink(path))
+                                continue;
+                            if (std::filesystem::is_symlink(path) ||
+                                !std::filesystem::is_regular_file(path))
+                                throw std::runtime_error("Unsafe archived Layout companion.");
+                            companions.emplace(extension, read_bytes(path));
+                        }
+                        // Inline and Asset-backed Layouts have no owned sidecar.
+                        // Their generic YAML undo must still work without a
+                        // companion archive; file-backed Layout validation
+                        // will reject a missing required local source.
+                        if (!companions.empty())
+                            companion_origin = archive;
+                    }
+                    const auto collect = [&](const auto& sources) {
+                        std::size_t matches = 0;
+                        for (const auto& [source_owner, source] : sources) {
+                            if (!source_owner.starts_with("layouts/"))
+                                continue;
+                            if (hint != layout_copy_sources.end() && source_owner != hint->second)
+                                continue;
+                            std::map<std::string, std::string> source_companions;
+                            for (const char* extension : {"rml", "rcss", "lua"}) {
+                                const auto old_path = source->source_path().parent_path() /
+                                                      (std::string("layout.") + extension);
+                                if (!std::filesystem::exists(old_path) &&
+                                    !std::filesystem::is_symlink(old_path))
+                                    continue;
+                                if (std::filesystem::is_symlink(old_path) ||
+                                    !std::filesystem::is_regular_file(old_path))
+                                    throw std::runtime_error("Unsafe Layout companion: " +
+                                                             old_path.string());
+                                if (text_source_overlays_.contains(
+                                        old_path.lexically_relative(root_).generic_string()))
+                                    throw std::runtime_error(
+                                        "Cannot clone a Layout with an unsaved source companion.");
+                                source_companions.emplace(extension, read_bytes(old_path));
+                            }
+                            if (source_companions.empty())
+                                continue;
+                            if (++matches != 1)
+                                throw std::runtime_error(
+                                    "Ambiguous Layout companion origin; structural patch cannot "
+                                    "infer which source to copy.");
+                            companions = std::move(source_companions);
+                            companion_origin = source_owner;
+                        }
+                        return matches != 0;
+                    };
+                    if (companions.empty() && hint != layout_copy_sources.end() &&
+                        hint->second != owner && !collect(staged_deletions) && !collect(staged)) {
+                        std::string source_error;
+                        auto original = RoomSession::open_record(
+                            root_, "layouts", hint->second.substr(sizeof("layouts/") - 1),
+                            source_error);
+                        if (!original)
+                            throw std::runtime_error("Cannot inspect Layout copy source: " +
+                                                     source_error);
+                        std::map<std::string, std::unique_ptr<RoomSession>> source;
+                        source.emplace(hint->second, std::move(original));
+                        collect(source);
+                    }
+                }
+                auto created = RoomSession::stage_new_record(
+                    root_, family, id, operation.value_json, error, std::move(companions));
                 if (!created)
                     throw std::runtime_error("Cannot create " + family + "/" + id + ": " + error);
+                created->layout_companion_origin_ = std::move(companion_origin);
                 staged.emplace(family + "/" + id, std::move(created));
                 affected.insert(family + "/" + id);
                 continue;
@@ -4287,10 +4603,11 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_record(validation_contract_, projected.to_string());
     }
     if (record_family_ == "layouts") {
-        std::map<std::string, std::string> companions;
+        auto companions = layout_companion_sources_;
         for (const auto* channel : {"rml", "rcss", "lua"}) {
             const auto path = path_.parent_path() / (std::string("layout.") + channel);
-            if (std::filesystem::exists(path) && std::filesystem::is_regular_file(path))
+            if (!companions.contains(channel) && std::filesystem::exists(path) &&
+                std::filesystem::is_regular_file(path))
                 companions.emplace(channel, read_bytes(path));
         }
         return validate_layout_source(source_json, companions);

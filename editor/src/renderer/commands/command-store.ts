@@ -126,6 +126,53 @@ const nativeRecordFamilies = new Set([
   'verbs',
 ]);
 
+/** Physical trash identity is returned by the committed native journal.
+ * Never synthesize a restore destination from a record ID or disk state. */
+const nativeAssetTrashByCommandId = new Map<
+  string,
+  import('../../shared/project-asset-audit').ProjectAssetTrashMove[]
+>();
+const nativeLayoutCopyByCommandId = new Map<string, Record<string, string>>();
+
+function layoutSourceFromRequest(request: CommandRequest): Record<string, string> {
+  if (
+    request.type !== 'entity.duplicateRecord' ||
+    !request.payload ||
+    typeof request.payload !== 'object' ||
+    Array.isArray(request.payload)
+  )
+    return {};
+  const data = request.payload as Record<string, unknown>;
+  if (
+    data.collection !== 'layouts' ||
+    typeof data.sourceId !== 'string' ||
+    typeof data.targetId !== 'string'
+  )
+    return {};
+  return { [`layouts/${data.targetId}`]: `layouts/${data.sourceId}` };
+}
+
+function nativeAssetTransition(
+  entry: CommandHistoryEntry | undefined,
+  direction: 'command' | 'undo' | 'redo',
+): import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'] {
+  const operations = entry?.autoCommitPlan?.filesystemOperations.filter(
+    (operation) => operation.kind !== 'preexisting-project-assets',
+  );
+  if (!operations?.length) return undefined;
+  if (operations.length !== 1)
+    throw new Error('Native structural Save requires one coherent Asset transition.');
+  const operation = operations[0]!;
+  const trash =
+    operation.kind === 'trash-project-assets' ? direction !== 'undo' : direction === 'undo';
+  if (trash) return { kind: 'trash', projectRelativePaths: operation.projectRelativePaths };
+  if (direction === 'command' && operation.kind === 'staged-project-assets') return undefined;
+  const moves = nativeAssetTrashByCommandId.get(entry!.id);
+  if (!moves?.length || moves.length !== operation.projectRelativePaths.length)
+    throw new Error('Native structural Asset restoration has no committed trash identity.');
+  return { kind: 'restore', moves };
+}
+
 /** Derive the physical YAML owner selection from the accepted generic patches,
  * not the command name or a renderer-provided filesystem path. All owners
  * commit in one native journal, including reference and editor metadata edits. */
@@ -165,6 +212,7 @@ async function submitNativeCommand(
   proposal: ReturnType<typeof executeCommandCore>,
   patches: readonly import('@/project/json-patch').JsonPatchOperation[],
   kind: 'command' | 'undo' | 'redo',
+  layoutCopySources?: Record<string, string>,
 ): Promise<CommandExecutionResult> {
   const state = useCommandStore.getState();
   const revision = state.nativeWorkingRevision;
@@ -182,6 +230,7 @@ async function submitNativeCommand(
   if (!proposal.ok || !proposal.projectChanged) return proposal;
   let effectiveProposal = proposal;
   let plan = proposal.historyEntry?.autoCommitPlan;
+  const originalPlan = plan;
   const convertToManual = (reason: string): boolean => {
     if (
       kind !== 'command' ||
@@ -217,15 +266,6 @@ async function submitNativeCommand(
     plan = undefined;
     return true;
   };
-  if (
-    plan?.filesystemOperations.some(
-      (operation) => operation.kind !== 'preexisting-project-assets',
-    ) &&
-    !convertToManual('Associated asset files require an atomic native file move.')
-  )
-    return nativeOnlyResult(
-      'Native structural Save cannot yet atomically journal associated asset file moves.',
-    );
   let savedBaseline: JsonValue | null = null;
   if (plan) {
     if (!project.savedDocument)
@@ -265,6 +305,72 @@ async function submitNativeCommand(
       );
     }
   }
+  // Resolve physical paths and restore identity before staging a generic
+  // patch. No unsupported Asset transition may strand a dirty native session.
+  let structuralPathsByOwner: Record<string, string[]> | undefined;
+  let assetTransition:
+    | import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition']
+    | undefined;
+  if (plan) {
+    try {
+      structuralPathsByOwner = nativeStructuralOwners(patches);
+      if (!Object.keys(structuralPathsByOwner).length)
+        throw new Error('Native structural Save has no changed YAML owners.');
+      assetTransition = nativeAssetTransition(effectiveProposal.historyEntry, kind);
+      if (effectiveProposal.historyEntry) {
+        const planHints = Object.fromEntries(
+          plan.identityRemap.flatMap(({ fromPath, toPath }) => {
+            const from = (kind === 'undo' ? toPath : fromPath).match(
+              /^\/layouts\/([a-z][a-z0-9-]*)$/u,
+            );
+            const to = (kind === 'undo' ? fromPath : toPath).match(
+              /^\/layouts\/([a-z][a-z0-9-]*)$/u,
+            );
+            return from && to ? [[`layouts/${to[1]}`, `layouts/${from[1]}`]] : [];
+          }),
+        );
+        layoutCopySources = {
+          ...planHints,
+          ...(nativeLayoutCopyByCommandId.get(effectiveProposal.historyEntry.id) ?? {}),
+          ...(layoutCopySources ?? {}),
+        };
+        if (kind === 'undo') {
+          for (const patch of patches) {
+            const match = patch.op === 'add'
+              ? patch.path.match(/^\/layouts\/([a-z][a-z0-9-]*)$/u)
+              : null;
+            if (match) {
+              const owner = `layouts/${match[1]}`;
+              layoutCopySources[owner] ??= owner;
+            }
+          }
+        }
+        layoutCopySources = Object.fromEntries(
+          Object.entries(layoutCopySources).filter(([owner]) =>
+            patches.some((patch) => patch.op === 'add' && patch.path === `/${owner}`),
+          ),
+        );
+      }
+    } catch (error) {
+      return nativeOnlyResult(
+        error instanceof Error ? error.message : 'Invalid native structural Save.',
+      );
+    }
+  }
+  if (!plan && originalPlan && kind === 'command') {
+    // Manual Save postpones persistence, not the provenance of copied Layout
+    // source files that the working native patch will still need to validate.
+    layoutCopySources = {
+      ...Object.fromEntries(
+        originalPlan.identityRemap.flatMap(({ fromPath, toPath }) => {
+          const from = fromPath.match(/^\/layouts\/([a-z][a-z0-9-]*)$/u);
+          const to = toPath.match(/^\/layouts\/([a-z][a-z0-9-]*)$/u);
+          return from && to ? [[`layouts/${to[1]}`, `layouts/${from[1]}`]] : [];
+        }),
+      ),
+      ...(layoutCopySources ?? {}),
+    };
+  }
   const generation = project.projectRevision;
   const instanceId = project.projectInstanceId;
   const historyAtSubmission = state.history;
@@ -276,7 +382,15 @@ async function submitNativeCommand(
       patches,
       projectSessionId,
       revision,
-      (sessionId, expected, next) => window.noveltea.nativeProjectPatch(sessionId, expected, next),
+      (sessionId, expected, next) =>
+        window.noveltea.nativeProjectPatch(
+          sessionId,
+          expected,
+          next,
+          layoutCopySources && Object.keys(layoutCopySources).length
+            ? layoutCopySources
+            : undefined,
+        ),
     );
     // A rejected generic patch did not stage a structural change. In
     // particular, it must never fall through to the physical Save attempt.
@@ -287,16 +401,20 @@ async function submitNativeCommand(
       });
       return confirmed.result;
     }
+    if (
+      layoutCopySources &&
+      Object.keys(layoutCopySources).length &&
+      effectiveProposal.historyEntry &&
+      kind === 'command'
+    )
+      nativeLayoutCopyByCommandId.set(effectiveProposal.historyEntry.id, layoutCopySources);
     let workingRevision = confirmed.workingRevision;
-    if (plan) {
-      const structuralPathsByOwner = nativeStructuralOwners(patches);
-      if (!Object.keys(structuralPathsByOwner).length)
-        throw new Error('Native structural Save has no changed YAML owners.');
+    if (plan && structuralPathsByOwner) {
       let saved = await window.noveltea.nativeProjectSaveUnit(
         projectSessionId,
         workingRevision,
         [],
-        { structuralPathsByOwner, comments: 'keep' },
+        { structuralPathsByOwner, comments: 'keep', assetTransition },
       );
       if (!saved.accepted && saved.commentImpacts?.length) {
         const decision = await confirmProjectComments(saved.commentImpacts, plan.commandType);
@@ -305,7 +423,7 @@ async function submitNativeCommand(
             projectSessionId,
             workingRevision,
             [],
-            { structuralPathsByOwner, comments: 'remove' },
+            { structuralPathsByOwner, comments: 'remove', assetTransition },
           );
         else if (decision !== 'cancel')
           throw new Error('Native structural comment approval returned an invalid decision.');
@@ -328,8 +446,37 @@ async function submitNativeCommand(
             `Native structural Save and rollback failed: ${saved.error}; ${restored.error}`,
           );
         assertNativeProjection(project.document!, inverse, restored);
+        let restoredRevision = restored.snapshot.workingRevision;
+        const stagedImport =
+          kind === 'command'
+            ? plan.filesystemOperations.find(
+                (operation) => operation.kind === 'staged-project-assets',
+              )
+            : undefined;
+        if (stagedImport) {
+          // An importer may have already copied bytes into the Project before
+          // asking the editor to commit metadata. Failed metadata persistence
+          // must not leave those copied files behind as unowned active Assets.
+          const cleanup = await window.noveltea.nativeProjectSaveUnit(
+            projectSessionId,
+            restoredRevision,
+            [],
+            {
+              structuralPathsByOwner: {},
+              assetTransition: {
+                kind: 'trash',
+                projectRelativePaths: stagedImport.projectRelativePaths,
+              },
+            },
+          );
+          if (!cleanup.accepted)
+            throw new Error(
+              `Native structural Save rejected (${saved.error}); staged Asset cleanup failed: ${cleanup.error}`,
+            );
+          restoredRevision = cleanup.snapshot.workingRevision;
+        }
         useCommandStore.setState({
-          nativeWorkingRevision: restored.snapshot.workingRevision,
+          nativeWorkingRevision: restoredRevision,
           nativeMutationPending: false,
           lastDiagnostics: [
             { severity: 'error', message: saved.error || 'Native structural Save rejected.' },
@@ -338,6 +485,8 @@ async function submitNativeCommand(
         return nativeOnlyResult(saved.error || 'Native structural Save rejected.');
       }
       assertNativeProjection(effectiveProposal.document!, patches, saved);
+      if (saved.assetTrashMoves?.length && effectiveProposal.historyEntry)
+        nativeAssetTrashByCommandId.set(effectiveProposal.historyEntry.id, saved.assetTrashMoves);
       workingRevision = saved.snapshot.workingRevision;
     }
     const current = useProjectStore.getState();
@@ -695,7 +844,12 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           nativeOnlyResult('Native Project transactions require asynchronous commit support.'),
         );
       const proposal = executeCommandCore(busStateFromStores(get().history), request);
-      return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
+      return submitNativeCommand(
+        proposal,
+        proposal.historyEntry?.patches ?? [],
+        'command',
+        layoutSourceFromRequest(request),
+      );
     });
   },
   saveNativeUnitAsync: async (saveUnitIds, expectedProjectRevision, options, onAcknowledged) => {
@@ -948,7 +1102,12 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         working = step.state;
       }
       const proposal = commitTransactionCore(working);
-      return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'command');
+      return submitNativeCommand(
+        proposal,
+        proposal.historyEntry?.patches ?? [],
+        'command',
+        Object.assign({}, ...requests.map(layoutSourceFromRequest)),
+      );
     });
   },
   undoAsync: async () => {
@@ -1043,6 +1202,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   },
   resetCommandHistory: () =>
     set((current) => {
+      nativeAssetTrashByCommandId.clear();
+      nativeLayoutCopyByCommandId.clear();
       // A history reset within a native Project must never silently reactivate
       // the retired TypeScript command writer. Only unloading/switching to a
       // different session can clear native authority.

@@ -1302,7 +1302,7 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_PATCH,
     (arguments_) => nativeProjectPatchArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, patches) => {
+    (projectSessionId, expectedRevision, patches, layoutCopySources = undefined) => {
       // Never activate a second writable Project behind the normal Save
       // pipeline. This endpoint is enabled only by an explicit cutover
       // certification launch; physical Save uses a separate revision-checked
@@ -1313,6 +1313,7 @@ void app.whenReady().then(async () => {
         projectSessionId,
         expectedRevision,
         patches,
+        layoutCopySources,
       );
     },
   );
@@ -1339,7 +1340,11 @@ void app.whenReady().then(async () => {
       if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
         throw new Error('Native Project text Save is not enabled for this editor.');
       return nativeEditorAdmission.saveText(
-        projectSessionId, expectedRevision, path, diskRevision, text,
+        projectSessionId,
+        expectedRevision,
+        path,
+        diskRevision,
+        text,
       );
     },
   );
@@ -1351,7 +1356,11 @@ void app.whenReady().then(async () => {
       if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
         throw new Error('Native Project text staging is not enabled for this editor.');
       return nativeEditorAdmission.stageText(
-        projectSessionId, expectedRevision, path, diskRevision, text,
+        projectSessionId,
+        expectedRevision,
+        path,
+        diskRevision,
+        text,
       );
     },
   );
@@ -1392,7 +1401,11 @@ void app.whenReady().then(async () => {
     (projectSessionId, expectedRevision, shaderVariant) => {
       if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
         throw new Error('Native runtime preparation is not enabled for this editor.');
-      return nativeEditorAdmission.prepareRuntime(projectSessionId, expectedRevision, shaderVariant);
+      return nativeEditorAdmission.prepareRuntime(
+        projectSessionId,
+        expectedRevision,
+        shaderVariant,
+      );
     },
   );
 

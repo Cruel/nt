@@ -68,6 +68,94 @@ function nativeAck(name: string, revision: number, accepted = true) {
 }
 
 describe('native-backed renderer commands', () => {
+  it('journals copied Asset trash on undo and restores its exact native move on redo', async () => {
+    const asset = {
+      originalPath: '/tmp/logo.png',
+      originalName: 'logo.png',
+      projectRelativePath: 'assets/images/logo.png',
+      kind: 'image' as const,
+      extension: '.png',
+      mimeType: 'image/png',
+      byteSize: 4,
+      contentHash: `sha256:${'0'.repeat(64)}`,
+      importedAt: '2026-07-19T00:00:00.000Z',
+      imageMetadata: { width: 256, height: 256, hasAlpha: true, orientation: 1 },
+    };
+    const move = {
+      projectRelativePath: asset.projectRelativePath,
+      trashRelativePath: '.noveltea/trash/assets/native-test/assets/images/logo.png',
+    };
+    let nativeDocument: JsonValue = useProjectStore.getState().document!;
+    let revision = 0;
+    let affected = '';
+    const ack = () => ({
+      ...nativeAck('Saved Project', revision),
+      affectedRecords: [affected],
+      snapshot: {
+        ...nativeAck('Saved Project', revision).snapshot,
+        source: nativeDocument,
+        recordSnapshots: hasJsonAtPointer(nativeDocument, '/assets/logo')
+          ? { [affected]: { source: getJsonAtPointer(nativeDocument, '/assets/logo') } }
+          : {},
+      },
+    });
+    const patch = vi.fn(
+      async (_session: string, expected: number, patches: Parameters<typeof applyJsonPatch>[1]) => {
+        expect(expected).toBe(revision);
+        nativeDocument = applyJsonPatch(nativeDocument, patches).document;
+        revision++;
+        affected = 'assets/logo';
+        return ack();
+      },
+    );
+    const save = vi.fn(
+      async (
+        _session: string,
+        expected: number,
+        _ids: string[],
+        options: {
+          assetTransition?: {
+            kind: string;
+            projectRelativePaths?: string[];
+            moves?: (typeof move)[];
+          };
+        },
+      ) => {
+        expect(expected).toBe(revision);
+        revision++;
+        return {
+          ...ack(),
+          ...(options.assetTransition?.kind === 'trash' ? { assetTrashMoves: [move] } : {}),
+        };
+      },
+    );
+    Object.defineProperty(window.noveltea, 'nativeProjectPatch', {
+      configurable: true,
+      value: patch,
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: save,
+    });
+    const imported = await useCommandStore.getState().executeCommandAsync({
+      type: 'asset.importFiles',
+      label: 'Import native Asset',
+      payload: { assets: [asset], fileOrigin: 'copied-by-import' },
+      originSaveUnitId: 'workflow:asset-import',
+      persistencePolicy: 'auto-commit',
+    });
+    expect(imported.ok, JSON.stringify(imported.diagnostics)).toBe(true);
+    expect(save.mock.calls[0]?.[3].assetTransition).toBeUndefined();
+    expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
+    expect(save.mock.calls[1]?.[3].assetTransition).toEqual({
+      kind: 'trash',
+      projectRelativePaths: [asset.projectRelativePath],
+    });
+    expect((await useCommandStore.getState().redoAsync()).ok).toBe(true);
+    expect(save.mock.calls[2]?.[3].assetTransition).toEqual({ kind: 'restore', moves: [move] });
+    expect(useProjectStore.getState().savedDocument).toMatchObject({ assets: { logo: {} } });
+  });
+
   it('auto-commits structural creation, undo, and redo only after a native scoped Save', async () => {
     const createdId = 'native-structural-room';
     let nativeDocument: JsonValue = useProjectStore.getState().document!;

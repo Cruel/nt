@@ -51,6 +51,72 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('moves and restores binary Asset bytes through the real worker and native journal', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const assetPath = 'assets/native-structural/bytes.bin';
+    const original = path.join(root, assetPath);
+    const bytes = Buffer.from([0, 255, 13, 10, 40, 41]);
+    await mkdir(path.dirname(original), { recursive: true });
+    await writeFile(original, bytes);
+    const trashed = await working.saveOwners([], {
+      assetTransition: { kind: 'trash', projectRelativePaths: [assetPath] },
+    });
+    expect(trashed.accepted, trashed.error).toBe(true);
+    expect(trashed.assetTrashMoves).toHaveLength(1);
+    const move = trashed.assetTrashMoves![0]!;
+    await expect(readFile(original)).rejects.toThrow();
+    expect(await readFile(path.join(root, move.trashRelativePath))).toEqual(bytes);
+    const restored = await working.saveOwners([], {
+      assetTransition: { kind: 'restore', moves: [move] },
+    });
+    expect(restored.accepted, restored.error).toBe(true);
+    expect(await readFile(original)).toEqual(bytes);
+    await expect(readFile(path.join(root, move.trashRelativePath))).rejects.toThrow();
+  }, 120_000);
+
+  it('duplicates a tracked Layout and its companions through generic native patch/Save/reopen', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-layout-copy-'));
+    await cp(fixture, root, { recursive: true });
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => root, isCurrent: () => true },
+      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    );
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const working = new NativeAuthoringWorkingProject(bridge);
+    await working.open('native-layout-copy');
+    const originalOwner = 'layouts/notice-board';
+    const copiedOwner = 'layouts/native-layout-copy';
+    const inspected = await working.inspectRecord(originalOwner);
+    expect(inspected.accepted, inspected.error).toBe(true);
+    const original = inspected.snapshot.recordSnapshots?.[originalOwner]?.source as Record<
+      string,
+      JsonValue
+    >;
+    const copied = { ...original, id: 'native-layout-copy', label: 'Native Layout Copy' };
+    const staged = await working.applyRevisionedPatches(
+      working.snapshot()!.workingRevision,
+      [{ op: 'add', path: `/${copiedOwner}`, value: copied }],
+      { [copiedOwner]: originalOwner },
+    );
+    expect(staged.accepted, staged.error).toBe(true);
+    const saved = await working.saveOwners([copiedOwner]);
+    expect(saved.accepted, saved.error).toBe(true);
+    const sourceFile = path.join(root, 'records/layouts/notice-board/layout.rml');
+    const copiedFile = path.join(root, 'records/layouts/native-layout-copy/layout.rml');
+    expect(await readFile(copiedFile)).toEqual(await readFile(sourceFile));
+    await working.reopenAndReplay('native-layout-copy');
+    const reopened = await working.inspectRecord(copiedOwner);
+    expect(reopened.accepted).toBe(true);
+    expect(reopened.snapshot.recordSnapshots?.[copiedOwner]?.source).toMatchObject(copied);
+  }, 120_000);
+
   it('saves generic localization and manifest patches through their real physical owners', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-localization-'));
     await cp(fixture, root, { recursive: true });

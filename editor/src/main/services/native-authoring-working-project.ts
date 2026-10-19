@@ -21,6 +21,7 @@ type Edit = Readonly<{ forward: NativePatch[]; inverse: NativePatch[] }>;
 type RetainedBatch = Readonly<{
   patches: NativePatch[];
   diskPreconditions: Record<string, string>;
+  layoutCopySources?: Record<string, string>;
 }>;
 type RetainedTextSource = Readonly<{ text: string; diskRevision: string }>;
 
@@ -134,6 +135,7 @@ export class NativeAuthoringWorkingProject {
   private readonly retainedTextSources = new Map<string, RetainedTextSource>();
   private readonly pendingFields = new Map<string, string>();
   private readonly pendingDeletedOwners = new Map<string, string>();
+  private readonly pendingLayoutCopySources = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
   private projectSessionId: string | null = null;
 
@@ -169,6 +171,7 @@ export class NativeAuthoringWorkingProject {
       this.retained = [];
       this.retainedTextSources.clear();
       this.pendingDeletedOwners.clear();
+      this.pendingLayoutCopySources.clear();
       this.pendingFields.clear();
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
@@ -362,6 +365,7 @@ export class NativeAuthoringWorkingProject {
       textPaths?: string[];
       textContents?: Record<string, string>;
       expectedRevision?: number;
+      assetTransition?: import('../../shared/editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
     } = {},
   ): Promise<PatchResult> {
     for (const owner of owners)
@@ -399,13 +403,17 @@ export class NativeAuthoringWorkingProject {
         comments: options.comments ?? 'keep',
         ...(options.pathsByOwner ? { pathsByOwner: options.pathsByOwner } : {}),
         ...(options.textPaths ? { textPaths: options.textPaths } : {}),
+        ...(options.assetTransition ? { assetTransition: options.assetTransition } : {}),
       });
       if (!result || !('accepted' in result))
         throw new Error('Native Project did not return a scoped Save result.');
       if (result.accepted) {
         const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
         this.view = merged;
-        for (const owner of result.affectedRecords) this.pendingDeletedOwners.delete(owner);
+        for (const owner of result.affectedRecords) {
+          this.pendingDeletedOwners.delete(owner);
+          this.pendingLayoutCopySources.delete(owner);
+        }
         if (options.textPaths?.length) {
           for (const path of options.textPaths) {
             if (!result.textSourceDiskRevisions?.[path])
@@ -509,6 +517,7 @@ export class NativeAuthoringWorkingProject {
   async applyRevisionedPatches(
     expectedRevision: number,
     patches: readonly JsonPatchOperation[],
+    layoutCopySources?: Record<string, string>,
   ): Promise<PatchResult> {
     return this.serial(async () => {
       if (!this.view || this.view.workingRevision !== expectedRevision)
@@ -524,7 +533,7 @@ export class NativeAuthoringWorkingProject {
           );
         this.view = this.mergeSnapshot(inspected.snapshot);
       }
-      return this.submit(nativePatches(patches));
+      return this.submit(nativePatches(patches), layoutCopySources);
     });
   }
 
@@ -581,12 +590,24 @@ export class NativeAuthoringWorkingProject {
       const opened = await this.bridge.open(sessionId);
       this.view = opened.snapshot;
       this.pendingDeletedOwners.clear();
+      this.pendingLayoutCopySources.clear();
       try {
         for (const batch of batches) {
-          const result = await this.requestPatch(batch.patches, batch.diskPreconditions);
+          const result = await this.requestPatch(
+            batch.patches,
+            batch.diskPreconditions,
+            batch.layoutCopySources,
+          );
           if (!result.accepted) throw new Error(`Native Project replay conflict: ${result.error}`);
           this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
           for (const patch of batch.patches) {
+            if (patch.operation === 'add' && /^\/layouts\/[a-z][a-z0-9-]*$/.test(patch.path)) {
+              const owner = patch.path.slice(1);
+              if (batch.layoutCopySources?.[owner])
+                this.pendingLayoutCopySources.set(owner, batch.layoutCopySources[owner]);
+            }
+            if (patch.operation === 'remove' && /^\/layouts\/[a-z][a-z0-9-]*$/.test(patch.path))
+              this.pendingLayoutCopySources.delete(patch.path.slice(1));
             if (patch.operation !== 'remove' || !/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path))
               continue;
             const owner = patch.path.slice(1);
@@ -638,9 +659,12 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
-  private async submit(patches: NativePatch[]): Promise<PatchResult> {
+  private async submit(
+    patches: NativePatch[],
+    layoutCopySources?: Record<string, string>,
+  ): Promise<PatchResult> {
     const before = this.view;
-    const result = await this.requestPatch(patches);
+    const result = await this.requestPatch(patches, undefined, layoutCopySources);
     if (result.accepted && result.affectedRecords.length) {
       const merged = this.mergeSnapshot(result.snapshot, result.affectedRecords);
       this.view = merged;
@@ -649,6 +673,9 @@ export class NativeAuthoringWorkingProject {
         const owner = patch.path.slice(1);
         if (patch.operation === 'add' && merged.recordSnapshots?.[owner])
           this.pendingDeletedOwners.delete(owner);
+        if (patch.operation === 'add' && layoutCopySources?.[owner])
+          this.pendingLayoutCopySources.set(owner, layoutCopySources[owner]);
+        if (patch.operation === 'remove') this.pendingLayoutCopySources.delete(owner);
         if (patch.operation === 'remove' && !merged.recordSnapshots?.[owner]) {
           const revision = before?.recordSnapshots?.[owner]?.diskSourceRevision;
           if (revision && revision !== 'absent') this.pendingDeletedOwners.set(owner, revision);
@@ -665,6 +692,7 @@ export class NativeAuthoringWorkingProject {
         this.retained.push({
           patches,
           diskPreconditions: sourceRevisions(merged, result.affectedRecords),
+          ...(layoutCopySources ? { layoutCopySources } : {}),
         });
       }
       return { ...result, snapshot: merged };
@@ -724,6 +752,11 @@ export class NativeAuthoringWorkingProject {
         batches.push({
           patches,
           diskPreconditions: sourceRevisions(this.view, [owner]),
+          ...(this.pendingLayoutCopySources.has(owner)
+            ? {
+                layoutCopySources: { [owner]: this.pendingLayoutCopySources.get(owner)! },
+              }
+            : {}),
         });
     }
     for (const [owner, revision] of this.pendingDeletedOwners)
@@ -737,6 +770,7 @@ export class NativeAuthoringWorkingProject {
   private async requestPatch(
     patches: NativePatch[],
     diskPreconditions?: Record<string, string>,
+    layoutCopySources?: Record<string, string>,
   ): Promise<PatchResult> {
     if (!this.view) throw new Error('Native working Project has not opened.');
     const result = await this.bridge.request({
@@ -744,6 +778,7 @@ export class NativeAuthoringWorkingProject {
       expectedRevision: this.view.workingRevision,
       patches,
       ...(diskPreconditions ? { diskPreconditions } : {}),
+      ...(layoutCopySources ? { layoutCopySources } : {}),
     });
     if (!result || !('accepted' in result))
       throw new Error('Native Project did not return a patch result.');

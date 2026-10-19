@@ -24,6 +24,9 @@ struct YamlTransactionTarget {
     std::vector<YamlValueEdit> edits;
     std::optional<std::string> create_source; // only when expected_revision is absent
     bool erase = false;
+    // Native Project-session-admitted binary Asset/trash moves share the
+    // exact-revision journal. This is not a general-purpose arbitrary writer.
+    bool raw_asset_file = false;
     // Atomic whole-source formatting; unlike a normal edit, content must
     // decode to the same source value as its baseline.
     std::optional<std::string> replacement_source = std::nullopt;
