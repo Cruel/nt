@@ -209,8 +209,9 @@ and tracking owner keys are reported without losing unrelated Project sources.
 Existing localization fragments can be inspected as individual native working
 owners, patched through `/localization/...`, and saved/reopened using the same
 revision-checked, comment-preserving YAML transaction service. File additions
-and removals for sparse locale chunks are not yet generic native working-session
-edits; the certification validator admits or rejects their physical presence.
+and removals for sparse locale chunks also use generic revisioned native
+working-session edits, including whole-fragment create/delete and one atomic
+multi-owner Save; the validator independently verifies their physical presence.
 Untouched fragments are not rewritten on validation or unrelated Save.
 
 Repeated Project snapshots reuse the native localization validation generation
