@@ -3082,6 +3082,16 @@ describe('ResidentProjectWorkspaceSession', () => {
       };
     };
     expect(portable.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    const missingRevision = structuredClone(portable) as typeof portable & {
+      snapshot: { fileRevisions: Record<string, unknown> };
+    };
+    missingRevision.snapshot.fileRevisions = {};
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(missingRevision),
+      ),
+    ).toBe(false);
     portable.nativePreparation.sourceRevisions['project.yaml'] = sha256PrefixedUtf8('corrupt');
     expect(
       await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
