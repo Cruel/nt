@@ -257,6 +257,22 @@ export async function runNovelTeaCli(
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   if (options.nativeProjectCommands) {
+    // Heavy daemon commands must consume their pinned owner generation. Until
+    // native preparation participates in that transport, stage local shaders only.
+    if (
+      !options.residentWorkspace &&
+      !options.prepareResidentSnapshotOnly &&
+      !options.trustPinnedResidentSnapshot
+    ) {
+      const { runNativeProjectShadersCli } = await import('./native-project-shaders-cli');
+      const nativeShaders = await runNativeProjectShadersCli(
+        globals,
+        cwd,
+        options.nativeProjectCommands,
+        nativeTools,
+      );
+      if (nativeShaders) return nativeShaders;
+    }
     const { runNativeProjectLifecycleCli } = await import('./native-project-lifecycle-cli');
     const nativeLifecycle = await runNativeProjectLifecycleCli(
       globals,

@@ -355,6 +355,29 @@ counterpart is `noveltea-cli-native-certify`. The installed transport differenti
 codes for native and legacy Project commands, plus separate daemon owners and malformed sources.
 These do not replace the full CLI/daemon certification suite or Windows/macOS release verification.
 
+The local (`--no-daemon`) `shaders compile` candidate now consumes a native complete Project plus
+captured shader/include text through the same downstream shader compilation and reflection pipeline
+as the current CLI. Native source-generation proofs bracket preparation and command completion;
+a changed, added, or removed source refuses the result rather than retrying through TypeScript.
+Compiler outputs remain disposable content-addressed build/cache products, not accepted publication
+when the final proof fails. The daemon shader path deliberately remains on the established pinned
+snapshot transport: native shader preparation must be carried in that immutable owner generation
+before that transport can be staged, rather than reopening newer live disk in a disposable worker.
+The adapter regression seam is `editor/src/renderer/test/native-cli-shaders.test.ts`; the installed
+routing differential compares blank-Project and Feature Lab local shader results and invalid options.
+
+The disk-only native command owner also discards sessions after writes or generic scoped-edit
+planning/rejection, and reopens after physical deltas/uncertain coverage. This prevents either dirty
+working patches or stale inspected-record baselines from leaking into the next disk command while
+unchanged read commands retain their owner. The native CLI certification covers sequential scoped
+edit failures/commit and formatting/reinspection on one owner.
+
+Remaining #505 gates: native-authoritative public `validate` with its complete font-coverage,
+distribution-notice, dependency and shader/reflection stages; immutable native preparation transport
+for daemon heavy jobs; authored Test, Runtime Package and platform-export staging; wider error/exit
+and all-family parity; full cross-platform certification. Production cutover and removal of the old
+TypeScript authoring dependency remain coordinated with #506.
+
 ## Verification
 
 A standalone host build avoids the renderer and all runtime dependencies:

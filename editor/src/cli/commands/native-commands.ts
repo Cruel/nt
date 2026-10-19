@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
+import { compileCliShaders, parseCliShaderCompile } from '../compile-shaders-command';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
 import { compileWithVerifiedValidationCache } from '../validation-stage-cache';
@@ -34,7 +34,6 @@ import {
   pinnedShaderSourceOverlays,
 } from '../pinned-project-text-sources';
 
-const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
 
 function preparedMediaTestRequest(artifact: PreparedRuntimeArtifact) {
@@ -205,64 +204,18 @@ async function publishStagedPackage(
 export const shadersCompileCommand: CliCommandDefinition = {
   path: ['shaders', 'compile'],
   parse(arguments_): CliCommandInvocation {
-    const variants: string[] = [];
-    let forceRebuild = false;
-    for (let index = 0; index < arguments_.length; index += 1) {
-      const value = arguments_[index]!;
-      if (value === '--force-rebuild') {
-        if (forceRebuild)
-          throw new CliCommandUsageError("Option '--force-rebuild' may be supplied only once.");
-        forceRebuild = true;
-        continue;
-      }
-      if (value === '--variant') {
-        const variant = arguments_[++index];
-        if (!variant || variant.startsWith('--'))
-          throw new CliCommandUsageError('--variant requires a value.');
-        if (!shaderVariantIds.has(variant))
-          throw new CliCommandUsageError(`Unknown shader variant '${variant}'.`);
-        variants.push(variant);
-        continue;
-      }
-      throw new CliCommandUsageError(`Unknown command option '${value}'.`);
-    }
+    const options = parseCliShaderCompile(arguments_);
     return {
       dryRun: false,
       mutation: false,
-      async run(context) {
-        const shaderProject = await buildShaderMaterialProject(context.snapshot.project, [], {
-          certifyPresetPrograms: true,
-        });
-        const schemaDiagnostics = shaderProject.diagnostics.map((item) =>
-          cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
-        );
-        if (schemaDiagnostics.some((item) => item.severity === 'error'))
-          return { ok: false, diagnostics: schemaDiagnostics };
-        const response = await context.nativeTools.compileShaders(shaderProject.compilation, {
-          projectRoot: context.snapshot.projectRoot,
-          outputRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'build'),
-          cacheRoot: path.join(context.snapshot.projectRoot, '.noveltea', 'cache'),
-          shaderVariants:
-            variants.length > 0 ? [...new Set(variants)] : ['glsl-330', 'essl-300', 'metal'],
-          forceRebuild,
-          sourceOverlays: pinnedShaderSourceOverlays(context.pinnedProjectTextSources),
-        });
-        const reflectedDiagnostics = response.success
-          ? (
-              await buildShaderMaterialProject(context.snapshot.project, response.outputs ?? [])
-            ).diagnostics.map((item) =>
-              cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
-            )
-          : [];
-        const result = nativeSuccess(response);
-        return {
-          ...result,
-          ok:
-            result.ok &&
-            !reflectedDiagnostics.some((diagnostic) => diagnostic.severity === 'error'),
-          diagnostics: [...schemaDiagnostics, ...result.diagnostics, ...reflectedDiagnostics],
-        };
-      },
+      run: (context) =>
+        compileCliShaders(
+          context.snapshot.project,
+          context.snapshot.projectRoot,
+          context.nativeTools,
+          options,
+          pinnedShaderSourceOverlays(context.pinnedProjectTextSources),
+        ),
     };
   },
 };
