@@ -2100,6 +2100,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       if (
         JSON.stringify(portable.snapshot.project) !== JSON.stringify(native.project) ||
         portable.snapshot.projectRoot !== canonicalRoot ||
+        portable.snapshot.canonicalSourceFiles.length !==
+          Object.keys(portable.snapshot.fileRevisions).length ||
+        portable.snapshot.canonicalSourceFiles.some(
+          (relativePath) =>
+            !portable.snapshot.fileRevisions[relativePath] ||
+            native.sourceRevisions[relativePath] !==
+              portable.snapshot.fileRevisions[relativePath]?.contentHash,
+        ) ||
         Object.entries(portable.snapshot.fileRevisions).some(
           ([relativePath, revision]) =>
             !revision || native.sourceRevisions[relativePath] !== revision.contentHash,
