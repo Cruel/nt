@@ -69,6 +69,8 @@ export interface ProjectSourceStructuralRequest {
 export interface ProjectSourceStructuralResponse {
   ok: boolean;
   success: boolean;
+  /** Certified working generation after an atomic native source mutation. */
+  nativeWorkingRevision?: number;
   error?: string;
   usages?: readonly ProjectSourceUsage[];
   pathRemap?: Readonly<Record<string, string>>;

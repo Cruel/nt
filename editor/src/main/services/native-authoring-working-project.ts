@@ -431,6 +431,33 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
+  async mutateSourceDirectory(
+    expectedRevision: number,
+    kind: 'create' | 'move' | 'delete',
+    from: string,
+    to = '',
+  ): Promise<PatchResult> {
+    return this.serial(async () => {
+      if (!this.view || this.view.workingRevision !== expectedRevision)
+        throw new Error('Stale native source directory revision.');
+      const result = await this.bridge.request({
+        operation: 'mutateSourceDirectory',
+        expectedRevision,
+        kind,
+        from,
+        to,
+      });
+      if (!result || !('accepted' in result))
+        throw new Error('Native source directory response is invalid.');
+      if (result.accepted) {
+        this.view = this.mergeSnapshot(result.snapshot, result.affectedRecords);
+        this.checkpointDirtyWorkingState();
+        return { ...result, snapshot: this.view };
+      }
+      return result;
+    });
+  }
+
   /** Scoped native Save: an exact-revision multi-owner YAML transaction. */
   async saveOwners(
     owners: readonly string[],
@@ -695,9 +722,11 @@ export class NativeAuthoringWorkingProject {
             }
             if (patch.operation === 'remove' && /^\/layouts\/[a-z][a-z0-9-]*$/.test(patch.path))
               this.pendingLayoutCopySources.delete(patch.path.slice(1));
-            if (patch.operation !== 'remove' ||
-                (!/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path) &&
-                 !/^\/localization\/(translations|assets)\/[^/]+$/.test(patch.path)))
+            if (
+              patch.operation !== 'remove' ||
+              (!/^\/[a-z]+\/[a-z][a-z0-9-]*$/.test(patch.path) &&
+                !/^\/localization\/(translations|assets)\/[^/]+$/.test(patch.path))
+            )
               continue;
             const localized = /^\/localization\/(translations|assets)\/([^/]+)$/.exec(patch.path);
             const owner = localized

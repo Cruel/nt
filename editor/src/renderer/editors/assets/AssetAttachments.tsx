@@ -450,6 +450,8 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
         if (useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap))
           useCommandStore.getState().invalidateHistoryAfterCommittedFileMove();
       }
+      if (result.nativeWorkingRevision !== undefined)
+        useCommandStore.getState().enableNativeCommandMode(result.nativeWorkingRevision);
       setMovePath(null);
       setMoveValue('');
       setStatus(t('assetAttachments.updated'));

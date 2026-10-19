@@ -24,6 +24,11 @@ import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subproc
 import { NativeDirtyCheckpointStore } from './native-dirty-checkpoint-store';
 import type { NativeDirtyCheckpoint } from './native-authoring-working-project';
 import { NativeAssetStagingService } from './native-asset-staging-service';
+import type { ProjectSourceStructuralRequest } from '../../shared/project-source-files';
+import { planNativeProjectSourceTransaction } from './native-project-source-transactions';
+import { projectSourceUsages } from './project-source-file-service';
+import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
+import type { JsonValue } from '../../renderer/project/json-value';
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
@@ -58,6 +63,7 @@ export class NativeEditorSessionController {
       | 'applyRevisionedPatches'
       | 'saveUnits'
       | 'saveOwners'
+      | 'mutateSourceDirectory'
       | 'stageTextSource'
       | 'saveTextSources'
       | 'snapshot'
@@ -339,6 +345,145 @@ export class NativeEditorSessionController {
       },
     );
     if (!result.accepted) throw new Error(result.error || 'Native Asset organization rejected.');
+  }
+
+  /** File bytes and affected semantic owners share one native crash-journal commit.
+   * Planning only reads bytes. No legacy workspace writer is invoked. */
+  async mutateProjectSources(request: ProjectSourceStructuralRequest) {
+    const { projectSessionId } = request;
+    const generation = this.generation;
+    const revision = this.currentRevision(projectSessionId);
+    const root = this.authority.requireActiveProjectRoot(projectSessionId);
+    const prepared = await this.working.prepareCompleteWorking();
+    if (!prepared.accepted || !prepared.completeProject)
+      throw new Error(prepared.error || 'Native source transaction cannot prepare Project.');
+    if (generation !== this.generation || revision !== this.currentRevision(projectSessionId))
+      throw new Error('Native source transaction was superseded.');
+    const pendingText = Object.keys(this.working.dirtyCheckpoint().textSources);
+    const operation = request.operation;
+    const relocating =
+      operation.kind === 'move'
+        ? operation.fromPath
+        : operation.kind === 'delete'
+          ? operation.path
+          : operation.kind === 'material-shader-copy' &&
+              operation.sourceIdentity.startsWith('project:/')
+            ? operation.sourceIdentity.slice('project:/'.length)
+            : null;
+    if (
+      relocating &&
+      pendingText.some((source) => source === relocating || source.startsWith(`${relocating}/`))
+    )
+      throw new Error('Save or discard staged source text before relocating this source.');
+    const previous = projectFromNativeCompletePreparation(prepared);
+    const plan = await planNativeProjectSourceTransaction(
+      root,
+      previous,
+      request.operation,
+      request.expectedRevisions ?? {},
+      prepared.sourceRevisions,
+    );
+    if (!plan.response.success) return plan.response;
+    if (generation !== this.generation || revision !== this.currentRevision(projectSessionId))
+      throw new Error('Native source transaction was superseded.');
+    if (
+      plan.transition?.kind === 'source-files' &&
+      plan.transition.files.some((file) => pendingText.includes(file.path))
+    )
+      throw new Error('Save or discard staged source text before changing its physical file.');
+    if (plan.emptyDirectory) {
+      const { from, to, kind } = plan.emptyDirectory;
+      const moved = await this.working.mutateSourceDirectory(revision, kind, from, to);
+      if (!moved.accepted)
+        throw new Error(moved.error || 'Native source folder transaction failed.');
+      if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+        throw new Error('Native source folder operation was superseded.');
+      await this.persistAcknowledged(projectSessionId, generation);
+      return { ...plan.response, nativeWorkingRevision: this.currentRevision(projectSessionId) };
+    }
+    if (!plan.transition) throw new Error('Native source transaction has no physical targets.');
+    let patched = false;
+    try {
+      if (plan.patches.length) {
+        const result = await this.applyRevisionedPatches(projectSessionId, revision, plan.patches);
+        if (!result.accepted) throw new Error(result.error || 'Native source references rejected.');
+        patched = true;
+      }
+      const saved = await this.working.saveOwners(Object.keys(plan.savePaths).sort(), {
+        expectedRevision: this.currentRevision(projectSessionId),
+        pathsByOwner: plan.savePaths,
+        assetTransition: plan.transition,
+      });
+      if (!saved.accepted) throw new Error(saved.error || 'Native file transaction failed.');
+      // The files and references have committed together; never roll them
+      // back because a now-empty directory cannot be pruned. Directory
+      // removal itself is still native-session revisioned and checks emptiness.
+      patched = false;
+      for (const folder of plan.cleanupDirectories ?? []) {
+        try {
+          const cleaned = await this.working.mutateSourceDirectory(
+            this.currentRevision(projectSessionId),
+            'delete',
+            folder,
+          );
+          if (!cleaned.accepted)
+            throw new Error(cleaned.error || 'Native source folder cleanup rejected.');
+        } catch (error) {
+          console.warn('Retained source folder after native file transaction:', folder, error);
+          break;
+        }
+      }
+      if (generation !== this.generation || !this.isAdmitted(projectSessionId))
+        throw new Error('Native Project changed after source transaction.');
+      await this.persistAcknowledged(projectSessionId, generation);
+      return { ...plan.response, nativeWorkingRevision: this.currentRevision(projectSessionId) };
+    } catch (error) {
+      if (patched && generation === this.generation && this.isAdmitted(projectSessionId)) {
+        try {
+          const latest = await this.working.prepareCompleteWorking();
+          if (latest.accepted && latest.completeProject) {
+            const rollback = diffJsonDocuments(
+              projectFromNativeCompletePreparation(latest) as unknown as JsonValue,
+              previous as unknown as JsonValue,
+            );
+            if (rollback.length) {
+              const restored = await this.applyRevisionedPatches(
+                projectSessionId,
+                this.currentRevision(projectSessionId),
+                rollback,
+              );
+              if (!restored.accepted) throw new Error(restored.error);
+            }
+          }
+        } catch (rollbackError) {
+          this.recoveryFailure =
+            'Native source transaction failed and working reference rollback requires recovery: ' +
+            String(rollbackError);
+        }
+      }
+      throw error;
+    }
+  }
+
+  async sourceUsages(projectSessionId: string, sourcePath: string) {
+    if (
+      !/^(?:scripts|shaders)\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+$/u.test(sourcePath) ||
+      sourcePath.split('/').some((part) => part === '.' || part === '..')
+    )
+      throw new Error('Project source usages require a contained scripts/ or shaders/ path.');
+    const native = await this.currentWorkingProject(projectSessionId);
+    const scriptSourcePaths = Object.fromEntries(
+      Object.entries(native.scripts).flatMap(([id, record]) =>
+        record.data.source.kind === 'project-file' ? [[id, record.data.source.path]] : [],
+      ),
+    );
+    return {
+      usages: await projectSourceUsages(
+        this.authority.requireActiveProjectRoot(projectSessionId),
+        { project: native, scriptSourcePaths } as never,
+        sourcePath,
+      ),
+    };
   }
 
   /** The first mutation boundary for native-backed renderer commands. It is
@@ -652,6 +797,57 @@ export class NativeEditorSessionController {
     if (revision !== this.currentRevision(projectSessionId))
       throw new Error('Native Project changed during export preparation.');
     return projectFromNativeCompletePreparation(prepared);
+  }
+
+  /** Save Copy As copies saved physical sources, not the unsaved working
+   * projection. Dirty editor edits are deliberately allowed: the caller
+   * carries only their local recovery metadata to the copy. */
+  async verifySavedCopySources(projectSessionId: string): Promise<void> {
+    const generation = this.generation;
+    const revision = this.currentRevision(projectSessionId);
+    const prepared = await this.working.prepareCompleteWorking();
+    if (!prepared.sourceRevisions || !Object.keys(prepared.sourceRevisions).length)
+      throw new Error('Native saved source inventory is unavailable.');
+    const root = this.authority.requireActiveProjectRoot(projectSessionId);
+    const canonicalRoot = await realpath(root);
+    for (const [relative, revisionHash] of Object.entries(prepared.sourceRevisions)) {
+      if (
+        !relative ||
+        path.isAbsolute(relative) ||
+        relative.includes('\\') ||
+        path.posix.normalize(relative) !== relative ||
+        relative.split('/').some((part) => part === '..' || part === '.')
+      )
+        throw new Error('Invalid native source inventory path.');
+      const absolute = path.join(root, relative);
+      const resolved = await realpath(absolute).catch((error: NodeJS.ErrnoException) => {
+        if (revisionHash === 'absent' && error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (revisionHash === 'absent') {
+        if (resolved !== null)
+          throw new Error('Native saved source unexpectedly exists: ' + relative);
+        continue;
+      }
+      if (
+        !resolved ||
+        path.relative(canonicalRoot, resolved) !== relative.split('/').join(path.sep)
+      )
+        throw new Error('Native saved source escapes its admitted identity: ' + relative);
+      const file = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
+      try {
+        if (
+          `sha256:${createHash('sha256')
+            .update(await file.readFile())
+            .digest('hex')}` !== revisionHash
+        )
+          throw new Error('WORKSPACE_REVISION_CONFLICT: ' + relative);
+      } finally {
+        await file.close();
+      }
+    }
+    if (generation !== this.generation || revision !== this.currentRevision(projectSessionId))
+      throw new Error('Native Project changed during saved-source copy verification.');
   }
 
   /** Prepare playable content from the native complete Project, including

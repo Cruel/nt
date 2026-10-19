@@ -62,7 +62,8 @@ struct ProjectAssetTransition {
         Trash,
         Restore,
         Publish,
-        Move
+        Move,
+        SourceFiles
     } kind = Kind::Trash;
     std::vector<std::string> paths;
     std::vector<std::pair<std::string, std::string>> moves;
@@ -72,6 +73,12 @@ struct ProjectAssetTransition {
         std::string source_revision;
     };
     std::vector<Publication> publications;
+    struct SourceFile {
+        std::string path;
+        std::string expected_revision;
+        std::optional<std::string> contents;
+    };
+    std::vector<SourceFile> source_files;
 };
 
 enum class ProjectFileKind {
@@ -264,6 +271,10 @@ public:
                 const std::map<std::string, std::vector<std::string>>& paths = {},
                 const std::vector<std::string>& text_paths = {},
                 const std::optional<ProjectAssetTransition>& assets = std::nullopt);
+    // Empty Project Explorer folders have no YAML or byte targets. Their
+    // single-entry mkdir/rename/rmdir remains native-session-revision checked.
+    RoomSessionResult mutate_source_directory(std::uint64_t revision, std::string_view kind,
+                                                std::string_view source, std::string_view target);
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     // Immutable disk-validation contributors, including lazily uninspected
     // record owners. Valid only after validate_project() has refreshed proof.

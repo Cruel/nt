@@ -16,15 +16,15 @@ describe('native editor IPC certification gate', () => {
       IPC_CHANNELS.EXPORT_PACKAGE,
       IPC_CHANNELS.STAGE_PLATFORM_EXPORT,
       IPC_CHANNELS.EXPORT_PROJECT_TO_PLATFORM,
+      IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
+      IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
     ])
       expect(incompatibleLegacyNativeEditChannels.has(channel), channel).toBe(false);
   });
 
-  it('still blocks unported tracked-source writers and legacy runtime preparation', () => {
+  it('still blocks unported legacy content writers and runtime preparation', () => {
     for (const channel of [
       IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-      IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
-      IPC_CHANNELS.MUTATE_PROJECT_SOURCES,
       IPC_CHANNELS.WRITE_PROJECT_SOURCE,
       IPC_CHANNELS.PURGE_PROJECT_TRASH,
       IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,

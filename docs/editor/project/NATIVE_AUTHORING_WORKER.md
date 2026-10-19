@@ -652,6 +652,25 @@ use the same stage/publish journal; standalone Asset trash and restore IPC
 operations and untracked Asset organization also use native transactions in
 certification mode.
 
+Project Explorer source files now use the same native revision-checked journal
+for Lua/Shader creation, deletion, relocation, and Material shader copying.
+Relocations atomically save their affected Script/Material/Layout references
+and rewritten shader includes alongside the physical files. Referenced
+attachment moves between `support/` and `assets/` also save their Asset
+references in that transaction. An exact-path match to a journal-created
+shader or attachment source may defer only the corresponding missing-source
+diagnostic until commit; unrelated validation failures still block the Save.
+Empty-folder operations are native-session checked, and a populated folder
+relocation prunes its old empty shells afterward. Staged, unsaved source buffers
+and symlinked physical sources are not silently overwritten.
+
+Native Save Copy As now copies verified **saved** Project files and byte-exact
+authored YAML into the selected destination instead of using the legacy
+TypeScript Project serializer. Unsaved local editor recovery metadata is carried
+separately; externally changed native sources, linked source entries, and
+occupied Project destinations are rejected. Existing unrelated destination
+files are preserved.
+
 Runtime package and playable platform exports in certification mode now obtain
 the **saved and clean** Project from the admitted native session rather than
 trusting the renderer's submitted Project. Dirty, conflicted or stale

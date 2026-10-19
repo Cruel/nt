@@ -3564,6 +3564,70 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
     return response;
 }
 
+RoomSessionResult ProjectSession::mutate_source_directory(
+    std::uint64_t revision, std::string_view kind, std::string_view source,
+    std::string_view target)
+{
+    RoomSessionResult result;
+    result.snapshot = snapshot();
+    if (revision != working_revision_ || source_authority_->uncertain()) {
+        result.error = "Stale or uncertain native Project source authority.";
+        return result;
+    }
+    try {
+        auto verified = [&](std::string_view input) -> std::filesystem::path {
+            const std::string name(input);
+            if (!std::regex_match(
+                    name, std::regex(R"(^(?:scripts|shaders)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+$)")) ||
+                std::filesystem::path(name) != std::filesystem::path(name).lexically_normal() ||
+                name.find("/../") != std::string::npos || name.ends_with("/..") ||
+                name.find("/./") != std::string::npos || name.ends_with("/."))
+                throw std::runtime_error("Invalid native source directory path.");
+            const auto absolute = root_ / name;
+            const auto contained = std::filesystem::weakly_canonical(absolute)
+                                       .lexically_relative(std::filesystem::canonical(root_));
+            if (contained.empty() || *contained.begin() == "..")
+                throw std::runtime_error("Source folder escapes the admitted Project.");
+            for (auto cursor = absolute; cursor != root_; cursor = cursor.parent_path()) {
+                std::error_code error;
+                const auto status = std::filesystem::symlink_status(cursor, error);
+                if (!error && std::filesystem::is_symlink(status))
+                    throw std::runtime_error("Native source folder traverses a symbolic link.");
+                if (error && error != std::errc::no_such_file_or_directory)
+                    throw std::runtime_error("Native source folder cannot be inspected.");
+            }
+            return absolute;
+        };
+        const auto from = verified(source);
+        if (kind == "create") {
+            if (!std::filesystem::create_directory(from))
+                throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: source folder exists.");
+        } else if (kind == "delete") {
+            if (!std::filesystem::is_directory(from) || !std::filesystem::is_empty(from))
+                throw std::runtime_error("Only an empty source folder may be removed.");
+            if (!std::filesystem::remove(from))
+                throw std::runtime_error("Source folder removal failed.");
+        } else if (kind == "move") {
+            const auto to = verified(target);
+            if (source.substr(0, source.find('/')) != target.substr(0, target.find('/')) ||
+                std::filesystem::exists(to) || !std::filesystem::is_directory(from) ||
+                !std::filesystem::is_empty(from))
+                throw std::runtime_error("Invalid native empty source folder relocation.");
+            std::filesystem::rename(from, to);
+        } else {
+            throw std::runtime_error("Unknown native source directory operation.");
+        }
+        ++working_revision_;
+        source_authority_->hint(source);
+        if (!target.empty()) source_authority_->hint(target);
+        result.accepted = true;
+        result.snapshot = snapshot();
+    } catch (const std::exception& error) {
+        result.error = error.what();
+    }
+    return result;
+}
+
 RoomSessionResult ProjectSession::save_owners(
     std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
     TransactionDecision comments, const std::map<std::string, std::vector<std::string>>& paths,
@@ -3601,40 +3665,81 @@ RoomSessionResult ProjectSession::save_owners(
             if (!session || !selected.emplace(owner, session).second)
                 throw std::runtime_error("Unknown or duplicate native Save owner: " + owner);
         }
-        // A new or reimported Asset is not yet present at its destination
-        // while the working patch is being validated. Admit *only* that
-        // missing-file diagnostic when the very same Save also publishes the
-        // selected destination from an immutable, hash-checked staged file.
-        const auto staged_asset_source = [&](const std::string& owner,
-                                            const RoomSessionSnapshot& state) {
-            if (!assets || assets->kind != ProjectAssetTransition::Kind::Publish ||
-                !owner.starts_with("assets/"))
-                return false;
-            try {
-                const auto record = Json::parse(state.source_json);
-                const auto source = record.at("data").at("source").at("path").as<std::string>();
+        // A source referenced by a record may be created or moved by the
+        // same atomic native Save. Waive ONLY the corresponding missing-file
+        // diagnostic, and ONLY for the exact destination in that journal.
+        const auto creates_source = [&](std::string_view path) {
+            if (!assets) return false;
+            if (assets->kind == ProjectAssetTransition::Kind::Publish)
                 return std::any_of(assets->publications.begin(), assets->publications.end(),
                                    [&](const auto& file) {
-                                       return file.project_relative_path == source;
+                                       return file.project_relative_path == path;
                                    });
-            } catch (...) {
-                return false;
-            }
+            if (assets->kind == ProjectAssetTransition::Kind::Move)
+                return std::any_of(assets->moves.begin(), assets->moves.end(),
+                                   [&](const auto& move) { return move.second == path; });
+            if (assets->kind == ProjectAssetTransition::Kind::SourceFiles)
+                return std::any_of(assets->source_files.begin(), assets->source_files.end(),
+                                   [&](const auto& file) {
+                                       return file.path == path && file.contents.has_value();
+                                   });
+            return false;
+        };
+        const auto staged_missing_source = [&](const std::string& owner,
+                                               const RoomSessionSnapshot& state,
+                                               const Diagnostic& diagnostic) {
+            if (diagnostic.severity != "error") return false;
+            try {
+                const auto record = Json::parse(state.source_json);
+                if (owner.starts_with("assets/") &&
+                    diagnostic.code == "asset.source.missing")
+                    return creates_source(
+                        record.at("data").at("source").at("path").as<std::string>());
+                if (owner.starts_with("assets/") &&
+                    diagnostic.code == "asset.attachment.missing") {
+                    const std::regex attachment_path(
+                        "^(/" + owner + R"()?/data/attachments/([0-9]+)/path$)");
+                    std::smatch match;
+                    if (!std::regex_match(diagnostic.path, match, attachment_path))
+                        return false;
+                    const auto& data = record.at("data");
+                    if (!data.contains("attachments") ||
+                        !data.at("attachments").is_array())
+                        return false;
+                    const auto index = std::stoull(match[2].str());
+                    if (index >= data.at("attachments").size())
+                        return false;
+                    return creates_source(
+                        data.at("attachments").at(index).at("path").as<std::string>());
+                }
+                if (owner.starts_with("materials/") &&
+                    diagnostic.code == "material.shader.source-missing") {
+                    const std::regex stage_path(
+                        "^(/" + owner + R"()?/data/shader/(vertex|fragment|varying)/path$)");
+                    std::smatch match;
+                    if (!std::regex_match(diagnostic.path, match, stage_path))
+                        return false;
+                    const auto& shader = record.at("data").at("shader");
+                    if (!shader.contains(match[2].str())) return false;
+                    const auto& source = shader.at(match[2].str());
+                    return source.at("kind") == "project" &&
+                           creates_source(source.at("path").as<std::string>());
+                }
+            } catch (...) {}
+            return false;
         };
         const auto valid_with_staged_source = [&](const std::string& owner,
                                                   const RoomSessionSnapshot& state) {
             if (state.valid)
                 return true;
-            return staged_asset_source(owner, state) &&
-                   std::any_of(state.diagnostics.begin(), state.diagnostics.end(),
-                               [](const auto& diagnostic) {
-                                   return diagnostic.severity == "error" &&
-                                          diagnostic.code == "asset.source.missing";
+            return std::any_of(state.diagnostics.begin(), state.diagnostics.end(),
+                               [&](const auto& diagnostic) {
+                                   return staged_missing_source(owner, state, diagnostic);
                                }) &&
                    std::all_of(state.diagnostics.begin(), state.diagnostics.end(),
-                               [](const auto& diagnostic) {
+                               [&](const auto& diagnostic) {
                                    return diagnostic.severity != "error" ||
-                                          diagnostic.code == "asset.source.missing";
+                                          staged_missing_source(owner, state, diagnostic);
                                });
         };
         // Save validates the selected dirty owner and its already-inspected
@@ -3661,8 +3766,8 @@ RoomSessionResult ProjectSession::save_owners(
                                                   return paths_overlap("/" + owner + path,
                                                                        diagnostic.path);
                                               }));
-                if (invalid_selected_record && diagnostic.code == "asset.source.missing" &&
-                    staged_asset_source(owner, session->snapshot()))
+                if (invalid_selected_record &&
+                    staged_missing_source(owner, session->snapshot(), diagnostic))
                     continue;
                 const bool invalid_localization =
                     owner.starts_with("i18n/") && diagnostic.source_path == owner;
@@ -3979,17 +4084,21 @@ RoomSessionResult ProjectSession::save_owners(
         std::vector<std::pair<std::string, std::string>> asset_moves;
         if (assets) {
             if (assets->paths.size() > 2000 || assets->moves.size() > 2000 ||
-                assets->publications.size() > 2000 ||
+                assets->publications.size() > 2000 || assets->source_files.size() > 256 ||
                 (static_cast<int>(!assets->paths.empty()) +
                      static_cast<int>(!assets->moves.empty()) +
-                     static_cast<int>(!assets->publications.empty()) >
+                     static_cast<int>(!assets->publications.empty()) +
+                     static_cast<int>(!assets->source_files.empty()) >
                  1))
                 throw std::runtime_error("Invalid native Asset transition selection.");
-            const auto safe_path = [&](const std::string& relative, bool trash) {
+            const auto safe_path = [&](const std::string& relative, bool trash,
+                                       bool source_file = false) {
                 const auto prefix = trash ? ".noveltea/trash/assets/" : "assets/";
                 if (!(relative.starts_with(prefix) ||
-                      (!trash && relative.starts_with("support/"))) ||
-                    relative.size() <= std::strlen(prefix) ||
+                      (!trash && relative.starts_with("support/")) ||
+                      (source_file && (relative.starts_with("scripts/") ||
+                                       relative.starts_with("shaders/")))) ||
+                    (relative.size() <= std::strlen(prefix) && !source_file) ||
                     relative.find('\\') != std::string::npos ||
                     relative.find(':') != std::string::npos ||
                     relative.find('\0') != std::string::npos ||
@@ -4033,7 +4142,44 @@ RoomSessionResult ProjectSession::save_owners(
                 create.raw_asset_file = true;
                 targets.push_back(std::move(create));
             };
-            if (assets->kind == ProjectAssetTransition::Kind::Trash) {
+            if (assets->kind == ProjectAssetTransition::Kind::SourceFiles) {
+                if (assets->source_files.empty())
+                    throw std::runtime_error("Empty native source file transaction.");
+                for (const auto& file : assets->source_files) {
+                    const bool source =
+                        (file.path.starts_with("scripts/") && file.path.ends_with(".lua")) ||
+                        (file.path.starts_with("shaders/") && file.path.ends_with(".sc"));
+                    const bool attachment = file.path.starts_with("assets/") ||
+                                            file.path.starts_with("support/");
+                    if (!source && !attachment)
+                        throw std::runtime_error("Invalid native source transaction path: " +
+                                                 file.path);
+                    if (file.contents && file.contents->size() > 4 * 1024 * 1024)
+                        throw std::runtime_error("Native source file exceeds the size limit.");
+                    const auto absolute = safe_path(file.path, false, true);
+                    const auto on_disk = std::filesystem::is_regular_file(absolute)
+                                             ? read_bytes(absolute)
+                                             : std::string{};
+                    const auto observed = std::filesystem::exists(absolute)
+                                              ? exact_source_revision(on_disk)
+                                              : std::string("absent");
+                    if (observed != file.expected_revision ||
+                        (!file.contents && observed == "absent"))
+                        throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + file.path);
+                    YamlTransactionTarget target;
+                    target.path = file.path;
+                    target.expected_revision = file.expected_revision;
+                    target.baseline_source = on_disk;
+                    target.raw_asset_file = true;
+                    if (!file.contents)
+                        target.erase = true;
+                    else if (observed == "absent")
+                        target.create_source = *file.contents;
+                    else
+                        target.raw_text_source = *file.contents;
+                    targets.push_back(std::move(target));
+                }
+            } else if (assets->kind == ProjectAssetTransition::Kind::Trash) {
                 static std::atomic<std::uint64_t> serial{0};
                 const auto transaction_id =
                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
@@ -4056,8 +4202,8 @@ RoomSessionResult ProjectSession::save_owners(
                 if (assets->moves.empty())
                     throw std::runtime_error("Native Asset move needs a source and destination.");
                 for (const auto& [source, target] : assets->moves) {
-                    if (!source.starts_with("assets/"))
-                        throw std::runtime_error("Native organization requires an Asset source.");
+                    if (!source.starts_with("assets/") && !source.starts_with("support/"))
+                        throw std::runtime_error("Native organization requires an Asset or support source.");
                     append_move(source, target);
                 }
             } else {
@@ -4135,7 +4281,11 @@ RoomSessionResult ProjectSession::save_owners(
                                                 });
                 asset != targets.end()) {
                 if (proposed.after_revision !=
-                    (asset->erase ? "absent" : exact_source_revision(*asset->create_source)))
+                    (asset->erase
+                         ? "absent"
+                         : exact_source_revision(asset->create_source
+                                                     ? *asset->create_source
+                                                     : *asset->raw_text_source)))
                     throw std::runtime_error("Native Asset journal changed staged file bytes.");
                 continue;
             }
@@ -4236,7 +4386,9 @@ RoomSessionResult ProjectSession::save_owners(
                                                     return candidate.raw_asset_file &&
                                                            candidate.path == target.path;
                                                 });
-                asset != targets.end() && target.path.starts_with("assets/") &&
+                asset != targets.end() &&
+                (target.path.starts_with("assets/") || target.path.starts_with("support/") ||
+                 target.path.starts_with("scripts/") || target.path.starts_with("shaders/")) &&
                 !source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
         for (const auto& [owner, session] : selected) {

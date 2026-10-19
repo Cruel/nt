@@ -982,6 +982,58 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     require(organized.accepted && !std::filesystem::exists(imported_asset) &&
                 read(temp.root / "support/published.bin") == asset_bytes,
             "Native Asset organization journals byte-exact moves into Support: " + organized.error);
+    const auto native_script = temp.root / "scripts/native-file-511.lua";
+    const auto native_moved_script = temp.root / "scripts/native-file-511-moved.lua";
+    ProjectAssetTransition source_create;
+    source_create.kind = ProjectAssetTransition::Kind::SourceFiles;
+    source_create.source_files.push_back(
+        {"scripts/native-file-511.lua", "absent", "return 511\n"});
+    const auto source_created =
+        project->save_owners(organized.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, source_create);
+    require(source_created.accepted && read(native_script) == "return 511\n",
+            "Native source-file creation commits through native journal: " +
+                source_created.error);
+    const auto colliding_source =
+        project->save_owners(source_created.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, source_create);
+    require(!colliding_source.accepted && read(native_script) == "return 511\n",
+            "Native source-file collision refuses overwrite");
+    ProjectAssetTransition source_move;
+    source_move.kind = ProjectAssetTransition::Kind::SourceFiles;
+    source_move.source_files.push_back(
+        {"scripts/native-file-511.lua", exact_source_revision("return 511\n"), std::nullopt});
+    source_move.source_files.push_back(
+        {"scripts/native-file-511-moved.lua", "absent", "return 511\n"});
+    const auto source_moved =
+        project->save_owners(source_created.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, source_move);
+    require(source_moved.accepted && !std::filesystem::exists(native_script) &&
+                read(native_moved_script) == "return 511\n",
+            "Native source-file rename atomically publishes destination and removes source: " +
+                source_moved.error);
+    auto invalid_move = source_move;
+    invalid_move.source_files[0].path = "scripts/native-file-511-moved.lua";
+    invalid_move.source_files[0].expected_revision = "sha256:stale";
+    invalid_move.source_files[1].path = "scripts/native-file-511.lua";
+    const auto rejected_source =
+        project->save_owners(source_moved.snapshot.working_revision, {}, false,
+                             TransactionDecision::KeepComments, {}, {}, invalid_move);
+    require(!rejected_source.accepted && read(native_moved_script) == "return 511\n" &&
+                !std::filesystem::exists(native_script),
+            "Native source-file transaction rejects stale source revision atomically");
+    const auto folder_created = project->mutate_source_directory(
+        source_moved.snapshot.working_revision, "create", "scripts/native-empty-511", "");
+    require(folder_created.accepted, "Native empty source folder creation: " + folder_created.error);
+    const auto folder_moved = project->mutate_source_directory(
+        folder_created.snapshot.working_revision, "move", "scripts/native-empty-511",
+        "scripts/native-empty-511-moved");
+    require(folder_moved.accepted, "Native empty folder relocation: " + folder_moved.error);
+    const auto folder_deleted = project->mutate_source_directory(
+        folder_moved.snapshot.working_revision, "delete", "scripts/native-empty-511-moved", "");
+    require(folder_deleted.accepted && !std::filesystem::exists(
+                temp.root / "scripts/native-empty-511-moved"),
+            "Native empty folder deletion: " + folder_deleted.error);
     require(project->inspect_record("assets/counter-document").accepted,
             "Native Asset source template must be admitted");
     auto imported_record =
@@ -994,7 +1046,7 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     imported_record.at("data").at("mimeType") = "application/octet-stream";
     imported_record.at("data").at("extension") = ".bin";
     const auto candidate_record = project->patch(
-        organized.snapshot.working_revision,
+        folder_deleted.snapshot.working_revision,
         {{RoomPatch::Operation::Add, "/assets/native-published-asset", imported_record.to_string()}});
     require(candidate_record.accepted,
             "A new Asset record may be staged while its binary is not yet published");
