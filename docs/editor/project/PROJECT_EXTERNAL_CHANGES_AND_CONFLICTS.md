@@ -35,6 +35,23 @@ Foreground editor-owned saves do not wait for the workspace watcher's write-stab
 
 ## Conflict state and resolution
 
+The admitted native editor route consumes watcher **path hints** rather than the
+legacy reassembled authoring document. It maps each changed tracked YAML path to
+its native physical owner, serializes revision-gated native reconciliation with
+ordinary editor commands, and publishes the worker's verified per-owner working
+source and saved baseline. Localization source fragments update only their owned
+logical localization keys. The editor recovery projection retains local patches
+and presents overlapping native conflict paths in the existing Problems panel
+and conflict dialog. The original TypeScript three-way merge remains available
+only for legacy sessions; it is not a native authoring authority.
+
+In an admitted session, **Use Disk** invokes native save-unit discard before the
+renderer adopts native snapshots. **Keep Mine** sends an explicit native Save
+override and remains subject to exact physical revision checks; **Cancel** closes
+the conflict dialog without discarding either side. Ordinary Save still refuses
+unresolved native conflicts, and the dialog can be reopened on the next Save.
+Conflicts and reconciliation errors do not cause an automatic legacy reload.
+
 Overlapping changes preserve `B`, `L`, and `E` in ignored editor recovery state and block ordinary Save for that save unit. The conflict dialog identifies the affected unit and logical paths and offers:
 
 - **Use Disk**: discard only that unit's local conflicting delta, adopt `E` as working state and baseline, and preserve unrelated dirty units.

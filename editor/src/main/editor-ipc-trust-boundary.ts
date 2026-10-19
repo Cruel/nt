@@ -778,6 +778,14 @@ export const nativeProjectReconcileArgumentsSchema = z.tuple([
     z.literal('project'),
     z.literal('editor'),
     z.literal('traits'),
+    z.enum([
+      'i18n/project.yaml',
+      'i18n/messages.yaml',
+      'i18n/usage-notes.yaml',
+      'i18n/tracking.yaml',
+      'i18n/orphans.yaml',
+    ]),
+    z.string().max(128).regex(/^i18n\/(?:locales|assets)\/[a-z][a-zA-Z0-9-]*\.yaml$/u),
     z
       .string()
       .max(128)

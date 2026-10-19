@@ -246,6 +246,53 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
+  it('adopts disjoint external fields acknowledged by native Save and advances its projection gate', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Native Foyer';
+    loadProject(saved, working, recoveryState({
+      'record:rooms:foyer': {
+        sequence: 1,
+        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native Foyer' }],
+        affectedPaths: ['/rooms/foyer/label'],
+        pendingRawInputByPath: {},
+        atomicTransactionGroupIds: [],
+      },
+    }));
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const onDisk = structuredClone(working.rooms.foyer!);
+    onDisk.data.description.source = { kind: 'inline', text: 'Changed on disk during Save' };
+    const save = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      affectedRecords: ['rooms/foyer'],
+      snapshot: {
+        workingRevision: 0,
+        recordSnapshots: {
+          'rooms/foyer': {
+            source: onDisk,
+            baseline: onDisk,
+            diskSourceRevision: roomFileRevision,
+            conflictingPaths: [],
+          },
+        },
+      },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true, writable: true, value: save,
+    });
+    const previousRevision = useProjectStore.getState().projectRevision;
+    expect((await saveActiveSaveUnit('record:rooms:foyer')).success).toBe(true);
+    const latest = useProjectStore.getState();
+    expect((latest.document as typeof working).rooms.foyer!.data.description.source)
+      .toMatchObject({ kind: 'inline', text: 'Changed on disk during Save' });
+    expect((latest.savedDocument as typeof saved).rooms.foyer!.data.description.source)
+      .toMatchObject({ kind: 'inline', text: 'Changed on disk during Save' });
+    expect(latest.projectRevision).toBe(previousRevision + 1);
+    expect(useCommandStore.getState().nativeProjectionRevision).toBe(latest.projectRevision);
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('never falls back to legacy writer when native Save refuses or Save All spans owners', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

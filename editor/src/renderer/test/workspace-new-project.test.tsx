@@ -627,7 +627,7 @@ describe('WorkspacePage new project modal', () => {
     expect(isAuthoringProject(useWorkspaceStore.getState().project)).toBe(true);
   });
 
-  it('does not let the legacy watcher publish external Project edits into native working state', async () => {
+  it('reconciles watcher changes using native source, never the conflicting legacy watcher candidate', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
     useProjectStore.getState().loadProjectDocument({
@@ -643,6 +643,36 @@ describe('WorkspacePage new project modal', () => {
       projectFilePath: '/mock/project/project.yaml',
     });
     useCommandStore.getState().enableNativeCommandMode(0);
+    window.noveltea.nativeProjectReconcile = vi.fn().mockResolvedValue({
+      accepted: true,
+      error: '',
+      affectedRecords: ['rooms/hall'],
+      diagnosticsAdded: [],
+      diagnosticsRemoved: [],
+      snapshot: {
+        workingRevision: 1,
+        source: {},
+        baseline: {},
+        diskSourceRevision: `sha256:${'a'.repeat(64)}`,
+        normalized: null,
+        dirty: false,
+        valid: true,
+        diagnostics: [],
+        recordSnapshots: {
+          'rooms/hall': {
+            workingRevision: 1,
+            diskSourceRevision: `sha256:${'d'.repeat(64)}`,
+            source: { ...project.rooms.hall!, description: 'Authoritative native source' },
+            baseline: { ...project.rooms.hall!, description: 'Authoritative native source' },
+            normalized: null,
+            dirty: false,
+            valid: true,
+            diagnostics: [],
+            conflictingPaths: [],
+          },
+        },
+      },
+    });
     render(<WorkspacePage />);
     await waitFor(() => expect(window.noveltea.startProjectWorkspaceWatcher).toHaveBeenCalled());
     const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
@@ -668,8 +698,16 @@ describe('WorkspacePage new project modal', () => {
     });
     expect(useProjectStore.getState().document).toBe(documentBefore);
     expect(useProjectStore.getState().projectRevision).toBe(revisionBefore);
-    expect(useCommandStore.getState().nativeWorkingRevision).toBe(0);
-    expect(useWorkspaceStore.getState().statusMessage).toContain('native reconciliation');
+    await waitFor(() => expect(useCommandStore.getState().nativeWorkingRevision).toBe(1));
+    expect(window.noveltea.nativeProjectReconcile).toHaveBeenCalledWith(
+      'opened-project-session', 0, 'rooms/hall',
+    );
+    expect((useProjectStore.getState().document as typeof project).rooms.hall?.description)
+      .toBe('Authoritative native source');
+    expect((useProjectStore.getState().savedDocument as typeof project).rooms.hall?.description)
+      .toBe('Authoritative native source');
+    expect(useCommandStore.getState().nativeProjectionRevision)
+      .toBe(useProjectStore.getState().projectRevision);
   });
 
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {

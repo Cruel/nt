@@ -15,6 +15,7 @@ export interface ProjectExternalConflictDialogProps {
   busy?: boolean;
   onUseDisk: () => void;
   onKeepMine: () => void;
+  onCancel: () => void;
 }
 
 export function ProjectExternalConflictDialog({
@@ -23,6 +24,7 @@ export function ProjectExternalConflictDialog({
   busy = false,
   onUseDisk,
   onKeepMine,
+  onCancel,
 }: ProjectExternalConflictDialogProps) {
   const { t } = useTranslation('workspace');
   const open = Boolean(saveUnitId && conflict);
@@ -44,6 +46,9 @@ export function ProjectExternalConflictDialog({
           </div>
         ) : null}
         <DialogFooter>
+          <Button variant="outline" disabled={busy} onClick={onCancel}>
+            {t('externalConflict.cancel')}
+          </Button>
           <Button variant="outline" disabled={busy} onClick={onUseDisk}>
             {t('externalConflict.useDisk')}
           </Button>

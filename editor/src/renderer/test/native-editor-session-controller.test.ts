@@ -170,7 +170,11 @@ describe('native admission at the editor main Project lifecycle', () => {
   });
   it('admits only canonical native reconciliation owners and checks session/revision', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
-    for (const owner of ['project', 'editor', 'traits', 'rooms/hall', 'i18n/en'])
+    for (const owner of [
+      'project', 'editor', 'traits', 'rooms/hall', 'i18n/en',
+      'i18n/project.yaml', 'i18n/messages.yaml', 'i18n/locales/fr-CA.yaml',
+      'i18n/assets/en.yaml',
+    ])
       expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(true);
     for (const owner of [
       '../project',
@@ -178,6 +182,8 @@ describe('native admission at the editor main Project lifecycle', () => {
       'rooms/hall/file',
       'scripts/a.lua',
       '/project',
+      'i18n/locales/../fr.yaml',
+      'i18n/locales/name/extra.yaml',
     ])
       expect(nativeProjectReconcileArgumentsSchema.safeParse([id, 0, owner]).success).toBe(false);
     const test = fixture();
