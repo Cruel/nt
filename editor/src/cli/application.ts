@@ -292,6 +292,34 @@ export async function runNovelTeaCli(
       );
       if (nativeShaders) return nativeShaders;
     }
+    if (!options.prepareResidentSnapshotOnly) {
+      const { runNativeProjectTestsCli } = await import('./native-project-tests-cli');
+      const nativeTests = await runNativeProjectTestsCli(
+        globals,
+        cwd,
+        options.nativeProjectCommands,
+        nativeTools,
+        {
+          ...(options.trustPinnedResidentSnapshot
+            ? {
+                pinned: options.pinnedNativePreparation ?? {
+                  projectRoot: path.resolve(cwd, globals.project ?? '.'),
+                  preparation: null,
+                },
+              }
+            : {}),
+          pinnedRuntimeBuildCacheInputs: options.pinnedRuntimeBuildCacheInputs,
+          pinnedExternalAssets: options.pinnedExternalAssets,
+          pinnedProjectTextSources: options.pinnedProjectTextSources,
+          paths: options.runtimeArtifactPaths,
+          fileSystem: options.fileSystem,
+          abortSignal: options.abortSignal,
+          forceRuntimeCacheRebuild: options.forceRuntimeCacheRebuild,
+          readStdinText: () => options.stdinText ?? options.readStdinText?.(),
+        },
+      );
+      if (nativeTests) return nativeTests;
+    }
     // Export workers copy only the exact source inventory captured by native owner admission;
     // the native exporter rejects live drift without parsing or substituting a newer Project.
     if (!options.prepareResidentSnapshotOnly) {

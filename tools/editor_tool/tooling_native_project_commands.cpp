@@ -503,8 +503,14 @@ Json operate(const Json& request)
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         // Capture the complete editable export inventory at owner admission. A pinned
         // worker may hash/copy these physical inputs, but must never readmit a newer Project.
-        const auto portable =
-            native_project_bundle({{"action", "export-preparation"}}, session, root);
+        const auto prepared_project = Json::parse(prepared.complete_project_json);
+        // Test-only semantic errors belong in the authored catalog as blocked
+        // entries. Source inventory still uses the native portable collector,
+        // but must not revalidate the already admitted gameplay generation as
+        // a normal (fully runnable) portable Project export.
+        const auto portable = native_project_bundle(
+            {{"action", "test-source-preparation"}, {"admittedProject", prepared_project}}, session,
+            root);
         if (!portable.value("ok", false))
             return portable;
         for (const auto& [path, revision] : portable.at("sourceRevisions").items())
@@ -513,7 +519,6 @@ Json operate(const Json& request)
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during portable capture."}};
-        const auto prepared_project = Json::parse(prepared.complete_project_json);
         std::set<std::string> referenced_assets;
         collect_runtime_asset_references(prepared_project, "", referenced_assets);
         return with_diagnostics({{"ok", true},

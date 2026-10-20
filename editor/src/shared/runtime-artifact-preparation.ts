@@ -279,7 +279,7 @@ function hashString(value: string): string {
   return `fnv1a:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-function preparedRuntimeArtifactSourceFingerprint(
+export function preparedRuntimeArtifactSourceFingerprint(
   project: AuthoringProject,
   profile: ExportProfileData,
   recoveryFingerprint: unknown = null,

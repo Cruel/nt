@@ -610,10 +610,18 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
     const auto action = request.value("action", std::string{});
     if (action == "project-import")
         return import_bundle(request);
-    if (action == "export-preparation" || action == "runtime-package-preparation") {
+    if (action == "export-preparation" || action == "runtime-package-preparation" ||
+        action == "test-source-preparation") {
         if (!session)
             return failure("Native export preparation requires an admitted disk Project.");
-        const auto effective = complete_project(*session);
+        // Invoked exclusively by the native shader/Test owner after its
+        // prepare_complete_working gate. No public export action can supply
+        // its own Project to bypass validation.
+        if (action == "test-source-preparation" &&
+            (!request.contains("admittedProject") || !request.at("admittedProject").is_object()))
+            return failure("Native Test source preparation requires an admitted Project.");
+        const auto effective = action == "test-source-preparation" ? request.at("admittedProject")
+                                                                   : complete_project(*session);
         if (action == "runtime-package-preparation" &&
             (!effective.contains("export") || !effective.at("export").is_object() ||
              !effective.at("export").contains("runtime") ||
