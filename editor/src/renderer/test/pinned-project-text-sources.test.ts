@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   packageOptionsWithPinnedProjectTextSources,
   pinnedShaderSourceOverlays,
+  runtimeArtifactPathsWithPinnedSources,
 } from '../../cli/pinned-project-text-sources';
 import type { PreparedRuntimePackageOptions } from '../../shared/project-schema/prepared-runtime-artifact';
 
@@ -56,5 +57,25 @@ describe('pinned Project text source publication', () => {
       'shaders/effect.sc': 'effect',
       'shaders/includes/common.sc': 'common',
     });
+  });
+
+  it('verifies shader include revisions against pinned text without reopening disk', async () => {
+    const diskRead = vi.fn(() => { throw new Error('must not read live disk'); });
+    const paths = runtimeArtifactPathsWithPinnedSources(
+      { resolveProjectSource: (_root, source) => source, shaderAssetRoot: () => undefined,
+        readProjectTextSources: diskRead },
+      { 'shaders/include/common.inc': { text: 'pinned contents' } },
+    );
+    const hash = `sha256:${(await import('node:crypto')).createHash('sha256').update('pinned contents').digest('hex')}` as const;
+    const entries = [
+      { assetId: 'a', projectRelativePath: 'shaders/include/common.inc', expectedContentHash: hash },
+      { assetId: 'b', projectRelativePath: 'shaders/include/missing.inc', expectedContentHash: hash },
+      { assetId: 'c', projectRelativePath: 'shaders/include/common.inc', expectedContentHash: 'sha256:bad' as typeof hash },
+    ];
+    const result = await paths.readProjectTextSources!('/unrelated/disk', entries);
+    expect(result[0]).toMatchObject({ status: 'ready', text: 'pinned contents', contentHash: hash });
+    expect(result[1]).toEqual({ status: 'unavailable', assetId: 'b' });
+    expect(result[2]).toEqual({ status: 'unavailable', assetId: 'c' });
+    expect(diskRead).not.toHaveBeenCalled();
   });
 });

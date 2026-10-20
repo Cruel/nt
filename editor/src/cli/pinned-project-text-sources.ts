@@ -1,4 +1,6 @@
 import type { PreparedRuntimePackageOptions } from '../shared/project-schema/prepared-runtime-artifact';
+import type { RuntimeArtifactPathAdapter } from '../shared/runtime-artifact-preparation';
+import { createHash } from 'node:crypto';
 
 export type PinnedProjectTextSources = Readonly<
   Record<string, Readonly<{ text: string; contentHash?: string }>>
@@ -59,4 +61,39 @@ export function pinnedShaderSourceOverlays(
     )
     .filter(([relativePath]) => relativePath.startsWith('shaders/'));
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+/** A disposable worker must verify shader dependencies against its admitted generation, never disk. */
+export function runtimeArtifactPathsWithPinnedSources(
+  paths: RuntimeArtifactPathAdapter,
+  sources: PinnedProjectTextSources | undefined,
+): RuntimeArtifactPathAdapter {
+  if (!sources) return paths;
+  const byPath = new Map(
+    Object.entries(sources).map(([relativePath, source]) => [
+      normalizeProjectRelativePath(relativePath),
+      source,
+    ]),
+  );
+  return {
+    ...paths,
+    async readProjectTextSources(_projectRoot, entries) {
+      return entries.map(({ assetId, projectRelativePath, expectedContentHash }) => {
+        const source = byPath.get(normalizeProjectRelativePath(projectRelativePath));
+        if (!source) return { status: 'unavailable' as const, assetId };
+        const contentHash = (source.contentHash ??
+          `sha256:${createHash('sha256').update(source.text, 'utf8').digest('hex')}`) as `sha256:${string}`;
+        if (expectedContentHash !== null && expectedContentHash !== contentHash)
+          return { status: 'unavailable' as const, assetId };
+        return {
+          status: 'ready' as const,
+          assetId,
+          projectRelativePath,
+          contentHash,
+          text: source.text,
+          byteLength: Buffer.byteLength(source.text, 'utf8'),
+        };
+      });
+    },
+  };
 }
