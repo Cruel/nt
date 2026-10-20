@@ -1191,10 +1191,42 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
 // still require an entirely valid manifest and must never use this fallback.
 static std::vector<Diagnostic> invalid_manifest_diagnostics(const std::filesystem::path& root)
 {
-    const auto source = open_yaml_source(read_bytes(root / "project.yaml"));
+    const auto bytes = read_bytes(root / "project.yaml");
+    const auto source = open_yaml_source(bytes);
     if (!source.accepted) {
         Diagnostic issue{"/", "source.project", "Invalid Project manifest YAML: " + source.error};
         issue.source_path = "project.yaml";
+        if (source.error_offset) {
+            const auto offset = std::min(*source.error_offset, bytes.size());
+            issue.line = 1;
+            issue.column = 1;
+            for (std::size_t i = 0; i < offset; ++i) {
+                if (bytes[i] == '\n') {
+                    ++*issue.line;
+                    issue.column = 1;
+                } else
+                    ++*issue.column;
+            }
+        } else {
+            // libfyaml does not expose a mark for some unterminated streams.
+            // Point to the last non-blank source line rather than leaving an
+            // unactionable project-root diagnostic with no source coordinates.
+            std::size_t line = 1;
+            std::size_t last_nonblank = 1;
+            bool content = false;
+            for (const char c : bytes) {
+                if (c == '\n') {
+                    if (content)
+                        last_nonblank = line;
+                    ++line;
+                    content = false;
+                } else if (c != '\r' && c != ' ' && c != '\t') {
+                    content = true;
+                }
+            }
+            issue.line = content ? line : last_nonblank;
+            issue.column = 1;
+        }
         return {std::move(issue)};
     }
     const auto semantic = validate_record("WorkspaceManifest", source.source_json);

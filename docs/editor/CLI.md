@@ -26,6 +26,28 @@ native cutover under #474. Certification-only diagnostics are not persisted.
 
 ## Parallel native Project command certification (#501)
 
+### Native public validation candidate (#513)
+
+With `NOVELTEA_CLI_CERTIFICATION=1` and
+`NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE=1`, `noveltea validate` uses
+native disk-authoritative ProjectSession validation for the complete static
+Project graph. A successful native diagnostic generation is matched to one
+complete native preparation before downstream physical Asset, distribution
+notice, native font-shaping, shader-compiler and reflection checks run.
+Validation preserves the read-only/static execution boundary: it does not
+execute gameplay Lua. The result requires a native source-generation proof,
+including discovered Lua/RML/RCSS/shader inputs, and exact physical Asset and
+notice checks before publication. Native diagnostic locations are resolved by
+the native restricted-YAML source locator rather than a second TypeScript
+Project admission. Native authority or transport errors fail closed without
+falling back to TypeScript authoring. Resident validation results and native
+font/shader stage caches remain optional and are validated against their
+physical revision, schema and native-tool identities before reuse.
+
+This is an isolated certification candidate. The default public CLI remains
+unchanged until the coordinated editor/CLI production cutover in #506; the
+remaining broad cross-command certification inventory belongs to #519.
+
 ### Native resident Project preparation (#514 candidate)
 
 Under `NOVELTEA_CLI_CERTIFICATION=1` and

@@ -28,6 +28,47 @@ function execute(args) {
   if (result.error) throw result.error;
   return result;
 }
+function candidate(args) {
+  const result = spawnSync(executable, args, {
+    env: {
+      ...environment,
+      NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '0',
+      NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `native-validation-candidate-${process.pid}`,
+    },
+    encoding: 'utf8',
+    timeout: 300_000,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  return result;
+}
+function checkCandidate(args, oracle) {
+  const outcome = candidate(args);
+  assert.equal(outcome.status, oracle.status, `Native validation exit mismatch: ${outcome.stderr}`);
+  const actual = JSON.parse(outcome.stdout);
+  const expected = JSON.parse(oracle.stdout);
+  assert.equal(actual.success, expected.success);
+  const nativeDiagnostics = diagnostics(actual.diagnostics);
+  const oracleDiagnostics = diagnostics(expected.diagnostics);
+  assert.deepEqual(
+    nativeDiagnostics.map(({ line, ...item }) => item),
+    oracleDiagnostics.map(({ line, ...item }) => item),
+  );
+  for (let index = 0; index < nativeDiagnostics.length; index++) {
+    const candidateLine = nativeDiagnostics[index].line;
+    const oracleLine = oracleDiagnostics[index].line;
+    // libfyaml may report the last nonblank line of an unterminated flow
+    // collection while the TS parser reports the following EOF line.
+    if (
+      nativeDiagnostics[index].code === 'WORKSPACE_MANIFEST_INVALID' &&
+      Number.isInteger(candidateLine) &&
+      Number.isInteger(oracleLine)
+    )
+      assert.ok(Math.abs(candidateLine - oracleLine) <= 1);
+    else assert.equal(candidateLine, oracleLine);
+  }
+}
 function diagnostics(value) {
   return value
     .map((item) => ({
@@ -67,6 +108,8 @@ try {
   const oracle = execute(['--no-daemon', ...argv]);
   const cold = execute(argv);
   verify(cold, oracle, false);
+  checkCandidate(['--no-daemon', ...argv], oracle);
+  checkCandidate(argv, oracle);
 
   // The broker exact-result cache must reject a disk revision change even
   // without trusting OS watcher delivery; the same owner remains resident.
@@ -75,6 +118,16 @@ try {
   const changedOracle = execute(['--no-daemon', ...argv]);
   const warm = execute(argv);
   verify(warm, changedOracle, true);
+  checkCandidate(argv, changedOracle);
+  checkCandidate(['--no-daemon', ...argv], changedOracle);
+  // Invalid YAML must retain the public workspace exit class and physical
+  // source coordinates. Repair must invalidate the previous native result.
+  await writeFile(path.join(project, 'project.yaml'), `${manifest.toString()}\ninvalid: [\n`);
+  const invalidOracle = execute(['--no-daemon', ...argv]);
+  checkCandidate(argv, invalidOracle);
+  checkCandidate(['--no-daemon', ...argv], invalidOracle);
+  await writeFile(path.join(project, 'project.yaml'), manifest);
+  checkCandidate(argv, changedOracle);
   assert.deepEqual(await readFile(path.join(project, 'project.yaml')), manifest);
   console.log('Native disk Project daemon cold/warm and TypeScript CLI parity passed.');
 } finally {

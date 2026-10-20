@@ -263,6 +263,19 @@ export async function runNovelTeaCli(
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   const nativeTools = options.nativeTools ?? unavailableNativeTools;
   if (options.nativeProjectCommands) {
+    // The native candidate owns the complete public validation result. This
+    // path never opens the retired TypeScript authoring Project/workspace.
+    if (!options.prepareResidentSnapshotOnly && !options.trustPinnedResidentSnapshot) {
+      const { runNativeProjectValidationCli } = await import('./native-project-validation-cli');
+      const nativeValidation = await runNativeProjectValidationCli(
+        globals,
+        cwd,
+        options.nativeProjectCommands,
+        nativeTools,
+        options.fileSystem,
+      );
+      if (nativeValidation) return nativeValidation;
+    }
     // Disposable shaders consume the native preparation embedded in the pinned snapshot.
     // Never invoke disk-backed native Project admission in a disposable worker.
     if (

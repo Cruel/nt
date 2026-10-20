@@ -1,4 +1,5 @@
 #include "tooling_native_c.h"
+#include "tooling_native_project_sync.hpp"
 
 #include "../project_authoring/room_session.hpp"
 
@@ -53,10 +54,15 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
         // diagnostics above but not in the separate CLI oracle projection.
         if (diagnostic.code == "authoring.interaction.selector-conditional")
             continue;
-        Json projected{{"code", diagnostic.code},
-                       {"severity", diagnostic.severity},
-                       {"path", diagnostic.path},
-                       {"message", diagnostic.message}};
+        const bool invalid_manifest_yaml =
+            diagnostic.code == "source.project" && diagnostic.source_path == "project.yaml" &&
+            diagnostic.message.starts_with("Invalid Project manifest YAML:");
+        Json projected{
+            {"code", invalid_manifest_yaml ? "WORKSPACE_MANIFEST_INVALID" : diagnostic.code},
+            {"severity", diagnostic.severity},
+            {"path", invalid_manifest_yaml ? "/project.yaml" : diagnostic.path},
+            {"message", invalid_manifest_yaml ? "project.yaml is not valid restricted YAML."
+                                              : diagnostic.message}};
         if (!diagnostic.source_path.empty())
             projected["sourceUrl"] = "project:/" + diagnostic.source_path;
         if (diagnostic.line)
@@ -126,6 +132,10 @@ Json validate(std::string_view request_text)
     const auto validated = state.session->validate_clean_project();
     auto result = response_for(validated.snapshot, warm, state.session->validation_work());
     result["cacheHit"] = validated.cache_hit;
+    // Bind the native diagnostic graph to exactly the same physical generation
+    // used by the shared downstream preparation; never combine two separate
+    // admissions if files change between those calls.
+    result["sourceGeneration"] = native_project_source_generation(*state.session, root);
     return result;
 }
 
