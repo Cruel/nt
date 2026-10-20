@@ -226,16 +226,16 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         prepared.error = "Project source generation advanced during complete preparation.";
         return prepared;
     }
-    // Only a missing Test step list is a structurally normalized but blocked authored Test.
-    // The native Test runner owns that verdict. Other Test semantic failures remain admission
-    // failures, just like invalid Project, source, or physical state.
+    // Authored Test readiness is separate from runtime Project admission. A
+    // structurally normalized Test with semantic errors remains a blocked
+    // catalog entry; it must not prevent another Test or a stdin spec from
+    // compiling the gameplay generation. Non-Test errors still block admission.
     const bool only_test_errors =
         !validated.valid &&
         std::any_of(validated.diagnostics.begin(), validated.diagnostics.end(),
                     [](const auto& d) { return d.severity == "error"; }) &&
         std::all_of(validated.diagnostics.begin(), validated.diagnostics.end(), [](const auto& d) {
-            return d.severity != "error" ||
-                   (d.path.starts_with("/tests/") && d.code == "authoring.test.steps-required");
+            return d.severity != "error" || d.path.starts_with("/tests/");
         });
     if (!validated.valid && !only_test_errors) {
         prepared.diagnostics = validated.diagnostics;

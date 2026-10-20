@@ -37,7 +37,7 @@ import {
 
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
 
-function preparedMediaTestRequest(artifact: PreparedRuntimeArtifact) {
+export function preparedMediaTestRequest(artifact: PreparedRuntimeArtifact) {
   const manifest = artifact.packageOptions.textEntries.find(
     (entry) => entry.packagePath === PREPARED_MEDIA_MANIFEST_PATH,
   );
@@ -77,11 +77,10 @@ function nativeSuccess(response: unknown): CliSemanticResult {
   return { ok: true, diagnostics: [], fields: { native: record } };
 }
 
-function nativeTestResult(response: unknown): CliSemanticResult {
+export function nativeTestResult(response: unknown): CliSemanticResult {
   const record =
     response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
-  if (record.ok !== true || record.success === false)
-    return nativeFailure('native.test', '/tests', response);
+  if (record.ok !== true) return nativeFailure('native.test', '/tests', response);
   const report =
     record.report && typeof record.report === 'object'
       ? (record.report as Record<string, unknown>)
@@ -112,6 +111,10 @@ function nativeTestResult(response: unknown): CliSemanticResult {
           : [cliDiagnostic('native.test.failed', '/tests', 'Authored Test failed.')],
       fields: { native: record },
     };
+  }
+  if (record.success === false) {
+    const failed = nativeFailure('native.test', '/tests', response);
+    return { ...failed, fields: { ...failed.fields, native: record } };
   }
   return { ok: true, diagnostics: [], fields: { native: record } };
 }
@@ -252,7 +255,7 @@ function withRuntimeCacheObservation(
   };
 }
 
-function nativeSuiteResult(response: unknown): CliSemanticResult {
+export function nativeSuiteResult(response: unknown): CliSemanticResult {
   const record =
     response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
   if (record.ok !== true) {
@@ -329,7 +332,16 @@ function nativeSuiteResult(response: unknown): CliSemanticResult {
   const summary =
     `Test suite: ${count('passed')} passed, ${count('failed')} failed, ` +
     `${count('blocked')} blocked, ${count('error')} errors.`;
-  const success = record.success !== false;
+  const verdictFailure = report.entries.some(
+    (value) =>
+      value !== null &&
+      typeof value === 'object' &&
+      ((value as Record<string, unknown>).status === 'failed' ||
+        (value as Record<string, unknown>).status === 'error'),
+  );
+  // Native transport acceptance and Test verdict are different authorities.
+  // A malformed runner success flag must not turn a failed suite into success.
+  const success = record.success !== false && report.passed !== false && !verdictFailure;
   if (!success) diagnostics.push(cliDiagnostic('native.test.suite.summary', '/tests', summary));
   return {
     ok: success,

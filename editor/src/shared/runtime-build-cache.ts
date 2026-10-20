@@ -858,6 +858,12 @@ async function publishRuntimeBuildCache(
   host: RuntimeBuildCachePublicationHost,
   variant: string,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  admittedAuthoringDiagnostics?: readonly Readonly<{
+    code: string;
+    severity: 'error' | 'warning' | 'info';
+    path: string;
+    message: string;
+  }>[],
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   if (!fileSystem.readPathMetadata) return { published: false, reason: 'metadata-unavailable' };
 
@@ -881,7 +887,9 @@ async function publishRuntimeBuildCache(
   if (!sameInputSnapshot(expectedTestInputs, currentTestInputs))
     return { published: false, reason: 'test-inputs-changed-during-preparation' };
 
-  const authoringDiagnostics = validateAuthoringProject(currentSnapshot.project).map((item) => ({
+  const authoringDiagnostics = (
+    admittedAuthoringDiagnostics ?? validateAuthoringProject(currentSnapshot.project)
+  ).map((item) => ({
     code: item.code,
     severity: item.severity,
     path: item.path,
@@ -1029,6 +1037,12 @@ export function publishCanonicalRuntimeBuildCache(
   reusedArtifactText: string | undefined,
   host: RuntimeBuildCachePublicationHost,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  admittedAuthoringDiagnostics?: readonly Readonly<{
+    code: string;
+    severity: 'error' | 'warning' | 'info';
+    path: string;
+    message: string;
+  }>[],
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   return publishRuntimeBuildCache(
     fileSystem,
@@ -1042,6 +1056,7 @@ export function publishCanonicalRuntimeBuildCache(
     host,
     RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
     compilerIdentity,
+    admittedAuthoringDiagnostics,
   );
 }
 
