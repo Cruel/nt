@@ -775,6 +775,10 @@ TEST_CASE("portable Project snapshots retain current and pinned historical gener
     CHECK_FALSE(snapshots.pin_current("/project", first, 14));
     REQUIRE(snapshots.find("/project", first, 15));
     CHECK(snapshots.find("/project", first, 15)->pin_count == 1);
+    CHECK(snapshots.chunk("/project", first, 0, 15) == "{\"first\":");
+    CHECK(snapshots.chunk("/project", first, 1, 15) == "true}");
+    CHECK_FALSE(snapshots.chunk("/project", first, 2, 15));
+    CHECK(snapshots.chunk("/project", second, 0, 15) == "{\"second\":true}");
     REQUIRE(snapshots.authority_checkpoint("/project", first, 15));
     CHECK(snapshots.authority_checkpoint("/project", first, 15)->manifest.canonical_root ==
           "/project");
@@ -782,6 +786,7 @@ TEST_CASE("portable Project snapshots retain current and pinned historical gener
 
     REQUIRE(snapshots.unpin("/project", first, 16));
     CHECK_FALSE(snapshots.find("/project", first, 17));
+    CHECK_FALSE(snapshots.chunk("/project", first, 0, 17));
     CHECK(snapshots.snapshot_count() == 1);
 }
 
