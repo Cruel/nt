@@ -91,6 +91,11 @@ void collect_runtime_asset_references(const Json& value, const std::string& path
         ids.insert(value.at("id").get<std::string>());
     for (auto it = value.begin(); it != value.end(); ++it) {
         const auto child_path = path + "/" + it.key();
+        // Tests and editor views are tooling-only and never contribute Runtime
+        // Package Asset reachability. The existing runtime compiler strips both.
+        if ((path.empty() && (it.key() == "tests" || it.key() == "editor")) ||
+            child_path.starts_with("/tests/") || child_path.starts_with("/editor/"))
+            continue;
         // Localization-owned Assets are resolved by the separate export locale closure.
         if (child_path.starts_with("/localization/assets/") ||
             (child_path.starts_with("/localization/locales/") &&
