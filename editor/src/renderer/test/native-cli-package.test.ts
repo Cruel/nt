@@ -141,7 +141,6 @@ it('preserves the public missing-profile diagnostic after native admission', asy
 
 it('uses only a pinned daemon generation and preserves developer package options', async () => {
   const { root, prepared } = await fixture();
-  await writeFile(path.join(root, 'project.yaml'), 'newer live Project bytes\n');
   const writes: Array<{ outputPath: string; options: Record<string, unknown> }> = [];
   const result = await runNativeProjectPackageCli(
     parseNovelTeaCliGlobals([
@@ -172,7 +171,7 @@ it('uses only a pinned daemon generation and preserves developer package options
   expect(writes[0]!.options).toMatchObject({ stripShaderSources: false });
 });
 
-it('keeps a pinned daemon generation valid while the live Project advances', async () => {
+it('rejects publication when the live Project advances during pinned package preparation', async () => {
   const { root, prepared } = await fixture();
   const result = await runNativeProjectPackageCli(
     parseNovelTeaCliGlobals(['--json', 'package', 'export', '--output', 'game.ntpkg']),
@@ -190,8 +189,13 @@ it('keeps a pinned daemon generation valid while the live Project advances', asy
     },
   );
 
-  expect(result?.exitCode, JSON.stringify(result?.envelope.diagnostics)).toBe(0);
-  expect(await readFile(path.join(root, 'game.ntpkg'), 'utf8')).toBe('native-runtime-package');
+  expect(result?.exitCode, JSON.stringify(result?.envelope.diagnostics)).toBe(4);
+  expect(result?.envelope.diagnostics).toContainEqual(
+    expect.objectContaining({ code: 'export.pinned_input_changed' }),
+  );
+  await expect(readFile(path.join(root, 'game.ntpkg'), 'utf8')).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
 });
 
 it('uses native referenced-Asset closure and keeps the unused-Asset override scoped', async () => {

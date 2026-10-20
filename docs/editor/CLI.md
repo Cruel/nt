@@ -75,18 +75,26 @@ The narrow CLI routing, native lifecycle/validation and native IPC unit tests
 passed (60 tests). The native CLI was rebuilt from this candidate with the
 certification-only legacy workspace poison active.
 
-The **full Feature Lab family differential is not green**: native `entity
-inspect layouts counter-fragment` includes an empty
-`record.data.dependencies.templates` array that the existing TypeScript CLI
-oracle omits. This effective-record mismatch is not normalized away; the
-expanded `certify-native-cli-project-routing.mjs` correctly fails. The
-remaining full Project-family parity work is owned by the open #512 dependency;
-the acceptance criteria of #519 and the parent #505 are therefore not met.
-The sibling implementation issues #514, #516, #517 and #518 also remain open
-until they are independently reconciled. The CI checks are wired, but green
-Linux/Windows/macOS release-host runs of this expanded matrix have **not**
-been established. Neither issue should be closed based on only the passing
-inventory, transport, targeted tests and timing smoke.
+Subsequent #505 integration repaired the optional Layout default projection:
+`entity inspect layouts counter-fragment` now matches the legacy CLI without
+inventing `dependencies.templates` when an explicit dependency object omits
+that optional field. The C++ Layout regression covers both an explicit sparse
+dependency map and an omitted map with a full default. The next discovered
+family mismatch, a lexical `alpha-board` reference in `trigger-panel` RML,
+was repaired using native RML/Lua source analysis. Both individual installed-CLI
+oracle comparisons now pass with identical source evidence. Native Runtime
+Package export also passed cold/daemon byte-level parity (default and developer
+overrides) and rejected a pinned-worker Project source race without overwriting
+an existing package. Pinned native sessions no longer eagerly construct the
+retired TypeScript workspace service.
+
+The complete local Feature Lab differential now **passes all 78 public command
+comparisons** between native and legacy installed CLIs (including daemon and
+local shader compilation after physical source changes). The **release-host
+certification gate remains open** until Linux/Windows/macOS matrix results are
+confirmed. #512's cross-host parity requirements and sibling #514, #516, #517
+and #518 still require their own acceptance review. Neither #519 nor parent
+#505 should be closed solely on the strength of the local Linux results.
 
 ## Parallel native daemon validation certification (#500)
 

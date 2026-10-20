@@ -77,6 +77,29 @@ void certify(const std::filesystem::path& source)
             std::cerr << issue.path << ": " << issue.code << ": " << issue.message << '\n';
     require(snapshot.valid, "Sparse Layout YAML and file-backed companions must normalize");
     const auto normalized = Json::parse(snapshot.normalized_json);
+    const auto optional_layout = fixture.root / "records/layouts/counter-fragment/layout.yaml";
+    auto optional_record =
+        RoomSession::open_record(fixture.root, "layouts", "counter-fragment", error);
+    require(optional_record && optional_record->snapshot().valid,
+            "Layout with explicit sparse dependencies is valid");
+    auto optional_data = Json::parse(optional_record->snapshot().normalized_json).at("data");
+    require(optional_data.at("dependencies").contains("data") &&
+                !optional_data.at("dependencies").contains("templates"),
+            "Explicit Layout dependencies do not gain an omitted optional templates field");
+    auto optional_bytes = read(optional_layout);
+    const auto dependency_start = optional_bytes.find("  dependencies:\n");
+    const auto dependency_end = optional_bytes.find("  layoutKind:", dependency_start);
+    require(dependency_start != std::string::npos && dependency_end != std::string::npos,
+            "Expected sparse Layout dependency block");
+    optional_bytes.erase(dependency_start, dependency_end - dependency_start);
+    write(optional_layout, optional_bytes);
+    optional_record = RoomSession::open_record(fixture.root, "layouts", "counter-fragment", error);
+    require(optional_record && optional_record->snapshot().valid,
+            "Layout with omitted dependency container is valid");
+    optional_data = Json::parse(optional_record->snapshot().normalized_json).at("data");
+    require(optional_data.at("dependencies").contains("templates") &&
+                optional_data.at("dependencies").at("templates").empty(),
+            "Omitted Layout dependency container retains its full schema default");
     require(normalized.at("data").at("rml").at("sourceMode") == "inline" &&
                 normalized.at("data").at("rml").at("sourceText") == read(markup) &&
                 normalized.at("data").at("layoutKind") == "document" &&

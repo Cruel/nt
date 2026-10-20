@@ -24,6 +24,8 @@ import {
 
 export interface ResidentProjectWorkspaceSessionHost {
   readonly fileSystem: ProjectWorkspaceFileSystem;
+  /** Native Project generations must not construct a retired authoring service. */
+  readonly deferWorkspaceService?: boolean;
   readonly createWorkspaceService?: (
     fileSystem: ProjectWorkspaceFileSystem,
   ) => ProjectWorkspaceService;
@@ -355,7 +357,10 @@ function sameAuthoringFileStamp(
 
 export class ResidentProjectWorkspaceSession {
   private readonly fileSystem: ResidentProjectWorkspaceFileSystem;
-  private readonly workspace: ProjectWorkspaceService;
+  private workspace: ProjectWorkspaceService | null;
+  private readonly createWorkspaceService: (
+    fileSystem: ProjectWorkspaceFileSystem,
+  ) => ProjectWorkspaceService;
   private readonly sessionEpochValue: number;
   private generationValue: number;
   private snapshotValue: LoadedProjectWorkspaceSnapshot;
@@ -384,9 +389,11 @@ export class ResidentProjectWorkspaceSession {
     this.editorStateValue = editorState;
     this.openedValue = opened;
     this.fileSystem = new ResidentProjectWorkspaceFileSystem(host.fileSystem);
-    this.workspace = host.createWorkspaceService
-      ? host.createWorkspaceService(this.fileSystem)
-      : new ProjectWorkspaceService(this.fileSystem);
+    this.createWorkspaceService =
+      host.createWorkspaceService ?? ((fileSystem) => new ProjectWorkspaceService(fileSystem));
+    this.workspace = host.deferWorkspaceService
+      ? null
+      : this.createWorkspaceService(this.fileSystem);
     if (opened) this.fileSystem.seedOpened(opened);
     else this.fileSystem.seed(snapshot);
   }
@@ -490,6 +497,7 @@ export class ResidentProjectWorkspaceSession {
   }
 
   service(): ProjectWorkspaceService {
+    this.workspace ??= this.createWorkspaceService(this.fileSystem);
     return this.workspace;
   }
 
@@ -693,7 +701,7 @@ export class ResidentProjectWorkspaceSession {
     // The watcher may have missed additions/deletions while suspended or after an error. Keep
     // cached contents/revisions for known files, but force directory membership to be rediscovered.
     this.fileSystem.invalidateInventory();
-    const opened = await this.workspace.open(before.projectRoot);
+    const opened = await this.service().open(before.projectRoot);
     if (!opened.ok) {
       this.coherenceValue = 'invalid';
       if (suspicious.size === 0) this.invalidAuthoringSourcePaths.add('*');
@@ -786,7 +794,7 @@ export class ResidentProjectWorkspaceSession {
   ): Promise<EditorProjectState> {
     return this.runExclusive(async () => {
       const persisted = this.editorStateWithRecoveryBaselines(editorState, ownershipHints);
-      await this.workspace.writeEditorLocalState(this.snapshotValue.projectRoot, persisted);
+      await this.service().writeEditorLocalState(this.snapshotValue.projectRoot, persisted);
       this.editorStateValue = persisted;
       return persisted;
     });
@@ -794,7 +802,7 @@ export class ResidentProjectWorkspaceSession {
 
   async reassemble(changedPaths: readonly string[]): Promise<ProjectWorkspaceOpenResult> {
     this.invalidate(changedPaths);
-    const opened = await this.workspace.open(this.snapshotValue.projectRoot);
+    const opened = await this.service().open(this.snapshotValue.projectRoot);
     if (opened.ok) {
       this.adopt(opened.snapshot, opened.editorState);
       this.invalidAuthoringSourcePaths.clear();
@@ -830,7 +838,7 @@ export class ResidentProjectWorkspaceSession {
 
     const before = this.snapshotValue;
     this.fileSystem.invalidate(this.snapshotValue.projectRoot, '.noveltea/transactions');
-    const opened = await this.workspace.open(this.snapshotValue.projectRoot);
+    const opened = await this.service().open(this.snapshotValue.projectRoot);
     if (!opened.ok) {
       this.coherenceValue = 'invalid';
       this.invalidAuthoringSourcePaths.add('*');

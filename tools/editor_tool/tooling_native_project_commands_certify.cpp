@@ -678,6 +678,21 @@ void certify(const std::filesystem::path& source)
                                   {"id", "room-lifecycle-roundtrip"},
                                   {"provenance", true}});
     require(inspect.value("ok", false), "Native CLI record inspection failed.");
+    const auto rml_usages = command({{"action", "entity-usages"},
+                                     {"projectRoot", root},
+                                     {"collection", "interactables"},
+                                     {"id", "alpha-board"}});
+    require(rml_usages.value("ok", false) &&
+                std::any_of(rml_usages.at("usages").begin(), rml_usages.at("usages").end(),
+                            [](const Json& edge) {
+                                return edge.value("role", std::string{}) ==
+                                           "lua-possible-reference" &&
+                                       edge.value("sourcePath", std::string{}) ==
+                                           "project:/records/layouts/trigger-panel/layout.rml" &&
+                                       edge.at("location").at("line") == 7 &&
+                                       edge.at("location").at("column") == 118;
+                            }),
+            "Native usages includes possible Lua references in Layout RML event handlers.");
     {
         const auto untracked = fixture.root / "assets/text/native-audit-untracked.txt";
         std::filesystem::create_directories(untracked.parent_path());

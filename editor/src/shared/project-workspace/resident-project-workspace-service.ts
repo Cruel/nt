@@ -879,6 +879,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         {
           fileSystem: this.residentFileSystem,
           createWorkspaceService: this.createSessionWorkspace,
+          deferWorkspaceService: true,
         },
         identity ??
           (this.residentSessionEpoch === undefined
@@ -888,7 +889,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       // The native diagnostics are the admitted generation's semantic validation product.
       // Preflight and compiler consumers must not fall back to a fresh TS authoring validation
       // simply because this generation was created by a cold owner rather than hydrated.
-      await session.service().restoreReusableSnapshotState(opened);
+      // Native preparation already owns the full validated generation; do not
+      // instantiate a legacy TypeScript workspace merely to hydrate its cache.
       const entry: ResidentEntry = {
         canonicalRoot,
         session,
@@ -2275,10 +2277,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         {
           fileSystem: this.residentFileSystem,
           createWorkspaceService: this.createSessionWorkspace,
+          deferWorkspaceService: portable.nativePreparation !== null,
         },
         portable.identity,
       );
-      await session.service().restoreReusableSnapshotState(opened);
+      if (!portable.nativePreparation) await session.service().restoreReusableSnapshotState(opened);
       const entry: ResidentEntry = {
         canonicalRoot,
         session,

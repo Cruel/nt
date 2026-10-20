@@ -392,6 +392,35 @@ it('consumes a pinned native worker generation without readmission and reports s
   expect(captured).toMatchObject([{ checkOnly: true, profileId: 'windows-release' }]);
 });
 
+it('rejects stale pinned platform publication without re-admitting Project authority', async () => {
+  const { root, preparation } = await fixture();
+  await writeFile(path.join(root, 'project.yaml'), 'newer live Project generation\n');
+  let published = false;
+  const result = await runNovelTeaCli(
+    ['--json', 'platform', 'export', '--output', 'dist/game', '--check'],
+    {
+      cwd: root,
+      nativeProjectCommands() {
+        throw new Error('Pinned worker must not re-admit Project authority.');
+      },
+      pinnedNativePreparation: { projectRoot: root, preparation },
+      trustPinnedResidentSnapshot: true,
+      pinnedProjectTextSources: {},
+      pinnedExternalAssets: [],
+      runtimeArtifactPaths: logicalRuntimeArtifactPaths,
+      platformTools: platformTools(async (request) => {
+        published = true;
+        return success(request);
+      }),
+    },
+  );
+  expect(result.exitCode).toBe(5);
+  expect(result.envelope.diagnostics).toContainEqual(
+    expect.objectContaining({ code: 'WORKSPACE_REVISION_CONFLICT' }),
+  );
+  expect(published).toBe(false);
+});
+
 it('uses the target-specific Android application identity rather than the desktop identity', async () => {
   const { root, preparation, localPath } = await fixture(['android']);
   preparation.project.settings.app = {
