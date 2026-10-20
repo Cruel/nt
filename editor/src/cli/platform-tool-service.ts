@@ -16,6 +16,8 @@ export interface AdmittedPlatformExportValidation {
   readonly diagnostics: readonly ProjectValidationDiagnostic[];
   readonly contributions: readonly AuthoringValidationContribution[];
   readonly runtimeAssetReferences?: readonly string[];
+  /** Owner-captured shader bytes, never reread from a newer on-disk generation. */
+  readonly shaderSourceOverlays?: Readonly<Record<string, string>>;
   readonly sourceGraph?: Pick<
     import('../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
     'graph' | 'externalSourceRevisions'

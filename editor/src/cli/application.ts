@@ -345,6 +345,32 @@ export async function runNovelTeaCli(
       );
       if (nativePackage) return nativePackage;
     }
+    if (!options.prepareResidentSnapshotOnly) {
+      const { runNativeProjectPlatformCli } = await import('./native-project-platform-cli');
+      const nativePlatform = await runNativeProjectPlatformCli(
+        globals,
+        cwd,
+        options.nativeProjectCommands,
+        platformTools,
+        {
+          ...(options.trustPinnedResidentSnapshot
+            ? {
+                pinned: options.pinnedNativePreparation ?? {
+                  projectRoot: path.resolve(cwd, globals.project ?? '.'),
+                  preparation: null,
+                },
+              }
+            : {}),
+          pinnedExternalAssets: options.pinnedExternalAssets,
+          pinnedProjectTextSources: options.pinnedProjectTextSources,
+          paths: options.runtimeArtifactPaths,
+          fileSystem: options.fileSystem,
+          abortSignal: options.abortSignal,
+          onProgress: options.onPlatformProgress,
+        },
+      );
+      if (nativePlatform) return nativePlatform;
+    }
     // Export workers copy only the exact source inventory captured by native owner admission;
     // the native exporter rejects live drift without parsing or substituting a newer Project.
     if (!options.prepareResidentSnapshotOnly) {
