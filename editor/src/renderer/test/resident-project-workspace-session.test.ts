@@ -3273,6 +3273,11 @@ describe('ResidentProjectWorkspaceSession', () => {
     if (!pinned.ok) throw new Error('Pinned Project snapshot did not hydrate.');
     expect(pinned.snapshot.project.rooms.foyer.label).toBe('Foyer');
     expect(pinned.snapshot.project.rooms['live-only']).toBeUndefined();
+    // An old disposable generation must not prove freshness against newer live disk.
+    fileSystem.readFileRevision = async () => {
+      throw new Error('Pinned read authority unexpectedly consulted the live Project.');
+    };
+    expect(await disposable.verifyReadAuthority(pinned.snapshot)).toBe(true);
     await expect(disposable.openForMutation(ROOT)).rejects.toThrow(
       'Pinned disposable Project generations are immutable.',
     );
@@ -3401,19 +3406,29 @@ describe('ResidentProjectWorkspaceSession', () => {
         text,
       ]),
     );
-    files[`${ROOT}/support/licenses/global.md`] = 'Original license notice';
+    files[`${ROOT}/support/licenses/global.md`] = '\uFEFFOriginal license notice';
     const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
     const owner = new ResidentProjectWorkspaceService(fileSystem);
     expect((await owner.open(ROOT)).ok).toBe(true);
     const prepared = await owner.preparePortableSnapshot(ROOT);
     expect(prepared).not.toBeNull();
     if (!prepared) return;
+    const missingNotice = JSON.parse(prepared.snapshotText) as {
+      projectTextSources: Record<string, unknown>;
+    };
+    delete missingNotice.projectTextSources['support/licenses/global.md'];
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(missingNotice),
+      ),
+    ).toBe(false);
     await fileSystem.writeTextAtomic(`${ROOT}/support/licenses/global.md`, 'Later notice text');
     const disposable = new ResidentProjectWorkspaceService(fileSystem);
     expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
     const inputs = await disposable.pinnedPortableInputs(ROOT);
     expect(inputs?.projectTextSources['support/licenses/global.md']?.text).toBe(
-      'Original license notice',
+      '\uFEFFOriginal license notice',
     );
   });
 
