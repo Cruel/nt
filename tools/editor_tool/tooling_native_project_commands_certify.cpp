@@ -736,10 +736,14 @@ void certify(const std::filesystem::path& source)
                 runtime_preparation.at("profile").at("kind") == "runtime" &&
                 runtime_preparation.at("projectIdentity") ==
                     runtime_preparation.at("project").at("project") &&
+                runtime_preparation.at("sourceGeneration").is_string() &&
+                runtime_preparation.at("sourceOverlays").is_object() &&
+                runtime_preparation.at("referencedAssetIds").is_array() &&
+                runtime_preparation.at("cliDiagnostics").is_array() &&
                 runtime_preparation.at("sourcePaths").size() ==
                     runtime_preparation.at("sourceRevisions").size(),
             "Native Runtime Package preparation uses the admitted complete Project, the "
-            "selected runtime profile, and revision-pinned file inventory.");
+            "selected runtime profile, and generation-pinned downstream inputs.");
     require(!command({{"action", "runtime-package-preparation"},
                       {"projectRoot", root},
                       {"profileId", "unselected-profile"}})

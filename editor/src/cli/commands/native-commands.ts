@@ -69,7 +69,7 @@ function nativeFailure(code: string, pathValue: string, response: unknown): CliS
   return { ok: false, diagnostics };
 }
 
-function nativeSuccess(response: unknown): CliSemanticResult {
+export function nativeSuccess(response: unknown): CliSemanticResult {
   const record =
     response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
   if (record.ok !== true || record.success === false)
@@ -128,15 +128,18 @@ function valueOption(arguments_: readonly string[], option: string): string | un
   return value;
 }
 
-async function removeFileIfPresent(context: CliCommandContext, value: string): Promise<void> {
+export async function removeFileIfPresent(
+  context: Pick<CliCommandContext, 'fileSystem'>,
+  value: string,
+): Promise<void> {
   const kind = context.fileSystem.readPathMetadata
     ? (await context.fileSystem.readPathMetadata(value)).kind
     : await context.fileSystem.inspect(value).catch(() => 'missing' as const);
   if (kind === 'file') await context.fileSystem.removeFile(value);
 }
 
-async function publishStagedPackage(
-  context: CliCommandContext,
+export async function publishStagedPackage(
+  context: Pick<CliCommandContext, 'fileSystem' | 'nativeTools'>,
   stagedPath: string,
   outputPath: string,
 ): Promise<CliSemanticResult | null> {

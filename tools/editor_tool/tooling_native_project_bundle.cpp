@@ -614,7 +614,7 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
         action == "test-source-preparation") {
         if (!session)
             return failure("Native export preparation requires an admitted disk Project.");
-        // Invoked exclusively by the native shader/Test owner after its
+        // Invoked exclusively by the native shader/Test/Runtime Package owner after its
         // prepare_complete_working gate. No public export action can supply
         // its own Project to bypass validation.
         if (action == "test-source-preparation" &&
