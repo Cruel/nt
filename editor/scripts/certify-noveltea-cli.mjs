@@ -2688,8 +2688,58 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail('Disposable Portable Project export did not publish its bundle.');
     passSubcase('portable-project-export', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('portable-physical-drift-after-pin');
+    const previousPortableBytes = await readFile(portableOutput);
+    const marker = path.join(tempRoot, 'portable-snapshot-acquired');
+    const driftInvocation = await runAsync(
+      nativeCli,
+      ['--project', portableRoot, '--json', 'project', 'export', '--output', portableOutput],
+      {
+        cwd: portableRoot,
+        env: {
+          ...portableEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
+        },
+      },
+    );
+    try {
+      await waitForFile(marker);
+      const galleryPath = path.join(portableRoot, 'records', 'rooms', 'gallery.yaml');
+      const gallery = parseYaml(await readFile(galleryPath, 'utf8'));
+      gallery.label = `${gallery.label} changed after snapshot pin`;
+      await writeFile(galleryPath, stringifyYaml(gallery));
+      const promoted = requireSuccess(
+        'portable export physical drift owner generation promotion',
+        runNative(['--project', portableRoot, '--json', 'usages', 'rooms', 'gallery'], {
+          cwd: portableRoot,
+          env: portableEnvironment,
+        }),
+      );
+      if ((schedulerProfile(promoted)?.generationPromotions ?? 0) < 1)
+        fail(`Portable export physical drift did not promote its owner: ${promoted.stderr}`);
+    } finally {
+      await writeFile(`${marker}.release`, 'release');
+    }
+    const driftResult = await driftInvocation.result();
+    if (driftResult.status === 0)
+      fail('Pinned portable Project export published despite physical input drift.');
+    if (!(await readFile(portableOutput)).equals(previousPortableBytes))
+      fail('Failed pinned portable Project export modified its previous publication.');
+    passSubcase('portable-physical-drift-after-pin', subcaseStartedAt);
+
     subcaseStartedAt = startSubcase('shader-compile');
     const shaderRoot = await resetFixture('disposable-shader-compile');
+    const labRoot = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+    await mkdir(path.join(shaderRoot, 'shaders'), { recursive: true });
+    await mkdir(path.join(shaderRoot, 'records', 'materials'), { recursive: true });
+    await cp(
+      path.join(labRoot, 'shaders', 'lab-invert.fs.sc'),
+      path.join(shaderRoot, 'shaders', 'lab-invert.fs.sc'),
+    );
+    await cp(
+      path.join(labRoot, 'records', 'materials', 'lab-invert.yaml'),
+      path.join(shaderRoot, 'records', 'materials', 'lab-invert.yaml'),
+    );
     const shaderResult = requireSuccess(
       'Shader compile disposable completion',
       runNative(['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'], {
@@ -2706,6 +2756,50 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     )
       fail(`Shader compile did not use a pinned disposable generation: ${shaderResult.stderr}`);
     passSubcase('shader-compile', subcaseStartedAt);
+
+    subcaseStartedAt = startSubcase('shader-source-pinned-after-owner-promotion');
+    const shaderMarker = path.join(tempRoot, 'shader-snapshot-acquired');
+    const pinnedShaderInvocation = await runAsync(
+      nativeCli,
+      ['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'],
+      {
+        cwd: shaderRoot,
+        env: {
+          ...portableEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: shaderMarker,
+        },
+      },
+    );
+    try {
+      await waitForFile(shaderMarker);
+      const shaderSource = path.join(shaderRoot, 'shaders', 'lab-invert.fs.sc');
+      const oldShaderSource = await readFile(shaderSource, 'utf8');
+      await writeFile(shaderSource, `${oldShaderSource}\n#error changed-after-snapshot\n`);
+      const shaderPromotion = requireSuccess(
+        'shader source owner generation promotion during old compilation',
+        runNative(['--project', shaderRoot, '--json', 'usages', 'rooms', 'gallery'], {
+          cwd: shaderRoot,
+          env: portableEnvironment,
+        }),
+      );
+      if ((schedulerProfile(shaderPromotion)?.generationPromotions ?? 0) < 1)
+        fail(`Shader source edit was not promoted: ${shaderPromotion.stderr}`);
+    } finally {
+      await writeFile(`${shaderMarker}.release`, 'release');
+    }
+    const oldShaderCompletion = requireSuccess(
+      'old-generation shader compile after new-generation source rejection',
+      await pinnedShaderInvocation.result(),
+    );
+    if (!schedulerProfile(oldShaderCompletion)?.snapshotHandoff)
+      fail('Old-generation shader compile lost its pinned snapshot handoff.');
+    const changedShaderCompile = runNative(
+      ['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'],
+      { cwd: shaderRoot, env: portableEnvironment },
+    );
+    if (changedShaderCompile.status === 0)
+      fail('New shader generation unexpectedly compiled its deliberately invalid physical source.');
+    passSubcase('shader-source-pinned-after-owner-promotion', subcaseStartedAt);
 
     const publicationDebris = async (output) => {
       const parent = path.dirname(output);
