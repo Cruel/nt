@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -1004,6 +1005,21 @@ async function runNovelTeaScriptcIslandScoped(
           hostNativeAlphaEncoder(invokeHost),
         );
         trace(`pinned Project snapshot hydrated: ${pinned.projectRoot}`);
+        // Certification-only interlock: release the worker after the resident owner has
+        // promoted new disk sources, while this worker retains its older decoded inputs.
+        const marker =
+          environment.NOVELTEA_CLI_CERTIFICATION === '1'
+            ? environment.NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER
+            : undefined;
+        if (marker) {
+          await writeFile(marker, 'hydrated');
+          const deadline = Date.now() + 30_000;
+          while (!existsSync(`${marker}.release`)) {
+            if (Date.now() >= deadline)
+              throw new Error('Snapshot certification interlock timed out.');
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+        }
       }
     }
   }
