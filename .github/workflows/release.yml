@@ -1393,6 +1393,16 @@ jobs:
           node editor/scripts/certify-native-cli-platform.mjs $cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Certify native editor and installed CLI cross-system authority
+        shell: pwsh
+        env:
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
+        run: |
+          pnpm -C editor exec vp pack
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-authoring-cross-system.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:

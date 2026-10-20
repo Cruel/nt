@@ -13,6 +13,8 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   `noveltea.compiled.project` Format V1 contract consumed by the editor publisher and native decoder.
 - `docs/architecture/NATIVE_AUTHORING_CONTRACTS.md` describes the generated Zod/native schema
   contracts, stable semantic operation registrations, and certification-only host validation boundary.
+- `docs/architecture/certifications/NATIVE_AUTHORING_CUTOVER_READINESS.md` is the active #520
+  acceptance matrix and exact #521 coordinated retirement/switch plan (not a completed cutover).
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,
