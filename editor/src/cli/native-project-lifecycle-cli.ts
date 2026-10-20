@@ -10,6 +10,7 @@ import {
   type NovelTeaCliExitCode,
 } from './contracts';
 import { parseProjectCreate } from './project-create-cli';
+import { nativeProjectFailure } from './native-project-results';
 import { parseProjectImport, parseProjectExport } from './project-bundle-cli';
 
 type NativeProjectResponse = Readonly<{
@@ -55,6 +56,12 @@ export async function runNativeProjectLifecycleCli(
   globals: ParsedGlobalArguments,
   cwd: string,
   native: NativeProjectCommandCall,
+  pinned?: Readonly<{
+    projectRoot: string;
+    preparation:
+      | import('../shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation
+      | null;
+  }>,
 ): Promise<NovelTeaCliCommandResult | null> {
   const [family, operation] = globals.command;
   if (family !== 'project' || !['create', 'import', 'export'].includes(operation ?? ''))
@@ -84,7 +91,23 @@ export async function runNativeProjectLifecycleCli(
       errorPath = path.resolve(cwd, parsed.output);
       // Discovery locates physical candidates only. The native session is the
       // sole authority for YAML admission, identity and dependent sources.
-      const root = await nativeProjectRoot(cwd, globals.project);
+      if (pinned && !pinned.preparation)
+        return formatCliResult(
+          {
+            success: false,
+            exitCode: NOVELTEA_CLI_EXIT_CODES.internal,
+            diagnostics: [
+              cliDiagnostic(
+                'CLI_INTERNAL',
+                '/',
+                'Pinned Project export has no native preparation. Refusing disk re-admission.',
+              ),
+            ],
+          },
+          globals.json,
+          { failure: 'Pinned Project export has no native preparation.' },
+        );
+      const root = pinned?.projectRoot ?? (await nativeProjectRoot(cwd, globals.project));
       if (!root)
         return formatCliResult(
           {
@@ -105,6 +128,12 @@ export async function runNativeProjectLifecycleCli(
         action: 'project-export',
         projectRoot: root,
         outputPath: errorPath,
+        ...(pinned?.preparation
+          ? {
+              pinnedProject: pinned.preparation.project,
+              expectedSourceRevisions: pinned.preparation.sourceRevisions,
+            }
+          : {}),
       };
     }
   } catch (error) {
@@ -146,7 +175,7 @@ export async function runNativeProjectLifecycleCli(
           ? NOVELTEA_CLI_EXIT_CODES.semantic
           : NOVELTEA_CLI_EXIT_CODES.mutation;
     return formatCliResult(
-      { success: false, exitCode, diagnostics: [cliDiagnostic(code, errorPath!, message)] },
+      nativeProjectFailure(response, { code, path: errorPath!, message, exitCode }),
       globals.json,
       { failure: message },
     );

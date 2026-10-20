@@ -276,10 +276,53 @@ Json operate(const Json& request)
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         return {{"ok", true}};
     }
-    if (action == "workspace-preflight")
-        return native_project_workspace_preflight(root, true);
+    if (action == "workspace-preflight" || action == "platform-profiles-preparation")
+        return native_project_workspace_preflight(root, action == "workspace-preflight",
+                                                  action == "platform-profiles-preparation");
     if (action == "asset-audit")
         return native_project_asset_audit(root);
+    if (action == "project-export" && request.contains("pinnedProject")) {
+        const auto safety = native_project_disk_safety(root);
+        if (!safety.value("ok", false))
+            return safety;
+        return native_project_bundle(request, nullptr, root);
+    }
+    auto admission = native_project_workspace_preflight(root);
+    if (!admission.value("ok", false)) {
+        const bool dry_run =
+            request.value("dryRun", false) ||
+            ((action == "fmt" || action == "fmt-strip-defaults") && request.value("check", false));
+        const bool recovery_pending = admission.contains("diagnostics") &&
+                                      !admission.at("diagnostics").empty() &&
+                                      admission.at("diagnostics").at(0).value("code", "") ==
+                                          "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT";
+        if (dry_run || !recovery_pending)
+            return admission;
+        const auto recovered = YamlTransactionService(root).recover();
+        if (!recovered.accepted)
+            return {
+                {"ok", false},
+                {"exitCode", 5},
+                {"error", recovered.error},
+                {"diagnostics",
+                 Json::array({{{"code", recovered.error.find("WORKSPACE_BUSY") != std::string::npos
+                                            ? "WORKSPACE_BUSY"
+                                            : "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT"},
+                               {"path", "/.noveltea/transactions"},
+                               {"severity", "error"},
+                               {"message", recovered.error}}})}};
+        if (const auto import_error = native_project_asset_recover(root))
+            return {
+                {"ok", false},
+                {"exitCode", 5},
+                {"diagnostics", Json::array({{{"code", "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT"},
+                                              {"path", "/.noveltea/asset-import-staging"},
+                                              {"severity", "error"},
+                                              {"message", *import_error}}})}};
+        admission = native_project_workspace_preflight(root);
+        if (!admission.value("ok", false))
+            return admission;
+    }
     auto& owner = native_cli_owner();
     std::scoped_lock owner_lock(owner.mutex);
     if (owner.root != root) {
@@ -305,6 +348,27 @@ Json operate(const Json& request)
         owner.session = ProjectSession::open(root, error);
     auto* session = owner.session.get();
     if (!session) {
+        if (action == "entity-inspect" && request.contains("collection") &&
+            request.at("collection").is_string() && request.contains("id") &&
+            request.at("id").is_string()) {
+            const auto collection = request.at("collection").get<std::string>();
+            const auto id = request.at("id").get<std::string>();
+            auto record = RoomSession::open_record(root, collection, id, error);
+            if (record && record->snapshot().valid) {
+                const auto snapshot = record->snapshot();
+                const auto normalized = Json::parse(snapshot.normalized_json);
+                Json fields{{"collection", collection}, {"id", id}, {"record", normalized}};
+                if (request.value("provenance", false)) {
+                    const auto source = Json::parse(snapshot.source_json);
+                    fields["provenance"] = provenance(normalized, &source);
+                }
+                return {{"ok", true},
+                        {"fields", fields},
+                        {"sourceRevision", snapshot.disk_source_revision},
+                        {"nativeOwnerReused", false},
+                        {"cliDiagnostics", Json::array()}};
+            }
+        }
         constexpr std::string_view malformed_prefix = "Invalid record YAML: ";
         if (error.starts_with(malformed_prefix)) {
             const auto source = error.substr(malformed_prefix.size());
@@ -437,6 +501,18 @@ Json operate(const Json& request)
         }
         if (!native_project_source_generation_is_current(root, shader_generation))
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        // Capture the complete editable export inventory at owner admission. A pinned
+        // worker may hash/copy these physical inputs, but must never readmit a newer Project.
+        const auto portable =
+            native_project_bundle({{"action", "export-preparation"}}, session, root);
+        if (!portable.value("ok", false))
+            return portable;
+        for (const auto& [path, revision] : portable.at("sourceRevisions").items())
+            source_revisions[path] = revision;
+        if (!native_project_source_generation_is_current(root, shader_generation))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during portable capture."}};
         const auto prepared_project = Json::parse(prepared.complete_project_json);
         std::set<std::string> referenced_assets;
         collect_runtime_asset_references(prepared_project, "", referenced_assets);

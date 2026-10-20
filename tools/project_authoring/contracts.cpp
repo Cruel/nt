@@ -17,6 +17,7 @@
 #include <set>
 #include <stdexcept>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace noveltea::authoring {
@@ -1189,27 +1190,168 @@ ValidationResult validate_record(std::string_view contract, std::string_view sou
     return result;
 }
 
-ValidationResult validate_workspace_project_identity(std::string_view source_json)
+static ValidationResult validate_workspace_domain(std::string_view domain,
+                                                  std::string_view source_json)
 {
     ValidationResult result;
     try {
         static const Contracts contracts;
         const auto root = contracts.document.at("roots").at("WorkspaceManifest").as<std::string>();
         const auto id =
-            contracts.document.at("nodes").at(root).at("children").at("project").as<std::string>();
+            contracts.document.at("nodes").at(root).at("children").at(domain).as<std::string>();
         Validator validator(contracts);
         std::set<std::string> visited;
         validator.check_support(id, visited, result.diagnostics);
         if (!result.diagnostics.empty())
             return result;
         Value value = Json::parse(source_json);
-        validator.parse(id, value, "/project", result.diagnostics);
+        validator.parse(id, value, "/" + std::string(domain), result.diagnostics);
         result.accepted = result.diagnostics.empty();
         if (result.accepted && value)
             result.effective_json = value->to_string();
     } catch (const std::exception& error) {
-        result.diagnostics.push_back({"/project", "contract.failure", error.what()});
+        result.diagnostics.push_back({"/" + std::string(domain), "contract.failure", error.what()});
     }
+    return result;
+}
+
+ValidationResult validate_workspace_project_identity(std::string_view source_json)
+{
+    return validate_workspace_domain("project", source_json);
+}
+
+std::string structural_reference_rules_json()
+{
+    static const Contracts contracts;
+    return contracts.document.at("structuralReferenceRules").to_string();
+}
+
+ValidationResult validate_workspace_export_settings(std::string_view source_json)
+{
+    auto result = validate_workspace_domain("export", source_json);
+    if (!result.accepted)
+        return result;
+    static const Contracts contracts;
+    const auto& metadata = contracts.document.at("scopedExportValidation");
+    const auto lower_label = [&](std::string text) {
+        text = trim_ecmascript(std::move(text));
+        struct Point {
+            unsigned int value;
+            std::string bytes;
+        };
+        std::vector<Point> points;
+        for (std::size_t offset = 0; offset < text.size();) {
+            const auto first = static_cast<unsigned char>(text[offset]);
+            const auto width = first < 0x80 ? 1u : first < 0xe0 ? 2u : first < 0xf0 ? 3u : 4u;
+            unsigned int point = first & (width == 1   ? 0x7f
+                                          : width == 2 ? 0x1f
+                                          : width == 3 ? 0x0f
+                                                       : 0x07);
+            for (unsigned int n = 1; n < width; ++n)
+                point = (point << 6) | (static_cast<unsigned char>(text.at(offset + n)) & 0x3f);
+            points.push_back({point, text.substr(offset, width)});
+            offset += width;
+        }
+        const auto in_ranges = [&](unsigned int point, const char* key) {
+            for (const auto& range : metadata.at(key).array_range()) {
+                if (point < range[0].as<unsigned int>())
+                    return false;
+                if (point <= range[1].as<unsigned int>())
+                    return true;
+            }
+            return false;
+        };
+        std::string lower;
+        for (std::size_t i = 0; i < points.size(); ++i) {
+            const auto point = points[i].value;
+            // ECMAScript's default casing has one context-sensitive en-US rule: final sigma.
+            if (point == 0x03a3) {
+                bool before = false, after = false;
+                for (auto j = i; j > 0;) {
+                    const auto prior = points[--j].value;
+                    if (in_ranges(prior, "caseIgnorableRanges"))
+                        continue;
+                    before = in_ranges(prior, "casedRanges");
+                    break;
+                }
+                for (auto j = i + 1; j < points.size(); ++j) {
+                    const auto next = points[j].value;
+                    if (in_ranges(next, "caseIgnorableRanges"))
+                        continue;
+                    after = in_ranges(next, "casedRanges");
+                    break;
+                }
+                lower += before && !after ? "ς" : "σ";
+                continue;
+            }
+            const auto key = std::to_string(point);
+            lower += metadata.at("unicodeLowercase").contains(key)
+                         ? metadata.at("unicodeLowercase").at(key).as<std::string>()
+                         : points[i].bytes;
+        }
+        return lower;
+    };
+    const auto settings = Json::parse(result.effective_json);
+    std::map<std::string, std::size_t> ids, labels;
+    const auto add = [&](std::string path, std::string code, std::string message) {
+        result.diagnostics.push_back({std::move(path), std::move(code), std::move(message)});
+    };
+    std::size_t index = 0;
+    for (const auto& policy : settings.at("assetMemoryPolicies").array_range()) {
+        const auto base = "/export/assetMemoryPolicies/" + std::to_string(index);
+        const auto id = policy.at("id").as<std::string>();
+        const auto label = policy.at("label").as<std::string>();
+        const auto [prior_id, unique_id] = ids.emplace(id, index);
+        if (!unique_id)
+            add(base + "/id", "authoring.asset-memory-policy.id.duplicate",
+                "Asset memory policy ID '" + id + "' is already used by policy " +
+                    std::to_string(prior_id->second + 1) + ".");
+        const auto [prior_label, unique_label] = labels.emplace(lower_label(label), index);
+        if (!unique_label)
+            add(base + "/label", "authoring.asset-memory-policy.label.duplicate",
+                "Asset memory policy name '" + label + "' duplicates policy " +
+                    std::to_string(prior_label->second + 1) + ".");
+        for (const auto& [warm, total, name] :
+             {std::tuple{"warmPreparedCpuBytes", "preparedCpuBytes", "prepared CPU"},
+              std::tuple{"warmGpuBytes", "gpuBytes", "GPU"},
+              std::tuple{"warmAudioBytes", "audioBytes", "audio"}}) {
+            const auto& overrides = policy.at("overrides");
+            if (!overrides.contains(warm))
+                continue;
+            for (const auto& [target, title] :
+                 {std::pair{"linux", "Desktop"}, {"android", "Android"}, {"web", "Web"}}) {
+                const auto& baseline = metadata.at("memoryDefaults")
+                                           .at(target)
+                                           .at(policy.at("basePreset").as<std::string>());
+                const auto ceiling = overrides.contains(total) ? overrides.at(total).as<double>()
+                                                               : baseline.at(total).as<double>();
+                if (overrides.at(warm).as<double>() <= ceiling)
+                    continue;
+                add(base + "/overrides/" + warm, "authoring.asset-memory-policy.warm.exceeds-total",
+                    std::string(title) + " Warm " + name +
+                        " ceiling must not exceed its total residency ceiling.");
+                break;
+            }
+        }
+        ++index;
+    }
+    index = 0;
+    for (const auto& profile : settings.at("profiles").array_range()) {
+        const auto& memory = profile.at("assetMemory");
+        if (memory.at("kind").as<std::string>() == "policy" &&
+            !ids.contains(memory.at("policyId").as<std::string>()))
+            add("/export/profiles/" + std::to_string(index) + "/assetMemory/policyId",
+                "authoring.asset-memory-policy.reference.missing",
+                "Export profile '" + profile.at("label").as<std::string>() +
+                    "' references missing asset memory policy '" +
+                    memory.at("policyId").as<std::string>() + "'.");
+        ++index;
+    }
+    std::sort(result.diagnostics.begin(), result.diagnostics.end(),
+              [](const auto& a, const auto& b) {
+                  return std::tie(a.code, a.path, a.severity, a.message) <
+                         std::tie(b.code, b.path, b.severity, b.message);
+              });
     return result;
 }
 

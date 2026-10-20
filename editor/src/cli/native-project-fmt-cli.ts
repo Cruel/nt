@@ -5,6 +5,7 @@ import {
   NOVELTEA_CLI_EXIT_CODES,
   type NovelTeaCliCommandResult,
 } from './contracts';
+import { nativeProjectFailure } from './native-project-results';
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 
 /** Native formatting is planned and committed against exact source revisions. */
@@ -70,20 +71,21 @@ export async function runNativeProjectFmtCli(
     const collision = message.includes('revision') || message.includes('transaction');
     return formatCliResult(
       {
-        success: false,
-        exitCode: usage
-          ? NOVELTEA_CLI_EXIT_CODES.usage
-          : collision
-            ? NOVELTEA_CLI_EXIT_CODES.mutation
-            : NOVELTEA_CLI_EXIT_CODES.workspace,
+        ...nativeProjectFailure(result, {
+          code: usage
+            ? 'FMT_PATH'
+            : collision
+              ? 'WORKSPACE_TRANSACTION_CONFLICT'
+              : 'FMT_INVALID_YAML',
+          path: `/${paths[0] ?? ''}`,
+          message,
+          exitCode: usage
+            ? NOVELTEA_CLI_EXIT_CODES.usage
+            : collision
+              ? NOVELTEA_CLI_EXIT_CODES.mutation
+              : NOVELTEA_CLI_EXIT_CODES.workspace,
+        }),
         projectRoot: root,
-        diagnostics: [
-          cliDiagnostic(
-            usage ? 'FMT_PATH' : collision ? 'WORKSPACE_TRANSACTION_CONFLICT' : 'FMT_INVALID_YAML',
-            `/${paths[0] ?? ''}`,
-            message,
-          ),
-        ],
       },
       globals.json,
       { failure: message },

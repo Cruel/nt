@@ -905,15 +905,21 @@ std::string native_project_source_generation(const ProjectSession& session,
 {
     std::string identity = "native-project-source-generation-v1";
     identity.push_back('\0');
-    for (const auto& source : session.file_inventory()) {
-        if (source.kind != ProjectFileKind::TrackedSource &&
-            source.kind != ProjectFileKind::ProjectSource)
-            continue;
-        const auto path = root / std::filesystem::path(source.path);
-        if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
-            throw std::runtime_error("Cannot verify native source generation: " + source.path);
-        identity.append(source.path).push_back('\0');
-        identity.append(exact_source_revision(bytes_at(path))).push_back('\0');
+    // Use the physical authority's scoped membership, not the Project inventory's
+    // unrelated/unregistered Asset neighbors, which may change without a semantic delta.
+    const auto revisions = session.verified_source_revisions();
+    if (!revisions)
+        throw std::runtime_error("Cannot verify an uncertain native source generation.");
+    for (const auto& [relative, revision] : *revisions) {
+        const auto path = root / std::filesystem::path(relative);
+        identity.append(relative).push_back('\0');
+        if (revision == "absent")
+            identity.append("absent").push_back('\0');
+        else {
+            if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
+                throw std::runtime_error("Cannot verify native source generation: " + relative);
+            identity.append(exact_source_revision(bytes_at(path))).push_back('\0');
+        }
     }
     return exact_source_revision(identity);
 }

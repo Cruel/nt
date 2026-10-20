@@ -6,7 +6,7 @@ import {
   type NovelTeaCliCommandResult,
 } from './contracts';
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
-import { nativeProjectDiagnostics } from './native-project-results';
+import { nativeProjectDiagnostics, nativeProjectFailure } from './native-project-results';
 
 /** Certification-only native localization command adapter. */
 export async function runNativeProjectLocalizationCli(
@@ -63,12 +63,12 @@ export async function runNativeProjectLocalizationCli(
     const message = response.error ?? 'Native localization sync failed.';
     return formatCliResult(
       {
-        success: false,
-        exitCode: NOVELTEA_CLI_EXIT_CODES.mutation,
-        diagnostics: [
-          cliDiagnostic('localization.sync.native', '/localization', message),
-          ...nativeProjectDiagnostics(response),
-        ],
+        ...nativeProjectFailure(response, {
+          code: 'localization.sync.native',
+          path: '/localization',
+          message,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.mutation,
+        }),
         projectRoot: root,
       },
       globals.json,
@@ -202,12 +202,12 @@ async function runNativeLocalizationTargetsCli(
         : 'localization.workflow.native';
     return formatCliResult(
       {
-        success: false,
-        exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
-        diagnostics: [
-          cliDiagnostic(code, `/localization/translations/${locale}`, message),
-          ...nativeProjectDiagnostics(response),
-        ],
+        ...nativeProjectFailure(response, {
+          code,
+          path: `/localization/translations/${locale}`,
+          message,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+        }),
         projectRoot: root,
         locale,
         messageIds,

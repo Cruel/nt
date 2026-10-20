@@ -104,6 +104,47 @@ const { defaultArchetypeConfiguration } =
   await import('../src/shared/project-schema/authoring-archetypes.ts');
 const { materialContractRegistry } =
   await import('../src/shared/project-schema/material-contract-registry.generated.ts');
+const { nativeStructuralReferenceRules } =
+  await import('../src/shared/authoring-dependency-graph.ts');
+const { resolveAssetMemoryPolicy } =
+  await import('../src/shared/project-schema/platform-export-contracts.ts');
+const unicodeLowercase = {};
+const casedRanges = [];
+const caseIgnorableRanges = [];
+const appendUnicodeRange = (ranges, point) => {
+    const last = ranges.at(-1);
+    if (last && last[1] === point - 1) last[1] = point;
+    else ranges.push([point, point]);
+};
+const cased = /\p{Cased}/u;
+const caseIgnorable = /\p{Case_Ignorable}/u;
+for (let point = 0; point <= 0x10ffff; point += 1) {
+  const source = String.fromCodePoint(point);
+  if (cased.test(source)) {
+    appendUnicodeRange(casedRanges, point);
+    // Only cased code points have a lowercase mapping; avoid a million
+    // locale conversions for code points that cannot participate in casing.
+    const lower = source.toLocaleLowerCase('en-US');
+    if (source !== lower) unicodeLowercase[point] = lower;
+  }
+  if (caseIgnorable.test(source)) appendUnicodeRange(caseIgnorableRanges, point);
+}
+const scopedExportValidation = {
+  memoryDefaults: Object.fromEntries(
+    ['linux', 'android', 'web'].map((target) => [
+      target,
+      Object.fromEntries(
+        ['low', 'balanced', 'high'].map((preset) => [
+          preset,
+          resolveAssetMemoryPolicy(target, { kind: 'builtin', preset }),
+        ]),
+      ),
+    ]),
+  ),
+  unicodeLowercase,
+  casedRanges,
+  caseIgnorableRanges,
+};
 const { types, ...contracts } = generateNativeContracts(nativeSchemaSources);
 const outputIndex = process.argv.indexOf('--output');
 if (outputIndex !== -1 && !process.argv[outputIndex + 1])
@@ -157,6 +198,8 @@ const files = new Map([
         '.gitignore': `${NOVELTEA_LOCAL_STATE_GITIGNORE_RULE}\n`,
       },
       entityRecordSources: canonicalEntitySources,
+      scopedExportValidation,
+      structuralReferenceRules: nativeStructuralReferenceRules,
       testSourceIntent: {
         steps: testSourceStepPayloads,
         expectations: testSourceExpectationPayloads,

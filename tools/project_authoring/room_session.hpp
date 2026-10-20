@@ -275,7 +275,7 @@ public:
     // Empty Project Explorer folders have no YAML or byte targets. Their
     // single-entry mkdir/rename/rmdir remains native-session-revision checked.
     RoomSessionResult mutate_source_directory(std::uint64_t revision, std::string_view kind,
-                                                std::string_view source, std::string_view target);
+                                              std::string_view source, std::string_view target);
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     // Immutable disk-validation contributors, including lazily uninspected
     // record owners. Valid only after validate_project() has refreshed proof.
@@ -316,6 +316,10 @@ public:
     // Certified physical changes are separate from working-state mutation; #495
     // will reconcile these paths into the resident editor/daemon Project model.
     SourceObservation observe_sources();
+    std::optional<std::map<std::string, std::string>> verified_source_revisions() const
+    {
+        return source_authority_->verified_revisions();
+    }
     void source_watch_hint(std::string_view path) { source_authority_->hint(path); }
     void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
 

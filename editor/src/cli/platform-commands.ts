@@ -111,10 +111,9 @@ export const platformProfilesCommand: CliCommandDefinition = {
         if (!exportSettings)
           throw new Error('Platform profile preparation did not provide export settings.');
         const project = { export: exportSettings };
-        const settings = exactPlatformSettings(project);
         const rows = await profileRows(
           project,
-          settings.profiles,
+          exportSettings.profiles,
           await context.platformTools.listTemplates(),
         );
         const humanSuccess =

@@ -1069,6 +1069,10 @@ const semanticEdgeRules: readonly [
     ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
   ],
 ];
+export const nativeStructuralReferenceRules = Object.freeze(
+  semanticEdgeRules.map(([pattern, role]) => Object.freeze({ pattern: pattern.source, role })),
+);
+
 const nullableReferenceRoles = new Set<AuthoringDependencyRole>([
   'room-background',
   'room-prop-asset',

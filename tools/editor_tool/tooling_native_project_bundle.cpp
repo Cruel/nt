@@ -123,13 +123,59 @@ std::filesystem::path checked_source(const std::filesystem::path& root, std::str
     return path;
 }
 
-void project_paths(const Json& effective, const ProjectSession& session,
-                   const std::filesystem::path& root, std::set<std::string>& files)
+bool pinned_canonical_path(std::string_view path)
 {
-    for (const auto& source : session.file_inventory()) {
-        if (source.kind == ProjectFileKind::TrackedSource ||
-            (source.kind == ProjectFileKind::ProjectSource && source.path.starts_with("scripts/")))
-            files.insert(source.path);
+    return path == "project.yaml" || path == "editor.yaml" || path == "traits.yaml" ||
+           (path.starts_with("records/") && (path.ends_with(".yaml") || path.ends_with(".lua") ||
+                                             path.ends_with(".rml") || path.ends_with(".rcss"))) ||
+           (path.starts_with("i18n/") && path.ends_with(".yaml")) || path.starts_with("scripts/");
+}
+
+void project_paths(const Json& effective, const ProjectSession* session,
+                   const std::filesystem::path& root, std::set<std::string>& files,
+                   const Json* pinned_revisions = nullptr)
+{
+    if (session) {
+        for (const auto& source : session->file_inventory()) {
+            if (source.kind == ProjectFileKind::TrackedSource ||
+                (source.kind == ProjectFileKind::ProjectSource &&
+                 source.path.starts_with("scripts/")))
+                files.insert(source.path);
+        }
+    } else if (pinned_revisions) {
+        std::set<std::string> expected_canonical;
+        for (const auto& [path, _] : pinned_revisions->items()) {
+            if (pinned_canonical_path(path))
+                expected_canonical.insert(path);
+            else if (path.starts_with("workflows/"))
+                files.insert(path);
+        }
+        std::set<std::string> observed;
+        for (const auto* name : {"project.yaml", "editor.yaml", "traits.yaml"})
+            if (std::filesystem::is_regular_file(root / name))
+                observed.insert(name);
+        for (const auto* directory : {"records", "i18n", "scripts"}) {
+            const auto base = root / directory;
+            if (!std::filesystem::exists(base))
+                continue;
+            for (std::filesystem::recursive_directory_iterator it(base), end; it != end; ++it) {
+                const auto path = utf8_string(it->path().lexically_relative(root));
+                if (it->is_regular_file() &&
+                    (std::string_view(directory) != "i18n" || path.ends_with(".yaml")))
+                    observed.insert(path);
+            }
+        }
+        if (observed != expected_canonical) {
+            for (const auto& path : expected_canonical)
+                if (!observed.contains(path))
+                    throw std::runtime_error(
+                        "Portable Project source removed after generation admission: " + path);
+            for (const auto& path : observed)
+                if (!expected_canonical.contains(path))
+                    throw std::runtime_error(
+                        "Portable Project source added after generation admission: " + path);
+        }
+        files.insert(expected_canonical.begin(), expected_canonical.end());
     }
     const Json empty = Json::object();
     const auto& settings = effective.contains("settings") ? effective.at("settings") : empty;
@@ -251,7 +297,7 @@ Json create_archive(const Json& request)
     return Json::parse(response.begin(), response.begin() + static_cast<std::ptrdiff_t>(size));
 }
 
-Json export_bundle(const Json& request, ProjectSession& session, const std::filesystem::path& root)
+Json export_bundle(const Json& request, ProjectSession* session, const std::filesystem::path& root)
 {
     if (!request.contains("outputPath") || !request.at("outputPath").is_string())
         return failure("Portable Project export requires an outputPath.");
@@ -260,9 +306,23 @@ Json export_bundle(const Json& request, ProjectSession& session, const std::file
         return failure("Portable Project export requires an absolute .ntproject destination.");
     if (std::filesystem::exists(output) || std::filesystem::is_symlink(output))
         return failure("Portable Project bundle destination already exists.", "conflict");
-    const auto effective = complete_project(session);
+    const Json* pinned = nullptr;
+    if (!session) {
+        if (!request.contains("pinnedProject") || !request.at("pinnedProject").is_object() ||
+            !request.contains("expectedSourceRevisions") ||
+            !request.at("expectedSourceRevisions").is_object())
+            return failure(
+                "Pinned Project export requires admitted Project and exact source revisions.",
+                "invalid-project");
+        pinned = &request.at("expectedSourceRevisions");
+    }
+    const auto effective = session ? complete_project(*session) : request.at("pinnedProject");
     std::set<std::string> paths;
-    project_paths(effective, session, root, paths);
+    try {
+        project_paths(effective, session, root, paths, pinned);
+    } catch (const std::exception& error) {
+        return failure(error.what(), pinned ? "source-changed" : "mutation");
+    }
     Ordered manifest{
         {"schema", "noveltea.project.bundle"},
         {"version", 1},
@@ -275,6 +335,10 @@ Json export_bundle(const Json& request, ProjectSession& session, const std::file
         const auto source = checked_source(root, relative);
         const auto bytes = bytes_at(source);
         const auto revision = exact_source_revision(bytes);
+        if (pinned && (!pinned->contains(relative) || pinned->at(relative) != revision))
+            return failure("Portable Project source changed after generation admission: " +
+                               relative,
+                           "source-changed");
         manifest["files"].push_back(
             Ordered{{"path", relative}, {"size", bytes.size()}, {"sha256", revision}});
         revisions.emplace(relative, revision);
@@ -303,6 +367,17 @@ Json export_bundle(const Json& request, ProjectSession& session, const std::file
         if (exact_source_revision(bytes_at(checked_source(root, relative))) != expected)
             return failure("Portable Project source changed during export: " + relative,
                            "source-changed");
+    if (pinned) {
+        std::set<std::string> current;
+        try {
+            project_paths(effective, nullptr, root, current, pinned);
+        } catch (const std::exception& error) {
+            return failure(error.what(), "source-changed");
+        }
+        if (current != paths)
+            return failure("Portable Project source inventory changed during export.",
+                           "source-changed");
+    }
     if (std::filesystem::exists(output) || std::filesystem::is_symlink(output))
         return failure("Portable Project destination changed during export.", "conflict");
     std::filesystem::rename(staged, output);
@@ -511,7 +586,7 @@ Json import_bundle(const Json& request)
         return failure("Portable Project bundle identity differs from its Project sources.",
                        "invalid-project");
     std::set<std::string> expected;
-    project_paths(project, *session, stage.root, expected);
+    project_paths(project, session.get(), stage.root, expected);
     if (expected.size() != data.size() ||
         !std::equal(expected.begin(), expected.end(), data.begin(),
                     [](const std::string& left, const auto& right) { return left == right.first; }))
@@ -547,7 +622,7 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
             return failure(
                 "Cannot prepare Runtime Package without a valid native runtime profile.");
         std::set<std::string> paths;
-        project_paths(effective, *session, root, paths);
+        project_paths(effective, session, root, paths);
         Json records = Json::array();
         Json revisions = Json::object();
         for (const auto& source : paths) {
@@ -574,9 +649,7 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
         return result;
     }
     if (action == "project-export") {
-        if (!session)
-            return failure("Native Project export requires a disk-authoritative session.");
-        return export_bundle(request, *session, root);
+        return export_bundle(request, session, root);
     }
     return failure("Unknown native portable Project operation.");
 }
