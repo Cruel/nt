@@ -32,6 +32,7 @@ import {
   packageOptionsWithPinnedProjectTextSources,
   pinnedProjectTextSourceRequest,
   pinnedShaderSourceOverlays,
+  runtimeArtifactPathsWithPinnedSources,
 } from '../pinned-project-text-sources';
 
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
@@ -362,7 +363,10 @@ async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild
           },
         }),
       ),
-      paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
+      paths: runtimeArtifactPathsWithPinnedSources(
+        context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
+        context.pinnedProjectTextSources,
+      ),
     });
     if (prepared.status !== 'prepared') {
       const diagnostics = prepared.diagnostics;
@@ -688,17 +692,31 @@ export const packageExportCommand: CliCommandDefinition = {
                 : {}),
             },
             intent: 'runtime-package-export',
-            shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
-              compileWithVerifiedValidationCache(
+            shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) => {
+              const pinnedOptions = {
+                ...options,
+                sourceOverlays: {
+                  ...options.sourceOverlays,
+                  ...pinnedShaderSourceOverlays(context.pinnedProjectTextSources),
+                },
+              };
+              // Disk-based stage-cache revision probes cannot establish a pinned worker's
+              // generation. Compile solely from the admitted overlays in that mode.
+              if (context.pinnedProjectTextSources)
+                return context.nativeTools.compileShaders(shaderProject, pinnedOptions);
+              return compileWithVerifiedValidationCache(
                 context.fileSystem,
                 context.snapshot.projectRoot,
                 context.nativeTools.validationCacheIdentity,
                 shaderProject,
-                options,
-                () => context.nativeTools.compileShaders(shaderProject, options),
-              ),
+                pinnedOptions,
+                () => context.nativeTools.compileShaders(shaderProject, pinnedOptions),
+              );
+            }),
+            paths: runtimeArtifactPathsWithPinnedSources(
+              context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
+              context.pinnedProjectTextSources,
             ),
-            paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
           });
           if (prepared.status !== 'prepared')
             return {
