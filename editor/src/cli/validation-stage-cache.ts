@@ -184,7 +184,7 @@ export async function publishValidationStageCache(
 /** Read exact revisions, not Asset declarations or mtime-only hints. */
 export async function activeFontRevisions(
   fileSystem: ProjectWorkspaceFileSystem,
-  snapshot: LoadedProjectWorkspaceSnapshot,
+  snapshot: Pick<LoadedProjectWorkspaceSnapshot, 'project' | 'projectRoot'>,
 ): Promise<string | null> {
   const project = snapshot.project;
   const paths = new Set<string>();

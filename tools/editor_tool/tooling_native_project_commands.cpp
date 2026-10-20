@@ -1,6 +1,7 @@
 #include "tooling_native_c.h"
 
 #include "../project_authoring/room_session.hpp"
+#include "../project_authoring/yaml_codec.hpp"
 #include "tooling_native_project_fmt.hpp"
 #include "tooling_native_project_localization.hpp"
 #include "tooling_native_project_sync.hpp"
@@ -12,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -161,6 +163,95 @@ Json operate(const Json& request)
         return failure("Native CLI Project operation requires an absolute root.");
     const auto root = std::filesystem::canonical(requested);
     const auto action = request.at("action").get<std::string>();
+    if (action == "project-diagnostic-locations") {
+        if (!request.contains("expectedSourceGeneration") ||
+            !request.at("expectedSourceGeneration").is_string() || !request.contains("paths") ||
+            !request.at("paths").is_array())
+            return failure("Native diagnostic locations require a source generation and paths.");
+        if (!native_project_source_generation_is_current(
+                root, request.at("expectedSourceGeneration").get<std::string>()))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed before diagnostic locations."}};
+        Json located = Json::array();
+        for (const auto& item : request.at("paths")) {
+            if (!item.is_string())
+                return failure("Native diagnostic location path must be a string.");
+            const auto pointer = item.get<std::string>();
+            std::string relative = "project.yaml";
+            std::string local = pointer;
+            if (!pointer.empty() && pointer.front() == '/') {
+                const auto first_end = pointer.find('/', 1);
+                const auto family = pointer.substr(1, first_end - 1);
+                if (family == "editor") {
+                    relative = "editor.yaml";
+                    local = first_end == std::string::npos ? "" : pointer.substr(first_end);
+                } else if (family == "traits") {
+                    relative = "traits.yaml";
+                    local = first_end == std::string::npos ? "" : pointer.substr(first_end);
+                } else if (family == "localization") {
+                    relative = "i18n/project.yaml";
+                    local = first_end == std::string::npos ? "" : pointer.substr(first_end);
+                } else if (first_end != std::string::npos) {
+                    const auto id_end = pointer.find('/', first_end + 1);
+                    const auto id = pointer.substr(first_end + 1, id_end - first_end - 1);
+                    // Source identities are derived from known Project record
+                    // paths, never arbitrary relative locations from callers.
+                    if (!family.empty() && !id.empty() &&
+                        std::all_of(family.begin(), family.end(),
+                                    [](unsigned char c) { return std::isalnum(c) || c == '-'; }) &&
+                        std::all_of(id.begin(), id.end(), [](unsigned char c) {
+                            return std::isalnum(c) || c == '-' || c == '_';
+                        })) {
+                        const auto candidate = "records/" + family + "/" + id + ".yaml";
+                        if (std::filesystem::is_regular_file(root / candidate)) {
+                            relative = candidate;
+                            local = id_end == std::string::npos ? "" : pointer.substr(id_end);
+                        }
+                    }
+                }
+            }
+            Json position{{"sourceUrl", "project:/" + relative}};
+            const auto source = root / relative;
+            if (!std::filesystem::is_symlink(source) && std::filesystem::is_regular_file(source) &&
+                std::filesystem::file_size(source) < 8 * 1024 * 1024) {
+                std::ifstream input(source, std::ios::binary);
+                std::string bytes{std::istreambuf_iterator<char>{input},
+                                  std::istreambuf_iterator<char>{}};
+                if (input && !input.bad()) {
+                    const auto opened = open_yaml_source(bytes);
+                    if (opened.accepted) {
+                        auto nearest = local;
+                        for (;;) {
+                            const auto found =
+                                std::find_if(opened.locations.begin(), opened.locations.end(),
+                                             [&](const auto& loc) { return loc.path == nearest; });
+                            if (found != opened.locations.end() && found->line) {
+                                position["line"] = found->line;
+                                position["column"] = found->column;
+                                break;
+                            }
+                            if (nearest.empty())
+                                break;
+                            const auto slash = nearest.rfind('/');
+                            nearest = slash == std::string::npos ? "" : nearest.substr(0, slash);
+                        }
+                    }
+                }
+            }
+            if (!position.contains("line")) {
+                position["line"] = 1;
+                position["column"] = 1;
+            }
+            located.push_back(std::move(position));
+        }
+        if (!native_project_source_generation_is_current(
+                root, request.at("expectedSourceGeneration").get<std::string>()))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during diagnostic source lookup."}};
+        return {{"ok", true}, {"locations", std::move(located)}};
+    }
     if (action == "project-validate") {
         const auto serialized = Json{{"projectRoot", root_utf8}, {"action", "validate"}}.dump();
         const auto* bytes = reinterpret_cast<const std::uint8_t*>(serialized.data());
