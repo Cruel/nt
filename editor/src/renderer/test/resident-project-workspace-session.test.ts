@@ -3604,14 +3604,14 @@ describe('ResidentProjectWorkspaceSession', () => {
         sourceIdentity: 'dev:1:ino:2',
         byteSize: 1,
         mtimeNanoseconds: '123456789',
-        contentHash: null,
+        contentHash: 'sha256:ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb',
       },
     ]);
     expect(prepared.snapshotText).not.toContain('PNG payload bytes');
   });
 
   it('advances the portable Project generation when an external Asset payload changes', async () => {
-    const { first, probe, workspace } = await createNativeAssetWorkspace();
+    const { first, probe, workspace, fileSystem } = await createNativeAssetWorkspace();
     probe.setManifestEntries([
       {
         path: 'assets/original.png',
@@ -3624,6 +3624,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const before = await workspace.preparePortableSnapshot(ROOT);
     if (!before) throw new Error('Initial portable Project snapshot was not prepared.');
 
+    await fileSystem.writeTextAtomic(`${ROOT}/assets/original.png`, 'ab');
     probe.change('assets/original.png');
     probe.setManifestEntries([
       {
@@ -3649,7 +3650,7 @@ describe('ResidentProjectWorkspaceSession', () => {
   });
 
   it('retains an external Asset change consumed by final read proof until generation advances', async () => {
-    const { first, probe, workspace } = await createNativeAssetWorkspace();
+    const { first, probe, workspace, fileSystem } = await createNativeAssetWorkspace();
     probe.setManifestEntries([
       {
         path: 'assets/original.png',
@@ -3662,6 +3663,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const before = await workspace.preparePortableSnapshot(ROOT);
     if (!before) throw new Error('Initial portable Project snapshot was not prepared.');
 
+    await fileSystem.writeTextAtomic(`${ROOT}/assets/original.png`, 'ab');
     probe.change('assets/original.png');
     probe.setManifestEntries([
       {
@@ -3693,7 +3695,7 @@ describe('ResidentProjectWorkspaceSession', () => {
         sourceIdentity: 'dev:1:ino:2',
         byteSize: 2,
         mtimeNanoseconds: '200',
-        contentHash: null,
+        contentHash: sha256PrefixedUtf8('ab'),
       },
     ]);
   });

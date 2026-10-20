@@ -12,6 +12,10 @@ import {
 } from '../main/services/portable-project-bundle-service';
 import { novelTeaCliUsageFailure, type ParsedGlobalArguments } from './bootstrap';
 import {
+  verifyPinnedExternalAssets,
+  type PinnedExternalAssetExpectation,
+} from './pinned-external-assets';
+import {
   cliDiagnostic,
   formatCliResult,
   NOVELTEA_CLI_EXIT_CODES,
@@ -91,6 +95,8 @@ export async function runNovelTeaProjectBundleCli(
   fileSystem: ProjectWorkspaceFileSystem,
   workspace: ProjectWorkspaceService,
   cwd: string,
+  abortSignal?: AbortSignal,
+  pinnedExternalAssets?: readonly PinnedExternalAssetExpectation[],
 ): Promise<NovelTeaCliCommandResult | null> {
   if (globals.command[0] !== 'project') return null;
 
@@ -191,7 +197,24 @@ export async function runNovelTeaProjectBundleCli(
 
   const outputPath = path.resolve(cwd, parsed.output);
   try {
-    const exported = await exportPortableProjectBundle(fileSystem, opened.snapshot, outputPath);
+    const verifyPinnedInputs = pinnedExternalAssets
+      ? async () => {
+          const changes = await verifyPinnedExternalAssets(
+            fileSystem,
+            opened.snapshot.projectRoot,
+            pinnedExternalAssets,
+          );
+          if (changes.length > 0)
+            throw new PortableProjectBundleError('source-changed', changes[0]!.message);
+        }
+      : undefined;
+    const exported = await exportPortableProjectBundle(
+      fileSystem,
+      opened.snapshot,
+      outputPath,
+      abortSignal,
+      verifyPinnedInputs,
+    );
     return formatCliResult(
       {
         success: true,
@@ -207,6 +230,23 @@ export async function runNovelTeaProjectBundleCli(
       { success: `Exported portable NovelTea project to ${exported.outputPath}.` },
     );
   } catch (error) {
+    if (abortSignal?.aborted || (error instanceof Error && error.name === 'AbortError'))
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.interrupted,
+          diagnostics: [
+            cliDiagnostic(
+              'export.cancelled',
+              '/output',
+              'Portable Project export was cancelled.',
+              'warning',
+            ),
+          ],
+        },
+        globals.json,
+        { failure: 'Portable Project export was cancelled.' },
+      );
     const bundleError =
       error instanceof PortableProjectBundleError
         ? error

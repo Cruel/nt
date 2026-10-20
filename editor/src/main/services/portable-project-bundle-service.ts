@@ -273,7 +273,14 @@ export async function exportPortableProjectBundle(
   fileSystem: ProjectWorkspaceFileSystem,
   snapshot: LoadedProjectWorkspaceSnapshot,
   outputPathInput: string,
+  abortSignal?: AbortSignal,
+  verifyPinnedInputs?: () => Promise<void>,
 ): Promise<{ readonly outputPath: string; readonly manifest: PortableProjectBundleManifest }> {
+  const checkCancelled = () => {
+    if (abortSignal?.aborted) throw new DOMException('Project export cancelled.', 'AbortError');
+  };
+  checkCancelled();
+  await verifyPinnedInputs?.();
   const outputPath = fileSystem.resolvePath(outputPathInput);
   assertNtprojectExtension(outputPath);
   if ((await fileSystem.inspect(outputPath)) !== 'missing')
@@ -284,6 +291,7 @@ export async function exportPortableProjectBundle(
   await fileSystem.createDirectory(fileSystem.dirname(outputPath));
 
   const sources = await collectPortableProjectEntries(fileSystem, snapshot);
+  checkCancelled();
   const manifest: PortableProjectBundleManifest = {
     schema: PORTABLE_PROJECT_BUNDLE_SCHEMA,
     version: PORTABLE_PROJECT_BUNDLE_VERSION,
@@ -325,11 +333,14 @@ export async function exportPortableProjectBundle(
       ],
     });
     await assertPortableProjectSourcesUnchanged(fileSystem, sources);
+    await verifyPinnedInputs?.();
+    checkCancelled();
     if ((await fileSystem.inspect(outputPath)) !== 'missing')
       throw new PortableProjectBundleError(
         'conflict',
         'Portable Project bundle destination was created while the bundle was being prepared.',
       );
+    checkCancelled();
     await fileSystem.movePathAtomic(stagedBundle, outputPath);
     return { outputPath, manifest };
   } catch (error) {

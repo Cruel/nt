@@ -290,6 +290,30 @@ async function createPortableFixture(root: string): Promise<{
 }
 
 describe('portable .ntproject Project bundle', () => {
+  it('rejects cancellation before export without creating an output', async () => {
+    const root = await tempRoot();
+    const projectRoot = path.join(root, 'cancelled-project');
+    const created = await runNovelTeaCli(
+      ['project', 'create', projectRoot, '--name', 'Cancelled'],
+      {
+        cwd: root,
+      },
+    );
+    expect(created.exitCode).toBe(0);
+    const output = path.join(root, 'cancelled.ntproject');
+    const controller = new AbortController();
+    controller.abort();
+    const cancelled = await runNovelTeaCli(
+      ['--project', projectRoot, '--json', 'project', 'export', '--output', output],
+      { cwd: root, abortSignal: controller.signal },
+    );
+    expect(cancelled.exitCode).toBe(130);
+    expect(JSON.parse(cancelled.stdout).diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'export.cancelled' })]),
+    );
+    await expect(fs.stat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('imports a desktop handoff into the confirmed destination and applies the confirmed Project name', async () => {
     const root = await tempRoot();
     const { bundlePath } = await createPortableFixture(root);

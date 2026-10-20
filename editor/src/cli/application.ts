@@ -452,6 +452,8 @@ export async function runNovelTeaCli(
       services.fileSystem,
       bundleWorkspace,
       cwd,
+      options.abortSignal,
+      options.trustPinnedResidentSnapshot ? options.pinnedExternalAssets : undefined,
     );
     if (projectBundle) return projectBundle;
   }

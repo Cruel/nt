@@ -660,6 +660,9 @@ export interface ScriptcInvocationContext {
   readonly environment?: Readonly<Record<string, string>>;
   readonly terminal?: import('../src/cli/commands/types').CliTerminalContext;
   readonly cancellationProbe?: () => boolean;
+  /** The wrapper monitors cancellation across snapshot hydration and command execution. */
+  readonly cancellationSignal?: AbortSignal;
+  readonly observeCancellation?: () => void;
   readonly residentProjectSessions?: boolean;
   readonly projectSessionIdleMs?: number;
   readonly residentProjectSessionEpoch?: number;
@@ -780,6 +783,13 @@ export async function runNovelTeaScriptcIsland(
   forceRuntimeCacheRebuild = false,
   invocationContext: ScriptcInvocationContext = {},
 ): Promise<string> {
+  const cancellationController = invocationContext.cancellationProbe ? new AbortController() : null;
+  if (invocationContext.cancellationProbe?.()) cancellationController?.abort();
+  const cancellationPoll = invocationContext.cancellationProbe
+    ? setInterval(() => {
+        if (invocationContext.cancellationProbe?.()) cancellationController?.abort();
+      }, 25)
+    : null;
   const previousEnvironment = invocationContext.environment ? { ...process.env } : null;
   if (invocationContext.environment) {
     for (const key of Object.keys(process.env)) delete process.env[key];
@@ -791,9 +801,16 @@ export async function runNovelTeaScriptcIsland(
       argvText,
       invokeHost,
       forceRuntimeCacheRebuild,
-      invocationContext,
+      cancellationController
+        ? {
+            ...invocationContext,
+            cancellationSignal: cancellationController.signal,
+            observeCancellation: () => cancellationController.abort(),
+          }
+        : invocationContext,
     );
   } finally {
+    if (cancellationPoll) clearInterval(cancellationPoll);
     if (previousEnvironment) {
       for (const key of Object.keys(process.env)) delete process.env[key];
       for (const [key, value] of Object.entries(previousEnvironment))
@@ -1015,6 +1032,11 @@ async function runNovelTeaScriptcIslandScoped(
           await writeFile(marker, 'hydrated');
           const deadline = Date.now() + 30_000;
           while (!existsSync(`${marker}.release`)) {
+            if (invocationContext.cancellationProbe?.()) {
+              invocationContext.observeCancellation?.();
+              await writeFile(`${marker}.cancelled`, 'cancelled');
+              break;
+            }
             if (Date.now() >= deadline)
               throw new Error('Snapshot certification interlock timed out.');
             await new Promise((resolve) => setTimeout(resolve, 25));
@@ -1066,12 +1088,6 @@ async function runNovelTeaScriptcIslandScoped(
     embeddedBuiltInFiles = comfyUi.scriptcComfyUiWorkflowFiles;
   }
 
-  const cancellationController = invocationContext.cancellationProbe ? new AbortController() : null;
-  const cancellationPoll = invocationContext.cancellationProbe
-    ? setInterval(() => {
-        if (invocationContext.cancellationProbe?.()) cancellationController?.abort();
-      }, 25)
-    : null;
   try {
     let validationProfileText = '';
     const residentSessionCountBefore = residentWorkspace?.residentSessionCount() ?? 0;
@@ -1110,7 +1126,9 @@ async function runNovelTeaScriptcIslandScoped(
         ...(embeddedBuiltInFiles
           ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } }
           : {}),
-        ...(cancellationController ? { abortSignal: cancellationController.signal } : {}),
+        ...(invocationContext.cancellationSignal
+          ? { abortSignal: invocationContext.cancellationSignal }
+          : {}),
         ...(invocationContext.residentProjectSessions && !bootstrap.globals.json
           ? {
               onPlatformProgress: (stage: string, message: string) => {
@@ -1459,13 +1477,13 @@ async function runNovelTeaScriptcIslandScoped(
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)
       trace(`resident Project session admitted: ${String(residentSessionCountAfter)}`);
-    publishResidentProjectSessionCount();
     return result(
       commandResult.exitCode,
       commandResult.stdout,
       `${validationProfileText}${commandResult.stderr}`,
     );
   } finally {
-    if (cancellationPoll) clearInterval(cancellationPoll);
+    // Report owner admission even when a request fails after opening a Project.
+    publishResidentProjectSessionCount();
   }
 }
