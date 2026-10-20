@@ -379,12 +379,25 @@ Json operate(const Json& request)
         constexpr std::string_view malformed_prefix = "Invalid record YAML: ";
         if (error.starts_with(malformed_prefix)) {
             const auto source = error.substr(malformed_prefix.size());
+            // An independently opened record editor may report its semantic
+            // owner (rooms/id) instead of the tracked on-disk YAML source.
+            // Public CLI admission failures always point at the actual file.
+            std::string source_path = source;
+            if (!source.starts_with("records/") && action == "entity-inspect" &&
+                request.contains("collection") && request.at("collection").is_string() &&
+                request.contains("id") && request.at("id").is_string()) {
+                const auto collection = request.at("collection").get<std::string>();
+                const auto id = request.at("id").get<std::string>();
+                source_path = collection == "layouts"
+                                  ? "records/layouts/" + id + "/layout.yaml"
+                                  : "records/" + collection + "/" + id + ".yaml";
+            }
             return {{"ok", false},
                     {"error", "Record is malformed."},
                     {"exitCode", 3},
                     {"diagnostics", Json::array({{{"code", "WORKSPACE_SOURCE_READ"},
                                                   {"severity", "error"},
-                                                  {"path", "/" + source},
+                                                  {"path", "/" + source_path},
                                                   {"message", "Record is malformed."}}})}};
         }
         if (action == "project-export")

@@ -147,12 +147,22 @@ export async function runNativeProjectReadsCli(
     const entityNotFound =
       (action === 'entity-inspect' || action === 'entity-usages') &&
       /does not exist|cannot read .* source|unknown record/i.test(message);
+    const malformedRequestedRecord =
+      action === 'entity-inspect' &&
+      /^Invalid (?:Room|Map|record) YAML:/i.test(message) &&
+      typeof attributes.collection === 'string' &&
+      typeof attributes.id === 'string';
+    const malformedSourcePath = malformedRequestedRecord
+      ? attributes.collection === 'layouts'
+        ? `/records/layouts/${attributes.id}/layout.yaml`
+        : `/records/${attributes.collection}/${attributes.id}.yaml`
+      : missingPath;
     if (diagnostics.length === 0)
       diagnostics.push(
         cliDiagnostic(
           entityNotFound ? 'authoring.entity.not_found' : 'WORKSPACE_SOURCE_READ',
-          missingPath,
-          message,
+          malformedSourcePath,
+          malformedRequestedRecord ? 'Record is malformed.' : message,
         ),
       );
     diagnostics.push(...nativeProjectDiagnostics(response));

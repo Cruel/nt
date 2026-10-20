@@ -57,12 +57,23 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
         const bool invalid_manifest_yaml =
             diagnostic.code == "source.project" && diagnostic.source_path == "project.yaml" &&
             diagnostic.message.starts_with("Invalid Project manifest YAML:");
-        Json projected{
-            {"code", invalid_manifest_yaml ? "WORKSPACE_MANIFEST_INVALID" : diagnostic.code},
-            {"severity", diagnostic.severity},
-            {"path", invalid_manifest_yaml ? "/project.yaml" : diagnostic.path},
-            {"message", invalid_manifest_yaml ? "project.yaml is not valid restricted YAML."
-                                              : diagnostic.message}};
+        // The editor-native graph retains its precise diagnostic identity and
+        // semantic owner pointer. The public CLI's disk-admission contract
+        // instead reports an unparseable physical record source as a workspace
+        // read failure at its actual tracked YAML path.
+        const bool invalid_record_yaml =
+            diagnostic.code == "source.yaml" && diagnostic.source_path.starts_with("records/");
+        Json projected{{"code", invalid_manifest_yaml ? "WORKSPACE_MANIFEST_INVALID"
+                                : invalid_record_yaml ? "WORKSPACE_SOURCE_READ"
+                                                      : diagnostic.code},
+                       {"severity", diagnostic.severity},
+                       {"path", invalid_manifest_yaml ? "/project.yaml"
+                                : invalid_record_yaml ? "/" + diagnostic.source_path
+                                                      : diagnostic.path},
+                       {"message", invalid_manifest_yaml
+                                       ? "project.yaml is not valid restricted YAML."
+                                   : invalid_record_yaml ? "Record is malformed."
+                                                         : diagnostic.message}};
         if (!diagnostic.source_path.empty())
             projected["sourceUrl"] = "project:/" + diagnostic.source_path;
         if (diagnostic.line)

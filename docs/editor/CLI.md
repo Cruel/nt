@@ -2,6 +2,92 @@
 
 NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing the shared TypeScript authoring/workspace implementation in an embedded QuickJS-ng island plus a narrow statically linked host/native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
 
+## Native CLI cutover gate (#519)
+
+The candidate remains isolated behind `NOVELTEA_CLI_CERTIFICATION=1` and
+`NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE=1`; neither changes the normal
+CLI/editor production authority. `editor/scripts/certify-native-cli-inventory.mjs`
+derives 39 public paths from the canonical help contract, checks the router's
+families and operations, compares the concrete command definitions and CLI
+application/ScriptC special cases, and requires an explicit
+native/retained-tool owner and an installed-CLI witness. It additionally checks
+28 native C++ Project command actions, 10 native Project editor IPC endpoints
+and the currently rejected unported legacy IPC endpoints. A native-only action
+without a TypeScript caller must be exercised by the native command certifier.
+Changes to the public routing surface that lack coverage fail this check.
+The checked inventory classifies nonauthoring daemon, raw shader/texture and
+media tools separately from native-authoritative Project commands. Private
+editor/daemon bridge entrypoints remain governed by their own native worker
+and IPC boundary tests; passing the public inventory alone is not evidence
+that every private caller is certified.
+
+The native candidate now returns `CLI_NATIVE_CANDIDATE_UNCLAIMED` (internal
+exit 70) instead of silently falling through to retired TypeScript Project
+handlers for an unclaimed non-preparation Project command. The isolated
+`NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE=1` switch additionally
+refuses construction of a retired TypeScript workspace from the installed
+ScriptC island. This is an **execution** guard for the candidate, not a
+replacement for a build/import graph proof; its owner/portable-snapshot
+preparation and every command family must pass with poisoning enabled before
+the independence gate can be considered closed.
+
+`certify-native-cli-project-routing.mjs` compares the installed oracle and
+candidate using separate disposable Projects/daemon roots, an enumerated
+schema collection inventory, Feature Lab and non-record YAML owners. Its
+normalization is limited to the distinct temporary Project/fixture root
+spellings and the documented protocol-version field; it otherwise requires
+equal JSON envelopes and diagnostics, including physical files in the Asset
+import case. Dedicated scripts additionally exercise native validation,
+transactional mutations, authored Tests, Runtime Package bytes, and platform
+preflight/publication. Linux build CI runs these scripts; the release host
+matrix runs native routing, validation, inspection, Tests, package and platform
+checks on Linux, Windows and macOS. `certify-native-cli-transport.mjs` separately
+checks usage errors, malformed source admission, daemon/local transport,
+environment no-daemon override and JSON's single completion/empty stderr.
+`certify-native-cli-performance.mjs` records six process-wall-time stages:
+cold standalone and daemon validation, unchanged warm validation, a changed
+Room YAML, a changed Lua source, and Project export preparation. It removes
+the standalone result cache before cold daemon admission so the two sides
+perform equivalent work. It rejects a run only when the native path is both
+over 3x slower and more than 500 ms slower than the TypeScript oracle; this
+conservative dual threshold permits shared-runner jitter but catches a material
+regression. The recorded numbers are workload-specific and are not a claim of
+production throughput. A script's existence or a passing inventory
+check is not a substitute for its executed host evidence.
+
+The #506 deletion inventory includes the retired Project-admission, sparse
+YAML codec/normalizer, cross-record validation/dependency analysis, workspace
+writer and watcher authority under `editor/src/shared/`, and their legacy CLI
+entrypoints (`semantic-project`, `fmt-command`, `project-bundle-cli`, and
+TypeScript Project-preparation code). Audit references before removing shared
+modules: downstream compiled-project lowering, ShaderC/FFmpeg/platform tooling,
+Agent Kit generation, transport and native bridge glue may still need TypeScript
+or QuickJS. #506 must not delete those merely because the **Project authoring
+authority** has moved. Agent Kit and versioned schema inventories are unchanged
+by this certification wiring; neither changes any authored/persisted shape.
+
+### Outstanding certification gates (October 20, 2026)
+
+The Linux installed-CLI transport comparison passed 21 cases, the routing
+inventory passed 39 public commands / 28 native bridge actions / 10 editor IPC
+endpoints, and the six-stage local timing check passed its regression threshold.
+The narrow CLI routing, native lifecycle/validation and native IPC unit tests
+passed (60 tests). The native CLI was rebuilt from this candidate with the
+certification-only legacy workspace poison active.
+
+The **full Feature Lab family differential is not green**: native `entity
+inspect layouts counter-fragment` includes an empty
+`record.data.dependencies.templates` array that the existing TypeScript CLI
+oracle omits. This effective-record mismatch is not normalized away; the
+expanded `certify-native-cli-project-routing.mjs` correctly fails. The
+remaining full Project-family parity work is owned by the open #512 dependency;
+the acceptance criteria of #519 and the parent #505 are therefore not met.
+The sibling implementation issues #514, #516, #517 and #518 also remain open
+until they are independently reconciled. The CI checks are wired, but green
+Linux/Windows/macOS release-host runs of this expanded matrix have **not**
+been established. Neither issue should be closed based on only the passing
+inventory, transport, targeted tests and timing smoke.
+
 ## Parallel native daemon validation certification (#500)
 
 The existing daemon's dedicated Project-owner worker can also retain a **separate,

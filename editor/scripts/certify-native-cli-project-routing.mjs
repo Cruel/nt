@@ -3,9 +3,10 @@
 // No runtime flag is enabled for production callers by this test.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
@@ -14,6 +15,7 @@ const legacy = path.join(root, 'legacy');
 const candidate = path.join(root, 'candidate');
 const fixtureLegacy = path.join(root, 'fixture-legacy');
 const fixtureCandidate = path.join(root, 'fixture-native');
+const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const baseline = {
   ...process.env,
   NOVELTEA_CLI_CERTIFICATION: '1',
@@ -32,6 +34,7 @@ function execute(project, native, args, noDaemon = true) {
       env: {
         ...baseline,
         NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
+        NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-505-${process.pid}-${native ? 'native' : 'legacy'}`,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
           root,
@@ -80,8 +83,9 @@ function compare(args, expectSuccess = true, noDaemon = true, projects = [legacy
     normalized(oracle),
     `Native CLI command diverged: ${args.join(' ')}`,
   );
-  if (expectSuccess) assert.equal(result.success, true, JSON.stringify(result.diagnostics));
-  else assert.equal(result.success, false);
+  if (expectSuccess === true)
+    assert.equal(result.success, true, JSON.stringify(result.diagnostics));
+  else if (expectSuccess === false) assert.equal(result.success, false);
   verified += 1;
   console.log(`  ${verified}: ${noDaemon ? 'cold' : 'daemon'} ${args.join(' ')}`);
   return result;
@@ -134,10 +138,25 @@ try {
   compare(['usages', 'rooms', 'intro'], true, false);
 
   // A malformed sibling source must fail at the actual physical YAML owner,
-  // not at the requested record's path, even if that requested record is valid.
+  // not at the requested record's path. The native candidate's scoped-read
+  // semantics intentionally improve on the legacy all-record admission:
+  // an unrelated malformed Room must not prevent inspection of a Script.
   for (const project of [legacy, candidate])
     await writeFile(path.join(project, 'records/rooms/intro.yaml'), 'broken: [\n');
-  compare(['entity', 'inspect', 'scripts', 'bootstrap'], false);
+  const isolatedArgs = ['entity', 'inspect', 'scripts', 'bootstrap'];
+  const legacyIsolated = execute(legacy, false, isolatedArgs, false);
+  const nativeIsolated = execute(candidate, true, isolatedArgs, false);
+  // The retired resident owner can retain an already coherent read generation,
+  // while its cold all-record admission reports the malformed sibling. Either
+  // oracle result is legitimate here, but it may never return a wrong Script.
+  assert.ok([0, 3].includes(legacyIsolated.exitCode));
+  if (legacyIsolated.exitCode === 3)
+    assert.ok(legacyIsolated.diagnostics.some((item) => item.path === '/records/rooms/intro.yaml'));
+  else assert.equal(legacyIsolated.record?.id, 'bootstrap');
+  assert.equal(nativeIsolated.success, true, JSON.stringify(nativeIsolated.diagnostics));
+  assert.equal(nativeIsolated.record?.id, 'bootstrap');
+  verified += 1;
+  console.log(`  ${verified}: native isolated Script read with unrelated malformed Room`);
 
   // Populate both owners with the authored Feature Lab fixture. These real
   // families include cross-record refs, sparse fields, locale fragments and
@@ -163,6 +182,45 @@ try {
   family(['entity', 'inspect', 'variables', 'world-composition-enabled']);
   family(['usages', 'rooms', 'room-lifecycle-roundtrip']);
   family(['usages', 'assets', 'pilot-room-backdrop']);
+  // The collection list is generated from the Project schema inventory, not
+  // manually frozen at the handful of families covered by earlier CLI tests.
+  const collectionSource = await readFile(
+    path.join(editorRoot, 'src/shared/project-schema/authoring-collections.ts'),
+    'utf8',
+  );
+  const collections = collectionSource.match(
+    /export const authoringCollectionKeys = \[([^\]]+)\]/s,
+  );
+  assert.ok(collections, 'Cannot read generated authoring collection inventory.');
+  for (const [, collection] of collections[1].matchAll(/'([^']+)'/g)) {
+    const directory = path.join(fixtureLegacy, 'records', collection);
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    const source = entries.find((entry) => entry.isFile() && entry.name.endsWith('.yaml'));
+    const grouped = entries.find((entry) => entry.isDirectory());
+    let id = source?.name.slice(0, -'.yaml'.length) ?? grouped?.name;
+    if (!id) {
+      id = `native-519-${collection}`;
+      family(['entity', 'create', collection, id, '--dry-run']);
+      family(['entity', 'create', collection, id]);
+    }
+    family(['entity', 'inspect', collection, id]);
+    family(['usages', collection, id]);
+  }
+  // Non-record Project owners are as important as JSON record families:
+  // retain manifests, Traits, editor metadata and split locale/tracking YAML.
+  for (const source of [
+    'project.yaml',
+    'traits.yaml',
+    'editor.yaml',
+    'i18n/project.yaml',
+    'i18n/messages.yaml',
+    'i18n/tracking.yaml',
+    'i18n/orphans.yaml',
+  ]) {
+    const oracleBytes = await readFile(path.join(fixtureLegacy, source));
+    assert.deepEqual(await readFile(path.join(fixtureCandidate, source)), oracleBytes);
+    family(['fmt', source, '--check'], null);
+  }
   family(['localization', 'view', 'fr']);
   family(['localization', 'sync', '--dry-run']);
   family(['entity', 'create', 'variables', 'native-cutover-dry-run', '--dry-run']);
@@ -182,7 +240,10 @@ try {
   for (const project of [fixtureLegacy, fixtureCandidate]) {
     const stage = path.join(project, 'shaders/lab-grade.fs.sc');
     await writeFile(stage, `${await readFile(stage, 'utf8')}\n// revised generation\n`);
-    await writeFile(path.join(project, 'shaders/native-routing-probe.sh'), '// included inventory\n');
+    await writeFile(
+      path.join(project, 'shaders/native-routing-probe.sh'),
+      '// included inventory\n',
+    );
   }
   compare(['shaders', 'compile', '--variant', 'essl-300'], true, true, [
     fixtureLegacy,

@@ -706,6 +706,20 @@ void certify(const std::filesystem::path& source)
                     scoped_audit.at("fields").at("untrackedFiles") ==
                         unmodified_audit.at("fields").at("untrackedFiles"),
                 "Asset audit remains available when an unrelated Room is malformed.");
+        const auto malformed_validation = disk_validate({{"projectRoot", root}});
+        require(malformed_validation.value("ok", false) &&
+                    std::any_of(malformed_validation.at("cliDiagnostics").begin(),
+                                malformed_validation.at("cliDiagnostics").end(),
+                                [](const Json& issue) {
+                                    return issue.value("code", std::string{}) ==
+                                               "WORKSPACE_SOURCE_READ" &&
+                                           issue.value("path", std::string{}) ==
+                                               "/records/rooms/active-text-finish.yaml" &&
+                                           issue.value("message", std::string{}) ==
+                                               "Record is malformed.";
+                                }),
+                "Native public validation reports invalid Room YAML as a physical workspace "
+                "read failure, not a semantic record finding.");
         {
             std::ofstream output(room, std::ios::binary | std::ios::trunc);
             output << saved_room;

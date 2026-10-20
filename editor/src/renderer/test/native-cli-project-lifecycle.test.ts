@@ -475,6 +475,26 @@ describe('native CLI Project lifecycle boundary', () => {
     ]);
   });
 
+  it('attributes malformed native Room reads to their actual tracked YAML owner', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-malformed-room-'));
+    temporary.push(root);
+    await writeFile(path.join(root, 'project.yaml'), 'project: example\n');
+    const result = await runNativeProjectReadsCli(
+      globals('entity', 'inspect', 'rooms', 'sample'),
+      root,
+      () => ({ ok: false, error: 'Invalid Room YAML: Invalid YAML document.' }),
+    );
+    expect(result?.exitCode).toBe(3);
+    expect(result?.envelope.diagnostics).toEqual([
+      {
+        code: 'WORKSPACE_SOURCE_READ',
+        path: '/records/rooms/sample.yaml',
+        severity: 'error',
+        message: 'Record is malformed.',
+      },
+    ]);
+  });
+
   it('accepts named localization messages through revision-proven native commit', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-target-'));
     temporary.push(root);
