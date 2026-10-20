@@ -325,13 +325,16 @@ export async function runNativeProjectPackageCli(
         if (assetDiagnostics.length > 0)
           return { diagnostic: assetDiagnostics[0]!, exitCode: 4 as const };
       }
+      // A pinned worker compiles its captured generation, but must not
+      // publish it after the live Project has advanced. Compare exact bytes
+      // without asking the disposable worker to re-admit Project authority.
+      const sourceDrift = await verifyNativeSourceAuthority(fileSystem, root, preparation);
+      if (sourceDrift)
+        return {
+          diagnostic: cliDiagnostic('export.pinned_input_changed', '/output', sourceDrift),
+          exitCode: 4 as const,
+        };
       if (!options.pinned) {
-        const sourceDrift = await verifyNativeSourceAuthority(fileSystem, root, preparation);
-        if (sourceDrift)
-          return {
-            diagnostic: cliDiagnostic('export.pinned_input_changed', '/output', sourceDrift),
-            exitCode: 4 as const,
-          };
         const proof = await native({
           action: 'source-generation-proof',
           projectRoot: root,

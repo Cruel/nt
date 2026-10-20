@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -120,6 +121,80 @@ try {
     '--include-unused-assets',
     '--include-shader-sources',
   ]);
+
+  // A disposable worker must not publish an older pinned Project over an
+  // existing package after the resident owner observes an authored edit.
+  const existing = path.join(root, 'default-daemon.ntpkg');
+  const previousBytes = await readFile(existing);
+  const marker = path.join(root, 'package-snapshot-pinned');
+  const child = spawn(
+    cli,
+    [
+      '--json',
+      '--project',
+      daemonProject,
+      'package',
+      'export',
+      '--allow-localization-warnings',
+      '--output',
+      existing,
+    ],
+    {
+      env: {
+        ...baseline,
+        NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: daemonId,
+        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRoot,
+        NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (text) => {
+    stdout += text;
+  });
+  child.stderr.setEncoding('utf8').on('data', (text) => {
+    stderr += text;
+  });
+  const finished = new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (status) => resolve(status));
+  });
+  try {
+    let pinned = false;
+    for (let attempt = 0; attempt < 300; attempt++) {
+      if (existsSync(marker)) {
+        pinned = true;
+        break;
+      }
+      if (child.exitCode !== null) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(pinned, `Package worker never pinned a generation: ${stderr}`);
+    const room = path.join(daemonProject, 'records/rooms/active-text-finish.yaml');
+    await writeFile(room, `${await readFile(room, 'utf8')}\n# changed after package pin\n`);
+    const promoted = execute(daemonProject, ['usages', 'rooms', 'active-text-finish'], false);
+    assert.equal(promoted.exitCode, 0, JSON.stringify(promoted.diagnostics));
+  } finally {
+    await writeFile(`${marker}.release`, 'release');
+  }
+  const status = await finished;
+  assert.notEqual(status, 0, `Stale pinned package was published: ${stdout}\n${stderr}`);
+  const verdict = JSON.parse(stdout);
+  assert.ok(
+    verdict.diagnostics?.some(
+      (item) =>
+        item.code === 'export.pinned_input_changed' || item.code === 'WORKSPACE_REVISION_CONFLICT',
+    ),
+    `Stale package returned the wrong failure: ${stdout}\n${stderr}`,
+  );
+  assert.deepEqual(
+    await readFile(existing),
+    previousBytes,
+    'Stale worker replaced existing package.',
+  );
+  console.log('  pinned daemon package source drift rejected without overwriting prior bytes');
   console.log('Native CLI Runtime Package certification PASSED.');
 } finally {
   try {

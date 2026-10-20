@@ -1059,8 +1059,22 @@ class SparseSourceProjection {
     {
         if (depth > 128)
             throw std::runtime_error("Sparse source projection depth exceeded.");
-        if (!value)
+        if (!value) {
+            // An explicitly authored parent must not supply its optional
+            // children's values from the parent's whole-object default.
+            // Exact source overrides still apply to optional fields.
+            if (node(id).at("type") == "optional") {
+                std::string key;
+                for (const auto& segment : path) {
+                    if (!key.empty())
+                        key += '.';
+                    key += segment;
+                }
+                if (!defaults_.contains(key))
+                    return;
+            }
             value = fallback(path);
+        }
         if (!value)
             return;
         if (id == condition_id_ && value->is_string() && *value == "always") {

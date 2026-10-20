@@ -760,7 +760,7 @@ void analyze_cursor_css(SourceAnalysis& output, std::string_view source, std::si
     }
 }
 
-void analyze_rml(SourceAnalysis& output, std::string_view source)
+void analyze_rml(SourceAnalysis& output, std::string_view source, bool collect_lexical_literals)
 {
     struct TranslatedNode {
         std::size_t start;
@@ -863,7 +863,7 @@ void analyze_rml(SourceAnalysis& output, std::string_view source)
             if (!closing && key.size() > 2 && key.starts_with("on")) {
                 const auto [line, col] = location(source, value_start);
                 analyze_lua(output, source.substr(value_start, end - value_start), line, col,
-                            utf16_offset(source.substr(0, value_start)));
+                            utf16_offset(source.substr(0, value_start)), collect_lexical_literals);
             }
             cursor = end + 1;
         }
@@ -945,7 +945,8 @@ void analyze_rml(SourceAnalysis& output, std::string_view source)
             }
             const auto body = source.substr(cursor, closing_tag);
             const auto [body_line, body_col] = location(source, cursor);
-            analyze_lua(output, body, body_line, body_col, utf16_offset(source.substr(0, cursor)));
+            analyze_lua(output, body, body_line, body_col, utf16_offset(source.substr(0, cursor)),
+                        collect_lexical_literals);
             pos = cursor + closing_tag;
         }
         if (!closing && tag == "style" && !self_closing) {
@@ -977,7 +978,7 @@ SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_
     if (relative_path.ends_with(".lua"))
         analyze_lua(result, text, 1, 1, 0, collect_lexical_literals);
     else if (relative_path.ends_with(".rml"))
-        analyze_rml(result, text);
+        analyze_rml(result, text, collect_lexical_literals);
     else if (relative_path.ends_with(".rcss"))
         analyze_cursor_css(result, text, 1, 1);
     return result;

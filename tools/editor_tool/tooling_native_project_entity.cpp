@@ -159,9 +159,11 @@ std::string recognized_lua_collection(std::string_view text, const LuaLiteralOcc
     return {};
 }
 
-std::vector<LuaLiteralOccurrence> lua_reference_literals(std::string_view source)
+std::vector<LuaLiteralOccurrence> lua_reference_literals(std::string_view source,
+                                                         bool embedded_rml = false)
 {
-    auto analyzed = analyze_project_text("__native_references.lua", source, true);
+    auto analyzed = analyze_project_text(
+        embedded_rml ? "__native_references.rml" : "__native_references.lua", source, true);
     if (!analyzed.complete)
         throw std::runtime_error("Native source reference analysis is incomplete.");
     std::erase_if(analyzed.lua_literals, [&](const auto& literal) {
@@ -872,9 +874,10 @@ std::string reference_role(std::string_view path)
 void collect_lua_literal_usage(std::string_view source, const std::string& path,
                                const std::string& owner, const std::string& id,
                                const std::string& collection, Json& usages,
-                               std::string_view source_url = "authoring:inline-lua")
+                               std::string_view source_url = "authoring:inline-lua",
+                               bool embedded_rml = false)
 {
-    const auto literals = lua_reference_literals(source);
+    const auto literals = lua_reference_literals(source, embedded_rml);
     std::map<std::string, const LuaLiteralOccurrence*> selected;
     for (const auto& literal : literals) {
         if (literal.value != id)
@@ -937,6 +940,14 @@ void collect_native_usages(const Json& record, const std::string& path, const st
         record.at("sourceText").is_string())
         collect_lua_literal_usage(record.at("sourceText").get<std::string>(), path + "/sourceText",
                                   owner, id, collection, usages);
+    if (owner.starts_with("layouts/") && path.ends_with("/data/rml") &&
+        record.value("sourceMode", std::string{}) == "inline" && record.contains("sourceText") &&
+        record.at("sourceText").is_string())
+        collect_lua_literal_usage(record.at("sourceText").get<std::string>(), path + "/sourceText",
+                                  owner, id, collection, usages,
+                                  "project:/records/layouts/" +
+                                      owner.substr(sizeof("layouts/") - 1) + "/layout.rml",
+                                  true);
     const auto source_key_for = [&] {
         const auto split = owner.find('/');
         return owner.starts_with("@project:")

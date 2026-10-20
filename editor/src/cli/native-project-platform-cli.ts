@@ -345,9 +345,12 @@ export async function runNativeProjectPlatformCli(
         );
         if (drift.length) return drift[0]!.message;
       }
+      // Pinned compilation does not authorize publishing an obsolete Project
+      // generation. Inspect physical revisions without re-admitting the pinned
+      // snapshot in a disposable worker.
+      const physical = await verifyNativeSourceAuthority(fileSystem, root, preparation);
+      if (physical) return physical;
       if (!options.pinned) {
-        const physical = await verifyNativeSourceAuthority(fileSystem, root, preparation);
-        if (physical) return physical;
         const source = await native({
           action: 'source-generation-proof',
           projectRoot: root,
