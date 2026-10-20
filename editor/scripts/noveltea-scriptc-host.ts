@@ -2249,7 +2249,11 @@ async function runHiddenDaemonDisposable(
       next.hasProjectSnapshot === true
         ? {
             projectRoot: next.canonicalRoot as string,
-            snapshotText: chunks.join(''),
+            snapshotText:
+              payload.environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+              payload.environment.NOVELTEA_CLI_CERTIFICATION_CORRUPT_PINNED_SNAPSHOT === '1'
+                ? '{invalid-certification-snapshot'
+                : chunks.join(''),
           }
         : undefined;
     const responseText = await runNovelTeaScriptcIsland(

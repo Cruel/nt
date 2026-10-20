@@ -2688,12 +2688,38 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail('Disposable Portable Project export did not publish its bundle.');
     passSubcase('portable-project-export', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('corrupt-pinned-snapshot-isolation');
+    const corruptOutput = path.join(tempRoot, 'corrupt-pinned.ntproject');
+    const corrupt = runNative(
+      ['--project', portableRoot, '--json', 'project', 'export', '--output', corruptOutput],
+      {
+        cwd: portableRoot,
+        env: {
+          ...portableEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_CORRUPT_PINNED_SNAPSHOT: '1',
+        },
+      },
+    );
+    const corruptPayload = JSON.parse(corrupt.stdout);
+    if (
+      corrupt.status !== 70 ||
+      corruptPayload.success !== false ||
+      corruptPayload.exitCode !== 70 ||
+      !corruptPayload.diagnostics?.some((item) => item.code === 'DAEMON_EXECUTION') ||
+      (await stat(corruptOutput).catch(() => null))
+    )
+      fail(
+        `Corrupt pinned snapshot published or returned the wrong error category: ${corrupt.stdout} ${corrupt.stderr}`,
+      );
+    passSubcase('corrupt-pinned-snapshot-isolation', subcaseStartedAt);
+
     subcaseStartedAt = startSubcase('portable-physical-drift-after-pin');
     const previousPortableBytes = await readFile(portableOutput);
+    const driftOutput = path.join(tempRoot, 'portable-drift-rejected.ntproject');
     const marker = path.join(tempRoot, 'portable-snapshot-acquired');
     const driftInvocation = await runAsync(
       nativeCli,
-      ['--project', portableRoot, '--json', 'project', 'export', '--output', portableOutput],
+      ['--project', portableRoot, '--json', 'project', 'export', '--output', driftOutput],
       {
         cwd: portableRoot,
         env: {
@@ -2721,8 +2747,16 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       await writeFile(`${marker}.release`, 'release');
     }
     const driftResult = await driftInvocation.result();
-    if (driftResult.status === 0)
-      fail('Pinned portable Project export published despite physical input drift.');
+    const driftPayload = JSON.parse(driftResult.stdout);
+    if (
+      driftResult.status === 0 ||
+      !driftPayload.diagnostics?.some((item) => item.code === 'PROJECT_BUNDLE_SOURCE_CHANGED')
+    )
+      fail(
+        `Pinned portable Project export did not reject physical input drift: ${driftResult.stdout} ${driftResult.stderr}`,
+      );
+    if (await stat(driftOutput).catch(() => null))
+      fail('Pinned portable Project export left a stale output after physical input drift.');
     if (!(await readFile(portableOutput)).equals(previousPortableBytes))
       fail('Failed pinned portable Project export modified its previous publication.');
     passSubcase('portable-physical-drift-after-pin', subcaseStartedAt);
