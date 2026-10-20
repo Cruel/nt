@@ -91,6 +91,7 @@ export function createNovelTeaCliPlatformToolService(
                     ...shaderOptions,
                     sourceOverlays: {
                       ...shaderOptions.sourceOverlays,
+                      ...admitted?.shaderSourceOverlays,
                       ...pinnedShaderSourceOverlays(options.pinnedProjectTextSources),
                     },
                   };

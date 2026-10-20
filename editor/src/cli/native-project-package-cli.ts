@@ -93,7 +93,7 @@ function parsePackageExport(arguments_: readonly string[]): ParsedPackageExport 
   };
 }
 
-function nativeProject(prepared: NativeResidentProjectPreparation): AuthoringProject {
+export function nativeProject(prepared: NativeResidentProjectPreparation): AuthoringProject {
   if (!prepared.project || typeof prepared.project !== 'object' || Array.isArray(prepared.project))
     throw new Error('Native Runtime Package preparation omitted the Project.');
   if (!prepared.sourceGeneration || !prepared.sourceRevisions?.['project.yaml'])
@@ -112,7 +112,7 @@ function nativeProject(prepared: NativeResidentProjectPreparation): AuthoringPro
         name.includes(':') ||
         name.split('/').includes('..') ||
         typeof revision !== 'string' ||
-        !/^sha256:[0-9a-f]{64}$|^absent$/u.test(revision),
+        !/^(?:sha256:[0-9a-f]{64}|physical:[0-9]+:-?[0-9]+|absent)$/u.test(revision),
     )
   )
     throw new Error('Native Runtime Package preparation returned invalid source authority.');
@@ -122,13 +122,13 @@ function nativeProject(prepared: NativeResidentProjectPreparation): AuthoringPro
   return project as AuthoringProject;
 }
 
-function admittedDiagnostics(
+export function admittedDiagnostics(
   prepared: NativeResidentProjectPreparation,
 ): ProjectValidationDiagnostic[] {
   return classifyProjectValidationDiagnostics(prepared.cliDiagnostics, { producer: 'authoring' });
 }
 
-async function verifyNativeSourceAuthority(
+export async function verifyNativeSourceAuthority(
   fileSystem: ProjectWorkspaceFileSystem,
   projectRoot: string,
   prepared: NativeResidentProjectPreparation,
@@ -145,6 +145,10 @@ async function verifyNativeSourceAuthority(
     }
     if (metadata.kind !== 'file')
       return `Pinned Project input '${relative}' is no longer the same regular file.`;
+    // The native owner assigns a physical revision to non-text payloads. Its
+    // generation proof checks those revisions; readFileRevision hashes only
+    // ordinary text files and cannot compare a physical identity token.
+    if (expectedRevision.startsWith('physical:')) continue;
     const current = await fileSystem.readFileRevision(absolute);
     if (current.contentHash !== expectedRevision)
       return `Pinned Project input '${relative}' changed after native admission.`;

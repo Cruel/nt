@@ -749,6 +749,20 @@ void certify(const std::filesystem::path& source)
                       {"profileId", "unselected-profile"}})
                  .value("ok", false),
             "Native runtime preparation must reject unselected export profiles.");
+    const auto platform_preparation =
+        command({{"action", "platform-export-preparation"}, {"projectRoot", root}});
+    require(platform_preparation.value("ok", false) &&
+                platform_preparation.at("runtimeIntent") == "platform-export" &&
+                platform_preparation.at("projectIdentity") ==
+                    runtime_preparation.at("projectIdentity") &&
+                platform_preparation.at("sourceGeneration") ==
+                    runtime_preparation.at("sourceGeneration") &&
+                platform_preparation.at("sourceRevisions") ==
+                    runtime_preparation.at("sourceRevisions") &&
+                platform_preparation.at("referencedAssetIds") ==
+                    runtime_preparation.at("referencedAssetIds"),
+            "Platform export preparation shares the exact native Project generation and "
+            "Runtime Package input authority.");
 
     const Json replacement =
         Json::array({{{"op", "replace"}, {"path", "/project/name"}, {"value", "CLI Native"}}});

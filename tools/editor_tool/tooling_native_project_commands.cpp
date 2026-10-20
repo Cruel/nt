@@ -400,7 +400,8 @@ Json operate(const Json& request)
     // Capture before validation so a disk race cannot attach newer source bytes
     // to an effective Project assembled from an earlier generation.
     const bool complete_runtime_preparation =
-        action == "shader-preparation" || action == "runtime-package-preparation";
+        action == "shader-preparation" || action == "runtime-package-preparation" ||
+        action == "platform-export-preparation";
     const auto preparation_generation = complete_runtime_preparation
                                             ? native_project_source_generation(*session, root)
                                             : std::string{};
@@ -529,7 +530,7 @@ Json operate(const Json& request)
                     {"sourceRevisions", source_revisions},
                     {"sourceOverlays", std::move(overlays)},
                     {"referencedAssetIds", referenced_assets}};
-        if (action == "runtime-package-preparation") {
+        if (action == "runtime-package-preparation" || action == "platform-export-preparation") {
             if (!prepared_project.contains("export") ||
                 !prepared_project.at("export").is_object() ||
                 !prepared_project.at("export").contains("runtime") ||
@@ -539,8 +540,9 @@ Json operate(const Json& request)
                 return failure(
                     "Cannot prepare Runtime Package without a valid native runtime profile.");
             const auto& profile = prepared_project.at("export").at("runtime");
-            if (request.contains("profileId") && (!request.at("profileId").is_string() ||
-                                                  request.at("profileId") != profile.at("id")))
+            if (action == "runtime-package-preparation" && request.contains("profileId") &&
+                (!request.at("profileId").is_string() ||
+                 request.at("profileId") != profile.at("id")))
                 return failure(
                     "Runtime Package profile is not the selected Project runtime profile.");
             Json source_paths = Json::array();
@@ -549,7 +551,9 @@ Json operate(const Json& request)
             result["sourcePaths"] = std::move(source_paths);
             result["profile"] = profile;
             result["projectIdentity"] = prepared_project.at("project");
-            result["runtimeIntent"] = "runtime-package-export";
+            result["runtimeIntent"] = action == "platform-export-preparation"
+                                          ? "platform-export"
+                                          : "runtime-package-export";
         }
         return with_diagnostics(std::move(result));
     }
@@ -682,7 +686,7 @@ Json operate(const Json& request)
     if (action == "entity-usages")
         return with_diagnostics(native_project_entity_usages(request, *session, root));
     if (action == "project-export" || action == "export-preparation" ||
-        action == "runtime-package-preparation")
+        action == "runtime-package-preparation" || action == "platform-export-preparation")
         return native_project_bundle(request, session, root);
 
     return failure("Unknown native CLI Project operation.");

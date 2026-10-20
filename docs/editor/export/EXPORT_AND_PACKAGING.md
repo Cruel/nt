@@ -202,6 +202,21 @@ Project owner may advance while this work runs. `platform export --check` remain
 owner-short preflight. The successful-export identity written under `.noveltea/editor/state.json` is
 machine/editor-local execution metadata rather than authored Project state.
 
+The isolated native lifecycle candidate (#517, enabled only by the native CLI
+certification switch until #506) uses `platform-export-preparation` to capture the
+complete native Project generation, exact authored source revisions, shader
+overlays, and runtime Asset references. It passes that admission to the same
+Prepared Runtime Artifact builder and platform orchestration service; no second
+Project source reader, platform compiler, or platform publisher is introduced.
+The non-publishing `--check` path uses the same selected profile, template,
+signing, trust, collision, localization and identity decisions, without shader
+compilation, package writing, or artifact activation. A cold CLI invocation
+reproves the native source generation, while a disposable daemon worker uses
+its already-pinned native and physical Asset evidence, including immediately
+before activation. Successful identity metadata is merged only into the
+current ignored editor-local state after accepted publication; a concurrent
+editor-local change is preserved and reported instead of being overwritten.
+
 The complete planned platform artifact set is activated through one recoverable publication record.
 That record covers the output directory plus every applicable archive, symbols archive, AppImage,
 DMG, and signing report, including deliberate removal of an obsolete artifact when the new export no
