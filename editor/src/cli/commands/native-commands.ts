@@ -87,9 +87,29 @@ function nativeTestResult(response: unknown): CliSemanticResult {
       ? (record.report as Record<string, unknown>)
       : null;
   if (report?.passed === false) {
+    const diagnostics = Array.isArray(report.diagnostics)
+      ? report.diagnostics.flatMap((item) => {
+          if (!item || typeof item !== 'object') return [];
+          const diagnostic = item as Record<string, unknown>;
+          if (typeof diagnostic.message !== 'string') return [];
+          return [
+            cliDiagnostic(
+              'native.test.failed',
+              typeof diagnostic.path === 'string' ? diagnostic.path : '/tests',
+              diagnostic.message,
+              diagnostic.severity === 'warning' || diagnostic.severity === 'info'
+                ? diagnostic.severity
+                : 'error',
+            ),
+          ];
+        })
+      : [];
     return {
       ok: false,
-      diagnostics: [cliDiagnostic('native.test.failed', '/tests', 'Authored Test failed.')],
+      diagnostics:
+        diagnostics.length > 0
+          ? diagnostics
+          : [cliDiagnostic('native.test.failed', '/tests', 'Authored Test failed.')],
       fields: { native: record },
     };
   }

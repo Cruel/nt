@@ -3793,6 +3793,8 @@ describe('NovelTea headless CLI', () => {
     expect(first.envelope.diagnostics).toContainEqual(
       expect.objectContaining({
         code: 'native.test.failed',
+        path: '/steps/0',
+        message: 'Expected activation failed.',
         severity: 'error',
       }),
     );
