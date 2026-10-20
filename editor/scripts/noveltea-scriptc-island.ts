@@ -187,6 +187,7 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
               sourceGeneration: result.sourceGeneration,
               sourceRevisions: result.sourceRevisions,
               sourceOverlays: result.sourceOverlays,
+              referencedAssetIds: result.referencedAssetIds,
               cliDiagnostics: result.cliDiagnostics,
             } as import('../src/shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation;
           },
