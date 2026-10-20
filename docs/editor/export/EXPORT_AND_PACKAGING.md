@@ -160,9 +160,10 @@ typed playback/UI-test execution only.
 For the standalone daemon CLI, Runtime Package publication is disposable-heavy work. The Project
 owner reconciles and pins one portable resident generation, then the one-job worker prepares/writes
 the package to a sibling staging path. External Asset bytes remain file-backed; their expected native
-file identity, size, and exact mtime (or fallback hash where exact mtime is unavailable) travel with
-the pinned snapshot. Immediately before replacing the requested `.ntpkg`, the worker verifies those
-expectations again. Input drift, cancellation, package failure, or worker failure never publishes the
+file identity, size, exact mtime, and captured content hash travel with the pinned snapshot. The
+native Project owner proves its generation again after hashing binary Assets. The worker verifies
+those expectations before publication, including when size and timestamp have not changed. Input
+drift, cancellation, package failure, or worker failure must never publish the
 staged file as the requested output. Final replacement is recorded as a recoverable output transaction
 covering the staged package, previous-output backup, final path, and accepted state before any rename
 can make the old package unavailable. Both the staging file and transaction record are registered with
@@ -171,6 +172,14 @@ the transaction and restores the previous complete package; if acceptance was al
 keeps the new package and removes obsolete backup/staging debris. Recovery therefore does not depend
 on the worker reaching a JavaScript `catch`/`finally`, and published final paths themselves are never
 registered as disposable files.
+
+Editable portable Project export (`project export`, `.ntproject`) is distinct from Runtime Package
+publication. A disposable worker uses the owner-pinned Project generation for authored sources and
+captures binary Asset hashes at the same authority boundary. The portable exporter reads its exact
+live source files into a staged archive, checks captured source revisions and pinned binary Asset
+identities/hashes before publishing, and refuses changed inputs without creating the requested
+bundle. Cancellation is monitored through snapshot hydration and checked before the final atomic
+move; its public interruption exit category is `130` rather than a successful export.
 
 ## Platform Export
 

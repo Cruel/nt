@@ -2761,6 +2761,89 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail('Failed pinned portable Project export modified its previous publication.');
     passSubcase('portable-physical-drift-after-pin', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('portable-asset-drift-after-pin');
+    const assetPath = path.join(portableRoot, 'assets', 'images', 'backdrop.png');
+    const fixedAssetTimestamp = new Date('2020-01-01T00:00:00.000Z');
+    await utimes(assetPath, fixedAssetTimestamp, fixedAssetTimestamp);
+    const assetMarker = path.join(tempRoot, 'portable-asset-snapshot-acquired');
+    const assetOutput = path.join(tempRoot, 'portable-asset-drift-rejected.ntproject');
+    const assetInvocation = await runAsync(
+      nativeCli,
+      ['--project', portableRoot, '--json', 'project', 'export', '--output', assetOutput],
+      {
+        cwd: portableRoot,
+        env: {
+          ...portableEnvironment,
+          NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: assetMarker,
+        },
+      },
+    );
+    try {
+      await waitForFile(assetMarker);
+      const oldAsset = await readFile(assetPath);
+      const changedAsset = Buffer.from(oldAsset);
+      changedAsset[changedAsset.length - 1] ^= 1;
+      await writeFile(assetPath, changedAsset);
+      await utimes(assetPath, fixedAssetTimestamp, fixedAssetTimestamp);
+      const promoted = requireSuccess(
+        'portable Asset physical drift owner generation promotion',
+        runNative(['--project', portableRoot, '--json', 'usages', 'rooms', 'gallery'], {
+          cwd: portableRoot,
+          env: {
+            ...portableEnvironment,
+            NOVELTEA_CLI_CERTIFICATION_FORCE_AUTHORITY_UNKNOWN: '1',
+          },
+        }),
+      );
+      if ((schedulerProfile(promoted)?.authorityFullRescans ?? 0) < 1)
+        fail(`Portable Asset change did not promote its owner: ${promoted.stderr}`);
+    } finally {
+      await writeFile(`${assetMarker}.release`, 'release');
+    }
+    const assetResult = await assetInvocation.result();
+    const assetPayload = JSON.parse(assetResult.stdout);
+    if (
+      assetResult.status === 0 ||
+      !assetPayload.diagnostics?.some((item) => item.code === 'PROJECT_BUNDLE_SOURCE_CHANGED') ||
+      (await stat(assetOutput).catch(() => null))
+    )
+      fail(
+        `Pinned portable Project export accepted changed binary Asset bytes: ${assetResult.stdout} ${assetResult.stderr}`,
+      );
+    passSubcase('portable-asset-drift-after-pin', subcaseStartedAt);
+
+    if (!isWindows) {
+      subcaseStartedAt = startSubcase('portable-cancel-after-snapshot-handoff');
+      const cancelMarker = path.join(tempRoot, 'portable-cancel-snapshot-acquired');
+      const cancelledOutput = path.join(tempRoot, 'portable-cancelled.ntproject');
+      const pending = await runAsync(
+        nativeCli,
+        ['--project', portableRoot, '--json', 'project', 'export', '--output', cancelledOutput],
+        {
+          cwd: portableRoot,
+          env: {
+            ...portableEnvironment,
+            NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: cancelMarker,
+          },
+        },
+      );
+      try {
+        await waitForFile(cancelMarker);
+        pending.child.kill('SIGINT');
+        await waitForFile(`${cancelMarker}.cancelled`, 10_000);
+      } finally {
+        await writeFile(`${cancelMarker}.release`, 'release');
+      }
+      const cancelled = await pending.result();
+      if (cancelled.status !== 130)
+        fail(
+          `Pinned portable cancellation returned ${cancelled.status}, expected 130: ${cancelled.stdout} ${cancelled.stderr}`,
+        );
+      if (await stat(cancelledOutput).catch(() => null))
+        fail('Cancelled portable Project export published an output.');
+      passSubcase('portable-cancel-after-snapshot-handoff', subcaseStartedAt);
+    }
+
     subcaseStartedAt = startSubcase('shader-compile');
     const shaderRoot = await resetFixture('disposable-shader-compile');
     const labRoot = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
@@ -2961,44 +3044,49 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     // properties covered deterministically by native tests; CLI certification does not wait for a
     // real Project owner to become idle.
 
-    // Read-proof mismatch/retry behavior is forced deterministically below; do not arrange it
-    // by trying to land a filesystem edit inside an artificial delay window.
-
-    let churn = true;
-    let churnIndex = 0;
-    const churnTask = (async () => {
-      while (churn) {
-        const current = parseYaml(await readFile(galleryPath, 'utf8'));
-        current.label = `authority churn ${churnIndex++}`;
-        await writeFile(galleryPath, stringifyYaml(current));
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-    })();
-    const churnInvocation = await runAsync(
-      nativeCli,
-      ['--project', root, '--json', 'usages', 'rooms', 'gallery'],
-      {
+    // Short native-direct reads may never enter the TypeScript read-proof hook. Prove
+    // physical promotion and public source parity instead of relying on an inapplicable
+    // forced TypeScript mismatch or a filesystem churn timing race.
+    const updatedGallery = structuredClone(originalGallery);
+    updatedGallery.label = 'native authority read promotion';
+    await writeFile(galleryPath, stringifyYaml(updatedGallery));
+    const ownerRead = requireSuccess(
+      'native authority Project read after physical source mutation',
+      runNative(['--project', root, '--json', 'entity', 'inspect', 'rooms', 'gallery'], {
         cwd: root,
         env: {
           ...traceEnvironment,
-          NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
+          NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
+          NOVELTEA_CLI_CERTIFICATION_FORCE_AUTHORITY_UNKNOWN: '1',
         },
-      },
+      }),
     );
-    const churnResult = await churnInvocation.result();
-    churn = false;
-    await churnTask;
-    if (churnResult.status === 0)
-      fail(`Continuous authority churn unexpectedly succeeded: ${churnResult.stdout}`);
-    const scopedChurn = runNative(['--project', root, '--json', 'platform', 'profiles'], {
-      cwd: root,
-      env: {
-        ...traceEnvironment,
-        NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
-      },
-    });
-    if (scopedChurn.status === 0)
-      fail(`Scoped read authority churn unexpectedly succeeded: ${scopedChurn.stdout}`);
+    if (
+      JSON.parse(ownerRead.stdout).record?.label !== updatedGallery.label ||
+      (schedulerProfile(ownerRead)?.generationPromotions ?? 0) < 1
+    )
+      fail(
+        `Physical Project read did not promote and observe the edited generation: ${ownerRead.stdout} ${ownerRead.stderr}`,
+      );
+    const standaloneRead = requireSuccess(
+      'physical source read standalone parity',
+      runNative(
+        ['--no-daemon', '--project', root, '--json', 'entity', 'inspect', 'rooms', 'gallery'],
+        {
+          cwd: root,
+          env: traceEnvironment,
+        },
+      ),
+    );
+    if (JSON.parse(standaloneRead.stdout).record?.label !== updatedGallery.label)
+      fail('Resident Project read diverged from the standalone native source generation.');
+    requireSuccess(
+      'native scoped direct read after source promotion',
+      runNative(['--project', root, '--json', 'platform', 'profiles'], {
+        cwd: root,
+        env: traceEnvironment,
+      }),
+    );
     await writeFile(galleryPath, stringifyYaml(originalGallery));
     requireSuccess(
       'authority churn repair',
@@ -3065,8 +3153,7 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     return {
       watcherOverflowRecovery: true,
       staleSnapshotReconciliationCertifiedNatively: true,
-      authorityRaceRetry: true,
-      boundedChurnFailure: true,
+      physicalReadPromotionAndStandaloneParity: true,
       mutationProofAndPromotion: true,
       mutationExternalEditRace: true,
     };

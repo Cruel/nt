@@ -49,7 +49,9 @@ export async function verifyPinnedExternalAssets(
       );
       continue;
     }
-    if (expected.mtimeNanoseconds == null && expected.contentHash) {
+    // Exact-live-input publication cannot trust metadata alone: bytes may be
+    // replaced without changing the recorded file size or modification time.
+    if (expected.contentHash) {
       const revision = await fileSystem.readFileRevision(absolute);
       if (normalizedHash(revision.contentHash) !== normalizedHash(expected.contentHash))
         diagnostics.push(

@@ -2011,6 +2011,55 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       )
         return entry.portableSnapshot;
 
+      // Physical metadata cannot distinguish an in-place Asset replacement with the
+      // same inode, length and timestamp. Pin its bytes before handing a generation
+      // to a disposable worker so a later export cannot attach changed Asset bytes.
+      const pinnedAssetRevisions: {
+        source: PortableResidentProjectAuthorityEntry;
+        revision: Awaited<ReturnType<ProjectWorkspaceFileSystem['readFileRevision']>>;
+      }[] = [];
+      for (const source of externalAssets) {
+        pinnedAssetRevisions.push({
+          source,
+          revision: await this.residentFileSystem.readFileRevision(
+            this.residentFileSystem.joinPath(entry.canonicalRoot, source.path),
+          ),
+        });
+      }
+      if (
+        pinnedAssetRevisions.some(
+          ({ source, revision }) =>
+            (source.byteSize !== undefined && source.byteSize !== revision.byteSize) ||
+            (source.contentHash && source.contentHash !== revision.contentHash),
+        )
+      )
+        return rejectNative('External Asset bytes disagree with captured physical authority');
+      externalAssets = Object.freeze(
+        pinnedAssetRevisions.map(({ source, revision }) => ({
+          ...source,
+          contentHash: revision.contentHash,
+        })),
+      );
+      if (this.nativeAuthority) {
+        const postAssetHashProof = await this.observeNativeAuthority(
+          entry.canonicalRoot,
+          entry.nativeAssetSourcePaths,
+          true,
+        );
+        this.recordNativeObservation(entry, postAssetHashProof);
+        if (!postAssetHashProof.unchanged || entry.pendingNativeExternalAssetChange)
+          return rejectNative('External Asset authority changed during snapshot capture');
+        if (
+          nativePreparation &&
+          this.nativeAuthority.proveNativeProject &&
+          !(await this.nativeAuthority.proveNativeProject(
+            entry.canonicalRoot,
+            nativePreparation.sourceGeneration,
+          ))
+        )
+          return rejectNative('Native generation changed during external Asset capture');
+      }
+
       const snapshot: PortableResidentProjectSnapshot = {
         identity,
         snapshot: nativePreparation

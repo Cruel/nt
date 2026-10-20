@@ -98,4 +98,26 @@ describe('pinned external Asset verification', () => {
 
     expect(diagnostics).toEqual([expect.objectContaining({ code: 'export.pinned_input_changed' })]);
   });
+
+  it('rejects changed bytes even when file identity, size and timestamp are unchanged', async () => {
+    const diagnostics = await verifyPinnedExternalAssets(
+      fileSystem({
+        kind: 'file',
+        sourceIdentity: 'posix:1:2',
+        byteSize: 42,
+        mtimeNanoseconds: '1234',
+      }),
+      '/project',
+      [
+        {
+          path: 'assets/image.png',
+          sourceIdentity: 'posix:1:2',
+          byteSize: 42,
+          mtimeNanoseconds: '1234',
+          contentHash: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        },
+      ],
+    );
+    expect(diagnostics).toEqual([expect.objectContaining({ code: 'export.pinned_input_changed' })]);
+  });
 });
