@@ -341,6 +341,21 @@ function portableProjectTextSourcePaths(project: AuthoringProject): readonly str
   return [...paths].sort();
 }
 
+function requiredPortableTextPaths(
+  project: AuthoringProject,
+  physicalAuthority: readonly PortableResidentProjectAuthorityEntry[],
+): string[] {
+  const paths = new Set(portableProjectTextSourcePaths(project));
+  for (const entry of physicalAuthority)
+    if (
+      /^scripts\/.+\.lua$/u.test(entry.path) ||
+      /^records\/layouts\/[^/]+\/layout\.(?:rml|rcss|lua)$/u.test(entry.path) ||
+      entry.path.startsWith('shaders/')
+    )
+      paths.add(entry.path);
+  return [...paths].sort();
+}
+
 function portableAuthorityEntriesValid(
   value: unknown,
 ): value is readonly PortableResidentProjectAuthorityEntry[] {
@@ -731,7 +746,10 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
             contentHash: expected as `sha256:${string}`,
             byteSize: bytes.byteLength,
           };
-          sourceTexts.set(relativePath, new TextDecoder().decode(bytes).replace(/^\uFEFF/u, ''));
+          sourceTexts.set(
+            relativePath,
+            new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes),
+          );
         } catch {
           raced = true;
           break;
@@ -1888,16 +1906,11 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         );
       }
 
-      const portableTextPaths = new Set(portableProjectTextSourcePaths(opened.snapshot.project));
-      for (const candidate of physicalAuthority)
-        if (
-          /^scripts\/.+\.lua$/u.test(candidate.path) ||
-          /^records\/layouts\/[^/]+\/layout\.(?:rml|rcss|lua)$/u.test(candidate.path) ||
-          candidate.path.startsWith('shaders/')
-        )
-          portableTextPaths.add(candidate.path);
       const projectTextSources: Record<string, PortableResidentProjectTextSource> = {};
-      for (const relativePath of [...portableTextPaths].sort()) {
+      for (const relativePath of requiredPortableTextPaths(
+        opened.snapshot.project,
+        physicalAuthority,
+      )) {
         const contribution = opened.sourceContributions[relativePath];
         if (contribution?.kind === 'text') {
           projectTextSources[relativePath] = Object.freeze({
@@ -1912,7 +1925,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           );
           projectTextSources[relativePath] = Object.freeze({
             contentHash: await sha256PrefixedBytes(bytes),
-            text: new TextDecoder().decode(bytes).replace(/^\uFEFF/u, ''),
+            text: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes),
           });
         } catch {
           return rejectNative(`cannot capture portable text source: ${relativePath}`);
@@ -2110,6 +2123,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     )
       return false;
 
+    if (
+      JSON.stringify(Object.keys(portable.projectTextSources).sort()) !==
+      JSON.stringify(
+        requiredPortableTextPaths(portable.snapshot.project, portable.physicalAuthority),
+      )
+    )
+      return false;
+
     // Certification-only native cutover may never hydrate a TypeScript-authoritative
     // snapshot if the owner omitted its native admission proof.
     if (
@@ -2287,6 +2308,9 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     const binding = this.snapshotBindings.get(snapshot);
     if (!binding) return true;
     if (!binding.entry.session.isGeneration(binding.generation)) return false;
+    // A disposable worker is pinned to the owner's captured bytes. A live disk proof
+    // would both reopen authored inputs and invalidate an otherwise usable old generation.
+    if (binding.entry.immutablePinned) return true;
     if (this.nativeAuthority) {
       const observation = await this.observeNativeAuthority(
         binding.entry.canonicalRoot,
