@@ -3093,6 +3093,23 @@ describe('ResidentProjectWorkspaceSession', () => {
       };
     };
     expect(portable.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    const omittedAuthoredSource = structuredClone(portable) as typeof portable & {
+      snapshot: {
+        canonicalSourceFiles: string[];
+        fileRevisions: Record<string, unknown>;
+      };
+    };
+    omittedAuthoredSource.snapshot.canonicalSourceFiles =
+      omittedAuthoredSource.snapshot.canonicalSourceFiles.filter(
+        (path) => path !== 'records/rooms/foyer.yaml',
+      );
+    delete omittedAuthoredSource.snapshot.fileRevisions['records/rooms/foyer.yaml'];
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(omittedAuthoredSource),
+      ),
+    ).toBe(false);
     const alteredCapturedText = structuredClone(portable) as typeof portable & {
       projectTextSources: Record<string, { text: string; contentHash: string }>;
     };
