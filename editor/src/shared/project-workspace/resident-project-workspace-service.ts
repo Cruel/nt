@@ -440,6 +440,21 @@ function nativePreparationValid(value: unknown): value is NativeResidentProjectP
   );
 }
 
+function nativeAuthoredSourcePaths(revisions: Readonly<Record<string, string>>): string[] {
+  return Object.keys(revisions)
+    .filter(
+      (name) =>
+        revisions[name] !== 'absent' &&
+        (name === 'project.yaml' ||
+          name === 'editor.yaml' ||
+          name === 'traits.yaml' ||
+          /^records\/.+\.(?:yaml|lua|rml|rcss)$/u.test(name) ||
+          /^scripts\/.+\.lua$/u.test(name) ||
+          /^i18n\/.+\.yaml$/u.test(name)),
+    )
+    .sort();
+}
+
 function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const actual = Object.keys(value).sort();
@@ -692,18 +707,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       }
       if (!nativePreparationValid(native))
         throw new Error('Native Project preparation returned invalid data.');
-      const sourcePaths = Object.keys(native.sourceRevisions)
-        .filter(
-          (name) =>
-            native.sourceRevisions[name] !== 'absent' &&
-            (name === 'project.yaml' ||
-              name === 'editor.yaml' ||
-              name === 'traits.yaml' ||
-              /^records\/.+\.(?:yaml|lua|rml|rcss)$/u.test(name) ||
-              /^scripts\/.+\.lua$/u.test(name) ||
-              /^i18n\/.+\.yaml$/u.test(name)),
-        )
-        .sort();
+      const sourcePaths = nativeAuthoredSourcePaths(native.sourceRevisions);
       if (!sourcePaths.includes('project.yaml'))
         throw new Error('Native Project preparation omitted its manifest source revision.');
       const fileRevisions: Record<string, ProjectWorkspaceFileRevision> = {};
@@ -2120,6 +2124,8 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       if (
         JSON.stringify(portable.snapshot.project) !== JSON.stringify(native.project) ||
         portable.snapshot.projectRoot !== canonicalRoot ||
+        JSON.stringify(portable.snapshot.canonicalSourceFiles) !==
+          JSON.stringify(nativeAuthoredSourcePaths(native.sourceRevisions)) ||
         portable.snapshot.canonicalSourceFiles.length !==
           Object.keys(portable.snapshot.fileRevisions).length ||
         portable.snapshot.canonicalSourceFiles.some(
