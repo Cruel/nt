@@ -426,13 +426,19 @@ void recover_abandoned_import(const fs::path& root)
 }
 } // namespace
 
-Json native_project_asset_audit(const fs::path& root)
+Json native_project_workspace_preflight(const fs::path& root, bool agent_sync)
 {
     try {
-        // Required domains: manifest identity, Asset records, and the Asset
-        // filesystem. A broken Room/Map/Scene cannot block this operation.
-        // Mirror the public CLI's scoped-read-only admission: a pending YAML
-        // transaction makes even an Asset-only inventory non-authoritative.
+        // Scoped callers must not recover transactions or admit unrelated record families.
+        for (const auto* relative : {".noveltea", ".noveltea/agent", "AGENTS.md", ".gitignore"}) {
+            if (!agent_sync && std::string_view(relative) != ".noveltea")
+                continue;
+            const auto resolved = fs::weakly_canonical(root / relative);
+            const auto within = resolved.lexically_relative(fs::canonical(root));
+            if (within.empty() || within == ".." || *within.begin() == ".." || within.is_absolute())
+                return failure("WORKSPACE_PATH_INVALID", "/" + std::string(relative),
+                               "Workspace path resolves outside the project root.");
+        }
         const auto transactions = root / ".noveltea/transactions";
         const auto status = fs::symlink_status(transactions);
         bool unsettled =
@@ -457,6 +463,9 @@ Json native_project_asset_audit(const fs::path& root)
             result["exitCode"] = 5;
             return result;
         }
+        if (!contained(root, root / "project.yaml"))
+            return failure("WORKSPACE_PATH_INVALID", "/project.yaml",
+                           "Project manifest resolves outside the Project root.");
         const auto manifest_source =
             noveltea::authoring::open_yaml_source(bytes_at(root / "project.yaml"));
         if (!manifest_source.accepted)
@@ -496,28 +505,30 @@ Json native_project_asset_audit(const fs::path& root)
             if (!manifest.contains(key))
                 return failure("WORKSPACE_MANIFEST_INVALID", "/project.yaml",
                                "project.yaml has an unsupported workspace-v1 shape.");
-        const auto identity_failure = [](std::string path, std::string message) {
-            auto result = failure("WORKSPACE_SOURCE_READ", std::move(path), std::move(message));
-            result["exitCode"] = 3;
-            return result;
-        };
-        const auto& identity = manifest.at("project");
-        if (!identity.is_object())
-            return identity_failure("/project", "Invalid Project identity.");
-        for (const auto& [key, value] : identity.items()) {
-            if (key != "id" && key != "name" && key != "version" && key != "author" &&
-                key != "description")
-                return identity_failure("/project/" + key, "Unrecognized Project identity field.");
-            if (!value.is_string())
-                return identity_failure("/project/" + key,
-                                        "Project identity field must be a string.");
+        const auto admitted = validate_workspace_project_identity(manifest.at("project").dump());
+        if (!admitted.accepted) {
+            Json diagnostics = Json::array();
+            for (const auto& diagnostic : admitted.diagnostics)
+                diagnostics.push_back({{"code", "WORKSPACE_SOURCE_READ"},
+                                       {"path", diagnostic.path},
+                                       {"message", diagnostic.message},
+                                       {"severity", "error"}});
+            return {{"ok", false}, {"exitCode", 3}, {"diagnostics", std::move(diagnostics)}};
         }
-        if (!identity.contains("id") || !identity.at("id").is_string() ||
-            !std::regex_match(identity.at("id").get<std::string>(),
-                              std::regex(R"(^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$)")))
-            return identity_failure("/project/id", "Invalid Project ID.");
-        if (!identity.contains("name") || !identity.at("name").is_string())
-            return identity_failure("/project/name", "Invalid Project display name.");
+        return {{"ok", true},
+                {"projectIdentity", Json::parse(admitted.effective_json)},
+                {"diagnostics", Json::array()}};
+    } catch (const std::exception& error) {
+        return failure("WORKSPACE_MANIFEST_READ", "/project.yaml", error.what());
+    }
+}
+
+Json native_project_asset_audit(const fs::path& root)
+{
+    try {
+        const auto preflight = native_project_workspace_preflight(root);
+        if (!preflight.value("ok", false))
+            return preflight;
         const auto records = root / "records/assets";
         std::set<std::string> tracked;
         if (fs::exists(records)) {
@@ -545,17 +556,31 @@ Json native_project_asset_audit(const fs::path& root)
                                    "Invalid Asset record source.");
                 const auto& source = record.at("data").at("source");
                 if (source.is_object() && source.value("type", std::string{}) == "project-file" &&
-                    source.contains("path") && source.at("path").is_string())
-                    tracked.insert(source.at("path").get<std::string>());
+                    source.contains("path") && source.at("path").is_string()) {
+                    const auto relative = source.at("path").get<std::string>();
+                    const auto resolved = fs::weakly_canonical(root / fs::u8path(relative));
+                    const auto within = resolved.lexically_relative(fs::canonical(root));
+                    if (within.empty() || within == ".." || *within.begin() == ".." ||
+                        within.is_absolute())
+                        return failure("asset.audit.path_escape", relative,
+                                       "Asset source path resolves outside the project root.");
+                    tracked.insert(relative);
+                }
             }
         }
         const auto assets = root / "assets";
         Json untracked = Json::array();
         if (fs::exists(assets)) {
-            if (!fs::is_directory(assets) || !contained(root, assets))
+            if (!fs::is_directory(assets))
                 return failure("asset.audit.invalid_assets_directory", "/assets",
                                "Project assets path is not a directory.");
-            for (fs::recursive_directory_iterator it(assets), end; it != end; ++it) {
+            if (!contained(root, assets))
+                return failure("asset.audit.path_escape", "assets",
+                               "Asset directory resolves outside the project root.");
+            for (fs::recursive_directory_iterator
+                     it(assets, fs::directory_options::follow_directory_symlink),
+                 end;
+                 it != end; ++it) {
                 const auto file = it->path();
                 if (ignored(file.filename().string())) {
                     it.disable_recursion_pending();
@@ -565,6 +590,17 @@ Json native_project_asset_audit(const fs::path& root)
                     return failure("asset.audit.path_escape",
                                    file.lexically_relative(root).generic_string(),
                                    "Asset path escapes the Project Asset directory.");
+                if (it->is_directory()) {
+                    const auto resolved = fs::canonical(file);
+                    for (auto parent = file.parent_path();; parent = parent.parent_path()) {
+                        if (fs::canonical(parent) == resolved)
+                            return failure("asset.audit.path_cycle",
+                                           file.lexically_relative(root).generic_string(),
+                                           "Asset directory resolves to an ancestor directory.");
+                        if (parent == assets)
+                            break;
+                    }
+                }
                 if (!it->is_regular_file())
                     continue;
                 const auto relative = file.lexically_relative(root).generic_string();

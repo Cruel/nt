@@ -1189,6 +1189,30 @@ ValidationResult validate_record(std::string_view contract, std::string_view sou
     return result;
 }
 
+ValidationResult validate_workspace_project_identity(std::string_view source_json)
+{
+    ValidationResult result;
+    try {
+        static const Contracts contracts;
+        const auto root = contracts.document.at("roots").at("WorkspaceManifest").as<std::string>();
+        const auto id =
+            contracts.document.at("nodes").at(root).at("children").at("project").as<std::string>();
+        Validator validator(contracts);
+        std::set<std::string> visited;
+        validator.check_support(id, visited, result.diagnostics);
+        if (!result.diagnostics.empty())
+            return result;
+        Value value = Json::parse(source_json);
+        validator.parse(id, value, "/project", result.diagnostics);
+        result.accepted = result.diagnostics.empty();
+        if (result.accepted && value)
+            result.effective_json = value->to_string();
+    } catch (const std::exception& error) {
+        result.diagnostics.push_back({"/project", "contract.failure", error.what()});
+    }
+    return result;
+}
+
 ValidationResult validate_room_source(std::string_view source_json)
 {
     try {
