@@ -86,8 +86,10 @@ export function runtimeArtifactPathsWithPinnedSources(
       return entries.map(({ assetId, projectRelativePath, expectedContentHash }) => {
         const source = byPath.get(normalizeProjectRelativePath(projectRelativePath));
         if (!source) return { status: 'unavailable' as const, assetId };
-        const contentHash = (source.contentHash ??
-          `sha256:${createHash('sha256').update(source.text, 'utf8').digest('hex')}`) as `sha256:${string}`;
+        const contentHash =
+          `sha256:${createHash('sha256').update(source.text, 'utf8').digest('hex')}` as const;
+        if (source.contentHash !== undefined && source.contentHash !== contentHash)
+          return { status: 'unavailable' as const, assetId };
         if (expectedContentHash !== null && expectedContentHash !== contentHash)
           return { status: 'unavailable' as const, assetId };
         return {

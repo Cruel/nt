@@ -270,6 +270,38 @@ describe('Prepared Runtime Artifact module', () => {
       expect(reused.artifact.packageOptions).toEqual(baseline.artifact.packageOptions);
     }
   });
+  it('uses native-admitted Asset references without rebuilding the authored source graph', async () => {
+    const project = roomProject();
+    const profile = {
+      ...defaultExportProfile(project),
+      compileShadersBeforeExport: false,
+      excludeUnusedAssets: true,
+    };
+    const admitted = validateAdmittedAuthoringProject(project);
+    let sourceReads = 0;
+    const result = await prepareRuntimeArtifact({
+      project,
+      profile,
+      projectRoot: '/project',
+      intent: 'runtime-package-preflight',
+      admittedAuthoringDiagnostics: admitted.diagnostics,
+      admittedValidationContributions: admitted.contributions,
+      admittedRuntimeAssetReferences: ['foyer'],
+      paths: {
+        ...rendererRuntimeArtifactPaths,
+        async readProjectTextSources() {
+          sourceReads += 1;
+          throw new Error('Pinned native Asset references must not reopen Project source text.');
+        },
+      },
+    });
+    expect(result.status).toBe('prepared');
+    expect(sourceReads).toBe(0);
+    if (result.status === 'prepared')
+      expect(result.artifact.compiledProject.resources.assets.map((asset) => asset.id)).toEqual([
+        'foyer',
+      ]);
+  });
   it('invalidates saved Project evidence when an applicable notice changes without editing Project JSON', async () => {
     const project = roomProject();
     project.settings.distributionNotices = [{ path: 'support/licenses/LICENSE.txt' }];

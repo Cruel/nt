@@ -191,6 +191,7 @@ it('uses only the owner-pinned native preparation in a disposable shader worker'
         sourceGeneration: `sha256:${'a'.repeat(64)}`,
         sourceRevisions: {},
         sourceOverlays: captured,
+        referencedAssetIds: [],
         cliDiagnostics: [
           {
             code: 'authoring.entrypoint.missing',

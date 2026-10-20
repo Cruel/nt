@@ -69,6 +69,37 @@ Json provenance(const Json& effective, const Json* explicit_source)
 
 Json failure(std::string error) { return {{"ok", false}, {"error", std::move(error)}}; }
 
+// The native-admitted Project owns the runtime Asset reference closure. The heavy
+// runtime worker must not rebuild an authoring dependency graph by rereading Lua or Layout sources.
+void collect_runtime_asset_references(const Json& value, const std::string& path,
+                                      std::set<std::string>& ids)
+{
+    if (value.is_array()) {
+        for (std::size_t i = 0; i < value.size(); ++i)
+            collect_runtime_asset_references(value[i], path + "/" + std::to_string(i), ids);
+        return;
+    }
+    if (!value.is_object())
+        return;
+    const auto reference = value.find("$ref");
+    if (reference != value.end() && reference->is_object() &&
+        reference->value("collection", Json{}) == "assets" && reference->contains("id") &&
+        reference->at("id").is_string())
+        ids.insert(reference->at("id").get<std::string>());
+    if (value.value("kind", Json{}) == "record" && value.value("collection", Json{}) == "assets" &&
+        value.contains("id") && value.at("id").is_string())
+        ids.insert(value.at("id").get<std::string>());
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        const auto child_path = path + "/" + it.key();
+        // Localization-owned Assets are resolved by the separate export locale closure.
+        if (child_path.starts_with("/localization/assets/") ||
+            (child_path.starts_with("/localization/locales/") &&
+             child_path.find("/fontStack") != std::string::npos))
+            continue;
+        collect_runtime_asset_references(it.value(), child_path, ids);
+    }
+}
+
 bool mutating_request(const Json& request)
 {
     const auto action =
@@ -308,11 +339,15 @@ Json operate(const Json& request)
         }
         if (!native_project_source_generation_is_current(root, shader_generation))
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        const auto prepared_project = Json::parse(prepared.complete_project_json);
+        std::set<std::string> referenced_assets;
+        collect_runtime_asset_references(prepared_project, "", referenced_assets);
         return with_diagnostics({{"ok", true},
-                                 {"project", Json::parse(prepared.complete_project_json)},
+                                 {"project", prepared_project},
                                  {"sourceGeneration", shader_generation},
                                  {"sourceRevisions", std::move(source_revisions)},
-                                 {"sourceOverlays", std::move(overlays)}});
+                                 {"sourceOverlays", std::move(overlays)},
+                                 {"referencedAssetIds", referenced_assets}});
     }
 
     if (action == "asset-import")

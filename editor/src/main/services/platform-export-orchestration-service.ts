@@ -205,6 +205,7 @@ export async function exportProjectToPlatform(
     project: ReturnType<typeof parseAuthoringProject>;
     diagnostics: readonly ProjectValidationDiagnostic[];
     contributions: readonly AuthoringValidationContribution[];
+    runtimeAssetReferences?: readonly string[];
     sourceGraph?: Pick<
       import('../../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
       'graph' | 'externalSourceRevisions'
@@ -347,6 +348,9 @@ export async function exportProjectToPlatform(
         profile: targetRuntimeProfile,
         recoveryFingerprint: request.preparedRuntimeArtifact.recoveryFingerprint,
         paths: runtimeArtifactPaths,
+        ...(reusableAdmission?.runtimeAssetReferences
+          ? { admittedRuntimeAssetReferences: reusableAdmission.runtimeAssetReferences }
+          : {}),
       });
       if (verified.status === 'rejected')
         return failure(operationId, collectProjectValidationDiagnostics(verified.diagnostics));
@@ -363,6 +367,9 @@ export async function exportProjectToPlatform(
           ? {
               admittedAuthoringDiagnostics: reusableAdmission.diagnostics,
               admittedValidationContributions: reusableAdmission.contributions,
+              ...(reusableAdmission.runtimeAssetReferences
+                ? { admittedRuntimeAssetReferences: reusableAdmission.runtimeAssetReferences }
+                : {}),
               ...(reusableAdmission.sourceGraph
                 ? { admittedSourceGraph: reusableAdmission.sourceGraph }
                 : {}),

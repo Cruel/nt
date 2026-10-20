@@ -728,7 +728,8 @@ export function compileAuthoringProjectValue(
     return finish(context);
   }
 
-  validateSemantics(context, validate);
+  if (admitted) addStage(context, 'semantic-validation', 'skipped');
+  else validateSemantics(context, validate);
   if (hasErrors(context.diagnostics)) {
     addSkippedStages(context, [
       'link',
@@ -741,7 +742,8 @@ export function compileAuthoringProjectValue(
     return finish(context);
   }
 
-  linkAuthoringProject(context);
+  if (admitted) addStage(context, 'link', 'skipped');
+  else linkAuthoringProject(context);
 
   const lowered = lowerAuthoringProject(context.normalizedProject);
   context.diagnostics.push(...lowered.diagnostics);

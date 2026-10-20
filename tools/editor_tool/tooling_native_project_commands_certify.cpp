@@ -1284,6 +1284,15 @@ void certify_shader_preparation(const std::filesystem::path& source)
         prepared.value("ok", false) && prepared.at("project").at("materials").is_object() &&
             prepared.at("project").at("prefetchHints") == Json::object() &&
             prepared.at("sourceOverlays").contains("shaders/lab-grade.fs.sc") &&
+            prepared.at("referencedAssetIds").is_array() &&
+            std::find(prepared.at("referencedAssetIds").begin(),
+                      prepared.at("referencedAssetIds").end(),
+                      Json("pilot-room-backdrop")) != prepared.at("referencedAssetIds").end() &&
+            std::find(prepared.at("referencedAssetIds").begin(),
+                      prepared.at("referencedAssetIds").end(),
+                      Json("ui-pattern")) != prepared.at("referencedAssetIds").end() &&
+            std::is_sorted(prepared.at("referencedAssetIds").begin(),
+                           prepared.at("referencedAssetIds").end()) &&
             prepared.at("sourceRevisions").contains("project.yaml") &&
             prepared.at("sourceRevisions").contains("shaders/lab-grade.fs.sc") &&
             prepared.at("sourceRevisions").at("shaders/lab-grade.fs.sc") ==
@@ -1332,6 +1341,11 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--asset-import") {
             certify_asset_import(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--shader-preparation") {
+            certify_shader_preparation(argv[2]);
+            std::cout << "Native pinned shader preparation certification passed.\n";
             return 0;
         }
         // Test-only direct adapter seam for real two-root mutation comparison.

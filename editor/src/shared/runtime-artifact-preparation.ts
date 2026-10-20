@@ -1,5 +1,4 @@
 import { unchangedValidationContributionInputs } from './project-schema/authoring-validation-input-equivalence';
-import { publishCompiledArtifact } from './compiled-artifact-publication';
 import { compileAuthoringProjectValue } from './authoring-compiler';
 import { collectRuntimeDistributionNotices } from './runtime-distribution-notices';
 import { applyExportLocalizationClosure } from './export-localization-closure';
@@ -80,6 +79,7 @@ interface RuntimeArtifactAssemblyOptions {
   shaderOutputs?: readonly ShaderCompileOutput[];
   paths: RuntimeArtifactPathAdapter;
   compilation: ReturnType<typeof compileRuntimeArtifact>;
+  admittedRuntimeAssetReferences?: readonly string[];
   admittedSourceGraph?: Pick<
     import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
     'graph' | 'externalSourceRevisions'
@@ -162,6 +162,8 @@ export interface PrepareRuntimeArtifactOptions {
   admittedAuthoringDiagnostics?: readonly ProjectValidationDiagnostic[];
   /** Admitted contributions from that same generation for runtime projection validation. */
   admittedValidationContributions?: readonly AuthoringValidationContribution[];
+  /** Native semantic Asset-reference closure pinned to the admitted Project generation. */
+  admittedRuntimeAssetReferences?: readonly string[];
   /** Current admitted graph, supplied by a trusted workspace generation only. */
   admittedSourceGraph?: Pick<
     import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
@@ -183,6 +185,7 @@ export interface VerifyPreparedRuntimeArtifactOptions {
   profile: ExportProfileData;
   recoveryFingerprint?: unknown;
   paths: RuntimeArtifactPathAdapter;
+  admittedRuntimeAssetReferences?: readonly string[];
 }
 
 export type PrepareRuntimeArtifactResult =
@@ -392,7 +395,10 @@ async function runtimeSourceGraphAssessment(
     import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
     'graph' | 'externalSourceRevisions'
   > & { readonly project: AuthoringProject },
+  admittedRuntimeAssetReferences?: readonly string[],
 ): Promise<RuntimeSourceGraphAssessment | null> {
+  if (admittedRuntimeAssetReferences)
+    return { referencedAssetIds: new Set(admittedRuntimeAssetReferences), diagnostics: [] };
   // The graph alone is insufficient evidence: a workspace analysis can be
   // partial when an external source was unavailable. In that case preserve
   // the original conservative fallback, which does not prune packaged Assets.
@@ -529,9 +535,18 @@ async function referencedRuntimeAssetIds(
   project: AuthoringProject,
   projectRoot: string | null,
   paths: RuntimeArtifactPathAdapter,
+  admittedRuntimeAssetReferences?: readonly string[],
 ): Promise<ReadonlySet<string> | null> {
   return (
-    (await runtimeSourceGraphAssessment(project, projectRoot, paths))?.referencedAssetIds ?? null
+    (
+      await runtimeSourceGraphAssessment(
+        project,
+        projectRoot,
+        paths,
+        undefined,
+        admittedRuntimeAssetReferences,
+      )
+    )?.referencedAssetIds ?? null
   );
 }
 
@@ -700,9 +715,8 @@ function compileRuntimeArtifact(options: PrepareRuntimeArtifactOptions) {
   const nativeAdmitted =
     options.admittedAuthoringDiagnostics !== undefined &&
     options.admittedValidationContributions !== undefined;
-  const semanticValidation = nativeAdmitted
-    ? () => []
-    : options.admittedValidationContributions
+  const semanticValidation =
+    !nativeAdmitted && options.admittedValidationContributions
       ? (normalized: AuthoringProject) => {
           const unchangedInputs = unchangedValidationContributionInputs(
             project,
@@ -769,6 +783,7 @@ async function assembleRuntimeArtifact(
     options.projectRoot ?? null,
     options.paths,
     options.admittedSourceGraph,
+    options.admittedRuntimeAssetReferences,
   );
   const runtimeReferencedAssetIds = sourceGraph?.referencedAssetIds ?? null;
   const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
@@ -1495,6 +1510,9 @@ export async function prepareRuntimeArtifact(
     shaderOutputs: verifiedShaderOutputs,
     paths: options.paths,
     compilation,
+    ...(options.admittedRuntimeAssetReferences
+      ? { admittedRuntimeAssetReferences: options.admittedRuntimeAssetReferences }
+      : {}),
     ...(options.admittedSourceGraph ? { admittedSourceGraph: options.admittedSourceGraph } : {}),
   });
   if (effectsAllowed(options.intent) && assessment.compiledArtifactAvailable) {
@@ -1626,7 +1644,12 @@ async function expectedFileEntriesForVerification(
 > {
   const entries: ExportFileEntry[] = [];
   const referencedAssetIds = options.profile.excludeUnusedAssets
-    ? await referencedRuntimeAssetIds(options.project, options.projectRoot, options.paths)
+    ? await referencedRuntimeAssetIds(
+        options.project,
+        options.projectRoot,
+        options.paths,
+        options.admittedRuntimeAssetReferences,
+      )
     : null;
   if (options.profile.excludeUnusedAssets && referencedAssetIds === null)
     return {
@@ -1841,8 +1864,12 @@ export async function verifyPreparedRuntimeArtifact(
       '/artifact/gameplayJson',
     );
   const expectedRuntimeProject = runtimeCompilationProject(options.project);
-  const freshlyPublished = publishCompiledArtifact(expectedRuntimeProject);
-  if (!freshlyPublished.ok)
+  const freshlyCompiled = compileAuthoringProjectValue(
+    expectedRuntimeProject,
+    undefined,
+    options.admittedRuntimeAssetReferences !== undefined,
+  );
+  if (!freshlyCompiled.ok)
     return rejectedEvidence(
       'Current Project cannot be freshly compiled while verifying the prepared runtime artifact.',
       '/artifact/compiledProject',
@@ -1866,6 +1893,7 @@ export async function verifyPreparedRuntimeArtifact(
     options.project,
     options.projectRoot,
     options.paths,
+    options.admittedRuntimeAssetReferences,
   );
   if (options.profile.excludeUnusedAssets && localizationBaseAssetIds === null)
     return rejectedEvidence(
@@ -1874,7 +1902,7 @@ export async function verifyPreparedRuntimeArtifact(
     );
   const expectedLocalization = applyExportLocalizationClosure(
     options.project,
-    freshlyPublished.project.project,
+    freshlyCompiled.project,
     options.profile.localization,
     localizationBaseAssetIds,
   );

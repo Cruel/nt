@@ -15,6 +15,7 @@ export interface AdmittedPlatformExportValidation {
   readonly project: AuthoringProject;
   readonly diagnostics: readonly ProjectValidationDiagnostic[];
   readonly contributions: readonly AuthoringValidationContribution[];
+  readonly runtimeAssetReferences?: readonly string[];
   readonly sourceGraph?: Pick<
     import('../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
     'graph' | 'externalSourceRevisions'
