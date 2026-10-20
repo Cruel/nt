@@ -103,6 +103,75 @@ void certify_owner_session_reuse()
     require(added.value("ok", false) && !added.value("nativeOwnerReused", true),
             "The native Project reopens after mutation and sees the newly committed record.");
 
+    const auto scoped =
+        command({{"action", "workspace-preflight"}, {"projectRoot", fixture.root.string()}});
+    require(scoped.value("ok", false), "Native workspace preflight admits Project identity.");
+    const auto room = fixture.root / "records/rooms/native-cache-room.yaml";
+    const auto room_bytes = read(room);
+    write(room, "invalid: [yaml\n");
+    const auto narrow =
+        command({{"action", "workspace-preflight"}, {"projectRoot", fixture.root.string()}});
+    require(narrow.value("ok", false), "Unrelated invalid records cannot block agent preflight.");
+    const auto pending = fixture.root / ".noveltea/transactions/pending";
+    std::filesystem::create_directories(pending);
+    write(pending / "sentinel", "do not recover");
+    const auto blocked =
+        command({{"action", "workspace-preflight"}, {"projectRoot", fixture.root.string()}});
+    require(!blocked.value("ok", true) && blocked.value("exitCode", 0) == 5 &&
+                read(pending / "sentinel") == "do not recover",
+            "Native preflight rejects pending transactions without recovering them.");
+    std::filesystem::remove_all(pending);
+    write(room, room_bytes);
+
+#if !defined(_WIN32)
+    const auto assets = fixture.root / "assets";
+    std::filesystem::create_directories(assets / "nested");
+    write(assets / "nested/untracked.txt", "untracked");
+    std::filesystem::create_directory_symlink(assets / "nested", assets / "alias");
+    const auto alias_audit =
+        command({{"action", "asset-audit"}, {"projectRoot", fixture.root.string()}});
+    require(alias_audit.value("ok", false) &&
+                alias_audit.at("fields").at("untrackedFiles").size() == 2,
+            "Asset audit inventories contained symlink directories under each logical path.");
+    std::filesystem::create_directory_symlink(assets, assets / "nested/cycle");
+    const auto cycle_audit =
+        command({{"action", "asset-audit"}, {"projectRoot", fixture.root.string()}});
+    require(!cycle_audit.value("ok", true) &&
+                cycle_audit.at("diagnostics").at(0).at("code") == "asset.audit.path_cycle",
+            "Asset audit rejects directory cycles instead of ignoring their contents.");
+    std::filesystem::remove(assets / "nested/cycle");
+    std::filesystem::remove(assets / "alias");
+    const auto outside =
+        fixture.root.parent_path() / (fixture.root.filename().string() + "-outside");
+    std::filesystem::create_directories(outside);
+    write(outside / "source.txt", "outside");
+    std::filesystem::create_directory_symlink(outside, fixture.root / "declared");
+    std::filesystem::create_directories(fixture.root / "records/assets");
+    write(fixture.root / "records/assets/escape.yaml",
+          "id: escape\nlabel: Escape\ndata:\n  kind: data\n  source:\n    type: project-file\n    "
+          "path: declared/source.txt\n  aliases: []\n  mimeType: text/plain\n  extension: .txt\n  "
+          "imageMetadata: null\n");
+    const auto escaped =
+        command({{"action", "asset-audit"}, {"projectRoot", fixture.root.string()}});
+    require(
+        !escaped.value("ok", true) &&
+            escaped.at("diagnostics").at(0).at("code") == "asset.audit.path_escape",
+        "Asset audit checks declared source containment outside the conventional assets tree: " +
+            escaped.dump());
+    std::filesystem::remove(fixture.root / "records/assets/escape.yaml");
+    std::filesystem::remove(fixture.root / "declared");
+    std::filesystem::remove(fixture.root / "AGENTS.md");
+    std::filesystem::create_symlink(outside / "source.txt", fixture.root / "AGENTS.md");
+    const auto unsafe_agent =
+        command({{"action", "workspace-preflight"}, {"projectRoot", fixture.root.string()}});
+    require(!unsafe_agent.value("ok", true) &&
+                unsafe_agent.at("diagnostics").at(0).at("code") == "WORKSPACE_PATH_INVALID" &&
+                read(outside / "source.txt") == "outside",
+            "Agent preflight rejects bootstrap paths that escape the Project.");
+    std::filesystem::remove(fixture.root / "AGENTS.md");
+    std::filesystem::remove_all(outside);
+#endif
+
     const auto manifest = fixture.root / "project.yaml";
     auto text = read(manifest);
     const auto offset = text.find("name: \"Native Cache\"");

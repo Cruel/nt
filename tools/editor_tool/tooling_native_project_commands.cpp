@@ -276,6 +276,8 @@ Json operate(const Json& request)
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         return {{"ok", true}};
     }
+    if (action == "workspace-preflight")
+        return native_project_workspace_preflight(root, true);
     if (action == "asset-audit")
         return native_project_asset_audit(root);
     auto& owner = native_cli_owner();

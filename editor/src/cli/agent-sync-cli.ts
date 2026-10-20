@@ -43,6 +43,7 @@ export async function runNovelTeaAgentSyncCli(
   fileSystem: ProjectWorkspaceFileSystem,
   cwd = process.cwd(),
   payload?: NovelTeaAgentKitPayload,
+  native?: import('./native-project-lifecycle-cli').NativeProjectCommandCall,
 ): Promise<NovelTeaCliCommandResult> {
   let fix: boolean;
   try {
@@ -54,7 +55,7 @@ export async function runNovelTeaAgentSyncCli(
     );
   }
 
-  const preflight = await preflightNovelTeaWorkspace(globals, fileSystem, cwd);
+  const preflight = await preflightNovelTeaWorkspace(globals, fileSystem, cwd, native);
   if (!preflight.ok) return preflight.result;
 
   let agentKitChanged = false;

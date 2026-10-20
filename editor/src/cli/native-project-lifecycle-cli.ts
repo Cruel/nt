@@ -28,13 +28,19 @@ export type NativeProjectCommandCall = (
   request: Readonly<Record<string, unknown>>,
 ) => NativeProjectResponse | Promise<NativeProjectResponse>;
 
-export async function nativeProjectRoot(cwd: string, selected?: string): Promise<string | null> {
+export async function nativeProjectRoot(
+  cwd: string,
+  selected?: string,
+  fileSystem?: import('../shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
+): Promise<string | null> {
   let current = path.resolve(cwd, selected ?? '.');
   const isFile = async (candidate: string): Promise<boolean> =>
-    stat(candidate).then(
-      (item) => item.isFile(),
-      () => false,
-    );
+    fileSystem
+      ? (await fileSystem.inspect(candidate)) === 'file'
+      : stat(candidate).then(
+          (item) => item.isFile(),
+          () => false,
+        );
   if (selected) return (await isFile(path.join(current, 'project.yaml'))) ? current : null;
   for (;;) {
     if (await isFile(path.join(current, 'project.yaml'))) return current;

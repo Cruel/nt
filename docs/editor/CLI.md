@@ -97,6 +97,28 @@ when executing under the certification flags. #506 owns the coordinated producti
 switch and removal of superseded authoring code; the canonical production CLI
 and daemon keep their existing semantics until that switch.
 
+### Native scoped disk callers (#512, partial)
+
+In the isolated native lifecycle candidate, `agent sync [--fix]` discovers the physical
+`project.yaml` without decoding YAML in TypeScript, then calls native
+`workspace-preflight`. The native boundary checks current workspace shape and generated
+Project-identity schema, pending YAML/Asset-import transactions, and containment of the
+manifest, local state, managed Agent Kit root, bootstrap and ignore paths. Unrelated
+invalid record families do not block this preflight. A native rejection returns its
+workspace/mutation diagnostic without a TypeScript retry or Agent Kit write. Agent Kit
+content generation and bootstrap repair remain machine-tool services, not Project
+semantic authority. Command-visible roots retain the caller's logical spelling.
+
+Asset audit shares that scoped identity/transaction preflight. Its native inventory
+follows contained directory symlinks under their logical paths, rejects ancestor cycles,
+and checks declared Asset-source containment even outside `assets/`. Neither preflight
+nor audit recovers pending transactions.
+
+This is not completion of #512: scoped `platform profiles` still needs native preparation,
+and complete domain/flag parity and generation-pinned native editable-Project export
+remain integration work. Broad installed-CLI differential certification is deferred
+until the refactor is ready; no production authority switch is enabled here.
+
 The host-only native Project command adapter exposes `entity-inspect` (including
 sparse-source provenance), `scoped-edit` (a generic patch batch with dry-run and
 explicit working/source revisions), and `export-preparation` (a validated

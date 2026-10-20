@@ -471,9 +471,15 @@ export async function runNovelTeaCli(
     if (projectBundle) return projectBundle;
   }
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync') {
-    const services = await workspaceServices();
+    const agentFileSystem = await projectFileSystem();
     const { runNovelTeaAgentSyncCli } = await import('./agent-sync-cli');
-    return runNovelTeaAgentSyncCli(globals, services.fileSystem, cwd, options.agentKitPayload);
+    return runNovelTeaAgentSyncCli(
+      globals,
+      agentFileSystem,
+      cwd,
+      options.agentKitPayload,
+      options.nativeProjectCommands,
+    );
   }
 
   if (globals.command[0] === 'comfyui') {

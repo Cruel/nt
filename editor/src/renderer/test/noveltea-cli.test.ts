@@ -5554,6 +5554,50 @@ describe('NovelTea headless CLI', () => {
     ).toThrow("references unknown source 'noveltea'");
   });
 
+  it('uses native agent preflight without reading Project YAML or retrying rejection', async () => {
+    const value = fixture();
+    const readText = value.fileSystem.readText.bind(value.fileSystem);
+    value.fileSystem.readText = async (file) => {
+      if (file.endsWith('/project.yaml'))
+        throw new Error('TypeScript Project admission is forbidden.');
+      return readText(file);
+    };
+    const requests: Readonly<Record<string, unknown>>[] = [];
+    const nativeProjectCommands = (request: Readonly<Record<string, unknown>>) => {
+      requests.push(request);
+      return { ok: true };
+    };
+    const result = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], {
+      ...options(value),
+      nativeProjectCommands,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(requests).toEqual([{ action: 'workspace-preflight', projectRoot: root }]);
+    const before = await readText(`${root}/AGENTS.md`);
+    const rejected = await runNovelTeaCli(['--json', 'agent', 'sync', '--fix'], {
+      ...options(value),
+      nativeProjectCommands(request) {
+        requests.push(request);
+        return {
+          ok: false,
+          exitCode: 5,
+          diagnostics: [
+            {
+              code: 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
+              path: '/.noveltea/transactions',
+              message: 'Recovery required.',
+              severity: 'error',
+            },
+          ],
+        };
+      },
+    });
+    expect(rejected.exitCode).toBe(5);
+    expect(rejected.envelope.diagnostics[0]?.code).toBe('WORKSPACE_TRANSACTION_RECOVERY_CONFLICT');
+    expect(requests).toHaveLength(2);
+    expect(await readText(`${root}/AGENTS.md`)).toBe(before);
+  });
+
   it('repairs, validates, and then leaves an unchanged agent kit untouched', async () => {
     const value = fixture();
     const first = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
