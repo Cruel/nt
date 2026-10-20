@@ -391,3 +391,29 @@ it('consumes a pinned native worker generation without readmission and reports s
   expect(checked.exitCode).toBe(0);
   expect(captured).toMatchObject([{ checkOnly: true, profileId: 'windows-release' }]);
 });
+
+it('uses the target-specific Android application identity rather than the desktop identity', async () => {
+  const { root, preparation, localPath } = await fixture(['android']);
+  preparation.project.settings.app = {
+    ...(preparation.project.settings.app as Record<string, unknown>),
+    android: { applicationId: 'org.example.native.android' },
+  } as never;
+  const exports: unknown[] = [];
+  const result = await runNovelTeaCli(
+    ['--json', 'platform', 'export', '--output', 'dist/android'],
+    {
+      cwd: root,
+      nativeProjectCommands: native(preparation, []),
+      platformTools: platformTools(async (request) => {
+        exports.push(request);
+        return success(request);
+      }),
+    },
+  );
+  expect(result.exitCode, JSON.stringify(result.envelope.diagnostics)).toBe(0);
+  expect(exports).toMatchObject([{ project: preparation.project }]);
+  const saved = JSON.parse(await readFile(localPath, 'utf8'));
+  expect(saved.lastSuccessfulPlatformExportIdentity.applicationId).toBe(
+    'org.example.native.android',
+  );
+});
