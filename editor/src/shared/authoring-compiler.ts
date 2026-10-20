@@ -706,9 +706,15 @@ export function compileAuthoringProjectValue(
   project: unknown,
   validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[] = (project) =>
     validateAdmittedAuthoringProject(project).diagnostics,
+  admitted = false,
 ): CompileValueResult<CompiledProjectWire> {
   const context: CompilerContext = { diagnostics: [], stages: [] };
-  normalizeAuthoringProject(project, context);
+  if (admitted) {
+    // Native admission already established the current schema and semantic generation.
+    // The runtime projection is only allowed to lower this admitted value, not re-admit it.
+    context.normalizedProject = project as AuthoringProject;
+    addStage(context, 'normalize', 'skipped');
+  } else normalizeAuthoringProject(project, context);
   if (!context.normalizedProject) {
     addSkippedStages(context, [
       'semantic-validation',

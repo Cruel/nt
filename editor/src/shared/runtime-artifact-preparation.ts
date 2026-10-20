@@ -697,10 +697,13 @@ function compileRuntimeArtifact(options: PrepareRuntimeArtifactOptions) {
   const authoringDiagnostics =
     options.admittedAuthoringDiagnostics ?? validateAuthoringProject(project);
   const runtimeProject = runtimeCompilationProject(project);
-  const published = compileAuthoringProjectValue(
-    runtimeProject,
-    options.admittedValidationContributions
-      ? (normalized) => {
+  const nativeAdmitted =
+    options.admittedAuthoringDiagnostics !== undefined &&
+    options.admittedValidationContributions !== undefined;
+  const semanticValidation = nativeAdmitted
+    ? () => []
+    : options.admittedValidationContributions
+      ? (normalized: AuthoringProject) => {
           const unchangedInputs = unchangedValidationContributionInputs(
             project,
             normalized,
@@ -714,7 +717,11 @@ function compileRuntimeArtifact(options: PrepareRuntimeArtifactOptions) {
           };
           return validateAdmittedAuthoringProject(normalized, reuse).diagnostics;
         }
-      : undefined,
+      : undefined;
+  const published = compileAuthoringProjectValue(
+    runtimeProject,
+    semanticValidation,
+    nativeAdmitted,
   );
   return { authoringDiagnostics, runtimeProject, published };
 }
