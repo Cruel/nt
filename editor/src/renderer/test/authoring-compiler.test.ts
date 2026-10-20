@@ -65,6 +65,15 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('lowers an admitted current project without re-normalizing it or re-running semantic admission', () => {
+    const project = validProject();
+    const baseline = compileAuthoringProjectValue(project);
+    // Native-bound consumers provide a no-op validator to the lowering stage.
+    const lowered = compileAuthoringProjectValue(project, () => [], true);
+    expect(lowered.ok).toBe(baseline.ok);
+    expect(lowered.stages[0]).toEqual({ name: 'normalize', status: 'skipped' });
+    if (baseline.ok && lowered.ok) expect(lowered.project).toEqual(baseline.project);
+  });
   it('preserves full-graph link diagnostics for missing record and nested targets', () => {
     const project = validProject();
     const room = project.rooms.foyer!.data as ReturnType<typeof defaultRoomData>;

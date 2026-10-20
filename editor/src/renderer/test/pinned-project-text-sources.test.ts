@@ -17,6 +17,11 @@ describe('pinned Project text source publication', () => {
           storage: 'deflate',
         },
         { path: '/project/assets/image.png', packagePath: 'assets/image.png', storage: 'store' },
+        {
+          path: '/project/support/LICENSE.txt',
+          packagePath: 'licenses/support/LICENSE.txt',
+          storage: 'store',
+        },
       ],
       textEntries: [{ text: 'existing', packagePath: 'metadata/existing.txt', storage: 'deflate' }],
     } as unknown as PreparedRuntimePackageOptions;
@@ -24,6 +29,7 @@ describe('pinned Project text source publication', () => {
     const pinned = packageOptionsWithPinnedProjectTextSources(options, {
       'scripts/main.lua': { text: 'return "generation-one"\n' },
       'shaders/effect.sc': { text: 'void main() { /* generation-one */ }\n' },
+      'support/LICENSE.txt': { text: 'generation-one notice\n' },
     });
 
     expect(pinned.fileEntries).toEqual([
@@ -41,6 +47,11 @@ describe('pinned Project text source publication', () => {
           text: 'void main() { /* generation-one */ }\n',
           packagePath: 'shaders/effect.sc',
           storage: 'deflate',
+        },
+        {
+          text: 'generation-one notice\n',
+          packagePath: 'licenses/support/LICENSE.txt',
+          storage: 'store',
         },
       ]),
     );
@@ -60,20 +71,42 @@ describe('pinned Project text source publication', () => {
   });
 
   it('verifies shader include revisions against pinned text without reopening disk', async () => {
-    const diskRead = vi.fn(() => { throw new Error('must not read live disk'); });
+    const diskRead = vi.fn(() => {
+      throw new Error('must not read live disk');
+    });
     const paths = runtimeArtifactPathsWithPinnedSources(
-      { resolveProjectSource: (_root, source) => source, shaderAssetRoot: () => undefined,
-        readProjectTextSources: diskRead },
+      {
+        resolveProjectSource: (_root, source) => source,
+        shaderAssetRoot: () => undefined,
+        readProjectTextSources: diskRead,
+      },
       { 'shaders/include/common.inc': { text: 'pinned contents' } },
     );
-    const hash = `sha256:${(await import('node:crypto')).createHash('sha256').update('pinned contents').digest('hex')}` as const;
+    const hash =
+      `sha256:${(await import('node:crypto')).createHash('sha256').update('pinned contents').digest('hex')}` as const;
     const entries = [
-      { assetId: 'a', projectRelativePath: 'shaders/include/common.inc', expectedContentHash: hash },
-      { assetId: 'b', projectRelativePath: 'shaders/include/missing.inc', expectedContentHash: hash },
-      { assetId: 'c', projectRelativePath: 'shaders/include/common.inc', expectedContentHash: 'sha256:bad' as typeof hash },
+      {
+        assetId: 'a',
+        projectRelativePath: 'shaders/include/common.inc',
+        expectedContentHash: hash,
+      },
+      {
+        assetId: 'b',
+        projectRelativePath: 'shaders/include/missing.inc',
+        expectedContentHash: hash,
+      },
+      {
+        assetId: 'c',
+        projectRelativePath: 'shaders/include/common.inc',
+        expectedContentHash: 'sha256:bad' as typeof hash,
+      },
     ];
     const result = await paths.readProjectTextSources!('/unrelated/disk', entries);
-    expect(result[0]).toMatchObject({ status: 'ready', text: 'pinned contents', contentHash: hash });
+    expect(result[0]).toMatchObject({
+      status: 'ready',
+      text: 'pinned contents',
+      contentHash: hash,
+    });
     expect(result[1]).toEqual({ status: 'unavailable', assetId: 'b' });
     expect(result[2]).toEqual({ status: 'unavailable', assetId: 'c' });
     expect(diskRead).not.toHaveBeenCalled();

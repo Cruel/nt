@@ -33,7 +33,12 @@ export function packageOptionsWithPinnedProjectTextSources(
       source,
     ]),
   );
-  const pinnedEntries = options.fileEntries.filter((entry) => byPath.has(entry.packagePath));
+  const pinnedSource = (packagePath: string) =>
+    byPath.get(packagePath) ??
+    (packagePath.startsWith('licenses/')
+      ? byPath.get(packagePath.slice('licenses/'.length))
+      : undefined);
+  const pinnedEntries = options.fileEntries.filter((entry) => pinnedSource(entry.packagePath));
   if (pinnedEntries.length === 0) return options;
   const pinnedPaths = new Set(pinnedEntries.map((entry) => entry.packagePath));
   return {
@@ -42,7 +47,7 @@ export function packageOptionsWithPinnedProjectTextSources(
     textEntries: [
       ...options.textEntries.filter((entry) => !pinnedPaths.has(entry.packagePath)),
       ...pinnedEntries.map((entry) => ({
-        text: byPath.get(entry.packagePath)!.text,
+        text: pinnedSource(entry.packagePath)!.text,
         packagePath: entry.packagePath,
         storage: entry.storage,
       })),

@@ -12,6 +12,7 @@ import type { PinnedProjectTextSources } from './pinned-project-text-sources';
 import {
   packageOptionsWithPinnedProjectTextSources,
   pinnedShaderSourceOverlays,
+  runtimeArtifactPathsWithPinnedSources,
 } from './pinned-project-text-sources';
 
 export interface NovelTeaCliPlatformToolServiceOptions {
@@ -93,7 +94,7 @@ export function createNovelTeaCliPlatformToolService(
                       ...pinnedShaderSourceOverlays(options.pinnedProjectTextSources),
                     },
                   };
-                  return request.projectRoot
+                  return request.projectRoot && !options.pinnedProjectTextSources
                     ? compileWithVerifiedValidationCache(
                         createNodeProjectWorkspaceFileSystem(),
                         request.projectRoot,
@@ -119,7 +120,12 @@ export function createNovelTeaCliPlatformToolService(
           nativeTools?.registerStagedOutput
             ? (recoveryPath) => nativeTools.registerStagedOutput!(recoveryPath)
             : undefined,
-          options.runtimeArtifactPaths,
+          options.runtimeArtifactPaths
+            ? runtimeArtifactPathsWithPinnedSources(
+                options.runtimeArtifactPaths,
+                options.pinnedProjectTextSources,
+              )
+            : undefined,
           admitted,
         );
       } finally {
