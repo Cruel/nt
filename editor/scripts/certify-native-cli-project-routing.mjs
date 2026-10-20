@@ -177,6 +177,21 @@ try {
     fixtureLegacy,
     fixtureCandidate,
   ]);
+  // Source generation must advance for shader bytes and non-.sc includes in
+  // both transports; a warmed owner must never compile its previous generation.
+  for (const project of [fixtureLegacy, fixtureCandidate]) {
+    const stage = path.join(project, 'shaders/lab-grade.fs.sc');
+    await writeFile(stage, `${await readFile(stage, 'utf8')}\n// revised generation\n`);
+    await writeFile(path.join(project, 'shaders/native-routing-probe.sh'), '// included inventory\n');
+  }
+  compare(['shaders', 'compile', '--variant', 'essl-300'], true, true, [
+    fixtureLegacy,
+    fixtureCandidate,
+  ]);
+  compare(['shaders', 'compile', '--variant', 'essl-300'], true, false, [
+    fixtureLegacy,
+    fixtureCandidate,
+  ]);
 
   console.log(`Native CLI Project routing differential PASSED: ${verified} public commands.`);
 } finally {
