@@ -22,6 +22,7 @@ const baseline = {
   ...process.env,
   NOVELTEA_CLI_CERTIFICATION: '1',
   NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+  NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
 };
 
 function execute(project, args, noDaemon) {

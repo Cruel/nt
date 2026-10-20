@@ -59,6 +59,7 @@ function invoke(args, { native = false, project = null, daemon = false, timeout 
       env: {
         ...baseline,
         NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
+        NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `nt517-${process.pid}-${native ? 'native' : 'legacy'}`,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
           root,

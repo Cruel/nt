@@ -934,6 +934,14 @@ async function runNovelTeaScriptcIslandScoped(
       const createWorkspace = (
         workspaceFileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
       ) => {
+        if (
+          environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1' &&
+          environment.NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE === '1'
+        )
+          throw new Error(
+            'Native CLI certification reached retired TypeScript workspace authority.',
+          );
         const daemonTransactionLifecycle = invocationContext.residentProjectSessions
           ? {
               enterCriticalSection() {
@@ -972,12 +980,11 @@ async function runNovelTeaScriptcIslandScoped(
           ),
         );
       };
-      // The native ComfyUI candidate uses the workspace service only as an
-      // optional resident snapshot transport. Standalone catalog/status and
-      // local Project calls must not initialize a TypeScript authoring service.
+      // Native candidate commands must not eagerly initialize the retired
+      // TypeScript Project authoring service. Its factory remains available
+      // solely as a strict runtime poison seam during cutover certification.
       if (
         !(
-          family === 'comfyui' &&
           environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
           environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
         )

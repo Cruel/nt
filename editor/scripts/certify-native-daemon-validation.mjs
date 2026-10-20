@@ -34,6 +34,7 @@ function candidate(args) {
       ...environment,
       NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '0',
       NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
       NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `native-validation-candidate-${process.pid}`,
     },
     encoding: 'utf8',

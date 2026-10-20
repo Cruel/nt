@@ -478,6 +478,9 @@ jobs:
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
 
+      - name: Certify exhaustive native CLI public command inventory
+        run: node editor/scripts/certify-native-cli-inventory.mjs
+
       - name: Certify native CLI Project mutation parity
         run: |
           cmake --build --preset linux-authoring-release --target noveltea-cli-native-certify
@@ -489,8 +492,19 @@ jobs:
       - name: Certify staged native CLI Project routing parity
         run: node editor/scripts/certify-native-cli-project-routing.mjs "$PWD/build/cli/linux/noveltea"
 
+      - name: Certify native CLI transport and error parity
+        run: node editor/scripts/certify-native-cli-transport.mjs "$PWD/build/cli/linux/noveltea"
+
+      - name: Benchmark native CLI Project admission and warm source revisions
+        run: node editor/scripts/certify-native-cli-performance.mjs "$PWD/build/cli/linux/noveltea"
+
       - name: Certify native CLI platform preflight and publication parity
         run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
+
+      - name: Certify native CLI Test and Runtime Package candidates
+        run: |
+          node editor/scripts/certify-native-cli-tests.mjs "$PWD/build/cli/linux/noveltea"
+          node editor/scripts/certify-native-cli-package.mjs "$PWD/build/cli/linux/noveltea"
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache

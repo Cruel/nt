@@ -26,6 +26,7 @@ function execute(project, native, args, noDaemon = true, stdin) {
       env: {
         ...baseline,
         NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
+        NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-515-${process.pid}-${native ? 'native' : 'legacy'}`,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
           root,
@@ -87,7 +88,11 @@ try {
       ['--no-daemon', '--json', 'project', 'create', project, '--name', 'Native Test Differential'],
       {
         encoding: 'utf8',
-        env: { ...baseline, NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: index ? '1' : '0' },
+        env: {
+          ...baseline,
+          NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: index ? '1' : '0',
+          NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: index ? '1' : '0',
+        },
         timeout: 30_000,
       },
     );
@@ -97,7 +102,11 @@ try {
       ['--no-daemon', '--json', '--project', project, 'entity', 'create', 'rooms', 'start'],
       {
         encoding: 'utf8',
-        env: { ...baseline, NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: index ? '1' : '0' },
+        env: {
+          ...baseline,
+          NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: index ? '1' : '0',
+          NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: index ? '1' : '0',
+        },
         timeout: 30_000,
       },
     );
@@ -176,6 +185,7 @@ try {
     env: {
       ...baseline,
       NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
       NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-515-${process.pid}-native`,
       NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'native-daemon'),
       NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
