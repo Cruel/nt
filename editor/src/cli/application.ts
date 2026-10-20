@@ -292,19 +292,20 @@ export async function runNovelTeaCli(
       );
       if (nativeShaders) return nativeShaders;
     }
-    // Native portable Project export is disk-backed. A heavy daemon owner must first admit
-    // the generation, and its pinned worker must use the exact-live-input bundle contract
-    // rather than silently packaging newer source files from disk.
-    const pinnedPortableExport =
-      globals.command[0] === 'project' &&
-      globals.command[1] === 'export' &&
-      options.trustPinnedResidentSnapshot === true;
-    if (!options.prepareResidentSnapshotOnly && !pinnedPortableExport) {
+    // Export workers copy only the exact source inventory captured by native owner admission;
+    // the native exporter rejects live drift without parsing or substituting a newer Project.
+    if (!options.prepareResidentSnapshotOnly) {
       const { runNativeProjectLifecycleCli } = await import('./native-project-lifecycle-cli');
       const nativeLifecycle = await runNativeProjectLifecycleCli(
         globals,
         cwd,
         options.nativeProjectCommands,
+        options.trustPinnedResidentSnapshot
+          ? (options.pinnedNativePreparation ?? {
+              projectRoot: path.resolve(cwd, globals.project ?? '.'),
+              preparation: null,
+            })
+          : undefined,
       );
       if (nativeLifecycle) return nativeLifecycle;
     }
@@ -695,9 +696,28 @@ export async function runNovelTeaCli(
   const discoveryStarted = Date.now();
   const { discoverProjectRoot, validateExplicitProjectRoot } =
     await import('../shared/project-workspace/project-workspace-discovery');
-  const discovery = globals.project
-    ? await validateExplicitProjectRoot(fileSystemService, path.resolve(cwd, globals.project))
-    : await discoverProjectRoot(fileSystemService, cwd);
+  const nativeScoped = command.projectPreparation && options.nativeProjectCommands;
+  const nativeRoot = nativeScoped
+    ? await (
+        await import('./native-project-lifecycle-cli')
+      ).nativeProjectRoot(cwd, globals.project, fileSystemService)
+    : null;
+  const discovery = nativeScoped
+    ? nativeRoot
+      ? {
+          ok: true as const,
+          projectRoot: nativeRoot,
+          manifestPath: path.join(nativeRoot, 'project.yaml'),
+        }
+      : {
+          ok: false as const,
+          code: 'WORKSPACE_NOT_FOUND' as const,
+          path: '/project.yaml',
+          message: 'No NovelTea project.yaml was found from the current directory upward.',
+        }
+    : globals.project
+      ? await validateExplicitProjectRoot(fileSystemService, path.resolve(cwd, globals.project))
+      : await discoverProjectRoot(fileSystemService, cwd);
   const discoveryMs = Date.now() - discoveryStarted;
   if (!discovery.ok) {
     const diagnostics = [cliDiagnostic(discovery.code, discovery.path, discovery.message)];
@@ -717,7 +737,7 @@ export async function runNovelTeaCli(
 
   if (command.projectPreparation) {
     try {
-      const { prepareCliProject, projectPreparationSemanticPaths } =
+      const { prepareCliProject, prepareNativeCliProject, projectPreparationSemanticPaths } =
         await import('./project-preparation');
       const scopedSemanticPaths = projectPreparationSemanticPaths(command.projectPreparation);
       const scopedReadAuthority = options.scopedReadAuthority ?? options.residentWorkspace;
@@ -727,11 +747,17 @@ export async function runNovelTeaCli(
             scopedSemanticPaths,
           )
         : null;
-      const prepared = await prepareCliProject(
-        fileSystemService,
-        discovery.projectRoot,
-        command.projectPreparation,
-      );
+      const prepared = options.nativeProjectCommands
+        ? await prepareNativeCliProject(
+            options.nativeProjectCommands,
+            discovery.projectRoot,
+            command.projectPreparation,
+          )
+        : await prepareCliProject(
+            fileSystemService,
+            discovery.projectRoot,
+            command.projectPreparation,
+          );
       if (!prepared.ok)
         return failure(
           projectPreparationExitCode(prepared.diagnostics),

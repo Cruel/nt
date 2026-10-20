@@ -108,10 +108,64 @@ void certify_owner_session_reuse()
     require(scoped.value("ok", false), "Native workspace preflight admits Project identity.");
     const auto room = fixture.root / "records/rooms/native-cache-room.yaml";
     const auto room_bytes = read(room);
+    const auto archetype = room_bytes.find("archetype: null");
+    require(archetype != std::string::npos, "Native owner Room fixture has a sparse archetype.");
+    auto invalid_dependency = room_bytes;
+    invalid_dependency.replace(archetype, std::string("archetype: null").size(),
+                               "archetype: absent-archetype");
+    write(room, invalid_dependency);
+    require(!disk_validate({{"projectRoot", fixture.root.string()}}).value("valid", true),
+            "Fixture isolates a semantically invalid Room dependency.");
+    const auto scoped_usages = command({{"action", "entity-usages"},
+                                        {"projectRoot", fixture.root.string()},
+                                        {"collection", "scripts"},
+                                        {"id", "bootstrap"}});
+    require(scoped_usages.value("ok", false),
+            "Semantic-invalid unrelated Room does not block certified native usages.");
+    write(room, room_bytes);
     write(room, "invalid: [yaml\n");
+    require(!command({{"action", "entity-usages"},
+                      {"projectRoot", fixture.root.string()},
+                      {"collection", "scripts"},
+                      {"id", "bootstrap"}})
+                 .value("ok", false),
+            "Unparseable record membership cannot yield an incomplete usages graph.");
     const auto narrow =
         command({{"action", "workspace-preflight"}, {"projectRoot", fixture.root.string()}});
     require(narrow.value("ok", false), "Unrelated invalid records cannot block agent preflight.");
+    require(command(inspect).value("ok", false),
+            "Targeted native inspection ignores unrelated invalid records.");
+    auto invalid_inspect = inspect;
+    invalid_inspect["collection"] = "rooms";
+    invalid_inspect["id"] = "native-cache-room";
+    require(!command(invalid_inspect).value("ok", true),
+            "Targeted native inspection blocks its required invalid record.");
+    const auto profile_source = read(fixture.root / "project.yaml");
+    const auto profiles = command(
+        {{"action", "platform-profiles-preparation"}, {"projectRoot", fixture.root.string()}});
+    require(profiles.value("ok", false) && profiles.at("exportSettings").at("profiles").empty(),
+            "Native profiles preparation admits only identity and export domains.");
+    const auto policies = noveltea::authoring::edit_yaml_source(
+        profile_source,
+        {{"/export/assetMemoryPolicies", Json::array({{{"id", "first"},
+                                                       {"label", "ΟΣ"},
+                                                       {"basePreset", "low"},
+                                                       {"overrides", {{"warmGpuBytes", 9e9}}}},
+                                                      {{"id", "second"},
+                                                       {"label", "ος"},
+                                                       {"basePreset", "low"},
+                                                       {"overrides", Json::object()}}})
+                                             .dump()}});
+    require(policies.accepted, "Prepare scoped export policy fixture.");
+    write(fixture.root / "project.yaml", policies.source);
+    const auto invalid_policies = command(
+        {{"action", "platform-profiles-preparation"}, {"projectRoot", fixture.root.string()}});
+    require(invalid_policies.value("ok", false) && invalid_policies.at("diagnostics").size() == 2 &&
+                invalid_policies.at("diagnostics").at(0).at("code") ==
+                    "authoring.asset-memory-policy.label.duplicate",
+            "Native scoped preparation preserves Unicode label and memory-ceiling diagnostics: " +
+                invalid_policies.dump());
+    write(fixture.root / "project.yaml", profile_source);
     const auto pending = fixture.root / ".noveltea/transactions/pending";
     std::filesystem::create_directories(pending);
     write(pending / "sentinel", "do not recover");
@@ -120,6 +174,15 @@ void certify_owner_session_reuse()
     require(!blocked.value("ok", true) && blocked.value("exitCode", 0) == 5 &&
                 read(pending / "sentinel") == "do not recover",
             "Native preflight rejects pending transactions without recovering them.");
+    const auto blocked_dry_run = command({{"action", "entity-create"},
+                                          {"projectRoot", fixture.root.string()},
+                                          {"collection", "rooms"},
+                                          {"id", "pending-dry-run"},
+                                          {"dryRun", true}});
+    require(!blocked_dry_run.value("ok", true) && blocked_dry_run.value("exitCode", 0) == 5 &&
+                read(pending / "sentinel") == "do not recover" &&
+                !std::filesystem::exists(fixture.root / "records/rooms/pending-dry-run.yaml"),
+            "Native dry runs reject pending transactions without writes or recovery.");
     std::filesystem::remove_all(pending);
     write(room, room_bytes);
 
@@ -171,6 +234,41 @@ void certify_owner_session_reuse()
     std::filesystem::remove(fixture.root / "AGENTS.md");
     std::filesystem::remove_all(outside);
 #endif
+
+    write(fixture.root / "scripts/notes.md", "# Script source notes\n");
+    write(fixture.root / "i18n/notes.txt", "Untracked localization note\n");
+    const auto native_preparation =
+        command({{"action", "shader-preparation"}, {"projectRoot", fixture.root.string()}});
+    require(native_preparation.value("ok", false),
+            "Native owner captures export generation: " + native_preparation.dump() +
+                disk_validate({{"projectRoot", fixture.root.string()}}).dump());
+    const Json pinned_export{{"action", "project-export"},
+                             {"projectRoot", fixture.root.string()},
+                             {"pinnedProject", native_preparation.at("project")},
+                             {"expectedSourceRevisions", native_preparation.at("sourceRevisions")},
+                             {"outputPath", (fixture.root / "pinned.ntproject").string()}};
+    const auto pinned_bundle = command(pinned_export);
+    require(pinned_bundle.value("ok", false),
+            "Native export consumes admitted pinned inputs: " + pinned_bundle.dump());
+    require(native_preparation.at("sourceRevisions").contains("scripts/notes.md") &&
+                !native_preparation.at("sourceRevisions").contains("i18n/notes.txt") &&
+                std::any_of(pinned_bundle.at("manifest").at("files").begin(),
+                            pinned_bundle.at("manifest").at("files").end(),
+                            [](const Json& file) { return file.at("path") == "scripts/notes.md"; }),
+            "Pinned portable export includes non-Lua scripts but excludes untracked i18n notes.");
+    std::filesystem::remove(fixture.root / "pinned.ntproject");
+    write(room, "invalid: [yaml\n");
+    const auto stale_bundle = command(pinned_export);
+    require(!stale_bundle.value("ok", true) && stale_bundle.value("kind", "") == "source-changed" &&
+                !std::filesystem::exists(fixture.root / "pinned.ntproject"),
+            "Pinned export rejects newer invalid bytes without readmitting their Project.");
+    write(room, room_bytes);
+    write(fixture.root / "records/rooms/new-generation.yaml", room_bytes);
+    const auto changed_inventory = command(pinned_export);
+    require(!changed_inventory.value("ok", true) &&
+                changed_inventory.value("kind", "") == "source-changed",
+            "Pinned export rejects new source membership without admitting a newer generation.");
+    std::filesystem::remove(fixture.root / "records/rooms/new-generation.yaml");
 
     const auto manifest = fixture.root / "project.yaml";
     auto text = read(manifest);
@@ -1164,6 +1262,21 @@ void certify(const std::filesystem::path& source)
         {"id", lexical_id},
         {"dryRun", false},
         {"sourceRevision", noveltea::authoring::exact_source_revision(read(lexical_path))}};
+    auto prose_only = lexical_delete;
+    prose_only["dryRun"] = true;
+    require(command(prose_only).value("ok", false),
+            "Ordinary labels and comments are not Lua reference candidates.");
+    const auto with_lua = noveltea::authoring::edit_yaml_source(
+        room_with_note,
+        {{"/data/lifecycle",
+          Json({{"canEnter",
+                 {{"kind", "lua-predicate"}, {"source", "return 'native-possible-probe' ~= ''"}}}})
+              .dump(),
+          noveltea::authoring::YamlCommentDisposition::Keep, std::nullopt,
+          noveltea::authoring::YamlEditOperation::Upsert}});
+    require(with_lua.accepted, "Create a registered inline Lua possible-reference source.");
+    room_with_note = with_lua.source;
+    write(room_path, room_with_note);
     const auto blocked_lexical = command(lexical_delete);
     require(!blocked_lexical.value("ok", false) && std::filesystem::is_regular_file(lexical_path),
             "Unacknowledged possible source references prevent structural deletion.");

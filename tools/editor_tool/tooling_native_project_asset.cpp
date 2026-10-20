@@ -426,7 +426,7 @@ void recover_abandoned_import(const fs::path& root)
 }
 } // namespace
 
-Json native_project_workspace_preflight(const fs::path& root, bool agent_sync)
+Json native_project_disk_safety(const fs::path& root, bool agent_sync)
 {
     try {
         // Scoped callers must not recover transactions or admit unrelated record families.
@@ -463,6 +463,18 @@ Json native_project_workspace_preflight(const fs::path& root, bool agent_sync)
             result["exitCode"] = 5;
             return result;
         }
+        return {{"ok", true}};
+    } catch (const std::exception& error) {
+        return failure("WORKSPACE_PATH_INVALID", "/.noveltea", error.what());
+    }
+}
+
+Json native_project_workspace_preflight(const fs::path& root, bool agent_sync, bool include_export)
+{
+    const auto safety = native_project_disk_safety(root, agent_sync);
+    if (!safety.value("ok", false))
+        return safety;
+    try {
         if (!contained(root, root / "project.yaml"))
             return failure("WORKSPACE_PATH_INVALID", "/project.yaml",
                            "Project manifest resolves outside the Project root.");
@@ -515,9 +527,25 @@ Json native_project_workspace_preflight(const fs::path& root, bool agent_sync)
                                        {"severity", "error"}});
             return {{"ok", false}, {"exitCode", 3}, {"diagnostics", std::move(diagnostics)}};
         }
-        return {{"ok", true},
-                {"projectIdentity", Json::parse(admitted.effective_json)},
-                {"diagnostics", Json::array()}};
+        Json result{{"ok", true},
+                    {"projectIdentity", Json::parse(admitted.effective_json)},
+                    {"diagnostics", Json::array()}};
+        if (include_export) {
+            const auto settings = validate_workspace_export_settings(manifest.at("export").dump());
+            if (!settings.accepted) {
+                result["ok"] = false;
+                result["exitCode"] = 3;
+            } else {
+                result["exportSettings"] = Json::parse(settings.effective_json);
+            }
+            for (const auto& diagnostic : settings.diagnostics)
+                result["diagnostics"].push_back(
+                    {{"code", settings.accepted ? diagnostic.code : "WORKSPACE_SOURCE_READ"},
+                     {"path", diagnostic.path},
+                     {"message", diagnostic.message},
+                     {"severity", diagnostic.severity}});
+        }
+        return result;
     } catch (const std::exception& error) {
         return failure("WORKSPACE_MANIFEST_READ", "/project.yaml", error.what());
     }

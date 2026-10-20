@@ -10,8 +10,11 @@ namespace noveltea::authoring {
 class ProjectSession;
 }
 
+nlohmann::json native_project_disk_safety(const std::filesystem::path& root,
+                                          bool agent_sync = false);
 nlohmann::json native_project_workspace_preflight(const std::filesystem::path& root,
-                                                  bool agent_sync = false);
+                                                  bool agent_sync = false,
+                                                  bool include_export = false);
 
 // Scoped read-only asset inventory: it deliberately does not admit unrelated
 // Project record families, unlike mutation and full-Project validation.

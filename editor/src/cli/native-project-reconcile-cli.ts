@@ -6,7 +6,7 @@ import {
   type NovelTeaCliCommandResult,
 } from './contracts';
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
-import { nativeProjectDiagnostics } from './native-project-results';
+import { nativeProjectDiagnostics, nativeProjectFailure } from './native-project-results';
 
 interface ReconciliationInput {
   expectedWorkspaceRevision: string;
@@ -88,9 +88,12 @@ export async function runNativeProjectReconcileCli(
     const message = prepared.error ?? 'Native localization reconciliation could not be planned.';
     return formatCliResult(
       {
-        success: false,
-        exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
-        diagnostics: [cliDiagnostic('localization.reconcile.native', '/localization', message)],
+        ...nativeProjectFailure(prepared, {
+          code: 'localization.reconcile.native',
+          path: '/localization',
+          message,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
+        }),
         projectRoot: root,
       },
       globals.json,
@@ -200,7 +203,19 @@ export async function runNativeProjectReconcileCli(
       );
     const message =
       applied.error ?? 'Native reconciliation source authority changed during commit.';
-    return fail('localization.reconcile.stale-plan', message);
+    return formatCliResult(
+      {
+        ...nativeProjectFailure(applied, {
+          code: 'localization.reconcile.stale-plan',
+          path: '/localization',
+          message,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.semantic,
+        }),
+        projectRoot: root,
+      },
+      globals.json,
+      { failure: message },
+    );
   }
   const fields = {
     relinkedMessageIds: applied.relinkedMessageIds,

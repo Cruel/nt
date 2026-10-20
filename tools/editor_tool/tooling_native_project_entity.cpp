@@ -126,10 +126,170 @@ std::string pointer_segment(std::string_view value)
     return result;
 }
 
+std::size_t utf16_byte_offset(std::string_view source, std::size_t offset)
+{
+    std::size_t units = 0, byte = 0;
+    while (byte < source.size() && units < offset) {
+        const auto lead = static_cast<unsigned char>(source[byte]);
+        const auto width = lead < 0x80 ? 1u : lead < 0xe0 ? 2u : lead < 0xf0 ? 3u : 4u;
+        units += width == 4 ? 2 : 1;
+        byte += width;
+    }
+    if (units != offset)
+        throw std::runtime_error("Invalid native UTF-16 source range.");
+    return byte;
+}
+
+std::string recognized_lua_collection(std::string_view text, const LuaLiteralOccurrence& literal,
+                                      std::string_view owner)
+{
+    const auto prefix = std::string(text.substr(0, utf16_byte_offset(text, literal.start_utf16)));
+    std::smatch found;
+    if (std::regex_search(
+            prefix, found,
+            std::regex(R"(noveltea\.project\.(room|character|interactable)\s*\(\s*$)")))
+        return found[1].str() + "s";
+    if (owner.starts_with("scripts/") &&
+        (std::regex_search(prefix, std::regex(R"((?:^|[^\w.])import\s*\(\s*$)")) ||
+         std::regex_search(
+             prefix,
+             std::regex(
+                 R"((?:^|[^\w.])hooks\s*\.\s*register\s*\(\s*(['"])room\1\s*,\s*(['"])[^'"\r\n]*\2\s*,\s*(['"])[^'"\r\n]*\3\s*,\s*$)"))))
+        return "scripts";
+    return {};
+}
+
+std::vector<LuaLiteralOccurrence> lua_reference_literals(std::string_view source)
+{
+    auto analyzed = analyze_project_text("__native_references.lua", source, true);
+    if (!analyzed.complete)
+        throw std::runtime_error("Native source reference analysis is incomplete.");
+    std::erase_if(analyzed.lua_literals, [&](const auto& literal) {
+        return std::any_of(analyzed.messages.begin(), analyzed.messages.end(),
+                           [&](const auto& message) {
+                               return literal.start_utf16 >= message.call_start_utf16 &&
+                                      literal.end_utf16 <= message.call_end_utf16;
+                           });
+    });
+    return analyzed.lua_literals;
+}
+
+std::string rewrite_lua_references(std::string text, const std::string& owner,
+                                   const std::string& family, const std::string& id,
+                                   const std::string& to_id, bool force, bool& possible,
+                                   std::vector<std::string>& blockers)
+{
+    auto literals = lua_reference_literals(text);
+    for (auto it = literals.rbegin(); it != literals.rend(); ++it) {
+        if (it->value != id)
+            continue;
+        const auto recognized = recognized_lua_collection(text, *it, owner);
+        if (recognized.empty()) {
+            possible = true;
+            continue;
+        }
+        if (recognized != family)
+            continue;
+        if (to_id.empty()) {
+            if (!force)
+                blockers.push_back("Exact source reference blocks deletion.");
+            continue;
+        }
+        if (it->kind == "long-bracket") {
+            blockers.push_back("Exact source reference requires a manual rewrite.");
+            continue;
+        }
+        const auto start = utf16_byte_offset(text, it->start_utf16 + 1);
+        const auto end = utf16_byte_offset(text, it->end_utf16 - 1);
+        if (text.substr(start, end - start) != id) {
+            blockers.push_back(
+                "Recognized source rewrite range no longer matches the analyzed source.");
+            continue;
+        }
+        text.replace(start, end - start, to_id);
+    }
+    return text;
+}
+
+void rewrite_inline_lua(const Json& value, const std::string& path, const std::string& owner,
+                        const std::string& family, const std::string& id, const std::string& to_id,
+                        bool force, bool& possible, std::vector<std::string>& blockers,
+                        std::vector<YamlValueEdit>& edits)
+{
+    if (value.is_array()) {
+        for (std::size_t i = 0; i < value.size(); ++i)
+            rewrite_inline_lua(value[i], path + "/" + std::to_string(i), owner, family, id, to_id,
+                               force, possible, blockers, edits);
+        return;
+    }
+    if (!value.is_object())
+        return;
+    const auto kind = value.value("kind", Json{});
+    if ((kind == "lua" || kind == "lua-predicate" || kind == "lua-expression" ||
+         kind == "run-lua" || kind == "run-lua-effect" ||
+         value.value("type", Json{}) == "run-lua") &&
+        value.contains("source") && value.at("source").is_string()) {
+        const auto text = value.at("source").get<std::string>();
+        const auto rewritten =
+            rewrite_lua_references(text, owner, family, id, to_id, force, possible, blockers);
+        if (text != rewritten)
+            edits.push_back({path + "/source", Json(rewritten).dump(), YamlCommentDisposition::Keep,
+                             std::nullopt, YamlEditOperation::Replace});
+    }
+    for (const auto& [key, child] : value.items())
+        rewrite_inline_lua(child, path + "/" + pointer_segment(key), owner, family, id, to_id,
+                           force, possible, blockers, edits);
+}
+
+bool deletion_repair(std::string path, const std::string& owner_family,
+                     std::vector<YamlValueEdit>& edits)
+{
+    const auto replace_null = [&] {
+        edits.push_back(
+            {path, "null", YamlCommentDisposition::Keep, std::nullopt, YamlEditOperation::Replace});
+        return true;
+    };
+    if (path == "/archetype" || path.starts_with("/settings/ui/systemLayouts/") ||
+        path == "/settings/inventory/defaultLayout")
+        return replace_null();
+    if (std::regex_match(
+            path,
+            std::regex(
+                R"(^/data/(background/(asset|material)|props/[0-9]+/(asset|material)|environments/[0-9]+/asset|placements/[0-9]+/presentation/layout)$)")))
+        return replace_null();
+    if (path == "/data/compose/script") {
+        path = "/data/compose";
+        return replace_null();
+    }
+    if (owner_family == "materials" && path == "/data/base/material")
+        return false;
+    if (std::regex_match(
+            path,
+            std::regex(
+                R"(^/data/(cast/[0-9]+/character|overlays/[0-9]+/layout|scriptHooks/[0-9]+/handler/module)$)"))) {
+        const auto first = path.find('/', 6);
+        const auto end = path.find('/', first + 1);
+        path = path.substr(0, end);
+    } else {
+        // The graph's default deletion policy removes the nearest array item.
+        // Required Room exits and environment Materials instead require replacements.
+        if (std::regex_match(
+                path, std::regex(R"(^/data/(exits/[0-9]+/target|environments/[0-9]+/material)$)")))
+            return false;
+        std::smatch found;
+        if (!std::regex_match(path, found, std::regex(R"(^(.*\/[0-9]+)(?:\/.*)?$)")))
+            return false;
+        path = found[1].str();
+    }
+    edits.push_back(
+        {path, "", YamlCommentDisposition::Keep, std::nullopt, YamlEditOperation::Remove});
+    return true;
+}
+
 void reference_rewrites(const Json& value, std::string pointer, const std::string& family,
                         const std::string& owner_family, const std::string& from_id,
                         const std::string& to_id, std::vector<YamlValueEdit>& edits,
-                        std::vector<std::string>& blockers)
+                        std::vector<std::string>& blockers, const Json* normalized = nullptr)
 {
     if (value.is_object()) {
         if (value.contains("$ref")) {
@@ -140,7 +300,7 @@ void reference_rewrites(const Json& value, std::string pointer, const std::strin
                     edits.push_back({pointer + "/$ref/id", Json(to_id).dump(),
                                      YamlCommentDisposition::Keep, std::nullopt,
                                      YamlEditOperation::Replace});
-                else
+                else if (!deletion_repair(pointer, owner_family, edits))
                     blockers.push_back(pointer + "/$ref");
                 return;
             }
@@ -150,22 +310,31 @@ void reference_rewrites(const Json& value, std::string pointer, const std::strin
                 edits.push_back({pointer + "/$var", Json(to_id).dump(),
                                  YamlCommentDisposition::Keep, std::nullopt,
                                  YamlEditOperation::Replace});
-            else
+            else if (!deletion_repair(pointer, owner_family, edits))
                 blockers.push_back(pointer + "/$var");
             return;
         }
-        for (const auto& [key, child] : value.items()) {
-            if (key.find(from_id) != std::string::npos)
-                blockers.push_back(pointer + "/" + pointer_segment(key));
-            else
-                reference_rewrites(child, pointer + "/" + pointer_segment(key), family,
-                                   owner_family, from_id, to_id, edits, blockers);
+        const auto kind = value.value("kind", Json{});
+        const bool flow = (pointer == "/entrypoint" || pointer.ends_with("/completion") ||
+                           pointer.ends_with("/continuation")) &&
+                          kind.is_string() && kind.get<std::string>() + "s" == family;
+        const bool explicit_dependency =
+            kind == "record" && value.value("collection", Json{}) == family;
+        if ((flow || explicit_dependency) && value.value("id", Json{}) == from_id) {
+            if (!to_id.empty())
+                edits.push_back({pointer + "/id", Json(to_id).dump(), YamlCommentDisposition::Keep,
+                                 std::nullopt, YamlEditOperation::Replace});
+            else if (!deletion_repair(pointer, owner_family, edits))
+                blockers.push_back(pointer + "/$ref");
         }
+        for (const auto& [key, child] : value.items())
+            reference_rewrites(child, pointer + "/" + pointer_segment(key), family, owner_family,
+                               from_id, to_id, edits, blockers, normalized);
     } else if (value.is_array()) {
         for (std::size_t remaining = value.size(); remaining > 0; --remaining) {
             const auto index = to_id.empty() ? remaining - 1 : value.size() - remaining;
             reference_rewrites(value.at(index), pointer + "/" + std::to_string(index), family,
-                               owner_family, from_id, to_id, edits, blockers);
+                               owner_family, from_id, to_id, edits, blockers, normalized);
         }
     } else if (value.is_string() && value.get<std::string>().find(from_id) != std::string::npos) {
         // Sparse source references are scalar IDs rather than `$ref` mappings.
@@ -199,7 +368,19 @@ void reference_rewrites(const Json& value, std::string pointer, const std::strin
             {"layouts", "assets", std::regex(R"(^/data/(rml|rcss)/sourceAsset$)")},
             {"layouts", "materials", std::regex(R"(^/data/dependencies/materials/[0-9]+$)")},
         };
+        bool normalized_reference = false;
+        if (normalized) {
+            const auto path = Json::json_pointer(pointer);
+            if (normalized->contains(path)) {
+                const auto& node = normalized->at(path);
+                normalized_reference = node.is_object() && node.contains("$ref") &&
+                                       node.at("$ref").is_object() &&
+                                       node.at("$ref").value("collection", Json{}) == family &&
+                                       node.at("$ref").value("id", Json{}) == from_id;
+            }
+        }
         const bool exact =
+            normalized_reference ||
             std::any_of(scalar_references.begin(), scalar_references.end(), [&](const Rule& rule) {
                 return rule.owner == owner_family && rule.target == family &&
                        std::regex_match(pointer, rule.path);
@@ -208,50 +389,8 @@ void reference_rewrites(const Json& value, std::string pointer, const std::strin
             if (!to_id.empty())
                 edits.push_back({pointer, Json(to_id).dump(), YamlCommentDisposition::Keep,
                                  std::nullopt, YamlEditOperation::Replace});
-            else {
-                const auto repair = [&](const std::regex& pattern, bool remove, bool parent) {
-                    std::smatch matched;
-                    if (!std::regex_match(pointer, matched, pattern))
-                        return false;
-                    const auto target = parent ? matched[1].str() : pointer;
-                    edits.push_back(
-                        {target, remove ? "" : "null", YamlCommentDisposition::Keep, std::nullopt,
-                         remove ? YamlEditOperation::Remove : YamlEditOperation::Replace});
-                    return true;
-                };
-                bool repaired = false;
-                if (owner_family == "rooms") {
-                    if (family == "characters")
-                        repaired = repair(std::regex(R"(^(\/data\/cast\/[0-9]+)\/character$)"),
-                                          true, true);
-                    else if (family == "layouts")
-                        repaired =
-                            repair(std::regex(R"(^(\/data\/overlays\/[0-9]+)\/layout$)"), true,
-                                   true) ||
-                            repair(
-                                std::regex(R"(^\/data\/placements\/[0-9]+\/presentation\/layout$)"),
-                                false, false);
-                    else if (family == "assets")
-                        repaired = repair(
-                            std::regex(
-                                R"(^\/data\/(background|props\/[0-9]+|environments\/[0-9]+)\/asset$)"),
-                            false, false);
-                    else if (family == "materials")
-                        repaired =
-                            repair(std::regex(R"(^\/data\/(background|props\/[0-9]+)\/material$)"),
-                                   false, false);
-                    else if (family == "scripts")
-                        repaired =
-                            repair(
-                                std::regex(R"(^(\/data\/scriptHooks\/[0-9]+)\/handler\/module$)"),
-                                true, true) ||
-                            repair(std::regex(R"(^\/data\/compose\/script$)"), false, false);
-                }
-                if (!repaired)
-                    blockers.push_back(pointer + "/$ref");
-            }
-        } else {
-            blockers.push_back(pointer);
+            else if (!deletion_repair(pointer, owner_family, edits))
+                blockers.push_back(pointer + "/$ref");
         }
     }
 }
@@ -294,6 +433,10 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
     if (!validated.valid)
         return failure("Structural native entity operation requires a valid disk Project.");
 
+    const auto usage_result = native_project_entity_usages(request, session, root);
+    if (!usage_result.value("ok", false))
+        return usage_result;
+    const auto normalized_records = session.validated_disk_record_snapshots();
     std::vector<YamlTransactionTarget> reference_targets;
     std::vector<std::string> blockers;
     std::set<std::string> possible_sources;
@@ -338,7 +481,39 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         if (text.find(id) == std::string::npos)
             continue;
         if (!file.path.ends_with(".yaml")) {
-            possible_sources.insert(file.path);
+            std::string physical_owner;
+            for (const auto& [owner, snapshot] : normalized_records) {
+                if (!owner.starts_with("scripts/"))
+                    continue;
+                const auto record = Json::parse(snapshot.normalized_json);
+                const auto& selector = record.at("data").at("source");
+                if (selector.value("path", Json{}) == file.path) {
+                    physical_owner = owner;
+                    break;
+                }
+            }
+            if (file.path.starts_with("records/layouts/")) {
+                constexpr auto prefix = sizeof("records/layouts/") - 1;
+                const auto id_end = file.path.find('/', prefix);
+                physical_owner = "layouts/" + file.path.substr(prefix, id_end - prefix);
+            }
+            if (physical_owner.empty() || !file.path.ends_with(".lua"))
+                continue;
+            bool possible = false;
+            const auto next =
+                rewrite_lua_references(text, physical_owner, family, id,
+                                       rename ? to_id : std::string{}, force, possible, blockers);
+            if (possible)
+                possible_sources.insert(file.path);
+            if (next != text) {
+                reference_targets.push_back({.path = file.path,
+                                             .expected_revision = exact_source_revision(text),
+                                             .baseline_source = text,
+                                             .edits = {},
+                                             .create_source = std::nullopt,
+                                             .raw_text_source = next});
+                rewritten.push_back(file.path);
+            }
             continue;
         }
         const auto opened = open_yaml_source(text);
@@ -372,11 +547,48 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         const auto owner_family = file.path.starts_with("records/")
                                       ? file.path.substr(8, file.path.find('/', 8) - 8)
                                       : std::string{};
-        reference_rewrites(value, "", family, owner_family, id, rename ? to_id : std::string{},
-                           edits, uncertain);
+        Json normalized = value;
+        if (!owner_family.empty()) {
+            const auto rest = file.path.substr(8 + owner_family.size() + 1);
+            const auto owner_id = owner_family == "layouts" ? rest.substr(0, rest.find('/'))
+                                                            : rest.substr(0, rest.size() - 5);
+            const auto found = normalized_records.find(owner_family + "/" + owner_id);
+            if (found != normalized_records.end())
+                normalized = Json::parse(found->second.normalized_json);
+        } else if (file.path == "project.yaml") {
+            normalized = Json::parse(session.snapshot().normalized_json);
+        } else if (file.path == "i18n/project.yaml") {
+            const auto admitted =
+                validate_record("WorkspaceLocalizationPolicy", opened.source_json);
+            if (admitted.accepted)
+                normalized = Json::parse(admitted.effective_json);
+        }
+        if (!force)
+            reference_rewrites(value, "", family, owner_family, id, rename ? to_id : std::string{},
+                               edits, uncertain, &normalized);
         classify_uncertain(file.path, uncertain);
+        bool possible = false;
+        rewrite_inline_lua(
+            value, "", owner_family + "/" + std::filesystem::path(file.path).stem().string(),
+            family, id, rename ? to_id : std::string{}, force, possible, blockers, edits);
+        if (possible)
+            possible_sources.insert(file.path);
         if (edits.empty())
             continue;
+        std::vector<YamlValueEdit> unique;
+        for (const auto& edit : edits) {
+            const bool removed_parent =
+                std::any_of(edits.begin(), edits.end(), [&](const auto& other) {
+                    return other.operation == YamlEditOperation::Remove &&
+                           edit.path.starts_with(other.path + "/");
+                });
+            if (!removed_parent &&
+                std::none_of(unique.begin(), unique.end(), [&](const auto& other) {
+                    return edit.path == other.path && edit.operation == other.operation;
+                }))
+                unique.push_back(edit);
+        }
+        edits = std::move(unique);
         reference_targets.push_back({.path = file.path,
                                      .expected_revision = exact_source_revision(text),
                                      .baseline_source = text,
@@ -404,8 +616,16 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
         if (own_record.contains("data") && own_record.at("data").is_object())
             own_record["data"].erase("displayName");
         std::vector<std::string> own_uncertain;
-        reference_rewrites(own_record, "", family, family, id, to_id, edits, own_uncertain);
+        const auto own_normalized =
+            Json::parse(normalized_records.at(family + "/" + id).normalized_json);
+        reference_rewrites(own_record, "", family, family, id, to_id, edits, own_uncertain,
+                           &own_normalized);
         classify_uncertain(from_path, own_uncertain);
+        bool possible = false;
+        rewrite_inline_lua(own_record, "", family + "/" + id, family, id, to_id, false, possible,
+                           blockers, edits);
+        if (possible)
+            possible_sources.insert(from_path);
         const auto next = edit_yaml_source(source, edits);
         if (!next.accepted)
             return failure(next.error);
@@ -418,12 +638,13 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
                        "references: " +
                        blockers.front());
     }
-    if (!possible_sources.empty() && !allow_possible)
+    if (!possible_sources.empty() && !allow_possible && !force)
         return failure("Possible source reference requires "
                        "--allow-possible-source-references: " +
                        *possible_sources.begin());
     Json result{{"ok", true},        {"collection", family},       {"id", id},
                 {"dryRun", dry_run}, {"sourceRevision", revision}, {"writes", Json::array()}};
+    result["usages"] = usage_result.at("usages");
     if (rename)
         result["toId"] = to_id;
     result["rewrittenSources"] = rewritten;
@@ -472,7 +693,7 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
     std::vector<YamlValueEdit> identity_edits;
     Json next_identities = identities;
     for (const auto& [path, _] : semantic_sources) {
-        if (!path.starts_with(original_prefix))
+        if (!rename || !path.starts_with(original_prefix))
             continue;
         const auto new_path = rename ? new_prefix + path.substr(original_prefix.size()) : "";
         const auto id_value = identities.contains(path)
@@ -563,10 +784,14 @@ Json relocate_or_remove(const Json& request, ProjectSession& session,
                 continue;
             const auto current_path = "records/layouts/" + id + "/layout." + channel;
             const auto current_source = read_text(root / current_path);
-            if (rename && current_source.find(id) != std::string::npos)
-                return failure("Layout companion embeds the old ID and requires a "
-                               "semantic source rewrite: " +
-                               current_path);
+            if (rename && std::string_view(channel) == "lua" && !allow_possible) {
+                const auto literals = lua_reference_literals(current_source);
+                if (std::any_of(literals.begin(), literals.end(),
+                                [&](const auto& literal) { return literal.value == id; }))
+                    return failure(
+                        "Possible source reference requires --allow-possible-source-references: " +
+                        current_path);
+            }
             targets.push_back({.path = current_path,
                                .expected_revision = exact_source_revision(current_source),
                                .baseline_source = current_source,
@@ -625,31 +850,19 @@ namespace {
 // against the currently installed CLI before any authority is transferred.
 std::string reference_role(std::string_view path)
 {
-    static const std::vector<std::pair<std::regex, std::string>> roles{
-        {std::regex(R"(/data/exits/[0-9]+/target/\$ref$)"), "room-exit-target"},
-        {std::regex(R"(/data/cast/[0-9]+/character/\$ref$)"), "room-cast-character"},
-        {std::regex(R"(/data/overlays/[0-9]+/layout/\$ref$)"), "room-overlay-layout"},
-        {std::regex(R"(/data/placements/[0-9]+/presentation/layout/\$ref$)"),
-         "room-placement-layout"},
-        {std::regex(R"(/data/background/asset/\$ref$)"), "room-background"},
-        {std::regex(R"(/data/background/material/\$ref$)"), "room-background-material"},
-        {std::regex(R"(/data/props/[0-9]+/asset/\$ref$)"), "room-prop-asset"},
-        {std::regex(R"(/data/props/[0-9]+/material/\$ref$)"), "room-prop-material"},
-        {std::regex(R"(/data/environments/[0-9]+/asset/\$ref$)"), "room-environment-asset"},
-        {std::regex(R"(/data/environments/[0-9]+/material/\$ref$)"), "room-environment-material"},
-        {std::regex(R"(/data/compose/script/\$ref$)"), "room-compose-script"},
-        {std::regex(R"(/data/scriptHooks/[0-9]+/handler/module/\$ref$)"), "room-script-hook"},
-        {std::regex(R"(/data/presentation/material/\$ref$)"), "interactable-material"},
-        {std::regex(R"(/interactables/[^/]+/data/presentation/visual/(image|animation)/\$ref$)"),
-         "interactable-visual"},
-        {std::regex(R"(/data/presentation/visual/image/\$ref$)"), "interactable-visual"},
-        {std::regex(R"(/data/textures/[^/]+/source/\$ref$)"), "material-texture"},
-        {std::regex(R"(/materials/[^/]+/data/base/material/\$ref$)"), "material-base"},
-        {std::regex(R"(/condition/variable/\$ref$)"), "condition-variable"},
-        {std::regex(R"(/data/rml/sourceAsset/\$ref$)"), "layout-rml-source"},
-        {std::regex(R"(/data/rcss/sourceAsset/\$ref$)"), "layout-rcss-source"},
-        {std::regex(R"(/data/dependencies/materials/[0-9]+/\$ref$)"), "layout-material"},
-    };
+    static const auto roles = [] {
+        std::vector<std::pair<std::regex, std::string>> result;
+        for (const auto& rule : Json::parse(structural_reference_rules_json()))
+            result.emplace_back(std::regex(rule.at("pattern").get<std::string>()),
+                                rule.at("role").get<std::string>());
+        result.emplace_back(std::regex(R"(/materials/[^/]+/data/base/material/\$ref$)"),
+                            "material-base");
+        result.emplace_back(
+            std::regex(
+                R"(/(?:condition|guard|availability|visibility|canEnter|canLeave|waitCondition)(?:/(?:conditions/[0-9]+|condition))*/variable/\$ref$)"),
+            "condition-variable");
+        return result;
+    }();
     for (const auto& [expression, role] : roles)
         if (std::regex_search(path.begin(), path.end(), expression))
             return role;
@@ -661,36 +874,43 @@ void collect_lua_literal_usage(std::string_view source, const std::string& path,
                                const std::string& collection, Json& usages,
                                std::string_view source_url = "authoring:inline-lua")
 {
-    const auto analysis = analyze_project_text("__native_usages.lua", source, true);
-    if (!analysis.complete)
-        throw std::runtime_error("Native usages cannot certify incomplete Lua source analysis.");
-    const LuaLiteralOccurrence* selected = nullptr;
-    for (const auto& literal : analysis.lua_literals) {
+    const auto literals = lua_reference_literals(source);
+    std::map<std::string, const LuaLiteralOccurrence*> selected;
+    for (const auto& literal : literals) {
         if (literal.value != id)
             continue;
-        // Existing graph coalesces identical semantic-path edges, then sorts
-        // evidence by serialized decimal UTF-16 offsets rather than numbers.
-        if (!selected ||
-            std::to_string(literal.start_utf16) < std::to_string(selected->start_utf16))
-            selected = &literal;
+        const auto recognized = recognized_lua_collection(source, literal, owner);
+        if (!recognized.empty() && recognized != collection)
+            continue;
+        const auto classification = recognized.empty()               ? "possible-lexical"
+                                    : literal.kind == "long-bracket" ? "exact-manual"
+                                                                     : "exact-rewriteable";
+        auto& occurrence = selected[classification];
+        if (!occurrence ||
+            std::to_string(literal.start_utf16) < std::to_string(occurrence->start_utf16))
+            occurrence = &literal;
     }
-    if (!selected)
-        return;
     const auto separator = owner.find('/');
     const auto source_key =
-        Json::array({"record", owner.substr(0, separator), owner.substr(separator + 1)}).dump();
+        owner.starts_with("@project:")
+            ? Json::array({"project-field", owner.substr(9)}).dump()
+            : Json::array({"record", owner.substr(0, separator), owner.substr(separator + 1)})
+                  .dump();
     const auto target_key = Json::array({"record", collection, id}).dump();
-    constexpr auto role = "lua-possible-reference";
-    usages.push_back({{"edgeId", Json::array({source_key, path, target_key, role}).dump()},
-                      {"role", role},
-                      {"sourcePath", std::string(source_url)},
-                      {"sourceUrl", std::string(source_url)},
-                      {"classification", "possible-lexical"},
-                      {"location",
-                       {{"line", selected->line},
-                        {"column", selected->column},
-                        {"endLine", selected->end_line},
-                        {"endColumn", selected->end_column}}}});
+    for (const auto& [classification, occurrence] : selected) {
+        const auto role = classification == "possible-lexical" ? "lua-possible-reference"
+                                                               : "lua-recognized-reference";
+        usages.push_back({{"edgeId", Json::array({source_key, path, target_key, role}).dump()},
+                          {"role", role},
+                          {"sourcePath", std::string(source_url)},
+                          {"sourceUrl", std::string(source_url)},
+                          {"classification", classification},
+                          {"location",
+                           {{"line", occurrence->line},
+                            {"column", occurrence->column},
+                            {"endLine", occurrence->end_line},
+                            {"endColumn", occurrence->end_column}}}});
+    }
 }
 
 void collect_native_usages(const Json& record, const std::string& path, const std::string& owner,
@@ -702,25 +922,51 @@ void collect_native_usages(const Json& record, const std::string& path, const st
                                   usages);
         return;
     }
-    if (record.is_string()) {
-        static const std::regex scene_lua(
-            R"(^/(scenes/[^/]+/data/events/[0-9]+|interactions/[^/]+/data/rules/[0-9]+/program/instructions/[0-9]+)/source$)");
-        if (std::regex_match(path, scene_lua))
-            collect_lua_literal_usage(record.get<std::string>(), path, owner, id, collection,
-                                      usages);
+    if (record.is_string())
         return;
-    }
     if (!record.is_object())
         return;
+    const auto kind = record.value("kind", Json{});
+    if ((kind == "lua" || kind == "lua-predicate" || kind == "lua-expression" ||
+         kind == "run-lua" || kind == "run-lua-effect" ||
+         record.value("type", Json{}) == "run-lua") &&
+        record.contains("source") && record.at("source").is_string())
+        collect_lua_literal_usage(record.at("source").get<std::string>(), path + "/source", owner,
+                                  id, collection, usages);
+    if (path.ends_with("/data/lua") && record.contains("sourceText") &&
+        record.at("sourceText").is_string())
+        collect_lua_literal_usage(record.at("sourceText").get<std::string>(), path + "/sourceText",
+                                  owner, id, collection, usages);
+    const auto source_key_for = [&] {
+        const auto split = owner.find('/');
+        return owner.starts_with("@project:")
+                   ? Json::array({"project-field", owner.substr(9)}).dump()
+                   : Json::array({"record", owner.substr(0, split), owner.substr(split + 1)})
+                         .dump();
+    };
+    const bool flow = (path.ends_with("/completion") || path.ends_with("/continuation") ||
+                       path == "/entrypoint") &&
+                      kind.is_string() && kind.get<std::string>() + "s" == collection;
+    const bool explicit_dependency =
+        kind == "record" && record.value("collection", Json{}) == collection;
+    if ((flow || explicit_dependency) && record.value("id", Json{}) == id) {
+        const auto role = path == "/entrypoint" ? "entrypoint"
+                          : flow                ? "flow-target"
+                                                : "lua-explicit-reference";
+        usages.push_back(
+            {{"edgeId", Json::array({source_key_for(), path,
+                                     Json::array({"record", collection, id}).dump(), role})
+                            .dump()},
+             {"role", role},
+             {"sourcePath", path}});
+    }
     if (record.contains("$ref") && record.at("$ref").is_object()) {
         const auto& reference = record.at("$ref");
         if (reference.value("collection", std::string{}) == collection &&
             reference.value("id", std::string{}) == id) {
             const auto pointer = path + "/$ref";
             const auto role = reference_role(pointer);
-            const auto split = owner.find('/');
-            const auto source_key =
-                Json::array({"record", owner.substr(0, split), owner.substr(split + 1)}).dump();
+            const auto source_key = source_key_for();
             const auto target_key = Json::array({"record", collection, id}).dump();
             usages.push_back(
                 {{"edgeId", Json::array({source_key, pointer, target_key, role}).dump()},
@@ -731,9 +977,7 @@ void collect_native_usages(const Json& record, const std::string& path, const st
     }
     if (record.contains("$var") && collection == "variables" && record.at("$var") == id) {
         const auto pointer = path + "/$var";
-        const auto split = owner.find('/');
-        const auto source_key =
-            Json::array({"record", owner.substr(0, split), owner.substr(split + 1)}).dump();
+        const auto source_key = source_key_for();
         const auto target_key = Json::array({"record", collection, id}).dump();
         usages.push_back(
             {{"edgeId", Json::array({source_key, pointer, target_key, "variable-ref"}).dump()},
@@ -757,18 +1001,42 @@ Json native_project_entity_usages(const Json& request, ProjectSession& session,
     const auto id = request.at("id").get<std::string>();
     if (collection != "assets" && !default_entity_source_json(collection))
         return failure("Native usages collection is not registered.");
-    const auto validity = session.validate_project();
-    if (!validity.valid)
-        return failure("Native usages requires a valid, fully admitted disk Project.");
-    const auto records = session.validated_disk_record_snapshots();
+    session.validate_project();
+    // Semantic diagnostics elsewhere in the Project do not invalidate an
+    // otherwise complete reference inventory. Physical authority and every
+    // record's normalized structure are still required for a negative result.
+    if (!session.verified_source_revisions())
+        return failure("Native usages cannot certify physical Project sources.");
+    const auto records = session.reconciliation_disk_record_snapshots();
+    for (const auto& file : session.file_inventory()) {
+        if (file.kind != ProjectFileKind::TrackedSource || !file.path.starts_with("records/") ||
+            !file.path.ends_with(".yaml"))
+            continue;
+        const auto name = file.path.substr(sizeof("records/") - 1);
+        const auto slash = name.find('/');
+        if (slash == std::string::npos || !default_entity_source_json(name.substr(0, slash)))
+            continue;
+        const auto family = name.substr(0, slash);
+        const auto filename = name.substr(slash + 1);
+        const auto owner = family == "layouts" && filename.ends_with("/layout.yaml")
+                               ? family + "/" + filename.substr(0, filename.size() - 12)
+                               : family + "/" + filename.substr(0, filename.size() - 5);
+        if (!records.contains(owner))
+            return failure("Native usages cannot inspect an unadmitted record dependency.");
+    }
     if (!records.contains(collection + "/" + id))
         return failure("Entity record does not exist.");
     Json usages = Json::array();
     for (const auto& [owner, snapshot] : records) {
-        if (!snapshot.valid || snapshot.normalized_json.empty())
+        if (snapshot.normalized_json.empty())
             return failure("Native usages cannot inspect an invalid record dependency.");
         const auto record = Json::parse(snapshot.normalized_json);
-        collect_native_usages(record, "/" + owner, owner, id, collection, usages);
+        if (record.contains("data"))
+            collect_native_usages(record.at("data"), "/" + owner + "/data", owner, id, collection,
+                                  usages);
+        if (record.contains("archetype"))
+            collect_native_usages(record.at("archetype"), "/" + owner + "/archetype", owner, id,
+                                  collection, usages);
         if (owner.starts_with("rooms/") && collection == "assets" && record.contains("data") &&
             record.at("data").is_object()) {
             const auto& data = record.at("data");
@@ -862,6 +1130,39 @@ Json native_project_entity_usages(const Json& request, ProjectSession& session,
                                       "/" + owner + "/data/source/path", owner, id, collection,
                                       usages, "project:/" + physical);
         }
+    }
+    const auto manifest = Json::parse(session.snapshot().normalized_json);
+    const auto project_field = [&](const std::string& path) {
+        const auto pointer = Json::json_pointer(path);
+        if (manifest.contains(pointer))
+            collect_native_usages(manifest.at(pointer), path, "@project:" + path, id, collection,
+                                  usages);
+    };
+    for (const auto* path :
+         {"/bootstrapModule", "/entrypoint", "/undefinedInteractionProgram", "/prefetchHints",
+          "/settings/display", "/settings/accessibility", "/settings/text/defaultFont",
+          "/settings/text/fontStack", "/settings/cursors", "/settings/inventory/defaultLayout"})
+        project_field(path);
+    const auto systems = Json::json_pointer("/settings/ui/systemLayouts");
+    if (manifest.contains(systems))
+        for (const auto& [role, _] : manifest.at(systems).items())
+            project_field("/settings/ui/systemLayouts/" + pointer_segment(role));
+    if (manifest.contains("interactableInstances"))
+        for (const auto& [instance, _] : manifest.at("interactableInstances").items())
+            project_field("/interactableInstances/" + pointer_segment(instance));
+    const auto localization = validate_project_localization(root);
+    if (!localization.accepted && collection == "assets")
+        return failure("Native usages cannot certify localization references.");
+    if (localization.accepted) {
+        const auto model = Json::parse(localization.effective_json);
+        if (model.contains("locales"))
+            for (const auto& [locale, definition] : model.at("locales").items())
+                if (definition.contains("fontStack")) {
+                    const auto path =
+                        "/localization/locales/" + pointer_segment(locale) + "/fontStack";
+                    collect_native_usages(definition.at("fontStack"), path, "@project:" + path, id,
+                                          collection, usages);
+                }
     }
     std::sort(usages.begin(), usages.end(), [](const Json& left, const Json& right) {
         return std::tie(left.at("sourcePath"), left.at("edgeId")) <

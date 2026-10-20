@@ -7,7 +7,7 @@ import {
   type NovelTeaCliCommandResult,
 } from './contracts';
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
-import { nativeProjectDiagnostics } from './native-project-results';
+import { nativeProjectDiagnostics, nativeProjectFailure } from './native-project-results';
 
 /**
  * Certification-only transport for already-native physical mutations.
@@ -134,12 +134,12 @@ export async function runNativeProjectMutationsCli(
             : `authoring.entity.${operation}`;
     return formatCliResult(
       {
-        success: false,
-        exitCode: conflict ? NOVELTEA_CLI_EXIT_CODES.mutation : NOVELTEA_CLI_EXIT_CODES.semantic,
-        diagnostics: [
-          cliDiagnostic(code, errorPath, message),
-          ...nativeProjectDiagnostics(response),
-        ],
+        ...nativeProjectFailure(response, {
+          code,
+          path: errorPath,
+          message,
+          exitCode: conflict ? NOVELTEA_CLI_EXIT_CODES.mutation : NOVELTEA_CLI_EXIT_CODES.semantic,
+        }),
         projectRoot: root,
       },
       globals.json,
@@ -174,21 +174,21 @@ export async function runNativeProjectMutationsCli(
           collection,
           fromId: id,
           toId: attributes.toId,
-          commentImpacts: [],
-          commentNotices: [],
+          commentImpacts: response.commentImpacts ?? [],
+          commentNotices: response.commentNotices ?? [],
           dryRun,
           plan,
-          usages: [],
+          usages: response.usages ?? [],
         }
       : action === 'entity-delete'
         ? {
             collection,
             id,
-            commentImpacts: [],
+            commentImpacts: response.commentImpacts ?? [],
             dryRun,
             force: attributes.force === true,
             plan,
-            usages: [],
+            usages: response.usages ?? [],
           }
         : { collection, id, dryRun, plan };
   return formatCliResult(

@@ -114,10 +114,21 @@ follows contained directory symlinks under their logical paths, rejects ancestor
 and checks declared Asset-source containment even outside `assets/`. Neither preflight
 nor audit recovers pending transactions.
 
-This is not completion of #512: scoped `platform profiles` still needs native preparation,
-and complete domain/flag parity and generation-pinned native editable-Project export
-remain integration work. Broad installed-CLI differential certification is deferred
-until the refactor is ready; no production authority switch is enabled here.
+The native candidate also prepares scoped `platform profiles` (including effective
+memory policies), and editable-Project export can consume a native-admitted pinned
+Project generation with exact source-revision checks. Structural reference roles
+are generated alongside the native contracts, and native entity operations cover
+typed reference usages, repairs, and registered Lua source references. Native
+command failure adapters retain structured workspace diagnostics and exit status.
+Unrelated semantic-invalid record contributions do not by themselves prevent
+native usages from reading a complete, physically certified reference inventory;
+unadmitted or unparseable record contributors still fail closed rather than
+publishing a potentially incomplete graph.
+
+This is not completion evidence for #512: the full command/flag/domain parity
+audit and installed-CLI differential certification remain outstanding. Broad
+certification is deferred until the refactor is ready; no production authority
+switch is enabled here.
 
 The host-only native Project command adapter exposes `entity-inspect` (including
 sparse-source provenance), `scoped-edit` (a generic patch batch with dry-run and

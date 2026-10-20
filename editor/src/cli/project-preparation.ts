@@ -85,6 +85,66 @@ export type CliProjectPreparationResult =
     }>
   | Readonly<{ ok: false; diagnostics: readonly NovelTeaCliDiagnostic[] }>;
 
+export async function prepareNativeCliProject(
+  native: import('./native-project-lifecycle-cli').NativeProjectCommandCall,
+  projectRoot: string,
+  intent: CliProjectPreparationIntent,
+): Promise<CliProjectPreparationResult> {
+  if (intent !== platformProfilesProjectPreparationIntent)
+    return failure(
+      'WORKSPACE_SOURCE_READ',
+      '/project.yaml',
+      'Unsupported native scoped preparation intent.',
+    );
+  try {
+    const response = await native({ action: 'platform-profiles-preparation', projectRoot });
+    const { nativeProjectDiagnostics } = await import('./native-project-results');
+    const diagnostics = nativeProjectDiagnostics({ cliDiagnostics: response.diagnostics });
+    if (!response.ok)
+      return {
+        ok: false,
+        diagnostics: diagnostics.length
+          ? diagnostics
+          : [
+              cliDiagnostic(
+                'WORKSPACE_SOURCE_READ',
+                '/project.yaml',
+                String(response.error ?? 'Native scoped preparation failed.'),
+              ),
+            ],
+      };
+    if (
+      !response.projectIdentity ||
+      typeof response.projectIdentity !== 'object' ||
+      !response.exportSettings ||
+      typeof response.exportSettings !== 'object'
+    )
+      return failure(
+        'WORKSPACE_SOURCE_READ',
+        '/project.yaml',
+        'Native scoped preparation lacks required domains.',
+      );
+    return {
+      ok: true,
+      diagnostics,
+      preparation: {
+        intent,
+        projectRoot,
+        projectIdentity: response.projectIdentity as ProjectIdentity,
+        exportSettings: response.exportSettings as AuthoringProject['export'],
+        assets: {},
+        assetFilesystemInventory: [],
+      },
+    };
+  } catch (error) {
+    return failure(
+      'WORKSPACE_SOURCE_READ',
+      '/project.yaml',
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
 const manifestKeys = Object.freeze([
   'schema',
   'schemaVersion',

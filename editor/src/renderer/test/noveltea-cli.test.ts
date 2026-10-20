@@ -1655,7 +1655,7 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
   });
 
-  it('bypasses disk-backed native export during owner preparation and pinned execution', async () => {
+  it('refuses pinned native export without a native admitted preparation', async () => {
     const value = fixture();
     const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
     const outputPath = `${root}/pinned-project.ntproject`;
@@ -1680,9 +1680,13 @@ describe('NovelTea headless CLI', () => {
       trustPinnedResidentSnapshot: true,
       nativeProjectCommands,
     });
-    // The in-memory fixture has no physical ZIP writer; the installed-daemon certification
-    // exercises publication. This test protects which authority handles that publication.
-    expect(exported.exitCode).toBe(5);
+    expect(exported.exitCode).toBe(70);
+    expect(exported.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'CLI_INTERNAL',
+        message: expect.stringContaining('Refusing disk re-admission'),
+      }),
+    );
     expect(await value.fileSystem.inspect(outputPath)).toBe('missing');
     expect(nativeCalls).toEqual([]);
   });
@@ -2083,6 +2087,103 @@ describe('NovelTea headless CLI', () => {
         },
       ],
     });
+  });
+
+  it('exports the pinned native Project generation without reopening Project sources', async () => {
+    const value = fixture();
+    value.fileSystem.readText = async () => {
+      throw new Error('Pinned worker must not reopen Project YAML.');
+    };
+    const requests: Readonly<Record<string, unknown>>[] = [];
+    const preparation = {
+      project: value.project,
+      sourceGeneration: 'sha256:pinned',
+      sourceRevisions: { 'project.yaml': 'sha256:exact' },
+      sourceOverlays: {},
+      referencedAssetIds: [],
+      cliDiagnostics: [],
+    };
+    const result = await runNovelTeaCli(
+      ['--json', 'project', 'export', '--output', 'pinned.ntproject'],
+      {
+        ...options(value),
+        trustPinnedResidentSnapshot: true,
+        pinnedNativePreparation: { projectRoot: root, preparation },
+        nativeProjectCommands(request) {
+          requests.push(request);
+          return {
+            ok: true,
+            outputPath: `${root}/pinned.ntproject`,
+            manifest: { schema: 'noveltea.project.bundle', version: 1, files: [] },
+          };
+        },
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(requests).toEqual([
+      {
+        action: 'project-export',
+        projectRoot: root,
+        outputPath: `${root}/pinned.ntproject`,
+        pinnedProject: value.project,
+        expectedSourceRevisions: preparation.sourceRevisions,
+      },
+    ]);
+    const missing = await runNovelTeaCli(
+      ['--json', 'project', 'export', '--output', 'pinned.ntproject'],
+      {
+        ...options(value),
+        trustPinnedResidentSnapshot: true,
+        nativeProjectCommands: () => {
+          throw new Error('Must not readmit disk after missing native preparation.');
+        },
+      },
+    );
+    expect(missing.exitCode).toBe(70);
+  });
+
+  it('lists native-admitted platform profiles without TypeScript Project source reads', async () => {
+    const project = validProject();
+    project.export.profiles = [defaultPlatformExportProfile('linux')];
+    const value = fixture(project);
+    value.fileSystem.readText = async () => {
+      throw new Error('TypeScript Project source reads are forbidden.');
+    };
+    const requests: Readonly<Record<string, unknown>>[] = [];
+    const result = await runNovelTeaCli(['--json', 'platform', 'profiles'], {
+      ...options(value, root, undefined, platformTools()),
+      nativeProjectCommands(request) {
+        requests.push(request);
+        return {
+          ok: true,
+          projectIdentity: project.project,
+          exportSettings: project.export,
+          diagnostics: [],
+        };
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.profiles).toEqual([
+      expect.objectContaining({ id: 'linux-release', target: 'linux' }),
+    ]);
+    expect(requests).toEqual([{ action: 'platform-profiles-preparation', projectRoot: root }]);
+    const rejected = await runNovelTeaCli(['--json', 'platform', 'profiles'], {
+      ...options(value, root, undefined, platformTools()),
+      nativeProjectCommands: () => ({
+        ok: false,
+        exitCode: 5,
+        diagnostics: [
+          {
+            code: 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT',
+            path: '/.noveltea/transactions',
+            message: 'Recovery required.',
+            severity: 'error',
+          },
+        ],
+      }),
+    });
+    expect(rejected.exitCode).toBe(5);
+    expect(rejected.envelope.diagnostics[0]?.code).toBe('WORKSPACE_TRANSACTION_RECOVERY_CONFLICT');
   });
 
   it('lists platform profiles without parsing unrelated authoring domains', async () => {

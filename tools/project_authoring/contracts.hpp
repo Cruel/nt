@@ -29,6 +29,8 @@ std::string trim_ecmascript(std::string value);
 ValidationResult validate_record(std::string_view contract, std::string_view source_json);
 // Scoped disk callers admit Project identity without unrelated manifest domains.
 ValidationResult validate_workspace_project_identity(std::string_view source_json);
+ValidationResult validate_workspace_export_settings(std::string_view source_json);
+std::string structural_reference_rules_json();
 // Room-only sparse YAML source adapter for the parallel #477 session. Performs
 // source-to-effective projection before the generated structural/semantic validator.
 ValidationResult validate_room_source(std::string_view source_json);
