@@ -2323,10 +2323,57 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     if (recoveredDaemon.pid !== initialDaemon.pid || recoveredDaemon.projectSessions !== 2)
       fail(`Owner crash disturbed daemon or sibling owner: ${recoveredStatus.stdout}`);
 
+    // A physical edit must advance only its own resident Project generation. Keep the
+    // sibling owner live and prove its process identity and public output are unaffected.
+    const siblingBeforeEdit = requireSuccess(
+      'Project-owner sibling output before first Project edit',
+      runNative(['--project', secondRoot, '--json', 'platform', 'profiles'], {
+        cwd: secondRoot,
+        env: traceEnvironment,
+      }),
+    );
+    const firstGalleryPath = path.join(firstRoot, 'records', 'rooms', 'gallery.yaml');
+    const firstGallery = parseYaml(await readFile(firstGalleryPath, 'utf8'));
+    firstGallery.label = `${firstGallery.label} owner generation isolation`;
+    await writeFile(firstGalleryPath, stringifyYaml(firstGallery));
+    const advancedFirst = requireSuccess(
+      'Project-owner first Project source generation promotion',
+      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
+        cwd: firstRoot,
+        env: crashProfileEnvironment,
+      }),
+    );
+    const advancedProfile = schedulerProfile(advancedFirst);
+    if ((advancedProfile?.generationPromotions ?? 0) < 1)
+      fail(`First Project edit did not promote its resident generation: ${advancedFirst.stderr}`);
+    const siblingAfterEdit = requireSuccess(
+      'Project-owner sibling output after first Project edit',
+      runNative(['--project', secondRoot, '--json', 'platform', 'profiles'], {
+        cwd: secondRoot,
+        env: crashProfileEnvironment,
+      }),
+    );
+    if (siblingAfterEdit.stdout !== siblingBeforeEdit.stdout)
+      fail('First Project generation change altered the sibling Project public output.');
+    const siblingStandalone = requireSuccess(
+      'Project-owner sibling standalone parity after another Project promotion',
+      runNative(['--no-daemon', '--project', secondRoot, '--json', 'platform', 'profiles'], {
+        cwd: secondRoot,
+        env: environment,
+      }),
+    );
+    if (siblingStandalone.stdout !== siblingAfterEdit.stdout)
+      fail('Resident sibling output diverged from standalone --no-daemon output.');
+    const siblingOwnerAfterEdit = ownerFor(schedulerProfile(siblingAfterEdit), secondRoot);
+    if (!siblingOwnerAfterEdit || siblingOwnerAfterEdit.pid !== secondOwnerAfterCrash.pid)
+      fail('First Project generation change replaced or evicted the sibling Project owner.');
+
     return {
       canonicalAliasDeduplication: !isWindows,
       distinctProjectOwners: true,
       ownerCrashRecovery: true,
+      siblingGenerationAndPublicationIsolation: true,
+      siblingStandaloneParity: true,
       schedulerPressureAndSnapshotLifecycleCertifiedNatively: true,
     };
   } finally {
