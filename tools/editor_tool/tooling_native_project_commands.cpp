@@ -126,7 +126,8 @@ bool mutating_request(const Json& request)
                    : default_value;
     };
     return action == "project-create" || action == "project-import" || action == "project-export" ||
-           (action == "asset-import" && !boolean_flag("dryRun", true)) ||
+           ((action == "asset-import" || action == "comfyui-assets") &&
+            !boolean_flag("dryRun", true)) ||
            (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
            ((action == "fmt-strip-defaults" || action == "fmt") && !boolean_flag("check", true)) ||
            ((action == "localization-targets" || action == "localization-sync" ||
@@ -335,7 +336,7 @@ Json operate(const Json& request)
         owner.session.reset();
         owner.root = root;
     }
-    if (action == "asset-import" &&
+    if ((action == "asset-import" || action == "comfyui-assets") &&
         (!request.contains("dryRun") || request.at("dryRun") == false)) {
         if (const auto recovery_error = native_project_asset_recover(root))
             return failure("Native Asset import recovery: " + *recovery_error);
@@ -473,6 +474,19 @@ Json operate(const Json& request)
         return result;
     };
 
+    if (action == "comfyui-admission") {
+        if (!validation.valid)
+            return with_diagnostics({{"ok", false},
+                                     {"kind", "invalid"},
+                                     {"error", "Native Project authoring admission failed."}});
+        const auto generation = native_project_source_generation(*session, root);
+        if (!native_project_source_generation_is_current(root, generation))
+            return with_diagnostics({{"ok", false},
+                                     {"kind", "conflict"},
+                                     {"error", "Project sources changed during ComfyUI admission."}});
+        return with_diagnostics({{"ok", true}, {"sourceGeneration", generation}});
+    }
+
     if (complete_runtime_preparation) {
         const auto prepared =
             session->prepare_complete_working(session->snapshot().working_revision);
@@ -564,7 +578,7 @@ Json operate(const Json& request)
         return with_diagnostics(std::move(result));
     }
 
-    if (action == "asset-import")
+    if (action == "asset-import" || action == "comfyui-assets")
         return with_diagnostics(native_project_asset_import(request, *session, root));
 
     if (action == "entity-inspect") {

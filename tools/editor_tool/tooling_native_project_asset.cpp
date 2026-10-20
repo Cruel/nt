@@ -7,6 +7,7 @@
 #include "../project_authoring/yaml_transaction.hpp"
 #include "tooling_native_c.h"
 #include "tooling_native_asset_media.hpp"
+#include "tooling_native_project_sync.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -666,10 +667,19 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
     const auto fail = [](std::string message) {
         return failure("asset.import.failed", "/assets", std::move(message));
     };
-    if (!request.contains("paths") || !request.at("paths").is_array() ||
-        request.at("paths").empty() || request.at("paths").size() > 128 ||
+    const bool generated = request.value("action", std::string{}) == "comfyui-assets";
+    const auto& sources = generated ? request.value("generated", Json())
+                                    : request.value("paths", Json());
+    if (!sources.is_array() || sources.empty() || sources.size() > 128 ||
         (request.contains("dryRun") && !request.at("dryRun").is_boolean()))
         return fail("Native Asset import requires 1-128 physical source paths and a dryRun flag.");
+    if (generated && (!request.contains("workflow") || !request["workflow"].is_object() ||
+                      !request["workflow"].contains("id") ||
+                      !request["workflow"]["id"].is_string() ||
+                      !request["workflow"].contains("label") ||
+                      !request["workflow"]["label"].is_string() ||
+                      !request.contains("promptId") || !request["promptId"].is_string()))
+        return fail("Generated Asset publication requires a workflow identity and prompt ID.");
     const bool dry_run = request.value("dryRun", true);
     try {
         if (!dry_run)
@@ -681,6 +691,11 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
     }
     if (!session.validate_project().valid)
         return fail("Asset import cannot mutate an invalid Project.");
+    if (generated && request.contains("expectedSourceGeneration") &&
+        (!request["expectedSourceGeneration"].is_string() ||
+         native_project_source_generation(session, root) !=
+             request["expectedSourceGeneration"].get<std::string>()))
+        return fail("Project source generation changed before ComfyUI Asset publication.");
 
     try {
         std::set<std::string> occupied_ids;
@@ -710,10 +725,26 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
         const auto real_root = fs::canonical(root);
         const auto assets_root = real_root / "assets";
         const bool has_assets = fs::is_directory(assets_root) && contained(real_root, assets_root);
-        for (const auto& item : request.at("paths")) {
-            if (!item.is_string())
+        for (const auto& item : sources) {
+            if ((generated && (!item.is_object() || !item.contains("stagedPath") ||
+                               !item["stagedPath"].is_string() ||
+                               !item.contains("outputId") || !item["outputId"].is_string() ||
+                               !item.contains("output") || !item["output"].is_object())) ||
+                (!generated && !item.is_string()))
                 return fail("Asset import source paths must be UTF-8 strings.");
-            auto source = from_utf8(item.get<std::string>());
+            const auto& metadata = generated ? item["output"] : Json::object();
+            if (generated && (!metadata.contains("format") || !metadata["format"].is_string() ||
+                              !metadata.contains("byteSize") ||
+                              !metadata["byteSize"].is_number_unsigned() ||
+                              !metadata.contains("contentHash") ||
+                              !metadata["contentHash"].is_string() ||
+                              !metadata.contains("mimeType") || !metadata["mimeType"].is_string() ||
+                              !metadata.contains("width") || metadata["width"].is_number() == false ||
+                              !metadata.contains("height") || metadata["height"].is_number() == false ||
+                              !metadata.contains("hasAlpha") || !metadata["hasAlpha"].is_boolean()))
+                return fail("Generated Asset metadata is malformed.");
+            auto source = from_utf8(generated ? item["stagedPath"].get<std::string>()
+                                              : item.get<std::string>());
             if (!source.is_absolute())
                 return fail("Native Asset import requires absolute source paths.");
             if (!fs::is_regular_file(source))
@@ -721,9 +752,17 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
             source = fs::canonical(source);
             if (!seen_sources.insert(source).second)
                 continue;
-            const auto filename = utf8(source.filename());
-            const auto classification = kind(source);
-            const bool internal = has_assets && contained(assets_root, source);
+            const auto generated_format = generated ? metadata.value("format", std::string{}) : "";
+            const std::map<std::string, std::string> generated_extensions{
+                {"png", ".png"}, {"jpeg", ".jpg"}, {"webp", ".webp"}, {"gif", ".gif"}};
+            if (generated && !generated_extensions.contains(generated_format))
+                return fail("Unsupported generated image format.");
+            const auto filename = generated ? slug(request["workflow"]["id"].get<std::string>() +
+                                                   "-" + timestamp()) +
+                                                  generated_extensions.at(generated_format)
+                                            : utf8(source.filename());
+            const auto classification = generated ? "image" : kind(source);
+            const bool internal = !generated && has_assets && contained(assets_root, source);
             auto asset_path =
                 internal ? source.lexically_relative(real_root).generic_string() : std::string{};
             if (internal && existing_by_path.contains(asset_path)) {
@@ -772,6 +811,19 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
             if (bytes->empty())
                 return fail("Asset import source cannot be empty: " + filename);
             const auto revision = exact_source_revision(*bytes);
+            if (generated && (metadata["byteSize"].get<std::size_t>() != bytes->size() ||
+                              metadata["contentHash"].get<std::string>() != revision ||
+                              metadata["mimeType"].get<std::string>() != mime(from_utf8(filename)) ||
+                              !image || metadata["width"] != (*image)["width"] ||
+                              metadata["height"] != (*image)["height"]))
+                return fail("Generated Asset bytes or image metadata changed before publication.");
+            // ComfyUI's image contract reports the presence of an alpha channel,
+            // including fully opaque RGBA PNGs. Native image inspection instead
+            // reports whether any decoded pixel is translucent. Keep the verified
+            // ComfyUI channel semantics for persisted generated Asset metadata;
+            // native decoding still proves the image and its dimensions.
+            if (generated)
+                (*image)["hasAlpha"] = metadata["hasAlpha"];
             auto id = slug(filename);
             const auto base = id;
             for (unsigned suffix = 2; occupied_ids.contains(id); ++suffix)
@@ -784,7 +836,8 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                 const std::map<std::string, std::string> directories{
                     {"image", "images"}, {"font", "fonts"}, {"audio", "audio"},  {"video", "video"},
                     {"text", "text"},    {"data", "data"},  {"binary", "binary"}};
-                const auto folder = "assets/" + directories.at(classification) + "/";
+                const auto folder = generated ? "assets/generated/"
+                                              : "assets/" + directories.at(classification) + "/";
                 for (unsigned suffix = 1;; ++suffix) {
                     const auto candidate = folder + base +
                                            (suffix == 1 ? "" : "-" + std::to_string(suffix)) +
@@ -800,7 +853,14 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
             }
             const auto record_path = "records/assets/" + id + ".yaml";
             const auto stem = filename.substr(0, filename.find_last_of('.'));
-            auto yaml = import_yaml(id, stem, classification, asset_path, filename, utf8(source),
+            const auto label = generated ? request["workflow"]["label"].get<std::string>() + " " +
+                                               item["outputId"].get<std::string>()
+                                         : stem;
+            const auto original = generated ? "comfyui:" +
+                                                  request["workflow"]["id"].get<std::string>() +
+                                                  ":" + request["promptId"].get<std::string>()
+                                            : utf8(source);
+            auto yaml = import_yaml(id, label, classification, asset_path, filename, original,
                                     revision, bytes->size(), image);
             const auto opened = open_yaml_source(yaml);
             if (!opened.accepted || !validate_asset_source(opened.source_json).accepted)
@@ -810,6 +870,8 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                        {"kind", classification},
                        {"contentHash", revision},
                        {"alreadyImported", false}};
+            if (generated)
+                entry["outputId"] = item["outputId"];
             if (image) {
                 for (const auto* key : {"width", "height", "hasAlpha", "orientation"})
                     entry[key] = image->at(key);
@@ -839,6 +901,10 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
         }
         if (!session.validate_project().valid)
             return fail("Project changed before native Asset import publication.");
+        if (generated && request.contains("expectedSourceGeneration") &&
+            native_project_source_generation(session, root) !=
+                request["expectedSourceGeneration"].get<std::string>())
+            return fail("Project source generation changed before native Asset publication.");
         ScopedDirectory staging;
         // Native Asset binary staging is *not* a YAML transaction journal.
         // YamlTransactionService owns .noveltea/transactions exclusively and
@@ -920,6 +986,15 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                     exact_source_revision(planned[i].original_bytes))
                     throw std::runtime_error("Asset output changed before YAML publication.");
             }
+            // The remote job's admitted Project must still be authoritative at the
+            // point of YAML acceptance, not merely when the owner began staging.
+            // A concurrent edit to an unrelated source must not attach a new Asset
+            // to an obsolete pinned Project generation.
+            if (generated && request.contains("expectedSourceGeneration") &&
+                native_project_source_generation(session, root) !=
+                    request["expectedSourceGeneration"].get<std::string>())
+                throw std::runtime_error(
+                    "Project source generation changed during native Asset publication.");
             const auto committed = writer.commit(prepared, TransactionDecision::KeepComments);
             if (!committed.accepted) {
                 const auto recovered = writer.recover();

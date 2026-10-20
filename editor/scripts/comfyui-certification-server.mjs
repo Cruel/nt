@@ -1,4 +1,5 @@
 import { appendFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import http from 'node:http';
 import process from 'node:process';
 
@@ -116,6 +117,11 @@ const server = http.createServer(async (request, response) => {
             },
           }),
         );
+      if (
+        mode === 'history-gated' &&
+        !existsSync(process.env.NOVELTEA_COMFYUI_CERT_RELEASE_MARKER ?? '')
+      )
+        return response.end('{}');
       if (mode === 'never-complete' || polls === 0) return response.end('{}');
       return response.end(
         JSON.stringify({

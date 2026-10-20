@@ -570,6 +570,18 @@ host binary remains subject to the cross-host certification gate in `SCRIPTC_COM
 
 The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations and image inspection cross the existing NovelTea native boundary. `agent sync` embeds the checked-in agent-kit source texts as build-time package data, and built-in ComfyUI manifests/API workflows are likewise embedded as immutable build-time package data. The release certification runs Node-reference-versus-ScriptC ComfyUI operations against a deterministic local fake server and separately proves relocated built-in discovery. See `SCRIPTC_COMPATIBILITY.md` for admitted host assumptions, including current OS-signal limitations.
 
+The certification-only native Project lifecycle also handles Project-backed ComfyUI
+catalog discovery and Project admission. `comfyui status` and Project-less catalog
+operations still do not open Project authoring state. For generated images routed to
+Project Assets, the disposable worker stages exact bytes and the resident owner
+delegates publication to the native Asset importer. That native transaction validates
+image bytes and expected source generation, allocates collision-safe IDs and paths,
+and commits Asset source files and YAML records with journaled recovery. Mixed
+filesystem-plus-Asset outputs retain the existing daemon broker activation,
+rollback and acceptance coordinator. The ordinary Node/ScriptC authoring path
+remains the production oracle until the coordinated native CLI cutover; the
+installed-CLI fake-server certification runs both paths independently.
+
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
 ## Validation and Test verdicts

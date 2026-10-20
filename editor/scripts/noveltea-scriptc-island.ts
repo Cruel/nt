@@ -61,14 +61,21 @@ export async function commitNovelTeaResidentComfyUiAssetPublication(
   const request = JSON.parse(requestText) as unknown;
   if (request === null || typeof request !== 'object' || Array.isArray(request))
     throw new Error('ComfyUI Asset publication request is malformed.');
-  const { publishStagedComfyUiAssets } =
+  const { publishStagedComfyUiAssets, publishNativeStagedComfyUiAssets } =
     await import('../src/main/services/comfyui-asset-publication-service');
-  const result = await publishStagedComfyUiAssets({
-    request:
-      request as import('../src/main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest,
-    workspace: residentWorkspace,
-    fileSystem: residentFileSystem,
-  });
+  const typedRequest =
+    request as import('../src/main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest;
+  const result = typedRequest.nativeCandidate
+    ? await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
+        JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
+      )
+    : await publishStagedComfyUiAssets({
+        request: typedRequest,
+        workspace: residentWorkspace,
+        fileSystem: residentFileSystem,
+      });
+  if (typedRequest.nativeCandidate)
+    await residentWorkspace.reconcileAfterOpaqueWrite(typedRequest.projectRoot);
   announceResidentProjectGenerations();
   return result;
 }
@@ -965,7 +972,17 @@ async function runNovelTeaScriptcIslandScoped(
           ),
         );
       };
-      workspace = createWorkspace(fileSystem);
+      // The native ComfyUI candidate uses the workspace service only as an
+      // optional resident snapshot transport. Standalone catalog/status and
+      // local Project calls must not initialize a TypeScript authoring service.
+      if (
+        !(
+          family === 'comfyui' &&
+          environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
+        )
+      )
+        workspace = createWorkspace(fileSystem);
       if (
         (invocationContext.residentProjectSessions || invocationContext.pinnedProjectSnapshot) &&
         !residentWorkspace
