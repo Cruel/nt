@@ -89,6 +89,27 @@ These shared changes do not complete the separate public Test, Runtime Package,
 platform, or ComfyUI policy tickets (#515–#518), or exhaustive installed CLI
 integration certification (#519).
 
+### Native platform export candidate (#517)
+
+With the native lifecycle certification switch enabled, `platform export --check`
+and `platform export` use the same resident native Project preparation and
+generation-pinned disposable publication boundary as Runtime Package export.
+The selected export profile, application identity, external Asset proof, and
+captured authored shader source are native-owned; platform templates, signing,
+collision handling, and recoverable multi-artifact activation remain in the
+existing downstream platform service. The `--check` route is owner-short and
+write-free. Successful publication alone updates ignored editor-local identity
+metadata; any concurrent editor-local change is preserved.
+
+The Linux installed-CLI regression is
+`pnpm -C editor run noveltea:certify:native-cli-platform`. It creates a small
+real authored Project and locally untrusted Web template in disposable roots,
+compares legacy/native cold and daemon preflight, then compares real published
+Web artifacts, collision and symlink refusal, signing/config errors, and identity
+acknowledgement. It never uses external signing credentials and therefore
+does **not** certify actual certificate signing. Other platform signing and
+runtime execution remain subject to their target-specific release CI.
+
 This certification candidate does **not** switch production routing or the
 native-authoritative candidate for Runtime Package, Test, and platform preparation
 to production. Those consumers continue to share `prepareRuntimeArtifact` and

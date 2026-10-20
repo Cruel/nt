@@ -98,6 +98,12 @@ void collect_runtime_asset_references(const Json& value, const std::string& path
         if ((path.empty() && (it.key() == "tests" || it.key() == "editor")) ||
             child_path.starts_with("/tests/") || child_path.starts_with("/editor/"))
             continue;
+        // App icon and launch art are platform-assembly inputs, not gameplay
+        // Runtime Package dependencies. The existing platform stager reads
+        // them independently, so including them here changes .ntpkg contents.
+        if (child_path == "/settings/app/icon" ||
+            child_path == "/settings/app/launchImage")
+            continue;
         // Localization-owned Assets are resolved by the separate export locale closure.
         if (child_path.starts_with("/localization/assets/") ||
             (child_path.starts_with("/localization/locales/") &&

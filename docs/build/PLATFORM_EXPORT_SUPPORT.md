@@ -41,6 +41,16 @@ raising either ABI floor. The standalone CLI is fully certified independently on
 Windows x64; the macOS host CLI is built for and package-smoked with the macOS editor, while complete
 standalone CLI differential certification remains a separate admission gate.
 
+The native-authoritative platform-export candidate (#517) is also checked on
+the Linux installed CLI build, with an isolated, generated Web Project and
+template: `editor/scripts/certify-native-cli-platform.mjs`. This exercises
+the real native preparation and publication path alongside the legacy oracle,
+including cold and daemon preflight, retained output collision/force/symlink
+policy, template trust, and local application identity. The script reports
+explicitly that private certificate credentials are not provided, so passing
+does not claim real signing, Android SDK packaging, or macOS notarization.
+Those remain certified only by the appropriate target-specific release jobs.
+
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,
 NDK 28.2.13676358 (r28c), CMake 3.31.6, and bundletool 1.18.1. Those are template build inputs,

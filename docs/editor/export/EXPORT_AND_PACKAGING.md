@@ -216,6 +216,11 @@ its already-pinned native and physical Asset evidence, including immediately
 before activation. Successful identity metadata is merged only into the
 current ignored editor-local state after accepted publication; a concurrent
 editor-local change is preserved and reported instead of being overwritten.
+Native Runtime Package reachability excludes platform-assembly-only App icon
+and launch-image references, which the platform exporter processes separately.
+This keeps the native package input inventory aligned with the existing
+Runtime Package compiler and avoids including platform-only icon bytes in
+`.ntpkg`.
 
 The complete planned platform artifact set is activated through one recoverable publication record.
 That record covers the output directory plus every applicable archive, symbols archive, AppImage,

@@ -489,6 +489,9 @@ jobs:
       - name: Certify staged native CLI Project routing parity
         run: node editor/scripts/certify-native-cli-project-routing.mjs "$PWD/build/cli/linux/noveltea"
 
+      - name: Certify native CLI platform preflight and publication parity
+        run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
+
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
         with:
