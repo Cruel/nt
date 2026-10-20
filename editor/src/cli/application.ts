@@ -563,7 +563,9 @@ export async function runNovelTeaCli(
   }
 
   if (globals.command[0] === 'comfyui') {
-    const services = await workspaceServices();
+    const services = options.nativeProjectCommands
+      ? { fileSystem: await projectFileSystem(), workspace: options.workspace }
+      : await workspaceServices();
     const opaqueProjectRoot =
       routing.projectAccess === 'opaque-write' && options.residentWorkspace
         ? globals.project
@@ -610,6 +612,8 @@ export async function runNovelTeaCli(
             ? options.residentWorkspace
             : services.workspace,
         nativeTools,
+        nativeProjectCommands: options.nativeProjectCommands,
+        pinnedNativePreparation: options.pinnedNativePreparation,
         libraryOptions: options.comfyUiWorkflowLibraryOptions,
         abortSignal: options.abortSignal,
         onRunProgress: options.onComfyUiProgress,

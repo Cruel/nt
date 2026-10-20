@@ -23,6 +23,7 @@ import {
   prepareOutputPublicationTransaction,
   recoverOutputPublicationTransaction,
 } from './output-publication-transaction';
+import type { NativeProjectCommandCall } from '../../cli/native-project-lifecycle-cli';
 
 export interface ComfyUiPublishedAssetOutput extends Omit<ComfyUiGeneratedImage, 'bytes'> {
   target: 'asset';
@@ -319,12 +320,88 @@ export interface ComfyUiStagedAssetPublicationRequest {
   projectRoot: string;
   workflow: { id: string; label: string };
   promptId: string;
+  nativeCandidate?: boolean;
+  expectedSourceGeneration?: string;
   publicationTransactionPath?: string;
   assets: Array<{
     outputId: string;
     stagedPath: string;
     output: Omit<ComfyUiGeneratedImage, 'bytes'>;
   }>;
+}
+
+/** Native owns the fresh disk admission, byte inspection, IDs, YAML and binary transaction. */
+export async function publishNativeStagedComfyUiAssets(
+  request: ComfyUiStagedAssetPublicationRequest,
+  native: NativeProjectCommandCall,
+): Promise<Record<string, ComfyUiPublishedAssetOutput[]>> {
+  if (request.assets.length === 0) return {};
+  let committed;
+  try {
+    committed = await native({
+      action: 'comfyui-assets',
+      projectRoot: request.projectRoot,
+      workflow: request.workflow,
+      promptId: request.promptId,
+      ...(request.expectedSourceGeneration
+        ? { expectedSourceGeneration: request.expectedSourceGeneration }
+        : {}),
+      dryRun: false,
+      generated: request.assets,
+    });
+  } catch (error) {
+    // The native transaction may have committed; never retry an uncertain transport.
+    throw new ComfyUiRunError('COMFYUI_ASSET_PUBLICATION_FAILED', '/outputs', String(error));
+  }
+  if (!committed.ok) {
+    const diagnostic = (committed.diagnostics as Array<{ message?: string }> | undefined)?.[0];
+    const message = diagnostic?.message ?? committed.error ?? 'Native Asset publication failed.';
+    throw new ComfyUiRunError(
+      /changed|revision|conflict|transaction|lock|busy/iu.test(message)
+        ? 'COMFYUI_ASSET_PUBLICATION_CONFLICT'
+        : 'COMFYUI_ASSET_PUBLICATION_FAILED',
+      '/outputs',
+      message,
+    );
+  }
+  const fields = committed.fields as
+    | {
+        assets?: Array<{
+          outputId: string;
+          assetId: string;
+          projectRelativePath: string;
+          contentHash: string;
+        }>;
+      }
+    | undefined;
+  if (!Array.isArray(fields?.assets) || fields.assets.length !== request.assets.length)
+    throw new ComfyUiRunError(
+      'COMFYUI_ASSET_PUBLICATION_FAILED',
+      '/outputs',
+      'Native Asset publication returned incomplete Asset metadata.',
+    );
+  const published: Record<string, ComfyUiPublishedAssetOutput[]> = {};
+  fields.assets.forEach((asset, index) => {
+    const source = request.assets[index]!;
+    if (
+      asset.outputId !== source.outputId ||
+      asset.contentHash !== source.output.contentHash ||
+      typeof asset.assetId !== 'string' ||
+      typeof asset.projectRelativePath !== 'string'
+    )
+      throw new ComfyUiRunError(
+        'COMFYUI_ASSET_PUBLICATION_FAILED',
+        '/outputs',
+        'Native Asset publication metadata does not match the staged output.',
+      );
+    (published[source.outputId] ??= []).push({
+      ...source.output,
+      target: 'asset',
+      assetId: asset.assetId,
+      projectRelativePath: asset.projectRelativePath,
+    });
+  });
+  return published;
 }
 
 export async function publishStagedComfyUiAssets(options: {
@@ -398,8 +475,10 @@ async function assetPlanWasCommitted(
 
 export async function publishComfyUiOutputs(options: {
   projectRoot: string | null;
-  workspace: ProjectWorkspaceService;
+  workspace?: ProjectWorkspaceService;
   fileSystem: ProjectWorkspaceFileSystem;
+  nativeProjectCommands?: NativeProjectCommandCall;
+  expectedSourceGeneration?: string;
   workflow: ComfyUiRunnableWorkflowEntry;
   promptId: string;
   plan: ComfyUiRunPlan;
@@ -414,10 +493,13 @@ export async function publishComfyUiOutputs(options: {
     (route) => route.target === 'asset',
   );
   const assetPlan =
-    options.projectRoot && hasAssetRoutes && !options.commitStagedProjectAssets
+    options.projectRoot &&
+    hasAssetRoutes &&
+    !options.commitStagedProjectAssets &&
+    !options.nativeProjectCommands
       ? await planAssets({
           projectRoot: options.projectRoot,
-          workspace: options.workspace,
+          workspace: options.workspace!,
           fileSystem: options.fileSystem,
           workflow: options.workflow,
           promptId: options.promptId,
@@ -445,8 +527,12 @@ export async function publishComfyUiOutputs(options: {
   const delegatedAssetPaths: string[] = [];
   let mixedPublicationTransactionPath: string | null = null;
   try {
-    if (options.projectRoot && hasAssetRoutes && options.commitStagedProjectAssets) {
-      if (!options.registerStagedOutput)
+    if (
+      options.projectRoot &&
+      hasAssetRoutes &&
+      (options.commitStagedProjectAssets || options.nativeProjectCommands)
+    ) {
+      if (options.commitStagedProjectAssets && !options.registerStagedOutput)
         throw new ComfyUiRunError(
           'COMFYUI_ASSET_PUBLICATION_FAILED',
           '/outputs',
@@ -460,14 +546,14 @@ export async function publishComfyUiOutputs(options: {
             os.tmpdir(),
             `noveltea-comfyui-${randomUUID()}${extensionForFormat(output.format)}`,
           );
-          await options.registerStagedOutput(stagedPath);
+          await options.registerStagedOutput?.(stagedPath);
           await fs.writeFile(stagedPath, output.bytes, { flag: 'wx' });
           delegatedAssetPaths.push(stagedPath);
           const { bytes: _bytes, ...metadata } = output;
           assets.push({ outputId, stagedPath, output: metadata });
         }
       }
-      if (staged.length > 0) {
+      if (staged.length > 0 && options.commitStagedProjectAssets) {
         mixedPublicationTransactionPath = path.join(
           os.tmpdir(),
           `noveltea-comfyui-${randomUUID()}.noveltea-publication-transaction.json`,
@@ -488,27 +574,36 @@ export async function publishComfyUiOutputs(options: {
           registerRecoveryPath: options.registerStagedOutput,
         });
       }
-      delegatedAssets = await options.commitStagedProjectAssets({
+      if (!options.commitStagedProjectAssets && staged.length > 0) await commitFilesystem(staged);
+      const request: ComfyUiStagedAssetPublicationRequest = {
         projectRoot: options.projectRoot,
         workflow: { id: options.workflow.id, label: options.workflow.label },
         promptId: options.promptId,
+        ...(options.nativeProjectCommands ? { nativeCandidate: true } : {}),
+        ...(options.expectedSourceGeneration
+          ? { expectedSourceGeneration: options.expectedSourceGeneration }
+          : {}),
         ...(mixedPublicationTransactionPath
           ? { publicationTransactionPath: mixedPublicationTransactionPath }
           : {}),
         assets,
-      });
+      };
+      delegatedAssets = options.commitStagedProjectAssets
+        ? await options.commitStagedProjectAssets(request)
+        : await publishNativeStagedComfyUiAssets(request, options.nativeProjectCommands!);
     } else {
       await commitFilesystem(staged);
     }
     if (assetPlan && options.projectRoot) {
       await commitAssetPlan({
         projectRoot: options.projectRoot,
-        workspace: options.workspace,
+        workspace: options.workspace!,
         workflowId: options.workflow.id,
         assetPlan,
       });
     }
-    if (!options.commitStagedProjectAssets || !hasAssetRoutes) await finalizeFilesystem(staged);
+    if ((!options.commitStagedProjectAssets || !hasAssetRoutes) && !mixedPublicationTransactionPath)
+      await finalizeFilesystem(staged);
   } catch (error) {
     if (mixedPublicationTransactionPath)
       await recoverOutputPublicationTransaction(mixedPublicationTransactionPath).catch(

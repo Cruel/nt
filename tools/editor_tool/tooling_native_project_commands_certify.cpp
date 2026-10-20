@@ -397,6 +397,66 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
 {
     Fixture fixture(fixture_source);
     const auto root = fixture.root.string();
+    {
+        const auto staged = fixture.root / "comfyui-staged.webp";
+        std::filesystem::copy_file(fixture.root / "assets/images/bedroom.webp", staged);
+        const auto inspected = command({{"action", "asset-import"},
+                                        {"projectRoot", root},
+                                        {"paths", Json::array({staged.string()})},
+                                        {"dryRun", true}});
+        require(inspected.value("ok", false), "Generated ComfyUI fixture must be valid image bytes.");
+        const auto& image = inspected.at("fields").at("assets").at(0);
+        const auto output = Json{{"format", "webp"},
+                                 {"mimeType", "image/webp"},
+                                 {"byteSize", std::filesystem::file_size(staged)},
+                                 {"contentHash", image.at("contentHash")},
+                                 {"width", image.at("width")},
+                                 {"height", image.at("height")},
+                                 {"hasAlpha", image.at("hasAlpha")}};
+        const Json request{{"action", "comfyui-assets"},
+                           {"projectRoot", root},
+                           {"workflow", {{"id", "certification-workflow"},
+                                          {"label", "Certification Workflow"}}},
+                           {"promptId", "fake-prompt"},
+                           {"dryRun", false},
+                           {"generated", Json::array({{{"outputId", "images"},
+                                                       {"stagedPath", staged.string()},
+                                                       {"output", output}}})}};
+        auto rejected = request;
+        rejected["generated"][0]["output"]["contentHash"] = "sha256:untrusted";
+        const auto invalid = command(rejected);
+        require(!invalid.value("ok", false),
+                "Generated ComfyUI source hash mismatch must fail before native publication.");
+        rejected = request;
+        rejected["expectedSourceGeneration"] = "sha256:stale";
+        const auto stale = command(rejected);
+        require(!stale.value("ok", false),
+                "Generated ComfyUI source-generation change must prevent all Asset writes.");
+        const auto committed = command(request);
+        require(committed.value("ok", false) && committed.at("fields").at("assets").size() == 1,
+                "Native ComfyUI Asset publication must commit its image: " + committed.dump());
+        const auto& published = committed.at("fields").at("assets").at(0);
+        const auto id = published.at("assetId").get<std::string>();
+        const auto asset_path = fixture.root /
+                                published.at("projectRelativePath").get<std::string>();
+        const auto record = fixture.root / "records/assets" / (id + ".yaml");
+        const auto metadata = command({{"action", "entity-inspect"},
+                                       {"projectRoot", root},
+                                       {"collection", "assets"},
+                                       {"id", id}});
+        require(std::filesystem::is_regular_file(asset_path) && read(asset_path) == read(staged) &&
+                    read(record).find("comfyui:certification-workflow:fake-prompt") !=
+                        std::string::npos &&
+                    metadata.value("ok", false) &&
+                    metadata.at("fields").at("record").at("data").at("contentHash") ==
+                        output.at("contentHash"),
+                "Native ComfyUI Asset must persist exact source bytes and a schema-valid record.");
+        const auto repeated = command(request);
+        require(repeated.value("ok", false) &&
+                    repeated.at("fields").at("assets").at(0).at("assetId") != id,
+                "Independent ComfyUI runs must allocate collision-safe Asset identities.");
+        std::filesystem::remove(staged);
+    }
     for (const auto& [original, name, classification] :
          {std::tuple<std::string, std::string, std::string>{"assets/images/bedroom.webp",
                                                             "native-import-image.webp", "image"},

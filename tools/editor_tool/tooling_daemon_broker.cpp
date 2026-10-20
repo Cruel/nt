@@ -3899,6 +3899,20 @@ private:
                             "disposable owner mutation requires an active Project-bound request"));
                         continue;
                     }
+                    const auto owner_id = project_owner_by_root_.find(active->second.pinned_project_root);
+                    const auto owner = owner_id == project_owner_by_root_.end()
+                                           ? project_owners_.end()
+                                           : project_owners_.find(owner_id->second);
+                    if (owner_request.value("nativeCandidate", false) &&
+                        (owner == project_owners_.end() || owner->second.retiring ||
+                         !active->second.pinned_generation ||
+                         !owner->second.active_generation ||
+                         *owner->second.active_generation != *active->second.pinned_generation)) {
+                        client->send(result_event_json(
+                            request_id, false, "null",
+                            "ComfyUI Project owner generation changed before Asset publication"));
+                        continue;
+                    }
                     canonical_root = active->second.pinned_project_root;
                     original_payload = active->second.payload;
                     if (publication_transaction_path) {

@@ -344,12 +344,14 @@ async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
     tempRoot,
     `comfyui-${mode}-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`,
   );
+  const releasePath = path.join(tempRoot, `comfyui-release-${process.pid}-${Date.now()}`);
   const child = spawn(process.execPath, [comfyUiCertificationServer], {
     cwd: tempRoot,
     env: {
       ...process.env,
       NOVELTEA_COMFYUI_CERT_LOG: logPath,
       NOVELTEA_COMFYUI_CERT_MODE: mode,
+      NOVELTEA_COMFYUI_CERT_RELEASE_MARKER: releasePath,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -382,6 +384,7 @@ async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
   return {
     url: `http://127.0.0.1:${port}`,
     logPath,
+    releasePath,
     async stop() {
       if (child.exitCode !== null) return;
       child.kill('SIGTERM');
@@ -3163,16 +3166,18 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
   }
 }
 
-async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
-  const root = path.join(tempRoot, 'comfyui-owner-isolation');
+async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine, nativeCandidate = false) {
+  const suffix = nativeCandidate ? '-native' : '';
+  const root = path.join(tempRoot, `comfyui-owner-isolation${suffix}`);
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-comfy-'));
-  const configRoot = path.join(tempRoot, 'comfyui-owner-isolation-config');
+  const configRoot = path.join(tempRoot, `comfyui-owner-isolation-config${suffix}`);
   await resetCase(pristine, root);
   await rm(configRoot, { recursive: true, force: true });
   const server = await startComfyUiCertificationServer(tempRoot, 'success');
   const environment = {
     ...process.env,
     NOVELTEA_CLI_CERTIFICATION: '1',
+    NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: nativeCandidate ? '1' : '0',
     NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `comfyui-owner-isolation-${process.pid}-${Date.now()}`,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
@@ -5172,9 +5177,22 @@ async function comfyUiStateSnapshot(root) {
 
   let assetCount = 0;
   try {
-    assetCount = (await readdir(path.join(root, 'records', 'assets'))).filter((name) =>
-      name.endsWith('.json'),
-    ).length;
+    const records = (await readdir(path.join(root, 'records', 'assets'))).filter((name) =>
+      name.endsWith('.yaml'),
+    );
+    assetCount = records.length;
+    for (const name of records) {
+      const record = parseYaml(await readFile(path.join(root, 'records', 'assets', name), 'utf8'));
+      if (!record?.data?.source?.path?.startsWith('assets/generated/')) continue;
+      const bytes = await readFile(path.join(root, record.data.source.path));
+      if (
+        record.id !== name.slice(0, -'.yaml'.length) ||
+        record.data.contentHash !== `sha256:${sha256(bytes)}` ||
+        record.data.byteSize !== bytes.byteLength ||
+        !record.data.originalPath?.startsWith('comfyui:')
+      )
+        fail(`ComfyUI Asset '${name}' has mismatched persisted native metadata or source bytes.`);
+    }
   } catch {
     // Project-less cases have no Asset records.
   }
@@ -5209,6 +5227,96 @@ async function installCertificationMultiOutputWorkflow(projectRoot) {
   await mkdir(workflowRoot, { recursive: true });
   await writeFile(path.join(workflowRoot, manifest.workflowFile), workflowText);
   await writeJson(path.join(workflowRoot, 'certification-multi.manifest.json'), manifest);
+}
+
+async function certifyNativeComfyUiSourceRace(tempRoot, pristine) {
+  const server = await startComfyUiCertificationServer(tempRoot, 'history-gated');
+  try {
+    for (const daemon of [true, false]) {
+      const suffix = daemon ? 'owner' : 'local';
+      const root = path.join(tempRoot, `comfyui-native-source-race-${suffix}`);
+      await resetCase(pristine, root);
+      await installCertificationMultiOutputWorkflow(root);
+      await rm(server.releasePath, { force: true });
+      await writeFile(server.logPath, '');
+      const initialRecords = (await readdir(path.join(root, 'records', 'assets'))).sort();
+      const destination = path.join(root, 'mixed.png');
+      const environment = {
+        ...process.env,
+        NOVELTEA_CLI_CERTIFICATION: '1',
+        NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+        NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `comfyui-race-${process.pid}-${suffix}`,
+        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
+          tempRoot,
+          `comfyui-race-daemon-${suffix}`,
+        ),
+        NOVELTEA_USER_CONFIG_ROOT: path.join(tempRoot, `comfyui-race-config-${suffix}`),
+      };
+      const run = await runAsync(
+        nativeCli,
+        [
+          ...(daemon ? [] : ['--no-daemon']),
+          '--project',
+          root,
+          '--json',
+          'comfyui',
+          'run',
+          'certification-multi',
+          '--server',
+          server.url,
+          '--input',
+          'prompt=source race certification',
+          '--output',
+          `primary=${destination}`,
+        ],
+        { cwd: root, env: environment },
+      );
+      const resultPromise = run.result();
+      await Promise.race([
+        waitForComfyUiRequestPrefix(server.logPath, '/history/', 30_000),
+        resultPromise.then((result) =>
+          fail(`Native ${suffix} ComfyUI job stopped before remote generation: ${result.stdout}`),
+        ),
+      ]);
+      const manifest = path.join(root, 'project.yaml');
+      await writeFile(
+        manifest,
+        `${await readFile(manifest, 'utf8')}\n# edited during remote ComfyUI generation\n`,
+      );
+      await writeFile(server.releasePath, 'release');
+      const result = await resultPromise;
+      const payload = JSON.parse(result.stdout);
+      if (
+        result.status !== 4 ||
+        payload.success !== false ||
+        !payload.diagnostics?.some(
+          (entry) =>
+            entry.code === 'COMFYUI_ASSET_PUBLICATION_CONFLICT' ||
+            entry.code === 'COMFYUI_PUBLICATION_FAILED',
+        )
+      )
+        fail(`Native ${suffix} ComfyUI accepted a stale Project generation: ${result.stdout}`);
+      const laterRecords = (await readdir(path.join(root, 'records', 'assets'))).sort();
+      if (JSON.stringify(laterRecords) !== JSON.stringify(initialRecords))
+        fail(`Native ${suffix} ComfyUI source race partially published Asset records.`);
+      try {
+        await stat(destination);
+        fail(`Native ${suffix} ComfyUI source race failed to roll back mixed filesystem output.`);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      const generated = await readdir(path.join(root, 'assets', 'generated')).catch((error) => {
+        if (error?.code !== 'ENOENT') throw error;
+        return [];
+      });
+      if (generated.length > 0)
+        fail(`Native ${suffix} ComfyUI source race partially published generated bytes.`);
+      runNative(['daemon', 'stop'], { env: environment });
+      process.stdout.write(`[comfyui native source race] ${suffix}: PASS\n`);
+    }
+  } finally {
+    await server.stop();
+  }
 }
 
 async function certifyComfyUiStandalone(tempRoot, pristine) {
@@ -5370,7 +5478,17 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
         await writeFile(server.logPath, '');
         const result = runner(test.args(root), {
           cwd: root,
-          env: { ...process.env, NOVELTEA_USER_CONFIG_ROOT: configRoot },
+          env: {
+            ...process.env,
+            NOVELTEA_USER_CONFIG_ROOT: configRoot,
+            // The native candidate changes the Project-owner preparation contract.
+            // Never reuse a daemon launched with the legacy candidate's environment.
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `comfyui-${process.pid}-${test.name}-${configSuffix}`,
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
+              tempRoot,
+              `comfyui-daemon-${test.name}-${configSuffix}`,
+            ),
+          },
         });
         const requests = await readComfyUiRequests(server.logPath);
         const state = await comfyUiStateSnapshot(root);
@@ -5379,10 +5497,38 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       const node = await runOne(runNode, 'node');
       const native = await runOne(runNative, 'native');
       const local = await runOne(runNativeNoDaemon, 'no-daemon');
-      for (const entry of [
+      const candidates = [
         { label: 'resident', candidate: native },
         { label: 'no-daemon', candidate: local },
-      ]) {
+      ];
+      if (test.project) {
+        const nativeCandidateEnv = {
+          NOVELTEA_CLI_CERTIFICATION: '1',
+          NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+        };
+        candidates.push(
+          {
+            label: 'native-project-owner',
+            candidate: await runOne(
+              (args, options) =>
+                runNative(args, { ...options, env: { ...options.env, ...nativeCandidateEnv } }),
+              'native-owner',
+            ),
+          },
+          {
+            label: 'native-project-no-daemon',
+            candidate: await runOne(
+              (args, options) =>
+                runNativeNoDaemon(args, {
+                  ...options,
+                  env: { ...options.env, ...nativeCandidateEnv },
+                }),
+              'native-local',
+            ),
+          },
+        );
+      }
+      for (const entry of candidates) {
         const { label, candidate } = entry;
         if (
           node.result.status !== candidate.result.status ||
@@ -5724,6 +5870,8 @@ async function certifyComfyUiStandalone(tempRoot, pristine) {
       await rm(scriptcDaemonRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 
+  await certifyNativeComfyUiSourceRace(tempRoot, pristine);
+
   return cases.length + failureCases.length + 3;
 }
 
@@ -5993,6 +6141,7 @@ async function main() {
             break;
           case 'comfyui-owner-isolation':
             await certifyComfyUiDisposableOwnerIsolation(tempRoot, await ensurePristine());
+            await certifyComfyUiDisposableOwnerIsolation(tempRoot, await ensurePristine(), true);
             break;
           case 'resident-daemon':
           case 'resident-daemon-core':
@@ -6067,9 +6216,10 @@ async function main() {
     await runTimedSection('authority-mutation', () =>
       certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine),
     );
-    await runTimedSection('comfyui-owner-isolation', () =>
-      certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine),
-    );
+    await runTimedSection('comfyui-owner-isolation', async () => {
+      await certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine);
+      await certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine, true);
+    });
     const residentDaemon = await runTimedSection('resident-daemon', () =>
       certifyResidentDaemon(tempRoot, pristine),
     );

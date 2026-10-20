@@ -39,6 +39,8 @@ import {
   type ProjectWorkspaceService,
 } from '../shared/project-workspace';
 import { CliCommandUsageError } from './commands/types';
+import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
+import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
 import {
   cliDiagnostic,
   formatCliResult,
@@ -54,8 +56,13 @@ interface RunComfyUiCatalogCommandOptions {
   json: boolean;
   cwd: string;
   fileSystem: ProjectWorkspaceFileSystem;
-  workspace: ProjectWorkspaceService;
+  workspace?: ProjectWorkspaceService;
   nativeTools?: NovelTeaCliNativeToolService;
+  nativeProjectCommands?: NativeProjectCommandCall;
+  pinnedNativePreparation?: Readonly<{
+    projectRoot: string;
+    preparation: NativeResidentProjectPreparation | null;
+  }>;
   libraryOptions?: WorkflowLibraryServiceOptions;
   abortSignal?: AbortSignal;
   onRunProgress?: (stage: 'queued' | 'running' | 'completed', message: string) => void;
@@ -272,7 +279,74 @@ async function optionalProjectRoot(
   projectOption: string | null,
   cwd: string,
   fileSystem: ProjectWorkspaceFileSystem,
-): Promise<{ projectRoot: string | null; error?: NovelTeaCliDiagnostic }> {
+  native?: NativeProjectCommandCall,
+  pinned?: RunComfyUiCatalogCommandOptions['pinnedNativePreparation'],
+  captureNativeGeneration = false,
+): Promise<{
+  projectRoot: string | null;
+  sourceGeneration?: string;
+  error?: NovelTeaCliDiagnostic;
+}> {
+  if (native) {
+    const root =
+      pinned?.projectRoot ?? (await nativeProjectRoot(cwd, projectOption ?? undefined, fileSystem));
+    if (!root)
+      return projectOption
+        ? {
+            projectRoot: null,
+            error: cliDiagnostic(
+              'WORKSPACE_NOT_FOUND',
+              '/project.yaml',
+              'No NovelTea project.yaml was found at the selected Project root.',
+            ),
+          }
+        : { projectRoot: null };
+    if (pinned && !pinned.preparation)
+      return {
+        projectRoot: null,
+        error: cliDiagnostic(
+          'WORKSPACE_REVISION_CONFLICT',
+          '/project.yaml',
+          'Pinned Project has no native preparation.',
+        ),
+      };
+    if (pinned)
+      return { projectRoot: root, sourceGeneration: pinned.preparation!.sourceGeneration };
+    if (!pinned) {
+      const admission = await native({
+        action: captureNativeGeneration ? 'comfyui-admission' : 'workspace-preflight',
+        projectRoot: root,
+      });
+      if (!admission.ok) {
+        const diagnostic = (
+          admission.diagnostics as
+            | Array<{ code?: string; path?: string; message?: string }>
+            | undefined
+        )?.[0];
+        return {
+          projectRoot: null,
+          error: cliDiagnostic(
+            diagnostic?.code ?? 'WORKSPACE_MANIFEST_INVALID',
+            diagnostic?.path ?? '/project.yaml',
+            diagnostic?.message ?? admission.error ?? 'Native Project admission failed.',
+          ),
+        };
+      }
+      if (captureNativeGeneration) {
+        if (typeof admission.sourceGeneration !== 'string' || !admission.sourceGeneration)
+          return {
+            projectRoot: null,
+            error: cliDiagnostic(
+              'WORKSPACE_REVISION_CONFLICT',
+              '/project.yaml',
+              'Native ComfyUI Project admission returned no source generation.',
+            ),
+          };
+        return { projectRoot: root, sourceGeneration: admission.sourceGeneration };
+      }
+    }
+    return { projectRoot: root };
+  }
   const discovery = projectOption
     ? await validateExplicitProjectRoot(fileSystem, path.resolve(cwd, projectOption))
     : await discoverProjectRoot(fileSystem, cwd);
@@ -437,6 +511,9 @@ export async function runComfyUiCatalogCommand(
       options.projectOption,
       options.cwd,
       options.fileSystem,
+      options.nativeProjectCommands,
+      options.pinnedNativePreparation,
+      true,
     );
     if (project.error)
       return formatCliResult(
@@ -575,9 +652,10 @@ export async function runComfyUiCatalogCommand(
       });
       if (
         project.projectRoot &&
+        !options.nativeProjectCommands &&
         Object.values(runPlan.routes).some((route) => route.target === 'asset')
       )
-        await preflightComfyUiAssetPublication(project.projectRoot, options.workspace);
+        await preflightComfyUiAssetPublication(project.projectRoot, options.workspace!);
     } catch (error) {
       if (error instanceof CliCommandUsageError) throw error;
       const failure =
@@ -673,6 +751,8 @@ export async function runComfyUiCatalogCommand(
           projectRoot: project.projectRoot,
           workspace: options.workspace,
           fileSystem: options.fileSystem,
+          nativeProjectCommands: options.nativeProjectCommands,
+          expectedSourceGeneration: project.sourceGeneration,
           workflow: entry,
           promptId: result.promptId,
           plan: runPlan,
@@ -822,6 +902,8 @@ export async function runComfyUiCatalogCommand(
       options.projectOption,
       options.cwd,
       options.fileSystem,
+      options.nativeProjectCommands,
+      options.pinnedNativePreparation,
     );
     if (project.error)
       return formatCliResult(
@@ -888,7 +970,13 @@ export async function runComfyUiCatalogCommand(
   const parsed = parseWorkflowCommand(options.command);
   if (!parsed) return null;
 
-  const project = await optionalProjectRoot(options.projectOption, options.cwd, options.fileSystem);
+  const project = await optionalProjectRoot(
+    options.projectOption,
+    options.cwd,
+    options.fileSystem,
+    options.nativeProjectCommands,
+    options.pinnedNativePreparation,
+  );
   if (project.error)
     return formatCliResult(
       {
