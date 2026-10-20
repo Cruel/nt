@@ -349,12 +349,19 @@ async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild
       : undefined;
 
   if (!artifact) {
+    const admittedAssetReferences = context.workspace.admittedRuntimeAssetReferences(
+      context.snapshot,
+    );
     const prepared = await prepareRuntimeArtifact({
       project: context.snapshot.project,
-      admittedSourceGraph: {
-        ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
-        project: context.snapshot.project,
-      },
+      ...(admittedAssetReferences !== null
+        ? { admittedRuntimeAssetReferences: admittedAssetReferences }
+        : {
+            admittedSourceGraph: {
+              ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
+              project: context.snapshot.project,
+            },
+          }),
       admittedAuthoringDiagnostics:
         context.workspace.admittedAuthoringDiagnostics(context.snapshot) ?? undefined,
       admittedValidationContributions:
@@ -683,10 +690,18 @@ export const packageExportCommand: CliCommandDefinition = {
           await context.fileSystem.writeBytesAtomic(stagedPath, new Uint8Array());
           const prepared = await prepareRuntimeArtifact({
             project: context.snapshot.project,
-            admittedSourceGraph: {
-              ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
-              project: context.snapshot.project,
-            },
+            ...(context.workspace.admittedRuntimeAssetReferences(context.snapshot) !== null
+              ? {
+                  admittedRuntimeAssetReferences: context.workspace.admittedRuntimeAssetReferences(
+                    context.snapshot,
+                  )!,
+                }
+              : {
+                  admittedSourceGraph: {
+                    ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
+                    project: context.snapshot.project,
+                  },
+                }),
             admittedAuthoringDiagnostics:
               context.workspace.admittedAuthoringDiagnostics(context.snapshot) ?? undefined,
             admittedValidationContributions:

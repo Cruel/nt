@@ -244,6 +244,7 @@ export type NativeResidentProjectPreparation = Readonly<{
   sourceGeneration: string;
   sourceRevisions: Readonly<Record<string, string>>;
   sourceOverlays: Readonly<Record<string, string>>;
+  referencedAssetIds: readonly string[];
   cliDiagnostics: readonly Readonly<{
     code: string;
     path: string;
@@ -403,6 +404,7 @@ function nativePreparationValid(value: unknown): value is NativeResidentProjectP
       'sourceGeneration',
       'sourceRevisions',
       'sourceOverlays',
+      'referencedAssetIds',
       'cliDiagnostics',
     ])
   )
@@ -433,6 +435,13 @@ function nativePreparationValid(value: unknown): value is NativeResidentProjectP
         /^physical:[0-9]+:-?[0-9]+$/u.test(revision),
     ) &&
     textMap(preparation.sourceOverlays) &&
+    Array.isArray(preparation.referencedAssetIds) &&
+    (preparation.referencedAssetIds as unknown[]).every(
+      (id) => typeof id === 'string' && id.length > 0,
+    ) &&
+    (preparation.referencedAssetIds as string[]).every(
+      (id, index, values) => index === 0 || values[index - 1]! < id,
+    ) &&
     Array.isArray(preparation.cliDiagnostics) &&
     (preparation.cliDiagnostics as unknown[]).every(
       (candidate) =>
@@ -896,7 +905,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pinnedPhysicalAuthority: null,
         pinnedExternalAssets: null,
         pinnedProjectTextSources: null,
-        pinnedNativePreparation: null,
+        pinnedNativePreparation: native,
       };
       this.sessions.set(canonicalRoot, entry);
       this.bindSnapshot(entry, snapshot);
@@ -2332,6 +2341,14 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     return binding
       ? binding.entry.session.service().preflightCompiledArtifact(binding.canonicalSnapshot)
       : super.preflightCompiledArtifact(snapshot);
+  }
+
+  override admittedRuntimeAssetReferences(
+    snapshot: ProjectWorkspaceSnapshot,
+  ): readonly string[] | null {
+    const binding = this.snapshotBindings.get(snapshot);
+    if (!binding || !binding.entry.session.isGeneration(binding.generation)) return null;
+    return binding.entry.pinnedNativePreparation?.referencedAssetIds ?? null;
   }
 
   override publishCompiledArtifact(snapshot: ProjectWorkspaceSnapshot) {

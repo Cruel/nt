@@ -38,8 +38,9 @@ portable immutable generation. Changed sources are re-admitted by the native
 owner with a new generation, leaving already pinned workers unchanged.
 
 The retained preparation includes the effective native Project, source-generation
-identity, exact source revisions, native authoring warnings, and captured shader
-stage/include bytes. The portable Project value is native-owned, not the former
+identity, exact source revisions, native authoring warnings, captured shader
+stage/include bytes, and the native-admitted sorted runtime Asset-reference inventory.
+The portable Project value is native-owned, not the former
 TypeScript Project projection. Captured Lua, Layout RML/RCSS/Lua, shader/include,
 and supporting text inputs are retained for disposable downstream consumers.
 An immutable disposable worker never reruns native Project admission or source
@@ -50,12 +51,21 @@ participate in source invalidation and portable capture.
 The native preparation document is daemon-internal and has no separate persisted
 version or compatibility fallback.
 
-This is staged groundwork for #523–#525, **not** their completion: snapshot
-index restoration and shared runtime compiler preparation still invoke existing
-TypeScript dependency/authoring analysis. #523 must replace that shared
-generation analysis with native products; #524 must remove duplicate downstream
-authoring authority. Existing candidate Test and diagnostic parity fixes do not
-complete the separate public boundaries in #513 and #515.
+In the native-admitted candidate, the shared Prepared Runtime Artifact path
+consumes the admitted validation result and native Asset-reference inventory,
+skipping TypeScript Project normalization, semantic validation, structural linking,
+and a second source/dependency graph traversal. TypeScript remains responsible for
+downstream gameplay lowering, compiled-wire validation, Material/shader requests,
+localization closure, and packaging glue; it is not a second saved-Project admission.
+Shader compiler overlays and dependency-revision verification use captured
+Project text, including non-`.sc` includes, rather than newer disk contents.
+Pinned Runtime Package notices are published as captured text under their
+`licenses/` archive paths. Native-owned reference inventories are internal
+same-generation snapshot evidence, not a new published runtime schema.
+
+These shared changes do not complete the separate public Test, Runtime Package,
+platform, or ComfyUI policy tickets (#515–#518), or exhaustive installed CLI
+integration certification (#519).
 
 This certification candidate does **not** switch production routing or the
 native-authoritative candidate for Runtime Package, Test, and platform preparation

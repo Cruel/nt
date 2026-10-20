@@ -68,10 +68,19 @@ describe('authoring compiler framework', () => {
   it('lowers an admitted current project without re-normalizing it or re-running semantic admission', () => {
     const project = validProject();
     const baseline = compileAuthoringProjectValue(project);
-    // Native-bound consumers provide a no-op validator to the lowering stage.
-    const lowered = compileAuthoringProjectValue(project, () => [], true);
+    const lowered = compileAuthoringProjectValue(
+      project,
+      () => {
+        throw new Error(
+          'native-admitted lowering must never invoke TypeScript semantic validation',
+        );
+      },
+      true,
+    );
     expect(lowered.ok).toBe(baseline.ok);
     expect(lowered.stages[0]).toEqual({ name: 'normalize', status: 'skipped' });
+    expect(lowered.stages[1]).toEqual({ name: 'semantic-validation', status: 'skipped' });
+    expect(lowered.stages[2]).toEqual({ name: 'link', status: 'skipped' });
     if (baseline.ok && lowered.ok) expect(lowered.project).toEqual(baseline.project);
   });
   it('preserves full-graph link diagnostics for missing record and nested targets', () => {

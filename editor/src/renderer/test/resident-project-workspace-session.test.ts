@@ -3048,6 +3048,7 @@ describe('ResidentProjectWorkspaceSession', () => {
         'shaders/custom.fs.sc': shaderText,
         'shaders/common.sh': includeText,
       },
+      referencedAssetIds: [],
       cliDiagnostics: [],
     }));
     const authority: ResidentProjectAuthority = {
@@ -3090,9 +3091,28 @@ describe('ResidentProjectWorkspaceSession', () => {
       snapshot: { project: { rooms: { foyer: { label: string } } } };
       nativePreparation: {
         sourceRevisions: Record<string, string>;
+        referencedAssetIds: string[];
       };
     };
     expect(portable.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    const missingNativeReferences = structuredClone(portable);
+    delete (missingNativeReferences.nativePreparation as Record<string, unknown>)[
+      'referencedAssetIds'
+    ];
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(missingNativeReferences),
+      ),
+    ).toBe(false);
+    const invalidNativeReferences = structuredClone(portable);
+    invalidNativeReferences.nativePreparation.referencedAssetIds = ['z', 'a'];
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(invalidNativeReferences),
+      ),
+    ).toBe(false);
     const omittedAuthoredSource = structuredClone(portable) as typeof portable & {
       snapshot: {
         canonicalSourceFiles: string[];
@@ -3180,6 +3200,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(hydrated.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
     expect(pinned?.nativePreparation?.sourceOverlays['shaders/common.sh']).toBe(includeText);
     expect(pinned?.nativePreparation?.sourceGeneration).toBe(sourceGeneration);
+    expect(disposable.admittedRuntimeAssetReferences(hydrated.snapshot)).toEqual([]);
     expect(pinned?.projectTextSources['shaders/common.sh']?.text).toBe(includeText);
     expect(prepareNativeProject).toHaveBeenCalledTimes(4);
 

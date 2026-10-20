@@ -111,4 +111,24 @@ describe('pinned Project text source publication', () => {
     expect(result[2]).toEqual({ status: 'unavailable', assetId: 'c' });
     expect(diskRead).not.toHaveBeenCalled();
   });
+  it('rejects internally inconsistent captured text and its claimed revision', async () => {
+    const paths = runtimeArtifactPathsWithPinnedSources(
+      { resolveProjectSource: (_root, source) => source, shaderAssetRoot: () => undefined },
+      {
+        'shaders/include/common.inc': {
+          text: 'old contents',
+          contentHash: `sha256:${'a'.repeat(64)}`,
+        },
+      },
+    );
+    expect(
+      await paths.readProjectTextSources!('/project', [
+        {
+          assetId: 'include',
+          projectRelativePath: 'shaders/include/common.inc',
+          expectedContentHash: null,
+        },
+      ]),
+    ).toEqual([{ status: 'unavailable', assetId: 'include' }]);
+  });
 });

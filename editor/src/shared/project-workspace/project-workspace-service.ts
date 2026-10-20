@@ -4563,6 +4563,10 @@ export class ProjectWorkspaceService {
     const state = this.snapshotValidationStates.get(snapshot);
     return state ? [...state.byKey.values()] : null;
   }
+  /** Native Project owners can publish an exact-generation runtime Asset reference closure. */
+  admittedRuntimeAssetReferences(_snapshot: ProjectWorkspaceSnapshot): readonly string[] | null {
+    return null;
+  }
   localizationSourceViews(
     snapshot: ProjectWorkspaceSnapshot,
   ): ReturnType<typeof localizationMessageSourceViews> {

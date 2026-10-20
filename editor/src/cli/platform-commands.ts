@@ -262,10 +262,16 @@ export const platformExportCommand: CliCommandDefinition = {
             localState.signing = userSigningProfileToExportSigningState(selected);
           }
         }
-        const admittedGraph = {
-          ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
-          project: context.snapshot.project,
-        };
+        const runtimeAssetReferences = context.workspace.admittedRuntimeAssetReferences(
+          context.snapshot,
+        );
+        const admittedGraph =
+          runtimeAssetReferences === null
+            ? {
+                ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
+                project: context.snapshot.project,
+              }
+            : undefined;
         const result = await context.platformTools.exportProject(
           {
             project: context.snapshot.project,
@@ -315,7 +321,8 @@ export const platformExportCommand: CliCommandDefinition = {
                   project: context.snapshot.project,
                   diagnostics,
                   contributions,
-                  sourceGraph: admittedGraph,
+                  ...(admittedGraph ? { sourceGraph: admittedGraph } : {}),
+                  ...(runtimeAssetReferences !== null ? { runtimeAssetReferences } : {}),
                 }
               : undefined;
           })(),
