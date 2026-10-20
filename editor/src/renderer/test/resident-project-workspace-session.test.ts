@@ -3093,6 +3093,18 @@ describe('ResidentProjectWorkspaceSession', () => {
       };
     };
     expect(portable.snapshot.project.rooms.foyer.label).toBe('Native Normalization');
+    const alteredCapturedText = structuredClone(portable) as typeof portable & {
+      projectTextSources: Record<string, { text: string; contentHash: string }>;
+    };
+    const capturedTextPath = Object.keys(alteredCapturedText.projectTextSources)[0];
+    if (!capturedTextPath) throw new Error('Expected captured source text.');
+    alteredCapturedText.projectTextSources[capturedTextPath]!.text += '\n-- corrupted';
+    expect(
+      await new ResidentProjectWorkspaceService(fileSystem).hydratePortableSnapshot(
+        ROOT,
+        JSON.stringify(alteredCapturedText),
+      ),
+    ).toBe(false);
     const missingNativeAuthority = structuredClone(portable) as {
       nativePreparation: { sourceRevisions: Record<string, string> } | null;
     };
