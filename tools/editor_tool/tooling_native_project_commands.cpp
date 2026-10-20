@@ -399,9 +399,11 @@ Json operate(const Json& request)
 
     // Capture before validation so a disk race cannot attach newer source bytes
     // to an effective Project assembled from an earlier generation.
-    const auto shader_generation = action == "shader-preparation"
-                                       ? native_project_source_generation(*session, root)
-                                       : std::string{};
+    const bool complete_runtime_preparation =
+        action == "shader-preparation" || action == "runtime-package-preparation";
+    const auto preparation_generation = complete_runtime_preparation
+                                            ? native_project_source_generation(*session, root)
+                                            : std::string{};
 
     // The public CLI reports authoring warnings gathered during workspace
     // admission even when the requested operation itself succeeds. Preserve
@@ -464,7 +466,7 @@ Json operate(const Json& request)
         return result;
     };
 
-    if (action == "shader-preparation") {
+    if (complete_runtime_preparation) {
         const auto prepared =
             session->prepare_complete_working(session->snapshot().working_revision);
         if (!prepared.accepted) {
@@ -499,7 +501,7 @@ Json operate(const Json& request)
                         {"error", "Shader source changed: " + relative}};
             overlays[relative] = std::move(bytes);
         }
-        if (!native_project_source_generation_is_current(root, shader_generation))
+        if (!native_project_source_generation_is_current(root, preparation_generation))
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         // Capture the complete editable export inventory at owner admission. A pinned
         // worker may hash/copy these physical inputs, but must never readmit a newer Project.
@@ -515,18 +517,41 @@ Json operate(const Json& request)
             return portable;
         for (const auto& [path, revision] : portable.at("sourceRevisions").items())
             source_revisions[path] = revision;
-        if (!native_project_source_generation_is_current(root, shader_generation))
+        if (!native_project_source_generation_is_current(root, preparation_generation))
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during portable capture."}};
         std::set<std::string> referenced_assets;
         collect_runtime_asset_references(prepared_project, "", referenced_assets);
-        return with_diagnostics({{"ok", true},
-                                 {"project", prepared_project},
-                                 {"sourceGeneration", shader_generation},
-                                 {"sourceRevisions", std::move(source_revisions)},
-                                 {"sourceOverlays", std::move(overlays)},
-                                 {"referencedAssetIds", referenced_assets}});
+        Json result{{"ok", true},
+                    {"project", prepared_project},
+                    {"sourceGeneration", preparation_generation},
+                    {"sourceRevisions", source_revisions},
+                    {"sourceOverlays", std::move(overlays)},
+                    {"referencedAssetIds", referenced_assets}};
+        if (action == "runtime-package-preparation") {
+            if (!prepared_project.contains("export") ||
+                !prepared_project.at("export").is_object() ||
+                !prepared_project.at("export").contains("runtime") ||
+                !prepared_project.at("export").at("runtime").is_object() ||
+                prepared_project.at("export").at("runtime").value("kind", std::string{}) !=
+                    "runtime")
+                return failure(
+                    "Cannot prepare Runtime Package without a valid native runtime profile.");
+            const auto& profile = prepared_project.at("export").at("runtime");
+            if (request.contains("profileId") && (!request.at("profileId").is_string() ||
+                                                  request.at("profileId") != profile.at("id")))
+                return failure(
+                    "Runtime Package profile is not the selected Project runtime profile.");
+            Json source_paths = Json::array();
+            for (const auto& [relative, _] : source_revisions.items())
+                source_paths.push_back(relative);
+            result["sourcePaths"] = std::move(source_paths);
+            result["profile"] = profile;
+            result["projectIdentity"] = prepared_project.at("project");
+            result["runtimeIntent"] = "runtime-package-export";
+        }
+        return with_diagnostics(std::move(result));
     }
 
     if (action == "asset-import")

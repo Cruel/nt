@@ -209,10 +209,15 @@ renames. Deleting records with translated structured Messages is rejected
 until a transaction can explicitly preserve that history.
 Grouped Layout sources commit `layout.yaml` and their RML/RCSS/Lua companions together.
 `runtime-package-preparation` verifies complete disk-owned record contributors,
-the selected runtime profile, and content-revision-pinned inputs. Final compiled
-artifact creation, shader lowering, and ZIP publication still use the existing
-Runtime Package pipeline and native package exporter, not a separate partial
-implementation.
+the selected runtime profile, dependency-based Asset closure, and
+content-revision-pinned inputs. The native-authoritative `package export`
+candidate consumes that admitted generation locally and the owner-pinned
+generation in disposable daemon execution. Final compiled artifact creation,
+localization closure, shader/media preparation, and ZIP publication still use
+the existing Prepared Runtime Artifact pipeline and native package exporter.
+Before publication the candidate re-proves pinned source and Asset bytes and
+uses the existing staging, backup, recovery-registration, acceptance, and
+rollback transaction.
 
 The certification-only `entity-usages` reader also projects typed reference
 edges from validated native record snapshots, including Condition Variable,

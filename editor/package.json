@@ -43,6 +43,7 @@
     "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
     "noveltea:certify:native-project-commands": "node scripts/certify-native-project-command-differential.mjs",
     "noveltea:certify:native-cli-project-routing": "node scripts/certify-native-cli-project-routing.mjs",
+    "noveltea:certify:native-cli-package": "node scripts/certify-native-cli-package.mjs",
     "noveltea:certify:native-cli-tests": "node scripts/certify-native-cli-tests.mjs",
     "android:fixture": "node scripts/run-platform-export-fixture.mjs",
     "web:fixture": "node scripts/run-platform-export-fixture.mjs --target web",
