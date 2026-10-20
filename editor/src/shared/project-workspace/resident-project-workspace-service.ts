@@ -2149,6 +2149,19 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       }
     }
 
+    // Portable text is executable/compiler input. Validate its captured bytes even when
+    // the source is not a native shader overlay; workers must never trust a modified
+    // snapshot solely because its declared revision still looks well-formed.
+    for (const [relativePath, source] of Object.entries(portable.projectTextSources)) {
+      if (
+        (await sha256PrefixedBytes(new TextEncoder().encode(source.text))) !== source.contentHash ||
+        (portable.nativePreparation &&
+          portable.nativePreparation.sourceRevisions[relativePath] !== undefined &&
+          portable.nativePreparation.sourceRevisions[relativePath] !== source.contentHash)
+      )
+        return false;
+    }
+
     try {
       // Native-authoritative disposable generations take their effective Project from the
       // owner's certified native preparation. The historical workspace projection is retained
