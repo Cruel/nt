@@ -351,6 +351,14 @@ async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild
   if (!artifact) {
     const prepared = await prepareRuntimeArtifact({
       project: context.snapshot.project,
+      admittedSourceGraph: {
+        ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
+        project: context.snapshot.project,
+      },
+      admittedAuthoringDiagnostics:
+        context.workspace.admittedAuthoringDiagnostics(context.snapshot) ?? undefined,
+      admittedValidationContributions:
+        context.workspace.admittedValidationContributions(context.snapshot) ?? undefined,
       projectRoot: context.snapshot.projectRoot,
       profile: selectedExportProfile(context.snapshot.project),
       intent: 'test-playback',
