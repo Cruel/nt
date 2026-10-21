@@ -72,6 +72,22 @@ set(approved_source_paths
     "tools/project_authoring/contracts.cpp"
     "tools/project_authoring/yaml_codec.cpp"
     "tools/project_authoring/yaml_certify.cpp")
+
+# Native authoring has its own host-only JSON wire/schema boundary. Its
+# ProjectSession and CLI command adapters operate on JSON values internally;
+# they are not shipped in any player. Treat only these narrowly named native
+# authoring roots as codec/adapter owners, not arbitrary tools or engine code.
+# Keep the forbidden-wrapper, ADL codec and public-linkage checks below active
+# even for these paths.
+function(is_native_authoring_json_boundary relative output)
+    if(relative MATCHES "^tools/project_authoring/[A-Za-z0-9_]+\\.(cpp|hpp)$" OR
+       relative MATCHES "^tools/editor_tool/tooling_native_project_[A-Za-z0-9_]+\\.(cpp|hpp)$")
+        set(${output} TRUE PARENT_SCOPE)
+    else()
+        set(${output} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
 set(json_markers
     "#include <jsoncons/"
     "#include <jsoncons_ext/"
@@ -172,9 +188,11 @@ foreach(header IN LISTS headers)
     file(RELATIVE_PATH relative "${SOURCE_ROOT}" "${header}")
     file(READ "${header}" content)
     list(FIND approved_header_paths "${relative}" approved_index)
+    is_native_authoring_json_boundary("${relative}" native_authoring_boundary)
     foreach(marker IN LISTS json_markers)
         string(FIND "${content}" "${marker}" marker_position)
-        if(NOT marker_position EQUAL -1 AND approved_index EQUAL -1)
+        if(NOT marker_position EQUAL -1 AND approved_index EQUAL -1 AND
+           NOT native_authoring_boundary)
             set(allowed FALSE)
             foreach(entry IN LISTS allowlist_entries)
                 string(REPLACE "|" ";" entry_fields "${entry}")
@@ -201,9 +219,11 @@ foreach(source IN LISTS cpp_sources)
     file(READ "${source}" content)
     if(relative MATCHES "\\.cpp$")
         list(FIND approved_source_paths "${relative}" approved_source_index)
+        is_native_authoring_json_boundary("${relative}" native_authoring_boundary)
         foreach(marker IN LISTS json_markers)
             string(FIND "${content}" "${marker}" marker_position)
-            if(NOT marker_position EQUAL -1 AND approved_source_index EQUAL -1)
+            if(NOT marker_position EQUAL -1 AND approved_source_index EQUAL -1 AND
+               NOT native_authoring_boundary)
                 set(allowed FALSE)
                 foreach(entry IN LISTS allowlist_entries)
                     string(REPLACE "|" ";" entry_fields "${entry}")

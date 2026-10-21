@@ -420,23 +420,25 @@ std::string new_message_id(const Current& current)
 
 bool relevant(const Current& current, const Previous& prior)
 {
-    if (current.source.family != prior.entry.at("family"))
+    if (current.source.family != prior.entry.at("family").get<std::string>())
         return false;
-    return current.key == prior.key || current.source.owner_key == prior.entry.at("ownerKey") ||
+    return current.key == prior.key ||
+           current.source.owner_key == prior.entry.at("ownerKey").get<std::string>() ||
            current.occurrence.structural_fingerprint ==
-               prior.occurrence.at("structuralFingerprint") ||
-           current.occurrence.anchor_fingerprint == prior.occurrence.at("anchorFingerprint");
+               prior.occurrence.at("structuralFingerprint").get<std::string>() ||
+           current.occurrence.anchor_fingerprint ==
+               prior.occurrence.at("anchorFingerprint").get<std::string>();
 }
 
 bool match_phase(const Current& current, const Previous& prior, int phase)
 {
     const bool source = current.key == prior.key;
-    const bool structure =
-        current.occurrence.structural_fingerprint == prior.occurrence.at("structuralFingerprint");
-    const bool anchor =
-        current.occurrence.anchor_fingerprint == prior.occurrence.at("anchorFingerprint");
-    const bool family = current.source.family == prior.entry.at("family");
-    const bool owner = current.source.owner_key == prior.entry.at("ownerKey");
+    const bool structure = current.occurrence.structural_fingerprint ==
+                           prior.occurrence.at("structuralFingerprint").get<std::string>();
+    const bool anchor = current.occurrence.anchor_fingerprint ==
+                        prior.occurrence.at("anchorFingerprint").get<std::string>();
+    const bool family = current.source.family == prior.entry.at("family").get<std::string>();
+    const bool owner = current.source.owner_key == prior.entry.at("ownerKey").get<std::string>();
     switch (phase) {
     case 0:
         return source && structure && anchor;
@@ -727,8 +729,9 @@ bool weakly_related(const Current& current, const ReconcilePrevious& prior)
     return current.source.family == prior.family &&
            (current.key == prior.source_key || current.source.owner_key == prior.owner_key ||
             current.occurrence.structural_fingerprint ==
-                prior.occurrence.at("structuralFingerprint") ||
-            current.occurrence.anchor_fingerprint == prior.occurrence.at("anchorFingerprint"));
+                prior.occurrence.at("structuralFingerprint").get<std::string>() ||
+            current.occurrence.anchor_fingerprint ==
+                prior.occurrence.at("anchorFingerprint").get<std::string>());
 }
 
 std::vector<Current> flatten_current(const std::vector<NativeLocalizationTrackingSource>& sources)
