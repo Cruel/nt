@@ -5900,11 +5900,13 @@ async function certifyRelocation(tempRoot) {
   const env = isWindows
     ? {
         ...process.env,
+        NOVELTEA_NO_DAEMON: '1',
         HOME: path.join(tempRoot, 'relocated-home'),
         USERPROFILE: path.join(tempRoot, 'relocated-home'),
       }
     : {
         HOME: path.join(tempRoot, 'relocated-home'),
+        NOVELTEA_NO_DAEMON: '1',
         LANG: 'C.UTF-8',
         PATH: '/usr/bin:/bin',
       };
@@ -5977,7 +5979,9 @@ async function certifyRelocation(tempRoot) {
     'sourceMappingURL',
     'scripts/noveltea-scriptc-island.ts',
     'NovelTea command failed',
-    'Fragment layout RML should not include',
+    // A legitimate C++ authoring diagnostic now shares the old TypeScript
+    // message text; only source-specific markers prove a bundled-source leak.
+    'src/shared/project-schema/authoring-layouts.ts',
   ]) {
     if (binary.includes(Buffer.from(marker)))
       fail(`Standalone CLI exposes prohibited first-party source marker '${marker}'.`);
