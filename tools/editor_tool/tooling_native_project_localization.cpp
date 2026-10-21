@@ -284,7 +284,8 @@ Json native_project_localization(const Json& request, ProjectSession& session,
         return failure(prepared.error);
     const auto project = Json::parse(prepared.project_json);
     const auto& localization = project.at("localization");
-    if (locale == localization.at("sourceLocale") || !localization.at("locales").contains(locale))
+    if (locale == localization.at("sourceLocale").get<std::string>() ||
+        !localization.at("locales").contains(locale))
         return failure("Invalid target translation locale.");
     const auto path = "i18n/locales/" + locale + ".yaml";
     const auto source_revision = std::filesystem::is_regular_file(root / path)
@@ -459,7 +460,7 @@ Json resolved_translation(const Json& localization, std::string locale, const st
     std::set<std::string> visited;
     const auto& translations = localization.at("translations");
     const auto& locales = localization.at("locales");
-    while (!locale.empty() && locale != localization.at("sourceLocale") &&
+    while (!locale.empty() && locale != localization.at("sourceLocale").get<std::string>() &&
            visited.insert(locale).second) {
         if (translations.contains(locale) && translations.at(locale).contains(id))
             return translations.at(locale).at(id);
@@ -588,7 +589,8 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         return failure(prepared.error);
     const auto project = Json::parse(prepared.project_json);
     const auto& localization = project.at("localization");
-    if (locale == localization.at("sourceLocale") || !localization.at("locales").contains(locale))
+    if (locale == localization.at("sourceLocale").get<std::string>() ||
+        !localization.at("locales").contains(locale))
         return failure("Localization view requires a registered target locale.");
     std::map<std::string, Json> messages;
     std::map<std::string, std::set<std::string>> usages;
