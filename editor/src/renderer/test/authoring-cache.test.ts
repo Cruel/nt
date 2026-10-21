@@ -206,17 +206,23 @@ describe('narrow exact validation cache', () => {
     await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
   });
 
-  it('invalidates exact validation reuse when a Project shader source changes', async () => {
+  it('invalidates exact validation reuse when a Project shader source or include changes', async () => {
     const root = await fixture();
     const shaderPath = path.join(root, 'shaders/effect.sc');
+    const includePath = path.join(root, 'shaders/shared.inc');
     await mkdir(path.dirname(shaderPath), { recursive: true });
     await writeFile(shaderPath, 'void main() { /* generation one */ }\n');
+    await writeFile(includePath, '#define SHARED 1\n');
     const fileSystem = new NodeProjectWorkspaceFileSystem();
     await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
     await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
 
     await writeFile(shaderPath, 'void main() { /* generation two */ }\n');
 
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
+    await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
+    await writeFile(includePath, '#define SHARED 2\n');
     await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
   });
 
