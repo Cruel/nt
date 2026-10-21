@@ -2660,6 +2660,9 @@ async function main(): Promise<void> {
               resident: {
                 projectOwners: engineeringAfter.projectOwnerWorkers,
                 projectAuthorities: engineeringAfter.projectAuthorities,
+                // Cumulative daemon counter: a crash replacement may occur
+                // between CLI requests, outside either invocation's delta.
+                ownerSpawnsTotal: engineeringAfter.counters.ownerSpawns ?? 0,
                 snapshots: engineeringAfter.projectSnapshots,
                 snapshotBytes: engineeringAfter.projectSnapshotBytes,
                 exactValidationResults: engineeringAfter.exactValidationResults,
