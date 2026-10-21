@@ -1384,6 +1384,8 @@ jobs:
           $cli = "${{ github.workspace }}/${{ matrix.cli_executable }}"
           node editor/scripts/certify-native-cli-project-routing.mjs $cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-cli-lifecycle.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node editor/scripts/certify-native-cli-transport.mjs $cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node editor/scripts/certify-native-cli-tests.mjs $cli

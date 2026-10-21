@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   cloneAuthoringProject,
   createAuthoringProject,
@@ -9,6 +9,7 @@ import { defaultVariableData } from '../../shared/project-schema/authoring-varia
 import {
   InMemoryProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
+  ResidentProjectWorkspaceService,
   compareProjectWorkspaceUnicodeCodePoints,
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
@@ -31,6 +32,25 @@ function filesFor(project = createAuthoringProject({ id: 'headless', name: 'Head
 }
 
 describe('ProjectWorkspaceService', () => {
+  it('makes the native CLI retired-workspace poison executable while preserving the oracle', () => {
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem({});
+    try {
+      vi.stubEnv('NOVELTEA_CLI_CERTIFICATION', '1');
+      vi.stubEnv('NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE', '1');
+      vi.stubEnv('NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE', '1');
+      expect(() => new ProjectWorkspaceService(fileSystem)).toThrow(
+        'Native CLI certification reached retired TypeScript workspace authority.',
+      );
+      // The native resident coordinator deliberately inherits shared pure
+      // helpers; constructing it is not a legacy Project authoring read.
+      expect(() => new ResidentProjectWorkspaceService(fileSystem)).not.toThrow();
+      vi.stubEnv('NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE', '0');
+      expect(() => new ProjectWorkspaceService(fileSystem)).not.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('quotes ambiguous authored strings in new YAML Variables and after workspace save/reopen', async () => {
     const path = 'records/variables/flag.yaml';
     const codec = projectWorkspaceSourceCodec(path);

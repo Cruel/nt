@@ -55,6 +55,36 @@ it('reads native semantic diagnostics without parsing Project YAML in TypeScript
   });
 });
 
+it('classifies unsupported workspace versions as workspace failures, not semantic invalidity', async () => {
+  const root = await fixture();
+  const response = {
+    ok: true,
+    valid: false,
+    cliDiagnostics: [
+      {
+        code: 'schema.const',
+        path: '/schemaVersion',
+        severity: 'error',
+        message: 'Expected the current workspace schema version.',
+      },
+    ],
+  };
+  for (const nativeRun of [readNativeProjectValidation, runNativeProjectValidationCli]) {
+    const result = await nativeRun(
+      parseNovelTeaCliGlobals(['--json', 'validate']),
+      root,
+      () => response,
+      {} as NovelTeaCliNativeToolService,
+    );
+    expect(result?.exitCode).toBe(3);
+    expect(result?.envelope.diagnostics[0]).toMatchObject({
+      code: 'WORKSPACE_VERSION_UNSUPPORTED',
+      path: '/schemaVersion',
+      severity: 'error',
+    });
+  }
+});
+
 it('fails closed on transport errors and malformed native diagnostic responses', async () => {
   const root = await fixture();
   for (const native of [

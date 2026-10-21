@@ -48,11 +48,19 @@ export function nativeProjectDiagnostics(
     )
       return [];
     return [
-      cliDiagnostic(item.code, item.path, item.message, item.severity, {
-        ...(typeof item.sourceUrl === 'string' ? { sourceUrl: item.sourceUrl } : {}),
-        ...(typeof item.line === 'number' ? { line: item.line } : {}),
-        ...(typeof item.column === 'number' ? { column: item.column } : {}),
-      }),
+      cliDiagnostic(
+        item.code === 'schema.const' && item.path === '/schemaVersion'
+          ? 'WORKSPACE_VERSION_UNSUPPORTED'
+          : item.code,
+        item.path,
+        item.message,
+        item.severity,
+        {
+          ...(typeof item.sourceUrl === 'string' ? { sourceUrl: item.sourceUrl } : {}),
+          ...(typeof item.line === 'number' ? { line: item.line } : {}),
+          ...(typeof item.column === 'number' ? { column: item.column } : {}),
+        },
+      ),
     ];
   });
 }

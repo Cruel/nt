@@ -139,6 +139,25 @@ try {
     assert.equal(compare(['validate'], { daemon }).success, false);
     assert.equal(compare(['entity', 'inspect', 'rooms', 'sample'], { daemon }).success, false);
   }
+  // Negative admission must not accidentally use a coherent cached Project
+  // after the required malformed Room is repaired and the manifest itself
+  // changes. Exercise the fixed owner through both the local and resident paths.
+  for (const project of [oracle, candidate]) {
+    const room = path.join(project, 'records/rooms/sample.yaml');
+    const roomText = await readFile(room, 'utf8');
+    await writeFile(room, roomText.replace(/\nmalformed: \[\n$/u, '\n'));
+    const manifest = path.join(project, 'project.yaml');
+    const original = await readFile(manifest, 'utf8');
+    assert.match(original, /^schemaVersion: 1$/mu);
+    await writeFile(manifest, original.replace(/^schemaVersion: 1$/mu, 'schemaVersion: 999'));
+  }
+  for (const daemon of [false, true]) {
+    const invalid = compare(['validate'], { daemon });
+    assert.equal(invalid.success, false, 'Unsupported Project schema was accepted.');
+    assert.ok(invalid.diagnostics.length > 0, 'Unsupported Project schema had no diagnostic.');
+    assert.equal(compare(['entity', 'inspect', 'rooms', 'sample'], { daemon }).success, false);
+    assert.equal(compare(['platform', 'profiles'], { daemon }).success, false);
+  }
   const human = execute(null, true, ['--help'], { human: true });
   assert.match(human.stdout, /NovelTea headless CLI/);
   const wrongGlobals = execute(null, true, ['--not-a-global-option']);

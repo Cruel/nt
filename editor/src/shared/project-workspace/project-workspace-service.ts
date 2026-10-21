@@ -2159,6 +2159,18 @@ export class ProjectWorkspaceService {
     private readonly fileSystem: ProjectWorkspaceFileSystem,
     transactions?: ProjectWorkspaceTransactionService,
   ) {
+    // #519 executable independence tripwire. Importing retained downstream
+    // helpers is allowed before #521, but no native CLI candidate may create
+    // this retired TypeScript Project authority, even outside the ScriptC
+    // island's normal workspace factory.
+    if (
+      new.target === ProjectWorkspaceService &&
+      typeof process !== 'undefined' &&
+      process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1' &&
+      process.env.NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE === '1'
+    )
+      throw new Error('Native CLI certification reached retired TypeScript workspace authority.');
     this.transactions =
       transactions ??
       new ProjectWorkspaceTransactionService(fileSystem, { isProcessAlive: async () => null }, 1);

@@ -492,6 +492,9 @@ jobs:
       - name: Certify staged native CLI Project routing parity
         run: node editor/scripts/certify-native-cli-project-routing.mjs "$PWD/build/cli/linux/noveltea"
 
+      - name: Certify native CLI Project lifecycle and negative archive admission
+        run: node editor/scripts/certify-native-cli-lifecycle.mjs "$PWD/build/cli/linux/noveltea"
+
       - name: Certify native CLI transport and error parity
         run: node editor/scripts/certify-native-cli-transport.mjs "$PWD/build/cli/linux/noveltea"
 
