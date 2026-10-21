@@ -77,6 +77,25 @@ function(expect_source_rejected name source_text)
     endif()
 endfunction()
 
+function(expect_tool_boundary name relative content should_pass)
+    set(fixture_root "${temp_root}/${name}")
+    get_filename_component(relative_parent "${relative}" DIRECTORY)
+    file(MAKE_DIRECTORY "${fixture_root}/${relative_parent}" "${fixture_root}/cmake")
+    file(WRITE "${fixture_root}/${relative}" "${content}")
+    file(WRITE "${fixture_root}/cmake/json-boundary-allowlist.txt" "# No exceptions.\n")
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${fixture_root}
+            -DALLOWLIST=${fixture_root}/cmake/json-boundary-allowlist.txt -P "${checker}"
+        RESULT_VARIABLE result
+        OUTPUT_VARIABLE ignored_output
+        ERROR_VARIABLE ignored_error)
+    if(should_pass AND NOT result EQUAL 0)
+        message(FATAL_ERROR "The JSON boundary policy checker rejected native tool fixture '${name}': ${ignored_error}")
+    elseif(NOT should_pass AND result EQUAL 0)
+        message(FATAL_ERROR "The JSON boundary policy checker accepted unauthorized tool fixture '${name}'")
+    endif()
+endfunction()
+
 expect_rejected(domain-jsoncons-include "#include <jsoncons/json.hpp>\n" "" "")
 expect_rejected(domain-jsoncons-quoted-include "#include \"jsoncons/json.hpp\"\n" "" "")
 expect_rejected(domain-jsoncons-schema "#include <jsoncons_ext/jsonschema/jsonschema.hpp>\n" "" "")
@@ -90,6 +109,24 @@ expect_rejected(nlohmann-macro "NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(Value, field)
 expect_rejected(opaque-wrapper "struct JsonPayload {};\n" "" "")
 expect_source_rejected(source-json-leak
     "#include <nlohmann/json.hpp>\nvoid leak(nlohmann::json value) {}\n")
+expect_tool_boundary(native-authoring-header "tools/project_authoring/session.hpp"
+    "#include <jsoncons/json.hpp>\nvoid author(jsoncons::json value);\n" TRUE)
+expect_tool_boundary(native-authoring-source "tools/project_authoring/session.cpp"
+    "#include <jsoncons_ext/jsonpointer/jsonpointer.hpp>\n" TRUE)
+expect_tool_boundary(native-cli-header "tools/editor_tool/tooling_native_project_contract.hpp"
+    "#include <nlohmann/json.hpp>\nvoid transport(nlohmann::json value);\n" TRUE)
+expect_tool_boundary(native-cli-source "tools/editor_tool/tooling_native_project_contract.cpp"
+    "#include <nlohmann/json.hpp>\nvoid transport(nlohmann::json value) {}\n" TRUE)
+expect_tool_boundary(other-tool-source "tools/editor_tool/other_json.cpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
+expect_tool_boundary(other-tool-header "tools/editor_tool/other_json.hpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
+expect_tool_boundary(nested-authoring-source "tools/project_authoring/internal/other.cpp"
+    "#include <jsoncons/json.hpp>\n" FALSE)
+expect_tool_boundary(native-authoring-adl "tools/project_authoring/session.hpp"
+    "#include <jsoncons/json.hpp>\nvoid to_json();\n" FALSE)
+expect_tool_boundary(native-cli-wrapper "tools/editor_tool/tooling_native_project_contract.hpp"
+    "#include <nlohmann/json.hpp>\nstruct JsonPayload {};\n" FALSE)
 expect_rejected(public-link "" "" "target_link_libraries(domain PUBLIC nlohmann_json::nlohmann_json)\n")
 expect_rejected(public-link-after-other-dependency "" ""
     "target_link_libraries(domain PUBLIC other::dependency nlohmann_json::nlohmann_json)\n")

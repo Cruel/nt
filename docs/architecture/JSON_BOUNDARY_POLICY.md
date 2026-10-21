@@ -30,13 +30,18 @@ and typed engine/runtime interfaces do not retain a JSON DOM. A new implementati
 using the library merely because its containing module already links it; the new codec/adapter seam
 must be admitted explicitly (or represented by a fully documented temporary allowlist entry).
 
-The certification-only native authoring adapters `tools/project_authoring/contracts.cpp`,
-`tools/project_authoring/yaml_codec.cpp`, and `tools/project_authoring/yaml_certify.cpp` are the
-only approved jsoncons implementation boundaries. Their host-only dependency remains private; no jsoncons
-header or type may appear in generated structural types, public authoring interfaces, engine code,
-or players. The checker covers jsoncons and jsoncons_ext includes (quoted or bracketed) and type
-names in addition to nlohmann. See [Native Project schema contracts](NATIVE_AUTHORING_CONTRACTS.md)
-for the JSON Schema adapter and its failure policy.
+The native Project authoring implementation has a distinct, **host-only** JSON boundary. Unlike
+typed gameplay/runtime state, authoring stores a schema-checked, mutable JSON Project tree while
+performing validation, normalization, source-aware mutations and transactions. The checker scopes
+that boundary to direct `.cpp`/`.hpp` files in `tools/project_authoring/`, and to explicitly named
+`tools/editor_tool/tooling_native_project_*.cpp`/`.hpp` CLI Project adapters. These types must not
+escape those host-only implementations into engine/runtime/player code, general editor tooling, or
+generated structural types. The policy continues to reject JSON markers elsewhere, forbids opaque
+JSON wrappers and ADL codecs within these native paths, and forbids PUBLIC/INTERFACE nlohmann
+linkage. Its positive/negative tests cover the native roots, unrelated tools, nested paths, and
+forbidden declarations. The checker covers jsoncons and jsoncons_ext includes (quoted or bracketed)
+and type names in addition to nlohmann. See [Native Project schema contracts](NATIVE_AUTHORING_CONTRACTS.md)
+for the native schema adapter and its failure policy.
 
 JSON decoding mechanics are concentrated in the content-owned `engine/src/core/json_decoder.hpp`.
 That module owns checked member lookup, scalar conversion, object/array validation, JSON-pointer
