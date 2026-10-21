@@ -372,7 +372,10 @@ function createNativeTools(
           shaderProject,
           options: { ...nativeOptions, projectRoot },
         }) as Awaited<ReturnType<NovelTeaCliNativeToolService['compileShaders']>>;
-      if (sourceOverlays === undefined || !nativeOptions.projectRoot) return invokeCompile();
+      // An empty overlay has no pinned source bytes to stage. Redirecting to
+      // an empty temporary root would make existing Project shaders vanish.
+      if (!sourceOverlays || Object.keys(sourceOverlays).length === 0 || !nativeOptions.projectRoot)
+        return invokeCompile();
 
       const overlayRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-pinned-shaders-'));
       try {

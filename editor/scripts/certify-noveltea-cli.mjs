@@ -4713,6 +4713,24 @@ async function certifyNativeOperations(tempRoot, pristine) {
       relative.split('/').some((part) => part === '..' || part === '.')
     )
       fail(`Native Runtime Package preparation returned an unsafe physical owner: ${relative}`);
+    if (nativePackage.sourceRevisions[relative] === 'absent') {
+      // Native admission tracks retired fixed JSON owners as absent so a
+      // newly introduced legacy file invalidates the pinned generation.
+      // They are authority preconditions, not readable package inputs.
+      if (
+        !/^(?:project|editor|traits)\.json$|^i18n\/(?:project|messages|usage-notes|tracking|orphans)\.json$/u.test(
+          relative,
+        )
+      )
+        fail(`Native Runtime Package preparation unexpectedly omitted source: ${relative}`);
+      try {
+        await stat(path.join(packageRoot, relative));
+        fail(`Native Runtime Package preparation marked an existing source absent: ${relative}`);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      continue;
+    }
     const bytes = await readFile(path.join(packageRoot, relative));
     const expected = `sha256:${sha256(bytes)}`;
     if (nativePackage.sourceRevisions[relative] !== expected)
