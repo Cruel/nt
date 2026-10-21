@@ -2304,9 +2304,23 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       fail('Project-owner crash recovery did not remain on daemon routing.');
 
     const recoveryProfiles = [schedulerProfile(recoveredFirst), schedulerProfile(recoveredSecond)];
-    if (!recoveryProfiles.some((profile) => (profile?.workerSpawns?.owner ?? 0) === 1))
-      fail('Owner-process death did not produce exactly one replacement owner admission.');
     const recoveredInventory = recoveryProfiles[1];
+    // The native daemon may notice and replace a dead owner between requests.
+    // Per-invocation scheduler deltas then legitimately show zero spawns even
+    // though the complete crash/recovery lifecycle admitted exactly one new
+    // process. Assert the cumulative daemon-owned counter instead.
+    const ownerSpawnsBefore = processInventory.resident.ownerSpawnsTotal;
+    const ownerSpawnsAfter = recoveredInventory?.resident?.ownerSpawnsTotal;
+    if (
+      !Number.isSafeInteger(ownerSpawnsBefore) ||
+      !Number.isSafeInteger(ownerSpawnsAfter) ||
+      ownerSpawnsAfter - ownerSpawnsBefore !== 1
+    )
+      fail(
+        `Owner-process death did not produce exactly one replacement owner admission: ` +
+          `before=${ownerSpawnsBefore}, after=${ownerSpawnsAfter}; ` +
+          `request deltas=${JSON.stringify(recoveryProfiles.map((profile) => profile?.workerSpawns))}`,
+      );
     const firstOwnerAfterCrash = ownerFor(recoveredInventory, firstRoot);
     const secondOwnerAfterCrash = ownerFor(recoveredInventory, secondRoot);
     if (
