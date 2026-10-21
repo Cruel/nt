@@ -1,9 +1,11 @@
 # Native Project cutover readiness / deletion plan (#520)
 
-Status: **not approved for cutover** (2026-10-20, candidate baseline `35e0b2f1`).
+Status: **not yet approved for cutover** (2026-10-20, local candidate `e16d42e0`).
 This is the pre-switch evidence ledger for #506/#521, not a claim that production
-has changed. #504 (editor) and #505 (CLI/daemon) are blocking integration owners;
-both are still open. #519 and its host certification have not yet been signed off.
+has changed. #504 (editor) has been accepted and closed. The #505 CLI/daemon
+children #512–#518 are accepted; #519 and #505 remain open awaiting exact-SHA
+Linux/Windows/macOS installed-host certification. The local CLI candidate is
+not a substitute for those platform results.
 **No unresolved required row below may be waived by opening #521.** The issue
 tracker is the authority for blocker closure; review current issue state and
 current CI run SHA, not merely this dated snapshot.
@@ -51,17 +53,17 @@ the same commit and artifact generation as the eventual switch.
 
 | #474 / #506 obligation | Owner; code seam | Evidence / reproduction | Readiness |
 | --- | --- | --- | --- |
-| Whole-schema family/default/ref/diagnostic coverage | #504 + #505; generated contracts, native `ProjectSession`, inspector/CLI router | schema generation, native CTest, `native-project-session-parity.test.ts`, `certify-native-cli-project-routing.mjs` on Feature Lab and negative fixtures | **open**: parent acceptance sign-off |
-| Every editor caller, generic mutations, structural persistence/undo | #504 (#508/#511); `native-editor-session-controller.ts`, command store, native Save | `native-command-store`, `native-project-session-parity`, `native-project-source-transactions`, `native-project-copy-service`, full editor suite | **open**: #504 acceptance |
-| Conflict/Use Disk, invalid owner isolation, Comment Keep/Remove/Cancel, scoped Save/Save All | #504 (#509/#511); native working project, Save coordinator | `native-authoring-reconciliation`, `native-external-projection`, `project-save-coordinator`, C++ YAML transaction CTest and negative revisions | **open**: final integrated acceptance |
+| Whole-schema family/default/ref/diagnostic coverage | #504 + #505; generated contracts, native `ProjectSession`, inspector/CLI router | schema generation, native CTest, `native-project-session-parity.test.ts`, `certify-native-cli-project-routing.mjs` on Feature Lab and negative fixtures | **candidate-local**: #504 accepted, #519 local 82/82; host CI pending |
+| Every editor caller, generic mutations, structural persistence/undo | #504 (#508/#511); `native-editor-session-controller.ts`, command store, native Save | `native-command-store`, `native-project-session-parity`, `native-project-source-transactions`, `native-project-copy-service`, full editor suite | **accepted**: #504 closed; production activation remains #521 |
+| Conflict/Use Disk, invalid owner isolation, Comment Keep/Remove/Cancel, scoped Save/Save All | #504 (#509/#511); native working project, Save coordinator | `native-authoring-reconciliation`, `native-external-projection`, `project-save-coordinator`, C++ YAML transaction CTest and negative revisions | **accepted-candidate**: #504 closed; post-switch whole-lifecycle exercise #522 |
 | Durable dirty/text recovery, cold reopen, transaction uncertainty | #504 (#510) and native transaction foundation; `.noveltea/editor/native-dirty-state.json`, native worker journal | `native-dirty-recovery`, `native-project-source-transactions`, `native-authoring-worker`, C++ transaction CTest | **open**: independent-host/user lifecycle qualification |
 | Source/Asset races, untracked/attached files, shader copies, Save Project Copy As | #504 (#511); native Project file operations, Asset staging, copy service | `native-asset-staging`, `native-project-copy-service`, `native-project-source-transactions` and native addon tests | **open**: #504 sign-off |
-| Public Project CLI/daemon commands, options and private transport | #505 (#512–#519); native CLI candidates, ScriptC island, native bridge | `certify-native-cli-inventory`, installed routing/transport/mutations/commands; native lifecycle/validation/tests/package/platform suites | **open**: #505/#519 + cross-host results |
+| Public Project CLI/daemon commands, options and private transport | #505 (#512–#519); native CLI candidates, ScriptC island, native bridge | `certify-native-cli-inventory`, installed routing/transport/mutations/commands; native lifecycle/validation/tests/package/platform suites | **candidate-local**: #512–#518 closed; #519 and cross-host CI pending |
 | Full validation, source locations, invalid required/unrelated sources, native warm/cold evidence | #505 (#513/#519); native Project validation, staged font/shader checks | `certify-native-daemon-validation`, `native-cli-validation.test.ts`, invalid-source fixtures, native clean-cache CTest | **open**: cross-host and negative suite review |
 | Authored Tests, preview, working export and native runtime preparation | #504/#505 (#514–#517); native preparation, downstream compiler/runner | `native-authoring-runtime-preparation`, `native-cli-tests`, `native-cli-package`, `native-cli-platform`, Feature Lab authored Tests, package/export witnesses | **open**: final cross-host/editor workflow |
 | Optional-Project ComfyUI, source/reference/Asset publication | #505 (#518); native ComfyUI admission and Asset publication | `certify-native-cli-inventory`, ComfyUI tests and exact-source publication races | **open**: #518 parent acceptance |
 | Separate editor/CLI session and cache interoperability in both directions | **#520**; shared native clean-cache contract and independent editor worker/installed CLI | `certify-native-authoring-cross-system.mjs`: exact source hashes and semantic fingerprint, cache hit without republishing, concurrent dirty working state, daemon and local CLI, watcher, editor Save | **proved-local** on rebuilt matching Linux binaries; host matrix pending |
-| Performance before switching | #519 CLI; **#520** editor/cross-system | `certify-native-cli-performance.mjs` (six timed phases; slowdown must exceed **3x and 500 ms** to fail); editor Open/one-owner YAML Save/mixed text Save/export timings still need comparable old/new samples and justified thresholds | **open**: editor baseline and host evidence |
+| Performance before switching | #519 CLI; **#520** editor/cross-system | `certify-native-cli-performance.mjs` (six phases) and `certify-native-editor-performance.mjs` (four real-addon/legacy editor authority phases), both flag only slowdown exceeding **3x and 500 ms**; full editor mixed YAML+text Save and downstream export require comparable production lifecycle measurements | **partial-local**: native source/editor baseline below; full editor export-preparation baseline still open before #520 sign-off, with post-switch measurements under #522 |
 | Real addon, watcher, transaction, CLI on Linux/Windows/macOS | #503 foundations, #504/#505 and **#520** for integration | `build.yml` native-authoring-hosts, `release.yml` installed CLI host matrix and new cross-system step; no build-only or skipped run counts | **open**: matching green CI |
 | Feature Lab/examples manual Open/Edit/Save/Save As/Play/Test/Export/Reopen | #504 + #522 (production qualification); runtime Lab and examples | focused native regression suites plus `PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` manual checklist | **open**: manual production lifecycle after #521 |
 | Physical retirement, version policy, import guards and docs | **#521**, scoped by inventory below | production-only import/build/run assertions; published package inspection; `check:schema-version-policy`, Agent Kit/schema generation | **not started**: prohibited under #520 |
@@ -188,6 +190,7 @@ NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authori
   node editor/scripts/certify-native-authoring-cross-system.mjs "$PWD/build/cli/linux/noveltea"
 node editor/scripts/certify-native-cli-project-routing.mjs "$PWD/build/cli/linux/noveltea"
 node editor/scripts/certify-native-cli-performance.mjs "$PWD/build/cli/linux/noveltea"
+node editor/scripts/certify-native-editor-performance.mjs "$PWD/build/native-authoring-host/noveltea-authoring-node.node"
 pnpm -C editor run check
 pnpm -C editor run test
 pnpm -C editor run check:schema-version-policy
@@ -208,26 +211,58 @@ certification is not replaced by the quick cross-system gate.
   installed CLI and Electron worker; verifies both cache directions, exact
   source revisions, dirty isolation, native editor scoped Save and CLI edits.
   Re-run after any native semantic/host-build change.
-- #519 records Linux installed CLI 78/78 Feature Lab public command
-  comparisons, 21 transport checks and six-stage timing coverage. The
+- #519 records Linux installed CLI 82/82 Feature Lab public command
+  comparisons, 27 transport negative cases and six-stage timing coverage. The
   authoritative raw timing numbers and pass/fail threshold belong to the
   executed `certify-native-cli-performance.mjs` output; do not infer an
   editor baseline from those numbers.
-- **Not yet available for sign-off:** final #504/#505 closure, on-commit
-  Linux/Windows/macOS host results, comparable editor Save/export baselines,
-  full negative-case reconciliation, and manual end-to-end Feature Lab/example
-  workflow. These are **blocking**, not post-cutover waivers. The existing
-  save/validation manual-acceptance checklist is also open.
-- Full editor test run on this candidate: **339 files passed, 1 failed,
-  11 skipped; 3,032 tests passed, 1 failed, 157 skipped**. The failure
-  reproduces in isolation: `src/renderer/test/noveltea-cli.test.ts` test
-  `lists native-admitted platform profiles without TypeScript Project source
-  reads` returned internal exit **70** instead of **0**. This is a **#505**
-  platform-profiles gate, not a #520 cache-interoperability exception. No
-  workaround or cross-ticket rewrite has been applied here. Editor TS
-  typecheck and schema-version policy pass. Aggregate editor `check` is
-  blocked by pre-existing repository formatting failures in 28 unrelated
-  files; the two new #520 scripts pass their targeted pinned formatter check.
+- #520 editor local paired real-addon versus existing TypeScript authority
+  comparison, copied Feature Lab on Linux (Node 24.16, single sample; ms):
+
+  | Comparable phase | Legacy | Native | Native / legacy |
+  | --- | ---: | ---: | ---: |
+  | Cold Project open | 5090 | 679 | 0.13x |
+  | One-owner YAML patch + scoped Save, same resulting name | 4737 | 216 | 0.05x |
+  | One-source Lua file journal transaction, exact resulting bytes | 7 | 256 | 34.88x |
+  | Saved Project semantic preparation (TS workspace open + dependency graph vs native complete working preparation) | 5081 | 3964 | 0.78x |
+
+  These are **pre-cutover baselines**, not production latency claims. The
+  single-source Lua case is substantially slower in ratio, but its 249 ms
+  absolute delta is below the existing conservative 500 ms and 3x *combined*
+  material-regression threshold. The last phase compares corresponding
+  Project-admission/semantic preparation responsibilities, **not** the entire
+  downstream packaged export. The test uses the native binding and the real
+  TypeScript Workspace and source transaction service, not a mock adapter.
+  It asserts persisted YAML/source bytes and equal prepared Project identity;
+  full editor mixed YAML/text Save and downstream package export timings must
+  be measured on the post-switch production lifecycle by #522.
+- **Candidate negative-path coverage reconciled:** #504 native renderer and
+  real-addon tests cover external disjoint/overlapping edits, conflict choices,
+  comment dispositions, typed/structural undo, dirty recovery, revisioned
+  source Save, Project Copy As and Asset/file transactions. #512/519 CLI
+  standalone/daemon installed tests cover invalid/unsupported source and
+  archive, traversal and occupied destination, public JSON/error/exit
+  classification, unavailable/broken caches, source/Asset replacement,
+  transaction/source races and CLI authoring-engine poison; #514–#518 tests
+  cover pinned worker crashes/cancellation, stale Runtime Package/platform
+  output rejection and rollback, authored Tests, and ComfyUI owner isolation.
+  The reproducible tests/scripts and their case inventories remain with their
+  owners (see the matrix above), rather than duplicating their test harness in
+  #520. #520's independent cross-system script was rerun locally after
+  `e16d42e0`: **PASS** for two-way cache, dirty isolation, native observer and
+  scoped native Save.
+- **Not yet available for #520 sign-off:** a comparable complete editor
+  export-preparation baseline, #519/#505 closure and the exact
+  `e16d42e0` Linux/Windows/macOS host results from
+  [release run 39542558120](https://github.com/Cruel/nt/actions/runs/39542558120).
+  Final manual real UI and post-removal packaged lifecycle remain #522; no
+  manual execution or green host matrix is claimed by this document.
+- The #512 `platform profiles` exit 70 was fixed in `eef9b50a` (targeted
+  regression and full editor suite **3,033 passed, 157 skipped**). #504 was
+  independently accepted after **3,096 editor tests passed**, with the sole
+  then-failing CLI test subsequently fixed. The legacy test and production
+  authority are still present by design until #521. Repository-wide editor
+  `check` has 28 pre-existing formatting violations outside this scope.
 
 ## Two-axis change review (pre-switch)
 
@@ -236,14 +271,14 @@ certification is not replaced by the quick cross-system gate.
   build/release matrix and single-current native cache; no production switch,
   new migration shape, extra daemon or external test dependency. Pinned JS
   formatting, schema-policy check and no-unrelated-source-edit policy apply.
-  Cross-host CI execution and the repository-wide existing format debt remain
+  Cross-host CI completion and the repository-wide existing format debt remain
   explicit unresolved verification, not a claimed green standard gate.
 - **#474/#506 specification:** Two-way cache reuse, external watcher,
   private working-state isolation and cross-system Save are directly exercised.
   The original acceptance matrix and cutover/retirement sequence are
-  inventoried above. Required editor/CLI feature and performance/CI evidence
-  remains blocked by #504/#505/#519; it must be fixed or signed off in those
-  owners **before** #520 can be marked complete and #521 may begin.
+  inventoried above. Native editor acceptance #504 is closed, and native
+  CLI implementation children are closed; the remaining gate is #519/#505
+  exact-host acceptance before #520 can be approved and #521 may begin.
 
 Feature Lab: the real addon/CLI integration test uses a small generated Project
 to isolate source/cache proof; full gameplay/UI verification remains covered
