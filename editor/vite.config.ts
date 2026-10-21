@@ -7,6 +7,7 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
 import { cliLazyModulePolicy, cliStartupPolicy } from './scripts/cli-startup-policy';
+import { nativeProductionProvenance } from './scripts/native-production-provenance';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
 const editorRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,7 @@ export default defineConfig({
     }),
     react(),
     tailwindcss(),
+    nativeProductionProvenance(editorRoot),
   ],
   resolve: {
     alias: {
@@ -330,6 +332,7 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'electron-main',
+      plugins: [nativeProductionProvenance(editorRoot)],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: [
@@ -356,6 +359,7 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'native-authoring-worker',
+      plugins: [nativeProductionProvenance(editorRoot)],
       entry: { 'native-authoring-worker': 'src/main/services/native-authoring-worker.ts' },
       format: 'cjs',
       outDir: 'dist-electron/authoring-worker',
@@ -367,6 +371,7 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'electron-preload',
+      plugins: [nativeProductionProvenance(editorRoot)],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: [],
@@ -385,6 +390,7 @@ export default defineConfig({
       plugins: [
         cliStartupPolicy('Node CLI', path.join(editorRoot, 'scripts/noveltea.ts')),
         cliLazyModulePolicy('Node application', path.join(editorRoot, 'src/cli/application.ts')),
+        nativeProductionProvenance(editorRoot),
       ],
       deps: {
         ...commonNodePack.deps,
@@ -411,6 +417,7 @@ export default defineConfig({
           path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
         ),
         cliLazyModulePolicy('ScriptC application', path.join(editorRoot, 'src/cli/application.ts')),
+        nativeProductionProvenance(editorRoot),
       ],
       deps: {
         ...commonNodePack.deps,

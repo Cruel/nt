@@ -131,10 +131,13 @@ if (!/require\(["']electron["']\)/.test(preloadText)) {
 assertRuntimeImports('main', mainText, new Set(['electron', 'node-pty', 'sharp']), 'cjs');
 assertRuntimeImports('preload', preloadText, new Set(['electron']), 'cjs');
 
-await assertOnlyDeclaredFiles(path.join(outputRoot, 'main'), new Set(['main.cjs', 'main.cjs.map']));
+await assertOnlyDeclaredFiles(
+  path.join(outputRoot, 'main'),
+  new Set(['main.cjs', 'main.cjs.map', 'native-production-provenance.json']),
+);
 await assertOnlyDeclaredFiles(
   path.join(outputRoot, 'preload'),
-  new Set(['preload.cjs', 'preload.cjs.map']),
+  new Set(['preload.cjs', 'preload.cjs.map', 'native-production-provenance.json']),
 );
 
 for (const [label, text] of Object.entries({
