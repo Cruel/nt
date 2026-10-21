@@ -25,6 +25,13 @@ using namespace noveltea::authoring;
 
 Json failure(std::string message) { return {{"ok", false}, {"error", std::move(message)}}; }
 
+// Keep string comparisons type-strict and independent of nlohmann's implicit
+// conversion overloads (ambiguous with std::string_view on MSVC).
+bool json_string_equals(const Json& value, std::string_view expected)
+{
+    return value.is_string() && value.get_ref<const std::string&>() == expected;
+}
+
 bool whitespace(char32_t c)
 {
     return (c >= 0x9 && c <= 0xd) || c == 0x20 || c == 0xa0 || c == 0x1680 ||
@@ -481,8 +488,9 @@ bool matches_filter(std::string_view filter, std::string_view freshness, const J
         return !attention.empty();
     if (translation.is_null())
         return false;
-    return (translation.contains("origin") && translation.at("origin") == filter) ||
-           (translation.contains("review") && translation.at("review") == filter);
+    return (translation.contains("origin") &&
+            json_string_equals(translation.at("origin"), filter)) ||
+           (translation.contains("review") && json_string_equals(translation.at("review"), filter));
 }
 
 std::vector<const Json*>
@@ -496,18 +504,20 @@ matching_tracking_entries(const Json& entry, const NativeLocalizationTrackingOcc
         return matches;
     };
     const auto both = find_matches([&](const Json& prior) {
-        return prior.at("structuralFingerprint") == candidate.structural_fingerprint &&
-               prior.at("anchorFingerprint") == candidate.anchor_fingerprint;
+        return json_string_equals(prior.at("structuralFingerprint"),
+                                  candidate.structural_fingerprint) &&
+               json_string_equals(prior.at("anchorFingerprint"), candidate.anchor_fingerprint);
     });
     if (both.size() == 1)
         return both;
     const auto structural = find_matches([&](const Json& prior) {
-        return prior.at("structuralFingerprint") == candidate.structural_fingerprint;
+        return json_string_equals(prior.at("structuralFingerprint"),
+                                  candidate.structural_fingerprint);
     });
     if (structural.size() == 1)
         return structural;
     const auto anchor = find_matches([&](const Json& prior) {
-        return prior.at("anchorFingerprint") == candidate.anchor_fingerprint;
+        return json_string_equals(prior.at("anchorFingerprint"), candidate.anchor_fingerprint);
     });
     return anchor.size() == 1 ? anchor : std::vector<const Json*>{};
 }
@@ -531,7 +541,8 @@ std::string native_source_message_identity(const Json& localization,
             if (reverse == 1)
                 return matches.front()->at("messageId").get<std::string>();
         }
-        if (entry.at("sourceSnapshotFingerprint") == source.source_snapshot_fingerprint) {
+        if (json_string_equals(entry.at("sourceSnapshotFingerprint"),
+                               source.source_snapshot_fingerprint)) {
             const Json* matched = nullptr;
             for (const auto& prior : entry.at("occurrences")) {
                 if (prior.at("ordinal") != candidate.ordinal)
