@@ -207,6 +207,34 @@ certification is not replaced by the quick cross-system gate.
 
 ## Evidence and unavailable gates at the recorded baseline
 
+### #521 preparatory bundle-closure enforcement (no authority switch)
+
+`editor/scripts/check-native-production-closure.mjs` is a strict **post-cutover**
+check. It inspects emitted Electron, worker, renderer, Node CLI-tool and
+ScriptC-island JS chunks, including lazy chunks, using build-emitted
+per-output module manifests with code hashes (with module-region/source-map
+fallback for independent fixtures). It rejects the retired Project workspace,
+validation, dependency/source analysis and watcher modules inventoried above.
+Missing bundles or untraceable executable chunks fail closed; pure ESM
+forwarders are permitted because their imported chunks are inspected too.
+Run `pnpm -C editor run test:native-production-closure` for fixture coverage,
+and `pnpm -C editor run check:native-production-closure` **after** the
+coordinated #521 code/deletion/build change. The check is intentionally not
+part of the pre-cutover `check`/`build` target: it correctly fails against
+today's legacy production authority and must be enabled by the atomic cutover
+commit, not bypassed or declared passed while old modules still ship.
+
+`editor/scripts/native-production-provenance.ts` now emits the required
+verifiable module map at the existing renderer/pack build seams. It covers
+otherwise anonymous/minified production output and rejects stale artifacts
+when a hash changes without a new manifest. The manifest is build-only
+verification metadata and is excluded from the packaged Electron application,
+not an authoring cache or runtime schema. The strict guard is not a substitute
+for running the installed CLI and packaged
+editor with the old engine physically absent; those integration witnesses
+must still be added at the same cutover boundary. This preparation changes
+neither production routing nor the #520/#519 readiness dependencies.
+
 - Cross-system certification: locally executed on Linux, real rebuilt addon,
   installed CLI and Electron worker; verifies both cache directions, exact
   source revisions, dirty isolation, native editor scoped Save and CLI edits.

@@ -122,6 +122,7 @@ export default {
   files: [
     'package.json',
     'dist-electron/**/*',
+    '!dist-electron/**/native-production-provenance.json',
     'node_modules/**/*',
     '!node_modules/.cache{,/**/*}',
     '!node_modules/**/{test,tests,__tests__,coverage,fixtures}/**/*',

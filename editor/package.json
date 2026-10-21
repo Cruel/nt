@@ -33,6 +33,8 @@
     "build:renderer": "vp build",
     "build:electron": "vp pack",
     "bundle:policy": "node scripts/validate-bundle-policy.mjs",
+    "check:native-production-closure": "node scripts/check-native-production-closure.mjs",
+    "test:native-production-closure": "node --test scripts/native-production-closure.test.mjs",
     "stage": "node scripts/build-editor-artifact.mjs --stage",
     "package": "node scripts/build-editor-artifact.mjs --dir",
     "artifact": "node scripts/build-editor-artifact.mjs --artifact",
