@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cerrno>
 #include <cstring>
 #include <fstream>
@@ -217,9 +218,12 @@ SourceAuthority::Capture SourceAuthority::capture() const
             // Physical identity is a change hint, not an Asset content hash.
             const auto size = std::filesystem::file_size(absolute);
             const auto modified = std::filesystem::last_write_time(absolute);
-            result.revisions.emplace(relative,
-                                     "physical:" + std::to_string(size) + ":" +
-                                         std::to_string(modified.time_since_epoch().count()));
+            // file_clock's native count can be wider than long long on macOS.
+            const auto modified_ns =
+                std::chrono::duration_cast<std::chrono::nanoseconds>(modified.time_since_epoch())
+                    .count();
+            result.revisions.emplace(relative, "physical:" + std::to_string(size) + ":" +
+                                                   std::to_string(modified_ns));
         } else {
             result.revisions.emplace(relative, exact_source_revision(read_exact_bytes(absolute)));
         }
