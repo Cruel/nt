@@ -100,6 +100,7 @@ try {
   console.log(`  ${verified}: cold project create`);
 
   compare(['asset', 'audit']);
+  compare(['platform', 'profiles']);
   compare(['shaders', 'compile', '--variant', 'essl-300']);
   compare(['shaders', 'compile', '--variant', 'unsupported'], false);
   compare(['localization', 'sync', '--dry-run']);
@@ -136,6 +137,7 @@ try {
   }
   compare(['entity', 'inspect', 'rooms', 'intro'], true, false);
   compare(['usages', 'rooms', 'intro'], true, false);
+  compare(['platform', 'profiles'], true, false);
 
   // A malformed sibling source must fail at the actual physical YAML owner,
   // not at the requested record's path. The native candidate's scoped-read
@@ -157,6 +159,9 @@ try {
   assert.equal(nativeIsolated.record?.id, 'bootstrap');
   verified += 1;
   console.log(`  ${verified}: native isolated Script read with unrelated malformed Room`);
+  // Scoped platform discovery must likewise ignore unrelated broken records
+  // without falling through to the retired TypeScript Project authority.
+  compare(['platform', 'profiles'], true, false);
 
   // Populate both owners with the authored Feature Lab fixture. These real
   // families include cross-record refs, sparse fields, locale fragments and
@@ -180,6 +185,7 @@ try {
   family(['entity', 'inspect', 'characters', 'pilot-guide']);
   family(['entity', 'inspect', 'materials', 'engine2d-draw-contract']);
   family(['entity', 'inspect', 'variables', 'world-composition-enabled']);
+  family(['platform', 'profiles']);
   family(['usages', 'rooms', 'room-lifecycle-roundtrip']);
   family(['usages', 'assets', 'pilot-room-backdrop']);
   // The collection list is generated from the Project schema inventory, not

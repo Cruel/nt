@@ -417,28 +417,6 @@ export async function runNovelTeaCli(
     );
     if (nativeReconciliation) return nativeReconciliation;
   }
-  // The candidate is a complete native Project boundary, not a preference
-  // before falling back to TypeScript. A newly introduced or unclaimed
-  // Project route must fail visibly during certification instead of silently
-  // exercising the retired implementation and producing a false parity pass.
-  if (
-    options.nativeProjectCommands &&
-    !options.prepareResidentSnapshotOnly &&
-    globals.command[0] !== 'agent' &&
-    globals.command[0] !== 'comfyui' &&
-    (routing.projectAccess !== 'none' || globals.command[0] === 'project')
-  )
-    return failure(
-      NOVELTEA_CLI_EXIT_CODES.internal,
-      [
-        cliDiagnostic(
-          'CLI_NATIVE_CANDIDATE_UNCLAIMED',
-          '/',
-          `Native CLI candidate has no handler for '${globals.command.join(' ')}'.`,
-        ),
-      ],
-      globals.json,
-    );
   let fileSystem = options.fileSystem;
   let workspace = options.workspace;
   const projectFileSystem = async () => {
@@ -781,6 +759,28 @@ export async function runNovelTeaCli(
       globals.json,
     );
   }
+
+  // Scoped commands have their own native preparation boundary below. Reject
+  // any other unclaimed Project command before its legacy workspace is opened.
+  if (
+    options.nativeProjectCommands &&
+    !options.prepareResidentSnapshotOnly &&
+    !command.projectPreparation &&
+    globals.command[0] !== 'agent' &&
+    globals.command[0] !== 'comfyui' &&
+    (routing.projectAccess !== 'none' || globals.command[0] === 'project')
+  )
+    return failure(
+      NOVELTEA_CLI_EXIT_CODES.internal,
+      [
+        cliDiagnostic(
+          'CLI_NATIVE_CANDIDATE_UNCLAIMED',
+          '/',
+          `Native CLI candidate has no handler for '${globals.command.join(' ')}'.`,
+        ),
+      ],
+      globals.json,
+    );
 
   let stdinJson: unknown;
   if (routing.stdin === 'json') {
