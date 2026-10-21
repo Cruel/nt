@@ -587,7 +587,8 @@ Json native_project_asset_audit(const fs::path& root)
                 if (source.is_object() && source.value("type", std::string{}) == "project-file" &&
                     source.contains("path") && source.at("path").is_string()) {
                     const auto relative = source.at("path").get<std::string>();
-                    const auto resolved = fs::weakly_canonical(root / fs::u8path(relative));
+                    const auto utf8_relative = std::u8string(relative.begin(), relative.end());
+                    const auto resolved = fs::weakly_canonical(root / fs::path(utf8_relative));
                     const auto within = resolved.lexically_relative(fs::canonical(root));
                     if (within.empty() || within == ".." || *within.begin() == ".." ||
                         within.is_absolute())

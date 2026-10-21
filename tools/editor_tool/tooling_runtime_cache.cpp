@@ -776,7 +776,7 @@ Json probe_authoring(const Json& request)
                       {"extensions", Json::array({".lua"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "shaders"},
-                      {"extensions", Json::array({".sc"})},
+                      {"extensions", Json::array({".sc", ".sh", ".inc", ".glsl", ".h"})},
                       {"excludedPrefixes", Json::array()}}});
     if (canonical_discovery_scopes(manifest["discoveryScopes"]) !=
         canonical_discovery_scopes(scopes))
