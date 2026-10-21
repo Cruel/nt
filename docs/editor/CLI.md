@@ -88,13 +88,25 @@ overrides) and rejected a pinned-worker Project source race without overwriting
 an existing package. Pinned native sessions no longer eagerly construct the
 retired TypeScript workspace service.
 
-The complete local Feature Lab differential now **passes all 78 public command
+The complete local Feature Lab differential now **passes all 82 public command
 comparisons** between native and legacy installed CLIs (including daemon and
 local shader compilation after physical source changes). The **release-host
 certification gate remains open** until Linux/Windows/macOS matrix results are
-confirmed. #512's cross-host parity requirements and sibling #514, #516, #517
-and #518 still require their own acceptance review. Neither #519 nor parent
-#505 should be closed solely on the strength of the local Linux results.
+confirmed. #519's cross-host coverage and remaining downstream caller/retirement
+gates require their own acceptance review. Neither #519 nor parent #505 should
+be closed solely on the strength of the local Linux results.
+
+The #512 installed-CLI routing differential now covers **82 comparisons**,
+including scoped `platform profiles` under local and daemon authority and with
+an unrelated malformed Room. Run `pnpm -C editor
+noveltea:certify:native-cli-lifecycle` for the separate native-vs-reference
+editable Project lifecycle proof: fresh create, deterministic local/daemon
+exports, exact ZIP member hashes/inventory, local/session/VCS exclusions,
+import/reopen, destination conflicts and invalid/traversal archive rejection.
+The lifecycle comparison ignores only the independent temporary roots and
+diagnostic prose for corrupt ZIP entries; stable error codes, paths and exit
+classes still must match. This is candidate-stage #512 evidence; #519 owns
+exhaustive all-family, negative, host and independence certification.
 
 ## Parallel native daemon validation certification (#500)
 
