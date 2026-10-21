@@ -437,6 +437,68 @@ export async function runNovelTeaCli(
     return { fileSystem: resolvedFileSystem, workspace };
   };
 
+  // Heavy native jobs need only the resident owner's short admission and
+  // generation proof before daemon snapshot pinning. Do not enter the legacy
+  // semantic-project reader or construct its TypeScript workspace in this pass.
+  if (
+    options.nativeProjectCommands &&
+    options.prepareResidentSnapshotOnly &&
+    options.residentWorkspace &&
+    routing.projectAccess !== 'none'
+  ) {
+    const { nativeProjectRoot } = await import('./native-project-lifecycle-cli');
+    const projectRoot = await nativeProjectRoot(cwd, globals.project, await projectFileSystem());
+    if (!projectRoot)
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.workspace,
+        [
+          cliDiagnostic(
+            'WORKSPACE_NOT_FOUND',
+            '/project.yaml',
+            'No NovelTea project.yaml was found from the current directory upward.',
+          ),
+        ],
+        globals.json,
+      );
+    const opened = await options.residentWorkspace.open(projectRoot);
+    if (!opened.ok)
+      return failure(
+        projectPreparationExitCode(opened.diagnostics),
+        opened.diagnostics,
+        globals.json,
+        { projectRoot },
+      );
+    if (
+      !options.trustPinnedResidentSnapshot &&
+      !(await options.residentWorkspace.verifyReadAuthority(opened.snapshot))
+    ) {
+      const retry = options.residentReadAttempt ?? 0;
+      if (retry < 2) return runNovelTeaCli(argv, { ...options, residentReadAttempt: retry + 1 });
+      return failure(
+        NOVELTEA_CLI_EXIT_CODES.workspace,
+        [
+          cliDiagnostic(
+            'WORKSPACE_REVISION_CONFLICT',
+            '/',
+            'Project files changed while preparing the native resident Project generation.',
+          ),
+        ],
+        globals.json,
+        { projectRoot },
+      );
+    }
+    return formatCliResult(
+      {
+        success: true,
+        exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+        diagnostics: opened.diagnostics,
+        projectRoot,
+      },
+      globals.json,
+      { success: 'NovelTea resident Project snapshot preparation succeeded.' },
+    );
+  }
+
   if (globals.command[0] === 'fmt') {
     const { runNovelTeaFmtCli } = await import('./fmt-command');
     const result = await runNovelTeaFmtCli(globals, cwd, await projectFileSystem());
@@ -460,18 +522,20 @@ export async function runNovelTeaCli(
     globals.command[0] === 'project' &&
     (globals.command[1] === 'export' || globals.command[1] === 'import')
   ) {
-    const services = await workspaceServices();
     if (
       globals.command[1] === 'export' &&
       options.prepareResidentSnapshotOnly &&
       options.residentWorkspace
     ) {
+      // Native daemon owner preparation must not even construct the retired
+      // workspace writer. The resident owner supplies the admitted generation.
+      const readFileSystem = await projectFileSystem();
       const projectRoot = globals.project
         ? path.resolve(cwd, globals.project)
         : await (async () => {
             const { discoverProjectRoot } =
               await import('../shared/project-workspace/project-workspace-discovery');
-            const discovered = await discoverProjectRoot(services.fileSystem, cwd);
+            const discovered = await discoverProjectRoot(readFileSystem, cwd);
             return discovered.ok ? discovered.projectRoot : null;
           })();
       if (!projectRoot)
@@ -535,6 +599,7 @@ export async function runNovelTeaCli(
         { success: 'NovelTea resident Project snapshot preparation succeeded.' },
       );
     }
+    const services = await workspaceServices();
     const { runNovelTeaProjectBundleCli } = await import('./project-bundle-cli');
     const bundleWorkspace =
       routing.projectAccess === 'read' && options.residentWorkspace

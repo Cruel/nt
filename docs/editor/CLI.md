@@ -25,9 +25,12 @@ The native candidate now returns `CLI_NATIVE_CANDIDATE_UNCLAIMED` (internal
 exit 70) instead of silently falling through to retired TypeScript Project
 handlers for an unclaimed non-preparation Project command. The isolated
 `NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE=1` switch additionally
-refuses construction of a retired TypeScript workspace from the installed
-ScriptC island. This is an **execution** guard for the candidate, not a
-replacement for a build/import graph proof; its owner/portable-snapshot
+refuses construction of a retired TypeScript workspace both at the installed
+ScriptC island factory and at the underlying `ProjectWorkspaceService`
+constructor. The constructor's focused regression demonstrates that poison is
+active for the candidate but does not disable the isolated TypeScript oracle.
+This is an **execution** guard for the candidate, not a
+replacement for the #521 production build/import graph removal proof; its owner/portable-snapshot
 preparation and every command family must pass with poisoning enabled before
 the independence gate can be considered closed.
 
@@ -44,6 +47,13 @@ matrix runs native routing, validation, inspection, Tests, package and platform
 checks on Linux, Windows and macOS. `certify-native-cli-transport.mjs` separately
 checks usage errors, malformed source admission, daemon/local transport,
 environment no-daemon override and JSON's single completion/empty stderr.
+It also exercises recovery after malformed required YAML and unsupported
+manifest schema admission; neither a warm owner nor a cached result may
+authorize an invalid generation. Both the Linux build and the release-host
+candidate matrix execute the native editable-Project lifecycle differential,
+including rejected or traversing archives, alongside the routing and transport
+checks. These scripts must execute against an installed binary from the same
+commit as their tests, rather than an older downloaded host CLI.
 `certify-native-cli-performance.mjs` records six process-wall-time stages:
 cold standalone and daemon validation, unchanged warm validation, a changed
 Room YAML, a changed Lua source, and Project export preparation. It removes
@@ -107,6 +117,18 @@ The lifecycle comparison ignores only the independent temporary roots and
 diagnostic prose for corrupt ZIP entries; stable error codes, paths and exit
 classes still must match. This is candidate-stage #512 evidence; #519 owns
 exhaustive all-family, negative, host and independence certification.
+
+The #519 candidate audit expands installed-CLI transport to **27 local/daemon
+comparisons**, including unsupported workspace versions across validation,
+entity inspection and scoped platform profiles. The native result adapter maps
+the top-level `/schemaVersion` const rejection to the established workspace
+error category. Runtime poisoning of the retired workspace constructor exposed
+and eliminated two unnecessary legacy constructions in resident Project export
+and heavy-job snapshot preparation. The installed native candidate subsequently
+passed the editable-Project lifecycle, Runtime Package byte/readback/source-drift
+and platform Web publication differentials with poisoning enabled. These local
+results are not a substitute for the release-host Linux/Windows/macOS matrix;
+#519 and #505 require those executed results at the candidate commit.
 
 ## Parallel native daemon validation certification (#500)
 
