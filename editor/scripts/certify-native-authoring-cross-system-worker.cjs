@@ -7,15 +7,18 @@ const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 
 const [addon, cli] = process.argv.slice(2);
+const production = process.argv[4] === '--production';
 const workerScript = path.resolve('dist-electron/authoring-worker/native-authoring-worker.cjs');
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const cacheFile = (root) => path.join(root, '.noveltea/cache/authoring/native-clean-current.json');
-const nativeEnv = {
-  ...process.env,
-  NOVELTEA_CLI_CERTIFICATION: '1',
-  NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
-  NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
-};
+const nativeEnv = production
+  ? { ...process.env }
+  : {
+      ...process.env,
+      NOVELTEA_CLI_CERTIFICATION: '1',
+      NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
+    };
 
 function runCli(root, project, args, daemon = false) {
   const run = spawnSync(
@@ -28,11 +31,13 @@ function runCli(root, project, args, daemon = false) {
     ],
     {
       cwd: root,
-      env: {
-        ...nativeEnv,
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-520-${process.pid}`,
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
-      },
+      env: production
+        ? nativeEnv
+        : {
+            ...nativeEnv,
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-520-${process.pid}`,
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
+          },
       encoding: 'utf8',
       timeout: 90_000,
       maxBuffer: 8 * 1024 * 1024,
@@ -112,7 +117,14 @@ async function checkCache(root, paths) {
 }
 
 async function main() {
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-520-cross-system-'));
+  // The independently launched CLI's broker uses this scratch directory as
+  // its socket root. macOS's long per-user TMPDIR can exceed sun_path before
+  // the broker appends /daemon-<identity>.sock.
+  const scratch = await mkdtemp(
+    process.platform === 'darwin'
+      ? '/tmp/nt-x-'
+      : path.join(os.tmpdir(), 'noveltea-520-cross-system-'),
+  );
   const project = path.join(scratch, 'project');
   const sessions = [];
   try {
@@ -138,8 +150,33 @@ async function main() {
     const oldDate = new Date('2001-01-01T00:00:00.000Z');
     await utimes(cacheFile(project), oldDate, oldDate);
     const oldMtime = (await stat(cacheFile(project))).mtimeMs;
-    runCli(scratch, project, ['validate'], true);
-    assert.equal((await stat(cacheFile(project))).mtimeMs, oldMtime, 'CLI missed editor cache');
+    const cliValidation = runCli(scratch, project, ['validate'], true);
+    const cacheAfterCli = (await stat(cacheFile(project))).mtimeMs;
+    if (cacheAfterCli !== oldMtime) {
+      const republished = JSON.parse(await readFile(cacheFile(project), 'utf8'));
+      const differences = Object.fromEntries(
+        [
+          'contract',
+          'semanticKey',
+          'semanticFingerprint',
+          'projectRoot',
+          'revisions',
+          'result',
+          'resident',
+        ]
+          .filter(
+            (field) => JSON.stringify(originalCache[field]) !== JSON.stringify(republished[field]),
+          )
+          .map((field) => [field, { editor: originalCache[field], cli: republished[field] }]),
+      );
+      throw new Error(
+        `CLI missed editor cache: ${JSON.stringify({
+          differences,
+          cliCacheHit: cliValidation.native?.cacheHit,
+          nativeResult: cliValidation.native,
+        }).slice(0, 15000)}`,
+      );
+    }
 
     const changed = await editor.request('patch', {
       expectedRevision: 0,

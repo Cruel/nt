@@ -77,7 +77,7 @@ export async function inspectNodePtyNativeClosure(nodePtyRoot, platform, arch, e
   const foreign = prebuildEntries
     .filter((entry) => entry.isDirectory() && entry.name !== currentTuple)
     .map((entry) => entry.name)
-    .sort();
+    .sort((a, b) => a.localeCompare(b));
   if (foreign.length > 0) {
     throw new Error(`Found foreign node-pty native artifact tuple(s): ${foreign.join(', ')}.`);
   }

@@ -14,6 +14,12 @@
 #include <algorithm>
 #include <set>
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 namespace {
 using namespace noveltea::authoring;
 using Json = jsoncons::ojson;
@@ -986,14 +992,12 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     const auto native_moved_script = temp.root / "scripts/native-file-511-moved.lua";
     ProjectAssetTransition source_create;
     source_create.kind = ProjectAssetTransition::Kind::SourceFiles;
-    source_create.source_files.push_back(
-        {"scripts/native-file-511.lua", "absent", "return 511\n"});
+    source_create.source_files.push_back({"scripts/native-file-511.lua", "absent", "return 511\n"});
     const auto source_created =
         project->save_owners(organized.snapshot.working_revision, {}, false,
                              TransactionDecision::KeepComments, {}, {}, source_create);
     require(source_created.accepted && read(native_script) == "return 511\n",
-            "Native source-file creation commits through native journal: " +
-                source_created.error);
+            "Native source-file creation commits through native journal: " + source_created.error);
     const auto colliding_source =
         project->save_owners(source_created.snapshot.working_revision, {}, false,
                              TransactionDecision::KeepComments, {}, {}, source_create);
@@ -1024,15 +1028,16 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
             "Native source-file transaction rejects stale source revision atomically");
     const auto folder_created = project->mutate_source_directory(
         source_moved.snapshot.working_revision, "create", "scripts/native-empty-511", "");
-    require(folder_created.accepted, "Native empty source folder creation: " + folder_created.error);
+    require(folder_created.accepted,
+            "Native empty source folder creation: " + folder_created.error);
     const auto folder_moved = project->mutate_source_directory(
         folder_created.snapshot.working_revision, "move", "scripts/native-empty-511",
         "scripts/native-empty-511-moved");
     require(folder_moved.accepted, "Native empty folder relocation: " + folder_moved.error);
     const auto folder_deleted = project->mutate_source_directory(
         folder_moved.snapshot.working_revision, "delete", "scripts/native-empty-511-moved", "");
-    require(folder_deleted.accepted && !std::filesystem::exists(
-                temp.root / "scripts/native-empty-511-moved"),
+    require(folder_deleted.accepted &&
+                !std::filesystem::exists(temp.root / "scripts/native-empty-511-moved"),
             "Native empty folder deletion: " + folder_deleted.error);
     require(project->inspect_record("assets/counter-document").accepted,
             "Native Asset source template must be admitted");
@@ -1045,13 +1050,14 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
         "assets/native-structural/published-record.bin";
     imported_record.at("data").at("mimeType") = "application/octet-stream";
     imported_record.at("data").at("extension") = ".bin";
-    const auto candidate_record = project->patch(
-        folder_deleted.snapshot.working_revision,
-        {{RoomPatch::Operation::Add, "/assets/native-published-asset", imported_record.to_string()}});
+    const auto candidate_record =
+        project->patch(folder_deleted.snapshot.working_revision,
+                       {{RoomPatch::Operation::Add, "/assets/native-published-asset",
+                         imported_record.to_string()}});
     require(candidate_record.accepted,
             "A new Asset record may be staged while its binary is not yet published");
-    const auto imported_staging = temp.root /
-        ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174001";
+    const auto imported_staging =
+        temp.root / ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174001";
     write(imported_staging, asset_bytes);
     ProjectAssetTransition imported_publication;
     imported_publication.kind = ProjectAssetTransition::Kind::Publish;
@@ -1721,6 +1727,83 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             "External edits cannot replace an unsaved record's validation evidence");
 }
 
+void clean_cache_alias_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto editor = ProjectSession::open(temp.root, error);
+    require(editor != nullptr, "Cannot admit initial Project for path-alias cache check");
+    const auto first = editor->validate_clean_project();
+    require(!first.cache_hit && first.snapshot.valid,
+            "Initial native Project clean validation publishes cache");
+
+    auto alternate = temp.root;
+#ifdef _WIN32
+    const auto short_path = [](const std::filesystem::path& input) {
+        const auto& wide = input.native();
+        const DWORD length = GetShortPathNameW(wide.c_str(), nullptr, 0);
+        if (!length || length > 32768)
+            return input;
+        std::wstring buffer(length, L'\0');
+        const DWORD written = GetShortPathNameW(wide.c_str(), buffer.data(), length);
+        if (!written || written >= length)
+            return input;
+        buffer.resize(written);
+        return std::filesystem::path(buffer);
+    };
+    alternate = short_path(temp.root);
+    if (alternate == temp.root)
+        alternate = short_path(temp.root.parent_path()) / temp.root.filename();
+    require(std::filesystem::equivalent(alternate, temp.root),
+            "Windows short path must denote the exact original Project directory");
+#endif
+    auto cli = ProjectSession::open(alternate, error);
+    require(cli != nullptr, "Cannot admit Project through alternate canonical path");
+    const auto imported = cli->validate_clean_project();
+    require(imported.cache_hit && imported.snapshot.valid,
+            "Long and 8.3 Windows path aliases must share the exact native clean cache");
+    const auto cached =
+        Json::parse(read(temp.root / ".noveltea/cache/authoring/native-clean-current.json"));
+    require(cached.at("projectRoot").is_string() &&
+                cached.at("projectRoot").as<std::string>().find('~') == std::string::npos,
+            "Native cache root must not retain a Windows short-name alias");
+}
+
+void missing_record_inspection_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto session = ProjectSession::open(temp.root, error);
+    require(session != nullptr, "Cannot admit Project for missing-record inspection");
+    const auto missing = session->inspect_record("rooms/missing");
+    require(!missing.accepted && missing.error == "Record does not exist.",
+            "Missing Room must return a normal failed inspection without throwing");
+    const auto valid = session->inspect_record("rooms/room-lifecycle-roundtrip");
+    require(valid.accepted, "Failed Room inspection must not poison subsequent valid inspections");
+}
+
+void malformed_sibling_scoped_read_roundtrip(const std::filesystem::path& fixture)
+{
+    TemporaryProject temp(fixture);
+    const auto room = temp.root / "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto original = read(room);
+    write(room, "broken: [\n");
+
+    // Full Project admission must still reject an unrelated malformed Room,
+    // but must not throw: the CLI can then fall back to a scoped record read.
+    std::string error;
+    auto project = ProjectSession::open(temp.root, error);
+    require(!project && error.starts_with("Invalid record YAML: records/rooms/"),
+            "Malformed sibling rejects full Project admission without throwing: " + error);
+    auto script = RoomSession::open_record(temp.root, "scripts", "feature-lab-bootstrap", error);
+    require(script != nullptr && script->snapshot().valid,
+            "Valid Script can still be inspected with an unrelated malformed Room");
+
+    write(room, original);
+    project = ProjectSession::open(temp.root, error);
+    require(project != nullptr, "Repair restores full Project admission: " + error);
+}
+
 void clean_cache_recovery_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
@@ -1827,6 +1910,13 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
         require(offset != std::string::npos, "Feature Lab manifest must have project name");
         invalid.replace(offset, std::string("name: Feature Lab").size(), replacement);
         write(path, invalid);
+        std::string admission_error;
+        require(!ProjectSession::open(temp.root, admission_error),
+                "Malformed Project manifest must reject mutable admission without throwing");
+        require(admission_error.starts_with(replacement == std::string_view("name: [")
+                                                ? "Invalid Project manifest YAML:"
+                                                : "Project manifest invalid:"),
+                "Native admission must retain a specific invalid-Project explanation");
         const auto validated = warm->validate_project();
         require(!validated.valid, "Invalid physical manifest must fail warm validation");
         auto cold = ProjectSession::validate_cold_project(temp.root, error);
@@ -1908,6 +1998,18 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--project-validation") {
             project_validation_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-alias") {
+            clean_cache_alias_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--missing-record-inspection") {
+            missing_record_inspection_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--malformed-sibling-scoped-read") {
+            malformed_sibling_scoped_read_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-recovery") {

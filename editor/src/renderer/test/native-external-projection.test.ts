@@ -134,8 +134,11 @@ describe('native editor external projection (#509)', () => {
         saved: base,
         working: local as JsonValue,
         recovery,
-        result: result(external.rooms.hall, nativeWorking.rooms.hall,
-          overlapping ? ['/label'] : []),
+        result: result(
+          external.rooms.hall,
+          nativeWorking.rooms.hall,
+          overlapping ? ['/label'] : [],
+        ),
       });
       const legacy = reconcileExternalProjectChange({
         baseDocument: base,

@@ -3,13 +3,13 @@
 // or one side's cache satisfying the other side observable.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 if (process.argv.length > 3)
   throw new Error('The transport/error contract uses its own disposable minimal Project.');
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-519-transport-'));
+const root = await createCertificationRoot('noveltea-519-transport-');
 const oracle = path.join(root, 'oracle');
 const candidate = path.join(root, 'candidate');
 const base = { ...process.env, NOVELTEA_CLI_CERTIFICATION: '1' };
@@ -44,7 +44,10 @@ function execute(project, native, args, { daemon = false, human = false, environ
   assert.ifError(result.error);
   if (!human) {
     assert.equal(result.stderr, '', `--json stderr must be empty: ${args.join(' ')}`);
-    assert.ok(result.stdout.trim().startsWith('{'));
+    assert.ok(
+      result.stdout.trim().startsWith('{'),
+      `Missing JSON: ${args.join(' ')}; native=${native}; daemon=${daemon}; status=${result.status}; signal=${result.signal}; stdout=${JSON.stringify(result.stdout)}; stderr=${JSON.stringify(result.stderr)}`,
+    );
     const data = JSON.parse(result.stdout);
     assert.equal(result.status, data.exitCode, `Exit mismatch: ${result.stdout}`);
     assert.equal(typeof data.success, 'boolean');
@@ -60,7 +63,12 @@ function execute(project, native, args, { daemon = false, human = false, environ
 }
 
 function projection(value) {
-  const replace = (text) => text.replaceAll(oracle, '<project>').replaceAll(candidate, '<project>');
+  const replace = (text) =>
+    [oracle, candidate].reduce(
+      (current, root) =>
+        current.replaceAll(root, '<project>').replaceAll(root.replaceAll('\\', '/'), '<project>'),
+      text,
+    );
   return {
     success: value.success,
     exitCode: value.exitCode,

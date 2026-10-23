@@ -973,8 +973,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         return roomEditSelectionExists(data, renamed) ? [renamed] : [item];
       });
       return next.length === current.length &&
-        next.every((item, index) => roomEditSelectionKey(item) === roomEditSelectionKey(current[index]!))
-        ? current : next;
+        next.every(
+          (item, index) => roomEditSelectionKey(item) === roomEditSelectionKey(current[index]!),
+        )
+        ? current
+        : next;
     });
   }, [data]);
 
@@ -1000,15 +1003,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const executeRoomSelectionDelete = useCallback(
     (selection: readonly RoomEditSelection[]) => {
       if (!roomId || selection.length === 0) return;
-      void useCommandStore.getState().executeCommandAsync({
-        type: 'room.deleteSelection',
-        label: t('roomEditor.compositionPane.deleteSelection'),
-        payload: { roomId, selection },
-        originSaveUnitId: recordSaveUnitId('rooms', roomId),
-        persistencePolicy: 'manual-save',
-      }).then((result) => {
-        if (result.ok) setRoomSelection([]);
-      });
+      void useCommandStore
+        .getState()
+        .executeCommandAsync({
+          type: 'room.deleteSelection',
+          label: t('roomEditor.compositionPane.deleteSelection'),
+          payload: { roomId, selection },
+          originSaveUnitId: recordSaveUnitId('rooms', roomId),
+          persistencePolicy: 'manual-save',
+        })
+        .then((result) => {
+          if (result.ok) setRoomSelection([]);
+        });
     },
     [roomId, t],
   );
@@ -1275,7 +1281,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   };
-  const executeRoomEditCommand = (type: string, label: string, payload: Record<string, unknown>) => {
+  const executeRoomEditCommand = (
+    type: string,
+    label: string,
+    payload: Record<string, unknown>,
+  ) => {
     void useCommandStore.getState().executeCommandAsync({
       type,
       label,

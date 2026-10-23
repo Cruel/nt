@@ -90,10 +90,14 @@ export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
     try {
       const configuration = JSON.parse(source) as unknown;
       setParseError(null);
-      const result = await execute('archetype.replaceConfiguration', 'Update Archetype configuration', {
-        archetypeId,
-        configuration,
-      });
+      const result = await execute(
+        'archetype.replaceConfiguration',
+        'Update Archetype configuration',
+        {
+          archetypeId,
+          configuration,
+        },
+      );
       const failure = result.diagnostics.find((item) => item.severity === 'error');
       if (failure) setParseError(failure.message);
     } catch (error) {

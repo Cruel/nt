@@ -456,6 +456,52 @@ run succeeds. A separate manual `Windows CLI Diagnostics` workflow
 (`.github/workflows/windows-cli-diagnostics.yml`) reproduces CLI UI-runner failures under the
 release GNU toolchain with page heap and debugger capture, without publishing anything.
 
+### Re-certify previously built Release artifacts
+
+Use **Actions → Re-certify Build Artifacts** (`.github/workflows/recertify-artifacts.yml`)
+to rerun post-build checks without repeating the Release build. This workflow is
+**manual-only** and read-only with respect to Release artifacts: it neither publishes a
+release nor compiles the CLI/editor or rebuilds installer packages. Some CLI tests do
+create disposable Project export fixtures as part of certification.
+
+The default `latest` source resolves to the newest **completed** Release run containing
+at least one unexpired downloadable artifact in the requested scope, including failed
+Release runs. `sha` finds a Release run for a source commit (short or full hex SHA);
+`run` selects a specific GitHub Actions run ID. A commit is not an artifact: if multiple
+completed runs use the SHA, the newest run with matching available artifacts wins.
+Select `cli`, `editor`, or `all`. The resolver rejects incomplete/non-Release runs
+and cross-run/cross-SHA artifact metadata, then downloads from that run's immutable ID.
+Expired/missing artifacts are reported as **skipped**, never silently rebuilt.
+
+By default, the certification scripts come from the artifact-producing commit. The
+optional `test_ref` checks out a different script revision; the summary records both
+SHAs. The resolver and installer verifier run from the workflow revision so they also
+work with historical releases that predate this workflow.
+
+CLI re-certification reruns installed-binary native disk validation, command, Project
+routing, lifecycle, transport/error, Tests, and runtime package differential checks on
+Linux, Windows, and macOS. Editor re-certification checks the **downloaded final
+installer set**, platform filenames, file signatures, and SHA-256 on those hosts.
+This editor check is **not** equivalent to installing/launching the editor: packaged
+application smoke, platform export, and editor/CLI cross-system authority checks
+require installed applications or build-stage bundles that Release does not currently
+retain as downloadable artifacts. These remain full Release checks and are explicitly
+listed as excluded in the re-certification summaries. Runs that verify only some
+available artifacts are **partial evidence**, not release acceptance.
+
+Run `node --test scripts/recertify-release-artifacts.test.mjs` to test run selection,
+expired/inconsistent metadata rejection, and installer signatures offline. For a live
+resolver check use:
+
+```sh
+GH_TOKEN="$(gh auth token)" GITHUB_REPOSITORY=Cruel/nt \
+  node scripts/recertify-release-artifacts.mjs resolve \
+  --source run --run-id 39698985373 --scope all
+```
+
+GitHub Actions requires the workflow file to exist on the default branch before
+exposing its manual-dispatch button.
+
 The checked-in Android project is the immutable player-template source. It builds
 `noveltea-player`, not the sandbox, and requires one ABI per invocation:
 

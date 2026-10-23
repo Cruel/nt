@@ -940,14 +940,19 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       if (useCommandStore.getState().nativeWorkingRevision !== null)
         await flushNativeProjectSources();
       const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
-      result = nativeRevision !== null && projectSessionId
-        ? await window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, activeTestId)
-        : await window.noveltea.runPlaybackTest(
-            projectSessionId,
-            activeProject,
-            activeTestId,
-            usePendingInputStore.getState().entriesBySaveUnitId,
-          );
+      result =
+        nativeRevision !== null && projectSessionId
+          ? await window.noveltea.nativeProjectRunTest(
+              projectSessionId,
+              nativeRevision,
+              activeTestId,
+            )
+          : await window.noveltea.runPlaybackTest(
+              projectSessionId,
+              activeProject,
+              activeTestId,
+              usePendingInputStore.getState().entriesBySaveUnitId,
+            );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Native Test preparation failed.';
       setStatusMessage(message);

@@ -2,13 +2,13 @@
 // This is deliberately independent of Feature Lab and shader compilation.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { cp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 import { performance } from 'node:perf_hooks';
 
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-519-performance-'));
+const root = await createCertificationRoot('noveltea-519-performance-');
 const baseline = path.join(root, 'legacy');
 const native = path.join(root, 'native');
 const envBase = { ...process.env, NOVELTEA_CLI_CERTIFICATION: '1' };

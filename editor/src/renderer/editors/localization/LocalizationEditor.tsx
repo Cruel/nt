@@ -307,9 +307,8 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId,
       persistencePolicy: 'manual-save',
     });
-    const failure = (
-      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? null
-    );
+    const failure =
+      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? null;
     setMutationError(failure);
     return failure;
   }
@@ -460,9 +459,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localeTargets?.[baseAssetId];
     if (target === null) {
       if (!existing) return;
-      void run(t('localizationEditor.commands.clearLocalizedAsset', { asset: baseAssetId, locale }), [
-        { op: 'remove', path: `/localization/assets/${encodedLocale}/${encodedAsset}` },
-      ]);
+      void run(
+        t('localizationEditor.commands.clearLocalizedAsset', { asset: baseAssetId, locale }),
+        [{ op: 'remove', path: `/localization/assets/${encodedLocale}/${encodedAsset}` }],
+      );
       return;
     }
     if (!localeTargets) {
@@ -576,7 +576,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       setPromotionError(result.message);
       return;
     }
-    const error = await run(t('localizationMessageReuse.commandLabel', { key }), [...result.patches]);
+    const error = await run(t('localizationMessageReuse.commandLabel', { key }), [
+      ...result.patches,
+    ]);
     setPromotionError(error);
     if (!error) setPromotionDraft(null);
   }
@@ -1071,7 +1073,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       {mutationError ? (
-        <p role="alert" className="border-b border-destructive/40 px-4 py-2 text-xs text-destructive">
+        <p
+          role="alert"
+          className="border-b border-destructive/40 px-4 py-2 text-xs text-destructive"
+        >
           {mutationError}
         </p>
       ) : null}

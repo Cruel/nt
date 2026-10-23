@@ -714,12 +714,15 @@ export function PackageExportDialog({
       setSelectedTemplateToken('');
       setSelectedSigningProfileId('');
     } else if (profileEditMode === 'editing') {
-      if (!(await commitPlatformSettings({
-        ...currentPlatformSettings,
-        profiles: currentPlatformSettings.profiles.map((item) =>
-          item.id === profileDraft.id ? profileDraft : item,
-        ),
-      }))) return;
+      if (
+        !(await commitPlatformSettings({
+          ...currentPlatformSettings,
+          profiles: currentPlatformSettings.profiles.map((item) =>
+            item.id === profileDraft.id ? profileDraft : item,
+          ),
+        }))
+      )
+        return;
       setPlatformOutput(outputForProfile(profileDraft));
     }
     setProfileDraft(null);
@@ -739,10 +742,13 @@ export function PackageExportDialog({
       id: uniqueProfileId(selectedPlatformProfile.target),
       label: uniqueProfileLabel(base),
     });
-    if (!(await commitPlatformSettings({
-      ...currentPlatformSettings,
-      profiles: [...currentPlatformSettings.profiles, next],
-    }))) return;
+    if (
+      !(await commitPlatformSettings({
+        ...currentPlatformSettings,
+        profiles: [...currentPlatformSettings.profiles, next],
+      }))
+    )
+      return;
     setSelectedPlatformProfileId(next.id);
     setMode('platform');
     rememberSelectedProfile(next.id);

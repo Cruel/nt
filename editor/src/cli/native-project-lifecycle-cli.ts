@@ -181,7 +181,8 @@ export async function runNativeProjectLifecycleCli(
     );
   }
 
-  const projectRoot = response.projectRoot ?? String(request.projectRoot ?? '');
+  const projectRoot =
+    response.projectRoot ?? (typeof request.projectRoot === 'string' ? request.projectRoot : '');
   if (operation === 'create' || operation === 'import') {
     if (
       !response.projectRoot ||

@@ -554,9 +554,9 @@ describe('native CLI Project lifecycle boundary', () => {
       },
     );
     expect(result?.exitCode).toBe(0);
-    expect((result?.envelope.plan as Record<string, unknown>).expectedWorkspaceRevision).toBe(
-      'sha256:native',
-    );
+    expect(
+      (result?.envelope?.plan as Record<string, unknown> | undefined)?.expectedWorkspaceRevision,
+    ).toBe('sha256:native');
   });
 
   it('rejects stale reconciliation plans before invoking a native writer', async () => {

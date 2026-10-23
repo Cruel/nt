@@ -1319,7 +1319,7 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_PATCH,
     (arguments_) => nativeProjectPatchArgumentsSchema.parse(arguments_),
-    (projectSessionId, expectedRevision, patches, layoutCopySources = undefined) => {
+    (...[projectSessionId, expectedRevision, patches, layoutCopySources]) => {
       // Never activate a second writable Project behind the normal Save
       // pipeline. This endpoint is enabled only by an explicit cutover
       // certification launch; physical Save uses a separate revision-checked

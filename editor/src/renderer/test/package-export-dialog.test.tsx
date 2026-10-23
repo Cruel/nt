@@ -252,7 +252,9 @@ describe('PackageExportDialog', () => {
     fireEvent.change(name, { target: { value: 'Linux Shipping' } });
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Linux Shipping' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Linux Shipping' })).toBeInTheDocument(),
+    );
     expect(screen.getByRole('button', { name: 'Add profile' })).toBeEnabled();
     expect(
       (useProjectStore.getState().document as ReturnType<typeof exportableProject>).export

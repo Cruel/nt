@@ -115,33 +115,43 @@ describe('project save coordinator', () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
     working.rooms.foyer!.label = 'Updated';
-    loadProject(saved, working, recoveryState({
-      'record:rooms:foyer': {
-        sequence: 1,
-        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Updated' }],
-        affectedPaths: ['/rooms/foyer/label'],
-        pendingRawInputByPath: {},
-        atomicTransactionGroupIds: [],
-      },
-    }));
+    loadProject(
+      saved,
+      working,
+      recoveryState({
+        'record:rooms:foyer': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Updated' }],
+          affectedPaths: ['/rooms/foyer/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
     useCommandStore.getState().enableNativeCommandMode(0);
-    const nativeSave = vi.fn()
+    const nativeSave = vi
+      .fn()
       .mockResolvedValueOnce({
-        accepted: false, error: 'Comment approval required',
-        commentImpacts: [{ file: 'records/rooms/foyer.yaml', path: '/label',
-          comment: '# note', kind: 'deleted' }],
+        accepted: false,
+        error: 'Comment approval required',
+        commentImpacts: [
+          { file: 'records/rooms/foyer.yaml', path: '/label', comment: '# note', kind: 'deleted' },
+        ],
       })
       .mockResolvedValueOnce({ accepted: true, error: '', snapshot: { workingRevision: 1 } });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: nativeSave,
+      configurable: true,
+      writable: true,
+      value: nativeSave,
     });
     const pending = saveActiveSaveUnit('record:rooms:foyer');
     await vi.waitFor(() => expect(nativeSave).toHaveBeenCalledTimes(1));
     resolveProjectComments('delete');
     const result = await pending;
     expect(result).toMatchObject({ success: true, status: 'saved' });
-    expect(nativeSave).toHaveBeenNthCalledWith(2,
-      'test-project-session', 0, 'record:rooms:foyer', { comments: 'remove' });
+    expect(nativeSave).toHaveBeenNthCalledWith(2, 'test-project-session', 0, 'record:rooms:foyer', {
+      comments: 'remove',
+    });
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
   it('flushes the latest debounced source buffer through native staging before runtime use', async () => {
@@ -170,7 +180,9 @@ describe('project save coordinator', () => {
       textSourceDiskRevision: sourceRevision,
     });
     Object.defineProperty(window.noveltea, 'nativeProjectStageText', {
-      configurable: true, writable: true, value: stage,
+      configurable: true,
+      writable: true,
+      value: stage,
     });
     useProjectSourceStore.getState().setText(helperSource.id, 'return outdated');
     useProjectSourceStore.getState().setText(helperSource.id, 'return latest');
@@ -178,7 +190,11 @@ describe('project save coordinator', () => {
     expect(await useProjectSourceStore.getState().flushNativeStages()).toBe(true);
     expect(stage).toHaveBeenCalledTimes(1);
     expect(stage).toHaveBeenCalledWith(
-      'test-project-session', 0, helperSource.id, sourceRevision, 'return latest',
+      'test-project-session',
+      0,
+      helperSource.id,
+      sourceRevision,
+      'return latest',
     );
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(1);
     useProjectSourceStore.getState().clear();
@@ -212,19 +228,27 @@ describe('project save coordinator', () => {
       textSourceDiskRevisions: { [helperSource.id]: savedHash },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveText', {
-      configurable: true, writable: true, value: nativeSave,
+      configurable: true,
+      writable: true,
+      value: nativeSave,
     });
     const result = await saveActiveSaveUnit();
     expect(result).toMatchObject({
-      success: true, status: 'saved',
+      success: true,
+      status: 'saved',
       savedSaveUnitIds: [`source-file:${helperSource.id}`],
     });
     expect(nativeSave).toHaveBeenCalledWith(
-      'test-project-session', 0, helperSource.id, sourceRevision, 'return edited',
+      'test-project-session',
+      0,
+      helperSource.id,
+      sourceRevision,
+      'return edited',
     );
     expect(window.noveltea.writeProjectSource).not.toHaveBeenCalled();
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
-      dirty: false, baseContentHash: savedHash,
+      dirty: false,
+      baseContentHash: savedHash,
     });
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveText');
   });
@@ -258,7 +282,9 @@ describe('project save coordinator', () => {
       snapshot: { workingRevision: 0 },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: nativeSave,
+      configurable: true,
+      writable: true,
+      value: nativeSave,
     });
     const result = await saveActiveSaveUnit('record:rooms:foyer');
     expect(result).toMatchObject({
@@ -267,16 +293,20 @@ describe('project save coordinator', () => {
       savedSaveUnitIds: ['record:rooms:foyer'],
       remainingDirtySaveUnitIds: ['record:rooms:kitchen'],
     });
-    expect(nativeSave).toHaveBeenCalledWith(
-      'test-project-session', 0, 'record:rooms:foyer', { comments: 'keep' },
-    );
+    expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
+      comments: 'keep',
+    });
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     const state = useProjectStore.getState();
     expect((state.savedDocument as typeof saved).rooms.foyer?.label).toBe('Native Foyer');
     expect((state.savedDocument as typeof saved).rooms.kitchen?.label).toBe('Kitchen');
     expect((state.document as typeof working).rooms.kitchen?.label).toBe('Still Dirty');
-    expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
-    expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).not.toHaveProperty('record:rooms:foyer');
+    expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).toHaveProperty(
+      'record:rooms:kitchen',
+    );
+    expect(buildEditorProjectStateSnapshot().recovery.saveUnitsById).not.toHaveProperty(
+      'record:rooms:foyer',
+    );
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
@@ -284,15 +314,19 @@ describe('project save coordinator', () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
     working.rooms.foyer!.label = 'Native Foyer';
-    loadProject(saved, working, recoveryState({
-      'record:rooms:foyer': {
-        sequence: 1,
-        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native Foyer' }],
-        affectedPaths: ['/rooms/foyer/label'],
-        pendingRawInputByPath: {},
-        atomicTransactionGroupIds: [],
-      },
-    }));
+    loadProject(
+      saved,
+      working,
+      recoveryState({
+        'record:rooms:foyer': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native Foyer' }],
+          affectedPaths: ['/rooms/foyer/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
     useCommandStore.getState().enableNativeCommandMode(0);
     const onDisk = structuredClone(working.rooms.foyer!);
     onDisk.data.description.source = { kind: 'inline', text: 'Changed on disk during Save' };
@@ -313,15 +347,20 @@ describe('project save coordinator', () => {
       },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: save,
+      configurable: true,
+      writable: true,
+      value: save,
     });
     const previousRevision = useProjectStore.getState().projectRevision;
     expect((await saveActiveSaveUnit('record:rooms:foyer')).success).toBe(true);
     const latest = useProjectStore.getState();
-    expect((latest.document as typeof working).rooms.foyer!.data.description.source)
-      .toMatchObject({ kind: 'inline', text: 'Changed on disk during Save' });
-    expect((latest.savedDocument as typeof saved).rooms.foyer!.data.description.source)
-      .toMatchObject({ kind: 'inline', text: 'Changed on disk during Save' });
+    expect((latest.document as typeof working).rooms.foyer!.data.description.source).toMatchObject({
+      kind: 'inline',
+      text: 'Changed on disk during Save',
+    });
+    expect(
+      (latest.savedDocument as typeof saved).rooms.foyer!.data.description.source,
+    ).toMatchObject({ kind: 'inline', text: 'Changed on disk during Save' });
     expect(latest.projectRevision).toBe(previousRevision + 1);
     expect(useCommandStore.getState().nativeProjectionRevision).toBe(latest.projectRevision);
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
@@ -356,14 +395,18 @@ describe('project save coordinator', () => {
       snapshot: { workingRevision: 0 },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: nativeSave,
+      configurable: true,
+      writable: true,
+      value: nativeSave,
     });
     expect((await saveActiveSaveUnit('record:rooms:foyer')).success).toBe(false);
     expect((await saveAllSaveUnits()).status).toBe('failed');
     expect(nativeSave).toHaveBeenCalledTimes(2);
     expect(nativeSave.mock.calls[1]?.[2]).toEqual(['record:rooms:foyer', 'record:rooms:kitchen']);
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
-    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer?.label).toBe('Foyer');
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer?.label).toBe(
+      'Foyer',
+    );
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
@@ -396,7 +439,9 @@ describe('project save coordinator', () => {
       snapshot: { workingRevision: 0 },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: nativeSave,
+      configurable: true,
+      writable: true,
+      value: nativeSave,
     });
     const result = await saveAllSaveUnits();
     expect(result).toMatchObject({
@@ -425,31 +470,45 @@ describe('project save coordinator', () => {
       projectSessionId: 'test-project-session',
       files: [helperSource],
       textById: { [helperSource.id]: 'return changed' },
-      buffersById: { [helperSource.id]: {
-        text: 'return changed', baseText: 'return clean', baseContentHash: sourceRevision,
-        dirty: true, conflict: null,
-      } },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return changed',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: true,
+          conflict: null,
+        },
+      },
     });
     const hash = `sha256:${'e'.repeat(64)}`;
     const save = vi.fn().mockResolvedValue({
-      accepted: true, error: '', snapshot: { workingRevision: 1 },
+      accepted: true,
+      error: '',
+      snapshot: { workingRevision: 1 },
       textSourceDiskRevisions: { [helperSource.id]: hash },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: save,
+      configurable: true,
+      writable: true,
+      value: save,
     });
     const result = await saveAllSaveUnits();
     expect(result).toMatchObject({
-      success: true, status: 'saved',
-      savedSaveUnitIds: [`source-file:${helperSource.id}`], remainingDirtySaveUnitIds: [],
+      success: true,
+      status: 'saved',
+      savedSaveUnitIds: [`source-file:${helperSource.id}`],
+      remainingDirtySaveUnitIds: [],
     });
     expect(save).toHaveBeenCalledWith('test-project-session', 0, [], {
-      comments: 'keep', textPaths: [helperSource.id],
+      comments: 'keep',
+      textPaths: [helperSource.id],
       textContents: { [helperSource.id]: 'return changed' },
     });
     expect(window.noveltea.writeProjectSource).not.toHaveBeenCalled();
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
-      dirty: false, baseText: 'return changed', baseContentHash: hash,
+      dirty: false,
+      baseText: 'return changed',
+      baseContentHash: hash,
     });
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
@@ -458,46 +517,70 @@ describe('project save coordinator', () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();
     working.rooms.foyer!.label = 'Native edited Room';
-    loadProject(saved, working, recoveryState({
-      'record:rooms:foyer': {
-        sequence: 1,
-        patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native edited Room' }],
-        affectedPaths: ['/rooms/foyer/label'], pendingRawInputByPath: {},
-        atomicTransactionGroupIds: [],
-      },
-    }));
+    loadProject(
+      saved,
+      working,
+      recoveryState({
+        'record:rooms:foyer': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Native edited Room' }],
+          affectedPaths: ['/rooms/foyer/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
     useCommandStore.getState().enableNativeCommandMode(0);
     useProjectSourceStore.setState({
       projectSessionId: 'test-project-session',
       files: [helperSource],
       textById: { [helperSource.id]: 'return changed' },
-      buffersById: { [helperSource.id]: {
-        text: 'return changed', baseText: 'return clean', baseContentHash: sourceRevision,
-        dirty: true, conflict: null,
-      } },
+      buffersById: {
+        [helperSource.id]: {
+          text: 'return changed',
+          baseText: 'return clean',
+          baseContentHash: sourceRevision,
+          dirty: true,
+          conflict: null,
+        },
+      },
     });
     const hash = `sha256:${'f'.repeat(64)}`;
-    const save = vi.fn().mockResolvedValueOnce({
-      accepted: false, error: 'WORKSPACE_REVISION_CONFLICT', snapshot: { workingRevision: 0 },
-    }).mockResolvedValueOnce({
-      accepted: true, error: '', snapshot: { workingRevision: 1 },
-      textSourceDiskRevisions: { [helperSource.id]: hash },
-    });
+    const save = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accepted: false,
+        error: 'WORKSPACE_REVISION_CONFLICT',
+        snapshot: { workingRevision: 0 },
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        error: '',
+        snapshot: { workingRevision: 1 },
+        textSourceDiskRevisions: { [helperSource.id]: hash },
+      });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
-      configurable: true, writable: true, value: save,
+      configurable: true,
+      writable: true,
+      value: save,
     });
     expect((await saveAllSaveUnits()).success).toBe(false);
-    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label).toBe('Foyer');
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label).toBe(
+      'Foyer',
+    );
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]!.dirty).toBe(true);
     expect((await saveAllSaveUnits()).success).toBe(true);
     expect(save).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {
-      comments: 'keep', textPaths: [helperSource.id],
+      comments: 'keep',
+      textPaths: [helperSource.id],
       textContents: { [helperSource.id]: 'return changed' },
     });
-    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label)
-      .toBe('Native edited Room');
+    expect((useProjectStore.getState().savedDocument as typeof saved).rooms.foyer!.label).toBe(
+      'Native edited Room',
+    );
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
-      dirty: false, baseContentHash: hash,
+      dirty: false,
+      baseContentHash: hash,
     });
     expect(window.noveltea.writeProjectSource).not.toHaveBeenCalled();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');

@@ -463,97 +463,119 @@ async function commitSelectedNativeSaveUnits(
     return {
       success: false,
       status: 'blocked',
-      diagnostics: [{
-        code: 'editor.native-save.atomic-group-unavailable',
-        severity: 'error',
-        category: 'Project save',
-        path: '/',
-        message: 'Native Save requires at least one logical Save unit.',
-      }],
+      diagnostics: [
+        {
+          code: 'editor.native-save.atomic-group-unavailable',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: 'Native Save requires at least one logical Save unit.',
+        },
+      ],
       savedSaveUnitIds: [],
       remainingDirtySaveUnitIds: remaining,
     };
   }
   const saveUnitIds = [...selectedIds].sort();
   const sourceBuffers = useProjectSourceStore.getState().buffersById;
-  const submittedSources = Object.fromEntries(sourceIds.map((id) => {
-    const buffer = sourceBuffers[id];
-    if (!buffer?.dirty || buffer.conflict)
-      throw new Error(`Native mixed Save requires a cleanly staged dirty source: ${id}`);
-    return [id, { text: buffer.text, baseContentHash: buffer.baseContentHash }];
-  }));
+  const submittedSources = Object.fromEntries(
+    sourceIds.map((id) => {
+      const buffer = sourceBuffers[id];
+      if (!buffer?.dirty || buffer.conflict)
+        throw new Error(`Native mixed Save requires a cleanly staged dirty source: ${id}`);
+      return [id, { text: buffer.text, baseContentHash: buffer.baseContentHash }];
+    }),
+  );
   const acknowledged = { remainingDirtySaveUnitIds: null as string[] | null };
   let comments: 'keep' | 'remove' = 'keep';
-  let submitted: Awaited<ReturnType<ReturnType<typeof useCommandStore.getState>['saveNativeUnitAsync']>>;
+  let submitted: Awaited<
+    ReturnType<ReturnType<typeof useCommandStore.getState>['saveNativeUnitAsync']>
+  >;
   for (let attempt = 0; ; attempt += 1) {
     submitted = await useCommandStore.getState().saveNativeUnitAsync(
-    saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
-    current.projectRevision,
-    { comments, ...(keepMine ? { keepMine: true } : {}), ...(sourceIds.length ? {
-      textPaths: [...sourceIds],
-      textContents: Object.fromEntries(Object.entries(submittedSources).map(
-        ([id, source]) => [id, source.text],
-      )),
-    } : {}) },
-    (saved) => {
-      const latest = useProjectStore.getState();
-      if (
-        !latest.document ||
-        latest.projectInstanceId !== current.projectInstanceId ||
-        latest.projectRevision !== current.projectRevision
-      ) throw new Error('Native Save was accepted after the editor Project changed.');
-      // An exact-CAS native Save may incorporate a disjoint external edit in
-      // the same physical owner. Its saved/working source is authoritative;
-      // the renderer's pre-Save candidate is not a valid disk projection then.
-      const authoritative = saved.affectedRecords?.length
-        ? projectNativeExternalResult({
-            saved: latest.savedDocument!,
-            working: latest.document,
-            recovery: snapshot.recovery,
-            result: saved,
-          })
-        : null;
-      const savedContent = authoritative?.saved ?? candidateContent;
-      const workingContent = authoritative?.working ?? latest.document;
-      const rebased = rebaseRecoveryOverlays(
-        snapshot.recovery,
-        savedContent,
-        workingContent,
-        selectedIds,
-      );
-      const savedEditorState = editorStateForContentCandidate(snapshot, savedContent, rebased);
-      const workingEditorState = editorStateForContentCandidate(snapshot, workingContent, rebased);
-      if (sourceIds.length)
-        acknowledgeNativeSavedSources(
-          latest.projectSessionId!, submittedSources, saved.textSourceDiskRevisions ?? {},
-        );
-      const persisted = mergeEditorProjectState(savedContent, savedEditorState);
-      const projected = mergeEditorProjectState(workingContent, workingEditorState);
-      if (
-        authoritative &&
-        !jsonValuesEqual(
-          stripLocalEditorProjectState(latest.document),
-          stripLocalEditorProjectState(workingContent),
+      saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
+      current.projectRevision,
+      {
+        comments,
+        ...(keepMine ? { keepMine: true } : {}),
+        ...(sourceIds.length
+          ? {
+              textPaths: [...sourceIds],
+              textContents: Object.fromEntries(
+                Object.entries(submittedSources).map(([id, source]) => [id, source.text]),
+              ),
+            }
+          : {}),
+      },
+      (saved) => {
+        const latest = useProjectStore.getState();
+        if (
+          !latest.document ||
+          latest.projectInstanceId !== current.projectInstanceId ||
+          latest.projectRevision !== current.projectRevision
         )
-      ) {
-        if (!useProjectStore.getState().publishExternalReconciliation({
-          document: projected,
-          savedDocument: persisted,
-          scriptSourcePaths: latest.scriptSourcePaths,
-          affectedPaths: authoritative.affectedPaths,
-        })) throw new Error('Native Save produced an inadmissible external editor projection.');
-      } else {
-        useProjectStore.getState().markSaved({ document: persisted });
-      }
-      setLoadedEditorProjectState(workingEditorState);
-      useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
-      acknowledged.remainingDirtySaveUnitIds = uniqueSorted([
-        ...Object.keys(rebased.saveUnitsById),
-        ...Object.entries(useProjectSourceStore.getState().buffersById)
-          .filter(([, buffer]) => buffer.dirty)
-          .map(([id]) => sourceSaveUnitId(id)),
-      ]);
-    },
+          throw new Error('Native Save was accepted after the editor Project changed.');
+        // An exact-CAS native Save may incorporate a disjoint external edit in
+        // the same physical owner. Its saved/working source is authoritative;
+        // the renderer's pre-Save candidate is not a valid disk projection then.
+        const authoritative = saved.affectedRecords?.length
+          ? projectNativeExternalResult({
+              saved: latest.savedDocument!,
+              working: latest.document,
+              recovery: snapshot.recovery,
+              result: saved,
+            })
+          : null;
+        const savedContent = authoritative?.saved ?? candidateContent;
+        const workingContent = authoritative?.working ?? latest.document;
+        const rebased = rebaseRecoveryOverlays(
+          snapshot.recovery,
+          savedContent,
+          workingContent,
+          selectedIds,
+        );
+        const savedEditorState = editorStateForContentCandidate(snapshot, savedContent, rebased);
+        const workingEditorState = editorStateForContentCandidate(
+          snapshot,
+          workingContent,
+          rebased,
+        );
+        if (sourceIds.length)
+          acknowledgeNativeSavedSources(
+            latest.projectSessionId!,
+            submittedSources,
+            saved.textSourceDiskRevisions ?? {},
+          );
+        const persisted = mergeEditorProjectState(savedContent, savedEditorState);
+        const projected = mergeEditorProjectState(workingContent, workingEditorState);
+        if (
+          authoritative &&
+          !jsonValuesEqual(
+            stripLocalEditorProjectState(latest.document),
+            stripLocalEditorProjectState(workingContent),
+          )
+        ) {
+          if (
+            !useProjectStore.getState().publishExternalReconciliation({
+              document: projected,
+              savedDocument: persisted,
+              scriptSourcePaths: latest.scriptSourcePaths,
+              affectedPaths: authoritative.affectedPaths,
+            })
+          )
+            throw new Error('Native Save produced an inadmissible external editor projection.');
+        } else {
+          useProjectStore.getState().markSaved({ document: persisted });
+        }
+        setLoadedEditorProjectState(workingEditorState);
+        useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
+        acknowledged.remainingDirtySaveUnitIds = uniqueSorted([
+          ...Object.keys(rebased.saveUnitsById),
+          ...Object.entries(useProjectSourceStore.getState().buffersById)
+            .filter(([, buffer]) => buffer.dirty)
+            .map(([id]) => sourceSaveUnitId(id)),
+        ]);
+      },
     );
     if (submitted.ok || !submitted.commentImpacts?.length || attempt >= 3) break;
     const decision = await confirmProjectComments(submitted.commentImpacts, 'Save Project');
@@ -588,13 +610,15 @@ async function commitSelectedNativeSaveUnits(
     return {
       success: false,
       status: 'failed',
-      diagnostics: [{
-        code: 'editor.native-save.superseded',
-        severity: 'error',
-        category: 'Project save',
-        path: '/',
-        message: 'Native Save was accepted but its editor baseline was not acknowledged.',
-      }],
+      diagnostics: [
+        {
+          code: 'editor.native-save.superseded',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: 'Native Save was accepted but its editor baseline was not acknowledged.',
+        },
+      ],
       savedSaveUnitIds: [],
       remainingDirtySaveUnitIds: remaining,
     };
@@ -605,7 +629,8 @@ async function commitSelectedNativeSaveUnits(
     status: remainingDirtySaveUnitIds.length ? 'partially-saved' : 'saved',
     diagnostics: [],
     savedSaveUnitIds: uniqueSorted([
-      ...saveUnitIds, ...sourceIds.map((id) => sourceSaveUnitId(id)),
+      ...saveUnitIds,
+      ...sourceIds.map((id) => sourceSaveUnitId(id)),
     ]),
     remainingDirtySaveUnitIds,
   };
@@ -769,7 +794,11 @@ export async function saveActiveSaveUnit(
     }
     return useCommandStore.getState().nativeWorkingRevision !== null
       ? await commitSelectedNativeSaveUnits(
-          selectedIds, snapshot, candidateContent, [], options.allowExternalConflict ?? false,
+          selectedIds,
+          snapshot,
+          candidateContent,
+          [],
+          options.allowExternalConflict ?? false,
         )
       : await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
   } catch (error) {
@@ -983,13 +1012,15 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       return {
         success: false,
         status: 'blocked',
-        diagnostics: [{
-          code: 'editor.native-save-all.stage-rejected',
-          severity: 'error',
-          category: 'Project save',
-          path: '/',
-          message: error instanceof Error ? error.message : 'Native source staging failed.',
-        }],
+        diagnostics: [
+          {
+            code: 'editor.native-save-all.stage-rejected',
+            severity: 'error',
+            category: 'Project save',
+            path: '/',
+            message: error instanceof Error ? error.message : 'Native source staging failed.',
+          },
+        ],
         savedSaveUnitIds: [],
         remainingDirtySaveUnitIds: all,
       };
@@ -1012,7 +1043,11 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
           remainingDirtySaveUnitIds: all,
         };
       try {
-        const candidate = buildCandidateForSaveUnitIds(projectState.savedDocument, snapshot.recovery, ids);
+        const candidate = buildCandidateForSaveUnitIds(
+          projectState.savedDocument,
+          snapshot.recovery,
+          ids,
+        );
         const blocking = selectedBlockingDiagnostics(
           authoringDiagnostics(projectState.savedDocument),
           authoringDiagnostics(candidate),
@@ -1031,13 +1066,15 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
         return {
           success: false,
           status: 'failed',
-          diagnostics: [{
-            code: 'editor.native-save-all.candidate',
-            severity: 'error',
-            category: 'Project save',
-            path: '/',
-            message: error instanceof Error ? error.message : 'Native Save All candidate failed.',
-          }],
+          diagnostics: [
+            {
+              code: 'editor.native-save-all.candidate',
+              severity: 'error',
+              category: 'Project save',
+              path: '/',
+              message: error instanceof Error ? error.message : 'Native Save All candidate failed.',
+            },
+          ],
           savedSaveUnitIds: [],
           remainingDirtySaveUnitIds: all,
         };

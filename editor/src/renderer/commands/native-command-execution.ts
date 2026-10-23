@@ -117,14 +117,19 @@ export function assertNativeProjection(
         continue;
     }
     if (
-      patch.op === 'remove' && segments.length === 3 &&
+      patch.op === 'remove' &&
+      segments.length === 3 &&
       segments[0] === 'localization' &&
       (segments[1] === 'translations' || segments[1] === 'assets')
     ) {
       const owner = nativeLocalizationTarget(patch.path)?.owner;
-      if (owner && acknowledged.affectedRecords.includes(owner) &&
-          !acknowledged.snapshot.recordSnapshots?.[owner] &&
-          !hasJsonAtPointer(proposal, patch.path)) continue;
+      if (
+        owner &&
+        acknowledged.affectedRecords.includes(owner) &&
+        !acknowledged.snapshot.recordSnapshots?.[owner] &&
+        !hasJsonAtPointer(proposal, patch.path)
+      )
+        continue;
     }
     const verifiedPath =
       segments.at(-1) === '-' ? buildJsonPointer(segments.slice(0, -1)) : patch.path;

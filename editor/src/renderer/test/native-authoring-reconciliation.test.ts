@@ -69,7 +69,8 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const originalFr = await readFile(path.join(root, fr), 'utf8');
     expect((await working.inspectRecord(fr)).accepted).toBe(true);
     const frSource = structuredClone(working.snapshot()!.recordSnapshots![fr]!.source) as Record<
-      string, { review?: string }
+      string,
+      { review?: string }
     >;
     const firstMessage = Object.keys(frSource)[0]!;
     const updatedFr = structuredClone(frSource);
@@ -89,13 +90,21 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(saved.accepted, saved.error).toBe(true);
     expect(await readFile(path.join(root, es), 'utf8')).toContain(firstMessage);
     expect(await readFile(path.join(root, fr), 'utf8')).not.toBe(originalFr);
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'remove', path: '/localization/translations/fr-CA' },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'remove', path: '/localization/translations/fr-CA' },
+        ])
+      ).accepted,
+    ).toBe(true);
     expect(working.snapshot()?.recordSnapshots?.[es]).toBeUndefined();
-    expect(working.dirtyCheckpoint().batches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ patches: [{ operation: 'remove', path: '/localization/translations/fr-CA' }] }),
-    ]));
+    expect(working.dirtyCheckpoint().batches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          patches: [{ operation: 'remove', path: '/localization/translations/fr-CA' }],
+        }),
+      ]),
+    );
     const replayed = await working.reopenAndReplay('native-locale-test');
     expect(replayed.recordSnapshots?.[es]).toBeUndefined();
     const deleted = await working.saveUnit('project:localization');
@@ -105,13 +114,18 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     // must retain its original disk revision for recovery and Use Disk.
     const ja = 'i18n/locales/ja.yaml';
     const untouchedJa = await readFile(path.join(root, ja), 'utf8');
-    const directRemoval = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'remove', path: '/localization/translations/ja' },
-    ]);
+    const directRemoval = await working.applyRevisionedPatches(
+      working.snapshot()!.workingRevision,
+      [{ op: 'remove', path: '/localization/translations/ja' }],
+    );
     expect(directRemoval.accepted, directRemoval.error).toBe(true);
-    expect(working.dirtyCheckpoint().batches).toEqual(expect.arrayContaining([
-      expect.objectContaining({ patches: [{ operation: 'remove', path: '/localization/translations/ja' }] }),
-    ]));
+    expect(working.dirtyCheckpoint().batches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          patches: [{ operation: 'remove', path: '/localization/translations/ja' }],
+        }),
+      ]),
+    );
     expect((await working.useDiskUnit('project:localization')).accepted).toBe(true);
     expect(await readFile(path.join(root, ja), 'utf8')).toBe(untouchedJa);
   }, 120_000);
@@ -148,9 +162,13 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(discarded.snapshot.recordSnapshots?.[owner]).toBeUndefined();
     await writeFile(roomPath, await readFile(path.join(fixture, roomRelative)));
     expect((await working.reconcile(owner)).accepted).toBe(true);
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'replace', path: labelPath, value: 'Kept Local Room' },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'replace', path: labelPath, value: 'Kept Local Room' },
+        ])
+      ).accepted,
+    ).toBe(true);
     await rm(roomPath);
     expect((await working.reconcile(owner)).accepted).toBe(true);
     expect((await working.saveOwners([owner])).accepted).toBe(false);
@@ -158,8 +176,9 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(kept.accepted, kept.error).toBe(true);
     expect(await readFile(roomPath, 'utf8')).toContain('Kept Local Room');
     await working.reopenAndReplay('native-reconcile-test');
-    expect((await working.inspectRecord(owner)).snapshot.recordSnapshots?.[owner]?.source)
-      .toMatchObject({ label: 'Kept Local Room' });
+    expect(
+      (await working.inspectRecord(owner)).snapshot.recordSnapshots?.[owner]?.source,
+    ).toMatchObject({ label: 'Kept Local Room' });
   }, 120_000);
 
   it('offers comment review before deleting native YAML and requires the selected disposition', async () => {
@@ -171,7 +190,10 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const id = 'native-comment-review';
     const createdOwner = `rooms/${id}`;
     const roomPath = path.join(root, `records/rooms/${id}.yaml`);
-    const original = working.snapshot()!.recordSnapshots![owner]!.source as Record<string, JsonValue>;
+    const original = working.snapshot()!.recordSnapshots![owner]!.source as Record<
+      string,
+      JsonValue
+    >;
     const created = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
       { op: 'add', path: `/rooms/${id}`, value: { ...original, id } },
     ]);
@@ -185,30 +207,43 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     const anotherId = 'native-comment-review-two';
     const anotherOwner = `rooms/${anotherId}`;
     const anotherPath = path.join(root, `records/rooms/${anotherId}.yaml`);
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'add', path: `/rooms/${anotherId}`, value: { ...original, id: anotherId } },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'add', path: `/rooms/${anotherId}`, value: { ...original, id: anotherId } },
+        ])
+      ).accepted,
+    ).toBe(true);
     expect((await working.saveOwners([anotherOwner])).accepted).toBe(true);
-    await writeFile(anotherPath, '# second native comment\n' + (await readFile(anotherPath, 'utf8')));
+    await writeFile(
+      anotherPath,
+      '# second native comment\n' + (await readFile(anotherPath, 'utf8')),
+    );
     expect((await working.reconcile(anotherOwner)).accepted).toBe(true);
-    expect((await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
-      { op: 'remove', path: `/rooms/${id}` },
-      { op: 'remove', path: `/rooms/${anotherId}` },
-    ])).accepted).toBe(true);
+    expect(
+      (
+        await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+          { op: 'remove', path: `/rooms/${id}` },
+          { op: 'remove', path: `/rooms/${anotherId}` },
+        ])
+      ).accepted,
+    ).toBe(true);
     const blocked = await working.saveOwners([createdOwner, anotherOwner], { comments: 'keep' });
     expect(blocked.accepted, blocked.error).toBe(false);
-    expect(blocked.commentImpacts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        file: `records/rooms/${id}.yaml`,
-        kind: 'deleted',
-        comment: expect.stringContaining('# important native comment'),
-      }),
-      expect.objectContaining({
-        file: `records/rooms/${anotherId}.yaml`,
-        kind: 'deleted',
-        comment: expect.stringContaining('# second native comment'),
-      }),
-    ]));
+    expect(blocked.commentImpacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: `records/rooms/${id}.yaml`,
+          kind: 'deleted',
+          comment: expect.stringContaining('# important native comment'),
+        }),
+        expect.objectContaining({
+          file: `records/rooms/${anotherId}.yaml`,
+          kind: 'deleted',
+          comment: expect.stringContaining('# second native comment'),
+        }),
+      ]),
+    );
     expect(await readFile(roomPath, 'utf8')).toContain('# important native comment');
     expect(await readFile(anotherPath, 'utf8')).toContain('# second native comment');
     const approved = await working.saveOwners([createdOwner, anotherOwner], { comments: 'remove' });

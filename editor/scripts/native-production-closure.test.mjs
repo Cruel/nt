@@ -19,7 +19,7 @@ async function fixture(run) {
   }
 }
 
-test('clean emitted Electron and ScriptC production closure is accepted', async () => {
+void test('clean emitted Electron and ScriptC production closure is accepted', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(
       path.join(electron, 'main', 'main.cjs'),
@@ -33,7 +33,7 @@ test('clean emitted Electron and ScriptC production closure is accepted', async 
   });
 });
 
-test('retired workspace authority is rejected from a renamed Electron chunk using its source map', async () => {
+void test('retired workspace authority is rejected from a renamed Electron chunk using its source map', async () => {
   await fixture(async ({ electron, island }) => {
     const target = path.join(electron, 'main', 'main.cjs');
     await writeFile(target, 'module.exports = { native: true };\n');
@@ -59,7 +59,7 @@ test('retired workspace authority is rejected from a renamed Electron chunk usin
   });
 });
 
-test('retired source analysis is rejected from emitted ScriptC chunks without maps', async () => {
+void test('retired source analysis is rejected from emitted ScriptC chunks without maps', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(
       path.join(electron, 'main', 'main.cjs'),
@@ -76,7 +76,7 @@ test('retired source analysis is rejected from emitted ScriptC chunks without ma
   });
 });
 
-test('missing build output and untraceable bundled code fail closed', async () => {
+void test('missing build output and untraceable bundled code fail closed', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(path.join(electron, 'main', 'main.cjs'), 'module.exports = 42;');
     assert.match(
@@ -90,7 +90,7 @@ test('missing build output and untraceable bundled code fail closed', async () =
   });
 });
 
-test('pure emitted ESM forwarding chunks do not need redundant provenance', async () => {
+void test('pure emitted ESM forwarding chunks do not need redundant provenance', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(
       path.join(electron, 'main', 'main.cjs'),
@@ -108,7 +108,7 @@ test('pure emitted ESM forwarding chunks do not need redundant provenance', asyn
   });
 });
 
-test('production module manifests certify minified chunks without source maps', async () => {
+void test('production module manifests certify minified chunks without source maps', async () => {
   await fixture(async ({ electron, island }) => {
     const code = '(()=>{const a=1;globalThis.example=a})()';
     const emitted = path.join(electron, 'main', 'main.cjs');
@@ -138,7 +138,7 @@ test('production module manifests certify minified chunks without source maps', 
   });
 });
 
-test('production manifests reject hidden retired modules and missing chunks', async () => {
+void test('production manifests reject hidden retired modules and missing chunks', async () => {
   await fixture(async ({ electron, island }) => {
     const code = 'export const value=1;';
     await writeFile(path.join(island, 'island.mjs'), code);
@@ -166,7 +166,7 @@ test('production manifests reject hidden retired modules and missing chunks', as
   });
 });
 
-test('a manifest may identify an emitted forwarding-only chunk without owning modules', async () => {
+void test('a manifest may identify an emitted forwarding-only chunk without owning modules', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(
       path.join(electron, 'main', 'main.cjs'),

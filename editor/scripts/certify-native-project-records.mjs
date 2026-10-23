@@ -36,7 +36,7 @@ for (const family of families) {
     if (error.code === 'ENOENT') return [];
     throw error;
   });
-  for (const file of files.sort()) {
+  for (const file of files.sort((a, b) => a.localeCompare(b))) {
     if (!file.endsWith('.yaml')) continue;
     const id = file.slice(0, -5);
     const source = await readFile(join(root, 'records', family, file), 'utf8');

@@ -399,26 +399,34 @@ describe('FullGamePreviewEditor', () => {
     useCommandStore.getState().enableNativeCommandMode(8);
     const nativePrepare = vi.fn().mockResolvedValue({
       status: 'blocked',
-      diagnostics: [{
-        code: 'native.runtime.prepare',
-        severity: 'error',
-        category: 'Native runtime preparation',
-        path: '/rooms/start',
-        message: 'Native working Room invalid',
-        boundaries: ['runtime-package'],
-        ownerPaths: ['/rooms/start'],
-      }],
+      diagnostics: [
+        {
+          code: 'native.runtime.prepare',
+          severity: 'error',
+          category: 'Native runtime preparation',
+          path: '/rooms/start',
+          message: 'Native working Room invalid',
+          boundaries: ['runtime-package'],
+          ownerPaths: ['/rooms/start'],
+        },
+      ],
       buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
       cache: { scope: 'session-local', status: 'prepared' },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectPrepareRuntime', {
-      configurable: true, writable: true, value: nativePrepare,
+      configurable: true,
+      writable: true,
+      value: nativePrepare,
     });
     try {
       await renderConnectedPreview();
-      await waitFor(() => expect(nativePrepare).toHaveBeenCalledWith(
-        '11111111-1111-4111-8111-111111111111', 8, 'glsl-330',
-      ));
+      await waitFor(() =>
+        expect(nativePrepare).toHaveBeenCalledWith(
+          '11111111-1111-4111-8111-111111111111',
+          8,
+          'glsl-330',
+        ),
+      );
       expect(window.noveltea.prepareEditorRuntime).not.toHaveBeenCalled();
     } finally {
       Reflect.deleteProperty(window.noveltea, 'nativeProjectPrepareRuntime');

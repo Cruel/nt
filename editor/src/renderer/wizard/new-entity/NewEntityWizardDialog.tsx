@@ -212,20 +212,22 @@ export function NewEntityWizardDialog({
       };
     }
     const useTransaction = Boolean(setEntrypoint || interactableArchetypeId);
-    const requests: CommandRequest[] = [{
-      type: 'entity.createRecord',
-      label: `Create ${metadata.singularLabel}`,
-      payload: {
-        collection,
-        entityId,
-        label: label || undefined,
-        description: activeDraft.basics.description.trim() || undefined,
-        tags: activeDraft.basics.tags,
-        color: activeDraft.basics.color.trim() || null,
-        ...extra,
+    const requests: CommandRequest[] = [
+      {
+        type: 'entity.createRecord',
+        label: `Create ${metadata.singularLabel}`,
+        payload: {
+          collection,
+          entityId,
+          label: label || undefined,
+          description: activeDraft.basics.description.trim() || undefined,
+          tags: activeDraft.basics.tags,
+          color: activeDraft.basics.color.trim() || null,
+          ...extra,
+        },
+        ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       },
-      ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
-    }];
+    ];
     if (interactableArchetypeId && effectiveInteractableData) {
       requests.push({
         type: 'gameplay-instance.setArchetype',
@@ -257,7 +259,10 @@ export function NewEntityWizardDialog({
       const commandStore = useCommandStore.getState();
       const result = useTransaction
         ? await commandStore.executeCommandBatchAsync(
-            { label: `Create ${metadata.singularLabel}`, ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity },
+            {
+              label: `Create ${metadata.singularLabel}`,
+              ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
+            },
             requests,
           )
         : await commandStore.executeCommandAsync(requests[0]!);
@@ -284,7 +289,12 @@ export function NewEntityWizardDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!submitting) onOpenChange(next); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!submitting) onOpenChange(next);
+      }}
+    >
       <DialogPopup className="!flex h-[calc(100vh-4rem)] max-h-[52rem] !w-[calc(100vw-3rem)] !max-w-none sm:!max-w-6xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b bg-muted/20 px-6 py-5 pr-12">
           <DialogTitle className="text-base font-semibold">New Entity Wizard</DialogTitle>
@@ -436,7 +446,10 @@ export function NewEntityWizardDialog({
           <Button variant="ghost" disabled={submitting} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={submitting || definition.supportLevel === 'external-flow'}>
+          <Button
+            onClick={submit}
+            disabled={submitting || definition.supportLevel === 'external-flow'}
+          >
             {definition.supportLevel === 'external-flow'
               ? 'Use asset import flow'
               : `Create ${metadata.singularLabel}`}

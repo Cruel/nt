@@ -159,7 +159,12 @@ export async function runNativeProjectMutationsCli(
         ...fields,
       },
       globals.json,
-      { success: String(response.humanSuccess ?? 'Asset import completed.') },
+      {
+        success:
+          typeof response.humanSuccess === 'string'
+            ? response.humanSuccess
+            : 'Asset import completed.',
+      },
     );
   }
 

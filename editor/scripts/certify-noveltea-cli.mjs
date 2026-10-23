@@ -2425,10 +2425,10 @@ async function certifyDaemonBuildProtocolIsolation(tempRoot) {
   const environments = [buildA, buildB, protocolB];
   try {
     for (const environment of environments) runNative(['daemon', 'stop'], { env: environment });
-    for (const [label, environment] of [
-      ['build A', buildA],
-      ['build B', buildB],
-      ['protocol B', protocolB],
+    for (const { label, environment } of [
+      { label: 'build A', environment: buildA },
+      { label: 'build B', environment: buildB },
+      { label: 'protocol B', environment: protocolB },
     ]) {
       const started = requireSuccess(
         `daemon isolation ${label}`,

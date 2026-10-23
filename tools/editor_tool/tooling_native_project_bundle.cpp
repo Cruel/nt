@@ -13,6 +13,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -428,10 +429,14 @@ struct ArchiveFile {
     std::string data;
 };
 
-std::vector<ArchiveFile> parse_zip(std::string_view bytes)
+std::optional<std::vector<ArchiveFile>> parse_zip(std::string_view bytes, std::string& error)
 {
+    const auto reject = [&](std::string message) -> std::optional<std::vector<ArchiveFile>> {
+        error = std::move(message);
+        return std::nullopt;
+    };
     if (bytes.size() < 22)
-        throw std::runtime_error("Portable ZIP is truncated.");
+        return reject("Portable ZIP is truncated.");
     const auto floor = bytes.size() > 65557 ? bytes.size() - 65557 : 0;
     auto end = bytes.size();
     for (std::size_t index = bytes.size() - 22;; --index) {
@@ -445,12 +450,12 @@ std::vector<ArchiveFile> parse_zip(std::string_view bytes)
     if (end == bytes.size() || u16(bytes, end + 4) != 0 || u16(bytes, end + 6) != 0 ||
         u16(bytes, end + 8) != u16(bytes, end + 10) || u16(bytes, end + 20) != 0 ||
         end + 22 != bytes.size())
-        throw std::runtime_error("Portable ZIP has an unsupported central directory.");
+        return reject("Portable ZIP has an unsupported central directory.");
     const auto count = u16(bytes, end + 10);
     const auto central_start = static_cast<std::size_t>(u32(bytes, end + 16));
     const auto central_size = static_cast<std::size_t>(u32(bytes, end + 12));
     if (central_start > end || central_size != end - central_start)
-        throw std::runtime_error("Portable ZIP central directory bounds are invalid.");
+        return reject("Portable ZIP central directory bounds are invalid.");
     std::vector<ArchiveFile> files;
     std::set<std::string> seen;
     auto cursor = central_start;
@@ -460,44 +465,44 @@ std::vector<ArchiveFile> parse_zip(std::string_view bytes)
             u16(bytes, cursor + 30) != 0 || u16(bytes, cursor + 32) != 0 ||
             u16(bytes, cursor + 34) != 0 ||
             ((u32(bytes, cursor + 38) >> 16) & 0170000u) != 0100000u)
-            throw std::runtime_error("Portable ZIP contains unsupported entry headers.");
+            return reject("Portable ZIP contains unsupported entry headers.");
         const auto size = static_cast<std::size_t>(u32(bytes, cursor + 24));
         const auto name_size = static_cast<std::size_t>(u16(bytes, cursor + 28));
         const auto name_start = cursor + 46;
         if (name_start > end || name_size > end - name_start)
-            throw std::runtime_error("Portable ZIP directory entry is truncated.");
+            return reject("Portable ZIP directory entry is truncated.");
         const std::string path(bytes.substr(name_start, name_size));
         verify_utf8(path);
         if (!safe_path(path) || !seen.insert(path).second)
-            throw std::runtime_error("Portable ZIP has unsafe or duplicate paths.");
+            return reject("Portable ZIP has unsafe or duplicate paths.");
         const auto local = static_cast<std::size_t>(u32(bytes, cursor + 42));
         if (u32(bytes, local) != 0x04034b50u || u16(bytes, local + 6) != 0x0808u ||
             u16(bytes, local + 8) != 0 || u16(bytes, local + 26) != name_size ||
             u16(bytes, local + 28) != 0)
-            throw std::runtime_error("Portable ZIP local headers disagree.");
+            return reject("Portable ZIP local headers disagree.");
         const auto local_name = local + 30;
         if (local_name > central_start || name_size > central_start - local_name ||
             bytes.substr(local_name, name_size) != path)
-            throw std::runtime_error("Portable ZIP local entry path mismatch.");
+            return reject("Portable ZIP local entry path mismatch.");
         const auto data_start = local_name + name_size;
         if (data_start > central_start || size > central_start - data_start ||
             central_start - (data_start + size) < 16)
-            throw std::runtime_error("Portable ZIP data descriptor is truncated.");
+            return reject("Portable ZIP data descriptor is truncated.");
         const auto data_end = data_start + size;
         if (u32(bytes, data_end) != 0x08074b50u ||
             u32(bytes, data_end + 4) != u32(bytes, cursor + 16) ||
             u32(bytes, data_end + 8) != size || u32(bytes, data_end + 12) != size)
-            throw std::runtime_error("Portable ZIP data descriptor disagrees.");
+            return reject("Portable ZIP data descriptor disagrees.");
         const auto data = bytes.substr(data_start, size);
         const auto crc = mz_crc32(MZ_CRC32_INIT,
                                   reinterpret_cast<const unsigned char*>(data.data()), data.size());
         if (crc != u32(bytes, cursor + 16))
-            throw std::runtime_error("Portable ZIP entry CRC does not match.");
+            return reject("Portable ZIP entry CRC does not match.");
         files.push_back({path, std::string(data)});
         cursor = name_start + name_size;
     }
     if (cursor != end)
-        throw std::runtime_error("Portable ZIP central directory has trailing data.");
+        return reject("Portable ZIP central directory has trailing data.");
     return files;
 }
 
@@ -515,8 +520,12 @@ Json import_bundle(const Json& request)
     if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
         return failure("Portable Project import destination already exists.", "conflict");
     std::vector<ArchiveFile> files;
+    std::string parse_error;
     try {
-        files = parse_zip(bytes_at(input));
+        auto parsed = parse_zip(bytes_at(input), parse_error);
+        if (!parsed)
+            return failure(parse_error, "invalid-bundle");
+        files = std::move(*parsed);
     } catch (const std::exception& error) {
         return failure(error.what(), "invalid-bundle");
     }

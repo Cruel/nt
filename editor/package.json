@@ -53,6 +53,8 @@
     "noveltea:certify:native-cli-package": "node scripts/certify-native-cli-package.mjs",
     "noveltea:certify:native-cli-platform": "node scripts/certify-native-cli-platform.mjs",
     "noveltea:certify:native-cli-tests": "node scripts/certify-native-cli-tests.mjs",
+    "noveltea:certify:native-production-lifecycle": "node scripts/certify-native-production-lifecycle.mjs",
+    "noveltea:certify:native-production-unit": "node --test scripts/native-production-qualification.test.mjs scripts/native-production-closure.test.mjs",
     "android:fixture": "node scripts/run-platform-export-fixture.mjs",
     "web:fixture": "node scripts/run-platform-export-fixture.mjs --target web",
     "goldens:compiled-project": "vp pack && node dist-electron/tools/generate-compiled-project-goldens.mjs",

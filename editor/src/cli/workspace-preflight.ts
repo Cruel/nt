@@ -38,12 +38,10 @@ export async function preflightNovelTeaWorkspace(
         cliDiagnostic(
           projectRoot ? 'WORKSPACE_MANIFEST_READ' : 'WORKSPACE_NOT_FOUND',
           '/project.yaml',
-          String(
-            response.error ??
-              (projectRoot
-                ? 'Native workspace preflight failed.'
-                : 'No NovelTea project.yaml was found from the current directory upward.'),
-          ),
+          (typeof response.error === 'string' ? response.error : undefined) ??
+            (projectRoot
+              ? 'Native workspace preflight failed.'
+              : 'No NovelTea project.yaml was found from the current directory upward.'),
         ),
       );
     return {
