@@ -21,6 +21,20 @@ const { NodeProjectWorkspaceFileSystem, NodeProjectWorkspaceProcessLiveness } =
   await import('../src/shared/project-workspace/node-project-workspace-file-system.ts');
 const { ProjectWorkspaceTransactionService } =
   await import('../src/shared/project-workspace/project-workspace-transaction.ts');
+const { selectedExportProfile } =
+  await import('../src/shared/project-schema/authoring-export.ts');
+const { prepareRuntimeArtifact } =
+  await import('../src/shared/runtime-artifact-preparation.ts');
+const { nodeRuntimeArtifactPaths, nodeShaderCompilerAdapter } =
+  await import('../src/main/services/node-runtime-artifact-adapters.ts');
+const { invokeNovelTeaNativeOperation } =
+  await import('../src/shared/noveltea-cli-subprocess.ts');
+const { emptyEditorProjectState } =
+  await import('../src/shared/project-schema/editor-project-state.ts');
+const { authoringCollectionKeys } =
+  await import('../src/shared/project-schema/authoring-collections.ts');
+const { authoringProjectSchema } =
+  await import('../src/shared/project-schema/authoring-project.ts');
 
 const fixture = path.resolve(editorRoot, '../tests/projects/feature-lab');
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-520-editor-performance-'));
@@ -197,6 +211,54 @@ try {
   );
   assert.equal(revised.legacy.snapshot.project.project.name, 'Feature Lab Saved');
   assert.equal(revised.native.completeProject.project.name, 'Feature Lab Saved');
+
+  // Compare the complete saved-Project -> prepared Runtime Package boundary,
+  // not just the common compiler in isolation or a CLI-only export. Both
+  // paths execute the same real downstream shader/asset/package preparation.
+  const compiler = nodeShaderCompilerAdapter((shaderProject, options) =>
+    invokeNovelTeaNativeOperation('compile-shaders', { shaderProject, options }),
+  );
+  async function prepareExport(project, projectRoot) {
+    const result = await prepareRuntimeArtifact({
+      project,
+      projectRoot,
+      profile: selectedExportProfile(project),
+      intent: 'runtime-package-export',
+      shaderCompiler: compiler,
+      paths: nodeRuntimeArtifactPaths,
+    });
+    assert.equal(
+      result.status,
+      'prepared',
+      `Runtime Package preparation blocked: ${JSON.stringify(result.diagnostics)}`,
+    );
+    return result.artifact;
+  }
+  const exported = await compare(
+    'saved editor Runtime Package export preparation',
+    async () => {
+      const opened = await workspace.open(legacyRoot);
+      assert.equal(opened.ok, true, JSON.stringify(opened.diagnostics));
+      await workspace.buildDependencyGraph(opened.snapshot);
+      return prepareExport(opened.snapshot.project, legacyRoot);
+    },
+    async () => {
+      const prepared = parseResult(
+        binding.prepareCompleteWorking(handle, textSaved.native.snapshot.workingRevision, ''),
+        'prepareCompleteWorking for export',
+      );
+      const project = {
+        ...prepared.completeProject,
+        editor: { ...emptyEditorProjectState(), ...prepared.completeProject.editor },
+      };
+      for (const family of authoringCollectionKeys)
+        if (!(family in project)) project[family] = {};
+      return prepareExport(authoringProjectSchema.parse(project), nativeRoot);
+    },
+  );
+  assert.deepEqual(exported.native.gameplayJson, exported.legacy.gameplayJson);
+  assert.deepEqual(exported.native.compiledProject, exported.legacy.compiledProject);
+  assert.deepEqual(exported.native.manifestPreview, exported.legacy.manifestPreview);
 
   console.log(JSON.stringify({ format: 'noveltea.native-editor-performance.v1', measurements }));
 } finally {
