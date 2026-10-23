@@ -32,7 +32,7 @@ import {
   createProjectValidationDiagnostic,
   projectValidationDiagnosticKey,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import type { SaveUnitId } from './save-unit-types';
 import { recordSaveUnitId, SAVE_UNIT_IDS } from './save-unit-registry';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';

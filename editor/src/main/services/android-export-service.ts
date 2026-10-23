@@ -12,7 +12,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { buildPlatformDeployment } from '../../shared/project-schema/platform-deployment';
-import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import {
   PLAYER_CONFIG_FORMAT,
   PLAYER_RUNTIME_API_VERSION,

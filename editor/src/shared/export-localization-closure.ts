@@ -13,7 +13,7 @@ import type { CompiledProjectWire } from './project-schema/compiled-project';
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from './project-schema/project-validation';
+} from './project-schema/project-diagnostic-projection';
 
 export interface PreparedLocalizationClosure {
   includedLocales: string[];

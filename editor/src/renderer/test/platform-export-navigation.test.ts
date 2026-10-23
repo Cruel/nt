@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { resolvePlatformExportDiagnosticTarget } from '../export/platform-export-navigation';
 
 describe('platform export diagnostic navigation', () => {

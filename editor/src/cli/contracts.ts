@@ -3,7 +3,7 @@ export {
   NOVELTEA_CLI_JSON_PROTOCOL_VERSION,
   NOVELTEA_CLI_VERSION,
 } from './static-contracts';
-import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-diagnostic-projection';
 import { NOVELTEA_CLI_JSON_PROTOCOL_VERSION } from './static-contracts';
 
 export const NOVELTEA_CLI_EXIT_CODES = {

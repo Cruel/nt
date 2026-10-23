@@ -77,7 +77,7 @@ record IDs and localized messages.
 
 ## Authoring Compiler and Compiled Publication
 
-Compiler diagnostics have explicit codes before entering `project-validation.ts`. Diagnostics
+Compiler diagnostics have explicit codes before entering `project-diagnostic-projection.ts`. Diagnostics
 adapted from authoring validation retain the boundary classification of their authoring path;
 compiler-native normalization, linking, lowering, resource-closure, and wire errors are authoring
 plus runtime-package blockers and therefore also platform-export blockers.

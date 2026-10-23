@@ -33,12 +33,12 @@ import {
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { AuthoringValidationContribution } from '../../shared/project-schema/authoring-validation-contributions';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
   createPlatformExportValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import {
   PLAYER_RUNTIME_API_VERSION,
   parseProjectPlatformExportSettings,

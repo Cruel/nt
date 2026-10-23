@@ -2,7 +2,7 @@ import type { ExportPlatform } from './platform-export-contracts';
 import {
   createPlatformExportValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from './project-validation';
+} from './project-diagnostic-projection';
 
 export interface TargetPathEntry {
   sourceId: string;

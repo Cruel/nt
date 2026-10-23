@@ -1,3 +1,5 @@
+/** Post-admission diagnostic classification for UI and downstream tools.
+ * This module does not parse, validate, normalize or write a Project. */
 import type { ToolDiagnostic } from '../editor-tooling';
 
 export type ProjectValidationBoundary = 'authoring' | 'runtime-package' | 'platform-export';

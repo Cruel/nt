@@ -68,6 +68,12 @@ interface ActiveProjectSession {
   workspace?: ActiveProjectWorkspaceSession;
 }
 
+interface StagedNativeProjectSession {
+  session: ActiveProjectSession;
+  generation: number;
+  previousActiveSessionId: string | null;
+}
+
 function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
   return admittedAssetsFromProject(parseAuthoringProject(project));
 }
@@ -94,10 +100,12 @@ function admittedAssetsFromProject(
 
 export class ActiveProjectSessionService {
   private active: ActiveProjectSession | null = null;
+  private stagedNative: StagedNativeProjectSession | null = null;
   private projectActivationGeneration = 0;
 
   beginProjectActivation(): number {
     this.projectActivationGeneration += 1;
+    this.stagedNative = null;
     return this.projectActivationGeneration;
   }
 
@@ -118,6 +126,7 @@ export class ActiveProjectSessionService {
     const projectFileStat = await fs.stat(canonicalProjectFile);
     if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
     this.assertProjectActivationCurrent(expectedActivationGeneration);
+    this.stagedNative = null;
     const canonicalRoot = path.dirname(canonicalProjectFile);
     const parsedProject =
       contentProject === undefined ? null : parseAuthoringProject(contentProject);
@@ -148,6 +157,50 @@ export class ActiveProjectSessionService {
     return id;
   }
 
+  /** Make an untrusted candidate root visible only to its private native
+   * admission worker. The incumbent (including unsaved working state and
+   * original worker) retains authority until a completed native admission
+   * is atomically promoted. Never share this staged ID with the renderer. */
+  async stageNativeProjectFile(
+    projectFilePath: string,
+    expectedActivationGeneration: number,
+  ): Promise<string> {
+    const manifest = await fs.realpath(path.resolve(projectFilePath));
+    const stats = await fs.stat(manifest);
+    if (!stats.isFile() || path.basename(manifest) !== 'project.yaml')
+      throw new Error('Native Project staging requires an ordinary project.yaml manifest.');
+    this.assertProjectActivationCurrent(expectedActivationGeneration);
+    const root = path.dirname(manifest);
+    if (this.active?.root === root)
+      throw new Error('The active Project must be saved or closed before reopening its sources.');
+    const id = randomUUID();
+    this.stagedNative = {
+      session: { id, root, projectIdentity: null, assets: new Map() },
+      generation: expectedActivationGeneration,
+      previousActiveSessionId: this.active?.id ?? null,
+    };
+    return id;
+  }
+
+  commitStagedNativeProject(projectSessionId: string, expectedActivationGeneration: number): void {
+    const candidate = this.stagedNative;
+    this.assertProjectActivationCurrent(expectedActivationGeneration);
+    if (
+      !candidate ||
+      candidate.session.id !== projectSessionId ||
+      candidate.generation !== expectedActivationGeneration ||
+      candidate.previousActiveSessionId !== (this.active?.id ?? null) ||
+      !candidate.session.projectIdentity
+    )
+      throw new Error('Native Project candidate is not admitted or was superseded.');
+    this.active = candidate.session;
+    this.stagedNative = null;
+  }
+
+  discardStagedNativeProject(projectSessionId: string): void {
+    if (this.stagedNative?.session.id === projectSessionId) this.stagedNative = null;
+  }
+
   currentSessionId(): string | null {
     return this.active?.id ?? null;
   }
@@ -167,7 +220,12 @@ export class ActiveProjectSessionService {
   }
 
   requireActiveProjectRoot(projectSessionId: string): string {
-    const active = this.active;
+    const active =
+      this.active?.id === projectSessionId
+        ? this.active
+        : this.stagedNative?.session.id === projectSessionId
+          ? this.stagedNative.session
+          : null;
     if (!active || projectSessionId !== active.id) {
       throw new Error('Project session is stale or unknown.');
     }
@@ -175,7 +233,9 @@ export class ActiveProjectSessionService {
   }
 
   isCurrent(projectSessionId: string): boolean {
-    return this.active?.id === projectSessionId;
+    return (
+      this.active?.id === projectSessionId || this.stagedNative?.session.id === projectSessionId
+    );
   }
 
   requireActiveWorkspace(projectSessionId: string): ActiveProjectWorkspaceSession {
@@ -243,17 +303,20 @@ export class ActiveProjectSessionService {
     projectSessionId: string,
     nativeProject: AuthoringProject,
   ): Promise<void> {
-    const active = this.active;
+    const staged = this.stagedNative?.session.id === projectSessionId;
+    const active = staged ? this.stagedNative!.session : this.active;
     if (!active || active.id !== projectSessionId)
       throw new Error('Project session is stale or unknown.');
     const assets = admittedAssetsFromProject(nativeProject);
-    if (this.active !== active)
+    if ((staged ? this.stagedNative?.session : this.active) !== active)
       throw new Error('Project session changed during native Asset authorization.');
-    this.active = {
+    const accepted = {
       ...active,
       assets,
       projectIdentity: { id: nativeProject.project.id, name: nativeProject.project.name },
     };
+    if (staged) this.stagedNative = { ...this.stagedNative!, session: accepted };
+    else this.active = accepted;
   }
 
   async attachToSuccessfulResult<
@@ -306,6 +369,7 @@ export class ActiveProjectSessionService {
   closeActiveProject(): void {
     this.projectActivationGeneration += 1;
     this.active = null;
+    this.stagedNative = null;
   }
 
   dispose(): void {
@@ -324,7 +388,12 @@ export class ActiveProjectSessionService {
   async listProjectSourceFiles(
     request: ListProjectSourceFilesRequest,
   ): Promise<ListProjectSourceFilesResponse> {
-    const active = this.active;
+    const active =
+      this.active?.id === request.projectSessionId
+        ? this.active
+        : this.stagedNative?.session.id === request.projectSessionId
+          ? this.stagedNative.session
+          : null;
     if (!active || request.projectSessionId !== active.id) {
       throw new Error('Project session is stale or unknown.');
     }
@@ -380,7 +449,14 @@ export class ActiveProjectSessionService {
     };
 
     await Promise.all([addTree('scripts'), addTree('shaders'), addTree('assets')]);
-    if (this.active !== active) throw new Error('Project session is stale or unknown.');
+    if (
+      (this.active?.id === request.projectSessionId
+        ? this.active
+        : this.stagedNative?.session.id === request.projectSessionId
+          ? this.stagedNative.session
+          : null) !== active
+    )
+      throw new Error('Project session is stale or unknown.');
 
     for (const [assetId, asset] of active.assets) {
       const current = files.get(asset.sourcePath);

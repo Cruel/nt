@@ -9,9 +9,12 @@ import {
   type NovelTeaCliCommandResult,
   type NovelTeaCliExitCode,
 } from './contracts';
-import { parseProjectCreate } from './project-create-cli';
+import {
+  parseProjectCreate,
+  parseProjectExport,
+  parseProjectImport,
+} from './project-argument-parsers';
 import { nativeProjectFailure } from './native-project-results';
-import { parseProjectImport, parseProjectExport } from './project-bundle-cli';
 
 type NativeProjectResponse = Readonly<{
   ok: boolean;

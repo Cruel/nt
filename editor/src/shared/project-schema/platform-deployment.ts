@@ -10,7 +10,7 @@ import type {
 import { resolveAssetMemoryPolicy } from './platform-export-contracts';
 import { COMPILED_PROJECT_FORMAT_VERSION } from './compiled-project';
 import { applicationIdPattern } from './authoring-project-settings';
-import { createPlatformExportValidationDiagnostic } from './project-validation';
+import { createPlatformExportValidationDiagnostic } from './project-diagnostic-projection';
 import { evaluateTemplateCompatibility } from './template-compatibility';
 
 const mapping: Record<string, Partial<PlatformCapabilityMetadata>> = {

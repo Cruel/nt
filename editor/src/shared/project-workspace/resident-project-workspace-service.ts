@@ -10,8 +10,8 @@ import { parseMaterialData } from '../project-schema/authoring-materials';
 import type { AuthoringProject } from '../project-schema/authoring-project';
 import { projectSettingsFromProject } from '../project-schema/authoring-project-settings';
 import { parseScriptModuleData } from '../project-schema/authoring-script-modules';
-import { classifyProjectValidationDiagnostics } from '../project-schema/project-validation';
-import type { ProjectValidationDiagnostic } from '../project-schema/project-validation';
+import { classifyProjectValidationDiagnostics } from '../project-schema/project-diagnostic-projection';
+import type { ProjectValidationDiagnostic } from '../project-schema/project-diagnostic-projection';
 import {
   stripEditorProjectState,
   type EditorProjectState,

@@ -6,7 +6,7 @@ import {
   preparedRuntimeArtifactSchema,
   type PreparedRuntimeArtifact,
 } from './prepared-runtime-artifact';
-import type { ProjectValidationDiagnostic } from './project-validation';
+import type { ProjectValidationDiagnostic } from './project-diagnostic-projection';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 export const PLAYER_CONFIG_FORMAT = 'noveltea.player-config' as const;

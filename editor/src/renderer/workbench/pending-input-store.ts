@@ -9,7 +9,7 @@ import {
   collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 
 export type PendingInputEntries = Record<SaveUnitId, Record<JsonPointer, EditorPendingRawInput>>;
 

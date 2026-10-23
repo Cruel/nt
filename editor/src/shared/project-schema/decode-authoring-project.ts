@@ -9,7 +9,7 @@ import {
   createProjectValidationDiagnostic,
   projectValidationBoundariesForAuthoringPath,
   type ProjectValidationDiagnostic,
-} from './project-validation';
+} from './project-diagnostic-projection';
 
 export interface AuthoringEnumRepair {
   path: string;

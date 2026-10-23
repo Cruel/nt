@@ -4,6 +4,7 @@ import {
   collectAuthoringSourceRequirements,
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
+import { projectWorkspaceLocalStateFile } from '../editor-local-state-file';
 import { z } from 'zod';
 import { nativeOperation } from '../project-schema/native-schema-operations';
 import {
@@ -119,7 +120,7 @@ import { parseJsonPointer } from '../json-pointer';
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from '../project-schema/project-validation';
+} from '../project-schema/project-diagnostic-projection';
 import { parseAssetData } from '../project-schema/authoring-assets';
 import type {
   AuthoringSourceAnalysisArtifact,
@@ -1637,19 +1638,7 @@ export function projectWorkspaceFiles(
     }
   return sortKeys(files);
 }
-export function projectWorkspaceLocalStateFile(editorState: EditorProjectState): string {
-  const {
-    chapters: _chapters,
-    tags: _tags,
-    recordMetadata: _recordMetadata,
-    schema: _schema,
-    ...local
-  } = editorState;
-  return canonicalJson({
-    schema: EDITOR_LOCAL_STATE_SCHEMA,
-    ...local,
-  });
-}
+export { projectWorkspaceLocalStateFile } from '../editor-local-state-file';
 
 export async function createProjectWorkspaceSnapshot(
   project: AuthoringProject,

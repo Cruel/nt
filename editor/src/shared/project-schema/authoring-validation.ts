@@ -87,7 +87,7 @@ import {
   collectProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
   type ProjectValidationDiagnosticLike,
-} from './project-validation';
+} from './project-diagnostic-projection';
 import { validateProjectExportSettings } from './authoring-project-export';
 import {
   authoringValidationChecks,

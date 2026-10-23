@@ -766,10 +766,17 @@ are published only from the accepted native Project. Local
 `.noveltea/editor/state.json` contributes editor-only recovery, view and
 draft state; the Chapters, Tags and record metadata come from native-tracked
 `editor.yaml`. Malformed local state is preserved and blocks Open rather
-than being silently reset. While this remains preparatory, native-only Open
-accepts cold sessions only: attempting to replace an active Project is rejected
-before revocation. The atomic production cutover must stage and validate an
-overlapping candidate safely before enabling Project handoff.
+than being silently reset. A new Project uses a private staged native session
+while the incumbent Project and its dirty worker remain live. Only after
+successful admission and local recovery may the candidate be promoted
+atomically; a failure or superseded activation discards only the candidate.
+The eventual main-process wiring must use an independent candidate worker,
+never reopen the active worker before promotion.
+The `NativeEditorProjectHandoff` service now owns this distinct
+per-attempt worker lifetime; it disposes rejected/superseded workers without
+touching the incumbent and revokes the old worker only after native promotion.
+Its real-addon regression rejects a malformed second Project while the
+admitted Feature Lab incumbent continues answering native reads.
 
 Physical source hints for the eventual production watcher can be projected
 from the existing native worker's exact-byte observations through
@@ -786,3 +793,12 @@ delivered atomically, the existing production owner remains unchanged.
 The native-only Feature Lab addon tests exercise Open without a TypeScript
 Workspace; further production invocation, watcher wiring and bundle closure
 remain part of #521, not a fallback to the old engine.
+
+The separate `runNativeOnlyNovelTeaCli` application boundary is also
+available for cutover integration. It uses a single shared native dispatch,
+with Project command grammar split into pure parsers so native Project
+create/import/export no longer import the retired TypeScript constructors
+merely to validate flags. Unclaimed operations fail closed; the installed
+ScriptC/daemon production entrypoint has **not** switched to this function.
+Ignored editor-only JSON serialization likewise no longer requires the
+legacy YAML/Project codec. Its old machine.json bytes are regression-tested.

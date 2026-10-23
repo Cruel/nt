@@ -3,7 +3,7 @@ import { nativeOperation } from './native-schema-operations';
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from './project-validation';
+} from './project-diagnostic-projection';
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
 

@@ -39,7 +39,7 @@ import {
   createProjectValidationDiagnostic,
   projectValidationDiagnosticKey,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import type {
   ProjectContentSaveResponse,
   SaveProjectResponse,

@@ -29,7 +29,7 @@ import {
   stripLocalEditorProjectState,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
-import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { buildJsonPointer } from '../../shared/json-pointer';
 import { createNodeProjectWorkspaceFileSystem } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';

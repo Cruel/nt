@@ -16,7 +16,7 @@ function nativeStub() {
   const savedProject = createAuthoringProject({ id: 'native-source', name: 'Native Source' });
   return {
     savedProject,
-    admitFromNative: vi.fn(async () => ({
+    admitFromNative: vi.fn(async (_projectSessionId: string) => ({
       savedProject,
       revision: 2,
       diagnostics: [],
@@ -35,6 +35,7 @@ describe('native-only editor Open lifecycle', () => {
     const candidate = await workspace();
     const sessions = new ActiveProjectSessionService();
     const native = nativeStub();
+    native.admitFromNative.mockRejectedValueOnce(new Error('Native candidate verification failed'));
     try {
       const originalId = await sessions.activateProjectFile(path.join(original, 'project.yaml'));
       const attempted = await openNativeEditorProject(
@@ -44,9 +45,47 @@ describe('native-only editor Open lifecycle', () => {
         native,
       );
       expect(attempted.success).toBe(false);
-      expect(attempted.error).toMatch(/pre-admission/);
+      expect(attempted.error).toMatch(/candidate verification failed/);
       expect(sessions.currentSessionId()).toBe(originalId);
-      expect(native.admitFromNative).not.toHaveBeenCalled();
+      expect(native.admitFromNative).toHaveBeenCalledOnce();
+      expect(native.close).toHaveBeenCalledOnce();
+    } finally {
+      sessions.dispose();
+      await Promise.all(
+        [original, candidate].map((root) => rm(root, { recursive: true, force: true })),
+      );
+    }
+  });
+
+  it('keeps the incumbent visible through native admission and promotes only after verification', async () => {
+    const original = await workspace();
+    const candidate = await workspace();
+    const sessions = new ActiveProjectSessionService();
+    const native = nativeStub();
+    try {
+      const originalId = await sessions.activateProjectFile(path.join(original, 'project.yaml'));
+      native.admitFromNative.mockImplementationOnce(async (id) => {
+        expect(sessions.currentSessionId()).toBe(originalId);
+        expect(sessions.isCurrent(originalId)).toBe(true);
+        expect(sessions.isCurrent(id)).toBe(true);
+        expect(sessions.requireActiveProjectRoot(id)).toBe(candidate);
+        return {
+          savedProject: native.savedProject,
+          revision: 2,
+          diagnostics: [],
+          sourceRevisions: {},
+        };
+      });
+      const opened = await openNativeEditorProject(
+        candidate,
+        sessions.beginProjectActivation(),
+        sessions,
+        native,
+      );
+      expect(opened.success).toBe(true);
+      expect(opened.projectSessionId).not.toBe(originalId);
+      expect(sessions.currentSessionId()).toBe(opened.projectSessionId);
+      expect(sessions.isCurrent(originalId)).toBe(false);
       expect(native.close).not.toHaveBeenCalled();
     } finally {
       sessions.dispose();

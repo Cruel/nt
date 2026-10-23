@@ -21,7 +21,7 @@ import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
   createPlatformExportValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import {
   emptyPackageExportResult,
   usePackageExportStore,

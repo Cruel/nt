@@ -27,7 +27,7 @@ import { parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseTestData } from './project-schema/authoring-tests';
 import { validateAdmittedAuthoringProject } from './project-schema/authoring-validation';
-import type { ProjectValidationDiagnostic } from './project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from './project-schema/project-diagnostic-projection';
 import { parseVerbData } from './project-schema/authoring-verbs';
 import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowering';
 import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';

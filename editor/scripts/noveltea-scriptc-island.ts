@@ -150,7 +150,7 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
               const { NativeResidentProjectAdmissionError } =
                 await import('../src/shared/project-workspace/resident-project-workspace-service');
               const { classifyProjectValidationDiagnostics } =
-                await import('../src/shared/project-schema/project-validation');
+                await import('../src/shared/project-schema/project-diagnostic-projection');
               const errors = Array.isArray(result.projectDiagnostics)
                 ? result.projectDiagnostics.filter(
                     (
