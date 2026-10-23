@@ -37,7 +37,7 @@ export function scopedResidentObservationConfiguration(assetsRequired: boolean) 
       // Exact-validation persistence must observe shader includes as well as YAML owners.
       // The native cache cannot admit a restart hit if the retained authority scopes
       // omit a discovery family required by AUTHORING_VALIDATION_DISCOVERY_SCOPES.
-      { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
+      { root: 'shaders', extensions: ['.sc', '.sh', '.inc', '.glsl', '.h'], excludedPrefixes: [] },
       ...(assetsRequired ? [{ root: 'assets', extensions: ['*'], excludedPrefixes: [] }] : []),
     ],
   };
