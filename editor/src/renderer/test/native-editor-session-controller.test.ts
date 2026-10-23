@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
+import { openNativeEditorProject } from '../../main/services/native-editor-project-open';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import {
   NativeAuthoringWorkingProject,
@@ -167,6 +168,33 @@ function fixture(projectRoot = '/trusted/project') {
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
+  it('opens without a TypeScript saved Workspace and reads recovery using native identity', async () => {
+    const root = '/trusted/native-only';
+    const test = fixture(root);
+    const result = await test.controller.admitFromNative('one');
+    expect(result).toEqual({
+      revision: 0,
+      savedProject: test.saved,
+      sourceRevisions: {},
+      diagnostics: [],
+    });
+    expect(test.open).toHaveBeenCalledExactlyOnceWith('one');
+    expect(test.checkpoints.read).toHaveBeenCalledExactlyOnceWith(root, 'native-open');
+    expect(test.controller.isAdmitted('one')).toBe(true);
+    test.controller.dispose();
+  });
+
+  it('refuses a corrupt recovery lookup instead of accepting native disk state alone', async () => {
+    const test = fixture();
+    test.checkpoints.read.mockRejectedValueOnce(new Error('Native recovery identity conflict'));
+    await expect(test.controller.admitFromNative('one')).rejects.toThrow(
+      'Native recovery identity conflict',
+    );
+    expect(test.controller.isAdmitted('one')).toBe(false);
+    expect(test.close).toHaveBeenCalled();
+    test.controller.dispose();
+  });
+
   it('exports only a clean native snapshot whose saved file revisions are still current', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-export-'));
     try {
@@ -752,6 +780,84 @@ describe('native admission at the editor main Project lifecycle', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
+  it('opens native-only Editor Project with local state and physical Project revisions', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-editor-open-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const opened = await openNativeEditorProject(
+        root,
+        sessions.beginProjectActivation(),
+        sessions,
+        controller,
+      );
+      expect(opened.success, opened.error).toBe(true);
+      expect(opened.projectSessionId).toBe(sessions.currentSessionId());
+      expect(opened.nativeWorkingRevision).toBeGreaterThanOrEqual(0);
+      expect(sessions.currentProjectIdentity()).toEqual({ id: 'feature-lab', name: 'Feature Lab' });
+      expect(opened.editorState).toBeDefined();
+      expect(opened.recoveryFileRevisions?.['project.yaml']).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(() => sessions.requireActiveWorkspace(opened.projectSessionId!)).toThrow(
+        'no workspace',
+      );
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('opens Feature Lab and recovers native identity without instantiating a TypeScript Workspace', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-only-open-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const sessions = new ActiveProjectSessionService();
+    const bridge = new NativeAuthoringSessionBridge(sessions, {
+      addonPath: nativeAddon!,
+      workerScript: path.resolve(
+        process.cwd(),
+        'dist-electron/authoring-worker/native-authoring-worker.cjs',
+      ),
+      pollIntervalMs: 100,
+    });
+    const controller = new NativeEditorSessionController(
+      sessions,
+      bridge,
+      new NativeAuthoringWorkingProject(bridge),
+    );
+    try {
+      const sessionId = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
+      const admitted = await controller.admitFromNative(sessionId);
+      expect(admitted.savedProject.project).toMatchObject({
+        id: 'feature-lab',
+        name: 'Feature Lab',
+      });
+      expect(admitted.revision).toBeGreaterThanOrEqual(0);
+      expect(controller.isAdmitted(sessionId)).toBe(true);
+      expect(await controller.currentWorkingProject(sessionId)).toEqual(admitted.savedProject);
+    } finally {
+      controller.dispose();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it('publishes Project Explorer files and Material shader copies through the native journal', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-editor-source-'));
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {

@@ -54,6 +54,35 @@ function materialYaml(
 }
 
 describe('active Project session lifecycle', () => {
+  it('accepts native Project identity and Asset authorization without a TS workspace session', async () => {
+    const root = await createWorkspace('native-admission');
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
+    const native = createAuthoringProject({ id: 'native-only', name: 'Native Owner' });
+    native.assets['native-image'] = {
+      id: 'native-image',
+      label: 'Native image',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/native-image.bin' },
+        aliases: [],
+        imageMetadata: null,
+        attachments: [],
+      },
+    };
+    await sessions.acceptNativeProject(sessionId, native);
+    expect(sessions.currentProjectIdentity()).toEqual({
+      id: 'native-only',
+      name: 'Native Owner',
+    });
+    expect(sessions.requireActiveAsset(sessionId, 'native-image').asset.sourcePath).toBe(
+      'assets/native-image.bin',
+    );
+    expect(() => sessions.requireActiveWorkspace(sessionId)).toThrow('no workspace');
+    await expect(sessions.acceptNativeProject('superseded', native)).rejects.toThrow('stale');
+    sessions.dispose();
+  });
+
   it('persists independent Authoring Source revision advances across workspace reopen', async () => {
     const root = await createWorkspace('source-revision-persistence');
     await fs.mkdir(path.join(root, 'support/sources'), { recursive: true });
