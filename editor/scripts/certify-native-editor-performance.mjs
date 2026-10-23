@@ -21,14 +21,11 @@ const { NodeProjectWorkspaceFileSystem, NodeProjectWorkspaceProcessLiveness } =
   await import('../src/shared/project-workspace/node-project-workspace-file-system.ts');
 const { ProjectWorkspaceTransactionService } =
   await import('../src/shared/project-workspace/project-workspace-transaction.ts');
-const { selectedExportProfile } =
-  await import('../src/shared/project-schema/authoring-export.ts');
-const { prepareRuntimeArtifact } =
-  await import('../src/shared/runtime-artifact-preparation.ts');
+const { selectedExportProfile } = await import('../src/shared/project-schema/authoring-export.ts');
+const { prepareRuntimeArtifact } = await import('../src/shared/runtime-artifact-preparation.ts');
 const { nodeRuntimeArtifactPaths, nodeShaderCompilerAdapter } =
   await import('../src/main/services/node-runtime-artifact-adapters.ts');
-const { invokeNovelTeaNativeOperation } =
-  await import('../src/shared/noveltea-cli-subprocess.ts');
+const { invokeNovelTeaNativeOperation } = await import('../src/shared/noveltea-cli-subprocess.ts');
 const { emptyEditorProjectState } =
   await import('../src/shared/project-schema/editor-project-state.ts');
 const { authoringCollectionKeys } =
@@ -251,8 +248,7 @@ try {
         ...prepared.completeProject,
         editor: { ...emptyEditorProjectState(), ...prepared.completeProject.editor },
       };
-      for (const family of authoringCollectionKeys)
-        if (!(family in project)) project[family] = {};
+      for (const family of authoringCollectionKeys) if (!(family in project)) project[family] = {};
       return prepareExport(authoringProjectSchema.parse(project), nativeRoot);
     },
   );
