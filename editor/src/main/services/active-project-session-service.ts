@@ -69,7 +69,14 @@ interface ActiveProjectSession {
 }
 
 function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
-  const parsed: AuthoringProject = parseAuthoringProject(project);
+  return admittedAssetsFromProject(parseAuthoringProject(project));
+}
+
+/** The native Project worker already admitted the complete schema; extracting
+ * Asset authorizations must not run another whole-Project TypeScript validator. */
+function admittedAssetsFromProject(
+  parsed: AuthoringProject,
+): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
   const assets = new Map<string, ActiveProjectAssetAuthorization>();
   for (const [assetId, record] of Object.entries(parsed.assets)) {
     const data = parseAssetData(record.data);
@@ -228,6 +235,25 @@ export class ActiveProjectSessionService {
       };
     }
     return active.id;
+  }
+
+  /** Publish a complete native-admitted Project identity and Asset capability
+   * set, without falling back to TypeScript workspace admission. */
+  async acceptNativeProject(
+    projectSessionId: string,
+    nativeProject: AuthoringProject,
+  ): Promise<void> {
+    const active = this.active;
+    if (!active || active.id !== projectSessionId)
+      throw new Error('Project session is stale or unknown.');
+    const assets = admittedAssetsFromProject(nativeProject);
+    if (this.active !== active)
+      throw new Error('Project session changed during native Asset authorization.');
+    this.active = {
+      ...active,
+      assets,
+      projectIdentity: { id: nativeProject.project.id, name: nativeProject.project.name },
+    };
   }
 
   async attachToSuccessfulResult<

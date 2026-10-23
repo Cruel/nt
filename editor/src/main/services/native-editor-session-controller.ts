@@ -26,19 +26,16 @@ import type { NativeDirtyCheckpoint } from './native-authoring-working-project';
 import { NativeAssetStagingService } from './native-asset-staging-service';
 import type { ProjectSourceStructuralRequest } from '../../shared/project-source-files';
 import { planNativeProjectSourceTransaction } from './native-project-source-transactions';
-import { projectSourceUsages } from './project-source-file-service';
+import { projectSourceUsages } from './project-source-usage-reader';
 import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
 import type { JsonValue } from '../../renderer/project/json-value';
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
  *
- * During the coordinated cutover this remains an opt-in certification gate:
- * native admission must agree with the existing saved Workspace before the
- * renderer can open. Commands, source staging, scoped Save, validation,
- * previews and authored Tests then operate only through the active native
- * Project. Legacy Project writers remain rejected in this mode; no
- * independent TypeScript authoring fallback is permitted.
+ * Native admission is independent of the TypeScript Workspace. The candidate
+ * parity entrypoint can additionally compare against a saved legacy snapshot,
+ * but production entrypoints must consume admitFromNative instead.
  */
 export class NativeEditorSessionController {
   private activeId: string | null = null;
@@ -176,7 +173,31 @@ export class NativeEditorSessionController {
     });
   }
 
+  /** Open only through native Project authority and recover against the native
+   * identity. No TypeScript workspace or caller-supplied Project is required. */
+  async admitFromNative(projectSessionId: string): Promise<{
+    revision: number;
+    savedProject: AuthoringProject;
+    sourceRevisions: Record<string, string>;
+    diagnostics: {
+      code: string;
+      severity: 'error' | 'warning' | 'info';
+      path: string;
+      message: string;
+    }[];
+  }> {
+    return this.admitInternal(projectSessionId);
+  }
+
+  /** Differential certification only: reject a native/legacy Project mismatch. */
   async admit(projectSessionId: string, saved: AuthoringProject): Promise<number> {
+    return (await this.admitInternal(projectSessionId, saved)).revision;
+  }
+
+  private async admitInternal(
+    projectSessionId: string,
+    legacySaved?: AuthoringProject,
+  ): ReturnType<NativeEditorSessionController['admitFromNative']> {
     // There is no arbitrary renderer-selected worker root. The trusted main
     // Project session is rechecked before and after asynchronous admission.
     this.authority.requireActiveProjectRoot(projectSessionId);
@@ -187,7 +208,6 @@ export class NativeEditorSessionController {
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Native Project admission was superseded.');
       const root = this.authority.requireActiveProjectRoot(projectSessionId);
-      const checkpoint = await this.checkpoints.read(root, saved.project.id);
       await this.working.open(projectSessionId);
       if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
         throw new Error('Native Project admission was superseded.');
@@ -198,10 +218,14 @@ export class NativeEditorSessionController {
         throw new Error(`Native Project admission rejected: ${prepared.error}`);
       const native = projectFromNativeCompletePreparation(prepared);
       if (
+        legacySaved &&
         canonicalProjectPersistenceContentJson(native) !==
-        canonicalProjectPersistenceContentJson(saved)
+          canonicalProjectPersistenceContentJson(legacySaved)
       )
         throw new Error('Native Project admission differs from the saved editor Workspace.');
+      const checkpoint = await this.checkpoints.read(root, native.project.id);
+      if (generation !== this.generation || !this.authority.isCurrent(projectSessionId))
+        throw new Error('Native Project admission was superseded during recovery lookup.');
       let finalRevision = prepared.workingRevision;
       if (
         checkpoint &&
@@ -221,10 +245,22 @@ export class NativeEditorSessionController {
         this.recoveredProject = projectFromNativeCompletePreparation(recovered);
         finalRevision = recovered.workingRevision;
       }
-      this.projectIdentity = saved.project.id;
+      this.projectIdentity = native.project.id;
       this.assetStaging = new NativeAssetStagingService(root);
       this.activeId = projectSessionId;
-      return finalRevision;
+      return {
+        revision: finalRevision,
+        savedProject: native,
+        sourceRevisions: { ...prepared.sourceRevisions },
+        diagnostics: prepared.diagnostics.map((diagnostic) => ({
+          code: diagnostic.code,
+          severity: diagnostic.severity,
+          path: diagnostic.path,
+          message: diagnostic.sourcePath
+            ? `${diagnostic.message} [${diagnostic.sourcePath}${diagnostic.line ? `:${diagnostic.line}` : ''}]`
+            : diagnostic.message,
+        })),
+      };
     } catch (error) {
       if (generation === this.generation) this.close();
       throw error;
@@ -480,7 +516,7 @@ export class NativeEditorSessionController {
     return {
       usages: await projectSourceUsages(
         this.authority.requireActiveProjectRoot(projectSessionId),
-        { project: native, scriptSourcePaths } as never,
+        { project: native, scriptSourcePaths },
         sourcePath,
       ),
     };

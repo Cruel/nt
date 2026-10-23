@@ -754,3 +754,35 @@ audit against disposable Projects created through the installed public CLI.
 The differential compares parsed Project and Asset source semantics, exact
 Asset bytes, resolved import outputs and untracked inventory, normalizing
 only the import timestamp because the operations occur in separate processes.
+
+## Native-only editor admission preparation (#521)
+
+The cutover's new `openNativeEditorProject` path admits a physical Project
+through `ActiveProjectSessionService.activateProjectFile` and the native
+worker's complete Project preparation. It deliberately does not construct
+`ProjectWorkspaceService`, consume a TypeScript-saved Project as an oracle,
+or run a second whole-Project parser. Session identity and Asset capabilities
+are published only from the accepted native Project. Local
+`.noveltea/editor/state.json` contributes editor-only recovery, view and
+draft state; the Chapters, Tags and record metadata come from native-tracked
+`editor.yaml`. Malformed local state is preserved and blocks Open rather
+than being silently reset. While this remains preparatory, native-only Open
+accepts cold sessions only: attempting to replace an active Project is rejected
+before revocation. The atomic production cutover must stage and validate an
+overlapping candidate safely before enabling Project handoff.
+
+Physical source hints for the eventual production watcher can be projected
+from the existing native worker's exact-byte observations through
+`NativeEditorObserverWatchService`. Only a still-current native session
+with scoped authoritative source proof may report changed authoring files;
+unsafe paths and missing Asset hashes fail closed. Renderer reconciliation
+must still call the native worker on each changed owner. Reference usages
+are a post-admission presentation query, split from the old TypeScript
+workspace transaction service.
+
+These are **tested preparatory boundaries, not a new production mode**.
+Until the coordinated editor/CLI routing and legacy module retirement are
+delivered atomically, the existing production owner remains unchanged.
+The native-only Feature Lab addon tests exercise Open without a TypeScript
+Workspace; further production invocation, watcher wiring and bundle closure
+remain part of #521, not a fallback to the old engine.
