@@ -67,8 +67,9 @@ async function walk(directory) {
  * static-cache misses or disposable heavy jobs. A missing build or missing
  * provenance is an error rather than an implied clean native build.
  */
-export async function verifyNativeProductionClosure(artifactRoots) {
+export async function verifyNativeProductionClosure(artifactRoots, options = {}) {
   const violations = [];
+  const requireManifestRoots = new Set(options.requireManifestRoots ?? []);
   for (const root of artifactRoots) {
     let files;
     try {
@@ -91,6 +92,10 @@ export async function verifyNativeProductionClosure(artifactRoots) {
     } catch (error) {
       if (error.code !== 'ENOENT') {
         violations.push(`invalid production module manifest in ${root}: ${error.message}`);
+        continue;
+      }
+      if (requireManifestRoots.has(root)) {
+        violations.push(`missing production module manifest in ${root}`);
         continue;
       }
     }
