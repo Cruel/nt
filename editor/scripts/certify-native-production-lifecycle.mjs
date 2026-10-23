@@ -66,7 +66,9 @@ for (const artifact of artifacts) {
     `Missing current production module evidence: ${artifact}`,
   );
 }
-const violations = await verifyNativeProductionClosure(artifacts);
+const violations = await verifyNativeProductionClosure(artifacts, {
+  requireManifestRoots: artifacts,
+});
 assert.deepEqual(
   violations,
   [],

@@ -130,6 +130,15 @@ router must fail internally, not silently fall back. A production editor
 mutation must have exactly one acknowledged native authority, even when an
 old TypeScript form/parser still generates transient UI intent.
 
+The executable `check:native-production-closure` gate requires a SHA-256-bound
+module provenance manifest for **each** Vite-generated editor and ScriptC island
+output root, including the renderer and lazy/worker chunks. Missing manifests
+must fail rather than silently falling back to source annotations; the latter
+remain useful only for isolated single-module test fixtures. This gate is
+expected to reject the **pre-cutover** production bundles until the complete
+switch/deletion boundary is delivered. It is not a substitute for inspecting
+the installed CLI and packaged editor closures in #521/#522.
+
 ## Atomic protocol/cache/state disposition
 
 - `native-clean-current.json` is native `noveltea.native-clean-validation.v1`,

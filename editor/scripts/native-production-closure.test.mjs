@@ -90,6 +90,22 @@ void test('missing build output and untraceable bundled code fail closed', async
   });
 });
 
+void test('bundled production roots cannot bypass the module inventory with source annotations', async () => {
+  await fixture(async ({ electron, island }) => {
+    const bundle = path.join(electron, 'main', 'main.cjs');
+    await writeFile(bundle, '//#region src/main.ts\nmodule.exports = { ready: true };\n');
+    await writeFile(
+      path.join(island, 'island.mjs'),
+      '//#region scripts/noveltea-scriptc-island.ts\nexport {};\n',
+    );
+    const failures = await verifyNativeProductionClosure([electron, island], {
+      requireManifestRoots: [electron],
+    });
+    assert.match(failures.join('\n'), /missing production module manifest.*dist-electron/);
+    assert.doesNotMatch(failures.join('\n'), /dist-scriptc-island/);
+  });
+});
+
 void test('pure emitted ESM forwarding chunks do not need redundant provenance', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(
