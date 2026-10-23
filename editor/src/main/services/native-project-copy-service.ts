@@ -4,7 +4,7 @@ import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import type { SaveProjectResponse } from '../../shared/editor-tooling';
 import { parseEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { projectWorkspaceLocalStateFile } from '../../shared/project-workspace/project-workspace-service';
+import { projectWorkspaceLocalStateFile } from '../../shared/editor-local-state-file';
 
 /** Copy verified native saved sources byte-for-byte; never serialize YAML in TypeScript. */
 export async function saveNativeProjectCopyAs(

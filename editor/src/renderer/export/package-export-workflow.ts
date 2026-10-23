@@ -11,7 +11,7 @@ import {
   collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import { type PackageExportWorkflowResult, usePackageExportStore } from './package-export-store';
 import {
   rendererRuntimeArtifactPaths,

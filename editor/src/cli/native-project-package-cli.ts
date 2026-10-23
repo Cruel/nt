@@ -19,7 +19,7 @@ import { emptyEditorProjectState } from '../shared/project-schema/editor-project
 import {
   classifyProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
-} from '../shared/project-schema/project-validation';
+} from '../shared/project-schema/project-diagnostic-projection';
 import {
   prepareRuntimeArtifact,
   type RuntimeArtifactPathAdapter,

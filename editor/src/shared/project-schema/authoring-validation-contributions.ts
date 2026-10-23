@@ -4,7 +4,7 @@ import {
   classifyProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
   type ProjectValidationDiagnosticLike,
-} from './project-validation';
+} from './project-diagnostic-projection';
 import { escapeJsonPointerSegment } from '../json-pointer';
 import { overlayReadonlyArray } from '../bounded-structural-sharing';
 

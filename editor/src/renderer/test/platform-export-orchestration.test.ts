@@ -16,7 +16,7 @@ import {
   defaultPlatformExportProfile,
   parseProjectPlatformExportSettings,
 } from '../../shared/project-schema/platform-export-contracts';
-import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { createTemplateLicenseFixture } from './player-template-license-fixture';
 
 function exportableProject() {

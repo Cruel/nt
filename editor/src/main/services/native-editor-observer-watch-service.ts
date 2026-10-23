@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import type { ActiveProjectSessionService } from './active-project-session-service';
 import type { NativeAuthoringSessionBridge } from './native-authoring-session-bridge';
 import type { NativeAuthoringEvent } from './native-authoring-worker-contract';

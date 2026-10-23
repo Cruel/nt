@@ -780,6 +780,54 @@ describe('native admission at the editor main Project lifecycle', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('real native worker admission of the editor Project', () => {
+  it('preserves a running native Project worker when a second native admission is invalid', async () => {
+    const original = await mkdtemp(path.join(tmpdir(), 'noveltea-native-incumbent-'));
+    const candidate = await mkdtemp(path.join(tmpdir(), 'noveltea-native-candidate-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), original, {
+      recursive: true,
+    });
+    await writeFile(path.join(candidate, 'project.yaml'), 'invalid: [');
+    const sessions = new ActiveProjectSessionService();
+    const makeController = () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: nativeAddon!,
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
+        pollIntervalMs: 100,
+      });
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    };
+    const incumbent = makeController();
+    const pending = makeController();
+    try {
+      const oldId = await sessions.activateProjectFile(path.join(original, 'project.yaml'));
+      await incumbent.admitFromNative(oldId);
+      const rejected = await openNativeEditorProject(
+        candidate,
+        sessions.beginProjectActivation(),
+        sessions,
+        pending,
+      );
+      expect(rejected.success).toBe(false);
+      expect(sessions.currentSessionId()).toBe(oldId);
+      expect(incumbent.isAdmitted(oldId)).toBe(true);
+      expect((await incumbent.currentWorkingProject(oldId)).project.id).toBe('feature-lab');
+    } finally {
+      pending.dispose();
+      incumbent.dispose();
+      sessions.dispose();
+      await Promise.all(
+        [original, candidate].map((root) => rm(root, { recursive: true, force: true })),
+      );
+    }
+  }, 120_000);
+
   it('opens native-only Editor Project with local state and physical Project revisions', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-editor-open-'));
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {

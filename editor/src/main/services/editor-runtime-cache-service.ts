@@ -11,7 +11,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 import { PSEUDO_PREVIEW_LOCALE } from '../../shared/pseudo-localization';
 import { effectivePreviewLocale, projectWithPreviewLocale } from '../../shared/preview-locale';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import {
   logicalRuntimeArtifactPaths,
   prepareRuntimeArtifact,

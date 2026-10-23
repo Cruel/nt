@@ -38,7 +38,7 @@ import { isAuthoringCollectionKey } from '../../shared/project-schema/authoring-
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 
 interface RecoveryContext {
   editorState: EditorProjectState;

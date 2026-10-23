@@ -10,7 +10,7 @@ import {
   type AuthoringCollectionKey,
 } from '../shared/project-schema/authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from '../shared/project-schema/authoring-project';
-import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-diagnostic-projection';
 import { isSafeProjectAssetPath, parseAssetData } from '../shared/project-schema/authoring-assets';
 import { sha256HexUtf8 } from '../shared/web-crypto';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';

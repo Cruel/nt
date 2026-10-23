@@ -11,6 +11,7 @@ import {
   PortableProjectBundleError,
 } from '../main/services/portable-project-bundle-service';
 import { novelTeaCliUsageFailure, type ParsedGlobalArguments } from './bootstrap';
+import { parseProjectExport, parseProjectImport } from './project-argument-parsers';
 import {
   verifyPinnedExternalAssets,
   type PinnedExternalAssetExpectation,
@@ -23,35 +24,7 @@ import {
   type NovelTeaCliExitCode,
 } from './contracts';
 
-export function parseProjectExport(command: readonly string[]): { output: string } {
-  let output: string | undefined;
-  for (let index = 2; index < command.length; index += 1) {
-    const argument = command[index];
-    if (argument !== '--output') throw new Error(`Unknown command option '${argument}'.`);
-    const value = command[index + 1];
-    if (!value || value.startsWith('--')) throw new Error("Option '--output' requires a path.");
-    if (output !== undefined) throw new Error("Option '--output' may be supplied only once.");
-    output = value;
-    index += 1;
-  }
-  if (output === undefined) throw new Error("Required option '--output' was not supplied.");
-  return { output };
-}
-
-export function parseProjectImport(command: readonly string[]): {
-  bundle: string;
-  destination: string;
-} {
-  if (command.length !== 4)
-    throw new Error('Usage: noveltea project import <bundle.ntproject> <destination-directory>.');
-  const bundle = command[2];
-  const destination = command[3];
-  if (!bundle || bundle.startsWith('--'))
-    throw new Error('Portable Project bundle path is required.');
-  if (!destination || destination.startsWith('--'))
-    throw new Error('Project destination directory is required.');
-  return { bundle, destination };
-}
+export { parseProjectExport, parseProjectImport } from './project-argument-parsers';
 
 function bundleFailureCode(error: PortableProjectBundleError): string {
   switch (error.kind) {

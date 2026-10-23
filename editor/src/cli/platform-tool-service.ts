@@ -9,7 +9,7 @@ import type {
 } from '../shared/project-schema/platform-export-contracts';
 import type { AuthoringProject } from '../shared/project-schema/authoring-project';
 import type { AuthoringValidationContribution } from '../shared/project-schema/authoring-validation-contributions';
-import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-diagnostic-projection';
 
 export interface AdmittedPlatformExportValidation {
   readonly project: AuthoringProject;

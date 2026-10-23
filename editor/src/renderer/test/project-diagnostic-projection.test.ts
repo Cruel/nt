@@ -7,7 +7,7 @@ import {
   projectValidationBlocksBoundary,
   projectValidationBoundariesForAuthoringPath,
   projectValidationBoundariesForCompilerDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 
 describe('project validation diagnostic contract', () => {
   it('normalizes runtime-package blockers to also block platform export', () => {

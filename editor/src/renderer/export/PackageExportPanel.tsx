@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePackageExportStore, type PackageExportWorkflowResult } from './package-export-store';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 
 function isProjectValidationDiagnostic(value: unknown): value is ProjectValidationDiagnostic {
   if (!value || typeof value !== 'object') return false;

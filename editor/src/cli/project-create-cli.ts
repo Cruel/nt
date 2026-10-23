@@ -7,6 +7,7 @@ import {
   NovelTeaProjectCreationError,
 } from '../shared/project-workspace/project-creation-service';
 import { novelTeaCliUsageFailure, type ParsedGlobalArguments } from './bootstrap';
+import { parseProjectCreate } from './project-argument-parsers';
 import {
   cliDiagnostic,
   formatCliResult,
@@ -14,22 +15,7 @@ import {
   type NovelTeaCliCommandResult,
 } from './contracts';
 
-export function parseProjectCreate(command: readonly string[]) {
-  const directory = command[2];
-  let name: string | undefined;
-  if (!directory || directory.startsWith('--')) throw new Error('Project directory is required.');
-  for (let index = 3; index < command.length; index += 1) {
-    if (command[index] !== '--name') throw new Error(`Unknown command option '${command[index]}'.`);
-    const value = command[index + 1];
-    if (!value || value.startsWith('--'))
-      throw new Error("Option '--name' requires a project name.");
-    if (name !== undefined) throw new Error("Option '--name' may be supplied only once.");
-    name = value;
-    index += 1;
-  }
-  if (name === undefined) throw new Error("Required option '--name' was not supplied.");
-  return { directory, name };
-}
+export { parseProjectCreate } from './project-argument-parsers';
 
 export async function runNovelTeaProjectCreateCli(
   globals: ParsedGlobalArguments,

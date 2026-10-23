@@ -23,7 +23,7 @@ import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
   projectValidationBoundariesForCompilerDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 export {
   invokeNovelTeaNativeOperation,
   resolveNovelTeaCliPath,

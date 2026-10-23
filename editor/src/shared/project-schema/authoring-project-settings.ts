@@ -24,7 +24,7 @@ import {
   createProjectValidationDiagnostic,
   projectValidationBoundariesForAuthoringPath,
   type ProjectValidationDiagnostic,
-} from './project-validation';
+} from './project-diagnostic-projection';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 import { withSchemaDocumentation } from './schema-documentation';
 

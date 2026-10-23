@@ -1,5 +1,5 @@
 import type { PreparedRuntimeArtifact } from './project-schema/prepared-runtime-artifact';
-import type { ProjectValidationDiagnostic } from './project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from './project-schema/project-diagnostic-projection';
 import type { RuntimeBuildCacheObservation } from './runtime-build-cache';
 import type { ShaderVariant } from './shader-variants';
 

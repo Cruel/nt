@@ -3,7 +3,7 @@ import type { PackageExportOptions } from '../editor-tooling';
 import { assetKindValues, type AssetKind } from './authoring-assets';
 import { exportProfileSchema, type ExportProfileData } from './authoring-export';
 import { compiledProjectWireSchema, type CompiledProjectWire } from './compiled-project';
-import type { ProjectValidationDiagnostic } from './project-validation';
+import type { ProjectValidationDiagnostic } from './project-diagnostic-projection';
 import { shaderMaterialProjectWireSchema } from './shader-material-project';
 
 export const PREPARED_RUNTIME_ARTIFACT_SCHEMA = 'noveltea.prepared-runtime-artifact' as const;

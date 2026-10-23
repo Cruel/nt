@@ -31,7 +31,7 @@ import {
   projectValidationBlocksBoundary,
   projectValidationBoundariesForCompilerDiagnostic,
   type ProjectValidationDiagnostic,
-} from './project-schema/project-validation';
+} from './project-schema/project-diagnostic-projection';
 import {
   validateAdmittedAuthoringProject,
   validateAuthoringProject,

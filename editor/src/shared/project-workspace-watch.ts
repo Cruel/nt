@@ -1,5 +1,5 @@
 import type { ProjectMutationPathValue } from './editor-tooling';
-import type { ProjectValidationDiagnostic } from './project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from './project-schema/project-diagnostic-projection';
 
 export type ProjectWorkspaceAuthoringWatchResult =
   | {

@@ -6,7 +6,7 @@ import type {
   PlatformStageDiagnostic,
   TemplateDescriptor,
 } from '../../shared/project-schema/platform-export-contracts';
-import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import type { AndroidToolchainProbeResult } from './android-toolchain-service';
 import { runPlatformProcess } from './platform-host-service';
 

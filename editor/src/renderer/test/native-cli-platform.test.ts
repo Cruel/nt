@@ -8,7 +8,7 @@ import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-ser
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { logicalRuntimeArtifactPaths } from '../../shared/runtime-artifact-preparation';
 import { projectWorkspaceLocalStateFile } from '../../shared/project-workspace/project-workspace-service';

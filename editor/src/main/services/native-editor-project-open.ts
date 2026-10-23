@@ -8,11 +8,12 @@ import { withNativeRecoveredTextSources } from './native-recovery-editor-state';
 
 type NativeOpenSession = Pick<
   ActiveProjectSessionService,
-  | 'activateProjectFile'
+  | 'stageNativeProjectFile'
+  | 'commitStagedNativeProject'
+  | 'discardStagedNativeProject'
   | 'acceptNativeProject'
   | 'currentSessionId'
   | 'isProjectActivationCurrent'
-  | 'closeActiveProject'
   | 'listProjectSourceFiles'
 >;
 type NativeOpenController = Pick<
@@ -39,12 +40,6 @@ export async function openNativeEditorProject(
   let manifestPath = path.join(fallbackRoot, 'project.yaml');
   let projectSessionId: string | null = null;
   try {
-    // The native worker requires a main-owned admitted session. A failed
-    // candidate Open must never revoke an existing dirty editor Project.
-    // Coordinated production activation must stage a second candidate before
-    // relaxing this guard; cold native Open is independently supported now.
-    if (sessions.currentSessionId())
-      throw new Error('Native Project handoff requires pre-admission of the new Project.');
     const candidate = await realpath(fallbackRoot);
     const file = (await stat(candidate)).isDirectory()
       ? path.join(candidate, 'project.yaml')
@@ -55,7 +50,7 @@ export async function openNativeEditorProject(
     const manifest = await stat(manifestPath);
     if (!manifest.isFile()) throw new Error('Project manifest is not a regular file.');
     const root = path.dirname(manifestPath);
-    projectSessionId = await sessions.activateProjectFile(manifestPath, activationGeneration);
+    projectSessionId = await sessions.stageNativeProjectFile(manifestPath, activationGeneration);
     const admitted = await native.admitFromNative(projectSessionId);
     if (!sessions.isProjectActivationCurrent(activationGeneration))
       throw new Error('Project activation was superseded.');
@@ -86,7 +81,7 @@ export async function openNativeEditorProject(
       ),
     );
     const recovered = native.recoveredContentProject();
-    return {
+    const response: OpenProjectResponse = {
       ok: true,
       success: true,
       diagnostics: admitted.diagnostics.map((diagnostic) => ({
@@ -106,15 +101,13 @@ export async function openNativeEditorProject(
       ...(recovered ? { nativeRecoveredContentProject: recovered } : {}),
       ...(recovered ? { nativeRecoveredConflicts: native.recoveredConflicts() } : {}),
     };
+    sessions.commitStagedNativeProject(projectSessionId, activationGeneration);
+    return response;
   } catch (error) {
-    // Do not revoke an overlapping activation that has already superseded us.
-    if (
-      projectSessionId &&
-      sessions.isProjectActivationCurrent(activationGeneration) &&
-      sessions.currentSessionId() === projectSessionId
-    ) {
+    // A failed candidate never closes the incumbent Project or its worker.
+    if (projectSessionId) {
       native.close();
-      sessions.closeActiveProject();
+      sessions.discardStagedNativeProject(projectSessionId);
     }
     const message = error instanceof Error ? error.message : String(error);
     return {

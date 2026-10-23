@@ -12,7 +12,7 @@ import {
   parseAssetData,
 } from '../../shared/project-schema/authoring-assets';
 import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { assetSourcePaths } from '../../shared/project-workspace/project-workspace-service';
 import {
   attachmentUsages,
@@ -224,7 +224,7 @@ function successfulAuthoringWatchResult(
   before: ReturnType<ActiveProjectWorkspaceSession['snapshot']>,
   after: ReturnType<ActiveProjectWorkspaceSession['snapshot']>,
   changedPaths: readonly string[],
-  diagnostics: readonly import('../../shared/project-schema/project-validation').ProjectValidationDiagnostic[],
+  diagnostics: readonly import('../../shared/project-schema/project-diagnostic-projection').ProjectValidationDiagnostic[],
 ): Extract<NonNullable<ProjectWorkspaceWatchEvent['authoring']>, { success: true }> {
   const values = externalValues(before.project, after.project);
   const involvedFiles = new Set(

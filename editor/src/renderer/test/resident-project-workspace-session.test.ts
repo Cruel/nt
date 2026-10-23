@@ -29,7 +29,7 @@ import {
   type ResidentProjectAuthority,
   type ResidentProjectAuthorityObservation,
 } from '../../shared/project-workspace/resident-project-workspace-service';
-import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-validation';
+import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 
 const ROOT = '/projects/resident-session';
 

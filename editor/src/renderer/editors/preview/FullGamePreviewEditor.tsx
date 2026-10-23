@@ -86,7 +86,7 @@ import {
   collectProjectValidationDiagnostics,
   projectValidationBlocksBoundary,
   type ProjectValidationDiagnostic,
-} from '../../../shared/project-schema/project-validation';
+} from '../../../shared/project-schema/project-diagnostic-projection';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import {
   parseVariableData,

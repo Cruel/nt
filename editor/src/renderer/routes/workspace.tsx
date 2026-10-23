@@ -116,7 +116,7 @@ import {
   validateAuthoringProject,
 } from '../../shared/project-schema/authoring-validation';
 import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
-import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
 import type { ProjectAssetOrganizationAction } from '../../shared/project-asset-audit';

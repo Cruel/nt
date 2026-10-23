@@ -2,7 +2,7 @@ import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigat
 import { buildPlatformExportTab, buildSettingsTab } from '@/workbench/editor-registry';
 import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigation';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 
 function target(tab: WorkbenchNavigationRequest['tab'], id: string): WorkbenchNavigationRequest {
   return { tab, target: { id, block: 'center', flash: true, focus: true } };

@@ -39,7 +39,7 @@ import { editorProjectStateFromProject } from '@/workbench/project-editor-state'
 import {
   classifyProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
 import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {

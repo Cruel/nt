@@ -5,7 +5,7 @@ import { entityIdSchema } from './authoring-common';
 import { animationRefSchema, assetRefSchema } from './authoring-flow';
 import { parseAssetData } from './authoring-assets';
 import type { AuthoringProject } from './authoring-project';
-import type { ProjectValidationDiagnosticLike } from './project-validation';
+import type { ProjectValidationDiagnosticLike } from './project-diagnostic-projection';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
