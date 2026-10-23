@@ -777,6 +777,12 @@ per-attempt worker lifetime; it disposes rejected/superseded workers without
 touching the incumbent and revokes the old worker only after native promotion.
 Its real-addon regression rejects a malformed second Project while the
 admitted Feature Lab incumbent continues answering native reads.
+The complete native Project adapter also passes through authoritative native
+record values without invoking the old TypeScript Zod Project validator or
+materializing authored defaults a second time. Only the host transport shape,
+omitted empty collection containers and local-only editor presentation defaults
+are handled in TypeScript. The real-addon Feature Lab test separately checks
+that these native values already satisfy the generated authoring contract.
 
 Physical source hints for the eventual production watcher can be projected
 from the existing native worker's exact-byte observations through

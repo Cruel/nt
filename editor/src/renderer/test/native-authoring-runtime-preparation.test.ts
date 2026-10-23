@@ -60,6 +60,38 @@ function fixture() {
 }
 
 describe('certification-only native working Project runtime preparation', () => {
+  it('treats C++ complete record values as authoritative without TypeScript re-normalization', () => {
+    const { project, prepared } = fixture();
+    const completeProject = {
+      ...project,
+      rooms: { ...project.rooms },
+      tests: { ...project.tests },
+    };
+    const projected = projectFromNativeCompletePreparation({ ...prepared, completeProject });
+    expect(projected.rooms).toBe(completeProject.rooms);
+    expect(projected.tests).toBe(completeProject.tests);
+    expect(projected.project).toBe(completeProject.project);
+    expect(projected).toMatchObject(completeProject);
+    expect(() =>
+      projectFromNativeCompletePreparation({
+        ...prepared,
+        completeProject: { ...completeProject, rooms: [] },
+      }),
+    ).toThrow('malformed rooms transport');
+    expect(() =>
+      projectFromNativeCompletePreparation({
+        ...prepared,
+        completeProject: { ...completeProject, schema: 'invalid' },
+      }),
+    ).toThrow('invalid transport shape');
+    expect(() =>
+      projectFromNativeCompletePreparation({
+        ...prepared,
+        completeProject: { ...completeProject, bootstrapModule: null },
+      }),
+    ).toThrow('invalid transport shape');
+  });
+
   it('compiles from a native-complete Project without a TypeScript saved baseline, rechecking source bytes', async () => {
     const { project, prepared } = fixture();
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-complete-'));

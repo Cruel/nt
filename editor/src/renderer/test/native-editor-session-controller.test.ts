@@ -3,9 +3,13 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { cp, readFile, readdir, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  authoringProjectSchema,
+  createAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
+import { projectFromNativeCompletePreparation } from '../../main/services/native-authoring-runtime-preparation';
 import { openNativeEditorProject } from '../../main/services/native-editor-project-open';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import {
@@ -842,11 +846,8 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ),
       pollIntervalMs: 100,
     });
-    const controller = new NativeEditorSessionController(
-      sessions,
-      bridge,
-      new NativeAuthoringWorkingProject(bridge),
-    );
+    const working = new NativeAuthoringWorkingProject(bridge);
+    const controller = new NativeEditorSessionController(sessions, bridge, working);
     try {
       const opened = await openNativeEditorProject(
         root,
@@ -863,6 +864,12 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(() => sessions.requireActiveWorkspace(opened.projectSessionId!)).toThrow(
         'no workspace',
       );
+      const raw = await working.prepareCompleteWorking();
+      const projected = projectFromNativeCompletePreparation(raw);
+      // The production adapter does not normalize; this test-only comparison
+      // proves native Feature Lab owners already materialize semantic defaults.
+      expect(projected).toEqual(authoringProjectSchema.parse(projected));
+      expect(projected.rooms).toBe((raw.completeProject as typeof projected).rooms);
     } finally {
       controller.dispose();
       sessions.dispose();

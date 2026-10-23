@@ -5,7 +5,10 @@ import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
+import {
+  AUTHORING_PROJECT_SCHEMA,
+  authoringCollectionKeys,
+} from '../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import { buildRuntimePlaybackSpecFromTestData } from '../../shared/project-schema/test-playback-project';
@@ -99,9 +102,10 @@ export function projectFromNativeWorkingPreparation(
   return parsed.data;
 }
 
-/** Cutover certification: consume every effective native owner, not a
- * TypeScript-loaded saved-Project oracle. Schema decoding here only adapts
- * the editor-local defaults that are intentionally not stored in editor.yaml. */
+/** Consume every effective native owner without TypeScript schema validation
+ * or normalization. The addon owns canonical Project and record semantics;
+ * this host boundary only checks transport shape and supplies editor-only
+ * local view defaults not stored in tracked editor.yaml. */
 export function projectFromNativeCompletePreparation(
   prepared: NativeAuthoringPreparation,
 ): AuthoringProject {
@@ -113,6 +117,27 @@ export function projectFromNativeCompletePreparation(
   )
     throw new Error(prepared.error || 'Native complete working Project was not available.');
   const raw = prepared.completeProject as Record<string, unknown>;
+  const isObject = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+  const project = raw.project;
+  if (
+    raw.schema !== AUTHORING_PROJECT_SCHEMA ||
+    !isObject(project) ||
+    typeof project.id !== 'string' ||
+    typeof project.name !== 'string' ||
+    !isObject(raw.settings) ||
+    !isObject(raw.export) ||
+    !isObject(raw.bootstrapModule) ||
+    !Object.hasOwn(raw, 'undefinedInteractionProgram') ||
+    !Object.hasOwn(raw, 'entrypoint') ||
+    !isObject(raw.prefetchHints) ||
+    !isObject(raw.traits) ||
+    !isObject(raw.localization) ||
+    !Array.isArray(raw.inventories) ||
+    !isObject(raw.interactableInstances) ||
+    (raw.editor !== undefined && !isObject(raw.editor))
+  )
+    throw new Error('Native complete Project returned an invalid transport shape.');
   const candidate: Record<string, unknown> = {
     ...raw,
     editor: {
@@ -122,17 +147,15 @@ export function projectFromNativeCompletePreparation(
         : {}),
     },
   };
-  for (const family of authoringCollectionKeys) if (!(family in candidate)) candidate[family] = {};
-  const parsed = authoringProjectSchema.safeParse(candidate);
-  if (!parsed.success)
-    throw new Error(
-      'Native complete Project is incompatible with the editor contract: ' +
-        parsed.error.issues
-          .slice(0, 5)
-          .map((issue) => issue.path.join('/'))
-          .join(', '),
-    );
-  return parsed.data;
+  for (const family of authoringCollectionKeys) {
+    if (!(family in candidate)) candidate[family] = {};
+    else if (!isObject(candidate[family]))
+      throw new Error(`Native complete Project returned malformed ${family} transport.`);
+  }
+  // Only missing empty collection containers are a wire-format adaptation.
+  // Do not invoke Zod or rewrite native record data: C++ generated contracts
+  // own all authored schema defaults and semantic checks.
+  return candidate as unknown as AuthoringProject;
 }
 
 function nativeRuntimeProject(options: NativeWorkingRuntimeOptions): AuthoringProject {
