@@ -59,12 +59,21 @@ if (process.platform === 'darwin') {
 }
 if (process.platform === 'win32') {
   const importLibrary = path.join(devdir, version, process.arch, 'node.lib');
+  const delayLoadHook = path.join(
+    path.dirname(require.resolve('node-gyp/package.json')),
+    'src',
+    'win_delay_load_hook.cc',
+  );
   if (!existsSync(importLibrary)) {
     throw new Error(
       `Electron ${version} Windows Node-API import library is missing: ${importLibrary}`,
     );
   }
+  if (!existsSync(delayLoadHook)) {
+    throw new Error(`The installed node-gyp Windows delay-load hook is missing: ${delayLoadHook}`);
+  }
   configure.push(`-DNOVELTEA_NODE_API_IMPORT_LIBRARY=${importLibrary}`);
+  configure.push(`-DNOVELTEA_NODE_GYP_DELAY_LOAD_HOOK_SOURCE=${delayLoadHook}`);
 }
 await runCommand('cmake', configure, { label: 'configure-native-authoring-host' });
 await runCommand(

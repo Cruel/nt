@@ -233,22 +233,29 @@ export function nativeLocalizationFragmentPatches(
 ): JsonPatchOperation[] {
   const result: JsonPatchOperation[] = [];
   for (const patch of patches) {
-    if (patch.path !== '/localization/translations' &&
-        patch.path !== '/localization/assets') {
+    if (patch.path !== '/localization/translations' && patch.path !== '/localization/assets') {
       result.push(patch);
       continue;
     }
     const collection = patch.path;
     const previous = hasJsonAtPointer(before, collection)
-      ? getJsonAtPointer(before, collection) : {};
-    const proposed = hasJsonAtPointer(after, collection)
-      ? getJsonAtPointer(after, collection) : {};
-    if (!previous || typeof previous !== 'object' || Array.isArray(previous) ||
-        !proposed || typeof proposed !== 'object' || Array.isArray(proposed))
+      ? getJsonAtPointer(before, collection)
+      : {};
+    const proposed = hasJsonAtPointer(after, collection) ? getJsonAtPointer(after, collection) : {};
+    if (
+      !previous ||
+      typeof previous !== 'object' ||
+      Array.isArray(previous) ||
+      !proposed ||
+      typeof proposed !== 'object' ||
+      Array.isArray(proposed)
+    )
       throw new Error('Localization collection must be an object of locale fragments.');
     const oldFragments = previous as Record<string, JsonValue>;
     const newFragments = proposed as Record<string, JsonValue>;
-    for (const locale of [...new Set([...Object.keys(oldFragments), ...Object.keys(newFragments)])].sort()) {
+    for (const locale of [
+      ...new Set([...Object.keys(oldFragments), ...Object.keys(newFragments)]),
+    ].sort()) {
       const path = `${collection}/${locale.replace(/~/g, '~0').replace(/\//g, '~1')}`;
       if (!Object.hasOwn(newFragments, locale)) {
         result.push({ op: 'remove', path });
@@ -288,7 +295,9 @@ async function submitNativeCommand(
   try {
     patches = nativeLocalizationFragmentPatches(patches, project.document!, proposal.document!);
   } catch (error) {
-    return nativeOnlyResult(error instanceof Error ? error.message : 'Invalid localization patches.');
+    return nativeOnlyResult(
+      error instanceof Error ? error.message : 'Invalid localization patches.',
+    );
   }
   let effectiveProposal = proposal;
   let plan = proposal.historyEntry?.autoCommitPlan;

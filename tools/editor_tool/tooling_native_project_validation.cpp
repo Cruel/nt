@@ -5,6 +5,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -16,6 +18,15 @@
 namespace {
 using Json = nlohmann::json;
 using noveltea::authoring::ProjectSession;
+
+void trace_native_validation(const char* stage)
+{
+    const char* trace = std::getenv("NOVELTEA_CLI_TRACE");
+    if (trace != nullptr && std::strcmp(trace, "1") == 0) {
+        std::fprintf(stderr, "[native-disk-validation] %s\n", stage);
+        std::fflush(stderr);
+    }
+}
 
 // Each existing daemon Project-owner process is single-root. This native state
 // lives inside that owner, not in a parallel daemon or a persistent cache.
@@ -130,23 +141,39 @@ Json validate(std::string_view request_text)
     }
     const bool warm = state.session != nullptr;
     std::string error;
-    if (!state.session)
+    if (!state.session) {
+        trace_native_validation("opening mutable Project session");
         state.session = ProjectSession::open(root, error);
+        trace_native_validation(state.session ? "mutable Project session opened"
+                                              : "mutable Project session rejected");
+        if (!state.session)
+            trace_native_validation(error.c_str());
+    }
     if (!state.session) {
         // The disk may be malformed, which strict mutable admission rejects.
         // Certification reads an invalid Project without admitting mutable state.
+        trace_native_validation("starting cold invalid-Project validation");
         const auto cold = ProjectSession::validate_cold_project(root, error);
+        trace_native_validation("cold invalid-Project validation returned");
         if (!cold)
             return {{"ok", false}, {"error", error}};
         return response_for(*cold, false, {});
     }
+    trace_native_validation("starting resident Project validation");
     const auto validated = state.session->validate_clean_project();
+    trace_native_validation("resident Project validation returned");
     auto result = response_for(validated.snapshot, warm, state.session->validation_work());
     result["cacheHit"] = validated.cache_hit;
-    // Bind the native diagnostic graph to exactly the same physical generation
-    // used by the shared downstream preparation; never combine two separate
-    // admissions if files change between those calls.
-    result["sourceGeneration"] = native_project_source_generation(*state.session, root);
+    // A malformed physical source invalidates the mutable session's complete
+    // source proof. Return its certified diagnostics without asking for that
+    // proof: downstream preparation is only allowed for valid Projects.
+    // Computing it for invalid validation turns a workspace error into an
+    // internal CLI failure (and hides the actionable YAML location).
+    if (validated.snapshot.valid) {
+        // Bind a successful diagnostic graph to the exact physical generation
+        // consumed by downstream preparation; never mix separate admissions.
+        result["sourceGeneration"] = native_project_source_generation(*state.session, root);
+    }
     return result;
 }
 

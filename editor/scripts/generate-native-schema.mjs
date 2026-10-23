@@ -112,9 +112,9 @@ const unicodeLowercase = {};
 const casedRanges = [];
 const caseIgnorableRanges = [];
 const appendUnicodeRange = (ranges, point) => {
-    const last = ranges.at(-1);
-    if (last && last[1] === point - 1) last[1] = point;
-    else ranges.push([point, point]);
+  const last = ranges.at(-1);
+  if (last && last[1] === point - 1) last[1] = point;
+  else ranges.push([point, point]);
 };
 const cased = /\p{Cased}/u;
 const caseIgnorable = /\p{Case_Ignorable}/u;

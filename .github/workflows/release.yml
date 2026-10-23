@@ -1336,14 +1336,21 @@ jobs:
           set -euo pipefail
           docker build --tag noveltea-linux-authoring-abi --file .github/containers/linux-player-glibc228.Dockerfile .
           electron_version="$(node -p "require('./editor/node_modules/electron/package.json').version")"
+          mkdir -p .cache/container-home .cache/ccache
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             --volume "$GITHUB_WORKSPACE:/workspace" \
             --workdir /workspace \
+            --env HOME=/workspace/.cache/container-home \
             --env ELECTRON_VERSION="$electron_version" \
+            --env CCACHE_DIR=/workspace/.cache/ccache \
             noveltea-linux-authoring-abi \
             bash -lc '
               set -euo pipefail
+              # The login shell may replace the incoming ccache environment.
+              # Keep the compiler cache inside the writable mounted checkout.
+              export CCACHE_DIR=/workspace/.cache/ccache
+              test -w "$CCACHE_DIR"
               cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
                 -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
@@ -1378,6 +1385,18 @@ jobs:
       - name: Certify native CLI record inspection parity on this host
         run: node editor/scripts/certify-native-cli-commands.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
 
+      # The platform candidate certification materializes its canonical Web
+      # export fixture via the packed node-tools entrypoint. Pack before that
+      # certification, not only before the later editor cross-system test.
+      - name: Build native editor certification tool bundle
+        run: pnpm -C editor exec vp pack
+
+      # Catch host-loader defects (such as missing Windows Electron
+      # delay-load hook) before running the slower editor/CLI differential.
+      - name: Certify Windows Electron native-addon worker loading
+        if: runner.os == 'Windows'
+        run: node editor/scripts/certify-native-authoring-electron-loader.mjs "${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node"
+
       - name: Certify native CLI candidate commands on this host
         shell: pwsh
         run: |
@@ -1400,8 +1419,6 @@ jobs:
         env:
           NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
         run: |
-          pnpm -C editor exec vp pack
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node editor/scripts/certify-native-authoring-cross-system.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

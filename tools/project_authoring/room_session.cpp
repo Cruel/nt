@@ -705,8 +705,9 @@ std::optional<LocalizationPatchTarget> localization_patch_target(std::string_vie
     return std::nullopt;
 }
 
-std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, const Json& manifest,
-                                           bool validation_only = false)
+std::optional<std::vector<ProjectFile>> inventory_project(const std::filesystem::path& root,
+                                                          const Json& manifest, std::string& error,
+                                                          bool validation_only = false)
 {
     static const std::set<std::string> collections{
         "animations",   "archetypes", "assets",    "characters", "dialogues", "interactables",
@@ -791,11 +792,14 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
         if (tracked_fragment(relative)) {
             if (!validation_only) {
                 const auto opened = open_yaml_source(read_bytes(it->path()));
-                if (!opened.accepted)
-                    throw std::runtime_error("Invalid tracked YAML " + relative + ": " +
-                                             opened.error);
-                if (!Json::parse(opened.source_json).is_object())
-                    throw std::runtime_error("Tracked Project YAML must be an object: " + relative);
+                if (!opened.accepted) {
+                    error = "Invalid tracked YAML " + relative + ": " + opened.error;
+                    return std::nullopt;
+                }
+                if (!Json::parse(opened.source_json).is_object()) {
+                    error = "Tracked Project YAML must be an object: " + relative;
+                    return std::nullopt;
+                }
             }
             files.push_back({relative, ProjectFileKind::TrackedSource});
         } else if (relative.starts_with("records/")) {
@@ -819,8 +823,13 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
                     files.push_back({relative, ProjectFileKind::TrackedSource});
                     continue;
                 }
-                if (!decoded.accepted)
-                    throw std::runtime_error("Invalid record YAML: " + relative);
+                if (!decoded.accepted) {
+                    // A malformed sibling must reject full Project admission,
+                    // but a CLI scoped read can still open its own valid
+                    // record. Never throw across the macOS ScriptC boundary.
+                    error = "Invalid record YAML: " + relative;
+                    return std::nullopt;
+                }
                 const auto value = Json::parse(decoded.source_json);
                 if (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
                     value.at("id") != leaf.substr(0, leaf.size() - 5)) {
@@ -828,7 +837,8 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
                         files.push_back({relative, ProjectFileKind::TrackedSource});
                         continue;
                     }
-                    throw std::runtime_error("Record ID does not match filename: " + relative);
+                    error = "Record ID does not match filename: " + relative;
+                    return std::nullopt;
                 }
                 if (collection == "assets" && value.contains("data") &&
                     value.at("data").is_object()) {
@@ -860,8 +870,10 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
                         files.push_back({relative, ProjectFileKind::TrackedSource});
                         continue;
                     }
-                    if (!decoded.accepted)
-                        throw std::runtime_error("Invalid Layout metadata YAML: " + relative);
+                    if (!decoded.accepted) {
+                        error = "Invalid Layout metadata YAML: " + relative;
+                        return std::nullopt;
+                    }
                     const auto layout = Json::parse(decoded.source_json);
                     if (!layout.is_object() || !layout.contains("id") ||
                         !layout.at("id").is_string() || layout.at("id") != id)
@@ -932,16 +944,16 @@ std::unique_ptr<RoomSession> RoomSession::open(const std::filesystem::path& proj
             room_id.find_first_not_of(
                 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") !=
                 std::string::npos)
-            throw std::runtime_error("Invalid Room ID.");
+            return (error = "Invalid Room ID.", nullptr);
         const auto path = project_root / "records" / "rooms" / (room_id + ".yaml");
         auto source = read_bytes(path);
         const auto opened = open_yaml_source(source);
         if (!opened.accepted)
-            throw std::runtime_error("Invalid Room YAML: " + opened.error);
+            return (error = "Invalid Room YAML: " + opened.error, nullptr);
         const auto value = Json::parse(opened.source_json);
         if (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
             value.at("id").as<std::string>() != room_id)
-            throw std::runtime_error("Room source ID must match its filename.");
+            return (error = "Room source ID must match its filename.", nullptr);
         error.clear();
         return std::unique_ptr<RoomSession>(
             new RoomSession(path, std::move(room_id), std::move(source), opened.source_json));
@@ -1070,21 +1082,29 @@ RoomSession::open_project_source(const std::filesystem::path& project_root, std:
         auto path = project_root / "project.yaml";
         auto source = read_bytes(path);
         const auto opened = open_yaml_source(source);
-        if (!opened.accepted)
-            throw std::runtime_error("Invalid Project manifest YAML: " + opened.error);
+        // A malformed source is an expected admission rejection, not an
+        // exceptional runtime condition. In particular, macOS CLI builds
+        // must not unwind a C++ exception across the native ScriptC boundary.
+        if (!opened.accepted) {
+            error = "Invalid Project manifest YAML: " + opened.error;
+            return nullptr;
+        }
         const auto validation = validate_record("WorkspaceManifest", opened.source_json);
-        if (!validation.accepted)
-            throw std::runtime_error("Project manifest invalid: " +
-                                     (validation.diagnostics.empty()
-                                          ? std::string("unknown error")
-                                          : validation.diagnostics.front().path + " " +
-                                                validation.diagnostics.front().message));
-        auto inventory =
-            inventory_project(project_root, Json::parse(opened.source_json), validation_only);
+        if (!validation.accepted) {
+            error = "Project manifest invalid: " +
+                    (validation.diagnostics.empty() ? std::string("unknown error")
+                                                    : validation.diagnostics.front().path + " " +
+                                                          validation.diagnostics.front().message);
+            return nullptr;
+        }
+        auto inventory = inventory_project(project_root, Json::parse(opened.source_json), error,
+                                           validation_only);
+        if (!inventory)
+            return nullptr;
         auto result = std::unique_ptr<RoomSession>(
             new RoomSession(path, "", std::move(source), opened.source_json));
         result->is_project_ = true;
-        result->file_inventory_ = std::move(inventory);
+        result->file_inventory_ = std::move(*inventory);
         error.clear();
         return result;
     } catch (const std::exception& e) {
@@ -3298,6 +3318,15 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
                 result.error = "External source conflict for " + name;
             else
                 result.accepted = true;
+        } else if (name != "editor" && name != "traits" && !name.starts_with("i18n/") &&
+                   !std::filesystem::exists(
+                       root_ / "records" / family /
+                       (family == "layouts" ? id + "/layout.yaml" : id + ".yaml"))) {
+            // A missing record is an ordinary read result, not a failure that
+            // requires opening a stream and throwing through the native CLI.
+            // In particular, the macOS installed ScriptC host terminates when
+            // an absent Room source throws across this native boundary.
+            result.error = "Record does not exist.";
         } else {
             std::string error;
             auto record = name == "editor"   ? RoomSession::open_editor_source(root_, error)
@@ -3596,9 +3625,10 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
     return response;
 }
 
-RoomSessionResult ProjectSession::mutate_source_directory(
-    std::uint64_t revision, std::string_view kind, std::string_view source,
-    std::string_view target)
+RoomSessionResult ProjectSession::mutate_source_directory(std::uint64_t revision,
+                                                          std::string_view kind,
+                                                          std::string_view source,
+                                                          std::string_view target)
 {
     RoomSessionResult result;
     result.snapshot = snapshot();
@@ -3610,14 +3640,15 @@ RoomSessionResult ProjectSession::mutate_source_directory(
         auto verified = [&](std::string_view input) -> std::filesystem::path {
             const std::string name(input);
             if (!std::regex_match(
-                    name, std::regex(R"(^(?:scripts|shaders)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+$)")) ||
+                    name,
+                    std::regex(R"(^(?:scripts|shaders)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+$)")) ||
                 std::filesystem::path(name) != std::filesystem::path(name).lexically_normal() ||
                 name.find("/../") != std::string::npos || name.ends_with("/..") ||
                 name.find("/./") != std::string::npos || name.ends_with("/."))
                 throw std::runtime_error("Invalid native source directory path.");
             const auto absolute = root_ / name;
-            const auto contained = std::filesystem::weakly_canonical(absolute)
-                                       .lexically_relative(std::filesystem::canonical(root_));
+            const auto contained = std::filesystem::weakly_canonical(absolute).lexically_relative(
+                std::filesystem::canonical(root_));
             if (contained.empty() || *contained.begin() == "..")
                 throw std::runtime_error("Source folder escapes the admitted Project.");
             for (auto cursor = absolute; cursor != root_; cursor = cursor.parent_path()) {
@@ -3651,7 +3682,8 @@ RoomSessionResult ProjectSession::mutate_source_directory(
         }
         ++working_revision_;
         source_authority_->hint(source);
-        if (!target.empty()) source_authority_->hint(target);
+        if (!target.empty())
+            source_authority_->hint(target);
         result.accepted = true;
         result.snapshot = snapshot();
     } catch (const std::exception& error) {
@@ -3701,12 +3733,12 @@ RoomSessionResult ProjectSession::save_owners(
         // same atomic native Save. Waive ONLY the corresponding missing-file
         // diagnostic, and ONLY for the exact destination in that journal.
         const auto creates_source = [&](std::string_view path) {
-            if (!assets) return false;
+            if (!assets)
+                return false;
             if (assets->kind == ProjectAssetTransition::Kind::Publish)
-                return std::any_of(assets->publications.begin(), assets->publications.end(),
-                                   [&](const auto& file) {
-                                       return file.project_relative_path == path;
-                                   });
+                return std::any_of(
+                    assets->publications.begin(), assets->publications.end(),
+                    [&](const auto& file) { return file.project_relative_path == path; });
             if (assets->kind == ProjectAssetTransition::Kind::Move)
                 return std::any_of(assets->moves.begin(), assets->moves.end(),
                                    [&](const auto& move) { return move.second == path; });
@@ -3720,23 +3752,21 @@ RoomSessionResult ProjectSession::save_owners(
         const auto staged_missing_source = [&](const std::string& owner,
                                                const RoomSessionSnapshot& state,
                                                const Diagnostic& diagnostic) {
-            if (diagnostic.severity != "error") return false;
+            if (diagnostic.severity != "error")
+                return false;
             try {
                 const auto record = Json::parse(state.source_json);
-                if (owner.starts_with("assets/") &&
-                    diagnostic.code == "asset.source.missing")
+                if (owner.starts_with("assets/") && diagnostic.code == "asset.source.missing")
                     return creates_source(
                         record.at("data").at("source").at("path").as<std::string>());
-                if (owner.starts_with("assets/") &&
-                    diagnostic.code == "asset.attachment.missing") {
-                    const std::regex attachment_path(
-                        "^(/" + owner + R"()?/data/attachments/([0-9]+)/path$)");
+                if (owner.starts_with("assets/") && diagnostic.code == "asset.attachment.missing") {
+                    const std::regex attachment_path("^(/" + owner +
+                                                     R"()?/data/attachments/([0-9]+)/path$)");
                     std::smatch match;
                     if (!std::regex_match(diagnostic.path, match, attachment_path))
                         return false;
                     const auto& data = record.at("data");
-                    if (!data.contains("attachments") ||
-                        !data.at("attachments").is_array())
+                    if (!data.contains("attachments") || !data.at("attachments").is_array())
                         return false;
                     const auto index = std::stoull(match[2].str());
                     if (index >= data.at("attachments").size())
@@ -3752,12 +3782,14 @@ RoomSessionResult ProjectSession::save_owners(
                     if (!std::regex_match(diagnostic.path, match, stage_path))
                         return false;
                     const auto& shader = record.at("data").at("shader");
-                    if (!shader.contains(match[2].str())) return false;
+                    if (!shader.contains(match[2].str()))
+                        return false;
                     const auto& source = shader.at(match[2].str());
                     return source.at("kind") == "project" &&
                            creates_source(source.at("path").as<std::string>());
                 }
-            } catch (...) {}
+            } catch (...) {
+            }
             return false;
         };
         const auto valid_with_staged_source = [&](const std::string& owner,
@@ -4128,8 +4160,8 @@ RoomSessionResult ProjectSession::save_owners(
                 const auto prefix = trash ? ".noveltea/trash/assets/" : "assets/";
                 if (!(relative.starts_with(prefix) ||
                       (!trash && relative.starts_with("support/")) ||
-                      (source_file && (relative.starts_with("scripts/") ||
-                                       relative.starts_with("shaders/")))) ||
+                      (source_file &&
+                       (relative.starts_with("scripts/") || relative.starts_with("shaders/")))) ||
                     (relative.size() <= std::strlen(prefix) && !source_file) ||
                     relative.find('\\') != std::string::npos ||
                     relative.find(':') != std::string::npos ||
@@ -4181,8 +4213,8 @@ RoomSessionResult ProjectSession::save_owners(
                     const bool source =
                         (file.path.starts_with("scripts/") && file.path.ends_with(".lua")) ||
                         (file.path.starts_with("shaders/") && file.path.ends_with(".sc"));
-                    const bool attachment = file.path.starts_with("assets/") ||
-                                            file.path.starts_with("support/");
+                    const bool attachment =
+                        file.path.starts_with("assets/") || file.path.starts_with("support/");
                     if (!source && !attachment)
                         throw std::runtime_error("Invalid native source transaction path: " +
                                                  file.path);
@@ -4235,7 +4267,8 @@ RoomSessionResult ProjectSession::save_owners(
                     throw std::runtime_error("Native Asset move needs a source and destination.");
                 for (const auto& [source, target] : assets->moves) {
                     if (!source.starts_with("assets/") && !source.starts_with("support/"))
-                        throw std::runtime_error("Native organization requires an Asset or support source.");
+                        throw std::runtime_error(
+                            "Native organization requires an Asset or support source.");
                     append_move(source, target);
                 }
             } else {
@@ -4315,9 +4348,8 @@ RoomSessionResult ProjectSession::save_owners(
                 if (proposed.after_revision !=
                     (asset->erase
                          ? "absent"
-                         : exact_source_revision(asset->create_source
-                                                     ? *asset->create_source
-                                                     : *asset->raw_text_source)))
+                         : exact_source_revision(asset->create_source ? *asset->create_source
+                                                                      : *asset->raw_text_source)))
                     throw std::runtime_error("Native Asset journal changed staged file bytes.");
                 continue;
             }

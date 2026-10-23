@@ -3228,7 +3228,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const replacement = new ResidentProjectWorkspaceService(fileSystem, undefined, {
       ...freshProbe.authority,
       prepareNativeProject,
-      proveNativeProject: authority.proveNativeProject,
+      proveNativeProject: authority.proveNativeProject?.bind(authority),
     });
     expect(
       await replacement.rehydratePortableSnapshot(

@@ -436,15 +436,21 @@ function PendingNumberInput({
         });
         if (optional && raw === '') {
           if (await onCommit(undefined)) {
-            const latest = usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path];
+            const latest =
+              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
+                path
+              ];
             if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
           }
           return;
         }
         if (/^[+-]?\d+$/.test(raw)) {
           const parsed = Number(raw);
-          if (Number.isSafeInteger(parsed) && await onCommit(parsed)) {
-            const latest = usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path];
+          if (Number.isSafeInteger(parsed) && (await onCommit(parsed))) {
+            const latest =
+              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
+                path
+              ];
             if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
             return;
           }
@@ -485,8 +491,11 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
         });
         if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
           const parsed = Number(raw);
-          if (Number.isFinite(parsed) && await onCommit(parsed)) {
-            const latest = usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[path];
+          if (Number.isFinite(parsed) && (await onCommit(parsed))) {
+            const latest =
+              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
+                path
+              ];
             if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
             return;
           }
@@ -1853,7 +1862,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   onChange={(event) => {
                     const assetId = event.currentTarget.value;
                     if (assetId && !projectFontStack.some((ref) => ref.$ref.id === assetId))
-                      void setProjectFontStack([...projectFontStack.map((ref) => ref.$ref.id), assetId]);
+                      void setProjectFontStack([
+                        ...projectFontStack.map((ref) => ref.$ref.id),
+                        assetId,
+                      ]);
                     event.currentTarget.value = '';
                   }}
                 >
@@ -3262,7 +3274,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               onClick={async () => {
                 if (
                   resolutionDialogValid &&
-                  await setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight)
+                  (await setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight))
                 )
                   setResolutionDialogOpen(false);
               }}

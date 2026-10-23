@@ -137,17 +137,17 @@ export function PropertyManager(props: PropertyManagerProps) {
     if (!editing || pending) return;
     setPending(true);
     try {
-      const failure = resultMessage(await (
-      editing.kind === 'create'
-        ? props.onCreate?.(editing.draft)
-        : editing.mode === 'schema'
-          ? editingRow
-            ? props.onEdit?.(editingRow, editing.draft)
-            : t('propertyManager.errors.propertyMissing')
-          : editingRow
-            ? props.onSetValue?.(editingRow, editing.draft)
-            : t('propertyManager.errors.propertyMissing')
-      ));
+      const failure = resultMessage(
+        await (editing.kind === 'create'
+          ? props.onCreate?.(editing.draft)
+          : editing.mode === 'schema'
+            ? editingRow
+              ? props.onEdit?.(editingRow, editing.draft)
+              : t('propertyManager.errors.propertyMissing')
+            : editingRow
+              ? props.onSetValue?.(editingRow, editing.draft)
+              : t('propertyManager.errors.propertyMissing')),
+      );
       if (failure) setMessage(failure);
       else closeEditing();
     } catch (error) {
@@ -227,7 +227,9 @@ export function PropertyManager(props: PropertyManagerProps) {
               if (ok) updateState({ traitId: '' });
             });
           }}
-          onDetach={(traitId) => { void perform(() => props.traits!.onDetach(traitId)); }}
+          onDetach={(traitId) => {
+            void perform(() => props.traits!.onDetach(traitId));
+          }}
           compact={props.compact}
         />
       ) : null}
@@ -239,11 +241,15 @@ export function PropertyManager(props: PropertyManagerProps) {
         emptyLabel={props.emptyLabel}
         emptyAction={props.rows.length === 0 ? addButton : undefined}
         onEdit={openRow}
-        onReset={(row) => { void perform(() => props.onReset?.(row)); }}
+        onReset={(row) => {
+          void perform(() => props.onReset?.(row));
+        }}
         onDelete={openDelete}
         onMove={
           props.onMove
-            ? (row, direction) => { void perform(() => props.onMove!(row, direction)); }
+            ? (row, direction) => {
+                void perform(() => props.onMove!(row, direction));
+              }
             : undefined
         }
         onShowUsages={props.onShowUsages}
@@ -275,7 +281,9 @@ export function PropertyManager(props: PropertyManagerProps) {
             })
           }
           onOpenChange={(open) => !open && !pending && closeEditing()}
-          onSubmit={() => { void submit(); }}
+          onSubmit={() => {
+            void submit();
+          }}
         />
       ) : null}
 

@@ -384,88 +384,88 @@ function EntityOperationDialog({
     if (submitting) return;
     setSubmitting(true);
     try {
-    const state = activeState;
-    if (state.action === 'rename' && state.entityId) {
-      const toId = id.trim();
-      await finish(
-        executeCommand({
-          type: 'entity.renameId',
-          label: `Rename ${state.collection}/${state.entityId}`,
-          payload: {
-            collection: state.collection,
-            fromId: state.entityId,
-            toId,
-            label: label.trim() || undefined,
+      const state = activeState;
+      if (state.action === 'rename' && state.entityId) {
+        const toId = id.trim();
+        await finish(
+          executeCommand({
+            type: 'entity.renameId',
+            label: `Rename ${state.collection}/${state.entityId}`,
+            payload: {
+              collection: state.collection,
+              fromId: state.entityId,
+              toId,
+              label: label.trim() || undefined,
+            },
+            originSaveUnitId: structuralSaveUnitId(state.collection),
+            persistencePolicy: 'auto-commit',
+          }),
+          () => {
+            const tab = tabFor(state.collection, toId, label.trim() || toId);
+            if (tab) openTab(tab);
           },
-          originSaveUnitId: structuralSaveUnitId(state.collection),
-          persistencePolicy: 'auto-commit',
-        }),
-        () => {
-          const tab = tabFor(state.collection, toId, label.trim() || toId);
-          if (tab) openTab(tab);
-        },
-      );
-    } else if (state.action === 'duplicate' && state.entityId) {
-      const targetId = id.trim();
-      await finish(
-        executeCommand({
-          type: 'entity.duplicateRecord',
-          label: `Duplicate ${state.collection}/${state.entityId}`,
-          payload: {
-            collection: state.collection,
-            sourceId: state.entityId,
-            targetId,
-            label: label.trim() || undefined,
+        );
+      } else if (state.action === 'duplicate' && state.entityId) {
+        const targetId = id.trim();
+        await finish(
+          executeCommand({
+            type: 'entity.duplicateRecord',
+            label: `Duplicate ${state.collection}/${state.entityId}`,
+            payload: {
+              collection: state.collection,
+              sourceId: state.entityId,
+              targetId,
+              label: label.trim() || undefined,
+            },
+            originSaveUnitId: structuralSaveUnitId(state.collection),
+            persistencePolicy: 'auto-commit',
+          }),
+          () => {
+            const tab = tabFor(state.collection, targetId, label.trim() || targetId);
+            if (tab) openTab(tab);
           },
-          originSaveUnitId: structuralSaveUnitId(state.collection),
-          persistencePolicy: 'auto-commit',
-        }),
-        () => {
-          const tab = tabFor(state.collection, targetId, label.trim() || targetId);
-          if (tab) openTab(tab);
-        },
-      );
-    } else if (state.action === 'delete' && state.entityId) {
-      // A confirmed structural deletion owns this record. Drop local drafts first
-      // so their recovery overlay cannot recreate the removed record.
-      discardRecordDrafts(state.collection, state.entityId);
-      const result = await executeCommand({
-        type: 'entity.deleteRecord',
-        label: `Delete ${state.collection}/${state.entityId}`,
-        payload: {
-          collection: state.collection,
-          entityId: state.entityId,
-          force: forceDelete,
-          replacements: replacementByEdgeId,
-        },
-        originSaveUnitId: structuralSaveUnitId(state.collection),
-        persistencePolicy: 'auto-commit',
-      });
-      const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-      if (!result.ok || failure) {
-        restoreDiscardedDrafts();
-        setError(failure?.message ?? 'Command failed.');
-      } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
-      else onClose();
-    } else if (state.action === 'metadata' && state.entityId) {
-      await finish(
-        executeCommand({
-          type: 'entity.updateMetadata',
-          label: `Update ${state.collection}/${state.entityId}`,
+        );
+      } else if (state.action === 'delete' && state.entityId) {
+        // A confirmed structural deletion owns this record. Drop local drafts first
+        // so their recovery overlay cannot recreate the removed record.
+        discardRecordDrafts(state.collection, state.entityId);
+        const result = await executeCommand({
+          type: 'entity.deleteRecord',
+          label: `Delete ${state.collection}/${state.entityId}`,
           payload: {
             collection: state.collection,
             entityId: state.entityId,
-            label: label.trim(),
-            description: description.trim() || undefined,
-            tags,
-            color: color.trim() || null,
+            force: forceDelete,
+            replacements: replacementByEdgeId,
           },
-          originSaveUnitId: recordSaveUnitId(state.collection, state.entityId),
-          persistencePolicy: 'manual-save',
-        }),
-        () => undefined,
-      );
-    }
+          originSaveUnitId: structuralSaveUnitId(state.collection),
+          persistencePolicy: 'auto-commit',
+        });
+        const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+        if (!result.ok || failure) {
+          restoreDiscardedDrafts();
+          setError(failure?.message ?? 'Command failed.');
+        } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
+        else onClose();
+      } else if (state.action === 'metadata' && state.entityId) {
+        await finish(
+          executeCommand({
+            type: 'entity.updateMetadata',
+            label: `Update ${state.collection}/${state.entityId}`,
+            payload: {
+              collection: state.collection,
+              entityId: state.entityId,
+              label: label.trim(),
+              description: description.trim() || undefined,
+              tags,
+              color: color.trim() || null,
+            },
+            originSaveUnitId: recordSaveUnitId(state.collection, state.entityId),
+            persistencePolicy: 'manual-save',
+          }),
+          () => undefined,
+        );
+      }
     } catch (error) {
       restoreDiscardedDrafts();
       setError(error instanceof Error ? error.message : 'Command failed.');
@@ -664,7 +664,11 @@ function EntityOperationDialog({
           />
         ) : (
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={submitting || !!pendingDeleteCommandId}>
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              disabled={submitting || !!pendingDeleteCommandId}
+            >
               Cancel
             </Button>
             <Button
@@ -673,11 +677,11 @@ function EntityOperationDialog({
               disabled={
                 submitting ||
                 (state.action === 'delete' &&
-                (!!pendingDeleteCommandId ||
-                  !graphSnapshot ||
-                  (!forceDelete &&
-                    deleteRepairPlan !== null &&
-                    deleteRepairPlan.status !== 'ready')))
+                  (!!pendingDeleteCommandId ||
+                    !graphSnapshot ||
+                    (!forceDelete &&
+                      deleteRepairPlan !== null &&
+                      deleteRepairPlan.status !== 'ready')))
               }
             >
               {pendingDeleteCommandId ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}

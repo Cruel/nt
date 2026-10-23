@@ -245,7 +245,9 @@ export function projectNativeExternalResult(input: {
     if (
       input.result.affectedRecords.some((owner) =>
         entry.externalConflict!.conflictingPaths.some(
-          (path) => path === nativeExternalOwnerPath(owner) || path.startsWith(`${nativeExternalOwnerPath(owner)}/`),
+          (path) =>
+            path === nativeExternalOwnerPath(owner) ||
+            path.startsWith(`${nativeExternalOwnerPath(owner)}/`),
         ),
       )
     ) {

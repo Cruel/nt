@@ -3,15 +3,22 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
+import { createCertificationRoot } from './certification-temp-root.mjs';
+import { normalizeCertificationPathAliases } from './certification-path-aliases.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const cli = path.resolve(process.argv[2] ?? path.join(repository, 'build/cli/linux/noveltea'));
-const temporary = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-lifecycle-'));
+const temporary = await createCertificationRoot('noveltea-native-cli-lifecycle-');
+const canonicalTemporary = await realpath(temporary);
+const pathAliases = ['oracle', 'native'].map((name) => [
+  path.join(temporary, name),
+  path.join(canonicalTemporary, name),
+  '<project>',
+]);
 const compareNames = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const environments = [false, true].map((native) => ({
   ...process.env,
@@ -86,10 +93,12 @@ async function tree(root, prefix = '', result = new Map()) {
 }
 
 function normalized(value) {
-  if (typeof value === 'string')
-    return value
-      .replaceAll(path.join(temporary, 'oracle'), '<project>')
-      .replaceAll(path.join(temporary, 'native'), '<project>');
+  if (typeof value === 'string') {
+    const replaced = normalizeCertificationPathAliases(value, pathAliases);
+    // Only paths beneath the disposable Project roots are normalized. Keep
+    // unrelated user-authored strings and diagnostic messages byte-exact.
+    return replaced.startsWith('<project>') ? replaced.replaceAll('\\', '/') : replaced;
+  }
   if (Array.isArray(value)) return value.map(normalized);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
@@ -98,6 +107,23 @@ function normalized(value) {
       .map(([key, item]) => [key, normalized(item)]),
   );
 }
+
+// Native public path values on Windows can be normalized by the filesystem
+// layer to forward slashes even when the fixture root came from path.join.
+// Match both forms without rewriting the rest of the response.
+assert.equal(
+  normalized(path.join(temporary, 'native-local.ntproject').replaceAll('\\', '/')),
+  '<project>-local.ntproject',
+);
+assert.equal(
+  normalized(path.join(temporary, 'native-imported', 'project.yaml')),
+  '<project>-imported/project.yaml',
+);
+assert.equal(normalized('author text\\kept'), 'author text\\kept');
+assert.equal(
+  normalized(path.join(canonicalTemporary, 'native', '.noveltea', 'build', 'test.bin')),
+  '<project>/.noveltea/build/test.bin',
+);
 
 function compare(oracle, candidate, label, success = true) {
   assert.deepEqual(normalized(candidate), normalized(oracle), label);

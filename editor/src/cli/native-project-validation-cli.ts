@@ -150,7 +150,11 @@ export async function runNativeProjectValidationCli(
   try {
     // Validate first, including malformed cold disk sources. An invalid graph
     // cannot be admitted into mutable ProjectSession preparation.
+    if (process.env.NOVELTEA_CLI_TRACE === '1')
+      process.stderr.write('[native-validation-cli] invoking native project-validate\n');
     const checked = await native({ action: 'project-validate', projectRoot });
+    if (process.env.NOVELTEA_CLI_TRACE === '1')
+      process.stderr.write('[native-validation-cli] native project-validate returned\n');
     const checkedResult = formatNativeValidation(checked, projectRoot, globals);
     if (!checkedResult.envelope.success || checkedResult.exitCode !== 0) return checkedResult;
     if (typeof checked.sourceGeneration !== 'string' || !checked.sourceGeneration)

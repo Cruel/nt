@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { removeCliRelocation } from './cleanup-cli-relocation.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -750,6 +751,6 @@ try {
       `Standalone CLI fresh Project validation failed to reach semantic checks: ${validation.stdout} ${validation.stderr}`,
     );
 } finally {
-  await rm(relocatedMediaRoot, { recursive: true, force: true });
+  await removeCliRelocation(relocatedMediaRoot);
 }
 console.log(`NovelTea CLI: ${outputPath}`);

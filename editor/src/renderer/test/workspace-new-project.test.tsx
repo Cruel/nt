@@ -700,14 +700,19 @@ describe('WorkspacePage new project modal', () => {
     expect(useProjectStore.getState().projectRevision).toBe(revisionBefore);
     await waitFor(() => expect(useCommandStore.getState().nativeWorkingRevision).toBe(1));
     expect(window.noveltea.nativeProjectReconcile).toHaveBeenCalledWith(
-      'opened-project-session', 0, 'rooms/hall',
+      'opened-project-session',
+      0,
+      'rooms/hall',
     );
-    expect((useProjectStore.getState().document as typeof project).rooms.hall?.description)
-      .toBe('Authoritative native source');
-    expect((useProjectStore.getState().savedDocument as typeof project).rooms.hall?.description)
-      .toBe('Authoritative native source');
-    expect(useCommandStore.getState().nativeProjectionRevision)
-      .toBe(useProjectStore.getState().projectRevision);
+    expect((useProjectStore.getState().document as typeof project).rooms.hall?.description).toBe(
+      'Authoritative native source',
+    );
+    expect(
+      (useProjectStore.getState().savedDocument as typeof project).rooms.hall?.description,
+    ).toBe('Authoritative native source');
+    expect(useCommandStore.getState().nativeProjectionRevision).toBe(
+      useProjectStore.getState().projectRevision,
+    );
   });
 
   it('attributes invalid external YAML to its owner and clears the error when corrected', async () => {
@@ -721,15 +726,27 @@ describe('WorkspacePage new project modal', () => {
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
-      project, projectPath: '/mock/project',
+      project,
+      projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.yaml',
     });
     useCommandStore.getState().enableNativeCommandMode(0);
-    window.noveltea.nativeProjectReconcile = vi.fn()
-      .mockResolvedValueOnce({ accepted: false, error: 'Invalid external YAML source: malformed',
-        affectedRecords: [], snapshot: { workingRevision: 0 } })
-      .mockResolvedValueOnce({ accepted: true, error: '', affectedRecords: [],
-        snapshot: { workingRevision: 0 }, diagnosticsAdded: [], diagnosticsRemoved: [] });
+    window.noveltea.nativeProjectReconcile = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accepted: false,
+        error: 'Invalid external YAML source: malformed',
+        affectedRecords: [],
+        snapshot: { workingRevision: 0 },
+      })
+      .mockResolvedValueOnce({
+        accepted: true,
+        error: '',
+        affectedRecords: [],
+        snapshot: { workingRevision: 0 },
+        diagnosticsAdded: [],
+        diagnosticsRemoved: [],
+      });
     render(<WorkspacePage />);
     const callback = vi.mocked(window.noveltea.onProjectWorkspaceChanged).mock.calls.at(-1)?.[0];
     const event = {
@@ -739,17 +756,27 @@ describe('WorkspacePage new project modal', () => {
       assetChangedPaths: [],
     };
     act(() => callback?.(event));
-    await waitFor(() => expect(useWorkspaceStore.getState().diagnostics).toEqual(
-      expect.arrayContaining([expect.objectContaining({
-        code: 'editor.native-external.reconciliation-failed',
-        path: '/rooms/hall',
-      })]),
-    ));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'editor.native-external.reconciliation-failed',
+            path: '/rooms/hall',
+          }),
+        ]),
+      ),
+    );
     act(() => callback?.(event));
     await waitFor(() => expect(window.noveltea.nativeProjectReconcile).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(useWorkspaceStore.getState().diagnostics.some(
-      (diagnostic) => diagnostic.code === 'editor.native-external.reconciliation-failed',
-    )).toBe(false));
+    await waitFor(() =>
+      expect(
+        useWorkspaceStore
+          .getState()
+          .diagnostics.some(
+            (diagnostic) => diagnostic.code === 'editor.native-external.reconciliation-failed',
+          ),
+      ).toBe(false),
+    );
   });
 
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {
@@ -770,16 +797,20 @@ describe('WorkspacePage new project modal', () => {
     const nativeValidate = vi.fn().mockResolvedValue({
       ok: true,
       success: false,
-      diagnostics: [{
-        code: 'native.room.invalid',
-        severity: 'error',
-        category: 'Native authoring validation',
-        path: '/rooms/start',
-        message: 'Native Room validation issue',
-      }],
+      diagnostics: [
+        {
+          code: 'native.room.invalid',
+          severity: 'error',
+          category: 'Native authoring validation',
+          path: '/rooms/start',
+          message: 'Native Room validation issue',
+        },
+      ],
     });
     Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
-      configurable: true, writable: true, value: nativeValidate,
+      configurable: true,
+      writable: true,
+      value: nativeValidate,
     });
     render(<WorkspacePage />);
     act(() => {
@@ -788,9 +819,11 @@ describe('WorkspacePage new project modal', () => {
       );
     });
     await waitFor(() => expect(nativeValidate).toHaveBeenCalledWith('opened-project-session', 4));
-    await waitFor(() => expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
-      expect.objectContaining({ code: 'native.room.invalid', severity: 'error' }),
-    ));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'native.room.invalid', severity: 'error' }),
+      ),
+    );
     expect(window.noveltea.validateProject).not.toHaveBeenCalled();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });

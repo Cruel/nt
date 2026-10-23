@@ -4,19 +4,9 @@
 // fixture certifies Web publication and other target preflight/error contracts.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 import { createHash } from 'node:crypto';
-import {
-  cp,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
-import os from 'node:os';
+import { cp, lstat, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
@@ -25,7 +15,7 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 if (process.argv.length > 3)
   throw new Error('The #517 differential uses the generated canonical Web Project fixture.');
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-517-platform-'));
+const root = await createCertificationRoot('noveltea-517-platform-');
 const oracle = path.join(root, 'legacy');
 const candidate = path.join(root, 'native');
 const registry = path.join(root, 'templates');
@@ -79,6 +69,14 @@ function invoke(args, { native = false, project = null, daemon = false, timeout 
 }
 
 function errorProjection(response) {
+  const normalizeRoot = (message) =>
+    [oracle, candidate].reduce(
+      (current, project) =>
+        current
+          .replaceAll(project, '<project>')
+          .replaceAll(project.replaceAll('\\', '/'), '<project>'),
+      message,
+    );
   return {
     success: response.success,
     exitCode: response.exitCode,
@@ -87,7 +85,7 @@ function errorProjection(response) {
       .map(({ code, path, message }) => ({
         code,
         path,
-        message: message.replaceAll(oracle, '<project>').replaceAll(candidate, '<project>'),
+        message: normalizeRoot(message),
       }))
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
   };

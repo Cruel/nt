@@ -3,18 +3,26 @@
 // No runtime flag is enabled for production callers by this test.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { cp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createCertificationRoot } from './certification-temp-root.mjs';
+import { normalizeCertificationPathAliases } from './certification-path-aliases.mjs';
 
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-native-routing-'));
+const root = await createCertificationRoot('noveltea-cli-native-routing-');
+const realRoot = await realpath(root);
 const legacy = path.join(root, 'legacy');
 const candidate = path.join(root, 'candidate');
 const fixtureLegacy = path.join(root, 'fixture-legacy');
 const fixtureCandidate = path.join(root, 'fixture-native');
+const pathAliases = [
+  [legacy, path.join(realRoot, 'legacy'), '<project>'],
+  [candidate, path.join(realRoot, 'candidate'), '<project>'],
+  [fixtureLegacy, path.join(realRoot, 'fixture-legacy'), '<fixture>'],
+  [fixtureCandidate, path.join(realRoot, 'fixture-native'), '<fixture>'],
+];
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const baseline = {
   ...process.env,
@@ -22,32 +30,33 @@ const baseline = {
 };
 
 function execute(project, native, args, noDaemon = true) {
-  const run = spawnSync(
-    cli,
-    [
-      ...(noDaemon ? ['--no-daemon'] : []),
-      '--json',
-      ...(project ? ['--project', project] : []),
-      ...args,
-    ],
-    {
-      env: {
-        ...baseline,
-        NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
-        NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-505-${process.pid}-${native ? 'native' : 'legacy'}`,
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
-          root,
-          native ? 'native-daemon' : 'legacy-daemon',
-        ),
-      },
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 180_000,
-    },
-  );
+  const argv = [
+    ...(noDaemon ? ['--no-daemon'] : []),
+    '--json',
+    ...(project ? ['--project', project] : []),
+    ...args,
+  ];
+  const env = {
+    ...baseline,
+    NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
+    NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-505-${process.pid}-${native ? 'native' : 'legacy'}`,
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
+      root,
+      native ? 'native-daemon' : 'legacy-daemon',
+    ),
+  };
+  const run = spawnSync(cli, argv, {
+    env,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 180_000,
+  });
   assert.ifError(run.error);
-  assert.ok(run.stdout.trim(), `${args.join(' ')} had no JSON response: ${run.stderr}`);
+  assert.ok(
+    run.stdout.trim(),
+    `${native ? 'native' : 'legacy'} ${args.join(' ')} had no JSON response (status=${run.status}, signal=${run.signal ?? 'none'}, error=${run.error?.message ?? 'none'}): ${run.stderr}`,
+  );
   let response;
   try {
     response = JSON.parse(run.stdout);
@@ -59,12 +68,7 @@ function execute(project, native, args, noDaemon = true) {
 }
 
 function normalized(value) {
-  if (typeof value === 'string')
-    return value
-      .replaceAll(legacy, '<project>')
-      .replaceAll(candidate, '<project>')
-      .replaceAll(fixtureLegacy, '<fixture>')
-      .replaceAll(fixtureCandidate, '<fixture>');
+  if (typeof value === 'string') return normalizeCertificationPathAliases(value, pathAliases);
   if (Array.isArray(value)) return value.map(normalized);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
@@ -73,6 +77,22 @@ function normalized(value) {
       .map(([key, entry]) => [key, normalized(entry)]),
   );
 }
+// Shader paths in CLI JSON use forward slashes even on Windows. Certify that
+// the comparison erases only the disposable root, not a genuine output diff.
+assert.equal(
+  normalized(
+    path.join(fixtureCandidate, '.noveltea', 'build', 'example.bin').replaceAll('\\', '/'),
+  ),
+  '<fixture>/.noveltea/build/example.bin',
+);
+assert.equal(
+  normalized(path.join(fixtureLegacy, '.noveltea', 'build', 'example.bin')),
+  '<fixture>' + path.sep + '.noveltea' + path.sep + 'build' + path.sep + 'example.bin',
+);
+assert.equal(
+  normalized(path.join(realRoot, 'fixture-native', '.noveltea', 'build', 'example.bin')),
+  '<fixture>' + path.sep + '.noveltea' + path.sep + 'build' + path.sep + 'example.bin',
+);
 
 let verified = 0;
 function compare(args, expectSuccess = true, noDaemon = true, projects = [legacy, candidate]) {

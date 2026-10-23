@@ -11,13 +11,37 @@ const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
 const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-validation-'));
 const project = path.join(root, 'project');
+// macOS's default per-user TMPDIR can exceed the UNIX sun_path limit once
+// the broker adds its daemon identity and .sock suffix. Keep the private
+// runtime root short, but preserve an independent unique daemon per run.
+const daemonRuntimeRoot =
+  process.platform === 'darwin' ? await mkdtemp('/tmp/nt-d-') : path.join(root, 'daemon');
 const environment = {
   ...process.env,
   NOVELTEA_CLI_CERTIFICATION: '1',
   NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '1',
   NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: 'native-disk-parity-' + process.pid + '-' + Date.now(),
-  NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
+  NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRuntimeRoot,
 };
+const candidateEnvironment = {
+  ...environment,
+  NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '0',
+  NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+  NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
+  NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `native-validation-candidate-${process.pid}`,
+  // Keep the cold invalid-Project witness on macOS. If ScriptC/native aborts
+  // without a diagnostic, retain its final entered stage on stderr.
+  NOVELTEA_CLI_TRACE: '1',
+};
+function describeProcess(result) {
+  return JSON.stringify({
+    status: result.status,
+    signal: result.signal,
+    stdout: result.stdout?.slice(0, 4096),
+    stderr: result.stderr?.slice(0, 4096),
+    error: result.error?.message,
+  });
+}
 function execute(args) {
   const result = spawnSync(executable, args, {
     env: environment,
@@ -26,35 +50,41 @@ function execute(args) {
     maxBuffer: 16 * 1024 * 1024,
   });
   if (result.error) throw result.error;
+  if (result.status === null)
+    throw new Error(
+      `Standalone CLI terminated during ${args.join(' ')}: ${describeProcess(result)}`,
+    );
   return result;
 }
 function candidate(args) {
   const result = spawnSync(executable, args, {
-    env: {
-      ...environment,
-      NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '0',
-      NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
-      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
-      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `native-validation-candidate-${process.pid}`,
-    },
+    env: candidateEnvironment,
     encoding: 'utf8',
     timeout: 300_000,
     maxBuffer: 16 * 1024 * 1024,
   });
   if (result.error) throw result.error;
+  if (result.status === null)
+    throw new Error(
+      `Native CLI candidate terminated during ${args.join(' ')}: ${describeProcess(result)}`,
+    );
   return result;
 }
 function checkCandidate(args, oracle) {
   const outcome = candidate(args);
-  assert.equal(outcome.status, oracle.status, `Native validation exit mismatch: ${outcome.stderr}`);
+  assert.equal(
+    outcome.status,
+    oracle.status,
+    `Native validation exit mismatch for ${args.join(' ')}: ${describeProcess(outcome)}`,
+  );
   const actual = JSON.parse(outcome.stdout);
   const expected = JSON.parse(oracle.stdout);
   assert.equal(actual.success, expected.success);
   const nativeDiagnostics = diagnostics(actual.diagnostics);
   const oracleDiagnostics = diagnostics(expected.diagnostics);
   assert.deepEqual(
-    nativeDiagnostics.map(({ line, ...item }) => item),
-    oracleDiagnostics.map(({ line, ...item }) => item),
+    nativeDiagnostics.map(({ line: _line, ...item }) => item),
+    oracleDiagnostics.map(({ line: _line, ...item }) => item),
   );
   for (let index = 0; index < nativeDiagnostics.length; index++) {
     const candidateLine = nativeDiagnostics[index].line;
@@ -83,7 +113,11 @@ function diagnostics(value) {
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 function verify(daemon, oracle, expectedWarm) {
-  assert.equal(daemon.status, oracle.status, 'Native certification may not alter CLI exit codes');
+  assert.equal(
+    daemon.status,
+    oracle.status,
+    `Native certification may not alter CLI exit codes: ${describeProcess(daemon)}`,
+  );
   assert.deepEqual(JSON.parse(daemon.stdout), JSON.parse(oracle.stdout));
   const rows = daemon.stderr
     .split('\n')
@@ -132,6 +166,13 @@ try {
   assert.deepEqual(await readFile(path.join(project, 'project.yaml')), manifest);
   console.log('Native disk Project daemon cold/warm and TypeScript CLI parity passed.');
 } finally {
-  execute(['daemon', 'stop']);
-  await rm(root, { recursive: true, force: true });
+  try {
+    execute(['daemon', 'stop']);
+    // The candidate uses an independent daemon identity.
+    candidate(['daemon', 'stop']);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    if (daemonRuntimeRoot !== path.join(root, 'daemon'))
+      await rm(daemonRuntimeRoot, { recursive: true, force: true });
+  }
 }

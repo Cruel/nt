@@ -15,6 +15,9 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
   contracts, stable semantic operation registrations, and certification-only host validation boundary.
 - `docs/architecture/certifications/NATIVE_AUTHORING_CUTOVER_READINESS.md` is the active #520
   acceptance matrix and exact #521 coordinated retirement/switch plan (not a completed cutover).
+- `docs/architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md` is the
+  #522 post-retirement host/runtime acceptance procedure and evidence ledger; its production
+  checks cannot pass before #521 removes old authoring authority.
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,

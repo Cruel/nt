@@ -188,7 +188,10 @@ export function DirtyCloseDialog() {
         payload: patches,
       });
       if (!result.ok) {
-        setStatusMessage(result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? 'Discard failed.');
+        setStatusMessage(
+          result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+            'Discard failed.',
+        );
         return;
       }
     }

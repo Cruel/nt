@@ -283,7 +283,9 @@ export const FocusTransitionOverlay = forwardRef<FocusTransitionOverlayHandle, P
             transitionImage.style.opacity = '0';
             backdrop.style.opacity = '0';
             void Promise.resolve(onComplete()).then(
-              (accepted) => { if (!accepted) restoreFocused(); },
+              (accepted) => {
+                if (!accepted) restoreFocused();
+              },
               () => restoreFocused(),
             );
             return;

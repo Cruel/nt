@@ -79,6 +79,27 @@ void certify_owner_session_reuse()
                                   {"projectRoot", fixture.root.string()},
                                   {"name", "Native Cache"}});
     require(created.value("ok", false), "Native owner fixture creation succeeds.");
+    const auto initial_validation = disk_validate({{"projectRoot", fixture.root.string()}});
+    require(initial_validation.value("ok", false) && initial_validation.value("valid", false) &&
+                initial_validation.contains("sourceGeneration"),
+            "Clean native Project validation publishes generation proof.");
+    const auto manifest_file = fixture.root / "project.yaml";
+    const auto manifest_bytes = read(manifest_file);
+    write(manifest_file, manifest_bytes + "\ninvalid: [\n");
+    const auto malformed_validation = disk_validate({{"projectRoot", fixture.root.string()}});
+    require(
+        malformed_validation.value("ok", false) && !malformed_validation.value("valid", true) &&
+            !malformed_validation.contains("sourceGeneration") &&
+            !malformed_validation.at("cliDiagnostics").empty() &&
+            malformed_validation.at("cliDiagnostics").at(0).at("code") ==
+                "WORKSPACE_MANIFEST_INVALID",
+        "Resident validation retains malformed YAML diagnostics without an uncertain generation: " +
+            malformed_validation.dump());
+    write(manifest_file, manifest_bytes);
+    const auto repaired_validation = disk_validate({{"projectRoot", fixture.root.string()}});
+    require(repaired_validation.value("ok", false) && repaired_validation.value("valid", false) &&
+                repaired_validation.contains("sourceGeneration"),
+            "Repair restores native disk validation and the verified source generation.");
     const Json inspect{{"action", "entity-inspect"},
                        {"projectRoot", fixture.root.string()},
                        {"collection", "scripts"},
@@ -88,6 +109,15 @@ void certify_owner_session_reuse()
     require(first.value("ok", false) && second.value("ok", false) &&
                 !first.value("nativeOwnerReused", true) && second.value("nativeOwnerReused", false),
             "The CLI command owner reuses its native Project session between requests.");
+    auto missing = inspect;
+    missing["collection"] = "rooms";
+    missing["id"] = "missing";
+    const auto absent = command(missing);
+    require(!absent.value("ok", true) && absent.value("kind", std::string{}) == "not-found" &&
+                absent.value("error", std::string{}) == "Record does not exist." &&
+                command(inspect).value("ok", false),
+            "Native missing-Record inspection must return a typed error without throwing, "
+            "aborting or poisoning the next valid inspect.");
     const auto created_room = command({{"action", "entity-create"},
                                        {"projectRoot", fixture.root.string()},
                                        {"collection", "rooms"},
@@ -404,7 +434,8 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
                                         {"projectRoot", root},
                                         {"paths", Json::array({staged.string()})},
                                         {"dryRun", true}});
-        require(inspected.value("ok", false), "Generated ComfyUI fixture must be valid image bytes.");
+        require(inspected.value("ok", false),
+                "Generated ComfyUI fixture must be valid image bytes.");
         const auto& image = inspected.at("fields").at("assets").at(0);
         const auto output = Json{{"format", "webp"},
                                  {"mimeType", "image/webp"},
@@ -413,15 +444,15 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
                                  {"width", image.at("width")},
                                  {"height", image.at("height")},
                                  {"hasAlpha", image.at("hasAlpha")}};
-        const Json request{{"action", "comfyui-assets"},
-                           {"projectRoot", root},
-                           {"workflow", {{"id", "certification-workflow"},
-                                          {"label", "Certification Workflow"}}},
-                           {"promptId", "fake-prompt"},
-                           {"dryRun", false},
-                           {"generated", Json::array({{{"outputId", "images"},
-                                                       {"stagedPath", staged.string()},
-                                                       {"output", output}}})}};
+        const Json request{
+            {"action", "comfyui-assets"},
+            {"projectRoot", root},
+            {"workflow", {{"id", "certification-workflow"}, {"label", "Certification Workflow"}}},
+            {"promptId", "fake-prompt"},
+            {"dryRun", false},
+            {"generated",
+             Json::array(
+                 {{{"outputId", "images"}, {"stagedPath", staged.string()}, {"output", output}}})}};
         auto rejected = request;
         rejected["generated"][0]["output"]["contentHash"] = "sha256:untrusted";
         const auto invalid = command(rejected);
@@ -437,8 +468,8 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
                 "Native ComfyUI Asset publication must commit its image: " + committed.dump());
         const auto& published = committed.at("fields").at("assets").at(0);
         const auto id = published.at("assetId").get<std::string>();
-        const auto asset_path = fixture.root /
-                                published.at("projectRelativePath").get<std::string>();
+        const auto asset_path =
+            fixture.root / published.at("projectRelativePath").get<std::string>();
         const auto record = fixture.root / "records/assets" / (id + ".yaml");
         const auto metadata = command({{"action", "entity-inspect"},
                                        {"projectRoot", root},
@@ -1165,6 +1196,8 @@ void certify(const std::filesystem::path& source)
     require(corrupt.at("ok") == false &&
                 !std::filesystem::exists(fixture.root / ".imports" / "rejected"),
             "Corrupt archive cannot materialize a partial imported Project.");
+    require(corrupt.value("kind", std::string{}) == "invalid-bundle",
+            "Corrupt ZIP CRC must return a typed invalid-bundle rejection without throwing.");
 
     const auto clean_sync =
         command({{"action", "localization-sync"}, {"projectRoot", root}, {"dryRun", true}});

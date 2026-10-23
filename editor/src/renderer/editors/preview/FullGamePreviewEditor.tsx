@@ -554,11 +554,13 @@ async function compiledProjectDiagnosticEntries(
           noticeIndexText: undefined,
           sourceFingerprint: null,
           blockers: [],
-          entries: [{
-            label: 'Native source staging failed',
-            detail: error instanceof Error ? error.message : String(error),
-            severity: 'error',
-          }],
+          entries: [
+            {
+              label: 'Native source staging failed',
+              detail: error instanceof Error ? error.message : String(error),
+              severity: 'error',
+            },
+          ],
         };
       }
     }

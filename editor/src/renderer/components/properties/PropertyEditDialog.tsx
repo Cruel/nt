@@ -41,7 +41,12 @@ export function PropertyEditDialog({
 }) {
   const { t } = useTranslation('workspace');
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!pending) onOpenChange(next); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!pending) onOpenChange(next);
+      }}
+    >
       <DialogPopup className="w-[min(620px,calc(100vw-2rem))]">
         <DialogTitle>{title}</DialogTitle>
         {description ? <DialogDescription>{description}</DialogDescription> : null}

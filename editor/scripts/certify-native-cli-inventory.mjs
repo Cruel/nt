@@ -75,8 +75,8 @@ for (const line of section.split('\n')) {
   publicPaths.add(words);
 }
 assert.deepEqual(
-  [...Object.keys(coverage)].sort(),
-  [...publicPaths].sort(),
+  Object.keys(coverage).sort((a, b) => a.localeCompare(b)),
+  [...publicPaths].sort((a, b) => a.localeCompare(b)),
   'Public help added/removed a command without assigning a certification owner.',
 );
 
@@ -109,8 +109,8 @@ for (const [family, operations] of discriminants) {
   for (const item of candidates) routedPaths.add(item);
 }
 assert.deepEqual(
-  [...routedPaths].sort(),
-  [...publicPaths].sort(),
+  [...routedPaths].sort((a, b) => a.localeCompare(b)),
+  [...publicPaths].sort((a, b) => a.localeCompare(b)),
   'Public command path has no matching command-routing family.',
 );
 

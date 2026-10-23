@@ -4,15 +4,15 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 
 const cli = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../build/cli/linux/noveltea');
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-515-tests-'));
+const root = await createCertificationRoot('noveltea-515-tests-');
 const legacy = path.join(root, 'legacy');
 const candidate = path.join(root, 'candidate');
 const projects = [legacy, candidate];

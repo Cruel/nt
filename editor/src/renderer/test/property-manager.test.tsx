@@ -6,12 +6,27 @@ import { PropertyManager } from '@/components/properties/PropertyManager';
 describe('PropertyManager', () => {
   it('keeps the confirmation open until an async deletion is accepted', async () => {
     let resolve!: (failure: string | null) => void;
-    const onDelete = vi.fn(() => new Promise<string | null>((done) => { resolve = done; }));
+    const onDelete = vi.fn(
+      () =>
+        new Promise<string | null>((done) => {
+          resolve = done;
+        }),
+    );
     const user = userEvent.setup();
     render(
       <PropertyManager
         valueLabel="Value"
-        rows={[{ id: 'remote', label: 'Remote', type: 'boolean', nullable: false, value: true, valueState: 'normal', deletable: true }]}
+        rows={[
+          {
+            id: 'remote',
+            label: 'Remote',
+            type: 'boolean',
+            nullable: false,
+            value: true,
+            valueState: 'normal',
+            deletable: true,
+          },
+        ]}
         emptyLabel="No Properties."
         onDelete={onDelete}
       />,

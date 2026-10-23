@@ -127,7 +127,23 @@ if(NOVELTEA_BUILD_AUTHORING_NODE_ADDON)
         if(NOT EXISTS "${NOVELTEA_NODE_API_IMPORT_LIBRARY}")
             message(FATAL_ERROR "Windows Node-API addon requires its matching Electron import library")
         endif()
-        target_link_libraries(noveltea-authoring-node PRIVATE "${NOVELTEA_NODE_API_IMPORT_LIBRARY}")
+        # Electron exports Node-API functions from electron.exe, but its
+        # distributed node.lib has import descriptors for node.exe. Eager
+        # linkage loads the *separately installed* Node runtime into Electron
+        # (or fails without Node on PATH), crashing native addon startup.
+        # Use the upstream node-gyp hook in the addon itself: delay-load
+        # node.exe and redirect resolution to the current Electron image.
+        set(NOVELTEA_NODE_GYP_DELAY_LOAD_HOOK_SOURCE "" CACHE FILEPATH
+            "Pinned node-gyp Windows host-image delay-load hook")
+        if(NOT EXISTS "${NOVELTEA_NODE_GYP_DELAY_LOAD_HOOK_SOURCE}")
+            message(FATAL_ERROR "Windows Electron addon requires the node-gyp delay-load hook")
+        endif()
+        target_sources(noveltea-authoring-node PRIVATE
+            "${NOVELTEA_NODE_GYP_DELAY_LOAD_HOOK_SOURCE}")
+        target_compile_definitions(noveltea-authoring-node PRIVATE "HOST_BINARY=\"node.exe\"")
+        target_link_options(noveltea-authoring-node PRIVATE "/DELAYLOAD:node.exe")
+        target_link_libraries(noveltea-authoring-node PRIVATE
+            "${NOVELTEA_NODE_API_IMPORT_LIBRARY}" delayimp.lib)
     endif()
     if(BUILD_TESTING)
         find_program(NOVELTEA_AUTHORING_NODE NAMES node REQUIRED)
@@ -197,6 +213,12 @@ if(BUILD_TESTING)
         --source-analysis "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_project_validation COMMAND noveltea-project-session-certify
         --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_clean_cache_path_alias COMMAND noveltea-project-session-certify
+        --clean-cache-alias "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_missing_record_inspection COMMAND noveltea-project-session-certify
+        --missing-record-inspection "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_malformed_sibling_scoped_read COMMAND noveltea-project-session-certify
+        --malformed-sibling-scoped-read "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_clean_cache_recovery COMMAND noveltea-project-session-certify
         --clean-cache-recovery "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_clean_cache_correctness COMMAND noveltea-project-session-certify

@@ -162,14 +162,15 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       if (useCommandStore.getState().nativeWorkingRevision !== null)
         await flushNativeProjectSources();
       const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
-      result = nativeRevision !== null && projectSessionId
-        ? await window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, testId)
-        : await window.noveltea.runPlaybackTest(
-            projectSessionId,
-            activeProject,
-            testId,
-            usePendingInputStore.getState().entriesBySaveUnitId,
-          );
+      result =
+        nativeRevision !== null && projectSessionId
+          ? await window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, testId)
+          : await window.noveltea.runPlaybackTest(
+              projectSessionId,
+              activeProject,
+              testId,
+              usePendingInputStore.getState().entriesBySaveUnitId,
+            );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Native Test preparation failed.';
       setLastPlaybackReport({ ok: false, success: false, error: message });
@@ -195,13 +196,14 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       if (useCommandStore.getState().nativeWorkingRevision !== null)
         await flushNativeProjectSources();
       const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
-      const result = nativeRevision !== null && projectSessionId
-        ? await window.noveltea.nativeProjectRunSuite(projectSessionId, nativeRevision)
-        : await window.noveltea.runPlaybackSuite(
-            projectSessionId,
-            activeProject,
-            usePendingInputStore.getState().entriesBySaveUnitId,
-          );
+      const result =
+        nativeRevision !== null && projectSessionId
+          ? await window.noveltea.nativeProjectRunSuite(projectSessionId, nativeRevision)
+          : await window.noveltea.runPlaybackSuite(
+              projectSessionId,
+              activeProject,
+              usePendingInputStore.getState().entriesBySaveUnitId,
+            );
       const report = parseSuiteReport(result.report);
       setSuiteReport(report);
       const message = result.ok

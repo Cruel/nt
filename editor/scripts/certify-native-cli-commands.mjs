@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { cp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 
 // Real installed-headless Project-owner daemon vs no-daemon CLI oracle.
 // Certification must not affect public JSON, stderr diagnostics or exit codes.
 const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-commands-'));
+const root = await createCertificationRoot('noveltea-native-cli-commands-');
 const project = path.join(root, 'project');
+// Host smoke can target the exact first installed inspect witness without
+// paying for the subsequent complete Feature Lab differential suite.
+const firstInspectOnly = process.env.NOVELTEA_CLI_INSPECT_FIRST_ONLY === '1';
 const environment = {
   ...process.env,
   NOVELTEA_CLI_CERTIFICATION: '1',
@@ -25,7 +28,17 @@ function execute(args) {
     timeout: 300_000,
     maxBuffer: 16 * 1024 * 1024,
   });
-  if (result.error) throw result.error;
+  if (result.error || result.status === null)
+    throw new Error(
+      `Installed CLI terminated during ${args.join(' ')}: ${JSON.stringify({
+        error: result.error?.message,
+        signal: result.signal,
+        status: result.status,
+        stderr: result.stderr?.slice(0, 4096),
+        stdout: result.stdout?.slice(0, 4096),
+      })}`,
+      { cause: result.error },
+    );
   return result;
 }
 
@@ -186,137 +199,143 @@ function verifyFormatCheck(relative) {
 try {
   await cp(fixture, project, { recursive: true });
   inspect('rooms', 'room-lifecycle-roundtrip', true);
-  inspect('characters', 'studio-guide', true);
-  inspect('rooms', 'room-lifecycle-roundtrip', false);
-  verifyUsages('rooms', 'room-lifecycle-roundtrip');
-  verifyUsages('materials', 'engine2d-draw-contract');
-  verifyUsages('variables', 'world-composition-enabled');
-  verifyUsages('assets', 'pilot-room-backdrop');
-  verifyUsages('animations', 'custom-board-loop');
-  verifyEntityDryRun('variables', 'native-ci-parity-var', 'create');
-  verifyEntityDryRun('layouts', 'native-ci-parity-layout', 'create');
-  verifyFormatCheck('project.yaml');
-  verifyLocalizationView();
-  // Differential regression: Project-level fallback Text and effective
-  // instance Archetype overrides must be part of the native Message view.
-  const manifestFile = path.join(project, 'project.yaml');
-  const originalManifest = await readFile(manifestFile, 'utf8');
-  const fallbackBefore =
-    'undefinedInteractionProgram:\n  instructions: []\n  completion:\n    kind: return\n  outcome: unhandled';
-  const fallbackAfter =
-    'undefinedInteractionProgram:\n  instructions:\n    - id: native-review-fallback\n' +
-    '      kind: notify\n      message:\n        source:\n          kind: inline\n' +
-    '          text: Native Project fallback Message\n        markup: plain\n' +
-    '  completion:\n    kind: return\n  outcome: handled';
-  assert.ok(originalManifest.includes(fallbackBefore));
-  const instanceFile = path.join(
-    project,
-    'records/interactables/lab-archetype-instance-definition.yaml',
-  );
-  const originalInstance = await readFile(instanceFile, 'utf8');
-  assert.ok(originalInstance.includes('archetypeOverrides: {}'));
-  await writeFile(manifestFile, originalManifest.replace(fallbackBefore, fallbackAfter));
-  await writeFile(
-    instanceFile,
-    originalInstance.replace(
-      'archetypeOverrides: {}',
-      'archetypeOverrides:\n  /data/displayName: Native Archetype instance override',
-    ),
-  );
-  verifyLocalizationView();
-  await writeFile(manifestFile, originalManifest);
-  await writeFile(instanceFile, originalInstance);
-  verifyLocalizationView('current');
-  verifyLocalizationView('attention');
-  // A valid translation may acknowledge an older presentation/guidance
-  // generation without changing its semantic source fingerprint. Both native
-  // and installed-headless views must surface the same independent attention.
-  const frSource = path.join(project, 'i18n/locales/fr.yaml');
-  const fr = await readFile(frSource, 'utf8');
-  assert.ok(fr.includes('  origin: ai\n'), 'Expected Feature Lab locale entry');
-  await writeFile(
-    frSource,
-    fr.replace(
-      '  origin: ai\n',
-      '  acknowledgedPresentationFingerprint: fnv1a:00000000000000000000000000000000\n' +
-        '  acknowledgedGuidanceFingerprint: fnv1a:00000000000000000000000000000000\n' +
+  if (!firstInspectOnly) {
+    inspect('characters', 'studio-guide', true);
+    inspect('rooms', 'room-lifecycle-roundtrip', false);
+    verifyUsages('rooms', 'room-lifecycle-roundtrip');
+    verifyUsages('materials', 'engine2d-draw-contract');
+    verifyUsages('variables', 'world-composition-enabled');
+    verifyUsages('assets', 'pilot-room-backdrop');
+    verifyUsages('animations', 'custom-board-loop');
+    verifyEntityDryRun('variables', 'native-ci-parity-var', 'create');
+    verifyEntityDryRun('layouts', 'native-ci-parity-layout', 'create');
+    verifyFormatCheck('project.yaml');
+    verifyLocalizationView();
+    // Differential regression: Project-level fallback Text and effective
+    // instance Archetype overrides must be part of the native Message view.
+    const manifestFile = path.join(project, 'project.yaml');
+    const originalManifest = await readFile(manifestFile, 'utf8');
+    const fallbackBefore =
+      'undefinedInteractionProgram:\n  instructions: []\n  completion:\n    kind: return\n  outcome: unhandled';
+    const fallbackAfter =
+      'undefinedInteractionProgram:\n  instructions:\n    - id: native-review-fallback\n' +
+      '      kind: notify\n      message:\n        source:\n          kind: inline\n' +
+      '          text: Native Project fallback Message\n        markup: plain\n' +
+      '  completion:\n    kind: return\n  outcome: handled';
+    assert.ok(originalManifest.includes(fallbackBefore));
+    const instanceFile = path.join(
+      project,
+      'records/interactables/lab-archetype-instance-definition.yaml',
+    );
+    const originalInstance = await readFile(instanceFile, 'utf8');
+    assert.ok(originalInstance.includes('archetypeOverrides: {}'));
+    await writeFile(manifestFile, originalManifest.replace(fallbackBefore, fallbackAfter));
+    await writeFile(
+      instanceFile,
+      originalInstance.replace(
+        'archetypeOverrides: {}',
+        'archetypeOverrides:\n  /data/displayName: Native Archetype instance override',
+      ),
+    );
+    verifyLocalizationView();
+    await writeFile(manifestFile, originalManifest);
+    await writeFile(instanceFile, originalInstance);
+    verifyLocalizationView('current');
+    verifyLocalizationView('attention');
+    // A valid translation may acknowledge an older presentation/guidance
+    // generation without changing its semantic source fingerprint. Both native
+    // and installed-headless views must surface the same independent attention.
+    const frSource = path.join(project, 'i18n/locales/fr.yaml');
+    const fr = await readFile(frSource, 'utf8');
+    assert.ok(fr.includes('  origin: ai\n'), 'Expected Feature Lab locale entry');
+    await writeFile(
+      frSource,
+      fr.replace(
         '  origin: ai\n',
-    ),
+        '  acknowledgedPresentationFingerprint: fnv1a:00000000000000000000000000000000\n' +
+          '  acknowledgedGuidanceFingerprint: fnv1a:00000000000000000000000000000000\n' +
+          '  origin: ai\n',
+      ),
+    );
+    verifyLocalizationView();
+    verifyLocalizationView('attention');
+    const noteSource = path.join(project, 'i18n/usage-notes.yaml');
+    await writeFile(
+      noteSource,
+      '"structured:/rooms/feature-lab-home/data/description/source": "Named usage note"\n',
+    );
+    verifyLocalizationView();
+    const localMessageId = '88888888-8888-4888-8888-888888888888';
+    const messagesSource = path.join(project, 'i18n/messages.yaml');
+    const messages = await readFile(messagesSource, 'utf8');
+    assert.ok(messages.includes('structuredMessageIds: {}'));
+    await writeFile(
+      messagesSource,
+      messages.replace(
+        'structuredMessageIds: {}',
+        `  ${localMessageId}:\n    kind: local\n    source: Local Message with usage note\nstructuredMessageIds: {}`,
+      ),
+    );
+    await writeFile(
+      noteSource,
+      '"structured:/rooms/feature-lab-home/data/description/source": "Named usage note"\n' +
+        `${localMessageId}: Local usage note\n`,
+    );
+    verifyLocalizationView();
+    assert.equal(verifySync().changed, false);
+    assert.deepEqual(verifyReconcile().groups, []);
+    const outputPath = path.join(root, 'oracle.ntproject');
+    const bundle = execute([
+      '--project',
+      project,
+      '--json',
+      'project',
+      'export',
+      '--output',
+      outputPath,
+    ]);
+    assert.equal(bundle.status, 0, bundle.stderr);
+    const observations = bundle.stderr
+      .split('\n')
+      .filter((line) => line.startsWith('[native-cli-bundle] '));
+    assert.equal(
+      observations.length,
+      1,
+      'Expected native archive parity observation: ' + bundle.stderr,
+    );
+    const result = JSON.parse(observations[0].slice('[native-cli-bundle] '.length));
+    assert.equal(result.exported.ok, true);
+    assert.equal(result.imported.ok, true);
+    assert.deepEqual(result.exported.manifest, result.imported.manifest);
+    assert.deepEqual(await readFile(result.nativeOutput), await readFile(outputPath));
+    assert.deepEqual(
+      await readFile(path.join(result.nativeDestination, 'project.yaml')),
+      await readFile(path.join(project, 'project.yaml')),
+    );
+    const scenePath = path.join(project, 'records/scenes/localized-story.yaml');
+    const original = await readFile(scenePath, 'utf8');
+    const anchor =
+      "assert(noveltea.layouts.mount('language-board', 'language-board', {owner='session'}))";
+    assert.equal(original.split(anchor).length, 2, 'Expected exact Fixture managed Lua anchor');
+    await writeFile(
+      scenePath,
+      original.replace(
+        anchor,
+        `${anchor}; noveltea.notify(Text.tr('Native sync parity new marker'))`,
+      ),
+    );
+    // Read-only views expose new ephemeral Message identities before the
+    // explicit localization sync has materialized tracking for this Lua source.
+    verifyLocalizationView();
+    assert.equal(verifySync().changed, true);
+    const reconcile = verifyReconcile();
+    assert.equal(reconcile.deterministicChanged, true);
+  }
+  console.log(
+    firstInspectOnly
+      ? 'Native CLI first inspect/provenance parity passed.'
+      : 'Native CLI inspect/provenance and installed-headless oracle parity passed.',
   );
-  verifyLocalizationView();
-  verifyLocalizationView('attention');
-  const noteSource = path.join(project, 'i18n/usage-notes.yaml');
-  await writeFile(
-    noteSource,
-    '"structured:/rooms/feature-lab-home/data/description/source": "Named usage note"\n',
-  );
-  verifyLocalizationView();
-  const localMessageId = '88888888-8888-4888-8888-888888888888';
-  const messagesSource = path.join(project, 'i18n/messages.yaml');
-  const messages = await readFile(messagesSource, 'utf8');
-  assert.ok(messages.includes('structuredMessageIds: {}'));
-  await writeFile(
-    messagesSource,
-    messages.replace(
-      'structuredMessageIds: {}',
-      `  ${localMessageId}:\n    kind: local\n    source: Local Message with usage note\nstructuredMessageIds: {}`,
-    ),
-  );
-  await writeFile(
-    noteSource,
-    '"structured:/rooms/feature-lab-home/data/description/source": "Named usage note"\n' +
-      `${localMessageId}: Local usage note\n`,
-  );
-  verifyLocalizationView();
-  assert.equal(verifySync().changed, false);
-  assert.deepEqual(verifyReconcile().groups, []);
-  const outputPath = path.join(root, 'oracle.ntproject');
-  const bundle = execute([
-    '--project',
-    project,
-    '--json',
-    'project',
-    'export',
-    '--output',
-    outputPath,
-  ]);
-  assert.equal(bundle.status, 0, bundle.stderr);
-  const observations = bundle.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-bundle] '));
-  assert.equal(
-    observations.length,
-    1,
-    'Expected native archive parity observation: ' + bundle.stderr,
-  );
-  const result = JSON.parse(observations[0].slice('[native-cli-bundle] '.length));
-  assert.equal(result.exported.ok, true);
-  assert.equal(result.imported.ok, true);
-  assert.deepEqual(result.exported.manifest, result.imported.manifest);
-  assert.deepEqual(await readFile(result.nativeOutput), await readFile(outputPath));
-  assert.deepEqual(
-    await readFile(path.join(result.nativeDestination, 'project.yaml')),
-    await readFile(path.join(project, 'project.yaml')),
-  );
-  const scenePath = path.join(project, 'records/scenes/localized-story.yaml');
-  const original = await readFile(scenePath, 'utf8');
-  const anchor =
-    "assert(noveltea.layouts.mount('language-board', 'language-board', {owner='session'}))";
-  assert.equal(original.split(anchor).length, 2, 'Expected exact Fixture managed Lua anchor');
-  await writeFile(
-    scenePath,
-    original.replace(
-      anchor,
-      `${anchor}; noveltea.notify(Text.tr('Native sync parity new marker'))`,
-    ),
-  );
-  // Read-only views expose new ephemeral Message identities before the
-  // explicit localization sync has materialized tracking for this Lua source.
-  verifyLocalizationView();
-  assert.equal(verifySync().changed, true);
-  const reconcile = verifyReconcile();
-  assert.equal(reconcile.deterministicChanged, true);
-  console.log('Native CLI inspect/provenance and installed-headless oracle parity passed.');
 } finally {
   execute(['daemon', 'stop']);
   await rm(root, { recursive: true, force: true });

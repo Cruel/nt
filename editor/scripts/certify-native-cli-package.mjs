@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { cp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -13,7 +13,7 @@ const cli = path.resolve(process.argv[2] ?? path.join(repositoryRoot, 'build/cli
 const fixture = path.resolve(
   process.argv[3] ?? path.join(repositoryRoot, 'tests/projects/feature-lab'),
 );
-const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-cli-native-package-'));
+const root = await createCertificationRoot('noveltea-cli-native-package-');
 const coldProject = path.join(root, 'cold');
 const daemonProject = path.join(root, 'daemon');
 const daemonRoot = path.join(root, 'daemon-runtime');

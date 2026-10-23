@@ -141,9 +141,10 @@ export async function runNativeProjectReadsCli(
       .map((diagnostic) =>
         cliDiagnostic(diagnostic.code, diagnostic.path, diagnostic.message, diagnostic.severity),
       );
-    const message = String(
-      response.error ?? diagnostics[0]?.message ?? 'Native Project read failed.',
-    );
+    const message =
+      (typeof response.error === 'string' ? response.error : undefined) ??
+      diagnostics[0]?.message ??
+      'Native Project read failed.';
     const entityNotFound =
       (action === 'entity-inspect' || action === 'entity-usages') &&
       /does not exist|cannot read .* source|unknown record/i.test(message);
@@ -152,10 +153,13 @@ export async function runNativeProjectReadsCli(
       /^Invalid (?:Room|Map|record) YAML:/i.test(message) &&
       typeof attributes.collection === 'string' &&
       typeof attributes.id === 'string';
+    const malformedCollection =
+      typeof attributes.collection === 'string' ? attributes.collection : '';
+    const malformedId = typeof attributes.id === 'string' ? attributes.id : '';
     const malformedSourcePath = malformedRequestedRecord
-      ? attributes.collection === 'layouts'
-        ? `/records/layouts/${attributes.id}/layout.yaml`
-        : `/records/${attributes.collection}/${attributes.id}.yaml`
+      ? malformedCollection === 'layouts'
+        ? `/records/layouts/${malformedId}/layout.yaml`
+        : `/records/${malformedCollection}/${malformedId}.yaml`
       : missingPath;
     if (diagnostics.length === 0)
       diagnostics.push(
