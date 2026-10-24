@@ -116,10 +116,10 @@ import {
   createProject,
   saveActiveProjectContent,
   saveActiveProjectEditorMetadata,
-  saveProjectEditorMetadata,
   saveProjectCopyAs,
 } from './main/services/project-file-service';
 import { saveNativeProjectCopyAs } from './main/services/native-project-copy-service';
+import { saveProjectEditorMetadata } from './main/services/project-editor-metadata-service';
 import {
   cancelPlatformExport,
   stagePlatformExport,

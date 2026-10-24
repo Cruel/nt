@@ -876,64 +876,6 @@ export async function saveProject(
   }
 }
 
-export async function saveProjectEditorMetadata(
-  projectRoot: string,
-  editorState: EditorProjectState,
-  assertAuthority?: () => void,
-): Promise<SaveProjectEditorMetadataResponse> {
-  if (!projectRoot || typeof projectRoot !== 'string') {
-    return {
-      ok: false,
-      success: false,
-      diagnostics: [],
-      error: 'Editor metadata save requires an active project root.',
-    };
-  }
-  try {
-    const root =
-      path.basename(projectRoot) === 'project.yaml'
-        ? projectPathFromFile(projectRoot)
-        : path.resolve(projectRoot);
-    const workspace = workspaceService();
-    const normalizedEditor = editorProjectStateSchema.safeParse(editorState);
-    if (!normalizedEditor.success) {
-      const diagnostic = createProjectValidationDiagnostic({
-        code: 'editor.metadata.invalid',
-        severity: 'error',
-        category: 'Project recovery',
-        path: '/editor',
-        message: 'Editor recovery metadata is invalid and was not written.',
-        boundaries: ['authoring'],
-        ownerPaths: ['/editor'],
-      });
-      return {
-        ok: false,
-        success: false,
-        diagnostics: [diagnostic],
-        error: diagnostic.message,
-      };
-    }
-    // Local recovery/session metadata is outside canonical workspace content and therefore does not
-    // require a tracked-project scan or revision comparison before it can be persisted.
-    assertAuthority?.();
-    await workspace.writeEditorLocalState(root, normalizedEditor.data);
-    return {
-      ok: true,
-      success: true,
-      diagnostics: [],
-      editorState: normalizedEditor.data,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      success: false,
-      diagnostics:
-        error instanceof ProjectWorkspaceMutationError ? [mutationFailureDiagnostic(error)] : [],
-      error: error instanceof Error ? error.message : 'Editor metadata save failed.',
-    };
-  }
-}
-
 export async function saveActiveProjectEditorMetadata(
   session: ActiveProjectWorkspaceSession,
   editorState: EditorProjectState,
