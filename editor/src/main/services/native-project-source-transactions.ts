@@ -11,14 +11,16 @@ import type {
 import type { NativeAssetTransition } from './native-authoring-worker-contract';
 import {
   allShaderFiles,
+  projectSourceUsages,
+  sourceFilesAtOrBelow,
+} from './project-source-usage-reader';
+import {
   materialShaderCopyPath,
   materialShaderSourceText,
-  projectSourceUsages,
   rewriteSemanticPaths,
   rewriteShaderIncludes,
-  sourceFilesAtOrBelow,
   sourceTemplate,
-} from './project-source-file-service';
+} from './project-source-planning-helpers';
 import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
 import type { JsonPatchOperation } from '../../renderer/project/json-patch';
 import type { JsonValue } from '../../renderer/project/json-value';

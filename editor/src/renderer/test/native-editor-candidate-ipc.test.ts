@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
+import { guardNativeEditorProjectAuthority } from '../../shared/project-workspace/legacy-project-authority-guard';
 import {
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
@@ -40,6 +41,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
   'real native Editor candidate through authenticated renderer/main IPC',
   () => {
     it('authenticates Open, revisions, Save, validation, same-root reopen and Close', async () => {
+      const releaseNativeAuthorityGuard = guardNativeEditorProjectAuthority();
       const root = await mkdtemp(path.join(tmpdir(), 'native-editor-ipc-'));
       await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
         recursive: true,
@@ -221,6 +223,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
       } finally {
         handoff.close();
         sessions.dispose();
+        releaseNativeAuthorityGuard();
         await rm(root, { recursive: true, force: true });
       }
     }, 120_000);

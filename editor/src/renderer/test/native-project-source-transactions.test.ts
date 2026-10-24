@@ -211,4 +211,32 @@ describe('native Project source transaction planning (no TypeScript authoring wr
     ).rejects.toThrow('symbolic link');
     await expect(readFile(path.join(root, 'scripts', 'public.lua'))).rejects.toThrow();
   });
+
+  it('rejects symlinked and traversal shader-copy sources before creating a native plan', async () => {
+    const { root, project } = await fixture();
+    const outside = await mkdtemp(path.join(tmpdir(), 'nt-native-shader-outside-'));
+    roots.push(outside);
+    await writeFile(path.join(outside, 'private.sc'), 'private shader');
+    await symlink(path.join(outside, 'private.sc'), path.join(root, 'shaders', 'linked.sc'));
+    project.materials.paint = {
+      id: 'paint',
+      label: 'Paint',
+      data: defaultMaterialData('Paint'),
+    };
+    for (const sourceIdentity of [
+      'project:/shaders/linked.sc',
+      'project:/shaders/../support/secret.sc',
+    ]) {
+      await expect(
+        planNativeProjectSourceTransaction(
+          root,
+          project,
+          { kind: 'material-shader-copy', materialId: 'paint', stage: 'fragment', sourceIdentity },
+          {},
+          {},
+        ),
+      ).rejects.toThrow();
+    }
+    expect(project.materials.paint.data).toEqual(defaultMaterialData('Paint'));
+  });
 });

@@ -5,6 +5,7 @@ import {
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
 import { projectWorkspaceLocalStateFile } from '../editor-local-state-file';
+import { assertNoLegacyProjectAuthority } from './legacy-project-authority-guard';
 import { z } from 'zod';
 import { nativeOperation } from '../project-schema/native-schema-operations';
 import {
@@ -2140,6 +2141,7 @@ export class ProjectWorkspaceService {
     private readonly fileSystem: ProjectWorkspaceFileSystem,
     transactions?: ProjectWorkspaceTransactionService,
   ) {
+    assertNoLegacyProjectAuthority('ProjectWorkspaceService');
     // #519 executable independence tripwire. Importing retained downstream
     // helpers is allowed before #521, but no native CLI candidate may create
     // this retired TypeScript Project authority, even outside the ScriptC

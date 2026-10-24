@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } = require('node:fs/promises');
 const os = require('node:os');
@@ -52,6 +52,50 @@ function runCli(root, project, args, daemon = false) {
   assert.equal(run.status, result.exitCode, `${args.join(' ')}: ${run.stdout}`);
   assert.equal(result.success, true, `${args.join(' ')}: ${run.stdout}`);
   return result;
+}
+
+/** Keep the CLI daemon request live while the independent editor worker
+ * saves. Unlike spawnSync this does not block delivery of worker replies. */
+async function runCliConcurrent(root, project, args) {
+  const child = spawn(cli, ['--json', '--project', project, ...args], {
+    cwd: root,
+    env:
+      production || candidate
+        ? nativeEnv
+        : {
+            ...nativeEnv,
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-520-${process.pid}`,
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
+          },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8').on('data', (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => {
+    stderr += chunk;
+  });
+  const status = await new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', resolve);
+  });
+  assert.equal(stderr, '', 'Concurrent CLI wrote stderr');
+  const response = JSON.parse(stdout);
+  assert.equal(status, response.exitCode, `Concurrent CLI exit: ${stdout}`);
+  // The native transaction lock is intentionally nonblocking across
+  // independent writers. BUSY is a valid safe rejection, not a partial write.
+  if (!response.success) {
+    assert.ok(status === 4 || status === 5, stdout);
+    assert.ok(
+      response.diagnostics.some(
+        (d) => d.code === 'WORKSPACE_BUSY' || /WORKSPACE_BUSY/u.test(d.message),
+      ),
+      stdout,
+    );
+  }
+  return response;
 }
 
 function editorSession(root, name) {
@@ -235,10 +279,45 @@ async function main() {
     assert.notEqual(newCache.revisions['project.yaml'], cliCache.revisions['project.yaml']);
     const reopened = editorSession(project, 'after-editor-save');
     sessions.push(reopened);
-    await reopened.open();
+    const reopenedInitial = await reopened.open();
     assert.equal((await reopened.request('validateClean')).cacheHit, true);
+
+    // A separate resident CLI daemon may mutate another physical owner while
+    // the native editor publishes its own dirty record. No process shares
+    // in-memory authority, and neither publication may erase the other.
+    const racingPatch = await reopened.request('patch', {
+      expectedRevision: reopenedInitial.snapshot.workingRevision,
+      patches: [{ operation: 'replace', path: '/project/name', value: 'Saved during CLI edit' }],
+    });
+    assert.equal(racingPatch.accepted, true, racingPatch.error);
+    const concurrentCli = runCliConcurrent(scratch, project, [
+      'entity',
+      'create',
+      'rooms',
+      'during-editor-save',
+    ]);
+    const concurrentSave = reopened.request('saveOwners', {
+      expectedRevision: racingPatch.snapshot.workingRevision,
+      owners: ['project'],
+      keepMine: false,
+      comments: 'keep',
+    });
+    const [savedDuringCli, cliAttempt] = await Promise.all([concurrentSave, concurrentCli]);
+    assert.equal(savedDuringCli.accepted, true, savedDuringCli.error);
+    assert.match(await readFile(manifestPath, 'utf8'), /Saved during CLI edit/);
+    if (!cliAttempt.success) {
+      // A rejected concurrent publication may not have written any part of
+      // the new owner. Once the other writer releases the lock, retry.
+      await assert.rejects(stat(path.join(project, 'records/rooms/during-editor-save.yaml')));
+      runCli(scratch, project, ['entity', 'create', 'rooms', 'during-editor-save'], true);
+    }
+    assert.equal(
+      (await stat(path.join(project, 'records/rooms/during-editor-save.yaml'))).isFile(),
+      true,
+    );
+    runCli(scratch, project, ['validate'], true);
     console.log(
-      'Native editor/CLI two-way exact-cache admission, isolated dirty state, CLI watcher and editor Save passed.',
+      'Native editor/CLI two-way exact-cache admission, isolated dirty state, CLI watcher, concurrent daemon/editor edits and editor Save passed.',
     );
   } finally {
     await Promise.all(sessions.map((session) => session.close()));

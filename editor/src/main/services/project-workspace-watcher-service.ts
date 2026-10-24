@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { assertNoLegacyProjectAuthority } from '../../shared/project-workspace/legacy-project-authority-guard';
 import { powerMonitor, type BrowserWindow } from 'electron';
 import chokidar, { type FSWatcher } from 'chokidar';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
@@ -651,6 +652,7 @@ export async function startProjectWorkspaceWatcher(
     project?: AuthoringProject,
   ) => Promise<void>,
 ): Promise<ProjectAssetFileOperationResponse> {
+  assertNoLegacyProjectAuthority('startProjectWorkspaceWatcher');
   if (!owner || !projectSessionId || !projectRootValue || !isSessionCurrent(projectSessionId))
     return staleWatcherResponse();
 

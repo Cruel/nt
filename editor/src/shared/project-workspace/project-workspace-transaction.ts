@@ -1,4 +1,5 @@
 import { sha256PrefixedBytes } from '../web-crypto';
+import { assertNoLegacyProjectAuthority } from './legacy-project-authority-guard';
 import {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
@@ -177,7 +178,9 @@ export class ProjectWorkspaceTransactionService {
     private readonly pid: number,
     private readonly createIdOverride?: () => string,
     private readonly lifecycle?: ProjectWorkspaceTransactionLifecycle,
-  ) {}
+  ) {
+    assertNoLegacyProjectAuthority('ProjectWorkspaceTransactionService');
+  }
 
   async recover(projectRoot: string): Promise<void> {
     const transactionRoot = this.absolute(projectRoot, transactionsPath);

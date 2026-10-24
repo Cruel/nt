@@ -31,17 +31,30 @@ import {
 import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 import {
   allShaderFiles,
-  normalizedLayoutScriptReference,
   projectSourceUsages,
-  resolveShaderInclude,
   sourceFilesAtOrBelow,
 } from './project-source-usage-reader';
+import {
+  mappedPath,
+  materialShaderCopyPath,
+  readEngineShaderSource,
+  rewriteSemanticPaths,
+  rewriteShaderIncludes,
+  sourceTemplate,
+} from './project-source-planning-helpers';
 
 export {
   projectSourceUsages,
   sourceFilesAtOrBelow,
   allShaderFiles,
 } from './project-source-usage-reader';
+export {
+  materialShaderCopyPath,
+  readEngineShaderSource,
+  rewriteSemanticPaths,
+  rewriteShaderIncludes,
+  sourceTemplate,
+} from './project-source-planning-helpers';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -106,42 +119,6 @@ function validateFileKind(pathValue: string, kind: 'lua' | 'shader'): void {
     );
 }
 
-export function sourceTemplate(kind: 'lua' | 'shader'): string {
-  return kind === 'lua' ? '-- NovelTea Lua source\n' : '#include "bgfx_shader.sh"\n\n';
-}
-
-export function materialShaderCopyPath(
-  materialId: string,
-  stage: 'vertex' | 'fragment' | 'varying',
-) {
-  const suffix = stage === 'vertex' ? 'vs' : stage === 'fragment' ? 'fs' : 'varying';
-  return `shaders/materials/${materialId}/${suffix}.sc`;
-}
-
-export async function readEngineShaderSource(sourceIdentity: string): Promise<string | null> {
-  const filename = /^engine:\/([A-Za-z0-9_.-]+\.sc)$/u.exec(sourceIdentity)?.[1] ?? null;
-  if (!filename) return null;
-  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
-  const candidates = [
-    resourcesPath
-      ? path.join(resourcesPath, 'editor-assets', 'system', 'shaders', 'bgfx', filename)
-      : null,
-    path.resolve(process.cwd(), 'engine', 'shaders', 'bgfx', filename),
-    path.resolve(process.cwd(), '..', 'engine', 'shaders', 'bgfx', filename),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-
-  for (const candidate of candidates) {
-    try {
-      const stat = await fs.stat(candidate);
-      if (stat.isFile() && stat.size <= PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes)
-        return await fs.readFile(candidate, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  }
-  return null;
-}
-
 export async function materialShaderSourceText(
   root: string,
   sourceIdentity: string,
@@ -172,27 +149,6 @@ function revision(bytes: Uint8Array): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
-function mappedPath(value: string, remap: ReadonlyMap<string, string>): string {
-  return remap.get(value) ?? value;
-}
-
-function rewriteLayoutRmlScriptReferences(
-  text: string,
-  remap: ReadonlyMap<string, string>,
-): string {
-  return text.replace(
-    /(<script\b[^>]*\bsrc\s*=\s*)(["'])([^"']+)\2/giu,
-    (whole, prefix, quote, sourceValue) => {
-      const normalized = normalizedLayoutScriptReference(String(sourceValue));
-      if (!normalized) return whole;
-      const next = mappedPath(normalized, remap);
-      if (next === normalized) return whole;
-      const rewritten = String(sourceValue).startsWith('project:/') ? `project:/${next}` : next;
-      return `${prefix}${quote}${rewritten}${quote}`;
-    },
-  );
-}
-
 function moveRemapForFiles(
   fromPath: string,
   toPath: string,
@@ -205,103 +161,6 @@ function moveRemapForFiles(
       remap.set(file, `${toPath}${file.slice(fromPath.length)}`);
   }
   return remap;
-}
-
-export function rewriteSemanticPaths(
-  project: AuthoringProject,
-  scriptSourcePaths: Record<string, string>,
-  remap: ReadonlyMap<string, string>,
-): void {
-  const distributionNotices = project.settings.distributionNotices;
-  if (Array.isArray(distributionNotices)) {
-    project.settings.distributionNotices = distributionNotices.map((notice) =>
-      notice && typeof notice === 'object' && typeof notice.path === 'string'
-        ? { ...notice, path: mappedPath(notice.path, remap) }
-        : notice,
-    );
-    const paths = project.settings.distributionNotices.map((notice) => notice.path);
-    if (new Set(paths).size !== paths.length)
-      throw new Error('Source move would create duplicate Project distribution notices.');
-  }
-  for (const record of Object.values(project.assets)) {
-    const data = parseAssetData(record.data);
-    if (!data) continue;
-    const sourcePath = mappedPath(data.source.path, remap);
-    const attachments = data.attachments.map((attachment) => ({
-      ...attachment,
-      path: mappedPath(attachment.path, remap),
-    }));
-    if (
-      sourcePath !== data.source.path ||
-      attachments.some((attachment, index) => attachment.path !== data.attachments[index]?.path)
-    ) {
-      if (new Set(attachments.map((attachment) => attachment.path)).size !== attachments.length)
-        throw new Error(`Source move would create duplicate attachments on Asset '${record.id}'.`);
-      record.data = { ...data, source: { ...data.source, path: sourcePath }, attachments };
-    }
-  }
-  for (const record of Object.values(project.materials)) {
-    const shader = (record.data as { shader?: Record<string, { kind?: string; path?: string }> })
-      .shader;
-    if (!shader) continue;
-    for (const stage of ['vertex', 'fragment', 'varying'] as const) {
-      const source = shader[stage];
-      if (source?.kind !== 'project' || !source.path) continue;
-      const next = mappedPath(source.path, remap);
-      if (next !== source.path) source.path = next;
-    }
-  }
-  for (const [scriptId, sourcePath] of Object.entries(scriptSourcePaths)) {
-    const next = mappedPath(sourcePath, remap);
-    if (next === sourcePath) continue;
-    scriptSourcePaths[scriptId] = next;
-    const record = project.scripts[scriptId];
-    const data = record?.data as { source?: { kind?: string; path?: string } } | undefined;
-    if (data?.source?.kind === 'project-file') data.source.path = next;
-  }
-  for (const record of Object.values(project.layouts)) {
-    const data = record.data as {
-      dependencies?: { scripts?: string[] };
-      rml?: { sourceMode?: string; sourceText?: string };
-    };
-    const scripts = data.dependencies?.scripts;
-    if (scripts) {
-      const rewritten = scripts.map((sourcePath) => mappedPath(sourcePath, remap));
-      data.dependencies!.scripts = [...new Set(rewritten)];
-    }
-    if (data.rml?.sourceMode === 'inline' && typeof data.rml.sourceText === 'string')
-      data.rml.sourceText = rewriteLayoutRmlScriptReferences(data.rml.sourceText, remap);
-  }
-}
-
-function relativeShaderInclude(fromFile: string, toFile: string, original: string): string {
-  let result = path.posix.relative(path.posix.dirname(fromFile), toFile);
-  if (!result.startsWith('.')) result = `./${result}`;
-  if (!original.startsWith('./') && !original.startsWith('../')) return result.replace(/^\.\//, '');
-  return result;
-}
-
-export function rewriteShaderIncludes(
-  text: string,
-  oldConsumerPath: string,
-  newConsumerPath: string,
-  remap: ReadonlyMap<string, string>,
-  existingShaderPaths: ReadonlySet<string>,
-): string {
-  return text.replace(
-    /^(\s*#\s*include\s*[<"])([^">]+)([">])/gmu,
-    (whole, prefix, include, suffix) => {
-      const target = resolveShaderInclude(oldConsumerPath, String(include), existingShaderPaths);
-      if (!target) return whole;
-      const nextTarget = mappedPath(target, remap);
-      if (nextTarget === target && newConsumerPath === oldConsumerPath) return whole;
-      return `${prefix}${relativeShaderInclude(
-        newConsumerPath,
-        nextTarget,
-        String(include),
-      )}${suffix}`;
-    },
-  );
 }
 
 async function currentExpectedRevision(

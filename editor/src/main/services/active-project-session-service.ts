@@ -30,15 +30,8 @@ import type {
   ProjectSourceWriteRequest,
   ProjectSourceWriteResponse,
 } from '../../shared/project-source-files';
-import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
-import { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
-import {
-  mutateProjectSources,
-  projectSourceUsages,
-  recreatableProjectSourcePhysicalPath,
-  writeProjectSourceText,
-} from './project-source-file-service';
+import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
@@ -329,6 +322,9 @@ export class ActiveProjectSessionService {
     if (!result.projectFilePath) {
       throw new Error('Successful Project lifecycle result omitted the Project manifest path.');
     }
+    // This branch is only used by the pre-cutover legacy editor. Native
+    // admission calls stage/commit directly and never imports a TS Workspace.
+    const { ActiveProjectWorkspaceSession } = await import('./active-project-workspace-session');
     const raw = result as Record<string, unknown>;
     const parsedEditor = editorProjectStateSchema.safeParse(raw.editorState);
     const snapshot = raw._workspaceSnapshot as LoadedProjectWorkspaceSnapshot | undefined;
@@ -337,6 +333,8 @@ export class ActiveProjectSessionService {
         ? ActiveProjectWorkspaceSession.fromSnapshot(snapshot, parsedEditor.data)
         : undefined;
     if (!workspace) {
+      const { createNodeProjectWorkspaceService } =
+        await import('../../shared/project-workspace/node-project-workspace-service');
       const root = path.dirname(path.resolve(result.projectFilePath));
       const opened = await createNodeProjectWorkspaceService().open(root);
       if (!opened.ok)
@@ -542,6 +540,7 @@ export class ActiveProjectSessionService {
     const active = this.active;
     if (!active || request.projectSessionId !== active.id || !active.workspace)
       throw new Error('Project session is stale or unknown.');
+    const { projectSourceUsages } = await import('./project-source-file-service');
     return {
       usages: await projectSourceUsages(active.root, active.workspace.snapshot(), request.path),
     };
@@ -551,6 +550,7 @@ export class ActiveProjectSessionService {
     request: ProjectSourceStructuralRequest,
   ): Promise<ProjectSourceStructuralResponse> {
     const workspace = this.requireActiveWorkspace(request.projectSessionId);
+    const { mutateProjectSources } = await import('./project-source-file-service');
     const result = await mutateProjectSources(
       workspace,
       request.operation,
@@ -564,6 +564,8 @@ export class ActiveProjectSessionService {
     request: ProjectSourceWriteRequest,
   ): Promise<ProjectSourceWriteResponse> {
     const workspace = this.requireActiveWorkspace(request.projectSessionId);
+    const { recreatableProjectSourcePhysicalPath, writeProjectSourceText } =
+      await import('./project-source-file-service');
     const listed = await this.listProjectSourceFiles({
       projectSessionId: request.projectSessionId,
     });

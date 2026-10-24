@@ -1,6 +1,7 @@
 import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';
 import type { EditorValidationAuthority, ValidationResponse } from '../../shared/editor-tooling';
 import { canonicalProjectPersistenceContentJson } from '../../shared/project-schema/editor-project-state';
+import { assertNoLegacyProjectAuthority } from '../../shared/project-workspace/legacy-project-authority-guard';
 import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 
 type SessionLocalValidator = () => Promise<ValidationResponse>;
@@ -10,7 +11,9 @@ type EditorAuthoringValidationServiceOptions = {
 };
 
 export class EditorAuthoringValidationService {
-  constructor(private readonly options: EditorAuthoringValidationServiceOptions = {}) {}
+  constructor(private readonly options: EditorAuthoringValidationServiceOptions = {}) {
+    assertNoLegacyProjectAuthority('EditorAuthoringValidationService');
+  }
 
   private diskAuthoritative(
     workspace: ActiveProjectWorkspaceSession,
