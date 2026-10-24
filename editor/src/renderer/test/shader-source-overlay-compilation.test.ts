@@ -11,7 +11,7 @@ vi.mock('../../shared/noveltea-cli-subprocess', () => ({
   resolveNovelTeaCliPath: vi.fn(),
 }));
 
-import { compileShaders } from '../../main/services/editor-tool-service';
+import { compileShaders } from '../../main/services/native-shader-compiler-service';
 
 const temporaryRoots: string[] = [];
 afterEach(async () => {

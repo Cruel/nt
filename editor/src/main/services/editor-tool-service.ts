@@ -1,6 +1,4 @@
 import { validateProjectComfyUiWorkflows } from './comfyui-service';
-export { compileShaders } from './native-shader-compiler-service';
-import type { PackageExportOptions, ToolDiagnostic } from '../../shared/editor-tooling';
 import { publishCompiledArtifact } from '../../shared/compiled-artifact-publication';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
@@ -16,19 +14,7 @@ import {
   collectProjectValidationDiagnostics,
   projectValidationBoundariesForCompilerDiagnostic,
 } from '../../shared/project-schema/project-diagnostic-projection';
-export {
-  invokeNovelTeaNativeOperation,
-  resolveNovelTeaCliPath,
-} from '../../shared/noveltea-cli-subprocess';
-import {
-  invokeNovelTeaNativeOperation,
-  resolveNovelTeaCliPath,
-} from '../../shared/noveltea-cli-subprocess';
-import {
-  inspectMediaTool,
-  installedMediaTool,
-  runMediaPreparation,
-} from './media-preparation-service';
+import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 import {
@@ -37,14 +23,6 @@ import {
 } from '../../shared/legacy-runtime-artifact-preparation';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
-
-export function checkMediaTools() {
-  return inspectMediaTool(installedMediaTool(resolveNovelTeaCliPath()));
-}
-
-export function prepareMedia(args: readonly string[]) {
-  return runMediaPreparation(installedMediaTool(resolveNovelTeaCliPath()), args);
-}
 
 export async function openProject(projectPath: string) {
   const workspace = createNodeProjectWorkspaceService();
@@ -203,44 +181,4 @@ export async function runPlaybackSuite(project: unknown) {
     shaderMaterialMetadata: prepared.artifact.shaderMaterialMetadata ?? null,
     shaderVariants: prepared.artifact.packageOptions.shaderVariants,
   });
-}
-
-export function runPlaybackSpec(project: unknown, spec: unknown) {
-  return invokeNovelTeaNativeOperation('run-test', { project, spec });
-}
-
-export function runUiPlaybackSpec(
-  project: unknown,
-  spec: unknown,
-  projectRoot: string | null = null,
-  shaderMaterialMetadata: unknown = null,
-) {
-  return invokeNovelTeaNativeOperation('run-ui-test', {
-    project,
-    spec,
-    projectRoot,
-    shaderMaterialMetadata,
-  });
-}
-
-export function exportPackage(
-  project: unknown,
-  outputPath: string,
-  options?: PackageExportOptions,
-) {
-  return invokeNovelTeaNativeOperation('export-package', {
-    project,
-    outputPath,
-    options: options ?? {},
-  }).then((value) => normalizePackageToolResponse(value));
-}
-
-function normalizePackageToolResponse(value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.diagnostics)) return value;
-  const diagnostics = classifyProjectValidationDiagnostics(record.diagnostics as ToolDiagnostic[], {
-    producer: 'package-publication',
-  });
-  return { ...record, diagnostics };
 }

@@ -8,6 +8,32 @@ Status: **pre-cutover readiness accepted** (2026-10-23; production routing uncha
 
 ## #521 current integration gate (2026-10-24)
 
+### Retained runtime-tool separation (pre-cutover)
+
+Compiled-runtime Test transport, package publication/diagnostic projection and media
+operations now live in `main/services/native-runtime-tool-service.ts`, not the retired
+`editor-tool-service.ts`. Main-process publication/compiled playback, package-smoke
+media checks and native package equivalence witnesses import the retained service
+directly. Shader callers use `native-shader-compiler-service.ts`; the Node media-tool
+entrypoint resolves the installed CLI directly without loading the old Project service.
+The candidate import-closure test includes the retained runtime-tool entrypoint.
+
+This is **not the atomic cutover**: `editor-tool-service.ts` still owns production
+legacy Open/validation/Project-to-Test routes. The package-smoke thumbnail fixture
+still uses legacy Create/Open/Save and must be replaced before claiming execution
+with the old engine absent. Ordinary editor and CLI selectors remain unchanged.
+A fresh normal build still fails strict production closure with 67 reported retired
+module occurrences. No closure assertion was removed or waived.
+
+Verification for this separation: editor `check` and `build` passed; full editor
+suite **3,112 passed / 166 skipped**; focused platform/shader tests **9 passed /
+1 skipped**; real-addon native runtime/Test/package equivalence **1/1 passed**;
+candidate import-closure tests **3/3 passed**. Existing equivalence coverage checks
+compiled/package output, authored Test execution and clean/dirty separation; no
+new authored Feature Lab content is required for this import-only change. The
+complete flag-free installed/packaged-host lifecycle, physical retirement and
+release-host matrix remain unexecuted for #521 because the switch is incomplete.
+
 ### Rebuilt pre-cutover production-closure audit (October 24, 2026)
 
 The actual *ordinary* Electron and ScriptC build at `013d3d50` still fails

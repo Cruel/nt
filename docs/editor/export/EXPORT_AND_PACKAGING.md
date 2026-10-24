@@ -39,6 +39,19 @@ additional layers separately.
 The deleted `buildAuthoringRuntimeExport`, `authoring-runtime-export.ts`, and
 `runtime-project.ts` are not compatibility APIs.
 
+## Downstream native tool transport
+
+`editor/src/main/services/native-runtime-tool-service.ts` owns compiled-runtime Test
+invocation, Runtime Package publication, and media-tool invocation. It does not read,
+validate, normalize, or prepare a Project. Package diagnostic classification remains
+post-publication presentation, not another admission gate. Native editor IPC and export
+callers establish the appropriate working/clean-disk authority before invoking these tools. Shader compilation remains in `native-shader-compiler-service.ts`.
+
+The pre-cutover `editor-tool-service.ts` contains only the legacy Project Open,
+validation, Test catalog, and Project-to-Test preparation routes. It is a retirement
+target, not an import surface for retained runtime tools. This separation does not
+switch ordinary editor or CLI Project ownership; that remains the atomic #521 boundary.
+
 ## Export Profiles
 
 The editor exposes one Export workbench tab. Its left sidebar pins the built-in Runtime Package
