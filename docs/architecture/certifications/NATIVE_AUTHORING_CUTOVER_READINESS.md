@@ -1,5 +1,9 @@
 # Native Project cutover readiness / deletion plan (#520)
 
+The main-process caller/authority matrix, native-session tripwire and
+remaining #521 deletion registrations are maintained in
+[Native editor main-process authority ledger](NATIVE_EDITOR_MAIN_AUTHORITY_BOUNDARY.md).
+
 Status: **pre-cutover readiness accepted** (2026-10-23; production routing unchanged).
 
 ## #521 current integration gate (2026-10-24)

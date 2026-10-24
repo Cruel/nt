@@ -3,6 +3,7 @@ import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { guardNativeEditorProjectAuthority } from '../../shared/project-workspace/legacy-project-authority-guard';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { NativeEditorProjectHandoff } from '../../main/services/native-editor-project-handoff';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
@@ -134,6 +135,46 @@ describe('native-only Project handoff keeps independent workers', () => {
     }
   });
 
+  it('cancels an in-flight native Open when the editor closes without resurrecting authority', async () => {
+    const root = await projectRoot();
+    const sessions = new ActiveProjectSessionService();
+    const pending = controller('cancelled');
+    let complete!: (value: Awaited<ReturnType<typeof pending.admitFromNative>>) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    pending.admitFromNative.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+          entered();
+        }),
+    );
+    const handoff = new NativeEditorProjectHandoff(sessions, () => pending);
+    try {
+      const opening = handoff.open(root);
+      await started;
+      handoff.close();
+      expect(sessions.currentSessionId()).toBeNull();
+      expect(pending.dispose).toHaveBeenCalledOnce();
+      complete({
+        revision: 0,
+        savedProject: createAuthoringProject({ id: 'cancelled', name: 'Cancelled' }),
+        sourceRevisions: {},
+        diagnostics: [],
+      });
+      const result = await opening;
+      expect(result.success).toBe(false);
+      expect(handoff.current()).toBeNull();
+      expect(sessions.currentSessionId()).toBeNull();
+    } finally {
+      handoff.close();
+      sessions.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('reopens the same root through a fresh worker without discarding the incumbent', async () => {
     const root = await projectRoot();
     const sessions = new ActiveProjectSessionService();
@@ -170,6 +211,7 @@ describe('native-only Project handoff keeps independent workers', () => {
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers', () => {
   it('keeps acknowledged dirty edits across rejected Open and same-root handoff, with native observation', async () => {
+    const releaseNativeAuthorityGuard = guardNativeEditorProjectAuthority();
     const root = await mkdtemp(path.join(tmpdir(), 'native-handoff-real-'));
     const invalid = await mkdtemp(path.join(tmpdir(), 'native-handoff-invalid-'));
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
@@ -262,6 +304,7 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
       for (const observer of observers.values()) observer.close();
       handoff.close();
       sessions.dispose();
+      releaseNativeAuthorityGuard();
       await Promise.all(
         [root, invalid].map((value) => rm(value, { recursive: true, force: true })),
       );

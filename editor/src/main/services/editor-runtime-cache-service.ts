@@ -36,6 +36,7 @@ import {
   NodeProjectWorkspaceProcessLiveness,
 } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
+import { assertNoLegacyProjectAuthority } from '../../shared/project-workspace/legacy-project-authority-guard';
 import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
@@ -137,7 +138,9 @@ export class EditorRuntimeCacheService {
       operation: string,
       request: unknown,
     ) => Promise<unknown> = invokeNovelTeaNativeOperation,
-  ) {}
+  ) {
+    assertNoLegacyProjectAuthority('EditorRuntimeCacheService');
+  }
 
   private currentProjectMatchesSaved(
     workspace: ActiveProjectWorkspaceSession,

@@ -13,6 +13,7 @@ import {
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { guardNativeEditorProjectAuthority } from './shared/project-workspace/legacy-project-authority-guard';
 import { selectedExportProfile } from './shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from './shared/legacy-runtime-artifact-preparation';
 import {
@@ -86,14 +87,12 @@ import { NativeEditorProjectHandoff } from './main/services/native-editor-projec
 import { createNativeEditorProject } from './main/services/native-editor-project-create';
 import { NativeEditorObserverWatchService } from './main/services/native-editor-observer-watch-service';
 import { incompatibleLegacyNativeEditChannels } from './main/services/native-editor-ipc-routing';
-import { readEngineShaderSource } from './main/services/project-source-file-service';
+import { readEngineShaderSource } from './main/services/project-source-planning-helpers';
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
 import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
-import {
-  importDesktopProject,
-  importNativeDesktopProject,
-} from './main/services/desktop-project-import-service';
+import { importDesktopProject } from './main/services/desktop-project-import-service';
+import { importNativeDesktopProject } from './main/services/native-desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
 import {
@@ -386,6 +385,9 @@ const activeProjectSessions = new ActiveProjectSessionService();
 // committing an Open. Neither the ordinary editor nor the existing legacy
 // differential certification route is switched by this preparatory flag.
 const nativeEditorLifecycleEnabled = process.argv.includes('--certify-native-authoring-lifecycle');
+// #539 preparatory runtime proof: admitted native sessions must never create
+// the retired Project reader, transaction writer or filesystem watcher.
+if (nativeEditorLifecycleEnabled) guardNativeEditorProjectAuthority();
 const nativeEditorMutationEnabled =
   nativeEditorLifecycleEnabled || process.argv.includes('--certify-native-authoring-edit');
 const nativeEditorObservers = new WeakMap<
@@ -543,8 +545,20 @@ const terminalNotificationService = new TerminalNotificationService({
     }
   },
 });
-const editorAuthoringValidationService = new EditorAuthoringValidationService();
-const editorRuntimeCache = new EditorRuntimeCacheService();
+// Legacy-only services are not initialized in a native lifecycle process.
+// #521 deletes both and their handlers when ordinary production switches.
+let editorAuthoringValidationService: EditorAuthoringValidationService | null = null;
+let editorRuntimeCache: EditorRuntimeCacheService | null = null;
+function requireLegacyEditorAuthoringValidationService(): EditorAuthoringValidationService {
+  if (nativeEditorLifecycleEnabled)
+    throw new Error('Native Project validation must not initialize legacy authoring validation.');
+  return (editorAuthoringValidationService ??= new EditorAuthoringValidationService());
+}
+function requireLegacyEditorRuntimeCache(): EditorRuntimeCacheService {
+  if (nativeEditorLifecycleEnabled)
+    throw new Error('Native Project runtime preparation must not initialize legacy runtime cache.');
+  return (editorRuntimeCache ??= new EditorRuntimeCacheService());
+}
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
 const localizationFontCoverageService = new LocalizationFontCoverageService();
 const imageThumbnailService = new ImageThumbnailService(
@@ -1542,7 +1556,7 @@ void app.whenReady().then(async () => {
     async (projectSessionId, project, authority) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       const workspace = activeProjectSessions.requireActiveWorkspace(projectSessionId);
-      return editorAuthoringValidationService.validate({
+      return requireLegacyEditorAuthoringValidationService().validate({
         workspace,
         project,
         authority,
@@ -1617,7 +1631,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
     (arguments_) => prepareEditorRuntimeArgumentsSchema.parse(arguments_),
     (projectSessionId, project, recoveryFingerprint, shaderVariant) =>
-      editorRuntimeCache.preparePlay(
+      requireLegacyEditorRuntimeCache().preparePlay(
         activeProjectSessions.requireActiveWorkspace(projectSessionId),
         project,
         recoveryFingerprint,
@@ -1630,7 +1644,7 @@ void app.whenReady().then(async () => {
     (arguments_) => runPlaybackTestArgumentsSchema.parse(arguments_),
     (projectSessionId, project, testId, recoveryFingerprint) =>
       projectSessionId
-        ? editorRuntimeCache.runPlaybackTest(
+        ? requireLegacyEditorRuntimeCache().runPlaybackTest(
             activeProjectSessions.requireActiveWorkspace(projectSessionId),
             project,
             testId,
@@ -1644,7 +1658,7 @@ void app.whenReady().then(async () => {
     (arguments_) => runPlaybackSuiteArgumentsSchema.parse(arguments_),
     (projectSessionId, project, recoveryFingerprint) =>
       projectSessionId
-        ? editorRuntimeCache.runPlaybackSuite(
+        ? requireLegacyEditorRuntimeCache().runPlaybackSuite(
             activeProjectSessions.requireActiveWorkspace(projectSessionId),
             project,
             recoveryFingerprint ?? {},

@@ -14,6 +14,14 @@ const candidates = [
   'cli/native-project-package-cli.ts',
   'cli/native-project-tests-cli.ts',
   'main/services/native-authoring-runtime-preparation.ts',
+  'main/services/native-editor-project-handoff.ts',
+  'main/services/native-editor-project-open.ts',
+  'main/services/native-editor-project-create.ts',
+  'main/services/native-editor-observer-watch-service.ts',
+  'main/services/native-project-copy-service.ts',
+  'main/services/native-editor-session-controller.ts',
+  'main/services/native-project-source-transactions.ts',
+  'main/services/native-desktop-project-import-service.ts',
 ];
 
 const retired = [
@@ -96,12 +104,21 @@ void test('native candidate editor, CLI and runtime lowering contain no retired 
     const chain = provenance(path.join(sourceRoot, root));
     // A pure lexical helper legitimately imports only one local utility.
     // Entrypoint closures must still traverse multiple implementation layers.
+    const smallAdapter =
+      /native-(?:desktop-project-import|editor-project-(?:open|create|handoff)|editor-observer-watch|project-copy)/u.test(
+        root,
+      );
     assert.ok(
-      chain.size >= (root.startsWith('shared/') ? 2 : 6),
+      chain.size >=
+        (root.includes('native-editor-observer-watch')
+          ? 1
+          : root.startsWith('shared/') || smallAdapter
+            ? 2
+            : 6),
       `Candidate closure not resolved: ${root}`,
     );
     assert.deepEqual(forbiddenEdges(chain, sourceRoot), [], root);
-    if (root.includes('native-project-'))
+    if (root.startsWith('cli/native-project-'))
       assert.ok(
         [...chain.keys()].some((file) => file.endsWith('/runtime-artifact-preparation.ts')),
       );

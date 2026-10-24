@@ -6,10 +6,12 @@ import {
 import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 import { ProjectWorkspaceService } from './project-workspace-service';
 import { ProjectWorkspaceTransactionService } from './project-workspace-transaction';
+import { assertNoLegacyProjectAuthority } from './legacy-project-authority-guard';
 
 export function createHostProjectWorkspaceService(
   fileSystem: ProjectWorkspaceFileSystem,
 ): ProjectWorkspaceService {
+  assertNoLegacyProjectAuthority('createHostProjectWorkspaceService');
   return new ProjectWorkspaceService(
     fileSystem,
     new ProjectWorkspaceTransactionService(

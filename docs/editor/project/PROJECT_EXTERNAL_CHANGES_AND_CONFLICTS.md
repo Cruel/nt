@@ -1,5 +1,16 @@
 # Project External Changes and Conflicts
 
+Native candidate lifecycle sessions use `NativeEditorObserverWatchService`
+instead of the legacy watcher documented in the historical sections below.
+Only one observer holds the current native `projectSessionId`; closing or
+replacing that session disposes its subscriptions, and late events retain the
+old session ID so renderer reconciliation discards them. The native worker
+retains exact source revisions, per-owner conflicts and dirty recovery; the
+main process does not reassemble a legacy Workspace after native observation.
+The old watcher remains in the ordinary production path until #521, not
+alongside an admitted native session. See the
+[native main authority ledger](../../architecture/certifications/NATIVE_EDITOR_MAIN_AUTHORITY_BOUNDARY.md).
+
 NovelTea projects are ordinary source trees, so the editor must coexist with file edits made by coding agents, source-control tools, and other editors. The project workspace watcher and reconciliation layer are the authority for those changes; there is no separate asset-only watcher and no whole-project content-fingerprint conflict gate.
 
 ## Watching and coherent publication
