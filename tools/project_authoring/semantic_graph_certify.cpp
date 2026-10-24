@@ -96,14 +96,24 @@ int main(int argc, char** argv)
         require(found_room && found_layout && found_trait && found_nested && found_message,
                 "Native graph omitted record, trait, localized or nested identities.");
         require(collections.size() == 16, "Native graph must enumerate all 16 record collections.");
-        bool room_asset = false, cursor = false;
+        bool room_asset = false, room_asset_repair = false, cursor = false;
         for (const auto& edge : base.at("edges").array_range()) {
             room_asset |= edge.at("role") == "room-background" &&
                           edge.at("target").at("kind") == "record" &&
                           edge.at("target").at("collection") == "assets";
+            if (edge.at("role") == "room-background" &&
+                edge.at("target").at("collection") == "assets") {
+                const auto source = edge.at("sourcePath").as<std::string>();
+                const auto expected = source.ends_with("/$ref") ? source.substr(0, source.size() - 5)
+                                                                : source;
+                room_asset_repair |= edge.at("repair").at("kind") == "set-null" &&
+                                     edge.at("repair").at("path") == expected;
+            }
             cursor |= edge.at("role") == "source-recognized-reference";
         }
         require(room_asset, "Native YAML scalar Asset roles are not indexed.");
+        require(room_asset_repair,
+                "Native nullable Room background references need exact set-null repair evidence.");
         bool lexical = false, exact = false, recognized_import = false, recognized_hook = false,
              recognized_room = false, false_comment = false, recognized_cursor = false;
         for (const auto& item : base.at("occurrences").array_range()) {

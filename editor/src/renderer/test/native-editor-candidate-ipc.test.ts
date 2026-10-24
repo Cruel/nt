@@ -24,6 +24,13 @@ import { NativeAuthoringSessionBridge } from '../../main/services/native-authori
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
 import { NativeEditorProjectHandoff } from '../../main/services/native-editor-project-handoff';
+import { nativeSemanticGraphSchema } from '../../main/services/native-authoring-worker-contract';
+import { projectNativeGraphForRenderer } from '../project/native-authoring-graph-projection';
+import {
+  preflightGraphCommand,
+  semanticUsagesForTarget,
+} from '../project/authoring-graph-consumers';
+import { generateAuthoringRepairPlan, recordTarget } from '../project/authoring-repair';
 
 class InProcessIpc implements EditorIpcMain {
   readonly handlers = new Map<string, (event: EditorIpcEvent, ...args: unknown[]) => unknown>();
@@ -158,6 +165,62 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           nodes: expect.any(Array),
           edges: expect.any(Array),
           occurrences: expect.any(Array),
+        });
+        // Exercise the actual renderer consumer seam using native addon bytes,
+        // not a separately hand-authored TypeScript graph fixture.
+        const nativeGraph = nativeSemanticGraphSchema.parse(graph);
+        const roomBackground = nativeGraph.edges.find((edge) => edge.role === 'room-background');
+        expect(roomBackground).toBeDefined();
+        expect(roomBackground!.target.kind).toBe('record');
+        const referencedAsset = recordTarget(
+          'assets',
+          roomBackground!.target.kind === 'record' ? roomBackground!.target.id : '',
+        );
+        expect(roomBackground?.repair).toEqual({
+          kind: 'set-null',
+          path: roomBackground?.sourcePath.replace(/\/\$ref$/u, ''),
+        });
+        const projected = projectNativeGraphForRenderer(nativeGraph, 'native-ipc-consumer', 1);
+        expect(semanticUsagesForTarget(projected, referencedAsset)).toEqual(
+          expect.arrayContaining([expect.objectContaining({ edgeId: roomBackground!.id })]),
+        );
+        expect(
+          preflightGraphCommand({
+            snapshot: projected,
+            projectInstanceId: 'native-ipc-consumer',
+            projectRevision: 1,
+            target: referencedAsset,
+            operation: 'delete',
+          }),
+        ).toMatchObject({ kind: 'blocked' });
+        const isolated = projectNativeGraphForRenderer(
+          {
+            ...nativeGraph,
+            edges: [roomBackground!],
+            occurrences: [],
+          },
+          'native-ipc-consumer',
+          1,
+        );
+        expect(
+          generateAuthoringRepairPlan({
+            snapshot: isolated,
+            projectInstanceId: 'native-ipc-consumer',
+            projectRevision: 1,
+            target: referencedAsset,
+            deletePath: roomBackground!.targetPath,
+          }),
+        ).toMatchObject({
+          status: 'ready',
+          plan: {
+            patches: expect.arrayContaining([
+              {
+                op: 'replace',
+                path: roomBackground!.repair.kind === 'set-null' ? roomBackground!.repair.path : '',
+                value: null,
+              },
+            ]),
+          },
         });
         const reopened = await ipc.invoke(IPC_CHANNELS.OPEN_PROJECT, trusted, root);
         expect(reopened).toMatchObject({

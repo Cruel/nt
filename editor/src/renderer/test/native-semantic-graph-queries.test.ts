@@ -21,6 +21,9 @@ import { referenceIndexFromCurrentGraph } from '../project/authoring-graph-consu
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
 import { searchProjectIndex } from '../../shared/project-search/project-search';
+import { entityRenameIdCommand } from '../commands/builtin-commands';
+import { toJsonValue } from '../project/json-value';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 
 const origin = { kind: 'record' as const, collection: 'rooms', id: 'foyer' };
 const target = { kind: 'record' as const, collection: 'assets' as const, id: 'backdrop' };
@@ -80,6 +83,238 @@ const fixture: NativeSemanticGraph = nativeSemanticGraphSchema.parse({
 });
 
 describe('revision-pinned native graph presentation-only queries', () => {
+  it('allows safe native Variable and entrypoint rename patches despite blocked delete repair descriptors', () => {
+    const variable = { kind: 'record' as const, collection: 'variables' as const, id: 'score' };
+    const dialogue = { kind: 'record' as const, collection: 'dialogues', id: 'intro' };
+    const room = { kind: 'record' as const, collection: 'rooms' as const, id: 'hall' };
+    const entrypoint = { kind: 'project-field' as const, path: '/entrypoint' };
+    const snapshot = projectNativeGraphForRenderer(
+      nativeSemanticGraphSchema.parse({
+        ...fixture,
+        occurrences: [],
+        nodes: [
+          {
+            key: variable,
+            keyText: JSON.stringify(variable),
+            owningPath: '/variables/score',
+            label: 'Score',
+          },
+          {
+            key: dialogue,
+            keyText: JSON.stringify(dialogue),
+            owningPath: '/dialogues/intro',
+            label: 'Intro',
+          },
+          { key: room, keyText: JSON.stringify(room), owningPath: '/rooms/hall', label: 'Hall' },
+          {
+            key: entrypoint,
+            keyText: JSON.stringify(entrypoint),
+            owningPath: '/entrypoint',
+            label: 'Entry',
+          },
+        ],
+        edges: [
+          {
+            id: 'var',
+            source: dialogue,
+            target: variable,
+            sourcePath: '/dialogues/intro/data/condition/$var',
+            targetPath: '/variables/score',
+            role: 'variable-ref',
+            facets: ['reference-integrity', 'tooling-reference'],
+            targetImpactPaths: ['/variables/score'],
+            repair: { kind: 'blocked', reason: 'Delete requires review' },
+          },
+          {
+            id: 'entry',
+            source: entrypoint,
+            target: room,
+            sourcePath: '/entrypoint',
+            targetPath: '/rooms/hall',
+            role: 'entrypoint',
+            facets: ['reference-integrity', 'tooling-reference'],
+            targetImpactPaths: ['/rooms/hall'],
+            repair: { kind: 'blocked', reason: 'Delete requires review' },
+          },
+        ],
+      }),
+      'renderer-A',
+      17,
+    );
+    for (const target of [variable, room])
+      expect(
+        preflightGraphCommand({
+          snapshot,
+          projectInstanceId: 'renderer-A',
+          projectRevision: 17,
+          target,
+          operation: 'rename',
+        }),
+      ).toMatchObject({ kind: 'ready' });
+  });
+  it('retains native localization-message identity, physical source locations and manual rewrite classification', () => {
+    const message = {
+      kind: 'localization-message' as const,
+      locale: 'en',
+      messageId: 'lab.greeting',
+    };
+    const script = { kind: 'record' as const, collection: 'scripts', id: 'story' };
+    const localized = nativeSemanticGraphSchema.parse({
+      ...fixture,
+      nodes: [
+        {
+          key: message,
+          keyText: JSON.stringify(message),
+          owningPath: '/localization/messages/lab.greeting/source',
+          label: 'Greeting',
+        },
+        {
+          key: script,
+          keyText: JSON.stringify(script),
+          owningPath: '/scripts/story',
+          label: 'Story',
+        },
+      ],
+      edges: [],
+      occurrences: [
+        {
+          ownerPath: '/scripts/story',
+          sourceUrl: 'project:/scripts/story.lua',
+          sourceRevision: 'sha256:' + 'a'.repeat(64),
+          line: 9,
+          column: 18,
+          value: 'lab.greeting',
+          classification: 'exact-manual',
+          recognizedBy: 'native.Text.msg',
+          target: message,
+        },
+        {
+          ownerPath: '/scripts/story',
+          sourceUrl: 'project:/scripts/story.lua',
+          sourceRevision: 'sha256:' + 'a'.repeat(64),
+          line: 14,
+          column: 6,
+          value: 'lab.greeting',
+          classification: 'possible-lexical',
+          target: message,
+        },
+      ],
+    });
+    const projection = projectNativeGraphForRenderer(localized, 'locale-project', 7);
+    expect(semanticUsagesForTarget(projection, message)).toEqual([
+      expect.objectContaining({
+        sourcePath: 'project:/scripts/story.lua',
+        sourceReferenceClassification: 'exact-manual',
+        sourceLocation: { line: 9, column: 18, endLine: 9, endColumn: 30 },
+      }),
+      expect.objectContaining({
+        sourceReferenceClassification: 'possible-lexical',
+        sourceLocation: { line: 14, column: 6, endLine: 14, endColumn: 18 },
+      }),
+    ]);
+    expect(nativeGraphUsageCounts(localized, message)).toEqual({
+      confirmed: 0,
+      recognized: 1,
+      possible: 1,
+    });
+  });
+  it('accepts an authored nullable reference repair and safe structured rename without guessing source bytes', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'backdrop' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    project.assets.backdrop = {
+      id: 'backdrop',
+      label: 'Backdrop',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/backdrop.png' },
+        aliases: [],
+        extension: '.png',
+        imageMetadata: { width: 640, height: 480, hasAlpha: false, orientation: 1 },
+      },
+    };
+    const repairable: NativeSemanticGraph = {
+      ...fixture,
+      occurrences: [],
+      edges: [
+        {
+          ...fixture.edges[0]!,
+          sourcePath: '/rooms/foyer/data/background/asset/$ref',
+          repair: { kind: 'set-null', path: '/rooms/foyer/data/background/asset' },
+        },
+      ],
+    };
+    const snapshot = projectNativeGraphForRenderer(repairable, 'renderer-A', 17);
+    const plan = generateAuthoringRepairPlan({
+      snapshot,
+      projectInstanceId: 'renderer-A',
+      projectRevision: 17,
+      target,
+      deletePath: '/assets/backdrop',
+    });
+    expect(plan).toMatchObject({
+      status: 'ready',
+      plan: {
+        patches: expect.arrayContaining([
+          { op: 'replace', path: '/rooms/foyer/data/background/asset', value: null },
+          { op: 'remove', path: '/assets/backdrop' },
+        ]),
+      },
+    });
+    const renamed = entityRenameIdCommand({
+      document: toJsonValue(project),
+      savedDocument: null,
+      graphSnapshot: snapshot,
+      projectInstanceId: 'renderer-A',
+      projectRevision: 17,
+      payload: { collection: 'assets', fromId: 'backdrop', toId: 'sky' },
+      request: {
+        type: 'entity.renameId',
+        payload: {},
+        originSaveUnitId: 'record:assets:backdrop',
+        persistencePolicy: 'manual-save',
+      },
+    });
+    expect(renamed.diagnostics?.filter((item) => item.severity === 'error') ?? []).toEqual([]);
+    expect(renamed.patches).toContainEqual({
+      op: 'replace',
+      path: '/rooms/foyer/data/background/asset/$ref',
+      value: { collection: 'assets', id: 'sky' },
+    });
+    const blockingRepair = projectNativeGraphForRenderer(
+      {
+        ...repairable,
+        edges: [
+          {
+            ...repairable.edges[0]!,
+            repair: { kind: 'blocked', reason: 'Delete cannot be repaired.' },
+          },
+        ],
+      },
+      'renderer-A',
+      17,
+    );
+    const renameThroughStructuredReference = entityRenameIdCommand({
+      document: toJsonValue(project),
+      savedDocument: null,
+      graphSnapshot: blockingRepair,
+      projectInstanceId: 'renderer-A',
+      projectRevision: 17,
+      payload: { collection: 'assets', fromId: 'backdrop', toId: 'sky' },
+      request: {
+        type: 'entity.renameId',
+        payload: {},
+        originSaveUnitId: 'record:assets:backdrop',
+        persistencePolicy: 'manual-save',
+      },
+    });
+    expect(renameThroughStructuredReference.patches).toContainEqual({
+      op: 'replace',
+      path: '/rooms/foyer/data/background/asset/$ref',
+      value: { collection: 'assets', id: 'sky' },
+    });
+  });
   it('indexes Project Search references from native edges without deriving a TypeScript graph', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: {} as never };
