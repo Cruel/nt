@@ -50,6 +50,8 @@ export const IPC_CHANNELS = {
   NATIVE_PROJECT_PREPARE_RUNTIME: 'noveltea:native-project-prepare-runtime',
   NATIVE_PROJECT_RUN_TEST: 'noveltea:native-project-run-test',
   NATIVE_PROJECT_RUN_SUITE: 'noveltea:native-project-run-suite',
+  NATIVE_PROJECT_PREPARE_EXPORT: 'noveltea:native-project-prepare-export',
+  NATIVE_PROJECT_EXPORT_PACKAGE: 'noveltea:native-project-export-package',
   VALIDATE_PROJECT: 'noveltea:validate-project',
   LIST_PLAYBACK_TESTS: 'noveltea:list-playback-tests',
   RUN_PLAYBACK_TEST: 'noveltea:run-playback-test',

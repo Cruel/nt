@@ -261,7 +261,15 @@ export async function exportProjectToPlatform(
 
     const reusableAdmission =
       admitted?.project === loaded.contentProject && !loaded.editorState ? admitted : undefined;
-    let project;
+    if (admitted && !reusableAdmission)
+      return failure(operationId, [
+        diagnostic(
+          'platform-export-admission-mismatch',
+          '/project',
+          'Native export admission does not match the requested Project.',
+        ),
+      ]);
+    let project: ReturnType<typeof parseAuthoringProject>;
     try {
       project =
         reusableAdmission?.project ??
@@ -348,7 +356,7 @@ export async function exportProjectToPlatform(
     }
     let artifact: PreparedRuntimeArtifact;
     const { prepareRuntimeArtifact, verifyPreparedRuntimeArtifact } =
-      process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1'
+      reusableAdmission || process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1'
         ? await import('../../shared/runtime-artifact-preparation')
         : await import('../../shared/legacy-runtime-artifact-preparation');
     if (request.preparedRuntimeArtifact) {
@@ -552,6 +560,9 @@ export async function exportProjectToPlatform(
       ]);
     }
     if (request.checkOnly) {
+      const sourceDrift = await beforePublish?.();
+      if (sourceDrift)
+        return failure(operationId, [diagnostic('export-source-changed', '/', sourceDrift)]);
       return {
         ok: true,
         success: true,

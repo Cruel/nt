@@ -148,6 +148,21 @@ const api: NovelTeaElectronApi = {
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST, projectSessionId, expectedRevision, testId),
   nativeProjectRunSuite: (projectSessionId, expectedRevision) =>
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_SUITE, projectSessionId, expectedRevision),
+  nativeProjectPrepareExport: (projectSessionId, expectedRevision, mode, profileId) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_PREPARE_EXPORT,
+      projectSessionId,
+      expectedRevision,
+      mode,
+      profileId,
+    ),
+  nativeProjectExportPackage: (projectSessionId, expectedRevision, outputPath) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_EXPORT_PACKAGE,
+      projectSessionId,
+      expectedRevision,
+      outputPath,
+    ),
   validateProject: (
     projectSessionId: string,
     project: unknown,

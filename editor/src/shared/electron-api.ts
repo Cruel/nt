@@ -154,6 +154,17 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
   ): Promise<import('./editor-tooling').PlaybackReportResponse>;
+  nativeProjectPrepareExport(
+    projectSessionId: string,
+    expectedRevision: number,
+    mode: 'runtime' | 'platform',
+    profileId?: string,
+  ): Promise<import('./runtime-artifact-preparation').PrepareRuntimeArtifactResult>;
+  nativeProjectExportPackage(
+    projectSessionId: string,
+    expectedRevision: number,
+    outputPath: string,
+  ): Promise<PackageExportResponse>;
   validateProject(
     projectSessionId: string,
     project: unknown,

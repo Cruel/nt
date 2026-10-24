@@ -834,6 +834,17 @@ export const nativeProjectRunTestArgumentsSchema = z.tuple([
     .regex(/^[a-z][a-z0-9-]*$/u),
 ]);
 export const nativeProjectRunSuiteArgumentsSchema = nativeProjectValidateArgumentsSchema;
+export const nativeProjectPrepareExportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.enum(['runtime', 'platform']),
+  z.union([z.string().min(1).max(MAX_EXPORT_IDENTIFIER_LENGTH), z.undefined()]),
+]);
+export const nativeProjectExportPackageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.string().min(1).max(MAX_EXPORT_ARGUMENT_LENGTH),
+]);
 export const projectAssetIdentityArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(512),

@@ -64,6 +64,7 @@ function fixture(projectRoot = '/trusted/project') {
     textOverlays: {},
     shaderOverlays: {},
     diagnostics: [],
+    referencedAssetIds: [],
   };
   const open = vi.fn(async () => ({}));
   const prepareCompleteWorking = vi.fn(async () => preparation);
@@ -210,6 +211,12 @@ describe('native admission at the editor main Project lifecycle', () => {
       };
       await test.controller.admit('one', test.saved);
       expect(await test.controller.prepareCleanExport('one')).toEqual(test.saved);
+      expect(await test.controller.prepareCleanExportAdmission('one')).toMatchObject({
+        project: test.saved,
+        runtimeAssetReferences: [],
+        workingRevision: 0,
+        sourceRevisions: test.preparation.sourceRevisions,
+      });
       test.dirtyCheckpoint.mockReturnValueOnce({
         batches: [{ patches: [], diskPreconditions: {} }],
         textSources: {},

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { useCommandStore } from '@/commands/command-store';
+import { useProjectStore } from '@/project/project-store';
 import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -422,6 +423,9 @@ export function PackageExportDialog({
     mode === 'platform' && platformRuntimeProfile ? platformRuntimeProfile : activeRuntimeProfile;
   const [preview, setPreview] = useState<RuntimeArtifactAssessment | null>(null);
   const [previewPending, setPreviewPending] = useState(false);
+  const [previewFailure, setPreviewFailure] = useState<string | null>(null);
+  const nativeRevision = useCommandStore((state) => state.nativeWorkingRevision);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   useEffect(() => {
     let current = true;
     if (!project || !previewProfile) {
@@ -432,6 +436,39 @@ export function PackageExportDialog({
       };
     }
     setPreviewPending(true);
+    setPreviewFailure(null);
+    if (nativeRevision !== null) {
+      setPreview(null);
+      if (!projectSessionId) {
+        setPreviewFailure('Native export readiness requires an active Project session.');
+        setPreviewPending(false);
+        return () => {
+          current = false;
+        };
+      }
+      void window.noveltea
+        .nativeProjectPrepareExport(
+          projectSessionId,
+          nativeRevision,
+          mode,
+          mode === 'platform' ? (selectedPlatformProfile?.id ?? undefined) : undefined,
+        )
+        .then((result) => {
+          if (!current) return;
+          setPreview(result.status === 'cancelled' ? null : result.assessment);
+        })
+        .catch((error: unknown) => {
+          if (!current) return;
+          setPreview(null);
+          setPreviewFailure(error instanceof Error ? error.message : String(error));
+        })
+        .finally(() => {
+          if (current) setPreviewPending(false);
+        });
+      return () => {
+        current = false;
+      };
+    }
     void prepareRuntimeArtifact({
       project,
       projectRoot,
@@ -446,7 +483,15 @@ export function PackageExportDialog({
     return () => {
       current = false;
     };
-  }, [mode, project, projectRoot, previewProfile]);
+  }, [
+    mode,
+    project,
+    projectRoot,
+    previewProfile,
+    nativeRevision,
+    projectSessionId,
+    selectedPlatformProfile?.id,
+  ]);
 
   if (!project || !activeRuntimeProfile || !platformSettings) return null;
 
@@ -1711,6 +1756,14 @@ export function PackageExportDialog({
             </div>
           </div>
 
+          {previewFailure ? (
+            <div
+              role="alert"
+              className="rounded border border-destructive p-3 text-sm text-destructive"
+            >
+              {previewFailure}
+            </div>
+          ) : null}
           {mode === 'runtime' && runtimeDiagnostics.length > 0 ? (
             <DiagnosticPreview
               title={

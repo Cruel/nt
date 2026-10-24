@@ -32,6 +32,7 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useCommandStore.getState().resetCommandHistory();
+  useCommandStore.setState({ nativeWorkingRevision: null });
   vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
     ok: true,
     success: true,
@@ -43,6 +44,73 @@ beforeEach(() => {
 });
 
 describe('package export workflow', () => {
+  it('routes native package export through native admission without renderer TypeScript compilation', async () => {
+    const project = validProject();
+    const profile = defaultExportProfile(project);
+    useCommandStore.getState().enableNativeCommandMode(7);
+    const legacy = await import('../../shared/legacy-runtime-artifact-preparation');
+    const prepareLegacy = vi.spyOn(legacy, 'prepareRuntimeArtifact').mockImplementation(() => {
+      throw new Error('Renderer recompiled the native Project.');
+    });
+    try {
+      const result = await runPackageExportWorkflow({
+        project,
+        projectRoot: '/project',
+        outputPath: '/project/native.ntpkg',
+        profile,
+      });
+      expect(result).toMatchObject({ success: true, byteCount: 1 });
+      expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        7,
+        '/project/native.ntpkg',
+      );
+      expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
+      expect(prepareLegacy).not.toHaveBeenCalled();
+    } finally {
+      prepareLegacy.mockRestore();
+    }
+  });
+
+  it('hands native platform export to main without renderer-side compilation or prepared artifacts', async () => {
+    useCommandStore.getState().enableNativeCommandMode(5);
+    const project = validProject();
+    const legacy = await import('../../shared/legacy-runtime-artifact-preparation');
+    const legacyPrepare = vi.spyOn(legacy, 'prepareRuntimeArtifact').mockImplementation(() => {
+      throw new Error('Native platform export invoked the renderer legacy compiler.');
+    });
+    vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      cancelled: false,
+      operationId: 'native-platform',
+      diagnostics: [],
+    });
+    try {
+      const result = await runProjectPlatformExportWorkflow(
+        {
+          operationId: 'native-platform',
+          project,
+          projectRoot: '/project',
+          profileId: 'linux-release',
+          outputDirectory: '/project/dist/linux',
+        },
+        defaultPlatformExportProfile('linux'),
+      );
+      expect(result.success).toBe(false);
+      expect(window.noveltea.exportProjectToPlatform).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        expect.objectContaining({
+          project,
+          preparedRuntimeArtifact: undefined,
+          profileId: 'linux-release',
+        }),
+      );
+      expect(legacyPrepare).not.toHaveBeenCalled();
+    } finally {
+      legacyPrepare.mockRestore();
+    }
+  });
   it('passes original-byte SHA-256 notice pins and a dedicated catalog to the native exporter', async () => {
     const project = validProject();
     project.settings.distributionNotices = [{ path: 'support/licenses/TERMS.md' }];
