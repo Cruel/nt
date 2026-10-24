@@ -25,6 +25,9 @@ const electronRuntimeExternals = [
   /^sharp\//,
 ];
 const productionBuild = process.env.NODE_ENV === 'production';
+// #533: build a separate, fail-closed native ScriptC candidate without changing
+// the shipped mixed-authority bundle before the coordinated #521 cutover.
+const nativeCliCandidateBuild = process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1';
 const editorCheckInputs = [
   'src/**/*',
   'scripts/**/*',
@@ -47,6 +50,9 @@ const commonNodePack = {
   define: {
     __NOVELTEA_VERSION__: JSON.stringify(productVersion),
     __NOVELTEA_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
+    'process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE': JSON.stringify(
+      nativeCliCandidateBuild ? '1' : '0',
+    ),
   },
   sourcemap: !productionBuild,
   hash: false,
@@ -416,7 +422,13 @@ export default defineConfig({
           'ScriptC island',
           path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
         ),
-        cliLazyModulePolicy('ScriptC application', path.join(editorRoot, 'src/cli/application.ts')),
+        cliLazyModulePolicy(
+          nativeCliCandidateBuild ? 'Native ScriptC application' : 'ScriptC application',
+          path.join(
+            editorRoot,
+            nativeCliCandidateBuild ? 'src/cli/native-application.ts' : 'src/cli/application.ts',
+          ),
+        ),
         nativeProductionProvenance(editorRoot),
       ],
       deps: {
@@ -430,7 +442,7 @@ export default defineConfig({
       },
       entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
       format: 'esm',
-      outDir: 'dist-scriptc-island',
+      outDir: nativeCliCandidateBuild ? 'dist-scriptc-native-island' : 'dist-scriptc-island',
       fixedExtension: true,
       clean: true,
       checks: { legacyCjs: false },

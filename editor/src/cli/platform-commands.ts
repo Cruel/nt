@@ -1,22 +1,15 @@
 import path from 'node:path';
-import { runtimeExportProfileForPlatform } from '../shared/project-schema/authoring-export';
 import type { AuthoringProject } from '../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../shared/project-schema/authoring-project-settings';
 import { editorProjectStateSchema } from '../shared/project-schema/editor-project-state';
 import {
-  PLAYER_RUNTIME_API_VERSION,
   parseEditorExportLocalState,
   parseProjectPlatformExportSettings,
   projectPlatformExportSettingsSchema,
   userSigningProfileToExportSigningState,
-  type InstalledTemplate,
-  type PlatformExportProfile,
   type PlatformStageDiagnostic,
   type ProjectPlatformExportRequest,
 } from '../shared/project-schema/platform-export-contracts';
-import { COMPILED_PROJECT_FORMAT_VERSION } from '../shared/project-schema/compiled-project';
-import { evaluateTemplateCompatibility } from '../shared/project-schema/template-compatibility';
-import { derivedPlatformCapabilities } from '../shared/project-schema/platform-deployment';
 import { CliCommandUsageError } from './commands/errors';
 import type {
   CliCommandDefinition,
@@ -27,6 +20,7 @@ import { cliDiagnostic, NOVELTEA_CLI_EXIT_CODES } from './contracts';
 import { verifyPinnedExternalAssets } from './pinned-external-assets';
 import { parsePlatformOptions, parsePlatformTemplateToken } from './platform-command-helpers';
 import { platformProfilesProjectPreparationIntent } from './project-preparation';
+import { profileRows } from './platform-profile-rows';
 
 function stageDiagnostics(diagnostics: readonly PlatformStageDiagnostic[]) {
   return diagnostics.map((item) => {
@@ -45,56 +39,6 @@ function exactPlatformSettings(project: Pick<AuthoringProject, 'export'>) {
     profiles: project.export.profiles,
   });
   return parsed.success ? parsed.data : parseProjectPlatformExportSettings(undefined);
-}
-
-function hostPlatform(): 'windows' | 'linux' | 'macos' {
-  return process.platform === 'win32'
-    ? 'windows'
-    : process.platform === 'darwin'
-      ? 'macos'
-      : 'linux';
-}
-
-async function profileRows(
-  project: Pick<AuthoringProject, 'export'>,
-  profiles: readonly PlatformExportProfile[],
-  templates: readonly InstalledTemplate[],
-) {
-  return profiles.map((profile) => {
-    const runtimeProfile = runtimeExportProfileForPlatform(
-      project,
-      profile.target,
-      profile.localization,
-    );
-    const compatibleTemplate = templates.some((template) => {
-      if (template.status === 'corrupted') return false;
-      return evaluateTemplateCompatibility(template.descriptor, {
-        profile,
-        compiledProjectFormatVersion: COMPILED_PROJECT_FORMAT_VERSION,
-        playerRuntimeApiVersion: PLAYER_RUNTIME_API_VERSION,
-        shaderVariants: runtimeProfile.shaderVariants,
-        graphicsBackends: [],
-        capabilities: derivedPlatformCapabilities(profile.target),
-        requiredFeatures: [],
-        host: { platform: hostPlatform(), availableTools: [] },
-      }).compatible;
-    });
-    const artifact =
-      profile.target === 'web'
-        ? profile.web.artifact
-        : profile.target === 'android'
-          ? profile.android.artifact
-          : profile.desktop.artifact;
-    return {
-      id: profile.id,
-      label: profile.label,
-      target: profile.target,
-      architecture: profile.architecture,
-      buildFlavor: profile.buildFlavor,
-      artifact,
-      hostCompatible: compatibleTemplate,
-    };
-  });
 }
 
 export const platformProfilesCommand: CliCommandDefinition = {

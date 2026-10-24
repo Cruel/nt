@@ -28,6 +28,7 @@ import {
   readValidationStageCache,
 } from './validation-stage-cache';
 import { sha256HexUtf8 } from '../shared/web-crypto';
+import { preflightAdmittedAuthoringProject } from '../shared/authoring-compiler-lowering';
 
 /** Static native Project diagnostics, without the downstream validation stages. */
 export async function readNativeProjectValidation(
@@ -197,6 +198,14 @@ export async function runNativeProjectValidationCli(
     const project = { ...prepared.project } as AuthoringProject;
     for (const family of authoringCollectionKeys) if (!(family in project)) project[family] = {};
     const diagnostics = [...nativeProjectDiagnostics(checked)];
+    // Match the public validate contract: an admitted Project still needs a
+    // compilable gameplay entrypoint. This compiler preflight reads the native
+    // effective Project only, without revalidating authoring sources in TS.
+    diagnostics.push(
+      ...preflightAdmittedAuthoringProject(project, () => []).diagnostics.map((item) =>
+        cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
+      ),
+    );
 
     // Physical Assets are not YAML fragments. They must remain available even
     // when no downstream compiler stage happens to reference them.

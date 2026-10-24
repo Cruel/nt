@@ -11,6 +11,7 @@ import { normalizeCertificationPathAliases } from './certification-path-aliases.
 
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
+const legacyOracleCli = path.resolve(process.argv[4] ?? cli);
 const root = await createCertificationRoot('noveltea-cli-native-routing-');
 const realRoot = await realpath(root);
 const legacy = path.join(root, 'legacy');
@@ -46,7 +47,7 @@ function execute(project, native, args, noDaemon = true) {
       native ? 'native-daemon' : 'legacy-daemon',
     ),
   };
-  const run = spawnSync(cli, argv, {
+  const run = spawnSync(native ? cli : legacyOracleCli, argv, {
     env,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,

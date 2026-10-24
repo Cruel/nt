@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
-import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
   checkPlatformExportCancelled,
   clearPlatformExportCancellation,
@@ -24,14 +23,11 @@ import {
 } from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
-import {
-  prepareRuntimeArtifact,
-  verifyPreparedRuntimeArtifact,
-  type PreparedRuntimeArtifact,
-  type RuntimeArtifactPathAdapter,
-} from '../../shared/legacy-runtime-artifact-preparation';
+import type {
+  PreparedRuntimeArtifact,
+  RuntimeArtifactPathAdapter,
+} from '../../shared/runtime-artifact-preparation';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { AuthoringValidationContribution } from '../../shared/project-schema/authoring-validation-contributions';
 import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import {
@@ -60,6 +56,10 @@ import {
 } from './node-runtime-artifact-adapters';
 
 async function openProjectForPlatformExport(projectPath: string): Promise<OpenProjectResponse> {
+  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+    throw new Error('Native-only platform export requires an admitted native Project.');
+  const { createNodeProjectWorkspaceService } =
+    await import('../../shared/project-workspace/node-project-workspace-service');
   const opened = await createNodeProjectWorkspaceService().open(projectPath);
   if (!opened.ok)
     return {
@@ -308,7 +308,14 @@ export async function exportProjectToPlatform(
 
     // Admission evidence is supplied out-of-band by the CLI's trusted
     // workspace, never through the user-parsed platform export request.
-    const validation = reusableAdmission?.diagnostics ?? validateAuthoringProject(project);
+    let validation = reusableAdmission?.diagnostics;
+    if (!validation) {
+      if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+        throw new Error('Native-only platform export has no native validation admission.');
+      const { validateAuthoringProject } =
+        await import('../../shared/project-schema/authoring-validation');
+      validation = validateAuthoringProject(project);
+    }
     const validationErrors = validation.filter(
       (item) =>
         item.severity === 'error' &&
@@ -340,6 +347,10 @@ export async function exportProjectToPlatform(
       ]);
     }
     let artifact: PreparedRuntimeArtifact;
+    const { prepareRuntimeArtifact, verifyPreparedRuntimeArtifact } =
+      process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1'
+        ? await import('../../shared/runtime-artifact-preparation')
+        : await import('../../shared/legacy-runtime-artifact-preparation');
     if (request.preparedRuntimeArtifact) {
       progress('compiling-project', 'Verifying the prepared current-revision runtime artifact');
       const verified = await verifyPreparedRuntimeArtifact(request.preparedRuntimeArtifact, {

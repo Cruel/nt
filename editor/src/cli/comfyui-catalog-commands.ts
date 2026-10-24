@@ -2,10 +2,6 @@ import path from 'node:path';
 import { checkHeadlessComfyUiConnection } from '../main/services/comfyui-connection-service';
 import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
-  preflightComfyUiAssetPublication,
-  publishComfyUiOutputs,
-} from '../main/services/comfyui-asset-publication-service';
-import {
   ComfyUiRunError,
   prepareComfyUiWorkflow,
   preflightComfyUiRun,
@@ -31,13 +27,9 @@ import {
   type ComfyUiWorkflowDiagnostic,
   type ComfyUiWorkflowLibraryEntry,
 } from '../shared/comfyui-workflows';
-import {
-  discoverProjectRoot,
-  validateExplicitProjectRoot,
-  type ProjectWorkspaceDiscoveryResult,
-  type ProjectWorkspaceFileSystem,
-  type ProjectWorkspaceService,
-} from '../shared/project-workspace';
+import type { ProjectWorkspaceDiscoveryResult } from '../shared/project-workspace/project-workspace-discovery';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
+import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
 import { CliCommandUsageError } from './commands/types';
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
@@ -347,6 +339,12 @@ async function optionalProjectRoot(
     }
     return { projectRoot: root };
   }
+  // No native-only bundle may parse the Project manifest through the old YAML
+  // discovery codec. The native branch above is the only candidate route.
+  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+    throw new Error('Native ComfyUI invocation is missing native Project authority.');
+  const { validateExplicitProjectRoot, discoverProjectRoot } =
+    await import('../shared/project-workspace/project-workspace-discovery');
   const discovery = projectOption
     ? await validateExplicitProjectRoot(fileSystem, path.resolve(cwd, projectOption))
     : await discoverProjectRoot(fileSystem, cwd);
@@ -655,7 +653,13 @@ export async function runComfyUiCatalogCommand(
         !options.nativeProjectCommands &&
         Object.values(runPlan.routes).some((route) => route.target === 'asset')
       )
-        await preflightComfyUiAssetPublication(project.projectRoot, options.workspace!);
+        if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+          throw new Error('Native ComfyUI Asset preflight requires native Project admission.');
+        else {
+          const { preflightComfyUiAssetPublication } =
+            await import('../main/services/comfyui-asset-publication-service');
+          await preflightComfyUiAssetPublication(project.projectRoot, options.workspace!);
+        }
     } catch (error) {
       if (error instanceof CliCommandUsageError) throw error;
       const failure =
@@ -747,7 +751,7 @@ export async function runComfyUiCatalogCommand(
       });
       let published;
       try {
-        published = await publishComfyUiOutputs({
+        const publicationOptions = {
           projectRoot: project.projectRoot,
           workspace: options.workspace,
           fileSystem: options.fileSystem,
@@ -759,16 +763,32 @@ export async function runComfyUiCatalogCommand(
           outputs: result.outputs,
           force: runCommand.force,
           registerStagedOutput: options.nativeTools?.registerStagedOutput
-            ? async (path) => options.nativeTools!.registerStagedOutput!(path)
+            ? async (path: string) => options.nativeTools!.registerStagedOutput!(path)
             : undefined,
           commitStagedProjectAssets: options.nativeTools?.commitComfyUiAssetPublication
-            ? async (request) =>
+            ? async (
+                request: import('../main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest,
+              ) =>
                 (await options.nativeTools!.commitComfyUiAssetPublication!(request)) as Record<
                   string,
                   import('../main/services/comfyui-asset-publication-service').ComfyUiPublishedAssetOutput[]
                 >
             : undefined,
-        });
+        };
+        if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1') {
+          if (!options.nativeProjectCommands)
+            throw new Error('Native ComfyUI publication requires native Project authority.');
+          const { publishNativeComfyUiOutputs } =
+            await import('../main/services/native-comfyui-asset-publication');
+          published = await publishNativeComfyUiOutputs({
+            ...publicationOptions,
+            nativeProjectCommands: options.nativeProjectCommands,
+          });
+        } else {
+          const { publishComfyUiOutputs } =
+            await import('../main/services/comfyui-asset-publication-service');
+          published = await publishComfyUiOutputs(publicationOptions);
+        }
       } catch (error) {
         if (error instanceof ComfyUiRunError)
           throw new ComfyUiRunError(

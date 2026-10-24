@@ -7,8 +7,9 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createCertificationRoot } from './certification-temp-root.mjs';
 const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
-if (process.argv.length > 3)
-  throw new Error('The transport/error contract uses its own disposable minimal Project.');
+const oracleExecutable = path.resolve(process.argv[3] ?? executable);
+if (process.argv.length > 4)
+  throw new Error('Usage: certify-native-cli-transport.mjs [candidate-cli] [legacy-oracle-cli].');
 const root = await createCertificationRoot('noveltea-519-transport-');
 const oracle = path.join(root, 'oracle');
 const candidate = path.join(root, 'candidate');
@@ -16,7 +17,7 @@ const base = { ...process.env, NOVELTEA_CLI_CERTIFICATION: '1' };
 
 function execute(project, native, args, { daemon = false, human = false, environment = {} } = {}) {
   const result = spawnSync(
-    executable,
+    native ? executable : oracleExecutable,
     [
       ...(daemon ? [] : ['--no-daemon']),
       ...(human ? [] : ['--json']),
@@ -147,7 +148,7 @@ try {
     [candidate, true],
   ]) {
     const traced = spawnSync(
-      executable,
+      native ? executable : oracleExecutable,
       ['--no-daemon', '--json', '--project', project, 'entity', 'inspect', 'rooms', 'sample'],
       {
         env: {
