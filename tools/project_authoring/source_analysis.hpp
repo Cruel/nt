@@ -70,6 +70,19 @@ struct LuaLiteralOccurrence {
     std::size_t end_column = 1;
 };
 
+// Explicit Lua API contracts recognized from native tokens, not a free-text
+// regex over comments and strings. Only collected for workbench graph queries.
+struct RecognizedSourceReference {
+    std::string collection; // scripts, rooms, characters, interactables or cursor
+    std::string id;
+    std::string recognized_by;
+    std::size_t start_utf16 = 0;
+    std::size_t end_utf16 = 0;
+    std::size_t line = 1;
+    std::size_t column = 1;
+    std::optional<std::string> expected_text; // exact, unescaped literal inner text
+};
+
 struct SourceAnalysis {
     std::string source_path;
     std::string source_revision;
@@ -83,6 +96,7 @@ struct SourceAnalysis {
     // Complete native lexical evidence for CLI source usages, including
     // escaped and long-bracket strings. Not part of the Node addon payload.
     std::vector<LuaLiteralOccurrence> lua_literals;
+    std::vector<RecognizedSourceReference> recognized_references;
     std::vector<CursorSourceOccurrence> cursors;
 };
 

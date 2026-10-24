@@ -46,6 +46,51 @@ class FakeWorker extends EventEmitter {
 }
 
 describe('native worker session bridge (main-owned authority)', () => {
+  it('rejects a graph DTO with an inner Project identity differing from the response envelope', async () => {
+    const worker = new FakeWorker();
+    const bridge = new NativeAuthoringSessionBridge(
+      {
+        requireActiveProjectRoot: () => '/trusted/project',
+        isCurrent: () => true,
+      },
+      {
+        addonPath: '/trusted/addon.node',
+        createWorker: () => worker,
+      },
+    );
+    const opening = bridge.open('current-graph');
+    worker.emit('message', {
+      type: 'snapshot',
+      sessionId: 'current-graph',
+      generation: 1,
+      sequence: 0,
+      snapshot: initial,
+    });
+    await opening;
+    const result = bridge.request({ operation: 'semanticGraph', expectedRevision: 0 });
+    worker.emit('message', {
+      type: 'response',
+      sessionId: 'current-graph',
+      generation: 1,
+      requestId: 1,
+      result: {
+        projectSessionId: 'different-project',
+        generation: 1,
+        workingRevision: 0,
+        sourceRevisions: { 'project.yaml': 'sha256:' + '1'.repeat(64) },
+        textSourceRevisions: {},
+        complete: true,
+        incompleteOwners: [],
+        nodes: [],
+        edges: [],
+        occurrences: [],
+        diagnostics: [],
+      },
+    });
+    await expect(result).rejects.toThrow('semantic graph identity mismatch');
+    expect(worker.terminated).toBe(true);
+  });
+
   it('admits only current Project roots and drops old-worker events after switching', async () => {
     let active = 'A';
     const workers: FakeWorker[] = [];
@@ -286,6 +331,21 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       );
       const working = new NativeAuthoringWorkingProject(bridge);
       const initial = await working.open('working-certification');
+      const graph = await working.semanticGraph();
+      expect(Object.isFrozen(graph)).toBe(true);
+      expect(Object.isFrozen(graph.nodes)).toBe(true);
+      expect(Object.isFrozen(graph.nodes[0])).toBe(true);
+      expect(graph).toMatchObject({
+        projectSessionId: 'working-certification',
+        workingRevision: 0,
+        sourceRevisions: { 'project.yaml': expect.stringMatching(/^sha256:/u) },
+      });
+      expect(
+        graph.nodes.some((node) => node.key.kind === 'record' && node.key.collection === 'rooms'),
+      ).toBe(true);
+      expect(
+        graph.nodes.some((node) => node.key.kind === 'record' && node.key.collection === 'maps'),
+      ).toBe(true);
       expect(working.snapshot()?.recordSnapshots).toEqual({});
       expect(await working.inspectRecord(owner)).toMatchObject({
         accepted: true,

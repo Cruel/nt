@@ -138,12 +138,15 @@ export class NativeAuthoringSessionBridge {
     command: Extract<Command, { operation: 'prepareCompleteWorking' }>,
   ): Promise<NativeAuthoringPreparation>;
   request(
+    command: Extract<Command, { operation: 'semanticGraph' }>,
+  ): Promise<import('./native-authoring-worker-contract').NativeSemanticGraph>;
+  request(
     command: Extract<Command, { operation: 'validateClean' }>,
   ): Promise<NativeAuthoringCleanValidation>;
   request(
     command: Exclude<
       Command,
-      { operation: 'prepareWorking' | 'prepareCompleteWorking' | 'validateClean' }
+      { operation: 'prepareWorking' | 'prepareCompleteWorking' | 'validateClean' | 'semanticGraph' }
     >,
   ): Promise<
     Exclude<Response['result'], NativeAuthoringPreparation | NativeAuthoringCleanValidation>
@@ -210,6 +213,22 @@ export class NativeAuthoringSessionBridge {
       const pending = state.pending.get(event.requestId);
       if (!state.ready || event.requestId !== state.lastResponse + 1 || !pending) {
         this.fail(state, new Error('Out-of-order native Project response.'));
+        return;
+      }
+      // The graph DTO is independently scoped inside the response envelope;
+      // a stale/cross-Project payload must not be admitted merely because
+      // the worker transport's outer event header is current.
+      const result = event.result;
+      if (
+        typeof result === 'object' &&
+        result !== null &&
+        'nodes' in result &&
+        'edges' in result &&
+        'occurrences' in result &&
+        'projectSessionId' in result &&
+        (result.projectSessionId !== state.sessionId || result.generation !== state.generation)
+      ) {
+        this.fail(state, new Error('Native Project semantic graph identity mismatch.'));
         return;
       }
       state.lastResponse = event.requestId;

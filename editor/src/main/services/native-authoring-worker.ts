@@ -7,6 +7,7 @@ import {
   nativeAuthoringResultSchema,
   nativeAuthoringPreparationSchema,
   nativeAuthoringSnapshotSchema,
+  nativeSemanticGraphSchema,
   type NativeAuthoringEvent,
 } from './native-authoring-worker-contract';
 
@@ -50,6 +51,7 @@ interface NativeBinding {
   save(handle: unknown, revision: string): string;
   prepareWorking(handle: unknown, revision: number, testId: string): string;
   prepareCompleteWorking(handle: unknown, revision: number, testId: string): string;
+  semanticGraph(handle: unknown, revision: number): string;
   stageTextSource(
     handle: unknown,
     revision: number,
@@ -150,6 +152,18 @@ parent.on('message', (raw: unknown) => {
     const command = nativeAuthoringCommandSchema.parse(raw);
     let result: NativeAuthoringEvent & { type: 'response' };
     switch (command.operation) {
+      case 'semanticGraph':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeSemanticGraphSchema.parse({
+            ...JSON.parse(binding.semanticGraph(handle, command.expectedRevision)),
+            projectSessionId: start.sessionId,
+            generation: start.generation,
+          }),
+        };
+        break;
       case 'validateClean':
         result = {
           ...identity,

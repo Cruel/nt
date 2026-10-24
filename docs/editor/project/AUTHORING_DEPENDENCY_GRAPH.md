@@ -1,5 +1,58 @@
 # Authoring Dependency Graph
 
+## Native replacement boundary (#536; preparatory, not production)
+
+The existing TypeScript implementation described below remains the **pre-cutover production**
+authority. Issue #536 introduces a separate read-only native Project-session query:
+`ProjectSession::semantic_graph(expected_revision)` in
+`tools/project_authoring/semantic_graph.cpp`. It derives records and reference evidence from
+resident native normalized/working records, native localization contributors, and
+`source_analyses()`. It does not call any TypeScript authoring graph or Project validator.
+
+The opt-in Node-API method `semanticGraph(handle, revision)` is carried through
+`native-authoring-worker.ts`, `NativeAuthoringSessionBridge`,
+`NativeAuthoringWorkingProject.semanticGraph()`, and
+`NativeEditorSessionController.semanticGraph(projectSessionId, expectedRevision)`.
+The latter verifies the main-owned Project identity and revision both **before and after**
+the worker response. `nativeSemanticGraphSchema` is a strict immutable-result DTO with
+native node/edge identities, semantic roles, preview facets, target-impact paths,
+source occurrences, source revisions, incomplete owners, and diagnostics.
+`native-semantic-graph-queries.ts` only filters/projects that DTO; it must not use
+the retired TypeScript derivation algorithms for fallback answers.
+
+Native source evidence distinguishes schema-derived references from
+`exact-rewriteable` managed literals (single-owned physical text with checked
+UTF-16 range and expected text), `exact-manual` recognizer findings, and
+`possible-lexical` matches. Generic ID-shaped strings do not become structural
+edges. Unknown repair actions remain explicitly blocked. A graph can expose
+valid owners' evidence alongside incomplete or invalid neighbors; destructive
+preflight rejects incomplete or superseded generations. Exact physical observer
+revisions and source-analyzer content hashes remain distinct evidence types.
+
+Native token recognizers cover Script Module literal `import`, the module argument
+of `hooks.register("room", …)`, typed `noveltea.project.room/character/interactable`
+identity calls, and `noveltea.presentation.cursor.set`. The source scanner also
+recognizes named Layout RML/RCSS cursor declarations and `Text.msg` source
+keys. Comment/string imitations of APIs remain lexical, never exact references.
+Only uniquely identified, single-owned physical literals may be auto-rewriteable;
+the native DTO never grants write authority itself. No exception to native source
+or Project semantics was approved for #536. Unsupported or ambiguous source
+references stay manual/warning evidence and cannot silently qualify as repaired.
+
+The #521 **switch-only handoff** consists of replacing the production
+`AuthoringDependencyGraphService` publication input with the admitted native
+`NativeSemanticGraph` query; binding Find Usages, Project Search, rename/delete
+preflight and focused-preview invalidation to the native projection functions;
+updating renderer presentation types and IPC exposure at the same atomic
+editor/CLI routing change; then removing retired TypeScript graph/analysis
+authority and its imports. The preparatory #536 methods are intentionally
+not wired to renderer production state, so that half-migrated authority cannot
+appear between commits.
+
+This is **not** permission to swap the renderer graph service in isolation.
+The native and TypeScript services coexist for certification only; #521 owns
+the atomic editor/CLI authority switch and retirement of the old implementation.
+
 The editor has one pure dependency graph for the current `AuthoringProject`. It is derived entirely
 in shared TypeScript and is not persisted. Structural relationships and bounded Lua/RML evidence use
 the same deterministic contribution model. The renderer-owned runtime service incrementally replaces
