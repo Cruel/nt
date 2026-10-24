@@ -3,15 +3,14 @@ import { mkdtemp, rm, writeFile, mkdir, readFile, realpath } from 'node:fs/promi
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import {
   AUTHORING_PROJECT_SCHEMA,
   authoringCollectionKeys,
 } from '../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
-import { parseTestData } from '../../shared/project-schema/authoring-tests';
-import { buildRuntimePlaybackSpecFromTestData } from '../../shared/project-schema/test-playback-project';
+import type { TestData } from '../../shared/project-schema/authoring-tests';
+import { buildRuntimePlaybackSpecFromTestData } from '../../shared/project-schema/test-playback-projection';
 import { projectWithPreviewLocale } from '../../shared/preview-locale';
 import {
   prepareRuntimeArtifact,
@@ -23,84 +22,12 @@ import {
   nodeRuntimeArtifactPaths,
   nodeShaderCompilerAdapter,
 } from './node-runtime-artifact-adapters';
-import type { NativeAuthoringWorkingProject } from './native-authoring-working-project';
-import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
-import { compileShaders } from './editor-tool-service';
 import type { Sha256Digest } from '../../shared/project-text-sources';
 import type { ShaderVariant } from '../../shared/shader-variants';
+import { compileShaders } from './native-shader-compiler-service';
 import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
-import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
-
-const manifestFields = [
-  'project',
-  'settings',
-  'export',
-  'bootstrapModule',
-  'undefinedInteractionProgram',
-  'entrypoint',
-  'inventories',
-  'interactableInstances',
-] as const;
-
-/** Use an independently verified saved baseline, replacing only the native
- * active generation's dirty values. Never consult the canonical runtime cache. */
-export function projectFromNativeWorkingPreparation(
-  saved: AuthoringProject,
-  savedFiles: Pick<LoadedProjectWorkspaceSnapshot, 'fileRevisions'>,
-  prepared: NativeAuthoringPreparation,
-): AuthoringProject {
-  if (!prepared.accepted || !prepared.project || typeof prepared.project !== 'object')
-    throw new Error(prepared.error || 'Native Project preparation was rejected.');
-  for (const [file, revision] of Object.entries(prepared.sourceRevisions)) {
-    const admitted = savedFiles.fileRevisions[file];
-    // Source Assets (e.g. an RML template under assets/) have native exact-byte
-    // authority but are not tracked YAML Workspace fileRevisions.
-    if (
-      (admitted && admitted.contentHash !== revision) ||
-      (!admitted &&
-        (file === 'project.yaml' ||
-          file === 'traits.yaml' ||
-          file === 'editor.yaml' ||
-          file.startsWith('records/') ||
-          file.startsWith('i18n/')))
-    )
-      throw new Error('Native preview source differs from the admitted saved workspace: ' + file);
-  }
-  const native = prepared.project as Record<string, unknown>;
-  const candidate: Record<string, unknown> = { ...saved };
-  for (const field of manifestFields) {
-    if (!(field in native)) throw new Error('Native manifest omitted ' + field);
-    candidate[field] = native[field];
-  }
-  candidate.localization = native.localization;
-  if (native.traits !== undefined) candidate.traits = native.traits;
-  if (native.editor !== undefined) {
-    candidate.editor = { ...saved.editor, ...(native.editor as object) };
-  }
-  for (const family of authoringCollectionKeys) {
-    const dirty = prepared.recordOverrides[family];
-    if (dirty) {
-      const records = { ...saved[family] } as Record<string, unknown>;
-      for (const [id, value] of Object.entries(dirty)) {
-        if (value === null) delete records[id];
-        else records[id] = value;
-      }
-      candidate[family] = records;
-    }
-  }
-  const parsed = authoringProjectSchema.safeParse(candidate);
-  if (!parsed.success) {
-    throw new Error(
-      'Native preview projection is incompatible with the current runtime contract: ' +
-        parsed.error.issues
-          .slice(0, 3)
-          .map((issue) => issue.path.join('/'))
-          .join(', '),
-    );
-  }
-  return parsed.data;
-}
+import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 
 /** Consume every effective native owner without TypeScript schema validation
  * or normalization. The addon owns canonical Project and record semantics;
@@ -159,18 +86,30 @@ export function projectFromNativeCompletePreparation(
 }
 
 function nativeRuntimeProject(options: NativeWorkingRuntimeOptions): AuthoringProject {
-  if (options.saved === undefined && options.savedFiles === undefined)
-    return projectFromNativeCompletePreparation(options.prepared);
-  if (!options.saved || !options.savedFiles)
-    throw new Error('Legacy native preview requires both saved Project and source revisions.');
-  return projectFromNativeWorkingPreparation(options.saved, options.savedFiles, options.prepared);
+  return options.legacy
+    ? options.legacy.project()
+    : projectFromNativeCompletePreparation(options.prepared);
+}
+
+function admittedPlaybackTestData(
+  options: NativeWorkingRuntimeOptions,
+  project: AuthoringProject,
+): TestData | null {
+  const value = project.tests[options.testId!]?.data;
+  if (options.legacy) return options.legacy.testData(value);
+  // Native admission owns defaults/validation. Only assert the transport
+  // fields required to construct a typed runtime playback specification.
+  const data = value as TestData | null | undefined;
+  return data?.kind === 'test' && Array.isArray(data.steps) && Array.isArray(data.finalExpectations)
+    ? data
+    : null;
 }
 
 /** The full native response carries a physically verified manifest, not an
  * independent TypeScript saved Workspace. Recheck every byte before compile
  * or cache reuse so neither files nor binary Assets can change unnoticed. */
 async function verifyCompleteNativeSources(options: NativeWorkingRuntimeOptions): Promise<void> {
-  if (options.saved !== undefined || options.savedFiles !== undefined) return;
+  if (options.legacy) return;
   const root = await realpath(options.projectRoot);
   const revisions = Object.entries(options.prepared.sourceRevisions);
   if (!revisions.some(([file]) => file === 'project.yaml'))
@@ -238,8 +177,8 @@ export class NativeWorkingRuntimePreparationCache {
   }
 
   private key(options: NativeWorkingRuntimeOptions): string {
-    const { prepared, saved } = options;
-    const effective = saved ? saved : projectFromNativeCompletePreparation(prepared);
+    const { prepared, legacy } = options;
+    const effective = legacy ? legacy.project() : projectFromNativeCompletePreparation(prepared);
     const runtimeOverrides = Object.fromEntries(
       Object.entries(prepared.recordOverrides).filter(([owner]) => owner !== 'tests'),
     );
@@ -314,7 +253,7 @@ export class NativeWorkingRuntimePreparationCache {
     let test: NativeWorkingRuntimeResult['test'];
     if (options.testId) {
       const project = nativeRuntimeProject(options);
-      const data = parseTestData(project.tests[options.testId]?.data);
+      const data = admittedPlaybackTestData(options, project);
       if (!data)
         return {
           status: 'blocked',
@@ -357,9 +296,12 @@ export class NativeWorkingRuntimePreparationCache {
 
 export interface NativeWorkingRuntimeOptions {
   prepared: NativeAuthoringPreparation;
-  // Omit both to compile directly from a fully native-prepared Project.
-  saved?: AuthoringProject;
-  savedFiles?: Pick<LoadedProjectWorkspaceSnapshot, 'fileRevisions'>;
+  /** Isolated pre-#521 legacy adapter. Native candidate never imports its implementation. */
+  legacy?: {
+    project(): AuthoringProject;
+    prepare: typeof prepareRuntimeArtifact;
+    testData(value: unknown): TestData | null;
+  };
   projectRoot: string;
   testId?: string;
   testSuite?: boolean;
@@ -386,7 +328,7 @@ export async function prepareNativeWorkingRuntime(
   const project = options.testId ? workingProject : projectWithPreviewLocale(workingProject);
   let test: NativeWorkingRuntimeResult['test'];
   if (options.testId) {
-    const data = parseTestData(project.tests[options.testId]?.data);
+    const data = admittedPlaybackTestData(options, project);
     if (!data)
       return {
         status: 'blocked',
@@ -464,8 +406,21 @@ export async function prepareNativeWorkingRuntime(
       },
     };
     const baseCompiler = options.shaderCompiler ?? nodeShaderCompilerAdapter(compileShaders);
-    const runtime = await prepareRuntimeArtifact({
+    const prepare = options.legacy?.prepare ?? prepareRuntimeArtifact;
+    if (!options.legacy && !Array.isArray(prepared.referencedAssetIds))
+      throw new Error('Native complete preparation omitted admitted Runtime Asset references.');
+    const runtime = await prepare({
       project,
+      ...(!options.legacy
+        ? {
+            admittedAuthoringDiagnostics: classifyProjectValidationDiagnostics(
+              prepared.diagnostics,
+              { producer: 'authoring' },
+            ),
+            admittedValidationContributions: [],
+            admittedRuntimeAssetReferences: prepared.referencedAssetIds,
+          }
+        : {}),
       projectRoot,
       profile: {
         ...selectedExportProfile(project),
@@ -504,36 +459,6 @@ export async function prepareNativeWorkingRuntime(
 
 /** Capture an active native working session, then reject a late build if that
  * session was edited or closed while the runtime compiler was running. */
-export async function prepareNativeWorkingSession(
-  working: NativeAuthoringWorkingProject,
-  savedWorkspace: ActiveProjectWorkspaceSession,
-  options: Pick<NativeWorkingRuntimeOptions, 'testId' | 'shaderCompiler' | 'paths'> & {
-    cache?: NativeWorkingRuntimePreparationCache;
-  } = {},
-): Promise<NativeWorkingRuntimePreparation> {
-  const sessionId = working.sessionId();
-  const prepared = await working.prepareWorking(options.testId);
-  const input = {
-    testId: options.testId,
-    shaderCompiler: options.shaderCompiler,
-    paths: options.paths,
-    prepared,
-    saved: savedWorkspace.project(),
-    savedFiles: savedWorkspace.snapshot(),
-    projectRoot: savedWorkspace.projectRoot(),
-  };
-  const result = await (options.cache
-    ? options.cache.prepare(input)
-    : prepareNativeWorkingRuntime(input));
-  if (
-    working.sessionId() !== sessionId ||
-    working.snapshot()?.workingRevision !== prepared.workingRevision
-  ) {
-    if (result.status === 'prepared') await result.dispose();
-    throw new Error('Native working Project changed during preview/Test preparation.');
-  }
-  return result;
-}
 
 /** Execute the prepared authored Test through the same runtime or runtime-ui
  * native entrypoints as the editor. Never interpret it in the authoring worker. */

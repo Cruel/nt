@@ -12,13 +12,15 @@ import {
 import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
+} from './project-workspace/project-workspace-contracts';
+import {
   assertProjectWorkspacePathContained,
-  assetSourcePaths,
-  compareProjectWorkspaceUnicodeCodePoints,
-  type LoadedProjectWorkspaceSnapshot,
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceProcessLiveness,
-} from './project-workspace';
+} from './project-workspace/project-workspace-file-system';
+import { assetSourcePaths } from './project-workspace/project-asset-source-paths';
+import { compareProjectWorkspaceUnicodeCodePoints } from './project-workspace/workspace-codepoint-order';
+import type { LoadedProjectWorkspaceSnapshot } from './project-workspace/project-workspace-service';
 import {
   captureProjectSourceInventory,
   ProjectSourceInventoryError,
@@ -29,7 +31,14 @@ import {
 } from './project-source-inventory';
 import { sha256PrefixedUtf8 } from './web-crypto';
 import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-test-catalog';
-import { validateAuthoringProject } from './project-schema/authoring-validation';
+import type { AuthoringProject } from './project-schema/authoring-project';
+
+export type LegacyRuntimeCacheValidator = (project: AuthoringProject) => readonly Readonly<{
+  code: string;
+  severity: 'error' | 'warning' | 'info';
+  path: string;
+  message: string;
+}>[];
 
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
@@ -864,6 +873,7 @@ async function publishRuntimeBuildCache(
     path: string;
     message: string;
   }>[],
+  legacyValidator?: LegacyRuntimeCacheValidator,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   if (!fileSystem.readPathMetadata) return { published: false, reason: 'metadata-unavailable' };
 
@@ -887,8 +897,10 @@ async function publishRuntimeBuildCache(
   if (!sameInputSnapshot(expectedTestInputs, currentTestInputs))
     return { published: false, reason: 'test-inputs-changed-during-preparation' };
 
+  if (!admittedAuthoringDiagnostics && !legacyValidator)
+    return { published: false, reason: 'native-authoring-admission-required' };
   const authoringDiagnostics = (
-    admittedAuthoringDiagnostics ?? validateAuthoringProject(currentSnapshot.project)
+    admittedAuthoringDiagnostics ?? legacyValidator!(currentSnapshot.project)
   ).map((item) => ({
     code: item.code,
     severity: item.severity,
@@ -1043,6 +1055,7 @@ export function publishCanonicalRuntimeBuildCache(
     path: string;
     message: string;
   }>[],
+  legacyValidator?: LegacyRuntimeCacheValidator,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   return publishRuntimeBuildCache(
     fileSystem,
@@ -1057,6 +1070,7 @@ export function publishCanonicalRuntimeBuildCache(
     RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
     compilerIdentity,
     admittedAuthoringDiagnostics,
+    legacyValidator,
   );
 }
 
@@ -1072,6 +1086,7 @@ export function publishRuntimeBuildCacheVariant(
   host: RuntimeBuildCachePublicationHost,
   variant: string,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  legacyValidator?: LegacyRuntimeCacheValidator,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   return publishRuntimeBuildCache(
     fileSystem,
@@ -1085,5 +1100,7 @@ export function publishRuntimeBuildCacheVariant(
     host,
     variant,
     compilerIdentity,
+    undefined,
+    legacyValidator,
   );
 }

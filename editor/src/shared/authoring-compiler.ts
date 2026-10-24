@@ -15,6 +15,7 @@ import {
 } from './authoring-compiler-lowering';
 
 export * from './authoring-compiler-lowering';
+export * from './legacy-authoring-symbol-tables';
 
 const legacyHooks: LegacyAuthoringCompilerHooks = {
   normalize(value) {

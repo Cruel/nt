@@ -14,7 +14,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { selectedExportProfile } from './shared/project-schema/authoring-export';
-import { prepareRuntimeArtifact } from './shared/runtime-artifact-preparation';
+import { prepareRuntimeArtifact } from './shared/legacy-runtime-artifact-preparation';
 import {
   nodeShaderCompilerAdapter,
   nodeRuntimeArtifactPaths,

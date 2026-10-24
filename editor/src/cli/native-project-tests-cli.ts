@@ -6,11 +6,9 @@ import { nativeProjectRoot, type NativeProjectCommandCall } from './native-proje
 import { nativeProjectDiagnostics } from './native-project-results';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
-import type {
-  LoadedProjectWorkspaceSnapshot,
-  ProjectWorkspaceFileSystem,
-} from '../shared/project-workspace';
-import { NodeProjectWorkspaceProcessLiveness } from '../shared/project-workspace';
+import type { LoadedProjectWorkspaceSnapshot } from '../shared/project-workspace/project-workspace-service';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
+import { NodeProjectWorkspaceProcessLiveness } from '../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceFileSystem } from '../shared/project-workspace/node-project-workspace-file-system';
 import { authoringCollectionKeys } from '../shared/project-schema/authoring-collections';
 import type { AuthoringProject } from '../shared/project-schema/authoring-project';
@@ -46,7 +44,7 @@ import {
   preparedMediaTestRequest,
   nativeTestResult,
   nativeSuiteResult,
-} from './commands/native-commands';
+} from './native-command-results';
 import {
   verifyPinnedExternalAssets,
   type PinnedExternalAssetExpectation,

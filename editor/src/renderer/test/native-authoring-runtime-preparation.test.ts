@@ -6,14 +6,15 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { createDefaultAuthoringRecord } from '../project/entity-operations';
-import { defaultTestData } from '../../shared/project-schema/authoring-tests';
+import { defaultTestData, parseTestData } from '../../shared/project-schema/authoring-tests';
 import {
   NativeWorkingRuntimePreparationCache,
   prepareNativeWorkingRuntime,
   projectFromNativeCompletePreparation,
-  projectFromNativeWorkingPreparation,
   runNativeWorkingTest,
 } from '../../main/services/native-authoring-runtime-preparation';
+import { projectFromNativeWorkingPreparation } from '../../main/services/legacy-native-authoring-preview';
+import { prepareRuntimeArtifact as prepareLegacyRuntimeArtifact } from '../../shared/legacy-runtime-artifact-preparation';
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { logicalRuntimeArtifactPaths } from '../../shared/runtime-artifact-preparation';
 import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
@@ -59,6 +60,18 @@ function fixture() {
   return { project, prepared, savedFiles };
 }
 
+function legacyAdapter(
+  project: ReturnType<typeof fixture>['project'],
+  savedFiles: ReturnType<typeof fixture>['savedFiles'],
+  prepared: NativeAuthoringPreparation,
+) {
+  return {
+    project: () => projectFromNativeWorkingPreparation(project, savedFiles, prepared),
+    prepare: prepareLegacyRuntimeArtifact,
+    testData: parseTestData,
+  };
+}
+
 describe('certification-only native working Project runtime preparation', () => {
   it('treats C++ complete record values as authoritative without TypeScript re-normalization', () => {
     const { project, prepared } = fixture();
@@ -101,6 +114,7 @@ describe('certification-only native working Project runtime preparation', () => 
       await writeFile(path.join(root, 'assets/asset.bin'), 'asset source');
       const native = {
         ...prepared,
+        referencedAssetIds: [],
         completeProject: {
           ...project,
           project: { ...project.project, name: 'Native-only Project' },
@@ -156,8 +170,7 @@ describe('certification-only native working Project runtime preparation', () => 
     const { project, prepared, savedFiles } = fixture();
     const options = {
       prepared,
-      saved: project,
-      savedFiles,
+      legacy: legacyAdapter(project, savedFiles, prepared),
       projectRoot: '/unused-native-test-root',
       paths: logicalRuntimeArtifactPaths,
     };
@@ -200,8 +213,7 @@ describe('certification-only native working Project runtime preparation', () => 
     const cache = new NativeWorkingRuntimePreparationCache();
     const options = {
       prepared,
-      saved: project,
-      savedFiles,
+      legacy: legacyAdapter(project, savedFiles, prepared),
       projectRoot: '/unused-native-test-root',
       paths: logicalRuntimeArtifactPaths,
       testId: 'smoke',
@@ -219,7 +231,10 @@ describe('certification-only native working Project runtime preparation', () => 
         await concurrent.dispose();
       }
       await expect(
-        cache.prepare({ ...options, savedFiles: { fileRevisions: {} } }),
+        cache.prepare({
+          ...options,
+          legacy: legacyAdapter(project, { fileRevisions: {} }, prepared),
+        }),
       ).rejects.toThrow('differs from the admitted saved workspace');
       const revised = structuredClone(prepared);
       revised.workingRevision++;
@@ -241,7 +256,7 @@ describe('certification-only native working Project runtime preparation', () => 
       const second = await cache.prepare({
         ...options,
         prepared: revised,
-        savedFiles: updatedSavedFiles,
+        legacy: legacyAdapter(project, updatedSavedFiles, revised),
       });
       expect(second.status).toBe('prepared');
       if (second.status === 'prepared') {
@@ -256,7 +271,7 @@ describe('certification-only native working Project runtime preparation', () => 
       const third = await cache.prepare({
         ...options,
         prepared: changedSource,
-        savedFiles: updatedSavedFiles,
+        legacy: legacyAdapter(project, updatedSavedFiles, changedSource),
       });
       expect(third.status).toBe('prepared');
       if (third.status === 'prepared') {
@@ -272,8 +287,7 @@ describe('certification-only native working Project runtime preparation', () => 
   it('blocks invalid native working input rather than accidentally reusing saved source', async () => {
     const { project, prepared, savedFiles } = fixture();
     const result = await prepareNativeWorkingRuntime({
-      saved: project,
-      savedFiles,
+      legacy: legacyAdapter(project, savedFiles, prepared),
       prepared: {
         ...prepared,
         accepted: false,
@@ -306,9 +320,8 @@ describe('certification-only native working Project runtime preparation', () => 
     const text = "local preview = Text.tr('Dirty source')\n";
     prepared.textOverlays['scripts/demo.lua'] = text;
     const result = await prepareNativeWorkingRuntime({
-      saved: project,
+      legacy: legacyAdapter(project, savedFiles, prepared),
       prepared,
-      savedFiles,
       projectRoot: '/unused-native-test-root',
       paths: logicalRuntimeArtifactPaths,
     });
@@ -354,6 +367,10 @@ describe.skipIf(!addon)('native Project ↔ saved workspace preparation differen
         addonModule.prepareCompleteWorking(handle, revision, ''),
       ) as NativeAuthoringPreparation;
       expect(completeBaseline.accepted, completeBaseline.error).toBe(true);
+      expect(Array.isArray(completeBaseline.referencedAssetIds)).toBe(true);
+      expect(completeBaseline.referencedAssetIds).toEqual(
+        [...new Set(completeBaseline.referencedAssetIds)].sort(),
+      );
       expect(projectFromNativeCompletePreparation(completeBaseline)).toEqual(
         opened.snapshot.project,
       );
@@ -403,6 +420,7 @@ describe.skipIf(!addon)('native Project ↔ saved workspace preparation differen
         addonModule.prepareCompleteWorking(handle, revision, 'world-composition-flow'),
       ) as NativeAuthoringPreparation;
       expect(completeDirty.accepted, completeDirty.error).toBe(true);
+      expect(completeDirty.referencedAssetIds).toEqual(completeBaseline.referencedAssetIds);
       expect(projectFromNativeCompletePreparation(completeDirty)).toEqual(projection);
       expect(projection.tests['world-composition-flow']?.label).toBe('Edited Test');
       expect(projection.layouts['notice-board']?.data.rml).toMatchObject({
@@ -428,6 +446,7 @@ describe.skipIf(!addon)('native Project ↔ saved workspace preparation differen
       ) as NativeAuthoringPreparation;
       expect(blocked.accepted).toBe(false);
       expect(blocked.completeProject).toBeNull();
+      expect(blocked.referencedAssetIds).toBeUndefined();
       expect(blocked.diagnostics.some((diagnostic) => diagnostic.severity === 'error')).toBe(true);
     } finally {
       addonModule.close(handle);

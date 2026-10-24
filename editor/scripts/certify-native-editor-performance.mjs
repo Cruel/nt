@@ -22,7 +22,8 @@ const { NodeProjectWorkspaceFileSystem, NodeProjectWorkspaceProcessLiveness } =
 const { ProjectWorkspaceTransactionService } =
   await import('../src/shared/project-workspace/project-workspace-transaction.ts');
 const { selectedExportProfile } = await import('../src/shared/project-schema/authoring-export.ts');
-const { prepareRuntimeArtifact } = await import('../src/shared/runtime-artifact-preparation.ts');
+const { prepareRuntimeArtifact } =
+  await import('../src/shared/legacy-runtime-artifact-preparation.ts');
 const { nodeRuntimeArtifactPaths, nodeShaderCompilerAdapter } =
   await import('../src/main/services/node-runtime-artifact-adapters.ts');
 const { invokeNovelTeaNativeOperation } = await import('../src/shared/noveltea-cli-subprocess.ts');

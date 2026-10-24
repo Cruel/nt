@@ -79,7 +79,7 @@ import {
 import {
   prepareRuntimeArtifact,
   type PreparedRuntimeArtifact,
-} from '../../../shared/runtime-artifact-preparation';
+} from '../../../shared/legacy-runtime-artifact-preparation';
 import { projectWithPreviewLocale } from '../../../shared/preview-locale';
 import { rendererRuntimeArtifactPaths } from '../../export/runtime-artifact-adapters';
 import {

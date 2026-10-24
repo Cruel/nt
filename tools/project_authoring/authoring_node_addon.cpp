@@ -680,6 +680,13 @@ napi_value call(napi_env env, napi_callback_info info)
             if (name == "prepareCompleteWorking")
                 result["completeProject"] =
                     prepared.accepted ? Json::parse(prepared.complete_project_json) : Json::null();
+            if (name == "prepareCompleteWorking" && prepared.accepted) {
+                result["referencedAssetIds"] = Json::array();
+                if (!prepared.referenced_asset_ids)
+                    throw std::runtime_error("Complete Project omitted native runtime references.");
+                for (const auto& asset : *prepared.referenced_asset_ids)
+                    result["referencedAssetIds"].push_back(asset);
+            }
             result["sourceRevisions"] = Json::object();
             for (const auto& [path, value] : prepared.source_revisions)
                 result["sourceRevisions"][path] = value;

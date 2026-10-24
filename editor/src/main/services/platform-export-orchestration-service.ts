@@ -29,7 +29,7 @@ import {
   verifyPreparedRuntimeArtifact,
   type PreparedRuntimeArtifact,
   type RuntimeArtifactPathAdapter,
-} from '../../shared/runtime-artifact-preparation';
+} from '../../shared/legacy-runtime-artifact-preparation';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import type { AuthoringValidationContribution } from '../../shared/project-schema/authoring-validation-contributions';

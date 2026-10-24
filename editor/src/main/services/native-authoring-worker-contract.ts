@@ -95,6 +95,7 @@ export const nativeAuthoringPreparationSchema = z
     shaderOverlays: z.record(z.string(), z.string()),
     diagnostics: z.array(nativeAuthoringDiagnosticSchema),
     completeProject: z.unknown().nullable().optional(),
+    referencedAssetIds: z.array(z.string()).optional(),
   })
   .strict();
 

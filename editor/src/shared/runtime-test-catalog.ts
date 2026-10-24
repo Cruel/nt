@@ -5,7 +5,7 @@ import {
   validateTestData,
   type TestSchemaDiagnostic,
 } from './project-schema/authoring-tests';
-import { buildRuntimePlaybackSpecFromTestData } from './project-schema/test-playback-project';
+import { buildRuntimePlaybackSpecFromTestData } from './project-schema/test-playback-projection';
 
 export const RUNTIME_TEST_CATALOG_SCHEMA = 'noveltea.runtime-test-catalog' as const;
 
