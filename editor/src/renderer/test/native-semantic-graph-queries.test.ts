@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   nativeGraphCommandPreflight,
   nativeGraphImpactedOwnerPaths,
@@ -18,7 +18,10 @@ import {
 } from '../project/authoring-graph-consumers';
 import { generateAuthoringRepairPlan } from '../project/authoring-repair';
 import { referenceIndexFromCurrentGraph } from '../project/authoring-graph-consumers';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  authoringProjectSchema,
+  createAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
 import { searchProjectIndex } from '../../shared/project-search/project-search';
 import { entityRenameIdCommand } from '../commands/builtin-commands';
@@ -83,6 +86,197 @@ const fixture: NativeSemanticGraph = nativeSemanticGraphSchema.parse({
 });
 
 describe('revision-pinned native graph presentation-only queries', () => {
+  it('renames a flow target with its native wire shape, even when deletion repair is blocked', () => {
+    const project = createAuthoringProject();
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    project.entrypoint = { kind: 'room', id: 'hall' };
+    const room = { kind: 'record' as const, collection: 'rooms' as const, id: 'hall' };
+    const entry = { kind: 'project-field' as const, path: '/entrypoint' };
+    const native = projectNativeGraphForRenderer(
+      nativeSemanticGraphSchema.parse({
+        ...fixture,
+        nodes: [
+          { key: room, keyText: JSON.stringify(room), owningPath: '/rooms/hall', label: 'Hall' },
+          { key: entry, keyText: JSON.stringify(entry), owningPath: '/entrypoint', label: 'Entry' },
+        ],
+        edges: [
+          {
+            id: 'flow',
+            source: entry,
+            target: room,
+            sourcePath: '/entrypoint',
+            targetPath: '/rooms/hall',
+            role: 'flow-target',
+            facets: ['reference-integrity', 'tooling-reference'],
+            targetImpactPaths: ['/rooms/hall'],
+            repair: { kind: 'blocked', reason: 'Cannot repair deletion.' },
+          },
+        ],
+        occurrences: [],
+      }),
+      'flow-rename',
+      1,
+    );
+    const document = toJsonValue(project);
+    // A native-admitted projection is not subject to a second whole-Project
+    // TS schema parse. Unknown unrelated fields do not erase references.
+    (document as Record<string, unknown>).nativeOnlySentinel = true;
+    const schemaParse = vi.spyOn(authoringProjectSchema, 'safeParse');
+    let result: ReturnType<typeof entityRenameIdCommand>;
+    try {
+      result = entityRenameIdCommand({
+        document,
+        savedDocument: null,
+        graphSnapshot: native,
+        projectInstanceId: 'flow-rename',
+        projectRevision: 1,
+        payload: { collection: 'rooms', fromId: 'hall', toId: 'new-hall' },
+        request: {} as never,
+      });
+      expect(schemaParse).not.toHaveBeenCalled();
+    } finally {
+      schemaParse.mockRestore();
+    }
+    expect(result.diagnostics?.filter((item) => item.severity === 'error') ?? []).toEqual([]);
+    expect(result.patches).toContainEqual({
+      op: 'replace',
+      path: '/entrypoint',
+      value: { kind: 'room', id: 'new-hall' },
+    });
+    expect(result.patches).toContainEqual({ op: 'remove', path: '/rooms/hall' });
+  });
+
+  it('requires confirmation for physical references and counts each occurrence only once', () => {
+    const project = createAuthoringProject();
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const room = { kind: 'record' as const, collection: 'rooms' as const, id: 'hall' };
+    const script = { kind: 'record' as const, collection: 'scripts' as const, id: 'bootstrap' };
+    const sourceOnly = projectNativeGraphForRenderer(
+      nativeSemanticGraphSchema.parse({
+        ...fixture,
+        nodes: [
+          { key: room, keyText: JSON.stringify(room), owningPath: '/rooms/hall', label: 'Hall' },
+          {
+            key: script,
+            keyText: JSON.stringify(script),
+            owningPath: '/scripts/bootstrap',
+            label: 'Bootstrap',
+          },
+        ],
+        edges: [
+          {
+            id: 'aggregate',
+            source: script,
+            target: room,
+            sourcePath: '/scripts/bootstrap',
+            targetPath: '/rooms/hall',
+            role: 'source-recognized-reference',
+            facets: ['reference-integrity', 'tooling-reference', 'resource'],
+            targetImpactPaths: ['/rooms/hall'],
+            repair: { kind: 'blocked', reason: 'Source text requires review.' },
+          },
+        ],
+        occurrences: [
+          {
+            ownerPath: '/scripts/bootstrap',
+            sourceUrl: 'project:/scripts/bootstrap.lua',
+            sourceRevision: 'sha256:' + '5'.repeat(64),
+            line: 3,
+            column: 9,
+            value: 'hall',
+            classification: 'exact-manual',
+            target: room,
+          },
+        ],
+      }),
+      'source-rename',
+      1,
+    );
+    expect(semanticUsagesForTarget(sourceOnly, room)).toHaveLength(1);
+    expect(nativeGraphUsageCounts(sourceOnly.nativeGraph, room)).toEqual({
+      confirmed: 0,
+      possible: 0,
+      recognized: 1,
+    });
+    const base = {
+      document: toJsonValue(project),
+      savedDocument: null,
+      graphSnapshot: sourceOnly,
+      projectInstanceId: 'source-rename',
+      projectRevision: 1,
+      request: {} as never,
+    };
+    const blocked = entityRenameIdCommand({
+      ...base,
+      payload: { collection: 'rooms', fromId: 'hall', toId: 'new-hall' },
+    });
+    expect(blocked.patches).toEqual([]);
+    expect(blocked.diagnostics).toEqual([expect.objectContaining({ severity: 'error' })]);
+    const confirmed = entityRenameIdCommand({
+      ...base,
+      payload: {
+        collection: 'rooms',
+        fromId: 'hall',
+        toId: 'new-hall',
+        confirmRenameWithoutLuaRewrite: true,
+      },
+    });
+    expect(confirmed.diagnostics?.filter((item) => item.severity === 'error') ?? []).toEqual([]);
+    expect(confirmed.patches).toEqual(
+      expect.arrayContaining([expect.objectContaining({ op: 'remove', path: '/rooms/hall' })]),
+    );
+    expect(confirmed.patches.some((patch) => patch.path === '/scripts/bootstrap')).toBe(false);
+  });
+
+  it('refuses a native reference edge whose admitted field no longer matches its target', () => {
+    const project = createAuthoringProject();
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    project.entrypoint = { kind: 'scene', id: 'intro' };
+    const room = { kind: 'record' as const, collection: 'rooms' as const, id: 'hall' };
+    const entry = { kind: 'project-field' as const, path: '/entrypoint' };
+    const native = projectNativeGraphForRenderer(
+      nativeSemanticGraphSchema.parse({
+        ...fixture,
+        nodes: [
+          { key: room, keyText: JSON.stringify(room), owningPath: '/rooms/hall', label: 'Hall' },
+          { key: entry, keyText: JSON.stringify(entry), owningPath: '/entrypoint', label: 'Entry' },
+        ],
+        edges: [
+          {
+            id: 'stale-field',
+            source: entry,
+            target: room,
+            sourcePath: '/entrypoint',
+            targetPath: '/rooms/hall',
+            role: 'flow-target',
+            facets: ['reference-integrity'],
+            targetImpactPaths: ['/rooms/hall'],
+            repair: { kind: 'blocked', reason: 'Deletion not supported.' },
+          },
+        ],
+        occurrences: [],
+      }),
+      'stale-rename',
+      1,
+    );
+    const result = entityRenameIdCommand({
+      document: toJsonValue(project),
+      savedDocument: null,
+      graphSnapshot: native,
+      projectInstanceId: 'stale-rename',
+      projectRevision: 1,
+      payload: { collection: 'rooms', fromId: 'hall', toId: 'new-hall' },
+      request: {} as never,
+    });
+    expect(result.patches).toEqual([]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        severity: 'error',
+        message: expect.stringContaining('no proven safe rename encoding'),
+      }),
+    ]);
+  });
+
   it('allows safe native Variable and entrypoint rename patches despite blocked delete repair descriptors', () => {
     const variable = { kind: 'record' as const, collection: 'variables' as const, id: 'score' };
     const dialogue = { kind: 'record' as const, collection: 'dialogues', id: 'intro' };
@@ -358,8 +552,8 @@ describe('revision-pinned native graph presentation-only queries', () => {
         confirmRenameWithoutLuaRewrite: true,
       }),
     ).toMatchObject({
-      kind: 'blocked',
-      reason: expect.stringContaining('structural dependency'),
+      kind: 'ready',
+      warnings: expect.any(Array),
     });
     const sourceOnly = projectNativeGraphForRenderer({ ...fixture, edges: [] }, 'renderer-A', 17);
     expect(
@@ -445,8 +639,8 @@ describe('revision-pinned native graph presentation-only queries', () => {
     expect(
       nativeGraphCommandPreflight({ ...input, operation: 'rename', confirmManualRename: true }),
     ).toMatchObject({
-      kind: 'blocked',
-      reason: expect.stringContaining('structural dependency'),
+      kind: 'ready',
+      confirmed: [{ role: 'room-background' }],
     });
     expect(
       nativeGraphCommandPreflight({

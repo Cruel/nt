@@ -400,9 +400,14 @@ export function renameEntityIdPatches(
   document: unknown,
   payload: RenameEntityIdPayload,
   referenceIndex: ReferenceIndex,
+  nativeAdmitted = false,
 ): EntityOperationResult {
-  const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  // The admitted native working projection does not need a second TypeScript
+  // whole-Project schema parse. The legacy route still validates normally.
+  const project = nativeAdmitted ? (document as AuthoringProject) : validateProject(document);
+  if (!nativeAdmitted && !isAuthoringProject(project))
+    return { patches: [], diagnostics: [project as EntityOperationDiagnostic] };
+  const admittedProject = project as AuthoringProject;
   const diagnostics = [
     validateTargetCollection(payload.collection),
     entityIdDiagnostic(payload.fromId, pathForRecord(payload.collection, payload.fromId)),
@@ -412,7 +417,7 @@ export function renameEntityIdPatches(
   if (payload.fromId === payload.toId) {
     return { patches: [], diagnostics: [error('New ID must be different from the current ID.')] };
   }
-  const source = project[payload.collection][payload.fromId];
+  const source = admittedProject[payload.collection]?.[payload.fromId];
   if (!source) {
     return {
       patches: [],
@@ -421,7 +426,7 @@ export function renameEntityIdPatches(
       ],
     };
   }
-  if (project[payload.collection][payload.toId]) {
+  if (admittedProject[payload.collection]?.[payload.toId]) {
     return {
       patches: [],
       diagnostics: [
@@ -438,7 +443,7 @@ export function renameEntityIdPatches(
   const newMessageBase = `${pathForRecord(payload.collection, payload.toId)}${
     payload.collection === 'archetypes' ? '/configuration' : '/data'
   }`;
-  const messageIdentity = preserveStructuredMessageIdentityPatches(project, [
+  const messageIdentity = preserveStructuredMessageIdentityPatches(admittedProject, [
     { fromPrefix: oldMessageBase, toPrefix: newMessageBase },
   ]);
   if (messageIdentity.conflict)
@@ -489,7 +494,7 @@ export function renameEntityIdPatches(
     payload.collection,
     payload.toId,
   ]);
-  const metadata = project.editor.recordMetadata?.[payload.collection]?.[payload.fromId];
+  const metadata = admittedProject.editor?.recordMetadata?.[payload.collection]?.[payload.fromId];
   if (metadata) {
     patches.push({ op: 'add', path: newMetadataPath, value: toJsonValue(metadata) });
     patches.push({ op: 'remove', path: oldMetadataPath });

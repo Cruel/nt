@@ -68,6 +68,8 @@ import {
   validBounds,
 } from '@/project/hotspot-operations';
 import { generateAuthoringRepairPlan, recordTarget } from '@/project/authoring-repair';
+import { nativeRenameReferencePatches } from '@/project/native-rename-references';
+import type { NativeRendererGraphSnapshot } from '@/project/native-authoring-graph-projection';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
 import {
   preflightGraphCommand,
@@ -171,7 +173,7 @@ const EMPTY_REFERENCE_INDEX: ReferenceIndex = {
   byTarget: new Map(),
 };
 
-function commandReferenceIndex(
+function legacyCommandReferenceIndex(
   document: JsonValue,
   graphSnapshot: Parameters<typeof preflightGraphCommand>[0]['snapshot'],
 ): ReferenceIndex {
@@ -1115,18 +1117,40 @@ export const entityRenameIdCommand: CommandHandler = ({
       const sourceRewrites = exactSourceRewritePatches(document, preflight, parsed.toId);
       if (sourceRewrites.diagnostics?.some((diagnostic) => diagnostic.severity === 'error'))
         return sourceRewrites;
+      const native =
+        graphSnapshot && 'nativeGraph' in graphSnapshot
+          ? (graphSnapshot as NativeRendererGraphSnapshot).nativeGraph
+          : null;
+      const nativeReferences = native
+        ? nativeRenameReferencePatches(
+            toJsonValue(document),
+            native,
+            { collection: parsed.collection as never, id: parsed.fromId },
+            parsed.toId,
+          )
+        : null;
+      if (nativeReferences && !nativeReferences.ok)
+        return { patches: [], diagnostics: [error(nativeReferences.reason)] };
       const renamed = renameEntityIdPatches(
         applyJsonPatch(toJsonValue(document), sourceRewrites.patches).document,
         parsed as never,
-        commandReferenceIndex(document, graphSnapshot ?? null),
+        native
+          ? EMPTY_REFERENCE_INDEX
+          : legacyCommandReferenceIndex(document, graphSnapshot ?? null),
+        native !== null,
       );
       return preflightWarningsResult(
         {
           ...renamed,
-          patches: [...sourceRewrites.patches, ...renamed.patches],
+          patches: [
+            ...sourceRewrites.patches,
+            ...renamed.patches,
+            ...(nativeReferences?.ok ? nativeReferences.patches : []),
+          ],
           affectedPaths: [
             ...(sourceRewrites.affectedPaths ?? []),
             ...(renamed.affectedPaths ?? []),
+            ...(nativeReferences?.ok ? nativeReferences.patches.map((patch) => patch.path) : []),
           ],
         },
         preflight,

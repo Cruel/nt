@@ -20,7 +20,16 @@ remains manual pending an explicit source-transaction editor, and
 incomplete owner proof blocks destructive operations. Native-mode Project
 sessions can safely rename confirmed structured `/$ref`, typed Variable `/$var`,
 and Project entrypoint fields even if those references cannot be automatically
-repaired for deletion. Nullable Room
+repaired for deletion. Native rename preflight is independent of deletion
+repair policy: the rename command uses native structural edges and checks the
+admitted field's actual reference encoding (typed `/$ref`, Variable `/$var`,
+typed Flow targets and scalar IDs) before writing a patch. Unknown encodings
+block the rename rather than silently dropping an edge or re-running
+whole-Project TypeScript schema validation. Aggregate source-recognized edges
+remain in the native DTO for preview impact, but Find Usages indexes physical
+source occurrences only to prevent duplicate results. Physical source text
+requires explicit confirmation and is never rewritten by a JSON patch.
+Nullable Room
 background/prop/environment references, composition Scripts and system Layouts
 receive native `set-null` repair descriptors at the containing field; unsupported
 references remain blocked, and physical source text is never implicitly
