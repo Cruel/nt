@@ -585,6 +585,14 @@ async function runInternalCommand(
     if (input.action !== 'runtime-package-preparation')
       return result(2, '', 'Internal native Project preparation requires a runtime intent.\n');
     response = JSON.parse(invokeHost('native-project-commands', JSON.stringify(input)));
+  } else if (operation === 'native-project-create') {
+    // Native editor candidate Create is a single native transaction. Keep the
+    // public/legacy CLI route unchanged until the coordinated #521 cutover.
+    if (typeof input.projectRoot !== 'string' || typeof input.name !== 'string')
+      return result(2, '', 'Native Project creation requires directory and name.\n');
+    response = JSON.parse(
+      invokeHost('native-project-commands', JSON.stringify({ ...input, action: 'project-create' })),
+    );
   } else if (operation === 'native-runtime-compile-certify') {
     // Certificate-only parity seam: consume the exact native Project result
     // through the same existing runtime artifact compiler as the public CLI,

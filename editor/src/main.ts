@@ -82,6 +82,9 @@ import { ActiveProjectSessionService } from './main/services/active-project-sess
 import { NativeAuthoringSessionBridge } from './main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from './main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from './main/services/native-editor-session-controller';
+import { NativeEditorProjectHandoff } from './main/services/native-editor-project-handoff';
+import { createNativeEditorProject } from './main/services/native-editor-project-create';
+import { NativeEditorObserverWatchService } from './main/services/native-editor-observer-watch-service';
 import { incompatibleLegacyNativeEditChannels } from './main/services/native-editor-ipc-routing';
 import { readEngineShaderSource } from './main/services/project-source-file-service';
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
@@ -376,20 +379,57 @@ const activeProjectSessions = new ActiveProjectSessionService();
 // The cutover admission gate is intentionally explicit until #504/#506 have
 // migrated synchronous renderer mutation, Save and watcher ownership together.
 // It operates on the actual main-owned Project lifecycle, not a test-only root.
-const nativeEditorMutationEnabled = process.argv.includes('--certify-native-authoring-edit');
-const nativeEditorAdmission =
-  nativeEditorMutationEnabled || process.argv.includes('--certify-native-authoring-open')
-    ? (() => {
-        const addonPath =
-          process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
-          path.join(process.resourcesPath, 'authoring', 'noveltea-authoring-node.node');
-        const bridge = new NativeAuthoringSessionBridge(activeProjectSessions, { addonPath });
-        return new NativeEditorSessionController(
-          activeProjectSessions,
-          bridge,
-          new NativeAuthoringWorkingProject(bridge),
-        );
-      })()
+// This separate certification route exercises native admission *before*
+// committing an Open. Neither the ordinary editor nor the existing legacy
+// differential certification route is switched by this preparatory flag.
+const nativeEditorLifecycleEnabled = process.argv.includes('--certify-native-authoring-lifecycle');
+const nativeEditorMutationEnabled =
+  nativeEditorLifecycleEnabled || process.argv.includes('--certify-native-authoring-edit');
+const nativeEditorObservers = new WeakMap<
+  NativeEditorSessionController,
+  NativeEditorObserverWatchService
+>();
+function createNativeEditorController(): NativeEditorSessionController {
+  const addonPath =
+    process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
+    path.join(process.resourcesPath, 'authoring', 'noveltea-authoring-node.node');
+  const bridge = new NativeAuthoringSessionBridge(activeProjectSessions, { addonPath });
+  const controller = new NativeEditorSessionController(
+    activeProjectSessions,
+    bridge,
+    new NativeAuthoringWorkingProject(bridge),
+  );
+  nativeEditorObservers.set(
+    controller,
+    new NativeEditorObserverWatchService(bridge, activeProjectSessions, (event) => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed())
+        mainWindow.webContents.send(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, event);
+    }),
+  );
+  return controller;
+}
+const nativeEditorHandoff = nativeEditorLifecycleEnabled
+  ? new NativeEditorProjectHandoff(activeProjectSessions, createNativeEditorController)
+  : null;
+function closeNativeEditorHandoff(): void {
+  const controller = nativeEditorHandoff?.current();
+  if (controller) nativeEditorObservers.get(controller)?.close();
+  nativeEditorHandoff?.close();
+}
+async function refreshNativeCandidateCapabilities(projectSessionId: string): Promise<void> {
+  if (!nativeEditorHandoff) return;
+  const controller = nativeEditorHandoff.current();
+  if (!controller?.isAdmitted(projectSessionId))
+    throw new Error('Native Asset and source inventory requires the admitted Project.');
+  const current = await controller.currentWorkingProject(projectSessionId);
+  if (!controller.isAdmitted(projectSessionId))
+    throw new Error('Native Project changed during source authority refresh.');
+  await activeProjectSessions.acceptNativeProject(projectSessionId, current);
+}
+let nativeEditorAdmission: NativeEditorSessionController | null =
+  !nativeEditorHandoff &&
+  (nativeEditorMutationEnabled || process.argv.includes('--certify-native-authoring-open'))
+    ? createNativeEditorController()
     : null;
 
 async function admitNativeEditorProject(
@@ -876,7 +916,8 @@ function createWindow(): BrowserWindow {
   const sessionOwner = mainWindow;
   mainWindow.on('closed', () => {
     terminalService.dispose();
-    nativeEditorAdmission?.dispose();
+    if (nativeEditorHandoff) closeNativeEditorHandoff();
+    else nativeEditorAdmission?.dispose();
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
   });
@@ -1266,6 +1307,17 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.OPEN_PROJECT,
     (arguments_) => openProjectArgumentsSchema.parse(arguments_),
     async (projectPath: string) => {
+      if (nativeEditorHandoff) {
+        const incumbent = nativeEditorHandoff.current();
+        const result = await nativeEditorHandoff.open(projectPath);
+        if (result.success) {
+          if (incumbent && incumbent !== nativeEditorHandoff.current())
+            nativeEditorObservers.get(incumbent)?.close();
+          nativeEditorAdmission = nativeEditorHandoff.current();
+          await stopProjectWorkspaceWatcher();
+        }
+        return rememberPreviewProjectRoot(result);
+      }
       const activationGeneration = activeProjectSessions.beginProjectActivation();
       const result = await activeProjectSessions.attachToSuccessfulResult(
         await openProject(projectPath),
@@ -1282,6 +1334,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.CREATE_PROJECT,
     (arguments_) => createProjectArgumentsSchema.parse(arguments_),
     async (request: CreateProjectRequest) => {
+      if (nativeEditorHandoff) return createNativeEditorProject(request);
       const activationGeneration = activeProjectSessions.beginProjectActivation();
       const result = await activeProjectSessions.attachToSuccessfulResult(
         await createProject(request),
@@ -1303,7 +1356,14 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.COMPLETE_PROJECT_IMPORT,
     (arguments_) => completeProjectImportArgumentsSchema.parse(arguments_),
-    (request) => importDesktopProject(request),
+    (request) => {
+      if (nativeEditorHandoff)
+        return {
+          success: false,
+          error: 'Desktop bundle import is not yet wired to the native editor candidate.',
+        };
+      return importDesktopProject(request);
+    },
   );
 
   guardedIpc.handle(
@@ -1311,6 +1371,12 @@ void app.whenReady().then(async () => {
     (arguments_) => noArgumentsSchema.parse(arguments_),
     async () => {
       await stopProjectWorkspaceWatcher();
+      if (nativeEditorHandoff) {
+        closeNativeEditorHandoff();
+        nativeEditorAdmission = null;
+        return;
+      }
+      if (nativeEditorAdmission) nativeEditorObservers.get(nativeEditorAdmission)?.close();
       nativeEditorAdmission?.close();
       activeProjectSessions.closeActiveProject();
     },
@@ -1504,8 +1570,30 @@ void app.whenReady().then(async () => {
 
   guardedIpc.handle(
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
-    (arguments_) => listPlaybackTestsArgumentsSchema.parse(arguments_),
-    (project) => listPlaybackTests(project),
+    (arguments_) => {
+      if (!nativeEditorHandoff) return listPlaybackTestsArgumentsSchema.parse(arguments_);
+      // The renderer's Project argument is ignored in the native candidate;
+      // never parse it as a second authoritative TypeScript Project.
+      if (arguments_.length !== 1 || !arguments_[0] || typeof arguments_[0] !== 'object')
+        throw new Error('Native Test catalog request must carry one view-only argument.');
+      return [null] as [unknown];
+    },
+    async (project) => {
+      if (!nativeEditorHandoff) return listPlaybackTests(project);
+      const sessionId = activeProjectSessions.currentSessionId();
+      const controller = nativeEditorHandoff.current();
+      if (!sessionId || !controller?.isAdmitted(sessionId))
+        throw new Error('Native Test catalog requires an admitted Project.');
+      const native = await controller.currentWorkingProject(sessionId);
+      return {
+        ok: true,
+        tests: Object.entries(native.tests).map(([id, record]) => ({
+          id,
+          steps: record.data.steps.length,
+        })),
+        diagnostics: [],
+      };
+    },
   );
 
   guardedIpc.handle(
@@ -1621,6 +1709,7 @@ void app.whenReady().then(async () => {
       if (nativeEditorMutationEnabled) {
         if (!nativeEditorAdmission)
           throw new Error('Native platform export requires an admitted Project.');
+        const controller = nativeEditorAdmission;
         const native = await nativeEditorAdmission.prepareCleanExport(projectSessionId);
         return exportProjectToPlatform(
           {
@@ -1635,7 +1724,7 @@ void app.whenReady().then(async () => {
           undefined,
           async () => {
             try {
-              await nativeEditorAdmission.prepareCleanExport(projectSessionId);
+              await controller.prepareCleanExport(projectSessionId);
               return null;
             } catch (error) {
               return error instanceof Error ? error.message : String(error);
@@ -1787,8 +1876,9 @@ void app.whenReady().then(async () => {
         if (nativeEditorMutationEnabled) {
           if (!nativeEditorAdmission?.isAdmitted(projectSessionId))
             throw new Error('Native Project Copy requires an admitted Project.');
+          const controller = nativeEditorAdmission;
           return await saveNativeProjectCopyAs(mainWindow, projectRoot, project, () =>
-            nativeEditorAdmission.verifySavedCopySources(projectSessionId),
+            controller.verifySavedCopySources(projectSessionId),
           );
         }
         return await saveProjectCopyAs(
@@ -2073,6 +2163,14 @@ void app.whenReady().then(async () => {
     (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
     (projectSessionId) => {
       try {
+        if (nativeEditorHandoff) {
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+          const controller = nativeEditorHandoff.current();
+          if (!controller?.isAdmitted(projectSessionId))
+            throw new Error('Native Project observer requires the current admitted session.');
+          nativeEditorObservers.get(controller)!.start(projectSessionId);
+          return { ok: true, success: true, diagnostics: [] };
+        }
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return startProjectWorkspaceWatcher(
           mainWindow,
@@ -2103,6 +2201,10 @@ void app.whenReady().then(async () => {
     (projectSessionId) => {
       try {
         activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        if (nativeEditorHandoff) {
+          nativeEditorObservers.get(nativeEditorHandoff.current()!)?.close();
+          return { ok: true, success: true, diagnostics: [] };
+        }
         return stopProjectWorkspaceWatcher(projectSessionId);
       } catch (error) {
         const message =
@@ -2120,15 +2222,19 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.RESOLVE_PROJECT_ORIGINAL_ASSET_URL,
     (arguments_) => projectAssetIdentityArgumentsSchema.parse(arguments_),
-    (projectSessionId, assetId) =>
-      resolveProjectOriginalAssetUrl(activeProjectSessions, projectSessionId, assetId),
+    async (projectSessionId, assetId) => {
+      await refreshNativeCandidateCapabilities(projectSessionId);
+      return resolveProjectOriginalAssetUrl(activeProjectSessions, projectSessionId, assetId);
+    },
   );
 
   guardedIpc.handle(
     IPC_CHANNELS.INSPECT_PROJECT_ASSET_METADATA,
     (arguments_) => projectAssetIdentityArgumentsSchema.parse(arguments_),
-    (projectSessionId, assetId) =>
-      assetMetadataInspectionService.inspect(projectSessionId, assetId),
+    async (projectSessionId, assetId) => {
+      await refreshNativeCandidateCapabilities(projectSessionId);
+      return assetMetadataInspectionService.inspect(projectSessionId, assetId);
+    },
   );
 
   guardedIpc.handle(
@@ -2158,8 +2264,10 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.LIST_PROJECT_SOURCE_FILES,
     (arguments_) => listProjectSourceFilesArgumentsSchema.parse(arguments_),
-    (request: ListProjectSourceFilesRequest) =>
-      activeProjectSessions.listProjectSourceFiles(request),
+    async (request: ListProjectSourceFilesRequest) => {
+      await refreshNativeCandidateCapabilities(request.projectSessionId);
+      return activeProjectSessions.listProjectSourceFiles(request);
+    },
   );
 
   guardedIpc.handle(
@@ -2398,7 +2506,8 @@ void app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
-  nativeEditorAdmission?.dispose();
+  if (nativeEditorHandoff) closeNativeEditorHandoff();
+  else nativeEditorAdmission?.dispose();
   activeProjectSessions.dispose();
   void stopProjectWorkspaceWatcher();
   void enginePreviewServer.stop();

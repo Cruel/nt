@@ -28,6 +28,7 @@ import type { ShaderVariant } from '../../shared/shader-variants';
 import { compileShaders } from './native-shader-compiler-service';
 import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
 import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
+import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
 
 /** Consume every effective native owner without TypeScript schema validation
  * or normalization. The addon owns canonical Project and record semantics;
@@ -112,6 +113,9 @@ async function verifyCompleteNativeSources(options: NativeWorkingRuntimeOptions)
   if (options.legacy) return;
   const root = await realpath(options.projectRoot);
   const revisions = Object.entries(options.prepared.sourceRevisions);
+  const assetHashes = nativeAssetContentHashes(
+    projectFromNativeCompletePreparation(options.prepared),
+  );
   if (!revisions.some(([file]) => file === 'project.yaml'))
     throw new Error('Native complete preparation omitted its Project manifest revision.');
   for (const [relative, expected] of revisions) {
@@ -126,21 +130,19 @@ async function verifyCompleteNativeSources(options: NativeWorkingRuntimeOptions)
     )
       throw new Error('Native complete preparation contains an unsafe source path.');
     const candidate = path.join(root, relative);
-    let actual = 'absent';
+    let bytes: Buffer | null = null;
     try {
       const canonical = await realpath(candidate);
       if (!canonical.startsWith(root + path.sep))
         throw new Error('Native complete preparation source escapes Project root: ' + relative);
-      actual =
-        'sha256:' +
-        createHash('sha256')
-          .update(await readFile(canonical))
-          .digest('hex');
+      bytes = await readFile(canonical);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
-    if (actual !== expected)
+    if (expected === 'absent' && bytes === null) continue;
+    if (bytes === null || expected === 'absent')
       throw new Error('Native complete preparation source changed on disk: ' + relative);
+    verifyNativeSourceBytes(relative, expected, bytes, assetHashes);
   }
 }
 
