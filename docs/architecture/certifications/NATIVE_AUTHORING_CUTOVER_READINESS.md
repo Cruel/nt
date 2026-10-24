@@ -1,6 +1,64 @@
 # Native Project cutover readiness / deletion plan (#520)
 
 Status: **pre-cutover readiness accepted** (2026-10-23; production routing unchanged).
+
+## #521 current integration gate (2026-10-24)
+
+The standalone #534 suite now supports **`--production`** on the same
+reference-independent public CLI, Feature Lab, cache, Tests, package, Web
+platform, ComfyUI publication/race and editor/CLI disk witnesses as its
+native-only candidate mode. It first requires SHA-bound provenance over all
+six emitted Electron/ScriptC roots, and rejects every retired Project module.
+The ordinary CLI builder also emits `native-production-build.json` with
+installed-executable SHA256 and production ScriptC-island provenance SHA256;
+candidate builds replace that record with the separate candidate identity.
+The build record proves **which executable was built**, not native authority;
+full bundle closure and the public lifecycle remain separate requirements.
+
+After the *atomic* native cutover, run the ordinary build and then:
+
+```sh
+NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
+  pnpm -C editor run noveltea:certify:native-candidate -- \
+    "$PWD/build/cli/linux/noveltea" --production
+```
+
+**Current blocker: production retirement is incomplete.** On the existing
+pre-cutover outputs `check:native-production-closure` finds 39 retired module
+edges in Electron main/tools/renderer. Production `editor/src/main.ts` still
+uses the opt-in editor lifecycle/mutation flags and old tool/runtime-cache/
+workspace watcher imports. Separately, the renderer eagerly starts the
+TypeScript `authoring-dependency-graph-runtime.ts` service, whose direct
+imports include `authoring-dependency-graph`, `authoring-source-analysis` and
+`project-workspace-service`. Real consumers include Project Explorer,
+command history, focused preview, asset/interactable/variable/localization
+editors and `DerivedPreviewPane`. Native Save and structural-persistence
+control flow additionally retains calls to the TypeScript authoring validator.
+Merely activating native Open/Edit/CLI flags would leave duplicate authority
+and fail the executable retirement guard. The native CLI candidate is clean,
+but the ordinary ScriptC island still imports the old application/Workspace.
+
+The next **single atomic** #521 delivery must replace those renderer graph/
+validation/Save dependencies with native-authoritative projections, remove
+superseded main/CLI/renderer imports and physical TypeScript implementations,
+activate the native editor and CLI together, then enforce bundle and packaged
+closure in CI. No partial routing, dropped workbench behavior or weakened
+guard is an acceptable interim state; #521 stays open until the cutover itself
+and its production-path verification are complete.
+
+Local preparatory verification at `95b9dc27` plus the #521 working changes:
+the native-only CLI build and standalone candidate suite passed **9/9**
+stages, including real Electron worker/CLI clean-cache and Save, Feature Lab
+runtime and UI Tests, Package output, Web preflight, ComfyUI and daemon/Asset
+races. The ordinary CLI build generated a matching SHA-bound production
+executable/island record, but its production suite correctly rejected all
+39 retired emitted module edges **before** Project execution. The complete
+editor suite passed 3,077 tests (165 skipped); editor check, schema and
+lint passed; native qualification/closure tests passed 17/17, including
+mutated executable, stale module provenance and missing candidate proof.
+None of these results proves the missing switched/retired production build
+or substitutes for #522's packaged and host-matrix certification.
+
 This is the pre-switch evidence ledger for #506/#521, not a claim that production
 has changed. #504 (editor) has been accepted and closed. The #505 CLI/daemon
 children #512–#518, #519, and #505 are closed. Release-host run

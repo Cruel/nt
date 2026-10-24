@@ -12,8 +12,12 @@ const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
 const root = await createCertificationRoot('noveltea-533-owner-');
 const project = path.join(root, 'project');
-const candidateMode = process.argv[4] === '--candidate';
-const baseline = candidateMode
+const independentMode = process.argv[4] === '--candidate' || process.argv[4] === '--production';
+if (process.argv.length > 5 || (process.argv[4] && !independentMode))
+  throw new Error(
+    'Usage: certify-native-cli-owner-lifecycle.mjs [cli] [fixture] [--candidate|--production]',
+  );
+const baseline = independentMode
   ? isolatedProductionEnvironment(process.env, path.join(root, 'home'))
   : {
       ...process.env,
@@ -39,7 +43,7 @@ function execute(args) {
 }
 
 try {
-  if (candidateMode)
+  if (independentMode)
     await import('node:fs/promises').then(({ mkdir }) =>
       mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 }),
     );

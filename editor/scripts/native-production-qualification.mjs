@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
@@ -18,6 +19,40 @@ export async function assertProductionInputs(cli, env = process.env) {
   );
   assert.ok(path.isAbsolute(cli), 'Pass an absolute installed CLI executable path.');
   assert.ok((await stat(cli).catch(() => null))?.isFile(), `Missing installed CLI: ${cli}`);
+}
+
+/** An ordinary installed CLI must match the exact ScriptC bundle whose
+ * module provenance was inspected. Build provenance alone is not a native
+ * authority claim: strict whole-editor closure remains a separate gate. */
+export async function assertInstalledCliBundleBinding(cli, islandManifest, mode) {
+  assert.ok(mode === 'candidate' || mode === 'production', 'Unknown native CLI build mode.');
+  const binding = JSON.parse(
+    await readFile(
+      path.join(
+        path.dirname(cli),
+        mode === 'candidate' ? 'native-candidate-build.json' : 'native-production-build.json',
+      ),
+      'utf8',
+    ),
+  );
+  const hash = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  assert.equal(
+    binding.contract,
+    mode === 'candidate'
+      ? 'noveltea.native-cli-candidate-build.v1'
+      : 'noveltea.native-cli-production-build.v1',
+    'Incorrect installed CLI build provenance.',
+  );
+  assert.equal(
+    binding.executableSha256,
+    hash(await readFile(cli)),
+    'Installed CLI executable differs from the built executable.',
+  );
+  assert.equal(
+    binding.islandProvenanceSha256,
+    hash(await readFile(islandManifest)),
+    'Installed CLI does not match inspected ScriptC provenance.',
+  );
 }
 
 export function isolatedProductionEnvironment(base, home) {

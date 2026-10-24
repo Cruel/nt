@@ -9,6 +9,7 @@ import path from 'node:path';
 import { editorRoot } from './editor-distribution-lib.mjs';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
+  assertInstalledCliBundleBinding,
   assertProductionInputs,
   isolatedProductionEnvironment,
 } from './native-production-qualification.mjs';
@@ -40,6 +41,11 @@ if (production || candidate) {
     )
       throw new Error(`Missing emitted production module evidence: ${root}`);
   }
+  await assertInstalledCliBundleBinding(
+    path.resolve(process.argv[2]),
+    path.join(roots.at(-1), 'native-production-provenance.json'),
+    candidate ? 'candidate' : 'production',
+  );
   const violations = await verifyNativeProductionClosure(roots);
   if (violations.length)
     throw new Error(

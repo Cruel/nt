@@ -19,9 +19,13 @@ const coldProject = path.join(root, 'cold');
 const daemonProject = path.join(root, 'daemon');
 const daemonRoot = path.join(root, 'daemon-runtime');
 const daemonId = `noveltea-516-${process.pid}`;
-const candidateMode = process.argv[4] === '--candidate';
+const independentMode = process.argv[4] === '--candidate' || process.argv[4] === '--production';
+if (process.argv.length > 5 || (process.argv[4] && !independentMode))
+  throw new Error(
+    'Usage: certify-native-cli-package.mjs [cli] [fixture] [--candidate|--production]',
+  );
 
-const baseline = candidateMode
+const baseline = independentMode
   ? isolatedProductionEnvironment(process.env, path.join(root, 'home'))
   : {
       ...process.env,
@@ -112,7 +116,7 @@ async function certifyVariant(name, extraOptions = []) {
 }
 
 try {
-  if (candidateMode)
+  if (independentMode)
     await import('node:fs/promises').then(({ mkdir }) =>
       mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 }),
     );
