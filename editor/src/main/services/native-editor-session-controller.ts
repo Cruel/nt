@@ -29,6 +29,15 @@ import { projectSourceUsages } from './project-source-usage-reader';
 import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
 import type { JsonValue } from '../../renderer/project/json-value';
 import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
+import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
+
+export interface NativeCleanExportAdmission {
+  readonly project: AuthoringProject;
+  readonly diagnostics: ReturnType<typeof classifyProjectValidationDiagnostics>;
+  readonly runtimeAssetReferences: readonly string[];
+  readonly workingRevision: number;
+  readonly sourceRevisions: Readonly<Record<string, string>>;
+}
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
@@ -797,7 +806,7 @@ export class NativeEditorSessionController {
   /** Export uses admitted, *saved* native source, never a renderer document or
    * the TypeScript workspace reader. Check every admitted source against the
    * physical bytes at the start and publication boundary. */
-  async prepareCleanExport(projectSessionId: string): Promise<AuthoringProject> {
+  async prepareCleanExportAdmission(projectSessionId: string): Promise<NativeCleanExportAdmission> {
     if (!this.isAdmitted(projectSessionId))
       throw new Error('Export requires an admitted native Project.');
     const revision = this.currentRevision(projectSessionId);
@@ -816,6 +825,8 @@ export class NativeEditorSessionController {
       prepared.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
     )
       throw new Error(prepared.error || 'Native Project export source is invalid.');
+    if (!Array.isArray(prepared.referencedAssetIds))
+      throw new Error('Native Project export admission omitted Runtime Asset references.');
     const nativeProject = projectFromNativeCompletePreparation(prepared);
     const assetHashes = nativeAssetContentHashes(nativeProject);
     const root = this.authority.requireActiveProjectRoot(projectSessionId);
@@ -855,7 +866,19 @@ export class NativeEditorSessionController {
     }
     if (revision !== this.currentRevision(projectSessionId))
       throw new Error('Native Project changed during export preparation.');
-    return nativeProject;
+    return {
+      project: nativeProject,
+      diagnostics: classifyProjectValidationDiagnostics(prepared.diagnostics, {
+        producer: 'authoring',
+      }),
+      runtimeAssetReferences: prepared.referencedAssetIds,
+      workingRevision: revision,
+      sourceRevisions: prepared.sourceRevisions,
+    };
+  }
+
+  async prepareCleanExport(projectSessionId: string): Promise<AuthoringProject> {
+    return (await this.prepareCleanExportAdmission(projectSessionId)).project;
   }
 
   /** Save Copy As copies saved physical sources, not the unsaved working

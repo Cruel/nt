@@ -14,12 +14,12 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { guardNativeEditorProjectAuthority } from './shared/project-workspace/legacy-project-authority-guard';
-import { selectedExportProfile } from './shared/project-schema/authoring-export';
-import { prepareRuntimeArtifact } from './shared/legacy-runtime-artifact-preparation';
+import { nodeRuntimeArtifactPaths } from './main/services/node-runtime-artifact-adapters';
 import {
-  nodeShaderCompilerAdapter,
-  nodeRuntimeArtifactPaths,
-} from './main/services/node-runtime-artifact-adapters';
+  exportNativeEditorPackage,
+  prepareNativeEditorExportAssessment,
+  verifyNativeCleanExportAdmission,
+} from './main/services/native-editor-export-service';
 import { IPC_CHANNELS } from './shared/ipc-channels';
 import type { EditorProjectState } from './shared/project-schema/editor-project-state';
 import { withNativeRecoveredTextSources } from './main/services/native-recovery-editor-state';
@@ -229,6 +229,8 @@ import {
   nativeProjectPrepareRuntimeArgumentsSchema,
   nativeProjectRunTestArgumentsSchema,
   nativeProjectRunSuiteArgumentsSchema,
+  nativeProjectPrepareExportArgumentsSchema,
+  nativeProjectExportPackageArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
@@ -1551,6 +1553,45 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_PREPARE_EXPORT,
+    (arguments_) => nativeProjectPrepareExportArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, mode, profileId) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native export assessment is not enabled for this editor.');
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return prepareNativeEditorExportAssessment(
+        nativeEditorAdmission,
+        projectSessionId,
+        expectedRevision,
+        projectRoot,
+        mode,
+        profileId,
+      );
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_EXPORT_PACKAGE,
+    (arguments_) => nativeProjectExportPackageArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, outputPath) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native package export is not enabled for this editor.');
+      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+      return exportNativeEditorPackage(
+        nativeEditorAdmission,
+        projectSessionId,
+        projectRoot,
+        outputPath,
+        {
+          publish: exportPackage,
+          authorizePackageOptions: (options) => assertPackageProjectAuthority(projectRoot, options),
+        },
+        expectedRevision,
+      );
+    },
+  );
+
+  guardedIpc.handle(
     IPC_CHANNELS.VALIDATE_PROJECT,
     (arguments_) => validateProjectArgumentsSchema.parse(arguments_),
     async (projectSessionId, project, authority) => {
@@ -1610,9 +1651,9 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
     (arguments_) => candidateTestCatalogArgumentsSchema.parse(arguments_),
     async (project) => {
-      if (!nativeEditorHandoff) return listPlaybackTests(project);
+      if (!nativeEditorMutationEnabled) return listPlaybackTests(project);
       const sessionId = activeProjectSessions.currentSessionId();
-      const controller = nativeEditorHandoff.current();
+      const controller = nativeEditorHandoff?.current() ?? nativeEditorAdmission;
       if (!sessionId || !controller?.isAdmitted(sessionId))
         throw new Error('Native Test catalog requires an admitted Project.');
       const native = await controller.currentWorkingProject(sessionId);
@@ -1692,23 +1733,16 @@ void app.whenReady().then(async () => {
       if (nativeEditorMutationEnabled) {
         if (!nativeEditorAdmission)
           throw new Error('Native runtime package export requires an admitted Project.');
-        const native = await nativeEditorAdmission.prepareCleanExport(projectSessionId);
-        const savedProfile = selectedExportProfile(native);
-        const prepared = await prepareRuntimeArtifact({
-          project: native,
+        return exportNativeEditorPackage(
+          nativeEditorAdmission,
+          projectSessionId,
           projectRoot,
-          profile: { ...savedProfile, outputPath },
-          intent: 'runtime-package-export',
-          shaderCompiler: nodeShaderCompilerAdapter(compileShaders),
-          paths: nodeRuntimeArtifactPaths,
-        });
-        if (prepared.status !== 'prepared')
-          throw new Error('Native Project cannot prepare a valid runtime package.');
-        await nativeEditorAdmission.prepareCleanExport(projectSessionId);
-        return exportPackage(
-          prepared.artifact.compiledProject,
           outputPath,
-          prepared.artifact.packageOptions,
+          {
+            publish: exportPackage,
+            authorizePackageOptions: (options) =>
+              assertPackageProjectAuthority(projectRoot, options),
+          },
         );
       }
       return exportPackage(project, outputPath, options);
@@ -1741,11 +1775,11 @@ void app.whenReady().then(async () => {
         if (!nativeEditorAdmission)
           throw new Error('Native platform export requires an admitted Project.');
         const controller = nativeEditorAdmission;
-        const native = await nativeEditorAdmission.prepareCleanExport(projectSessionId);
+        const admission = await controller.prepareCleanExportAdmission(projectSessionId);
         return exportProjectToPlatform(
           {
             ...request,
-            project: native,
+            project: admission.project,
             preparedRuntimeArtifact: undefined,
             projectPath: path.join(projectRoot, 'project.yaml'),
             projectRoot,
@@ -1755,11 +1789,19 @@ void app.whenReady().then(async () => {
           undefined,
           async () => {
             try {
-              await controller.prepareCleanExport(projectSessionId);
+              await verifyNativeCleanExportAdmission(controller, projectSessionId, admission);
               return null;
             } catch (error) {
               return error instanceof Error ? error.message : String(error);
             }
+          },
+          undefined,
+          nodeRuntimeArtifactPaths,
+          {
+            project: admission.project,
+            diagnostics: admission.diagnostics,
+            contributions: [],
+            runtimeAssetReferences: admission.runtimeAssetReferences,
           },
         );
       }

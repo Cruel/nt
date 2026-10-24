@@ -215,9 +215,12 @@ const nativeIpcOwners = {
   NATIVE_PROJECT_RECONCILE: 'native-authoring-reconciliation.test.ts',
   NATIVE_PROJECT_USE_DISK_UNIT: 'native-authoring-reconciliation.test.ts',
   NATIVE_PROJECT_VALIDATE: 'native-project-session-parity.test.ts',
+  NATIVE_PROJECT_SEMANTIC_GRAPH: 'native-renderer-graph-runtime.test.ts',
   NATIVE_PROJECT_PREPARE_RUNTIME: 'native-authoring-worker.test.ts',
   NATIVE_PROJECT_RUN_TEST: 'native-authoring-worker.test.ts',
   NATIVE_PROJECT_RUN_SUITE: 'native-authoring-worker.test.ts',
+  NATIVE_PROJECT_PREPARE_EXPORT: 'native-editor-export-service.test.ts',
+  NATIVE_PROJECT_EXPORT_PACKAGE: 'native-editor-export-service.test.ts',
 };
 const ipc = await source('src/shared/ipc-channels.ts');
 const nativeIpc = [...ipc.matchAll(/^\s+(NATIVE_PROJECT_[A-Z_]+):/gm)].map((item) => item[1]);

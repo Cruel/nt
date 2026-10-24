@@ -21,6 +21,10 @@ import {
 } from '../../main/services/node-runtime-artifact-adapters';
 import { compileShaders } from '../../main/services/native-shader-compiler-service';
 import { exportPackage } from '../../main/services/editor-tool-service';
+import {
+  exportNativeEditorPackage,
+  prepareNativeEditorExportAssessment,
+} from '../../main/services/native-editor-export-service';
 
 describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
   'candidate native Test and runtime package on runnable starter',
@@ -140,6 +144,27 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           report: { id: 'native-smoke', passed: true },
         });
         expect((await native.prepareCleanExport(id)).project.id).toBe('native-run');
+        const nativePreflight = await prepareNativeEditorExportAssessment(
+          native,
+          id,
+          opened.nativeWorkingRevision!,
+          root,
+          'runtime',
+        );
+        expect(nativePreflight.status).toBe('prepared');
+        const nativePackagePath = path.join(parent, 'native-editor-export.ntpkg');
+        const nativePackage = await exportNativeEditorPackage(
+          native,
+          id,
+          root,
+          nativePackagePath,
+          {
+            publish: exportPackage,
+          },
+          opened.nativeWorkingRevision!,
+        );
+        expect(nativePackage).toMatchObject({ success: true });
+        expect((await readFile(nativePackagePath)).length).toBeGreaterThan(0);
       } finally {
         handoff.close();
         sessions.dispose();

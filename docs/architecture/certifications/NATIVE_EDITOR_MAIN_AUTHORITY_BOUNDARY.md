@@ -105,3 +105,52 @@ old watcher/transaction services and cache, enforce the SHA-bound full
 production closure, and confirm separately running CLI-daemon/editor
 disk/recovery witnesses. No pre-cutover work should flip ordinary routing,
 weaken the closure guard or close #521 on candidate-only evidence.
+
+## #540 runtime, Test, and export preparation (pre-cutover)
+
+The native lifecycle and edit candidate routes are now bounded by the same
+admitted worker session, but **ordinary editor routing is not switched**:
+
+| Consumer | Native candidate admission | Remaining legacy path until #521 |
+| --- | --- | --- |
+| Validate Project | `NATIVE_PROJECT_VALIDATE` + independent font presentation | `VALIDATE_PROJECT` / `EditorAuthoringValidationService` |
+| Play | `NATIVE_PROJECT_PREPARE_RUNTIME` on the current working revision; acknowledged dirty YAML, Lua, shader overlays stay session-local | `PREPARE_EDITOR_RUNTIME` / `EditorRuntimeCacheService` |
+| Test catalog and single/suite | Native complete working Project catalog; `NATIVE_PROJECT_RUN_TEST` / `NATIVE_PROJECT_RUN_SUITE` reuse native session-local compiled runtime | `LIST_PLAYBACK_TESTS` / legacy Test compiler and cache |
+| Runtime package | `NATIVE_PROJECT_PREPARE_EXPORT` for clean readiness; `NATIVE_PROJECT_EXPORT_PACKAGE` for a clean native Project and verified saved-source inventory | Renderer `legacy-runtime-artifact-preparation`, `EXPORT_PACKAGE` with renderer-provided compiled gameplay |
+| Platform profile | Native export assessment for the selected profile; main `EXPORT_PROJECT_TO_PLATFORM` ignores renderer compilation and passes exact native diagnostics and Asset references to retained staging | Renderer legacy platform preflight and legacy workspace/validator imports in the orchestration service |
+| Template selection/staging | Existing template registry, signing, platform staging and native package writer retained after native admission; source generation rechecked before output activation | Standalone staging and template management are physical-only tools and must not open another Project authority |
+
+Export admission rejects any dirty YAML, staged source text, unresolved conflict,
+invalid Project, unsafe/symlinked tracked file or changed saved bytes. It
+projects diagnostics and referenced Asset IDs supplied by the worker, not a
+separately parsed TypeScript `AuthoringProject`. Compilation retains the
+host-neutral downstream runtime compiler, Asset packager, shader service,
+localization closure, and platform/template tools. Runtime-package publication
+uses a sibling private staging path, verifies the **same** source inventory and
+working revision before and after the native package writer, and only then
+replaces the final path. Platform publication checks the same pinned admission
+at the staging boundary; check-only preflight checks it as well. Invalidation
+or an intervening editor Save/CLI write fails closed without returning to a
+legacy validator. Preview and Tests remain allowed against acknowledged dirty
+working snapshots and retain their source-overlay cache lifecycle.
+
+The native-only IPC channels are revisioned, session-scoped and registered in
+`editor/scripts/certify-native-cli-inventory.mjs`. The renderer chooses them
+only for an admitted native command session; ordinary exports still use the
+legacy preparer until #521. Candidate-only tests include clean/dirty rejection,
+stale-revision and mid-publication drift, prior archive preservation, native
+platform admission versus legacy tripwires, and renderer native dispatch.
+These mocked tests do not substitute for the real-addon/Electron worker and
+platform/toolchain template witnesses.
+
+**Atomic #521 deletion checklist:** remove `EditorRuntimeCacheService`,
+`EditorAuthoringValidationService`, `legacy-native-authoring-preview.ts`,
+`legacy-runtime-artifact-preparation.ts`, `legacy-runtime-build-cache.ts`,
+legacy Test/Workspace implementations and their old IPC handler routes; replace
+the dual-mode renderer Export and Preview branches and remove the test-only
+launch selection. Delete legacy on-disk runtime cache publication only when
+native working/runtime cache plus CLI source-generation authority are the sole
+owners. Keep the retained host-neutral runtime compiler, native shader compiler,
+package writer, template registry, platform staging/signing, physical Asset
+packaging and session-local native runtime cache. The documented
+`check:native-production-closure` must continue to fail until those removals.

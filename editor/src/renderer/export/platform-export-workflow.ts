@@ -1,6 +1,7 @@
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
 import { buildRecoveryFileOwnershipHints } from '@/project/project-save-request';
 import {
   buildEditorProjectStateSnapshot,
@@ -202,6 +203,32 @@ export async function runProjectPlatformExportWorkflow(
           }),
         ],
       };
+    } else if (useCommandStore.getState().nativeWorkingRevision !== null) {
+      const projectSessionId = useProjectStore.getState().projectSessionId;
+      if (!projectSessionId)
+        throw new Error('Native platform export requires an active Project session.');
+      const { projectPath: _projectPath, projectRoot: _projectRoot, ...ipcRequest } = request;
+      try {
+        staged = await window.noveltea.exportProjectToPlatform(projectSessionId, {
+          ...ipcRequest,
+          preparedRuntimeArtifact: undefined,
+        });
+      } catch (error) {
+        staged = {
+          ok: false,
+          success: false,
+          cancelled: false,
+          operationId: request.operationId ?? 'native-platform-export',
+          diagnostics: [
+            createPlatformExportValidationDiagnostic({
+              code: 'platform-export.native-admission-failed',
+              severity: 'error',
+              path: '/project',
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          ],
+        };
+      }
     } else {
       const runtimeProfile = runtimeExportProfileForPlatform(
         request.project as AuthoringProject,

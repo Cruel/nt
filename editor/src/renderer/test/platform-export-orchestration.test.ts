@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { exportProjectToPlatform } from '../../main/services/platform-export-orchestration-service';
 import {
   configureTemplateRegistryRoot,
@@ -11,6 +11,7 @@ import {
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
+import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import { prepareRuntimeArtifactForTest } from './runtime-artifact-test-helpers';
 import {
   defaultPlatformExportProfile,
@@ -93,7 +94,7 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
     compiledProjectFormatVersion: 1,
     playerRuntimeApiVersion: 1,
     compiledFeatures: ['lua'],
-    capabilities: [],
+    capabilities: derivedPlatformCapabilities('linux'),
     buildFlavor: 'release',
     packageAccessModes: ['sidecar'],
     files: [
@@ -178,6 +179,88 @@ describe('platform export main-process trust boundary', () => {
       { project: structuredClone(project), diagnostics: [issue], contributions: [] },
     );
     expect(mismatch.diagnostics).not.toContainEqual(issue);
+    expect(mismatch.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'platform-export-admission-mismatch' }),
+    );
+  });
+
+  it('uses native-admitted downstream preparation for editor platform preflight and rejects source drift', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-native-platform-preflight-'));
+    temporaryRoots.push(root);
+    const projectRoot = path.join(root, 'project');
+    fs.mkdirSync(path.join(projectRoot, 'assets'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'assets/icon.png'), 'icon');
+    const project = exportableProject();
+    const templateToken = installLinuxTemplate(root, ['glsl-330']);
+    const legacy = await import('../../shared/legacy-runtime-artifact-preparation');
+    const validator = await import('../../shared/project-schema/authoring-validation');
+    const legacyPrepare = vi.spyOn(legacy, 'prepareRuntimeArtifact').mockImplementation(() => {
+      throw new Error('Legacy runtime preparation was invoked during native export.');
+    });
+    const legacyValidate = vi
+      .spyOn(validator, 'validateAuthoringProject')
+      .mockImplementation(() => {
+        throw new Error('Legacy authoring validation was invoked during native export.');
+      });
+    try {
+      const nativeTools = {
+        compileShaders: vi.fn(async () => ({
+          ok: true,
+          success: true,
+          diagnostics: [],
+          outputs: [],
+        })),
+        exportPackage: vi.fn(async () => ({ ok: true, success: true, diagnostics: [] })),
+      };
+      const beforePublish = vi.fn(async () => null as string | null);
+      const request = {
+        project,
+        projectRoot,
+        profileId: project.export.profiles[0]!.id,
+        outputDirectory: path.join(root, 'dist/game'),
+        templateToken,
+        allowUntrustedTemplate: true,
+        checkOnly: true,
+      };
+      const admitted = {
+        project,
+        diagnostics: [],
+        contributions: [],
+        runtimeAssetReferences: ['icon'],
+      };
+      const result = await exportProjectToPlatform(
+        request,
+        undefined,
+        nativeTools as never,
+        beforePublish,
+        undefined,
+        undefined,
+        admitted,
+      );
+      expect(result, JSON.stringify(result.diagnostics)).toMatchObject({ success: true });
+      expect(beforePublish).toHaveBeenCalledOnce();
+      expect(legacyPrepare).not.toHaveBeenCalled();
+      expect(legacyValidate).not.toHaveBeenCalled();
+
+      beforePublish.mockResolvedValueOnce('CLI changed the admitted sources.');
+      const drift = await exportProjectToPlatform(
+        request,
+        undefined,
+        nativeTools as never,
+        beforePublish,
+        undefined,
+        undefined,
+        admitted,
+      );
+      expect(drift.success).toBe(false);
+      expect(drift.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'export-source-changed' }),
+      );
+      expect(fs.existsSync(path.join(root, 'dist/game'))).toBe(false);
+    } finally {
+      legacyPrepare.mockRestore();
+      legacyValidate.mockRestore();
+    }
   });
   it('rejects malformed serialized requests before orchestration', async () => {
     const result = await exportProjectToPlatform({
