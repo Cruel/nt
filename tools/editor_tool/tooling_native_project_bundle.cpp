@@ -3,6 +3,7 @@
 #include "tooling_native_c.h"
 #include "../project_authoring/room_session.hpp"
 #include "../project_authoring/source_authority.hpp"
+#include "../project_authoring/yaml_codec.hpp"
 
 #include <miniz/miniz.h>
 
@@ -601,6 +602,39 @@ Json import_bundle(const Json& request)
                     [](const std::string& left, const auto& right) { return left == right.first; }))
         return failure("Portable bundle contains files outside the current authoring contract.",
                        "invalid-bundle");
+    // Desktop handoff may supply a confirmed display name. Apply it to the
+    // private staging tree only after the original archive's entire manifest,
+    // SHA and ownership inventory have been verified. Never change the
+    // stable Project ID, and never publish a partial import on rename failure.
+    if (request.contains("projectName")) {
+        if (!request.at("projectName").is_string())
+            return failure("Imported Project name must be text.", "invalid-project");
+        auto name = request.at("projectName").get<std::string>();
+        const auto first = name.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos)
+            return failure("Imported Project name is required.", "invalid-project");
+        name = name.substr(first, name.find_last_not_of(" \t\r\n") - first + 1);
+        if (name != project.at("project").at("name").get<std::string>()) {
+            const auto source_path = stage.root / "project.yaml";
+            const auto edited = noveltea::authoring::edit_yaml_source(
+                bytes_at(source_path), {{.path = "/project/name",
+                                         .value_json = Json(name).dump(),
+                                         .omission_default_json = std::nullopt}});
+            if (!edited.accepted)
+                return failure("Imported Project name could not be updated: " + edited.error,
+                               "invalid-project");
+            write_bytes(source_path, edited.source);
+            session.reset();
+            auto renamed = ProjectSession::open(stage.root, error);
+            if (!renamed || !renamed->validate_project().valid)
+                return failure("Renamed native Project failed admission: " + error,
+                               "invalid-project");
+            const auto identity = complete_project(*renamed).at("project");
+            if (identity.at("id") != manifest.at("project").at("id") || identity.at("name") != name)
+                return failure("Renamed native Project identity changed unexpectedly.",
+                               "invalid-project");
+        }
+    }
     if (std::filesystem::exists(destination) || std::filesystem::is_symlink(destination))
         return failure("Portable Project import destination changed during validation.",
                        "conflict");
