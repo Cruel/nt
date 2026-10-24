@@ -1,5 +1,20 @@
 # Native Project schema contracts
 
+## Read-only native semantic graph projection (#536)
+
+The host-only `ProjectSession::semantic_graph` is compiled into the resident native
+session library and published through the certification Node-API addon. It consumes
+the already-normalized native record and YAML/source-analysis contributors instead
+of defining a new independent Project schema. This API is read-only and
+revision-pinned; `sourceRevisions` reports observer proof (including physical
+Asset references) and `textSourceRevisions` reports analyzer content hashes.
+The independent `nativeSemanticGraphSchema` Zod DTO is strictly transport
+validation, not a TypeScript Project-authoring validation or derivation fallback.
+No generated Project operation contracts are introduced by this query, so no
+change to `generated/contracts.json` is required. The endpoint is not exposed
+on the ordinary CLI or production renderer. Production authority retirement and
+the editor/CLI atomic transition remain the separate #521 delivery boundary.
+
 ## Ownership and scope
 
 Zod 4 remains the authoritative declaration of Project shapes and Zod-level normalization and

@@ -655,6 +655,14 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             return js_string(env, sources.to_string());
         }
+        if (name == "semanticGraph") {
+            if (argc != 2)
+                throw std::runtime_error("Native semantic graph requires a working revision.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid native semantic graph revision.");
+            return js_string(env, session.project->semantic_graph(static_cast<std::uint64_t>(revision)));
+        }
         if (name == "prepareWorking" || name == "prepareCompleteWorking") {
             if (argc != 3)
                 throw std::runtime_error("Working preparation requires revision and Test ID.");
@@ -867,6 +875,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "stageTextSource",
                                     "saveTextSources",
                                     "sourceAnalyses",
+                                    "semanticGraph",
                                     "prepareWorking",
                                     "prepareCompleteWorking",
                                     "publishMaterialCompilerResult"};

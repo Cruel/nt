@@ -115,6 +115,102 @@ export const nativeAuthoringCleanValidationSchema = z
   })
   .strict();
 
+const nativeGraphNodeKeySchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('record'), collection: z.string(), id: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal('nested'),
+      ownerCollection: z.string(),
+      ownerId: z.string(),
+      family: z.string(),
+      id: z.string(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('trait-definition'), id: z.string() }).strict(),
+  z.object({ kind: z.literal('project-field'), path: z.string() }).strict(),
+  z
+    .object({ kind: z.literal('localization-message'), locale: z.string(), messageId: z.string() })
+    .strict(),
+]);
+
+// A read-only native projection, not a request to reconstruct semantics in JS.
+// Incomplete evidence can be displayed, but may not admit destructive actions.
+export const nativeSemanticGraphSchema = z
+  .object({
+    projectSessionId: z.string().min(1),
+    generation: z.number().int().positive(),
+    workingRevision: z.number().int().nonnegative(),
+    sourceRevisions: z.record(z.string(), z.string()),
+    textSourceRevisions: z.record(z.string(), z.string()),
+    complete: z.boolean(),
+    incompleteOwners: z.array(z.string()),
+    nodes: z.array(
+      z
+        .object({
+          key: nativeGraphNodeKeySchema,
+          keyText: z.string(),
+          owningPath: z.string(),
+          label: z.string(),
+        })
+        .strict(),
+    ),
+    edges: z.array(
+      z
+        .object({
+          id: z.string(),
+          source: nativeGraphNodeKeySchema,
+          target: nativeGraphNodeKeySchema,
+          sourcePath: z.string(),
+          targetPath: z.string(),
+          role: z.string(),
+          facets: z.array(z.string()),
+          targetImpactPaths: z.array(z.string()),
+          repair: z.discriminatedUnion('kind', [
+            z.object({ kind: z.literal('blocked'), reason: z.string() }).strict(),
+            z.object({ kind: z.literal('set-null'), path: z.string() }).strict(),
+          ]),
+        })
+        .strict(),
+    ),
+    occurrences: z.array(
+      z
+        .object({
+          ownerPath: z.string(),
+          sourceUrl: z.string(),
+          sourceRevision: z.string(),
+          line: z.number().int().positive(),
+          column: z.number().int().positive(),
+          startUtf16: z.number().int().nonnegative().optional(),
+          endUtf16: z.number().int().nonnegative().optional(),
+          value: z.string(),
+          classification: z.enum(['possible-lexical', 'exact-manual', 'exact-rewriteable']),
+          recognizedBy: z.string().optional(),
+          rewriteRange: z
+            .object({
+              startUtf16: z.number().int().nonnegative(),
+              endUtf16: z.number().int().nonnegative(),
+              expectedText: z.string(),
+            })
+            .strict()
+            .optional(),
+          target: nativeGraphNodeKeySchema,
+        })
+        .strict(),
+    ),
+    diagnostics: z.array(
+      z
+        .object({
+          severity: z.enum(['error', 'warning']),
+          code: z.string(),
+          path: z.string(),
+          message: z.string(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type NativeSemanticGraph = z.infer<typeof nativeSemanticGraphSchema>;
+
 const base = { sessionId: z.string(), generation: z.number().int().positive() };
 export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
   z
@@ -145,6 +241,7 @@ export const nativeAuthoringEventSchema = z.discriminatedUnion('type', [
         nativeAuthoringObservationSchema,
         nativeAuthoringPreparationSchema,
         nativeAuthoringCleanValidationSchema,
+        nativeSemanticGraphSchema,
         z.null(),
       ]),
     })
@@ -171,6 +268,13 @@ export const nativeAuthoringCommandSchema = z.discriminatedUnion('operation', [
       operation: z.literal('prepareCompleteWorking'),
       expectedRevision: z.number().int().nonnegative(),
       testId: z.string().max(256).default(''),
+    })
+    .strict(),
+  z
+    .object({
+      requestId: z.number().int().positive(),
+      operation: z.literal('semanticGraph'),
+      expectedRevision: z.number().int().nonnegative(),
     })
     .strict(),
   z

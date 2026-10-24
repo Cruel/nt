@@ -513,6 +513,63 @@ void analyze_lua(SourceAnalysis& output, std::string_view source, std::size_t ba
                  .end_line = base_line + end_line - 1,
                  .end_column = end_line == 1 ? base_column + end_column - 1 : end_column});
         }
+    if (collect_lexical_literals) {
+        const auto recognize = [&](std::size_t first, const std::vector<std::string>& prefix,
+                                   std::string_view collection, std::string_view recognizer) {
+            if (first < prefix.size() || first >= tokens.size() ||
+                tokens[first].kind != Token::Kind::String)
+                return;
+            for (std::size_t j = 0; j < prefix.size(); ++j)
+                if (tokens[first - prefix.size() + j].text != prefix[j])
+                    return;
+            const auto call_start = first - prefix.size();
+            if (call_start > 0 && (tokens[call_start - 1].text == "." ||
+                                   tokens[call_start - 1].text == ":"))
+                return;
+            const auto& literal = tokens[first];
+            const auto [line, column] = location(source, literal.begin);
+            const auto inner = source.substr(literal.begin + 1, literal.end - literal.begin - 2);
+            const bool quoted = source[literal.begin] == '\'' || source[literal.begin] == '"';
+            // Escaped and long-bracket literals remain exact-manual. Their
+            // decoded values are still authoritative typed targets.
+            const bool safe = quoted && inner == literal.text;
+            output.recognized_references.push_back({
+                .collection = std::string(collection),
+                .id = literal.text,
+                .recognized_by = std::string(recognizer),
+                .start_utf16 = base_utf16_offset +
+                               utf16_offset(source.substr(0, literal.begin)) + (safe ? 1 : 0),
+                .end_utf16 = base_utf16_offset +
+                             utf16_offset(source.substr(0, literal.end)) - (safe ? 1 : 0),
+                .line = base_line + line - 1,
+                .column = line == 1 ? base_column + column - 1 : column,
+                .expected_text = safe ? std::optional<std::string>(literal.text) : std::nullopt,
+            });
+        };
+        for (std::size_t i = 0; i < tokens.size(); ++i) {
+            if (tokens[i].kind != Token::Kind::String)
+                continue;
+            // Include the opening '(' in each signature to avoid matching
+            // unrelated assignments, method-call receiver names or comments.
+            recognize(i, {"import", "("}, "scripts", "noveltea.script-module-import");
+            for (const auto& [kind, collection] :
+                 {std::pair{"room", "rooms"}, {"character", "characters"},
+                  {"interactable", "interactables"}})
+                recognize(i, {"noveltea", ".", "project", ".", kind, "("}, collection,
+                          "noveltea.gameplay-identity");
+            recognize(i, {"noveltea", ".", "presentation", ".", "cursor", ".", "set", "("},
+                      "cursor", "noveltea.presentation.cursor.set");
+            if (i >= 10 && tokens[i - 10].text == "hooks" &&
+                tokens[i - 9].text == "." && tokens[i - 8].text == "register" &&
+                tokens[i - 7].text == "(" && tokens[i - 6].text == "room" &&
+                tokens[i - 6].kind == Token::Kind::String && tokens[i - 5].text == "," &&
+                tokens[i - 4].kind == Token::Kind::String && tokens[i - 3].text == "," &&
+                tokens[i - 2].kind == Token::Kind::String && tokens[i - 1].text == ",")
+                recognize(i, {"hooks", ".", "register", "(", "room", ",",
+                              tokens[i - 4].text, ",", tokens[i - 2].text, ","},
+                          "scripts", "noveltea.room-hook-module");
+        }
+    }
     const auto utf16_at = [&](std::size_t offset) {
         std::size_t length = base_utf16_offset;
         for (std::size_t j = 0; j < offset && j < source.size(); ++j) {

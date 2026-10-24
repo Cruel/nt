@@ -4,8 +4,41 @@ The host-only Node-API Project adapter lives in
 `tools/project_authoring/authoring_node_addon.cpp`. It owns the current
 `ProjectSession` on a dedicated Node worker thread and exposes only the native
 session handle plus `snapshot`, `inspect`, `observe`, `hint`, `coverageLost`,
-`patch`, `save`, and `close`. Native handles never cross worker IPC and
+`patch`, `save`, `semanticGraph` (the opt-in #536 query), and `close`.
+Native handles never cross worker IPC and
 all calls are serialized by the worker event loop.
+
+## Revision-pinned semantic graph query (#536)
+
+`semanticGraph(handle, expectedWorkingRevision)` returns native-derived read-only
+records, trait and nested identities, localization Message realizations, role-aware
+structural edges, exact source occurrences and candidate lexical occurrences.
+The worker attaches its trusted Project session ID and generation; its strictly parsed
+DTO is `nativeSemanticGraphSchema` in
+`editor/src/main/services/native-authoring-worker-contract.ts`. The main-owned
+controller refuses stale, cross-project and post-switch results. This query does
+not publish or mutate the Project, compile gameplay or write source files.
+
+The C++ session verifies native Project working revision and observed source inventory
+at query entry/exit. For some Asset-backed sources, native source observation uses
+`physical:<size>:<mtime>` identities while source analysis uses SHA-256 of content:
+the query separately verifies the exact source bytes before and after extraction.
+File-backed occurrences have `project:/` source URLs and native line/column evidence;
+only simple single-owner, UTF-16-verified recognized physical literals may carry an
+automatic source rewrite range. Missing or invalid owners are reported separately
+without synthesizing edges from ambiguous strings; destructive preflight requires
+complete current evidence.
+The main bridge additionally verifies the inner DTO's session ID and worker
+generation against the outer response, and the working adapter deep-freezes
+all nested node, edge and occurrence objects before publication.
+
+`native-semantic-graph-queries.ts` exposes presentation-only usage counts, lookup,
+preview-impact filtering and preflight gating. It does not validate authoring semantics
+or build a second graph. `noveltea-semantic-graph-certify` exercises a copied canonical
+Feature Lab Project with real native records, dirty working revision changes and
+physical mutation denial; `native-authoring-worker.test.ts` verifies the actual addon
+and worker transport. The renderer's existing TypeScript graph is unchanged until the
+atomic #521 cutover.
 
 `editor/src/main/services/native-authoring-worker.ts` polls the C++ source
 observer outside the Electron main/renderer threads, initially at 200 ms.

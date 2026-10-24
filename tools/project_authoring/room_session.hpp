@@ -261,6 +261,10 @@ public:
                                        bool allow_invalid_test_semantics = false) const;
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
                                                 std::string_view test_id = {});
+    // Read-only, revision-pinned semantic evidence from the resident native
+    // Project. This deliberately does not require unrelated records to pass
+    // semantic validation; incomplete owners are explicitly reported.
+    std::string semantic_graph(std::uint64_t expected_revision);
     RoomSessionResult publish_material_compiler_result(std::uint64_t revision,
                                                        std::string_view material_id,
                                                        std::string_view native_tool_result_json);

@@ -25,6 +25,17 @@ type RetainedBatch = Readonly<{
 }>;
 type RetainedTextSource = Readonly<{ text: string; diskRevision: string }>;
 
+/** Worker IPC creates mutable structured clones. Publish graph snapshots as
+ * deep-frozen read-only evidence so presentation consumers cannot corrupt a
+ * preflight baseline before the next native revision. */
+function freezeGraphDto<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeGraphDto(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 /** A checkpoint contains only worker-acknowledged mutations. Renderer drafts and
  * pending invalid inputs remain in the existing local editor-state file. */
 export interface NativeDirtyCheckpoint {
@@ -306,6 +317,22 @@ export class NativeAuthoringWorkingProject {
       if (result.accepted && !result.completeProject)
         throw new Error('Native complete Project omitted its effective records.');
       return result;
+    });
+  }
+
+  /** Native-owned, immutable-by-publication semantic graph for the active
+   * working generation. No TypeScript authoring graph is consulted. */
+  async semanticGraph(): Promise<import('./native-authoring-worker-contract').NativeSemanticGraph> {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const expectedRevision = this.view.workingRevision;
+      const result = await this.bridge.request({ operation: 'semanticGraph', expectedRevision });
+      if (
+        result.workingRevision !== expectedRevision ||
+        this.view.workingRevision !== expectedRevision
+      )
+        throw new Error('Native graph query returned a stale working revision.');
+      return freezeGraphDto(result);
     });
   }
 

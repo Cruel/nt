@@ -57,6 +57,7 @@ export class NativeEditorSessionController {
       NativeAuthoringWorkingProject,
       | 'open'
       | 'prepareCompleteWorking'
+      | 'semanticGraph'
       | 'applyRevisionedPatches'
       | 'saveUnits'
       | 'saveOwners'
@@ -520,6 +521,27 @@ export class NativeEditorSessionController {
         sourcePath,
       ),
     };
+  }
+
+  /** Preparatory native query seam for the #521 renderer migration. Caller
+   * identity and latest working revision must still match after worker I/O. */
+  async semanticGraph(projectSessionId: string, expectedRevision: number) {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Native Project graph requires the active admitted session.');
+    const generation = this.generation;
+    this.authority.requireActiveProjectRoot(projectSessionId);
+    if (this.working.snapshot()?.workingRevision !== expectedRevision)
+      throw new Error('Stale native Project graph query revision.');
+    const graph = await this.working.semanticGraph();
+    if (
+      generation !== this.generation ||
+      !this.isAdmitted(projectSessionId) ||
+      graph.projectSessionId !== projectSessionId ||
+      graph.workingRevision !== expectedRevision ||
+      this.working.snapshot()?.workingRevision !== expectedRevision
+    )
+      throw new Error('Native Project graph completed for a superseded session or revision.');
+    return graph;
   }
 
   /** The first mutation boundary for native-backed renderer commands. It is
