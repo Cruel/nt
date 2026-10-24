@@ -165,6 +165,43 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         );
         expect(nativePackage).toMatchObject({ success: true });
         expect((await readFile(nativePackagePath)).length).toBeGreaterThan(0);
+
+        // Native editor admission must use acknowledged dirty content for
+        // Preview/Tests without silently falling back to the saved manifest.
+        const dirty = await native.applyRevisionedPatches(id, opened.nativeWorkingRevision!, [
+          { op: 'replace', path: '/project/name', value: 'Unsaved Native Preview' },
+        ]);
+        expect(dirty.accepted, dirty.error).toBe(true);
+        const dirtyRevision = dirty.snapshot.workingRevision;
+        const dirtyPreview = await native.prepareRuntime(id, dirtyRevision, 'glsl-330');
+        expect(dirtyPreview.status).toBe('prepared');
+        if (dirtyPreview.status === 'prepared')
+          expect(dirtyPreview.artifact.manifestPreview.projectName).toBe('Unsaved Native Preview');
+        expect(await readFile(manifestPath, 'utf8')).not.toContain('Unsaved Native Preview');
+        expect(await native.runTest(id, dirtyRevision, 'native-smoke')).toMatchObject({
+          ok: true,
+          report: { id: 'native-smoke', passed: true },
+        });
+        await expect(native.prepareCleanExportAdmission(id)).rejects.toThrow(/Save or resolve/);
+        await expect(
+          native.prepareRuntime(id, opened.nativeWorkingRevision!, 'glsl-330'),
+        ).rejects.toThrow(/Stale native runtime preparation revision/);
+
+        // Out-of-band CLI/source writes must either invalidate admission or
+        // reprepare from the new physical source, never return stale Play data.
+        const roomPath = path.join(root, 'records/rooms/native-room.yaml');
+        const roomSource = await readFile(roomPath, 'utf8');
+        expect(roomSource).toContain('width: 1920');
+        await writeFile(roomPath, roomSource.replace('width: 1920', 'width: 1600'));
+        const externalEdit = await native.prepareRuntime(id, dirtyRevision, 'glsl-330');
+        if (externalEdit.status === 'prepared') {
+          expect(
+            externalEdit.artifact.compiledProject.definitions.rooms[0]?.presentationSpace.size
+              .width,
+          ).toBe(1600);
+        } else {
+          expect(externalEdit.status).toBe('blocked');
+        }
       } finally {
         handoff.close();
         sessions.dispose();

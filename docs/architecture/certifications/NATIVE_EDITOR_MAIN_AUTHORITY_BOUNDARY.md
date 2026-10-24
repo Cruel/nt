@@ -143,6 +143,34 @@ platform admission versus legacy tripwires, and renderer native dispatch.
 These mocked tests do not substitute for the real-addon/Electron worker and
 platform/toolchain template witnesses.
 
+Additional #540 executable witnesses now run with
+`NOVELTEA_AUTHORING_NODE_ADDON=$PWD/build/native-authoring-host/noveltea-authoring-node.node`
+from the repository root:
+
+- `pnpm -C editor exec vp test run src/renderer/test/native-editor-runtime-equivalence.test.ts`
+  proves real worker admission, Play and authored Test execution, compiled
+  `.ntpkg` equivalence, clean native package publication, dirty working Play
+  and Test revisions, clean-export refusal with unsaved edits, stale revision
+  refusal, and out-of-band Room source re-preparation without stale output.
+- `pnpm -C editor exec vp test run src/renderer/test/platform-export-orchestration.test.ts`
+  includes Web platform publication from native-admitted compiler input through
+  the real native package writer, local untrusted-template acknowledgement,
+  compiled package and Web ZIP/directory inspection, late source-drift rejection,
+  and preservation of the previous Web archive and package.
+- `pnpm -C editor exec vp test run src/renderer/test/native-authoring-runtime-preparation.test.ts`
+  covers physical source invalidation on a native cache hit, native-only
+  Test-only artifact reuse with changed Test spec, and recovery-journal byte
+  preservation across cache clear; existing differential Feature Lab tests
+  also cover dirty Room, Test, and RML working sources.
+
+These are candidate-runtime witnesses, not a complete cross-host release
+matrix. In particular, bundled Web player execution in a real browser,
+host-specific signed desktop/Android packages, font/shader-bearing gameplay
+exports, and an external daemon writing concurrently during publication must
+be witnessed separately. They must not be inferred from a local template or
+mocked compiler. Do not confuse the retained physical build tools with the
+legacy authoring validator, Workspace reader, or cached Runtime adapter.
+
 **Atomic #521 deletion checklist:** remove `EditorRuntimeCacheService`,
 `EditorAuthoringValidationService`, `legacy-native-authoring-preview.ts`,
 `legacy-runtime-artifact-preparation.ts`, `legacy-runtime-build-cache.ts`,
