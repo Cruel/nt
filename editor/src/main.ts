@@ -1493,6 +1493,16 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH,
+    (arguments_) => nativeProjectValidateArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision) => {
+      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+        throw new Error('Native Project graph queries are not enabled for this editor.');
+      return nativeEditorAdmission.semanticGraph(projectSessionId, expectedRevision);
+    },
+  );
+
+  guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
     (arguments_) => nativeProjectPrepareRuntimeArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, shaderVariant) => {

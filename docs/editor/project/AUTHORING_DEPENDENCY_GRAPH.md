@@ -1,5 +1,62 @@
 # Authoring Dependency Graph
 
+## Native renderer consumers (#537; preparatory, not production)
+
+When the **admitted native Project-session mode** is enabled, the guarded
+`NATIVE_PROJECT_SEMANTIC_GRAPH` IPC channel requests the working revision from
+`NativeEditorSessionController.semanticGraph()`. The renderer indexes the
+returned native DTO in `native-authoring-graph-projection.ts` without re-running
+TypeScript semantic derivation or source analysis. The
+`native-authoring-graph-runtime.ts` service rejects superseded Project/session/
+working-revision replies, retains the prior graph for old/new preview closure,
+and publishes only a complete revision-matched projection.
+
+The existing hook, command-bus, structural repair, editor reference panels,
+Project Explorer, and focused Room preview receive indexed native edges and
+source occurrences in the previous **presentation** shape. Physical source
+occurrences are not JSON authoring patches: exact/native rewriteable evidence
+remains manual pending an explicit source-transaction editor, and
+`possible-lexical` findings remain warnings. Graph unavailability or
+incomplete owner proof blocks destructive operations. Native-mode Project
+Search uses a revision-matched native-backed reference index instead of
+re-deriving structural relationships; text matching, filters, alias UI, and
+result sorting remain presentation algorithms. Changed on-disk resources
+without a new structured Project revision conservatively invalidate focused
+previews, while structured edits consider both the old and new native edge
+closure.
+
+Only native Project sessions use this reader. The existing TypeScript graph
+runtime and old graph derivation remain active for the **legacy production
+route**, pending the atomic production switch in #521. That switch must remove
+the old `authoring-dependency-graph-service.ts` builder, the legacy branch of
+`authoring-dependency-graph-runtime.ts`, and the legacy-only
+`buildAuthoringStructuralDependencyGraph` search fallback after all callers
+have moved to native session authority. Shared graph *contracts*, identity
+serialization, traversal and UI-only projection helpers may remain if they
+do not originate semantic relationships or external source interpretation.
+
+### Legacy import inventory for #521
+
+- `authoring-dependency-graph-runtime.ts` retains the legacy
+  `AuthoringDependencyGraphService` publication, wait, subscription and
+  source-analysis branches. Native mode bypasses these calls.
+- `command-store.ts` retains legacy `waitForCurrentSnapshot` in its
+  synchronous structural persistence queue. Admitted native commands use
+  revisioned asynchronous admission instead.
+- `DerivedPreviewPane.tsx` calls `currentSourceAnalysis` only in legacy mode;
+  `focused-preview-coordinator.ts` retains a legacy traversal branch and uses
+  native impact facets for native mode. `room-focused-preview-builder.ts`
+  traverses supplied graph edges only to compose the focused UI display.
+- `project-search-index.ts` and `project-schema/authoring-references.ts`
+  retain non-native structural graph fallbacks. Native Explorer, Find Usages,
+  and Asset Library explicitly supply native-backed reference indexes.
+- Asset, Variable, Interactable, Localization, and Explorer editors retain
+  the snapshot hook as a presentation boundary. Identity helpers imported
+  from `authoring-dependency-graph.ts` do not build semantic edges.
+- `localization-message-operations.ts` retains separate managed-text
+  localization source-refactoring analysis; this is outside graph building
+  and its retirement must be separately reviewed in #521.
+
 ## Native replacement boundary (#536; preparatory, not production)
 
 The existing TypeScript implementation described below remains the **pre-cutover production**
@@ -39,15 +96,12 @@ the native DTO never grants write authority itself. No exception to native sourc
 or Project semantics was approved for #536. Unsupported or ambiguous source
 references stay manual/warning evidence and cannot silently qualify as repaired.
 
-The #521 **switch-only handoff** consists of replacing the production
-`AuthoringDependencyGraphService` publication input with the admitted native
-`NativeSemanticGraph` query; binding Find Usages, Project Search, rename/delete
-preflight and focused-preview invalidation to the native projection functions;
-updating renderer presentation types and IPC exposure at the same atomic
-editor/CLI routing change; then removing retired TypeScript graph/analysis
-authority and its imports. The preparatory #536 methods are intentionally
-not wired to renderer production state, so that half-migrated authority cannot
-appear between commits.
+The #521 **switch-only handoff** now consists of activating the admitted native
+renderer session mode as production, verifying that all native Project
+references and previews use the #537 DTO projection, and removing retired
+TypeScript graph/analysis authority and its legacy-only imports. The #536
+methods were originally unexposed to the renderer; #537 exposes them only for
+native sessions. Legacy production remains unchanged until the atomic switch.
 
 This is **not** permission to swap the renderer graph service in isolation.
 The native and TypeScript services coexist for certification only; #521 owns

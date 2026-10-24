@@ -80,6 +80,7 @@ import {
   recordEditorMetadata,
 } from '../../shared/project-schema/authoring-tags';
 import { searchProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-search';
+import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
 import { createProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
@@ -916,6 +917,7 @@ function ExplorerContextMenu({
   const projectFilePath = useProjectStore((store) => store.projectFilePath);
   const projectSessionId = useProjectStore((store) => store.projectSessionId);
   const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const nativeWorkingRevision = useCommandStore((store) => store.nativeWorkingRevision);
   const setHiddenCollectionKeys = useProjectExplorerStore((store) => store.setHiddenCollectionKeys);
   const hiddenCollectionKeys = useProjectExplorerStore((store) => store.hiddenCollectionKeys);
   const chapters = useProjectExplorerStore((store) => store.chapters);
@@ -1034,6 +1036,10 @@ function ExplorerContextMenu({
 
   async function findNodeUsages() {
     if (!node.entityId) return;
+    if (nativeWorkingRevision !== null && !graphSnapshot) {
+      setStatusMessage('Native dependency graph is refreshing; Find Usages is not ready.');
+      return;
+    }
     const target = referenceTargetFromEntity({ collection, entityId: node.entityId });
     const record = activeProject[collection][node.entityId];
     const aliases =
@@ -1049,6 +1055,7 @@ function ExplorerContextMenu({
         tokenMode: 'all',
         sort: { kind: 'label' },
       },
+      graphSnapshot ? referenceIndexFromCurrentGraph(activeProject, graphSnapshot) : undefined,
     ).results;
     const sourceUsages = graphSnapshot
       ? semanticUsagesForTarget(graphSnapshot, target).filter(
@@ -1762,6 +1769,8 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const nativeWorkingRevision = useCommandStore((state) => state.nativeWorkingRevision);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
   const hiddenCollectionKeys = useProjectExplorerStore((state) => state.hiddenCollectionKeys);
@@ -1911,15 +1920,29 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const isFiltering = Boolean(searchQuery.trim()) || activeFilterTags.length > 0;
   const searchResponse = useMemo(() => {
     if (!workspaceSnapshot || !isFiltering) return null;
-    return searchProjectWorkspaceSnapshot(workspaceSnapshot, {
-      text: searchQuery,
-      tags: activeFilterTags,
-      tagMode: 'all',
-      tokenMode: 'all',
-      threshold: exactMatch ? 0 : undefined,
-      sort: { kind: 'label' },
-    });
-  }, [activeFilterTags, exactMatch, isFiltering, searchQuery, workspaceSnapshot]);
+    if (nativeWorkingRevision !== null && (!graphSnapshot || !project)) return null;
+    return searchProjectWorkspaceSnapshot(
+      workspaceSnapshot,
+      {
+        text: searchQuery,
+        tags: activeFilterTags,
+        tagMode: 'all',
+        tokenMode: 'all',
+        threshold: exactMatch ? 0 : undefined,
+        sort: { kind: 'label' },
+      },
+      graphSnapshot && project ? referenceIndexFromCurrentGraph(project, graphSnapshot) : undefined,
+    );
+  }, [
+    activeFilterTags,
+    exactMatch,
+    graphSnapshot,
+    isFiltering,
+    nativeWorkingRevision,
+    project,
+    searchQuery,
+    workspaceSnapshot,
+  ]);
   const visibleRecordKeys = useMemo(() => {
     if (!searchResponse) return null;
     return new Set(

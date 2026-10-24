@@ -122,6 +122,10 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     expectedRevision: number,
   ): Promise<ValidationResponse>;
+  nativeProjectSemanticGraph(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<import('../main/services/native-authoring-worker-contract').NativeSemanticGraph>;
   nativeProjectReconcile(
     projectSessionId: string,
     expectedRevision: number,
