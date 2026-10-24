@@ -31,6 +31,8 @@ their visible category and message must use plain, localizable product language 
 - `docs/editor/AGENT_KIT.md` — embedded/generated coding-agent guidance, schemas, versioning, and sync behavior.
 - `docs/editor/SCRIPTC_COMPATIBILITY.md` — standalone `noveltea` scriptc/QuickJS architecture,
   host/native boundary, release pin, compatibility limits, and certification gate.
+- `docs/editor/NATIVE_CLI_CUTOVER_HANDOFF.md` — classified shipped/candidate/build-only CLI roots,
+  emitted provenance and exact #521 atomic switching/deletion/CI checklist.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,
   request/lifecycle behavior, clearing, fallbacks, and retained original-image consumers.
 - `docs/editor/TERMINAL.md` — embedded local Terminal ownership, trusted PTY creation, IPC lifecycle,

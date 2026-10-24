@@ -551,6 +551,9 @@ jobs:
           NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE: '1'
         run: |
           pnpm -C editor run noveltea:build
+          # The candidate pack emits native-only ScriptC and Node-tool roots.
+          # The legacy installed production artifact was uploaded above.
+          pnpm -C editor run check:native-node-candidate
           pnpm -C editor run noveltea:certify:native-candidate -- "$PWD/build/cli/linux/noveltea" --cli-only
 
       - name: Show ccache statistics

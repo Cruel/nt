@@ -58,7 +58,7 @@ import {
   compileWithVerifiedValidationCache,
 } from './validation-stage-cache';
 import { cliDiagnostic, type NovelTeaCliDiagnostic } from './contracts';
-import type { NovelTeaCliExitCode } from './contracts';
+import type { CliSemanticResult as NativeCliSemanticResult } from './command-result-contract';
 
 export interface CliOpenedProject {
   readonly snapshot: LoadedProjectWorkspaceSnapshot;
@@ -100,12 +100,7 @@ export interface CliAuthoringValidationMetrics {
   }>;
 }
 
-export interface CliSemanticResult {
-  readonly ok: boolean;
-  readonly diagnostics: readonly NovelTeaCliDiagnostic[];
-  readonly fields?: Readonly<Record<string, unknown>>;
-  readonly humanSuccess?: string;
-  readonly exitCode?: NovelTeaCliExitCode;
+export interface CliSemanticResult extends NativeCliSemanticResult {
   readonly authoringDependencyAnalysis?: ProjectWorkspaceDependencyAnalysis;
   readonly authoringValidationMetrics?: CliAuthoringValidationMetrics;
 }

@@ -71,8 +71,7 @@ const comfyUiCertificationServer = path.join(
 );
 const fixtureTool = path.join(
   editorRoot,
-  'dist-electron',
-  'tools',
+  'dist-build-tools',
   'materialize-platform-export-fixture.mjs',
 );
 const bgfxInclude = path.join(

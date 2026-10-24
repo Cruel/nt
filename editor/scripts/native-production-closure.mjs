@@ -23,6 +23,13 @@ const retiredAuthority = new Set([
   'src/cli/semantic-project.ts',
   'src/cli/fmt-command.ts',
   'src/cli/project-bundle-cli.ts',
+  'src/cli/application.ts',
+  'src/cli/compile-project-command.ts',
+  'src/shared/authoring-compiler.ts',
+  'scripts/noveltea.ts',
+  'scripts/compile-project.ts',
+  'scripts/materialize-platform-export-fixture.ts',
+  'scripts/generate-compiled-project-goldens.ts',
 ]);
 
 const bundledExtensions = new Set(['.js', '.mjs', '.cjs']);
@@ -41,14 +48,13 @@ function isPureForwarder(text) {
 
 function sourceModule(specifier) {
   const normalized = specifier.replaceAll('\\', '/');
-  // Source maps may contain ../../src/... or absolute checkout paths; only
-  // source modules under an editor/src root are compared with the inventory.
-  const index = normalized.lastIndexOf('/src/');
-  return index >= 0
-    ? normalized.slice(index + 1)
-    : normalized.startsWith('src/')
-      ? normalized
-      : null;
+  // Source maps may contain ../../src/..., ../../scripts/... or absolute
+  // checkout paths; compare only editor/src and editor/scripts ownership.
+  for (const segment of ['/src/', '/scripts/']) {
+    const index = normalized.lastIndexOf(segment);
+    if (index >= 0) return normalized.slice(index + 1);
+  }
+  return normalized.startsWith('src/') || normalized.startsWith('scripts/') ? normalized : null;
 }
 
 async function walk(directory) {
@@ -129,6 +135,29 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
           const module = sourceModule(source);
           if (module && retiredAuthority.has(module))
             violations.push(`${relative} includes retired Project authority ${module}`);
+        }
+        // A forged module list must not conceal a retired module that is
+        // still exposed by the emitted code's source regions or source map.
+        const observed = new Set(
+          [...text.matchAll(/^\s*\/\/#region\s+([^\r\n]+)/gm)].map((match) => match[1]),
+        );
+        try {
+          const map = JSON.parse(await readFile(`${file}.map`, 'utf8'));
+          if (
+            !Array.isArray(map.sources) ||
+            map.sources.some((source) => typeof source !== 'string')
+          )
+            throw new Error('invalid source list');
+          for (const source of map.sources) observed.add(source);
+        } catch (error) {
+          if (error.code !== 'ENOENT')
+            violations.push(`invalid source map for ${relative}: ${error.message}`);
+        }
+        const declared = new Set(entry.modules.map(sourceModule));
+        for (const source of observed) {
+          const module = sourceModule(source);
+          if (module && retiredAuthority.has(module) && !declared.has(module))
+            violations.push(`${relative} hides emitted retired Project authority ${module}`);
         }
         continue;
       }

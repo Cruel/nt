@@ -167,7 +167,7 @@ export interface RunNovelTeaCliOptions {
   readonly pinnedNativePreparation?: Readonly<{
     projectRoot: string;
     preparation:
-      | import('../shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation
+      | import('../shared/project-workspace/native-project-preparation-contracts').NativeResidentProjectPreparation
       | null;
   }>;
   readonly pinnedExternalAssets?: readonly import('./pinned-external-assets').PinnedExternalAssetExpectation[];

@@ -8,6 +8,22 @@ import { parseAssetData } from '../project-schema/authoring-assets';
 import { parseLayoutData } from '../project-schema/authoring-layouts';
 import { parseMaterialData } from '../project-schema/authoring-materials';
 import type { AuthoringProject } from '../project-schema/authoring-project';
+import type {
+  NativeResidentProjectPreparation,
+  PortableResidentProjectAuthorityEntry,
+  PortableResidentProjectTextSource,
+  ResidentProjectAuthority,
+  ResidentProjectAuthorityRequest,
+  ResidentProjectAuthorityObservation,
+} from './native-project-preparation-contracts';
+export type {
+  NativeResidentProjectPreparation,
+  PortableResidentProjectAuthorityEntry,
+  PortableResidentProjectTextSource,
+  ResidentProjectAuthority,
+  ResidentProjectAuthorityRequest,
+  ResidentProjectAuthorityObservation,
+} from './native-project-preparation-contracts';
 import { projectSettingsFromProject } from '../project-schema/authoring-project-settings';
 import { parseScriptModuleData } from '../project-schema/authoring-script-modules';
 import { classifyProjectValidationDiagnostics } from '../project-schema/project-diagnostic-projection';
@@ -49,47 +65,6 @@ import {
 export type ResidentProjectWorkspaceServiceFactory = (
   fileSystem: ProjectWorkspaceFileSystem,
 ) => ProjectWorkspaceService;
-
-export interface ResidentProjectAuthorityRequest {
-  readonly projectRoot: string;
-  /** Present only when the native authority configuration must be created or replaced. */
-  readonly authoritativePaths?: readonly string[];
-  /** Present together with authoritativePaths; omitted for ordinary observations. */
-  readonly discoveryScopes?: readonly ProjectSourceDiscoveryScope[];
-  /** Snapshot preparation may request retained native metadata for external Asset payloads. */
-  readonly includeManifestEntries?: boolean;
-}
-
-export interface ResidentProjectAuthorityObservation {
-  readonly previousAuthority: 'untracked' | 'proven' | 'dirty' | 'unknown';
-  readonly unchanged: boolean;
-  readonly fullRescan: boolean;
-  readonly watcherPaths: readonly string[];
-  readonly delta: Readonly<{
-    added: readonly string[];
-    changed: readonly string[];
-    removed: readonly string[];
-  }>;
-  readonly manifest: Readonly<{
-    canonicalRoot: string;
-    entries: readonly Readonly<{
-      path: string;
-      sourceIdentity?: string;
-      byteSize?: number;
-      mtimeNanoseconds?: string | null;
-      contentHash?: string | null;
-    }>[];
-  }>;
-}
-
-/** Native daemon physical-authority seam. Watchers provide hints; observe() is the proof. */
-export interface ResidentProjectAuthority {
-  observe(request: ResidentProjectAuthorityRequest): Promise<ResidentProjectAuthorityObservation>;
-  release(projectRoot: string): void;
-  /** Certification candidate: capture native complete preparation in the disk owner, never a disposable. */
-  prepareNativeProject?(projectRoot: string): Promise<NativeResidentProjectPreparation>;
-  proveNativeProject?(projectRoot: string, sourceGeneration: string): Promise<boolean>;
-}
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
   // Observe retired JSON paths so adding one invalidates a resident generation.
@@ -225,33 +200,6 @@ async function captureResidentAuthority(
 
 type SuccessfulOpen = Extract<ProjectWorkspaceOpenResult, { ok: true }>;
 type ProjectWorkspaceWriteResult = Awaited<ReturnType<ProjectWorkspaceService['write']>>;
-
-export type PortableResidentProjectAuthorityEntry = Readonly<{
-  path: string;
-  sourceIdentity?: string;
-  byteSize?: number;
-  mtimeNanoseconds?: string | null;
-  contentHash?: string | null;
-}>;
-
-export type PortableResidentProjectTextSource = Readonly<{
-  contentHash: `sha256:${string}`;
-  text: string;
-}>;
-
-export type NativeResidentProjectPreparation = Readonly<{
-  project: AuthoringProject;
-  sourceGeneration: string;
-  sourceRevisions: Readonly<Record<string, string>>;
-  sourceOverlays: Readonly<Record<string, string>>;
-  referencedAssetIds: readonly string[];
-  cliDiagnostics: readonly Readonly<{
-    code: string;
-    path: string;
-    message: string;
-    severity: 'warning' | 'info' | 'error';
-  }>[];
-}>;
 
 /** Semantic native admission rejection, distinguished from transport/protocol failure. */
 export class NativeResidentProjectAdmissionError extends Error {

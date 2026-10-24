@@ -25,7 +25,7 @@ import {
   assertProjectWorkspacePathContained,
   type ProjectWorkspaceFileSystem,
 } from '../shared/project-workspace/project-workspace-file-system';
-import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
+import type { NativeResidentProjectPreparation } from '../shared/project-workspace/native-project-preparation-contracts';
 import { projectWorkspaceLocalStateFile } from '../shared/editor-local-state-file';
 import { EDITOR_LOCAL_STATE_SCHEMA } from '../shared/project-workspace/project-workspace-contracts';
 import {

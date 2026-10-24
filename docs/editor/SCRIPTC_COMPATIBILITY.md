@@ -1,5 +1,10 @@
 # scriptc CLI Compatibility
 
+> This documents the **unswitched** production ScriptC architecture.
+> [#541 cutover handoff](NATIVE_CLI_CUTOVER_HANDOFF.md) describes the
+> already-proven native-only candidate and the old Workspace files to delete
+> atomically in #521. Do not interpret the candidate pack as the shipped CLI.
+
 NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.2.8. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
 
 ## ScriptC compiler investigations (0.2.8)

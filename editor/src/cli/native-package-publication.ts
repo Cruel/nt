@@ -1,5 +1,5 @@
 import { cliDiagnostic } from './contracts';
-import type { CliSemanticResult } from './semantic-project';
+import type { CliSemanticResult } from './command-result-contract';
 import type { CliCommandContext } from './commands/types';
 
 export async function removeFileIfPresent(

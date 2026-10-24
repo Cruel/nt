@@ -286,10 +286,14 @@ run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buil
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
 if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-  run(process.execPath, [path.join(editorRoot, 'scripts/check-native-cli-candidate-closure.mjs')], {
-    cwd: editorRoot,
-    env: buildEnv,
-  });
+  run(
+    process.execPath,
+    [path.join(editorRoot, 'scripts/check-native-cli-candidate-closure.mjs'), '--with-node-tools'],
+    {
+      cwd: editorRoot,
+      env: buildEnv,
+    },
+  );
 
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
 const engineRoot = path.join(buildRoot, 'engine');
