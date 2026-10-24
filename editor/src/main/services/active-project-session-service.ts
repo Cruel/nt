@@ -65,6 +65,7 @@ interface ActiveProjectSession {
   root: string;
   projectIdentity: { id: string; name: string } | null;
   assets: ReadonlyMap<string, ActiveProjectAssetAuthorization>;
+  nativeLayoutIds?: ReadonlySet<string>;
   workspace?: ActiveProjectWorkspaceSession;
 }
 
@@ -171,8 +172,9 @@ export class ActiveProjectSessionService {
       throw new Error('Native Project staging requires an ordinary project.yaml manifest.');
     this.assertProjectActivationCurrent(expectedActivationGeneration);
     const root = path.dirname(manifest);
-    if (this.active?.root === root)
-      throw new Error('The active Project must be saved or closed before reopening its sources.');
+    // Reopening the same root admits an independent candidate against the
+    // durable dirty checkpoint. The incumbent remains usable until commit;
+    // an invalid or conflicted recovery cannot discard its unsaved state.
     const id = randomUUID();
     this.stagedNative = {
       session: { id, root, projectIdentity: null, assets: new Map() },
@@ -313,6 +315,7 @@ export class ActiveProjectSessionService {
     const accepted = {
       ...active,
       assets,
+      nativeLayoutIds: new Set(Object.keys(nativeProject.layouts)),
       projectIdentity: { id: nativeProject.project.id, name: nativeProject.project.name },
     };
     if (staged) this.stagedNative = { ...this.stagedNative!, session: accepted };
@@ -482,6 +485,41 @@ export class ActiveProjectSessionService {
             kind: `layout-${channel}`,
             text: true,
             contentHash: snapshot.fileRevisions[physicalPath]?.contentHash,
+            layout: { id: layoutId, channel },
+          });
+        }
+      }
+    }
+
+    // The native candidate has no TypeScript Workspace snapshot. Derive
+    // layout source identities only from native-admitted Layout records and
+    // verify each physical file before exposing it to the source editor.
+    if (active.nativeLayoutIds) {
+      for (const layoutId of active.nativeLayoutIds) {
+        for (const channel of ['rml', 'rcss', 'lua'] as const) {
+          const relative = `records/layouts/${layoutId}/layout.${channel}`;
+          const absolute = path.join(active.root, relative);
+          let canonical: string;
+          try {
+            canonical = await fs.realpath(absolute);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            throw error;
+          }
+          if (path.relative(active.root, canonical) !== relative.split('/').join(path.sep))
+            throw new Error('Native Layout source identity escaped the active Project.');
+          const stats = await fs.stat(canonical);
+          if (!stats.isFile()) throw new Error('Native Layout source is not a regular file.');
+          const displayPath = `layouts/${layoutId}/layout.${channel}`;
+          files.set(displayPath, {
+            id: displayPath,
+            displayPath,
+            projectRelativePath: relative,
+            kind: `layout-${channel}`,
+            text: true,
+            contentHash: `sha256:${createHash('sha256')
+              .update(await fs.readFile(canonical))
+              .digest('hex')}`,
             layout: { id: layoutId, channel },
           });
         }

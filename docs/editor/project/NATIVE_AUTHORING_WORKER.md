@@ -757,8 +757,8 @@ only the import timestamp because the operations occur in separate processes.
 
 ## Native-only editor admission preparation (#521)
 
-The cutover's new `openNativeEditorProject` path admits a physical Project
-through `ActiveProjectSessionService.activateProjectFile` and the native
+The cutover's new `openNativeEditorProject` path stages a physical Project
+through `ActiveProjectSessionService.stageNativeProjectFile` and the native
 worker's complete Project preparation. It deliberately does not construct
 `ProjectWorkspaceService`, consume a TypeScript-saved Project as an oracle,
 or run a second whole-Project parser. Session identity and Asset capabilities
@@ -808,3 +808,131 @@ merely to validate flags. Unclaimed operations fail closed; the installed
 ScriptC/daemon production entrypoint has **not** switched to this function.
 Ignored editor-only JSON serialization likewise no longer requires the
 legacy YAML/Project codec. Its old machine.json bytes are regression-tested.
+
+## Candidate-only editor lifecycle wiring (#532)
+
+`--certify-native-authoring-lifecycle` selects the separate full native
+**candidate** path in `editor/src/main.ts`. Normal editor launches still use
+the legacy Project routes, and `--certify-native-authoring-open` / `-edit`
+retain their existing differential certification behavior. This flag is not
+a supported production mode or an intermediate release. It exists to
+exercise the native editor independently before the atomic #521 editor/CLI
+cutover.
+
+The guarded main-process `OPEN_PROJECT` IPC stages an independently owned
+native worker through `NativeEditorProjectHandoff`. The trusted main process
+selects the canonical Project root and addon path; the renderer cannot supply
+a worker handle. Admission, tracked `editor.yaml`, local-only recovery,
+acknowledged native dirty checkpoint and source revisions must succeed before
+the staged identity is committed. Invalid or superseded candidates dispose
+their own workers without revoking the incumbent. Reopening the same physical
+root creates a fresh candidate, restoring native dirty edits without first
+destroying the previous worker. Close revokes all candidate and active native
+workers, and all native command, text, Save, Test and export IPC calls continue
+to validate the active session ID and working revision.
+
+Candidate `CREATE_PROJECT` uses the private `native-project-create` editor
+bridge operation, which dispatches a single native `project-create`
+transaction with an absolute destination and returns its native identity.
+The UI then opens the created Project normally via candidate `OPEN_PROJECT`.
+No TypeScript Workspace creator, validator or YAML writer is invoked by this
+candidate path. The internal bridge extension does not change the public
+CLI/daemon production routing.
+
+`START_PROJECT_WORKSPACE_WATCHER` and `STOP_PROJECT_WORKSPACE_WATCHER` remain
+the existing authenticated renderer capability names but dispatch to
+`NativeEditorObserverWatchService` in this candidate mode, never to the
+legacy chokidar/Workspace watcher. Its events retain the renderer's stable
+source-event envelope while representing only native-authoritative exact-byte
+observations; unsafe or incomplete observation proof yields diagnostics and
+cannot be treated as an admitted semantic Project. Native Layout RML/RCSS/Lua
+source entries are inventoried from native-admitted Layout IDs and physically
+verified files, rather than the old Workspace snapshot.
+
+Regression entrypoints are
+`src/renderer/test/native-editor-project-handoff.test.ts` (incumbent,
+same-root reopen, rejected admission, dirty Save and physical observer)
+and `native-editor-project-create.test.ts` (private native Create and
+newly created Project Open). The additional
+`native-editor-candidate-ipc.test.ts` exercises the actual guarded IPC
+registrar, sender validation and revision-checked Open/Patch/Validate/Save/
+reopen/Close with real Feature Lab workers, rather than a mock Project store.
+All three can exercise real worker/native CLI with:
+
+```sh
+NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
+  pnpm -C editor exec vp test run \
+  src/renderer/test/native-editor-project-handoff.test.ts \
+  src/renderer/test/native-editor-project-create.test.ts \
+  src/renderer/test/native-editor-candidate-ipc.test.ts
+```
+
+### Editor consumer and final-gate inventory
+
+The candidate uses the existing authenticated preload API and main-process
+channel names. Its source authority routes are:
+
+| Editor consumer | Native candidate ownership / IPC route |
+| --- | --- |
+| Create | `CREATE_PROJECT` -> private native `project-create` transaction, then candidate `OPEN_PROJECT` |
+| Open, same-root reopen, close | `OPEN_PROJECT` and `CLOSE_ACTIVE_PROJECT` -> staged `NativeEditorProjectHandoff` and independent worker lifetimes |
+| Inspector, record edits, undo/redo | Initial complete native working Project, revision-checked `NATIVE_PROJECT_PATCH`, renderer-local inverse patch intents; no second TypeScript Project normalization |
+| Explorer and source buffers | `LIST_PROJECT_SOURCE_FILES`, `READ_PROJECT_TEXT_SOURCES`, `PROJECT_SOURCE_USAGES`, `MUTATE_PROJECT_SOURCES`, `NATIVE_PROJECT_STAGE_TEXT`, `NATIVE_PROJECT_SAVE_TEXT`; native source journal and main-owned physical file capabilities |
+| Comment policy, structural Save/Save All | `NATIVE_PROJECT_SAVE_UNIT` with scoped owners and Keep/Remove/Cancel; `NATIVE_PROJECT_RECONCILE`, `NATIVE_PROJECT_USE_DISK_UNIT` for conflicts and external changes |
+| Save As / Project Copy | `SAVE_PROJECT_COPY_AS` consumes the admitted saved native source inventory and carries local-only editor recovery; it never creates a TypeScript Workspace authority |
+| Asset operations | `AUDIT_PROJECT_ASSETS`, `IMPORT_UNTRACKED_PROJECT_ASSETS`, `ORGANIZE_UNTRACKED_PROJECT_ASSET`, attachment import/inspection, `TRASH_PROJECT_ASSET_FILES` and `RESTORE_PROJECT_ASSET_FILES`; main owns path and Asset capabilities, native authority owns Project mutations |
+| Preview and authored Tests | `NATIVE_PROJECT_PREPARE_RUNTIME`, `NATIVE_PROJECT_VALIDATE`, `NATIVE_PROJECT_RUN_TEST`, `NATIVE_PROJECT_RUN_SUITE`; `LIST_PLAYBACK_TESTS` in candidate enumerates native-admitted Test records rather than validating renderer Project values |
+| Package/platform export | `EXPORT_PACKAGE`, `STAGE_PLATFORM_EXPORT`, `EXPORT_PROJECT_TO_PLATFORM` demand `prepareCleanExport` and native source proof; binary source observation uses native physical fingerprints and tracks actual admitted Asset hashes |
+| External edits and invalidation | Existing watcher START/STOP and event IPC -> native worker's exact-byte observer; no legacy filesystem watcher in candidate |
+
+`COMPLETE_PROJECT_IMPORT` is deliberately fail-closed in the candidate: the
+desktop `.ntproject` handoff still depends on the legacy Workspace importer.
+Rewire it to the existing native `project-import` transaction before #532 can
+claim full editor entrypoint coverage. The shipping import route is unchanged.
+
+### Verification and unresolved acceptance (2026-10-23)
+
+- `pnpm -C editor run check`: passed (schema policy, formatting, lint with
+  zero warnings, typecheck). `pnpm -C editor run build:renderer` and
+  `pnpm -C editor run build:electron`: passed. The private CLI was rebuilt
+  successfully with Node 24.18.0 and `VCPKG_ROOT=/home/dev/dev/vcpkg`.
+- `NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" pnpm -C editor exec vp test run --maxWorkers=4`:
+  348 passed files, 3,099 passing tests, 124 skipped. Focused real-addon
+  Create, handoff and authenticated IPC integration tests also passed.
+- `ctest --test-dir build/native-authoring-host --output-on-failure -j 2 -R '^native_authoring_(working_preparation|asset_animation|tests|source_analysis|project_session|project_validation|yaml_transaction|layout)$'`:
+  8/8 passed.
+- Feature Lab native Open, dirty patch/checkpoint, failed and same-root
+  reopen, physical Save, verified clean export source, Layout inventory,
+  external Room observation, authenticated IPC validation and preview
+  artifact preparation were exercised without a TypeScript Workspace.
+
+**Not yet qualifying evidence:** an actual authored Feature Lab Test run
+reached the native player but reported `compiledProjectAdmissionRejected`
+because the fixture has experimental video motion and references to missing
+gameplay materials. The IPC test verifies the precise native diagnostic,
+not a false success. Runtime Test/package artifact equivalence still needs
+a runnable fixture or corrected native package inputs. Desktop bundle import
+remains fail-closed as above. An interactive Electron renderer/inspector
+smoke test and cross-platform GUI checks were not executed in this headless
+workspace. These prevent closing #532 as fully accepted; they are not reasons
+to switch production routing partially.
+
+The actual final **#521-only deletion gate** is the removal of the legacy
+`openProject`/`createProject`/`saveActiveProjectContent` and
+`requireActiveWorkspace` authoring branches in `editor/src/main.ts`, the
+legacy IPC channel handlers (`SAVE_PROJECT_CONTENT`, `WRITE_PROJECT_SOURCE`,
+`VALIDATE_PROJECT`, `PREPARE_EDITOR_RUNTIME`, `RUN_PLAYBACK_TEST`/
+`RUN_PLAYBACK_SUITE`/`RUN_PLAYBACK_SPEC`/`RUN_UI_PLAYBACK_SPEC`, and
+`PURGE_PROJECT_TRASH`), the obsolete `--certify-native-authoring-open`,
+`--certify-native-authoring-edit` and `--certify-native-authoring-lifecycle`
+mode forks, and the retired TypeScript Workspace/watcher/schema/cache graph
+specified in `NATIVE_AUTHORING_CUTOVER_READINESS.md`. The editor preload and
+renderer must then expose only native authority calls, while retaining UI
+drafts and editor-local state. This inventory is a deletion contract, **not**
+permission to delete production routes in #532.
+
+The full production module and bundle-closure gate and the editor/CLI
+production authority transition remain **#521**, followed by the independent
+production lifecycle qualification in **#522**. The candidate deliberately
+retains old routes in the assembled production bundle; it must not be used
+to claim production independence or satisfy that final closure gate.

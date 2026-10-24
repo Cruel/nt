@@ -1,6 +1,5 @@
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { yamlCommentImpacts } from '../../shared/project-workspace/yaml-comment-impact';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -29,6 +28,7 @@ import { planNativeProjectSourceTransaction } from './native-project-source-tran
 import { projectSourceUsages } from './project-source-usage-reader';
 import { diffJsonDocuments } from '../../renderer/project/project-external-reconciliation';
 import type { JsonValue } from '../../renderer/project/json-value';
+import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
 
 /**
  * Editor-main integration for the native Project admission lifecycle.
@@ -794,6 +794,8 @@ export class NativeEditorSessionController {
       prepared.diagnostics.some((diagnostic) => diagnostic.severity === 'error')
     )
       throw new Error(prepared.error || 'Native Project export source is invalid.');
+    const nativeProject = projectFromNativeCompletePreparation(prepared);
+    const assetHashes = nativeAssetContentHashes(nativeProject);
     const root = this.authority.requireActiveProjectRoot(projectSessionId);
     const canonicalRoot = await realpath(root);
     for (const [relative, revisionHash] of Object.entries(prepared.sourceRevisions)) {
@@ -827,12 +829,11 @@ export class NativeEditorSessionController {
       } finally {
         await file.close();
       }
-      if (`sha256:${createHash('sha256').update(bytes).digest('hex')}` !== revisionHash)
-        throw new Error(`Native export source changed since admission: ${relative}`);
+      verifyNativeSourceBytes(relative, revisionHash, bytes, assetHashes);
     }
     if (revision !== this.currentRevision(projectSessionId))
       throw new Error('Native Project changed during export preparation.');
-    return projectFromNativeCompletePreparation(prepared);
+    return nativeProject;
   }
 
   /** Save Copy As copies saved physical sources, not the unsaved working
@@ -844,6 +845,9 @@ export class NativeEditorSessionController {
     const prepared = await this.working.prepareCompleteWorking();
     if (!prepared.sourceRevisions || !Object.keys(prepared.sourceRevisions).length)
       throw new Error('Native saved source inventory is unavailable.');
+    if (!prepared.accepted || !prepared.completeProject)
+      throw new Error(prepared.error || 'Native saved Project could not be prepared.');
+    const assetHashes = nativeAssetContentHashes(projectFromNativeCompletePreparation(prepared));
     const root = this.authority.requireActiveProjectRoot(projectSessionId);
     const canonicalRoot = await realpath(root);
     for (const [relative, revisionHash] of Object.entries(prepared.sourceRevisions)) {
@@ -872,12 +876,7 @@ export class NativeEditorSessionController {
         throw new Error('Native saved source escapes its admitted identity: ' + relative);
       const file = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
-        if (
-          `sha256:${createHash('sha256')
-            .update(await file.readFile())
-            .digest('hex')}` !== revisionHash
-        )
-          throw new Error('WORKSPACE_REVISION_CONFLICT: ' + relative);
+        verifyNativeSourceBytes(relative, revisionHash, await file.readFile(), assetHashes);
       } finally {
         await file.close();
       }
