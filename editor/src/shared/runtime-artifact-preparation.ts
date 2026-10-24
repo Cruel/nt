@@ -1,9 +1,6 @@
-import { unchangedValidationContributionInputs } from './project-schema/authoring-validation-input-equivalence';
-import { compileAuthoringProjectValue } from './authoring-compiler';
+import { compileAuthoringProjectValue } from './authoring-compiler-lowering';
 import { collectRuntimeDistributionNotices } from './runtime-distribution-notices';
 import { applyExportLocalizationClosure } from './export-localization-closure';
-import { buildAuthoringDependencyGraph } from './authoring-dependency-graph';
-import { collectAuthoringSourceRequirements } from './authoring-source-analysis';
 import type {
   PackageExportOptions,
   ShaderCompileDiagnostic,
@@ -11,15 +8,14 @@ import type {
   ShaderCompileOutput,
   ShaderCompileResponse,
 } from './editor-tooling';
-import { parseAssetData } from './project-schema/authoring-assets';
-import { animationDataSchema } from './project-schema/authoring-animations';
-import { parseLayoutData } from './project-schema/authoring-layouts';
-import { parseScriptModuleData } from './project-schema/authoring-script-modules';
+import type { AssetData } from './project-schema/authoring-assets';
+import type { AnimationData } from './project-schema/authoring-animations';
+import type { LayoutData } from './project-schema/authoring-layouts';
+import type { ScriptModuleData } from './project-schema/authoring-script-modules';
 import { serializeCompiledProjectWire } from './project-schema/compiled-project';
 import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
 import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
-import type { LuaSourceSnapshot } from './project-schema/authoring-lua-analysis';
-import { isSha256Digest, type Sha256Digest } from './project-text-sources';
+import type { Sha256Digest } from './project-text-sources';
 import {
   defaultProjectAppIdentity,
   deriveProjectDisplayGeometry,
@@ -32,14 +28,7 @@ import {
   projectValidationBoundariesForCompilerDiagnostic,
   type ProjectValidationDiagnostic,
 } from './project-schema/project-diagnostic-projection';
-import {
-  validateAdmittedAuthoringProject,
-  validateAuthoringProject,
-} from './project-schema/authoring-validation';
-import type {
-  AuthoringValidationContribution,
-  AuthoringValidationReuse,
-} from './project-schema/authoring-validation-contributions';
+import type { AuthoringValidationContribution } from './project-schema/authoring-validation-contributions';
 import {
   canonicalProjectContentJson,
   emptyEditorProjectState,
@@ -65,6 +54,29 @@ import {
 } from './prepared-media';
 
 export { PREPARED_RUNTIME_ARTIFACT_SCHEMA, preparedRuntimeArtifactSchema };
+
+/** Project records have already been admitted by their current owner (native
+ * candidate, or the legacy adapter). These accessors only read physical
+ * packaging fields; they do not reparse or normalize authored records. */
+function assetPackagingData(value: unknown): AssetData | null {
+  const data = value as AssetData | null | undefined;
+  return data && typeof data.source?.path === 'string' ? data : null;
+}
+
+function scriptPackagingData(value: unknown): ScriptModuleData | null {
+  const data = value as ScriptModuleData | null | undefined;
+  return data && typeof data.source?.kind === 'string' ? data : null;
+}
+
+function layoutPackagingData(value: unknown): LayoutData | null {
+  const data = value as LayoutData | null | undefined;
+  return data && Array.isArray(data.dependencies?.scripts) ? data : null;
+}
+
+function animationPackagingData(value: unknown): AnimationData | null {
+  const data = value as AnimationData | null | undefined;
+  return data && Array.isArray(data.motions) ? data : null;
+}
 export type {
   ExportFileEntry,
   ExportManifestPreview,
@@ -80,6 +92,7 @@ interface RuntimeArtifactAssemblyOptions {
   paths: RuntimeArtifactPathAdapter;
   compilation: ReturnType<typeof compileRuntimeArtifact>;
   admittedRuntimeAssetReferences?: readonly string[];
+  legacySourceGraph?: LegacyRuntimeSourceGraphResolver;
   admittedSourceGraph?: Pick<
     import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
     'graph' | 'externalSourceRevisions'
@@ -164,6 +177,14 @@ export interface PrepareRuntimeArtifactOptions {
   admittedValidationContributions?: readonly AuthoringValidationContribution[];
   /** Native semantic Asset-reference closure pinned to the admitted Project generation. */
   admittedRuntimeAssetReferences?: readonly string[];
+  /** Legacy-only admission/analysis hooks. Native candidates leave these absent. */
+  legacyValidate?: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[];
+  legacyCompile?: (
+    project: AuthoringProject,
+    runtimeProject: AuthoringProject,
+    contributions?: readonly AuthoringValidationContribution[],
+  ) => ReturnType<typeof compileAuthoringProjectValue>;
+  legacySourceGraph?: LegacyRuntimeSourceGraphResolver;
   /** Current admitted graph, supplied by a trusted workspace generation only. */
   admittedSourceGraph?: Pick<
     import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
@@ -186,6 +207,8 @@ export interface VerifyPreparedRuntimeArtifactOptions {
   recoveryFingerprint?: unknown;
   paths: RuntimeArtifactPathAdapter;
   admittedRuntimeAssetReferences?: readonly string[];
+  legacyCompile?: (project: AuthoringProject) => ReturnType<typeof compileAuthoringProjectValue>;
+  legacySourceGraph?: LegacyRuntimeSourceGraphResolver;
 }
 
 export type PrepareRuntimeArtifactResult =
@@ -375,17 +398,20 @@ export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.materials).length > 0;
 }
 
-function localizationOwnsAssetReference(sourcePath: string): boolean {
-  return (
-    sourcePath.startsWith('/localization/assets/') ||
-    (sourcePath.startsWith('/localization/locales/') && sourcePath.includes('/fontStack'))
-  );
-}
-
-interface RuntimeSourceGraphAssessment {
+export interface RuntimeSourceGraphAssessment {
   referencedAssetIds: ReadonlySet<string>;
   diagnostics: ProjectValidationDiagnostic[];
 }
+
+export type LegacyRuntimeSourceGraphResolver = (
+  project: AuthoringProject,
+  projectRoot: string | null,
+  paths: RuntimeArtifactPathAdapter,
+  admittedAnalysis?: Pick<
+    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
+    'graph' | 'externalSourceRevisions'
+  > & { readonly project: AuthoringProject },
+) => Promise<RuntimeSourceGraphAssessment | null>;
 
 async function runtimeSourceGraphAssessment(
   project: AuthoringProject,
@@ -396,139 +422,15 @@ async function runtimeSourceGraphAssessment(
     'graph' | 'externalSourceRevisions'
   > & { readonly project: AuthoringProject },
   admittedRuntimeAssetReferences?: readonly string[],
+  legacyResolver?: LegacyRuntimeSourceGraphResolver,
 ): Promise<RuntimeSourceGraphAssessment | null> {
   if (admittedRuntimeAssetReferences)
     return { referencedAssetIds: new Set(admittedRuntimeAssetReferences), diagnostics: [] };
-  // The graph alone is insufficient evidence: a workspace analysis can be
-  // partial when an external source was unavailable. In that case preserve
-  // the original conservative fallback, which does not prune packaged Assets.
-  const requiredAssets = collectAuthoringSourceRequirements(project);
-  const requiredProjectFiles = new Set<string>();
-  for (const record of Object.values(project.scripts)) {
-    const source = parseScriptModuleData(record.data)?.source;
-    if (source?.kind === 'project-file') requiredProjectFiles.add(source.path);
-  }
-  for (const record of Object.values(project.layouts)) {
-    const layout = parseLayoutData(record.data);
-    for (const file of layout?.dependencies.scripts ?? []) requiredProjectFiles.add(file);
-  }
-  const graphInputsProven = Boolean(
-    admittedAnalysis?.project === project &&
-    requiredAssets.every((id) => {
-      const source = parseAssetData(project.assets[id]?.data);
-      return (
-        source?.contentHash &&
-        isSha256Digest(source.contentHash) &&
-        admittedAnalysis.externalSourceRevisions.get(source.source.path)?.contentHash ===
-          source.contentHash
-      );
-    }) &&
-    [...requiredProjectFiles].every((path) => admittedAnalysis.externalSourceRevisions.has(path)),
-  );
-  if (admittedAnalysis && graphInputsProven) {
-    const referenced = new Set<string>();
-    for (const edge of admittedAnalysis.graph.edgesById.values())
-      if (
-        edge.target.kind === 'record' &&
-        edge.target.collection === 'assets' &&
-        !localizationOwnsAssetReference(edge.sourcePath)
-      )
-        referenced.add(edge.target.id);
-    return {
-      referencedAssetIds: referenced,
-      diagnostics: classifyProjectValidationDiagnostics(
-        admittedAnalysis.graph.diagnostics.map((item) => ({ ...item, category: 'Layouts' })),
-        { producer: 'authoring' },
-      ),
-    };
-  }
-  const requiredSourceAssetIds = collectAuthoringSourceRequirements(project);
-  const assetReadEntries = requiredSourceAssetIds.flatMap((assetId) => {
-    const data = parseAssetData(project.assets[assetId]?.data);
-    const hash = data?.contentHash;
-    return data && hash && isSha256Digest(hash)
-      ? [{ assetId, projectRelativePath: data.source.path, expectedContentHash: hash }]
-      : [];
-  });
-  if (assetReadEntries.length !== requiredSourceAssetIds.length) return null;
-
-  const projectFilePaths = new Set<string>();
-  for (const record of Object.values(project.scripts)) {
-    const source = parseScriptModuleData(record.data)?.source;
-    if (source?.kind === 'project-file') projectFilePaths.add(source.path);
-  }
-  for (const record of Object.values(project.layouts)) {
-    const layout = parseLayoutData(record.data);
-    for (const scriptPath of layout?.dependencies.scripts ?? []) projectFilePaths.add(scriptPath);
-  }
-  const projectFileReadEntries = [...projectFilePaths].sort().map((projectRelativePath, index) => ({
-    assetId: `project-file:${index}`,
-    projectRelativePath,
-    expectedContentHash: null,
-  }));
-  const readEntries = [...assetReadEntries, ...projectFileReadEntries];
-  if (readEntries.length > 0 && !paths.readProjectTextSources) return null;
-
-  const readResults = paths.readProjectTextSources
-    ? await paths.readProjectTextSources(projectRoot, readEntries)
-    : [];
-  const byReadKey = new Map(readResults.map((entry) => [entry.assetId, entry]));
-  if (readEntries.some(({ assetId }) => byReadKey.get(assetId)?.status !== 'ready')) return null;
-
-  const sources: LuaSourceSnapshot = {
-    entriesByAssetId: new Map(
-      assetReadEntries.map(({ assetId, expectedContentHash, projectRelativePath }) => {
-        const entry = byReadKey.get(assetId)!;
-        if (entry.status !== 'ready')
-          throw new Error('Source-read completeness changed unexpectedly.');
-        return [
-          assetId,
-          {
-            status: 'ready' as const,
-            assetId,
-            projectRelativePath,
-            contentHash: entry.contentHash ?? expectedContentHash,
-            text: entry.text,
-            hadUtf8Bom: false,
-          },
-        ];
-      }),
-    ),
-    entriesByProjectPath: new Map(
-      projectFileReadEntries.map(({ assetId, projectRelativePath }) => {
-        const entry = byReadKey.get(assetId)!;
-        if (entry.status !== 'ready')
-          throw new Error('Source-read completeness changed unexpectedly.');
-        return [
-          projectRelativePath,
-          {
-            status: 'ready' as const,
-            projectRelativePath,
-            contentHash: entry.contentHash,
-            text: entry.text,
-            hadUtf8Bom: false,
-          },
-        ];
-      }),
-    ),
-  };
-  const graph = await buildAuthoringDependencyGraph(project, { mode: 'enabled', sources });
-  const referenced = new Set<string>();
-  for (const edge of graph.edgesById.values()) {
-    if (
-      edge.target.kind === 'record' &&
-      edge.target.collection === 'assets' &&
-      !localizationOwnsAssetReference(edge.sourcePath)
-    )
-      referenced.add(edge.target.id);
-  }
-  return {
-    referencedAssetIds: referenced,
-    diagnostics: classifyProjectValidationDiagnostics(
-      graph.diagnostics.map((diagnostic) => ({ ...diagnostic, category: 'Layouts' })),
-      { producer: 'authoring' },
-    ),
-  };
+  if (!legacyResolver)
+    throw new Error(
+      'Runtime preparation requires native admitted Asset references or the legacy adapter.',
+    );
+  return legacyResolver(project, projectRoot, paths, admittedAnalysis);
 }
 
 async function referencedRuntimeAssetIds(
@@ -536,6 +438,7 @@ async function referencedRuntimeAssetIds(
   projectRoot: string | null,
   paths: RuntimeArtifactPathAdapter,
   admittedRuntimeAssetReferences?: readonly string[],
+  legacyResolver?: LegacyRuntimeSourceGraphResolver,
 ): Promise<ReadonlySet<string> | null> {
   return (
     (
@@ -545,6 +448,7 @@ async function referencedRuntimeAssetIds(
         paths,
         undefined,
         admittedRuntimeAssetReferences,
+        legacyResolver,
       )
     )?.referencedAssetIds ?? null
   );
@@ -709,34 +613,19 @@ function reconcileCompiledMaterialParameters<T>(
 
 function compileRuntimeArtifact(options: PrepareRuntimeArtifactOptions) {
   const project = options.project;
-  const authoringDiagnostics =
-    options.admittedAuthoringDiagnostics ?? validateAuthoringProject(project);
   const runtimeProject = runtimeCompilationProject(project);
   const nativeAdmitted =
     options.admittedAuthoringDiagnostics !== undefined &&
     options.admittedValidationContributions !== undefined;
-  const semanticValidation =
-    !nativeAdmitted && options.admittedValidationContributions
-      ? (normalized: AuthoringProject) => {
-          const unchangedInputs = unchangedValidationContributionInputs(
-            project,
-            normalized,
-            options.admittedValidationContributions!,
-          );
-          const reuse: AuthoringValidationReuse = {
-            contributions: options.admittedValidationContributions!,
-            resolveInputs(paths) {
-              return unchangedInputs.get(JSON.stringify(paths)) ?? null;
-            },
-          };
-          return validateAdmittedAuthoringProject(normalized, reuse).diagnostics;
-        }
-      : undefined;
-  const published = compileAuthoringProjectValue(
-    runtimeProject,
-    semanticValidation,
-    nativeAdmitted,
-  );
+  if (!nativeAdmitted && (!options.legacyValidate || !options.legacyCompile))
+    throw new Error(
+      'Runtime preparation requires complete native admission or the legacy adapter.',
+    );
+  const authoringDiagnostics =
+    options.admittedAuthoringDiagnostics ?? options.legacyValidate!(project);
+  const published = nativeAdmitted
+    ? compileAuthoringProjectValue(runtimeProject, undefined, true)
+    : options.legacyCompile!(project, runtimeProject, options.admittedValidationContributions);
   return { authoringDiagnostics, runtimeProject, published };
 }
 
@@ -784,6 +673,7 @@ async function assembleRuntimeArtifact(
     options.paths,
     options.admittedSourceGraph,
     options.admittedRuntimeAssetReferences,
+    options.legacySourceGraph,
   );
   const runtimeReferencedAssetIds = sourceGraph?.referencedAssetIds ?? null;
   const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
@@ -827,7 +717,7 @@ async function assembleRuntimeArtifact(
   let gameplayJson: string | undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     if (localizationClosure && !localizationClosure.payloadAssetIds.has(asset.id)) return [];
-    const authored = parseAssetData(project.assets[asset.id]?.data);
+    const authored = assetPackagingData(project.assets[asset.id]?.data);
     if (!authored) return [];
     return [
       {
@@ -844,7 +734,7 @@ async function assembleRuntimeArtifact(
   });
   const packagedSourcePaths = new Set<string>();
   for (const [scriptId, record] of Object.entries(project.scripts)) {
-    const source = parseScriptModuleData(record.data)?.source;
+    const source = scriptPackagingData(record.data)?.source;
     if (source?.kind !== 'project-file') continue;
     packagedSourcePaths.add(source.path);
     fileEntries.push({
@@ -856,7 +746,7 @@ async function assembleRuntimeArtifact(
     });
   }
   for (const record of Object.values(project.layouts)) {
-    const layout = parseLayoutData(record.data);
+    const layout = layoutPackagingData(record.data);
     for (const scriptPath of layout?.dependencies.scripts ?? []) {
       if (packagedSourcePaths.has(scriptPath)) continue;
       packagedSourcePaths.add(scriptPath);
@@ -1232,12 +1122,12 @@ async function prepareOpaqueVideoRepresentations(
     request: OpaqueVideoPreparationRequest;
   }> = [];
   for (const animationId of Object.keys(project.animations).sort()) {
-    const animation = animationDataSchema.safeParse(project.animations[animationId]?.data);
-    if (!animation.success) continue;
-    for (const motion of animation.data.motions) {
+    const animation = animationPackagingData(project.animations[animationId]?.data);
+    if (!animation) continue;
+    for (const motion of animation.motions) {
       if (motion.kind !== 'video') continue;
       const assetId = motion.video.$ref.id;
-      const asset = parseAssetData(project.assets[assetId]?.data);
+      const asset = assetPackagingData(project.assets[assetId]?.data);
       if (asset?.kind !== 'video') continue;
       requests.push({
         animationId,
@@ -1247,7 +1137,7 @@ async function prepareOpaqueVideoRepresentations(
           motionId: motion.id,
           assetId,
           sourcePath: asset.source.path,
-          canvas: { ...animation.data.canvas },
+          canvas: { ...animation.canvas },
           ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
           ...(motion.frameSampling ? { frameSampling: motion.frameSampling } : {}),
         },
@@ -1514,6 +1404,7 @@ export async function prepareRuntimeArtifact(
       ? { admittedRuntimeAssetReferences: options.admittedRuntimeAssetReferences }
       : {}),
     ...(options.admittedSourceGraph ? { admittedSourceGraph: options.admittedSourceGraph } : {}),
+    ...(options.legacySourceGraph ? { legacySourceGraph: options.legacySourceGraph } : {}),
   });
   if (effectsAllowed(options.intent) && assessment.compiledArtifactAvailable) {
     if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
@@ -1649,6 +1540,7 @@ async function expectedFileEntriesForVerification(
         options.projectRoot,
         options.paths,
         options.admittedRuntimeAssetReferences,
+        options.legacySourceGraph,
       )
     : null;
   if (options.profile.excludeUnusedAssets && referencedAssetIds === null)
@@ -1669,7 +1561,7 @@ async function expectedFileEntriesForVerification(
   const packagePaths = new Set<string>();
   for (const asset of expectedCompiledAssets) {
     if (payloadAssetIds && !payloadAssetIds.has(asset.id)) continue;
-    const authored = parseAssetData(options.project.assets[asset.id]?.data);
+    const authored = assetPackagingData(options.project.assets[asset.id]?.data);
     if (!authored)
       return {
         message: `Compiled asset '${asset.id}' does not resolve to a current Project asset record.`,
@@ -1716,11 +1608,11 @@ async function expectedFileEntriesForVerification(
     });
   };
   for (const [scriptId, record] of Object.entries(options.project.scripts)) {
-    const source = parseScriptModuleData(record.data)?.source;
+    const source = scriptPackagingData(record.data)?.source;
     if (source?.kind === 'project-file') addProjectSource(source.path, scriptId, 'script-source');
   }
   for (const record of Object.values(options.project.layouts)) {
-    const layout = parseLayoutData(record.data);
+    const layout = layoutPackagingData(record.data);
     for (const scriptPath of layout?.dependencies.scripts ?? [])
       addProjectSource(scriptPath, `source:${scriptPath}`, 'script-source');
   }
@@ -1864,12 +1756,11 @@ export async function verifyPreparedRuntimeArtifact(
       '/artifact/gameplayJson',
     );
   const expectedRuntimeProject = runtimeCompilationProject(options.project);
-  const freshlyCompiled = compileAuthoringProjectValue(
-    expectedRuntimeProject,
-    undefined,
-    options.admittedRuntimeAssetReferences !== undefined,
-  );
-  if (!freshlyCompiled.ok)
+  const freshlyCompiled =
+    options.admittedRuntimeAssetReferences !== undefined
+      ? compileAuthoringProjectValue(expectedRuntimeProject, undefined, true)
+      : options.legacyCompile?.(expectedRuntimeProject);
+  if (!freshlyCompiled?.ok)
     return rejectedEvidence(
       'Current Project cannot be freshly compiled while verifying the prepared runtime artifact.',
       '/artifact/compiledProject',
@@ -1894,6 +1785,7 @@ export async function verifyPreparedRuntimeArtifact(
     options.projectRoot,
     options.paths,
     options.admittedRuntimeAssetReferences,
+    options.legacySourceGraph,
   );
   if (options.profile.excludeUnusedAssets && localizationBaseAssetIds === null)
     return rejectedEvidence(

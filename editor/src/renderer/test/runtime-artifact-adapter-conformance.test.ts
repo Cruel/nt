@@ -10,7 +10,7 @@ import { useProjectStore } from '../project/project-store';
 import {
   prepareRuntimeArtifact,
   type RuntimeArtifactShaderCompilerAdapter,
-} from '../../shared/runtime-artifact-preparation';
+} from '../../shared/legacy-runtime-artifact-preparation';
 import {
   rendererRuntimeArtifactPaths,
   rendererShaderCompilerAdapter,

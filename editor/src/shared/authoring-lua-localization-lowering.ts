@@ -1,8 +1,8 @@
+import { analyzeManagedLuaLocalization } from './authoring-source-downstream';
 import {
-  analyzeManagedLuaLocalization,
   collectAuthoringLuaSources,
   type AuthoringLuaSourceDescriptor,
-} from './authoring-source-analysis';
+} from './authoring-native-lua-sources';
 import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
 import { parseJsonPointer } from './json-pointer';

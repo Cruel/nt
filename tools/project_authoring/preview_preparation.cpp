@@ -11,6 +11,45 @@ namespace noveltea::authoring {
 namespace {
 using Json = jsoncons::ojson;
 
+// Mirror the runtime Asset-reference projection used by the native CLI
+// preparation. Do not admit Test/editor or localization/platform-only edges
+// into Runtime Package pruning.
+void collect_runtime_asset_references(const Json& value, const std::string& path,
+                                      std::set<std::string>& ids)
+{
+    if (value.is_array()) {
+        std::size_t index = 0;
+        for (const auto& item : value.array_range())
+            collect_runtime_asset_references(item, path + "/" + std::to_string(index++), ids);
+        return;
+    }
+    if (!value.is_object())
+        return;
+    if (value.contains("$ref") && value.at("$ref").is_object()) {
+        const auto& reference = value.at("$ref");
+        if (reference.contains("collection") && reference.at("collection") == "assets" &&
+            reference.contains("id") && reference.at("id").is_string())
+            ids.insert(reference.at("id").as<std::string>());
+    }
+    if (value.contains("kind") && value.at("kind") == "record" &&
+        value.contains("collection") && value.at("collection") == "assets" &&
+        value.contains("id") && value.at("id").is_string())
+        ids.insert(value.at("id").as<std::string>());
+    for (const auto& child : value.object_range()) {
+        const auto& key = child.key();
+        const auto child_path = path + "/" + key;
+        if ((path.empty() && (key == "tests" || key == "editor")) ||
+            child_path.starts_with("/tests/") || child_path.starts_with("/editor/") ||
+            child_path == "/settings/app/icon" ||
+            child_path == "/settings/app/launchImage" ||
+            child_path.starts_with("/localization/assets/") ||
+            (child_path.starts_with("/localization/locales/") &&
+             child_path.find("/fontStack") != std::string::npos))
+            continue;
+        collect_runtime_asset_references(child.value(), child_path, ids);
+    }
+}
+
 std::string bytes_at(const std::filesystem::path& path)
 {
     std::ifstream input(path, std::ios::binary);
@@ -328,6 +367,9 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         // allowing runtime consumers to verify without a TypeScript baseline.
         for (const auto& [relative, revision] : *physical)
             prepared.source_revisions.insert_or_assign(relative, revision);
+        std::set<std::string> runtime_assets;
+        collect_runtime_asset_references(complete, "", runtime_assets);
+        prepared.referenced_asset_ids = std::move(runtime_assets);
         prepared.complete_project_json = complete.to_string();
     } catch (const std::exception& error) {
         prepared.accepted = false;

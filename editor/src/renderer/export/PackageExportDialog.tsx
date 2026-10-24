@@ -34,7 +34,7 @@ import {
   prepareRuntimeArtifact,
   hasAuthoringShadersOrMaterials,
   type RuntimeArtifactAssessment,
-} from '../../shared/runtime-artifact-preparation';
+} from '../../shared/legacy-runtime-artifact-preparation';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import {
   classifyProjectValidationDiagnostics,

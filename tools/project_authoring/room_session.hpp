@@ -246,6 +246,9 @@ public:
         // Complete effective Project assembled by resident native validation,
         // rather than by overlaying dirty owners on a TypeScript saved Project.
         std::string complete_project_json;
+        // Same admitted runtime-only Asset closure as the native CLI exporter.
+        // Empty is meaningful; only complete preparation publishes the field.
+        std::optional<std::set<std::string>> referenced_asset_ids;
         std::map<std::string, std::string> source_revisions;
         std::map<std::string, std::string> text_overlays;
         std::map<std::string, std::string> shader_overlays;

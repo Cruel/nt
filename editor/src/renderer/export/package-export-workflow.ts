@@ -4,7 +4,7 @@ import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { PackageExportResponse, ToolDiagnostic } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
-import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { prepareRuntimeArtifact } from '../../shared/legacy-runtime-artifact-preparation';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import {
   classifyProjectValidationDiagnostics,

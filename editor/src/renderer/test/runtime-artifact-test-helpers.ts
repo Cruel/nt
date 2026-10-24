@@ -6,7 +6,7 @@ import {
   type PrepareRuntimeArtifactResult,
   type RuntimeArtifactAssessment,
   type RuntimeArtifactPathAdapter,
-} from '../../shared/runtime-artifact-preparation';
+} from '../../shared/legacy-runtime-artifact-preparation';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
 
 export interface RuntimeArtifactTestOptions {

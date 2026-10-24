@@ -21,7 +21,7 @@ import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
   prepareRuntimeArtifact,
   verifyPreparedRuntimeArtifact,
-} from '../../shared/runtime-artifact-preparation';
+} from '../../shared/legacy-runtime-artifact-preparation';
 import {
   defaultRoomData,
   roomAssetRef,

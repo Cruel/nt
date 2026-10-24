@@ -2,16 +2,14 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { compileCliShaders, parseCliShaderCompile } from '../compile-shaders-command';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
-import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { prepareRuntimeArtifact } from '../../shared/legacy-runtime-artifact-preparation';
 import { compileWithVerifiedValidationCache } from '../validation-stage-cache';
-import { PREPARED_MEDIA_MANIFEST_PATH } from '../../shared/prepared-media';
-import type { PreparedRuntimeArtifact } from '../../shared/project-schema/prepared-runtime-artifact';
 import {
   captureRuntimeBuildCacheTestInputs,
   lookupCanonicalRuntimeBuildCache,
   publishCanonicalRuntimeBuildCache,
   type RuntimeBuildCacheObservation,
-} from '../../shared/runtime-build-cache';
+} from '../../shared/legacy-runtime-build-cache';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import {
   buildRuntimeTestCatalog,
@@ -21,7 +19,7 @@ import {
   nodeRuntimeArtifactPaths,
   nodeShaderCompilerAdapter,
 } from '../../main/services/node-runtime-artifact-adapters';
-import { NodeProjectWorkspaceProcessLiveness } from '../../shared/project-workspace';
+import { NodeProjectWorkspaceProcessLiveness } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { cliDiagnostic } from '../contracts';
 import type { CliSemanticResult } from '../semantic-project';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
@@ -37,87 +35,18 @@ import {
 
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
 
-export function preparedMediaTestRequest(artifact: PreparedRuntimeArtifact) {
-  const manifest = artifact.packageOptions.textEntries.find(
-    (entry) => entry.packagePath === PREPARED_MEDIA_MANIFEST_PATH,
-  );
-  return manifest ? { preparedMediaManifest: manifest.text } : {};
-}
-
-function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
-  const record =
-    response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
-  const diagnostics = Array.isArray(record.diagnostics)
-    ? record.diagnostics.map((item) => {
-        const value = item as Record<string, unknown>;
-        return cliDiagnostic(
-          typeof value.code === 'string' ? `native.${value.code}` : code,
-          typeof value.path === 'string' ? value.path : pathValue,
-          typeof value.message === 'string' ? value.message : 'Native operation failed.',
-          value.severity === 'warning' || value.severity === 'info' ? value.severity : 'error',
-        );
-      })
-    : [];
-  if (diagnostics.length === 0)
-    diagnostics.push(
-      cliDiagnostic(
-        code,
-        pathValue,
-        typeof record.error === 'string' ? record.error : 'Native operation failed.',
-      ),
-    );
-  return { ok: false, diagnostics };
-}
-
-export function nativeSuccess(response: unknown): CliSemanticResult {
-  const record =
-    response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
-  if (record.ok !== true || record.success === false)
-    return nativeFailure('native.operation', '/', response);
-  return { ok: true, diagnostics: [], fields: { native: record } };
-}
-
-export function nativeTestResult(response: unknown): CliSemanticResult {
-  const record =
-    response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
-  if (record.ok !== true) return nativeFailure('native.test', '/tests', response);
-  const report =
-    record.report && typeof record.report === 'object'
-      ? (record.report as Record<string, unknown>)
-      : null;
-  if (report?.passed === false) {
-    const diagnostics = Array.isArray(report.diagnostics)
-      ? report.diagnostics.flatMap((item) => {
-          if (!item || typeof item !== 'object') return [];
-          const diagnostic = item as Record<string, unknown>;
-          if (typeof diagnostic.message !== 'string') return [];
-          return [
-            cliDiagnostic(
-              'native.test.failed',
-              typeof diagnostic.path === 'string' ? diagnostic.path : '/tests',
-              diagnostic.message,
-              diagnostic.severity === 'warning' || diagnostic.severity === 'info'
-                ? diagnostic.severity
-                : 'error',
-            ),
-          ];
-        })
-      : [];
-    return {
-      ok: false,
-      diagnostics:
-        diagnostics.length > 0
-          ? diagnostics
-          : [cliDiagnostic('native.test.failed', '/tests', 'Authored Test failed.')],
-      fields: { native: record },
-    };
-  }
-  if (record.success === false) {
-    const failed = nativeFailure('native.test', '/tests', response);
-    return { ...failed, fields: { ...failed.fields, native: record } };
-  }
-  return { ok: true, diagnostics: [], fields: { native: record } };
-}
+import {
+  preparedMediaTestRequest,
+  nativeSuccess,
+  nativeTestResult,
+  nativeSuiteResult,
+} from '../native-command-results';
+export {
+  preparedMediaTestRequest,
+  nativeSuccess,
+  nativeTestResult,
+  nativeSuiteResult,
+} from '../native-command-results';
 
 function valueOption(arguments_: readonly string[], option: string): string | undefined {
   const index = arguments_.indexOf(option);
@@ -128,105 +57,8 @@ function valueOption(arguments_: readonly string[], option: string): string | un
   return value;
 }
 
-export async function removeFileIfPresent(
-  context: Pick<CliCommandContext, 'fileSystem'>,
-  value: string,
-): Promise<void> {
-  const kind = context.fileSystem.readPathMetadata
-    ? (await context.fileSystem.readPathMetadata(value)).kind
-    : await context.fileSystem.inspect(value).catch(() => 'missing' as const);
-  if (kind === 'file') await context.fileSystem.removeFile(value);
-}
-
-export async function publishStagedPackage(
-  context: Pick<CliCommandContext, 'fileSystem' | 'nativeTools'>,
-  stagedPath: string,
-  outputPath: string,
-): Promise<CliSemanticResult | null> {
-  const target = context.fileSystem.readPathMetadata
-    ? await context.fileSystem.readPathMetadata(outputPath)
-    : { kind: await context.fileSystem.inspect(outputPath).catch(() => 'missing' as const) };
-  if (target.kind !== 'missing' && target.kind !== 'file')
-    return {
-      ok: false,
-      diagnostics: [
-        cliDiagnostic(
-          'export.output_invalid',
-          '/output',
-          `Runtime Package output '${outputPath}' is not a replaceable regular file.`,
-        ),
-      ],
-    };
-  const transactionPath = `${outputPath}.noveltea-publication-transaction.json`;
-  const backupPath = `${outputPath}.noveltea-publication-backup`;
-  const record = {
-    format: 'noveltea.output-publication-transaction',
-    version: 1,
-    state: 'prepared' as 'prepared' | 'accepted',
-    entries: [
-      {
-        finalPath: outputPath,
-        stagedPath,
-        backupPath,
-        hadPrevious: target.kind === 'file',
-      },
-    ],
-  };
-  const recover = async () => {
-    const transactionKind = await context.fileSystem
-      .inspect(transactionPath)
-      .catch(() => 'missing');
-    if (transactionKind !== 'file') return;
-    let parsed: typeof record;
-    try {
-      parsed = JSON.parse(await context.fileSystem.readText(transactionPath)) as typeof record;
-    } catch {
-      await removeFileIfPresent(context, transactionPath).catch(() => undefined);
-      return;
-    }
-    const entry = parsed.entries[0];
-    if (!entry) return;
-    const backupKind = await context.fileSystem.inspect(entry.backupPath).catch(() => 'missing');
-    if (parsed.state === 'accepted') {
-      if (backupKind === 'file') await context.fileSystem.removeFile(entry.backupPath);
-      await removeFileIfPresent(context, entry.stagedPath).catch(() => undefined);
-    } else if (entry.hadPrevious) {
-      if (backupKind === 'file') {
-        await removeFileIfPresent(context, entry.finalPath).catch(() => undefined);
-        await context.fileSystem.movePathAtomic(entry.backupPath, entry.finalPath);
-      }
-      await removeFileIfPresent(context, entry.stagedPath).catch(() => undefined);
-    } else {
-      await removeFileIfPresent(context, entry.finalPath).catch(() => undefined);
-      await removeFileIfPresent(context, entry.stagedPath).catch(() => undefined);
-    }
-    await removeFileIfPresent(context, transactionPath).catch(() => undefined);
-  };
-  try {
-    await recover();
-    await context.nativeTools.registerStagedOutput?.(transactionPath);
-    await context.fileSystem.writeTextAtomic(transactionPath, `${JSON.stringify(record)}\n`);
-    if (record.entries[0]!.hadPrevious)
-      await context.fileSystem.movePathAtomic(outputPath, backupPath);
-    await context.fileSystem.movePathAtomic(stagedPath, outputPath);
-    record.state = 'accepted';
-    await context.fileSystem.writeTextAtomic(transactionPath, `${JSON.stringify(record)}\n`);
-    await recover();
-    return null;
-  } catch (error) {
-    await recover().catch(() => undefined);
-    return {
-      ok: false,
-      diagnostics: [
-        cliDiagnostic(
-          'export.publish_failed',
-          '/output',
-          error instanceof Error ? error.message : 'Runtime Package publication failed.',
-        ),
-      ],
-    };
-  }
-}
+import { removeFileIfPresent, publishStagedPackage } from '../native-package-publication';
+export { removeFileIfPresent, publishStagedPackage } from '../native-package-publication';
 
 export const shadersCompileCommand: CliCommandDefinition = {
   path: ['shaders', 'compile'],
@@ -255,102 +87,6 @@ function withRuntimeCacheObservation(
   return {
     ...result,
     fields: { ...result.fields, runtimeCache: observation },
-  };
-}
-
-export function nativeSuiteResult(response: unknown): CliSemanticResult {
-  const record =
-    response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
-  if (record.ok !== true) {
-    const failed = nativeFailure('native.test.suite', '/tests', response);
-    return { ...failed, fields: { ...failed.fields, native: record } };
-  }
-  const report =
-    record.report && typeof record.report === 'object'
-      ? (record.report as Record<string, unknown>)
-      : null;
-  if (!report || !Array.isArray(report.entries))
-    return nativeFailure('native.test.suite', '/tests', {
-      error: 'Native suite report is invalid.',
-    });
-
-  const diagnostics = report.entries.flatMap((value) => {
-    if (!value || typeof value !== 'object') return [];
-    const entry = value as Record<string, unknown>;
-    const id = typeof entry.id === 'string' ? entry.id : 'unknown';
-    if (entry.status === 'failed')
-      return [cliDiagnostic('native.test.failed', `/tests/${id}`, `Test '${id}' failed.`)];
-    if (entry.status === 'blocked') {
-      const nested = Array.isArray(entry.diagnostics) ? entry.diagnostics : [];
-      const promoted = nested.flatMap((item) => {
-        if (!item || typeof item !== 'object') return [];
-        const diagnostic = item as Record<string, unknown>;
-        if (typeof diagnostic.message !== 'string') return [];
-        return [
-          cliDiagnostic(
-            'native.test.blocked',
-            typeof diagnostic.path === 'string' ? diagnostic.path : `/tests/${id}`,
-            diagnostic.message,
-            'warning',
-          ),
-        ];
-      });
-      return promoted.length > 0
-        ? promoted
-        : [
-            cliDiagnostic(
-              'native.test.blocked',
-              `/tests/${id}`,
-              `Test '${id}' is blocked and was not executed.`,
-              'warning',
-            ),
-          ];
-    }
-    if (entry.status === 'error') {
-      const nested = Array.isArray(entry.diagnostics) ? entry.diagnostics : [];
-      const promoted = nested.flatMap((item) => {
-        if (!item || typeof item !== 'object') return [];
-        const diagnostic = item as Record<string, unknown>;
-        if (typeof diagnostic.message !== 'string') return [];
-        return [
-          cliDiagnostic(
-            'native.test.error',
-            typeof diagnostic.path === 'string' ? diagnostic.path : `/tests/${id}`,
-            diagnostic.message,
-          ),
-        ];
-      });
-      return promoted.length > 0
-        ? promoted
-        : [cliDiagnostic('native.test.error', `/tests/${id}`, `Test '${id}' could not execute.`)];
-    }
-    return [];
-  });
-  const counts =
-    report.counts && typeof report.counts === 'object'
-      ? (report.counts as Record<string, unknown>)
-      : {};
-  const count = (key: string) =>
-    typeof counts[key] === 'number' && Number.isInteger(counts[key]) ? counts[key] : 0;
-  const summary =
-    `Test suite: ${count('passed')} passed, ${count('failed')} failed, ` +
-    `${count('blocked')} blocked, ${count('error')} errors.`;
-  const verdictFailure = report.entries.some(
-    (value) =>
-      value !== null &&
-      typeof value === 'object' &&
-      ((value as Record<string, unknown>).status === 'failed' ||
-        (value as Record<string, unknown>).status === 'error'),
-  );
-  // Native transport acceptance and Test verdict are different authorities.
-  // A malformed runner success flag must not turn a failed suite into success.
-  const success = record.success !== false && report.passed !== false && !verdictFailure;
-  if (!success) diagnostics.push(cliDiagnostic('native.test.suite.summary', '/tests', summary));
-  return {
-    ok: success,
-    diagnostics,
-    fields: { native: record },
-    ...(success ? { humanSuccess: summary } : {}),
   };
 }
 

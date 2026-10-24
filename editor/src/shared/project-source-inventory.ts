@@ -1,7 +1,5 @@
-import {
-  compareProjectWorkspaceUnicodeCodePoints,
-  type ProjectWorkspaceFileSystem,
-} from './project-workspace';
+import { compareProjectWorkspaceUnicodeCodePoints } from './project-workspace/workspace-codepoint-order';
+import type { ProjectWorkspaceFileSystem } from './project-workspace/project-workspace-file-system';
 
 export interface ProjectSourceInventoryEntry {
   readonly path: string;

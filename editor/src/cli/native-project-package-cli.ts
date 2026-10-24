@@ -6,11 +6,8 @@ import { cliDiagnostic, formatCliResult, type NovelTeaCliCommandResult } from '.
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import { nativeProjectDiagnostics } from './native-project-results';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
-import {
-  removeFileIfPresent,
-  nativeSuccess,
-  publishStagedPackage,
-} from './commands/native-commands';
+import { removeFileIfPresent, publishStagedPackage } from './native-package-publication';
+import { nativeSuccess } from './native-command-results';
 import type { CliSemanticResult } from './semantic-project';
 import { selectedExportProfile } from '../shared/project-schema/authoring-export';
 import { authoringCollectionKeys } from '../shared/project-schema/authoring-collections';
@@ -30,7 +27,7 @@ import {
   nodeShaderCompilerAdapter,
 } from '../main/services/node-runtime-artifact-adapters';
 import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
-import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 import { createNodeProjectWorkspaceFileSystem } from '../shared/project-workspace/node-project-workspace-file-system';
 import {
   packageOptionsWithPinnedProjectTextSources,

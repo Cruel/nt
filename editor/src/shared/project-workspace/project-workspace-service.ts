@@ -887,16 +887,8 @@ function sourceLocalDiagnostics(
   return result;
 }
 
-export function assetSourcePaths(project: AuthoringProject): string[] {
-  const paths = new Set<string>();
-  for (const record of Object.values(project.assets)) {
-    const asset = parseAssetData(record.data);
-    if (!asset || !isSafeRelativePath(asset.source.path))
-      throw new Error('Asset source path is not a safe project-relative path.');
-    paths.add(asset.source.path);
-  }
-  return [...paths].sort(compareProjectWorkspaceUnicodeCodePoints);
-}
+export { assetSourcePaths } from './project-asset-source-paths';
+import { assetSourcePaths } from './project-asset-source-paths';
 
 type ProjectWorkspaceRevisionState = Readonly<{ xor: bigint; fileCount: number }>;
 

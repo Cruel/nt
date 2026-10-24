@@ -1,6 +1,6 @@
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
-import { analyzeManagedLuaLocalization } from './authoring-source-analysis';
+import { analyzeManagedLuaLocalization } from './authoring-source-downstream';
 import { buildJsonPointer } from './json-pointer';
 import { localizationTrackingFingerprint } from './localization-source-tracking';
 import type { AuthoringProject } from './project-schema/authoring-project';

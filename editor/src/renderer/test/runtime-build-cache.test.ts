@@ -30,7 +30,7 @@ import {
   lookupCanonicalRuntimeBuildCache,
   pinnedRuntimeBuildCacheInputsFromAuthority,
   publishCanonicalRuntimeBuildCache,
-} from '../../shared/runtime-build-cache';
+} from '../../shared/legacy-runtime-build-cache';
 
 const roots: string[] = [];
 

@@ -10,7 +10,7 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
-import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { prepareRuntimeArtifact } from '../../shared/legacy-runtime-artifact-preparation';
 import type {
   PlatformExportProfile,
   PlatformStageRequest,

@@ -139,7 +139,71 @@ expected to reject the **pre-cutover** production bundles until the complete
 switch/deletion boundary is delivered. It is not a substitute for inspecting
 the installed CLI and packaged editor closures in #521/#522.
 
+### #531 native-candidate import boundary (pre-cutover)
+
+This preparatory extraction changes **imports**, not the authority selected by
+the shipped editor, CLI, or daemon. The older route remains in use until #521
+switches editor and CLI together. Run
+`pnpm -C editor run test:native-candidate-closure` to traverse source imports,
+including exports and statically named dynamic imports, from the native editor,
+CLI Test/package, compiler, source utility, and runtime-preparation entrypoints.
+Its negative fixture injects retired authority through an indirect adapter and
+asserts that the full provenance chain is reported. This is a *candidate-only*
+check; it does not weaken or replace the existing production bundle gate.
+
+| Affected import family | Native candidate/downstream use | Pre-#521 legacy use / #521 deletion target |
+| --- | --- | --- |
+| Compiled Project and gameplay lowering | `authoring-compiler-lowering.ts` accepts native-admitted records without TS normalization, validation, or linking | `authoring-compiler.ts` injects legacy Zod admission, TS dependency linker, and semantic validator; remove that legacy adapter and its only-old callers |
+| Lua/RML and source graph | `authoring-source-downstream.ts` provides lexical/RML/localization utilities; `authoring-native-lua-sources.ts` selects source surfaces from native-admitted record values **without TS record parsing**. The native CLI supplies admitted Runtime Asset references | `authoring-source-analysis.ts` retains the parser-based source selector, old semantic source tracking, and analyzer cache; `authoring-dependency-graph.ts` retains old graph contributors. Remove those old authority modules, caches, and validators |
+| Runtime assembly and verification | `runtime-artifact-preparation.ts` consumes admitted native authoring diagnostics, validated contribution marker and native Asset-reference set, projects already-admitted Asset/Animation/Script/Layout packaging fields without TS record parsing, and cannot silently invoke an old analyzer | `legacy-runtime-artifact-preparation.ts` and `legacy-runtime-source-graph.ts` inject obsolete validators/graph and compilation only for pre-switch callers; delete adapters and redirect remaining production callers |
+| Runtime/Test cache, Test projection | `runtime-build-cache.ts` requires native admission proof or an explicitly injected legacy validator; `test-playback-projection.ts` constructs typed playback steps without compiling/admitting a Project | `legacy-runtime-build-cache.ts` retains TS validation for old publication; `test-playback-project.ts` retains old runtime preparation / test readiness (delete old-authority portion and wrapper) |
+| Project Workspace helpers | `project-asset-source-paths.ts`, `workspace-codepoint-order.ts` and direct `project-workspace-file-system.ts` imports avoid broad Workspace barrels for downstream physical inventory and sorting | `project-workspace/index.ts`, `project-workspace-service.ts`, node/resident service, source codec and associated watchers, source transaction writers remain old authority to remove in #521. Rehome downstream types/contracts before deletion |
+| Native CLI and editor adapters | `native-command-results.ts`, `native-package-publication.ts`, `native-shader-compiler-service.ts`, native runtime preparation and native typed Test projection have candidate-only import closure. ScriptC `native-runtime-compile-certify` now consumes the admitted Project/Asset inventory without Zod Project readmission | `cli/commands/native-commands.ts`, `editor-tool-service.ts`, `legacy-native-authoring-preview.ts` retain production/legacy routing and saved-baseline Zod projection; old `FullGamePreviewEditor`, `PackageExportDialog`, and performance-certification preparation use the temporary legacy adapter. Delete obsolete routes and preview bridge in #521, retaining publication/shader utilities |
+| Native complete working preparation | C++ `prepare_complete_working` now includes native Runtime Asset-reference IDs; addon exposes these alongside effective native records and source revision proof | Do not reconstruct native source/reference authority in TS. Old CLI/editor candidate comparisons and legacy saved Workspace fallback must be retired during coordinated switch |
+
+The native candidate graph does not import the old Project graph, source
+analysis, validator, Workspace service/barrel, or legacy compatibility adapters.
+Generated schema types, nonauthoritative projection utilities and native
+transport can be retained. Runtime cache publication still uses physical
+input inventory checks and must not be substituted for native Project
+validation. **#521 still owns production routing, old-authority deletion,
+packaged bundle closure and concurrent editor/daemon cutover.** No production
+selection was changed for #531. Both native runtime preparation and its
+Test playback adapter consume native-admitted record data without running
+TypeScript authoring record parsers; the legacy preview adapter retains its
+own Test parser until #521. Legacy nested symbol tables are separately held
+in `legacy-authoring-symbol-tables.ts`, not in compiler lowering.
+
+### #531 verified evidence (2026-10-23)
+
+- `pnpm -C editor run check`: passed, including schema policy, generated contracts,
+  format, lint (zero warnings/errors) and TypeScript typecheck.
+- `pnpm -C editor exec vp test run --silent --maxWorkers=4`: **3,059 passed,
+  160 skipped; 346 test files passed, 11 skipped**. The prior unconstrained run
+  revealed legacy preview/export consumers of the native-only preparation
+  entrypoint; those were redirected to the legacy adapter and the full suite
+  rerun passed. The previously timed-out Project Explorer test also passed.
+- `pnpm -C editor run build:electron`: passed Electron main/preload, native
+  worker, tools and ScriptC outputs without changing production routing.
+- `pnpm -C editor run noveltea:certify:native-production-unit`: **16 passed**,
+  including three new candidate/provenance guard assertions and unchanged
+  production bundle-closure fixture tests.
+- `node editor/scripts/certify-noveltea-cli.mjs --only=differential` and
+  `--only=native-project-export-smoke`: both passed with installed native CLI
+  and prepared ScriptC bundle.
+- `ctest --test-dir build/native-authoring-host --output-on-failure -j 2 -R '^native_authoring_(working_preparation|asset_animation|tests|source_analysis)$'`:
+  **4/4 passed**.
+- `NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" pnpm -C editor exec vp test run src/renderer/test/native-authoring-runtime-preparation.test.ts`:
+  **8/8 passed** against real Feature Lab, covering dirty Room/Test/RML,
+  complete native Project, exact revision and admitted Runtime Asset evidence.
+  No authored Feature Lab content change was needed: the existing fixture
+  exercises the affected runtime/reference boundary.
+
+No #531 blocker remains. The independent production bundle gate remains a
+post-#521 cutover gate and is intentionally **not** relaxed by this work.
+
 ## Atomic protocol/cache/state disposition
+
 
 - `native-clean-current.json` is native `noveltea.native-clean-validation.v1`,
   with native `semanticKey`, `semanticFingerprint`, exact Project root,

@@ -17,7 +17,7 @@ import {
   prepareRuntimeArtifact,
   verifyPreparedRuntimeArtifact,
   type PreparedRuntimeArtifact,
-} from '../../shared/runtime-artifact-preparation';
+} from '../../shared/legacy-runtime-artifact-preparation';
 import {
   captureRuntimeBuildCacheTestInputs,
   lookupCanonicalRuntimeBuildCache,
@@ -25,7 +25,7 @@ import {
   publishCanonicalRuntimeBuildCache,
   publishRuntimeBuildCacheVariant,
   type RuntimeBuildCacheObservation,
-} from '../../shared/runtime-build-cache';
+} from '../../shared/legacy-runtime-build-cache';
 import {
   buildRuntimeTestCatalog,
   findRuntimeTestCatalogEntry,

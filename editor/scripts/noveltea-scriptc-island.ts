@@ -599,8 +599,20 @@ async function runInternalCommand(
           projectRoot: input.projectRoot,
         }),
       ),
-    ) as { ok?: boolean; project?: unknown; profile?: unknown };
-    if (!nativePrepared.ok || !nativePrepared.project || !nativePrepared.profile)
+    ) as {
+      ok?: boolean;
+      project?: unknown;
+      profile?: unknown;
+      referencedAssetIds?: unknown;
+      cliDiagnostics?: unknown;
+    };
+    if (
+      !nativePrepared.ok ||
+      !nativePrepared.project ||
+      !nativePrepared.profile ||
+      !Array.isArray(nativePrepared.referencedAssetIds) ||
+      nativePrepared.referencedAssetIds.some((value) => typeof value !== 'string')
+    )
       return result(
         1,
         `${JSON.stringify({ ok: false, error: 'Native runtime preparation failed.' })}\n`,
@@ -610,21 +622,31 @@ async function runInternalCommand(
       createHash('sha256').update(bytes).digest('hex'),
     );
     await configureScriptcPlatformHost(invokeHost);
-    const [schema, preparation, adapters] = await Promise.all([
-      import('../src/shared/project-schema/authoring-project'),
-      import('../src/shared/runtime-artifact-preparation'),
-      import('../src/main/services/node-runtime-artifact-adapters'),
-    ]);
+    const [preparation, adapters, collections, editorState, diagnosticProjection] =
+      await Promise.all([
+        import('../src/shared/runtime-artifact-preparation'),
+        import('../src/main/services/node-runtime-artifact-adapters'),
+        import('../src/shared/project-schema/authoring-collections'),
+        import('../src/shared/project-schema/editor-project-state'),
+        import('../src/shared/project-schema/project-diagnostic-projection'),
+      ]);
     const nativeProject = nativePrepared.project as Record<string, unknown>;
-    const identity = nativeProject.project as { id: string; name: string };
-    const defaults = schema.createAuthoringProject({ id: identity.id, name: identity.name });
-    const project = schema.authoringProjectSchema.parse({
-      ...defaults,
+    const project: Record<string, unknown> = {
       ...nativeProject,
-      editor: { ...defaults.editor, ...(nativeProject.editor as Record<string, unknown>) },
-    });
+      editor: nativeProject.editor ?? editorState.emptyEditorProjectState(),
+    };
+    for (const family of collections.authoringCollectionKeys)
+      if (!Object.hasOwn(project, family)) project[family] = {};
     const prepared = await preparation.prepareRuntimeArtifact({
-      project,
+      project: project as import('../src/shared/project-schema/authoring-project').AuthoringProject,
+      admittedAuthoringDiagnostics: diagnosticProjection.classifyProjectValidationDiagnostics(
+        (Array.isArray(nativePrepared.cliDiagnostics)
+          ? nativePrepared.cliDiagnostics
+          : []) as import('../src/shared/editor-tooling').ToolDiagnostic[],
+        { producer: 'authoring' },
+      ),
+      admittedValidationContributions: [],
+      admittedRuntimeAssetReferences: nativePrepared.referencedAssetIds as string[],
       projectRoot: input.projectRoot,
       profile:
         nativePrepared.profile as import('../src/shared/project-schema/authoring-export').ExportProfileData,
