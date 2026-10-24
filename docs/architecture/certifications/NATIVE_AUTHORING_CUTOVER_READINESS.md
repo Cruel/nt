@@ -8,6 +8,26 @@ Status: **pre-cutover readiness accepted** (2026-10-23; production routing uncha
 
 ## #521 current integration gate (2026-10-24)
 
+### Rebuilt pre-cutover production-closure audit (October 24, 2026)
+
+The actual *ordinary* Electron and ScriptC build at `013d3d50` still fails
+native production closure. The retirement guard now also covers the legacy
+editor validator, legacy runtime cache and artifact preparation, and the
+comparison-only native/legacy preview adapter. Failure messages identify their
+output root rather than deduplicating different roots that happen to have the
+same chunk name. The resulting strict report is **67 emitted violations from
+22 distinct retired modules**, grouped as **main 21, renderer 9, shipped Node
+tools 19, and ScriptC island 18**. These counts supersede the narrower 38-hit
+baseline below; they are not a claim of 67 independent features or fixes.
+
+An experiment replacing the editor certification selector with unconditional
+native enablement did **not** eliminate the main-process legacy dependencies.
+It was reverted, and the ordinary production editor and CLI remain on their
+pre-cutover, coherent routes. Physically retiring and replacing all shipped
+legacy consumers, removing the CLI/renderer legacy branches, and exercising
+the installed native editor+CLI together are **still required**. A candidate
+pass or a flag-only switch must never be treated as #521 acceptance.
+
 During #521 integration, the native renderer Save/Save All paths now delegate
 semantic rejection exclusively to the native revision-scoped transaction; the
 remaining editor checks cover pending input, external conflicts, and atomic
