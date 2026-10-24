@@ -17,13 +17,15 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
-const candidateMode = process.argv[3] === '--candidate';
-if (process.argv.length > (candidateMode ? 4 : 3))
-  throw new Error('Usage: certify-native-cli-platform.mjs [installed-cli] [--candidate]');
+const independentMode = process.argv[3] === '--candidate' || process.argv[3] === '--production';
+if (process.argv.length > (independentMode ? 4 : 3))
+  throw new Error(
+    'Usage: certify-native-cli-platform.mjs [installed-cli] [--candidate|--production]',
+  );
 const root = await createCertificationRoot('noveltea-517-platform-');
 const oracle = path.join(root, 'legacy');
 const candidate = path.join(root, 'native');
-const projects = candidateMode ? [candidate] : [oracle, candidate];
+const projects = independentMode ? [candidate] : [oracle, candidate];
 const registry = path.join(root, 'templates');
 const source = path.join(root, 'template-source');
 const archive = path.join(root, 'template.tar.gz');
@@ -32,7 +34,7 @@ const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 let applicationId = '';
 const selectedProfile = 'canonical-web';
 const baseline = {
-  ...(candidateMode
+  ...(independentMode
     ? isolatedProductionEnvironment(process.env, path.join(root, 'home'))
     : { ...process.env, NOVELTEA_CLI_CERTIFICATION: '1' }),
   NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
@@ -53,7 +55,7 @@ function invoke(args, { native = false, project = null, daemon = false, timeout 
     ],
     {
       cwd: root,
-      env: candidateMode
+      env: independentMode
         ? baseline
         : {
             ...baseline,
@@ -101,7 +103,7 @@ function errorProjection(response) {
 }
 
 function compare(args, { daemon = false, expectedSuccess, label = args.join(' ') } = {}) {
-  const legacy = candidateMode ? null : invoke(args, { project: oracle, daemon });
+  const legacy = independentMode ? null : invoke(args, { project: oracle, daemon });
   const native = invoke(args, { project: candidate, daemon, native: true });
   if (legacy) {
     assert.deepEqual(
@@ -237,7 +239,7 @@ function exportArgs(extra = []) {
 }
 
 async function comparePublished() {
-  if (candidateMode) {
+  if (independentMode) {
     for (const file of ['index.html', 'manifest.webmanifest', 'player.json'])
       assert.ok((await stat(path.join(candidate, 'dist/platform-web', file))).isFile(), file);
     const state = JSON.parse(
@@ -290,7 +292,8 @@ async function comparePublished() {
 }
 
 try {
-  if (candidateMode) await mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 });
+  if (independentMode)
+    await mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 });
   const generatedRoot = path.join(root, 'generated-project');
   const generator = path.join(
     repositoryRoot,
@@ -464,11 +467,11 @@ try {
   );
 
   console.log(
-    `Native platform installed-CLI preflight and publication ${candidateMode ? 'independent contracts' : 'differential'} PASSED.`,
+    `Native platform installed-CLI preflight and publication ${independentMode ? 'independent contracts' : 'differential'} PASSED.`,
   );
   console.log('Signing credentials were not supplied: real certificate signing was NOT certified.');
 } finally {
-  for (const native of candidateMode ? [true] : [false, true]) {
+  for (const native of independentMode ? [true] : [false, true]) {
     try {
       invoke(['daemon', 'stop'], { native });
     } catch {

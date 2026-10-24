@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
+  assertInstalledCliBundleBinding,
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
@@ -72,6 +73,11 @@ for (const artifact of artifacts) {
     `Missing current production module evidence: ${artifact}`,
   );
 }
+await assertInstalledCliBundleBinding(
+  cli,
+  path.join(artifacts.at(-1), 'native-production-provenance.json'),
+  candidateMode ? 'candidate' : 'production',
+);
 const violations = await verifyNativeProductionClosure(artifacts, {
   requireManifestRoots: artifacts,
 });

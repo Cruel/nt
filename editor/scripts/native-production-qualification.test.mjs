@@ -5,11 +5,51 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import {
+  assertInstalledCliBundleBinding,
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
   readPortableZipMembers,
 } from './native-production-qualification.mjs';
+
+void test('installed native CLI build proof binds both executable and emitted module provenance', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-proof-'));
+  const cli = path.join(directory, 'noveltea');
+  const manifest = path.join(directory, 'native-production-provenance.json');
+  const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  try {
+    const executable = Buffer.from('installed-scriptc-native-binary');
+    const island = Buffer.from('{"version":1,"chunks":{}}');
+    await writeFile(cli, executable);
+    await writeFile(manifest, island);
+    await writeFile(
+      path.join(directory, 'native-production-build.json'),
+      JSON.stringify({
+        contract: 'noveltea.native-cli-production-build.v1',
+        executableSha256: sha(executable),
+        islandProvenanceSha256: sha(island),
+      }),
+    );
+    await assertInstalledCliBundleBinding(cli, manifest, 'production');
+    await assert.rejects(assertInstalledCliBundleBinding(cli, manifest, 'candidate'), {
+      code: 'ENOENT',
+    });
+    await writeFile(cli, Buffer.from('retired-scriptc-legacy-binary'));
+    await assert.rejects(
+      assertInstalledCliBundleBinding(cli, manifest, 'production'),
+      /executable differs/i,
+    );
+    await writeFile(cli, executable);
+    await writeFile(manifest, Buffer.from('tampered emitted module inventory'));
+    await assert.rejects(
+      assertInstalledCliBundleBinding(cli, manifest, 'production'),
+      /does not match inspected ScriptC/i,
+    );
+    await assert.rejects(assertInstalledCliBundleBinding(cli, manifest, 'unknown'), /build mode/i);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 void test('production qualification rejects certification-only routing and missing real binaries', async () => {
   await assert.rejects(

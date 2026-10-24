@@ -491,7 +491,9 @@ const outputPath = path.join(outputDirectory, executableName);
 await mkdir(outputDirectory, { recursive: true });
 // A legacy rebuild must never inherit proof of an older native candidate.
 const candidateBuildProof = path.join(outputDirectory, 'native-candidate-build.json');
+const productionBuildProof = path.join(outputDirectory, 'native-production-build.json');
 await rm(candidateBuildProof, { force: true });
+await rm(productionBuildProof, { force: true });
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(islandPackageRoot, { recursive: true });
 await mkdir(agentKitSourcePackageRoot, { recursive: true });
@@ -783,6 +785,21 @@ if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1') {
     candidateBuildProof,
     `${JSON.stringify({
       contract: 'noveltea.native-cli-candidate-build.v1',
+      executableSha256: fingerprint(await readFile(outputPath)),
+      islandProvenanceSha256: fingerprint(provenance),
+    })}\n`,
+  );
+} else {
+  // A build-binding alone does not qualify production: the certification
+  // runner additionally requires a clean all-roots runtime module closure.
+  const provenance = await readFile(
+    path.join(editorRoot, 'dist-scriptc-island/native-production-provenance.json'),
+  );
+  const fingerprint = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  await writeFile(
+    productionBuildProof,
+    `${JSON.stringify({
+      contract: 'noveltea.native-cli-production-build.v1',
       executableSha256: fingerprint(await readFile(outputPath)),
       islandProvenanceSha256: fingerprint(provenance),
     })}\n`,
