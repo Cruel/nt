@@ -139,6 +139,38 @@ try {
     compare(args, { daemon: true });
     compare(args, { daemon: true, environment: { NOVELTEA_NO_DAEMON: '1' } });
   }
+  // A native-only invocation must not even initialize the legacy writer. This
+  // is a runtime guard, not proof of the final bundled dependency closure:
+  // the latter remains separately enforced at the coordinated #521 cutover.
+  for (const [project, native] of [
+    [oracle, false],
+    [candidate, true],
+  ]) {
+    const traced = spawnSync(
+      executable,
+      ['--no-daemon', '--json', '--project', project, 'entity', 'inspect', 'rooms', 'sample'],
+      {
+        env: {
+          ...base,
+          NOVELTEA_CLI_TRACE: '1',
+          NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
+          NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
+        },
+        encoding: 'utf8',
+        timeout: 120_000,
+      },
+    );
+    assert.ifError(traced.error);
+    assert.equal(traced.status, 0, traced.stderr);
+    assert.equal(JSON.parse(traced.stdout).success, true);
+    assert.match(
+      traced.stderr,
+      /\[scriptc-island\]/u,
+      'The trace did not reach the ScriptC island.',
+    );
+    if (native) assert.doesNotMatch(traced.stderr, /legacy workspace services import starting/u);
+    else assert.match(traced.stderr, /legacy workspace services import starting/u);
+  }
   for (const project of [oracle, candidate]) {
     const source = path.join(project, 'records/rooms/sample.yaml');
     await writeFile(source, `${await readFile(source, 'utf8')}\nmalformed: [\n`);

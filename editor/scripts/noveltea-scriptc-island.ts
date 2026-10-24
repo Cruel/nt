@@ -965,74 +965,74 @@ async function runNovelTeaScriptcIslandScoped(
       if (invocationContext.residentProjectSessions) residentFileSystem = fileSystem;
     }
     if (!scopedProjectPreparation) {
-      trace('workspace services import starting');
-      const [serviceModule, transactionModule, cryptoModule] = await Promise.all([
-        import('../src/shared/project-workspace/project-workspace-service'),
-        import('../src/shared/project-workspace/project-workspace-transaction'),
-        import('../src/shared/web-crypto'),
-      ]);
+      const nativeCandidate =
+        environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+        environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1';
+      const cryptoModule = await import('../src/shared/web-crypto');
       cryptoModule.configureSha256BytesImplementation(async (bytes) =>
         createHash('sha256').update(bytes).digest('hex'),
       );
-      const createWorkspace = (
-        workspaceFileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
-      ) => {
-        if (
-          environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1' &&
-          environment.NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE === '1'
-        )
-          throw new Error(
-            'Native CLI certification reached retired TypeScript workspace authority.',
-          );
-        const daemonTransactionLifecycle = invocationContext.residentProjectSessions
-          ? {
-              enterCriticalSection() {
-                const response = JSON.parse(invokeResidentHost('daemon-enter-critical', '')) as {
-                  ok?: boolean;
-                  error?: string;
-                };
-                if (response.ok !== true)
-                  throw new Error(response.error ?? 'Failed to enter daemon transaction boundary.');
-              },
-              leaveCriticalSection() {
-                const response = JSON.parse(invokeResidentHost('daemon-leave-critical', '')) as {
-                  ok?: boolean;
-                  error?: string;
-                };
-                if (response.ok !== true)
-                  throw new Error(response.error ?? 'Failed to leave daemon transaction boundary.');
-              },
-            }
-          : undefined;
-        return new serviceModule.ProjectWorkspaceService(
-          workspaceFileSystem,
-          new transactionModule.ProjectWorkspaceTransactionService(
+      // Never load the retired writer or its transaction implementation into a
+      // native candidate invocation. This factory is deliberately unusable in
+      // that mode; the resident native owner must not call it as a fallback.
+      let createWorkspace: (
+        workspaceFileSystem: ProjectWorkspaceFileSystem,
+      ) => import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService;
+      if (nativeCandidate) {
+        createWorkspace = () => {
+          throw new Error('Native CLI candidate attempted retired TypeScript Workspace admission.');
+        };
+      } else {
+        trace('legacy workspace services import starting');
+        const [serviceModule, transactionModule] = await Promise.all([
+          import('../src/shared/project-workspace/project-workspace-service'),
+          import('../src/shared/project-workspace/project-workspace-transaction'),
+        ]);
+        createWorkspace = (workspaceFileSystem) => {
+          const daemonTransactionLifecycle = invocationContext.residentProjectSessions
+            ? {
+                enterCriticalSection() {
+                  const response = JSON.parse(invokeResidentHost('daemon-enter-critical', '')) as {
+                    ok?: boolean;
+                    error?: string;
+                  };
+                  if (response.ok !== true)
+                    throw new Error(
+                      response.error ?? 'Failed to enter daemon transaction boundary.',
+                    );
+                },
+                leaveCriticalSection() {
+                  const response = JSON.parse(invokeResidentHost('daemon-leave-critical', '')) as {
+                    ok?: boolean;
+                    error?: string;
+                  };
+                  if (response.ok !== true)
+                    throw new Error(
+                      response.error ?? 'Failed to leave daemon transaction boundary.',
+                    );
+                },
+              }
+            : undefined;
+          return new serviceModule.ProjectWorkspaceService(
             workspaceFileSystem,
-            {
-              async isProcessAlive(pid) {
-                const value = (
-                  invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost
-                )('process-alive', String(pid));
-                return value === 'true' ? true : value === 'false' ? false : null;
+            new transactionModule.ProjectWorkspaceTransactionService(
+              workspaceFileSystem,
+              {
+                async isProcessAlive(pid) {
+                  const value = (
+                    invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost
+                  )('process-alive', String(pid));
+                  return value === 'true' ? true : value === 'false' ? false : null;
+                },
               },
-            },
-            process.pid,
-            randomUUID,
-            daemonTransactionLifecycle,
-          ),
-        );
-      };
-      // Native candidate commands must not eagerly initialize the retired
-      // TypeScript Project authoring service. Its factory remains available
-      // solely as a strict runtime poison seam during cutover certification.
-      if (
-        !(
-          environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
-        )
-      )
+              process.pid,
+              randomUUID,
+              daemonTransactionLifecycle,
+            ),
+          );
+        };
         workspace = createWorkspace(fileSystem);
+      }
       if (
         (invocationContext.residentProjectSessions || invocationContext.pinnedProjectSnapshot) &&
         !residentWorkspace
