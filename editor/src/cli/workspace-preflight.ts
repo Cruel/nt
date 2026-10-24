@@ -61,6 +61,8 @@ export async function preflightNovelTeaWorkspace(
       ),
     };
   }
+  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+    throw new Error('Native-only workspace preflight requires native Project authority.');
   const { discoverProjectRoot, validateExplicitProjectRoot } =
     await import('../shared/project-workspace/project-workspace-discovery');
   const discovery = globals.project

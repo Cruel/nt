@@ -19,12 +19,17 @@ import {
 } from '../src/shared/scoped-read-authority';
 import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
 
+// Replaced with a literal at ScriptC pack time. The candidate pack must contain
+// no retired CLI/Workspace chunks; the normal production bundle remains unchanged.
+const nativeOnlyBundle = process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1';
+
 let residentInvokeHost: ScriptcHostInvoke | null = null;
 let residentFileSystem:
   | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
   | undefined;
 let residentWorkspace:
   | import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService
+  | import('../src/shared/project-workspace/native-resident-project-owner').NativeResidentProjectOwner
   | undefined;
 const publishedResidentProjectSnapshots = new Map<string, string>();
 const invokeResidentHost: ScriptcHostInvoke = (operation, request) => {
@@ -61,20 +66,33 @@ export async function commitNovelTeaResidentComfyUiAssetPublication(
   const request = JSON.parse(requestText) as unknown;
   if (request === null || typeof request !== 'object' || Array.isArray(request))
     throw new Error('ComfyUI Asset publication request is malformed.');
-  const { publishStagedComfyUiAssets, publishNativeStagedComfyUiAssets } =
-    await import('../src/main/services/comfyui-asset-publication-service');
   const typedRequest =
     request as import('../src/main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest;
-  const result = typedRequest.nativeCandidate
-    ? await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
-        JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
-      )
-    : await publishStagedComfyUiAssets({
-        request: typedRequest,
-        workspace: residentWorkspace,
-        fileSystem: residentFileSystem,
-      });
-  if (typedRequest.nativeCandidate)
+  let result: Record<
+    string,
+    import('../src/main/services/comfyui-asset-publication-service').ComfyUiPublishedAssetOutput[]
+  >;
+  if (nativeOnlyBundle) {
+    const { publishNativeStagedComfyUiAssets } =
+      await import('../src/main/services/native-comfyui-asset-publication');
+    result = await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
+      JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
+    );
+  } else {
+    const { publishStagedComfyUiAssets, publishNativeStagedComfyUiAssets } =
+      await import('../src/main/services/comfyui-asset-publication-service');
+    result = typedRequest.nativeCandidate
+      ? await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
+          JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
+        )
+      : await publishStagedComfyUiAssets({
+          request: typedRequest,
+          workspace:
+            residentWorkspace as import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService,
+          fileSystem: residentFileSystem,
+        });
+  }
+  if (typedRequest.nativeCandidate || nativeOnlyBundle)
     await residentWorkspace.reconcileAfterOpaqueWrite(typedRequest.projectRoot);
   announceResidentProjectGenerations();
   return result;
@@ -136,8 +154,9 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
     return value;
   };
   return {
-    ...(process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
-    process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
+    ...(nativeOnlyBundle ||
+    (process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1')
       ? {
           async prepareNativeProject(projectRoot: string) {
             const result = JSON.parse(
@@ -148,7 +167,7 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
             ) as Record<string, unknown>;
             if (result.ok !== true) {
               const { NativeResidentProjectAdmissionError } =
-                await import('../src/shared/project-workspace/resident-project-workspace-service');
+                await import('../src/shared/project-workspace/native-resident-project-owner');
               const { classifyProjectValidationDiagnostics } =
                 await import('../src/shared/project-schema/project-diagnostic-projection');
               const errors = Array.isArray(result.projectDiagnostics)
@@ -262,21 +281,27 @@ function scopedResidentReadAuthority(
   const capture = async (
     projectRoot: string,
     requiredSemanticPaths: readonly string[],
-    configure: boolean,
+    settleExistingDelta: boolean,
   ): Promise<ScopedReadAuthorityToken> => {
     const canonicalRoot = await fileSystem.realpath(projectRoot);
     const assetsRequired = requiredSemanticPaths.some(
       (path) => path === '/assets' || path.startsWith('/assets/'),
     );
-    const observation = await authority.observe({
+    const request = {
       projectRoot: canonicalRoot,
-      ...(configure
-        ? {
-            ...scopedResidentObservationConfiguration(assetsRequired),
-          }
-        : {}),
+      // Omitting configuration resets the native observation scope to empty.
+      // Preserve the same scoped manifest for both capture and verification.
+      ...scopedResidentObservationConfiguration(assetsRequired),
       includeManifestEntries: true,
-    });
+    };
+    let observation = await authority.observe(request);
+    const relevant = (value: typeof observation) =>
+      scopedAuthorityRelevantDeltaPaths(value, requiredSemanticPaths, emptyAssetSourcePaths);
+    // A fresh owner or a completed preceding mutation may report the files
+    // discovered while establishing its baseline. Settle this *before* the
+    // scoped native read; never rebaseline its after-read verification.
+    if (settleExistingDelta && relevant(observation).length > 0)
+      observation = await authority.observe(request);
     return Object.freeze({
       canonicalRoot,
       requiredSemanticPaths: Object.freeze([...requiredSemanticPaths]),
@@ -285,11 +310,7 @@ function scopedResidentReadAuthority(
         requiredSemanticPaths,
         emptyAssetSourcePaths,
       ),
-      relevantDeltaPaths: scopedAuthorityRelevantDeltaPaths(
-        observation,
-        requiredSemanticPaths,
-        emptyAssetSourcePaths,
-      ),
+      relevantDeltaPaths: relevant(observation),
     });
   };
   return {
@@ -966,8 +987,9 @@ async function runNovelTeaScriptcIslandScoped(
     }
     if (!scopedProjectPreparation) {
       const nativeCandidate =
-        environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-        environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1';
+        nativeOnlyBundle ||
+        (environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1');
       const cryptoModule = await import('../src/shared/web-crypto');
       cryptoModule.configureSha256BytesImplementation(async (bytes) =>
         createHash('sha256').update(bytes).digest('hex'),
@@ -1037,14 +1059,24 @@ async function runNovelTeaScriptcIslandScoped(
         (invocationContext.residentProjectSessions || invocationContext.pinnedProjectSnapshot) &&
         !residentWorkspace
       ) {
-        const { ResidentProjectWorkspaceService } =
-          await import('../src/shared/project-workspace/resident-project-workspace-service');
-        residentWorkspace = new ResidentProjectWorkspaceService(
-          fileSystem,
-          createWorkspace,
-          invocationContext.residentProjectSessions ? residentProjectAuthority() : undefined,
-          invocationContext.residentProjectSessionEpoch,
-        );
+        if (nativeCandidate) {
+          const { NativeResidentProjectOwner } =
+            await import('../src/shared/project-workspace/native-resident-project-owner');
+          residentWorkspace = new NativeResidentProjectOwner(
+            fileSystem,
+            residentProjectAuthority(),
+            invocationContext.residentProjectSessionEpoch,
+          );
+        } else {
+          const { ResidentProjectWorkspaceService } =
+            await import('../src/shared/project-workspace/resident-project-workspace-service');
+          residentWorkspace = new ResidentProjectWorkspaceService(
+            fileSystem,
+            createWorkspace,
+            invocationContext.residentProjectSessions ? residentProjectAuthority() : undefined,
+            invocationContext.residentProjectSessionEpoch,
+          );
+        }
       }
       if (invocationContext.residentProjectSnapshot && residentWorkspace) {
         const retained = invocationContext.residentProjectSnapshot;
@@ -1159,7 +1191,21 @@ async function runNovelTeaScriptcIslandScoped(
     let validationProfileText = '';
     const residentSessionCountBefore = residentWorkspace?.residentSessionCount() ?? 0;
     trace('application import starting');
-    const { runNovelTeaCli } = await import('../src/cli/application');
+    const nativeOnlyApplication =
+      nativeOnlyBundle ||
+      (environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+        environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1');
+    const runNovelTeaCli: typeof import('../src/cli/application').runNovelTeaCli =
+      nativeOnlyApplication
+        ? async (arguments_, options) => {
+            if (!options?.nativeProjectCommands)
+              throw new Error('Native-only ScriptC application requires a native Project host.');
+            return (await import('../src/cli/native-application')).runNativeOnlyNovelTeaCli(
+              arguments_,
+              { ...options, nativeProjectCommands: options.nativeProjectCommands },
+            );
+          }
+        : (await import('../src/cli/application')).runNovelTeaCli;
     trace('application import completed');
     trace('application invocation starting');
     let commandResult: Awaited<ReturnType<typeof runNovelTeaCli>>;
@@ -1170,9 +1216,16 @@ async function runNovelTeaScriptcIslandScoped(
         ...(fileSystem ? { fileSystem } : {}),
         ...(workspace ? { workspace } : {}),
         ...(invocationContext.residentProjectSessions && residentWorkspace
-          ? { residentWorkspace }
+          ? {
+              residentWorkspace:
+                residentWorkspace as import('../src/cli/application').ResidentCliProjectWorkspace,
+            }
           : invocationContext.pinnedProjectSnapshot && residentWorkspace
-            ? { residentWorkspace, trustPinnedResidentSnapshot: true }
+            ? {
+                residentWorkspace:
+                  residentWorkspace as import('../src/cli/application').ResidentCliProjectWorkspace,
+                trustPinnedResidentSnapshot: true,
+              }
             : {}),
         ...(scopedProjectPreparation &&
         invocationContext.residentProjectSessions &&
@@ -1181,8 +1234,9 @@ async function runNovelTeaScriptcIslandScoped(
           ? { scopedReadAuthority: scopedResidentReadAuthority(fileSystem) }
           : {}),
         nativeTools,
-        ...(environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-        environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1'
+        ...(nativeOnlyBundle ||
+        (environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1')
           ? {
               nativeProjectCommands: (request: Readonly<Record<string, unknown>>) =>
                 JSON.parse(invokeHost('native-project-commands', JSON.stringify(request))),

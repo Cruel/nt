@@ -52,6 +52,99 @@ export async function runNativeOnlyNovelTeaCli(
       { failure: 'Native Project authority is unavailable.' },
     );
   const cwd = path.resolve(options.cwd ?? process.cwd());
+  // A daemon's preparatory pass admits and proves one native resident generation;
+  // it must not perform the requested heavy operation before the owner has
+  // published its immutable snapshot to the disposable worker. In particular,
+  // never fall through to the native command dispatcher on a failed admission.
+  if (options.prepareResidentSnapshotOnly && routing.projectAccess !== 'none') {
+    const { nativeProjectRoot } = await import('./native-project-lifecycle-cli');
+    const projectRoot = await nativeProjectRoot(cwd, globals.project, options.fileSystem);
+    // ComfyUI run is a disposable operation that may publish only to an
+    // explicit filesystem destination. It needs no Project generation when
+    // no Project was selected or discovered. A specified but invalid root
+    // must still fail closed.
+    if (!projectRoot && !routing.requiresExistingProject && !globals.project)
+      return formatCliResult(
+        { success: true, exitCode: NOVELTEA_CLI_EXIT_CODES.success, diagnostics: [] },
+        globals.json,
+        { success: 'Project-less command requires no resident Project snapshot.' },
+      );
+    if (!options.residentWorkspace)
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.internal,
+          diagnostics: [
+            cliDiagnostic(
+              'CLI_NATIVE_OWNER_MISSING',
+              '/',
+              'Native resident Project owner is unavailable.',
+            ),
+          ],
+        },
+        globals.json,
+        { failure: 'Native resident Project owner is unavailable.' },
+      );
+    if (!projectRoot)
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
+          diagnostics: [
+            cliDiagnostic(
+              'WORKSPACE_NOT_FOUND',
+              '/project.yaml',
+              'No NovelTea project.yaml was found from the current directory upward.',
+            ),
+          ],
+        },
+        globals.json,
+        { failure: 'No NovelTea project.yaml was found from the current directory upward.' },
+      );
+    const opened = await options.residentWorkspace.open(projectRoot);
+    if (!opened.ok)
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
+          diagnostics: opened.diagnostics,
+          projectRoot,
+        },
+        globals.json,
+        {
+          failure:
+            opened.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+            'Native Project admission failed.',
+        },
+      );
+    if (!(await options.residentWorkspace.verifyReadAuthority(opened.snapshot)))
+      return formatCliResult(
+        {
+          success: false,
+          exitCode: NOVELTEA_CLI_EXIT_CODES.workspace,
+          diagnostics: [
+            cliDiagnostic(
+              'WORKSPACE_REVISION_CONFLICT',
+              '/',
+              'Project sources changed while preparing the native resident generation.',
+            ),
+          ],
+          projectRoot,
+        },
+        globals.json,
+        { failure: 'Project sources changed while preparing the native resident generation.' },
+      );
+    return formatCliResult(
+      {
+        success: true,
+        exitCode: NOVELTEA_CLI_EXIT_CODES.success,
+        diagnostics: opened.diagnostics,
+        projectRoot,
+      },
+      globals.json,
+      { success: 'NovelTea resident Project snapshot preparation succeeded.' },
+    );
+  }
   const platformTools = options.platformTools ?? unavailablePlatformTools;
   const nativeTools = options.nativeTools as NovelTeaCliNativeToolService | undefined;
   // Only Project-independent actions can run without a native tool service.
@@ -61,6 +154,17 @@ export async function runNativeOnlyNovelTeaCli(
     },
   });
   const tools = nativeTools ?? missingNativeTools;
+  if (globals.command[0] === 'platform' && globals.command[1] === 'profiles') {
+    const { runNativeProjectProfilesCli } = await import('./native-project-profiles-cli');
+    return (await runNativeProjectProfilesCli(
+      globals,
+      cwd,
+      options.nativeProjectCommands,
+      platformTools,
+      options.fileSystem,
+      options.scopedReadAuthority ?? options.residentWorkspace,
+    ))!;
+  }
   const claimed = await dispatchNativeProjectCommand(globals, cwd, options, tools, platformTools);
   if (claimed) return claimed;
   if (globals.command[0] === 'agent' && globals.command[1] === 'sync') {

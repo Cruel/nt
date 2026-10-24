@@ -9,6 +9,7 @@ import path from 'node:path';
 // to agree with the no-daemon TypeScript oracle.
 const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
+const oracleExecutable = path.resolve(process.argv[4] ?? executable);
 const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-validation-'));
 const project = path.join(root, 'project');
 // macOS's default per-user TMPDIR can exceed the UNIX sun_path limit once
@@ -43,7 +44,7 @@ function describeProcess(result) {
   });
 }
 function execute(args) {
-  const result = spawnSync(executable, args, {
+  const result = spawnSync(oracleExecutable, args, {
     env: environment,
     encoding: 'utf8',
     timeout: 300_000,

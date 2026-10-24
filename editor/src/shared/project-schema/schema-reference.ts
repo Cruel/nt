@@ -82,7 +82,7 @@ import { defaultTestData } from './authoring-tests';
 import { defaultMaterialData } from './authoring-materials';
 import { defaultArchetypeData } from './authoring-archetypes';
 import { defaultLayoutData } from './authoring-layouts';
-import { projectWorkspaceSourceCodec } from '../project-workspace/project-workspace-source-codec';
+import { decodeLayoutYaml, encodeLayoutYaml } from '../project-workspace/layout-yaml-source';
 import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
@@ -511,16 +511,8 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         };
         if (!persistedLayoutRecordSchema.safeParse(normalized).success)
           throw new Error('Generated Layout YAML source violates the persisted source schema.');
-        example = projectWorkspaceSourceCodec('records/layouts/example-layout/layout.yaml').encode(
-          normalized,
-        );
-        if (
-          !persistedLayoutRecordSchema.safeParse(
-            projectWorkspaceSourceCodec('records/layouts/example-layout/layout.yaml').decode(
-              example,
-            ),
-          ).success
-        )
+        example = encodeLayoutYaml(normalized);
+        if (!persistedLayoutRecordSchema.safeParse(decodeLayoutYaml(example)).success)
           throw new Error('Generated Layout YAML example cannot be decoded.');
       } else {
         const family = document.id.slice('records/'.length) as 'archetypes' | 'scripts';

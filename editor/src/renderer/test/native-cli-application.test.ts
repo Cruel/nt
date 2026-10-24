@@ -60,4 +60,72 @@ describe('native-only CLI application boundary', () => {
     );
     expect(result.envelope.diagnostics[0]?.code).toBe('CLI_NATIVE_OWNER_MISSING');
   });
+
+  it('admits and proves a resident generation before disposable commands, without executing them', async () => {
+    const native = vi.fn(async () => {
+      throw new Error('Heavy native command must not execute during preparation.');
+    });
+    const snapshot = { projectRoot: '/scratch/project' };
+    const open = vi.fn(async () => ({ ok: true, snapshot, diagnostics: [] }));
+    const verifyReadAuthority = vi.fn(async () => true);
+    const result = await runNativeOnlyNovelTeaCli(
+      ['--json', '--project', '/scratch/project', 'package', 'export'],
+      {
+        cwd: '/scratch',
+        nativeProjectCommands: native,
+        prepareResidentSnapshotOnly: true,
+        residentWorkspace: { open, verifyReadAuthority } as never,
+        fileSystem: { inspect: async () => 'file' } as never,
+      },
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.projectRoot).toBe('/scratch/project');
+    expect(open).toHaveBeenCalledExactlyOnceWith('/scratch/project');
+    expect(verifyReadAuthority).toHaveBeenCalledExactlyOnceWith(snapshot);
+    expect(native).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on a resident source-proof race without running the command', async () => {
+    const native = vi.fn();
+    const result = await runNativeOnlyNovelTeaCli(
+      ['--json', '--project', '/scratch/project', 'project', 'export', 'out.ntproject'],
+      {
+        nativeProjectCommands: native,
+        prepareResidentSnapshotOnly: true,
+        fileSystem: { inspect: async () => 'file' } as never,
+        residentWorkspace: {
+          open: async () => ({
+            ok: true,
+            snapshot: { projectRoot: '/scratch/project' },
+            diagnostics: [],
+          }),
+          verifyReadAuthority: async () => false,
+        } as never,
+      },
+    );
+    expect(result.envelope.diagnostics[0]?.code).toBe('WORKSPACE_REVISION_CONFLICT');
+    expect(native).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when native resident ownership is missing during preparation', async () => {
+    const native = vi.fn();
+    const result = await runNativeOnlyNovelTeaCli(
+      ['--json', 'project', 'export', 'out.ntproject'],
+      { nativeProjectCommands: native, prepareResidentSnapshotOnly: true },
+    );
+    expect(result.envelope.diagnostics[0]?.code).toBe('CLI_NATIVE_OWNER_MISSING');
+    expect(native).not.toHaveBeenCalled();
+  });
+
+  it('prepares Project-less ComfyUI without requiring a resident owner or executing the command', async () => {
+    const native = vi.fn();
+    const result = await runNativeOnlyNovelTeaCli(['--json', 'comfyui', 'run', 'fixture'], {
+      cwd: '/no-project',
+      nativeProjectCommands: native,
+      prepareResidentSnapshotOnly: true,
+      fileSystem: { inspect: async () => 'missing' } as never,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(native).not.toHaveBeenCalled();
+  });
 });

@@ -90,7 +90,12 @@ async function collectUtf8Files(root, directory, files = {}) {
   return files;
 }
 
-const islandBundleRoot = path.join(editorRoot, 'dist-scriptc-island');
+const islandBundleRoot = path.join(
+  editorRoot,
+  process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1'
+    ? 'dist-scriptc-native-island'
+    : 'dist-scriptc-island',
+);
 const islandBundle = path.join(islandBundleRoot, 'noveltea-scriptc-island.mjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
@@ -279,6 +284,11 @@ await stagePrebuiltShadercLinkClosure();
 run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buildEnv });
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
+if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+  run(process.execPath, [path.join(editorRoot, 'scripts/check-native-cli-candidate-closure.mjs')], {
+    cwd: editorRoot,
+    env: buildEnv,
+  });
 
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
 const engineRoot = path.join(buildRoot, 'engine');
@@ -713,6 +723,13 @@ try {
   await cp(path.join(outputDirectory, 'tools'), path.join(relocatedMediaRoot, 'tools'), {
     recursive: true,
   });
+  // Native validation uses the bundled fallback font as well as the media
+  // tools. Relocate the complete standalone runtime tree rather than testing
+  // validation with an intentionally incomplete installation.
+  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
+    await cp(path.join(outputDirectory, 'assets'), path.join(relocatedMediaRoot, 'assets'), {
+      recursive: true,
+    });
   run(relocatedCli, ['--json', 'media-tool', 'check'], {
     cwd: tmpdir(),
     env: { ...process.env, NOVELTEA_FFMPEG: undefined },

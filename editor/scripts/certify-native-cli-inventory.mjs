@@ -160,7 +160,7 @@ const nativeActionOwners = {
   'platform-profiles-preparation': 'project-preparation',
   'asset-audit': 'native-project-reads-cli',
   'asset-import': 'native-project-mutations-cli',
-  'comfyui-assets': 'comfyui-asset-publication-service',
+  'comfyui-assets': 'native-comfyui-asset-publication',
   'comfyui-admission': 'comfyui-catalog-commands',
   'entity-inspect': 'native-project-reads-cli',
   'entity-usages': 'native-project-reads-cli',
@@ -192,7 +192,7 @@ for (const [action, owner] of Object.entries(nativeActionOwners)) {
   const ownerFile =
     owner === ':native-only'
       ? '../tools/editor_tool/tooling_native_project_commands_certify.cpp'
-      : owner === 'comfyui-asset-publication-service'
+      : owner === 'native-comfyui-asset-publication'
         ? `src/main/services/${owner}.ts`
         : `src/cli/${owner}.ts`;
   const ownerText = await source(ownerFile);

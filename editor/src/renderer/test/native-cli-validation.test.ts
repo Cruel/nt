@@ -108,6 +108,7 @@ it('validates the complete native generation without TypeScript Project admissio
   const root = await fixture();
   const requests: string[] = [];
   const project = createAuthoringProject({ id: 'native-validation', name: 'Native Validation' });
+  project.entrypoint = { kind: 'room', id: 'start' };
   const nativeTools = {
     validationCacheIdentity: undefined,
     async validateFontCoverage() {
@@ -157,6 +158,7 @@ it('rejects a changed native generation before any downstream publication', asyn
 it('checks registered physical Assets and attaches native source locations without a TypeScript Project reader', async () => {
   const root = await fixture();
   const project = createAuthoringProject({ id: 'asset-authority', name: 'Asset Authority' });
+  project.entrypoint = { kind: 'room', id: 'start' };
   project.assets['missing-image'] = {
     id: 'missing-image',
     label: 'Missing Image',

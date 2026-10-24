@@ -330,79 +330,10 @@ export interface ComfyUiStagedAssetPublicationRequest {
   }>;
 }
 
-/** Native owns the fresh disk admission, byte inspection, IDs, YAML and binary transaction. */
-export async function publishNativeStagedComfyUiAssets(
-  request: ComfyUiStagedAssetPublicationRequest,
-  native: NativeProjectCommandCall,
-): Promise<Record<string, ComfyUiPublishedAssetOutput[]>> {
-  if (request.assets.length === 0) return {};
-  let committed;
-  try {
-    committed = await native({
-      action: 'comfyui-assets',
-      projectRoot: request.projectRoot,
-      workflow: request.workflow,
-      promptId: request.promptId,
-      ...(request.expectedSourceGeneration
-        ? { expectedSourceGeneration: request.expectedSourceGeneration }
-        : {}),
-      dryRun: false,
-      generated: request.assets,
-    });
-  } catch (error) {
-    // The native transaction may have committed; never retry an uncertain transport.
-    throw new ComfyUiRunError('COMFYUI_ASSET_PUBLICATION_FAILED', '/outputs', String(error));
-  }
-  if (!committed.ok) {
-    const diagnostic = (committed.diagnostics as Array<{ message?: string }> | undefined)?.[0];
-    const message = diagnostic?.message ?? committed.error ?? 'Native Asset publication failed.';
-    throw new ComfyUiRunError(
-      /changed|revision|conflict|transaction|lock|busy/iu.test(message)
-        ? 'COMFYUI_ASSET_PUBLICATION_CONFLICT'
-        : 'COMFYUI_ASSET_PUBLICATION_FAILED',
-      '/outputs',
-      message,
-    );
-  }
-  const fields = committed.fields as
-    | {
-        assets?: Array<{
-          outputId: string;
-          assetId: string;
-          projectRelativePath: string;
-          contentHash: string;
-        }>;
-      }
-    | undefined;
-  if (!Array.isArray(fields?.assets) || fields.assets.length !== request.assets.length)
-    throw new ComfyUiRunError(
-      'COMFYUI_ASSET_PUBLICATION_FAILED',
-      '/outputs',
-      'Native Asset publication returned incomplete Asset metadata.',
-    );
-  const published: Record<string, ComfyUiPublishedAssetOutput[]> = {};
-  fields.assets.forEach((asset, index) => {
-    const source = request.assets[index]!;
-    if (
-      asset.outputId !== source.outputId ||
-      asset.contentHash !== source.output.contentHash ||
-      typeof asset.assetId !== 'string' ||
-      typeof asset.projectRelativePath !== 'string'
-    )
-      throw new ComfyUiRunError(
-        'COMFYUI_ASSET_PUBLICATION_FAILED',
-        '/outputs',
-        'Native Asset publication metadata does not match the staged output.',
-      );
-    (published[source.outputId] ??= []).push({
-      ...source.output,
-      target: 'asset',
-      assetId: asset.assetId,
-      projectRelativePath: asset.projectRelativePath,
-    });
-  });
-  return published;
-}
+// This separate native publisher is shared by the candidate and the legacy
+// bridge; do not duplicate C++ transaction/result interpretation in either.
+export { publishNativeStagedComfyUiAssets } from './native-comfyui-asset-publication';
+import { publishNativeStagedComfyUiAssets } from './native-comfyui-asset-publication';
 
 export async function publishStagedComfyUiAssets(options: {
   request: ComfyUiStagedAssetPublicationRequest;
