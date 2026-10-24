@@ -23,6 +23,7 @@ import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useOptionalMaterialPreviewProjectResources } from '@/material-preview/material-preview-provider';
 import { useProjectStore } from '@/project/project-store';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   defaultSceneData,
@@ -326,9 +327,16 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const [scrubMs, setScrubMs] = useState(0);
   const [timelinePlaying, setTimelinePlaying] = useState(false);
   const selected = data.events.find((step) => step.id === selectedId) ?? data.events[0] ?? null;
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/scenes/${sceneId}`);
+  const nativeSession = useProjectStore((state) => state.nativeSession);
   const diagnostics = useMemo(
-    () => (project && record && sceneId ? validateSceneData(project, sceneId, record) : []),
-    [project, record, sceneId],
+    () =>
+      nativeSession
+        ? nativeDiagnostics
+        : project && record && sceneId
+          ? validateSceneData(project, sceneId, record)
+          : [],
+    [project, record, sceneId, nativeSession, nativeDiagnostics],
   );
   useEffect(() => {
     let active = true;

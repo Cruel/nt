@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseTestData, validateTestData } from '../../shared/project-schema/authoring-tests';
@@ -40,7 +41,9 @@ export function replaceTestDataPatches(
       patches: [],
       diagnostics: [error('Test data is invalid.', pathForTestData(payload.testId))],
     };
-  const diagnostics = validateTestData(document, payload.testId, { ...record, data });
+  const diagnostics = legacyCommandDiagnostics(() =>
+    validateTestData(document, payload.testId, { ...record, data }),
+  );
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const patch: JsonPatchOperation = {

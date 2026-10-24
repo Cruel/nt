@@ -15,6 +15,7 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
@@ -431,10 +432,16 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   const [previewBackground, setPreviewBackground] = useState<DialoguePreviewBackground>('dark');
   const sourceEditors = useSourceEditorViewStateRefs<'segmentText' | 'segmentLua'>();
 
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/dialogues/${dialogueId}`);
+  const nativeSession = useProjectStore((state) => state.nativeSession);
   const diagnostics = useMemo(
     () =>
-      project && record && dialogueId ? validateDialogueData(project, dialogueId, record) : [],
-    [project, record, dialogueId],
+      nativeSession
+        ? nativeDiagnostics
+        : project && record && dialogueId
+          ? validateDialogueData(project, dialogueId, record)
+          : [],
+    [project, record, dialogueId, nativeSession, nativeDiagnostics],
   );
   const diagnosticItems = useMemo(
     () =>

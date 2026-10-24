@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import {
   parseInteractableData,
@@ -31,10 +32,12 @@ export function replaceInteractableDataPatches(
       patches: [],
       diagnostics: [{ severity: 'error', message: 'Interactable data is invalid.' }],
     };
-  const issue = validateInteractableData(document, payload.interactableId, {
-    ...record,
-    data,
-  }).find((diagnostic) => diagnostic.severity === 'error');
+  const issue = legacyCommandDiagnostics(() =>
+    validateInteractableData(document, payload.interactableId, {
+      ...record,
+      data,
+    }),
+  ).find((diagnostic) => diagnostic.severity === 'error');
   if (issue) return { patches: [], diagnostics: [issue as EntityOperationDiagnostic] };
   const effectiveRecord = record.archetype
     ? resolveGameplayInstanceRecord(document, 'interactable', record)

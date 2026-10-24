@@ -700,6 +700,19 @@ export async function persistAutoCommitPlan(
     return { status: 'persisted', diagnostics: [] };
   }
 
+  if (projectState.nativeSession)
+    return {
+      status: 'rejected',
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'editor.native-structural.legacy-route',
+          path: '/',
+          message: 'Native structural content must use the revision-bound command transaction.',
+        },
+      ],
+    };
+
   const baselineContent = stripLocalEditorProjectState(projectState.savedDocument) as JsonValue;
   const patches = direction === 'undo' ? plan.inverseBaselinePatches : plan.forwardBaselinePatches;
   let candidateContent: JsonValue;

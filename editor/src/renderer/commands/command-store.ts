@@ -893,6 +893,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     const projectSessionId = useProjectStore.getState().projectSessionId;
     if (!projectSessionId)
       throw new Error('Cannot enable native commands without an active Project.');
+    useProjectStore.setState({ nativeSession: true });
     set({
       nativeProjectSessionId: projectSessionId,
       nativeWorkingRevision: workingRevision,

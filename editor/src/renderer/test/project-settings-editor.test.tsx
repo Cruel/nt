@@ -129,8 +129,8 @@ function currentRoomNavigationTransition() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
   usePendingInputStore.getState().resetPendingInputs();
@@ -139,6 +139,59 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('displays native settings diagnostics while preserving pending numeric input without legacy validation', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.yaml',
+      projectSessionId: 'native-settings',
+    });
+    useCommandStore.getState().enableNativeCommandMode(2);
+    const decoder = await import('../../shared/project-schema/decode-authoring-project');
+    const settings = await import('../../shared/project-schema/authoring-project-settings');
+    const poison = () => {
+      throw new Error('Legacy Settings authority invoked');
+    };
+    const decode = vi.spyOn(decoder, 'decodeAuthoringProject').mockImplementation(poison);
+    const validate = vi
+      .spyOn(settings, 'validateProjectSettingsAuthoringState')
+      .mockImplementation(poison);
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({
+        ok: true,
+        success: false,
+        diagnostics: [
+          {
+            code: 'native.settings.version',
+            severity: 'error',
+            path: '/project/version',
+            message: 'Native version diagnostic',
+          },
+        ],
+      }),
+    });
+    const view = render(<ProjectSettingsEditor tab={tab} />);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true'),
+    );
+    selectProjectSettingsCategory('Display');
+    fireEvent.change(screen.getByLabelText('UI scale minimum'), { target: { value: '1.' } });
+    expect(screen.getByLabelText('UI scale minimum')).toHaveValue('1.');
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings']
+        ?.pendingRawInputByPath,
+    ).toMatchObject({ '/settings/accessibility/uiScale/minimum': { value: '1.' } });
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { accessibility: { uiScale: { minimum: 1 } } },
+    });
+    expect(decode).not.toHaveBeenCalled();
+    expect(validate).not.toHaveBeenCalled();
+    view.unmount();
+    decode.mockRestore();
+    validate.mockRestore();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+  });
   it('merges asynchronously verified notices into current Project settings without restoring removed entries', async () => {
     const source = project();
     source.settings.distributionNotices = [{ path: 'support/licenses/old.txt' }];

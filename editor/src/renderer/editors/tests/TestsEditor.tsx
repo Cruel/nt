@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useProjectStore } from '@/project/project-store';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { flushNativeProjectSources } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
@@ -658,9 +659,16 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const lastPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport);
   const setBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/tests/${testId}`);
+  const nativeSession = useProjectStore((state) => state.nativeSession);
   const diagnostics = useMemo(
-    () => (project && record && testId ? validateTestData(project, testId, record) : []),
-    [project, record, testId],
+    () =>
+      nativeSession
+        ? nativeDiagnostics
+        : project && record && testId
+          ? validateTestData(project, testId, record)
+          : [],
+    [project, record, testId, nativeSession, nativeDiagnostics],
   );
   const [readiness, setReadiness] = useState<TestRunReadiness>({
     runnable: false,

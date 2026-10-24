@@ -18,6 +18,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS, recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -291,9 +292,16 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     ),
   );
 
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/layouts/${layoutId}`);
+  const nativeSession = useProjectStore((state) => state.nativeSession);
   const validationDiagnostics = useMemo(
-    () => (project && record && layoutId ? validateLayoutData(project, layoutId, record) : []),
-    [layoutId, project, record],
+    () =>
+      nativeSession
+        ? nativeDiagnostics
+        : project && record && layoutId
+          ? validateLayoutData(project, layoutId, record)
+          : [],
+    [layoutId, project, record, nativeSession, nativeDiagnostics],
   );
   const diagnosticItems = useMemo(
     () =>

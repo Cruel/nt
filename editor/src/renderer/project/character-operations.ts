@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import {
   parseCharacterData,
@@ -46,7 +47,9 @@ export function replaceCharacterDataPatches(
       patches: [],
       diagnostics: [error('Character data is invalid.', pathForCharacterData(payload.characterId))],
     };
-  const diagnostics = validateCharacterData(document, payload.characterId, { ...record, data });
+  const diagnostics = legacyCommandDiagnostics(() =>
+    validateCharacterData(document, payload.characterId, { ...record, data }),
+  );
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const overrides = overridesForGameplayInstanceEdit(document, 'characters', payload.characterId, {

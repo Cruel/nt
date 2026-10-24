@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vite-plus/test';
-import { render, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
+import * as legacyValidation from '../../shared/project-schema/authoring-validation';
+import * as legacyDecoder from '../../shared/project-schema/decode-authoring-project';
 import userEvent from '@testing-library/user-event';
 import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -744,6 +746,68 @@ describe('LocalizationEditor', () => {
     const current = useProjectStore.getState().document as AuthoringProject;
     expect(current.localization.translations.fr?.[aiId]?.review).toBe('reviewed');
     expect(current.localization.translations.fr?.[missingId]).toBeUndefined();
+  });
+
+  it('uses revision-pinned native diagnostics for translation review with legacy authority poisoned', async () => {
+    const user = userEvent.setup();
+    const project = createAuthoringProject();
+    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f072';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.greeting',
+      source: 'Hello',
+      arguments: {},
+    };
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(
+        localizationMessageWorkflowView(project, messageId)!,
+        'Bonjour',
+      ),
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.yaml',
+      projectSessionId: 'native-localization',
+    });
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const poison = () => {
+      throw new Error('Legacy authority invoked');
+    };
+    const validate = vi
+      .spyOn(legacyValidation, 'validateAuthoringProject')
+      .mockImplementation(poison);
+    const decode = vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
+    const native = vi.fn().mockResolvedValue({
+      diagnostics: [
+        {
+          code: 'native.translation.invalid',
+          severity: 'error',
+          path: `/localization/translations/fr/${messageId}`,
+          message: 'Native translation error',
+        },
+      ],
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: native,
+    });
+    render(<LocalizationEditor tab={tab} />);
+    await user.click(screen.getByRole('button', { name: 'Translations' }));
+    await waitFor(() => expect(native).toHaveBeenCalledWith('native-localization', 0));
+    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
+    native.mockResolvedValue({ diagnostics: [] });
+    act(() => useCommandStore.setState({ nativeWorkingRevision: 1 }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeEnabled(),
+    );
+    expect(native).toHaveBeenLastCalledWith('native-localization', 1);
+    expect(validate).not.toHaveBeenCalled();
+    expect(decode).not.toHaveBeenCalled();
+    decode.mockRestore();
+    validate.mockRestore();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });
 
   it('does not let editor review bypass structural translation validation', async () => {
