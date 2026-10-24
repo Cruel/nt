@@ -1093,7 +1093,10 @@ export function WorkspacePage() {
             (event.sourceChangedPaths?.length ?? 0) > 0 || event.sourceDiagnostics !== undefined;
           const assetDiagnosticUpdate =
             event.assetChangedPaths.length > 0 || event.assetDiagnostics !== undefined;
-          if ((event.sourceChangedPaths?.length ?? 0) > 0)
+          // An Asset's physical bytes can change without an authored source
+          // revision. The native graph/preview must refresh for that observer
+          // generation as well, rather than reusing its previous resource proof.
+          if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
             void refreshAuthoringDependencyGraphProjectSources();
           if (sourceDiagnosticUpdate)
             externalPhysicalSourceDiagnosticsRef.current = [...(event.sourceDiagnostics ?? [])];

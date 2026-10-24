@@ -214,15 +214,30 @@ export function preflightGraphCommand(input: {
       };
     }
     const usages = semanticUsagesForTarget(input.snapshot, input.target);
-    if (nativeDecision.kind === 'blocked')
+    const target = 'collection' in input.target ? targetKey(input.target) : input.target;
+    const nativeUsages = nativeGraphUsages(native, target);
+    // The native repair descriptor describes deletion, not renaming. A typed
+    // /$ref field is independently rewriteable in the normalized working
+    // Project via the existing revisioned command patch transaction.
+    const structuredRename =
+      input.operation === 'rename' &&
+      nativeUsages.confirmed.length > 0 &&
+      nativeUsages.confirmed.every(
+        (edge) =>
+          edge.target.kind === 'record' &&
+          edge.facets.includes('reference-integrity') &&
+          (edge.sourcePath.endsWith('/$ref') ||
+            (edge.role === 'variable-ref' && edge.sourcePath.endsWith('/$var')) ||
+            (edge.role === 'entrypoint' && edge.sourcePath === '/entrypoint')),
+      ) &&
+      (input.confirmRenameWithoutLuaRewrite ||
+        nativeUsages.recognized.every((source) => source.classification !== 'exact-manual'));
+    if (nativeDecision.kind === 'blocked' && !structuredRename)
       return { kind: 'blocked', reason: nativeDecision.reason, usages };
     if (
       input.operation === 'rename' &&
       !input.confirmRenameWithoutLuaRewrite &&
-      nativeGraphUsages(
-        native,
-        'collection' in input.target ? targetKey(input.target) : input.target,
-      ).recognized.length > 0
+      nativeUsages.recognized.length > 0
     )
       return {
         kind: 'blocked',

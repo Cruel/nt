@@ -296,9 +296,21 @@ struct Builder {
         for (const auto& field : impact_paths(selected_role, target_path))
             item["targetImpactPaths"].push_back(field);
         item["repair"] = Json::object();
-        item["repair"]["kind"] = std::string(repair_kind);
-        if (repair_kind == "blocked")
+        // Only schema-proven nullable reference fields can be cleared. The
+        // reference edge points at /$ref when the admitted value is a typed
+        // reference object; the repair must replace its containing nullable
+        // field rather than corrupting the inner reference identity.
+        const bool nullable_reference =
+            selected_role == "room-background" || selected_role == "room-background-material" ||
+            selected_role == "room-prop-asset" || selected_role == "room-prop-material" ||
+            selected_role == "room-environment-asset" ||
+            selected_role == "room-compose-script" || selected_role == "system-layout";
+        const auto repair_action = nullable_reference ? "set-null" : repair_kind;
+        item["repair"]["kind"] = std::string(repair_action);
+        if (repair_action == "blocked")
             item["repair"]["reason"] = "No proven native automatic repair for this reference.";
+        else if (repair_action == "set-null" && path.ends_with("/$ref"))
+            item["repair"]["path"] = path.substr(0, path.size() - 5);
         else
             item["repair"]["path"] = path;
         edges.push_back(std::move(item));

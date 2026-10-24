@@ -18,7 +18,18 @@ occurrences are not JSON authoring patches: exact/native rewriteable evidence
 remains manual pending an explicit source-transaction editor, and
 `possible-lexical` findings remain warnings. Graph unavailability or
 incomplete owner proof blocks destructive operations. Native-mode Project
-Search uses a revision-matched native-backed reference index instead of
+sessions can safely rename confirmed structured `/$ref`, typed Variable `/$var`,
+and Project entrypoint fields even if those references cannot be automatically
+repaired for deletion. Nullable Room
+background/prop/environment references, composition Scripts and system Layouts
+receive native `set-null` repair descriptors at the containing field; unsupported
+references remain blocked, and physical source text is never implicitly
+rewritten during a record rename. Exact source occurrences and localization
+Message references retain the native physical URL and line/column evidence.
+Native physical Asset changes trigger a fresh graph query even without an
+authored Project mutation, so preview resources cannot reuse obsolete evidence.
+
+Native-mode Project Search uses a revision-matched native-backed reference index instead of
 re-deriving structural relationships; text matching, filters, alias UI, and
 result sorting remain presentation algorithms. Changed on-disk resources
 without a new structured Project revision conservatively invalidate focused
