@@ -153,6 +153,71 @@ describe('certification-only native working Project runtime preparation', () => 
     }
   });
 
+  it('reuses only the native runtime artifact for Test-only revisions and preserves unsaved recovery', async () => {
+    const { project, prepared } = fixture();
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-test-cache-'));
+    const cache = new NativeWorkingRuntimePreparationCache();
+    try {
+      await writeFile(path.join(root, 'project.yaml'), 'source');
+      await mkdir(path.join(root, 'records/tests'), { recursive: true });
+      const testFile = path.join(root, 'records/tests/smoke.yaml');
+      await writeFile(testFile, 'test v1');
+      const journal = path.join(root, '.noveltea/editor/native-dirty-state.json');
+      await mkdir(path.dirname(journal), { recursive: true });
+      await writeFile(journal, 'unsaved native replay evidence');
+      const digest = (value: string) =>
+        'sha256:' + createHash('sha256').update(value).digest('hex');
+      const baseline: NativeAuthoringPreparation = {
+        ...prepared,
+        referencedAssetIds: [],
+        completeProject: project,
+        sourceRevisions: {
+          'project.yaml': digest('source'),
+          'records/tests/smoke.yaml': digest('test v1'),
+        },
+      };
+      const first = await cache.prepare({
+        projectRoot: root,
+        prepared: baseline,
+        paths: logicalRuntimeArtifactPaths,
+        testId: 'smoke',
+      });
+      expect(first.status).toBe('prepared');
+      if (first.status !== 'prepared') return;
+      const updated = structuredClone(project);
+      updated.tests.smoke!.data.steps[0]!.tick.deltaSeconds = 2;
+      await writeFile(testFile, 'test v2');
+      const next = await cache.prepare({
+        projectRoot: root,
+        paths: logicalRuntimeArtifactPaths,
+        testId: 'smoke',
+        prepared: {
+          ...baseline,
+          workingRevision: baseline.workingRevision + 1,
+          completeProject: updated,
+          recordOverrides: { ...baseline.recordOverrides, tests: updated.tests },
+          sourceRevisions: {
+            ...baseline.sourceRevisions,
+            'records/tests/smoke.yaml': digest('test v2'),
+          },
+        },
+      });
+      expect(next.status).toBe('prepared');
+      if (next.status === 'prepared') {
+        expect(next.artifact).toBe(first.artifact);
+        expect(next.workingRevision).toBe(baseline.workingRevision + 1);
+        expect(next.test?.spec).not.toEqual(first.test?.spec);
+        await next.dispose();
+      }
+      await first.dispose();
+      await cache.clear();
+      expect(await readFile(journal, 'utf8')).toBe('unsaved native replay evidence');
+    } finally {
+      await cache.clear();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('projects dirty native records without mutating saved source, and guards source revisions', () => {
     const { project, prepared, savedFiles } = fixture();
     const effective = projectFromNativeWorkingPreparation(project, savedFiles, prepared);

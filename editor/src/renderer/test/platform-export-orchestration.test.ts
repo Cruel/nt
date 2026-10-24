@@ -2,8 +2,10 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { exportProjectToPlatform } from '../../main/services/platform-export-orchestration-service';
+import { exportPackage } from '../../main/services/editor-tool-service';
 import {
   configureTemplateRegistryRoot,
   templateRootForToken,
@@ -138,7 +140,155 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
   return 'linux-x64-release/build-1';
 }
 
+function installWebTemplate(root: string) {
+  configureTemplateRegistryRoot(path.join(root, 'web-registry'));
+  const token = 'web-wasm32-release/build-1';
+  const templateRoot = templateRootForToken(token);
+  fs.mkdirSync(templateRoot, { recursive: true });
+  fs.writeFileSync(path.join(templateRoot, 'player.js'), 'console.log("native web player")');
+  fs.writeFileSync(path.join(templateRoot, 'player.wasm'), Buffer.from([0, 97, 115, 109]));
+  fs.writeFileSync(path.join(templateRoot, 'player.data'), 'system data');
+  const licenses = createTemplateLicenseFixture(templateRoot);
+  const files = ['player.js', 'player.wasm', 'player.data'].map((name) => {
+    const data = fs.readFileSync(path.join(templateRoot, name));
+    return {
+      path: name,
+      size: data.length,
+      mode: fs.statSync(path.join(templateRoot, name)).mode & 0o777,
+      sha256: createHash('sha256').update(data).digest('hex'),
+    };
+  });
+  const descriptor = {
+    format: 'noveltea.player-template',
+    formatVersion: 1,
+    templateId: 'web-wasm32-release',
+    buildId: 'build-1',
+    engineVersion: '1',
+    platform: 'web',
+    architecture: 'wasm32',
+    minimumPlatformVersion: 'modern',
+    graphicsBackends: ['webgl2'],
+    shaderVariants: ['essl-300'],
+    compiledProjectFormatVersion: 1,
+    playerRuntimeApiVersion: 1,
+    compiledFeatures: ['web-single-threaded'],
+    capabilities: derivedPlatformCapabilities('web'),
+    buildFlavor: 'release',
+    packageAccessModes: ['web-fetch'],
+    files: [...files, ...licenses.files],
+    runtimeDependencies: [{ path: 'player.data', kind: 'asset' }, ...licenses.runtimeDependencies],
+    artifacts: {
+      archive: 'web.zip',
+      symbols: 'web-symbols.zip',
+      sbom: 'SBOM.cdx.json',
+      notices: 'licenses/index.json',
+    },
+    provenance: { provider: 'local', source: 'test' },
+    host: { assembly: 'any', requiresToolchain: false, tools: [] },
+  };
+  const descriptorText = JSON.stringify(descriptor);
+  fs.writeFileSync(path.join(templateRoot, 'template.json'), descriptorText);
+  fs.writeFileSync(
+    path.join(templateRoot, '.noveltea-template.json'),
+    JSON.stringify({
+      format: 'noveltea.template-registry',
+      templateId: descriptor.templateId,
+      buildId: descriptor.buildId,
+      descriptorSha256: createHash('sha256').update(descriptorText).digest('hex'),
+      archiveSha256: 'a'.repeat(64),
+      installedAt: '2026-08-12T00:00:00.000Z',
+      origin: 'test',
+      trust: 'local-untrusted',
+      verified: true,
+    }),
+  );
+  return token;
+}
+
 describe('platform export main-process trust boundary', () => {
+  it.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
+    'publishes real native-compiled Web output from admitted sources and preserves it on late drift',
+    async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-native-web-publish-'));
+      temporaryRoots.push(root);
+      const projectRoot = path.join(root, 'project');
+      fs.mkdirSync(path.join(projectRoot, 'assets'), { recursive: true });
+      await sharp({
+        create: { width: 1024, height: 1024, channels: 4, background: '#224466' },
+      })
+        .png()
+        .toFile(path.join(projectRoot, 'assets/icon.png'));
+      const project = exportableProject();
+      const webProfile = defaultPlatformExportProfile('web');
+      if (webProfile.target !== 'web') throw new Error('Expected a Web profile.');
+      project.export.profiles = [{ ...webProfile, web: { ...webProfile.web, threaded: false } }];
+      const templateToken = installWebTemplate(root);
+      const outputDirectory = path.join(root, 'dist', 'native-web');
+      const request = {
+        operationId: 'native-web-publish',
+        project,
+        projectRoot,
+        profileId: project.export.profiles[0]!.id,
+        outputDirectory,
+        templateToken,
+        allowUntrustedTemplate: true,
+      };
+      const nativeTools = {
+        compileShaders: vi.fn(async () => ({
+          ok: true,
+          success: true,
+          diagnostics: [],
+          outputs: [],
+        })),
+        exportPackage: vi.fn(async (compiled: unknown, output: string, options: unknown) =>
+          exportPackage(compiled as never, output, options as never),
+        ),
+      };
+      const admission = {
+        project,
+        diagnostics: [],
+        contributions: [],
+        runtimeAssetReferences: ['icon'],
+      };
+      const published = await exportProjectToPlatform(
+        request,
+        undefined,
+        nativeTools as never,
+        async () => null,
+        undefined,
+        undefined,
+        admission,
+      );
+      expect(published, JSON.stringify(published.diagnostics)).toMatchObject({ success: true });
+      expect(nativeTools.exportPackage).toHaveBeenCalledOnce();
+      expect(fs.existsSync(`${outputDirectory}.zip`)).toBe(true);
+      expect(fs.readdirSync(outputDirectory)).toEqual(
+        expect.arrayContaining(['index.html', 'player.json', 'manifest.webmanifest']),
+      );
+      const player = JSON.parse(fs.readFileSync(path.join(outputDirectory, 'player.json'), 'utf8'));
+      const compiledPackage = path.join(outputDirectory, player.package.path);
+      expect(fs.statSync(compiledPackage).size).toBeGreaterThan(0);
+      const firstArchive = fs.readFileSync(`${outputDirectory}.zip`);
+      const firstPackage = fs.readFileSync(compiledPackage);
+      const drift = await exportProjectToPlatform(
+        { ...request, operationId: 'native-web-drift', force: true },
+        undefined,
+        nativeTools as never,
+        async () => 'The CLI changed an admitted Project source during export.',
+        undefined,
+        undefined,
+        admission,
+      );
+      expect(drift.success).toBe(false);
+      expect(drift.diagnostics).toContainEqual(
+        expect.objectContaining({ code: 'platform-export-input-drift' }),
+      );
+      expect(fs.readFileSync(`${outputDirectory}.zip`)).toEqual(firstArchive);
+      expect(fs.readFileSync(compiledPackage)).toEqual(firstPackage);
+      expect(fs.readdirSync(path.join(root, 'dist'))).toEqual(['native-web', 'native-web.zip']);
+    },
+    120_000,
+  );
   it('accepts trusted admitted validation separately from the parsed export request', async () => {
     const project = exportableProject();
     const preparation = await prepared(project);
