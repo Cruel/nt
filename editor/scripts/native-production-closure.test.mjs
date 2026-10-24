@@ -76,6 +76,52 @@ void test('retired source analysis is rejected from emitted ScriptC chunks witho
   });
 });
 
+void test('retired editor validation and runtime cache cannot hide in a main bundle', async () => {
+  await fixture(async ({ electron, island }) => {
+    const target = path.join(electron, 'main', 'main.cjs');
+    await writeFile(target, 'module.exports = { native: true };\n');
+    await writeFile(
+      `${target}.map`,
+      JSON.stringify({
+        version: 3,
+        sources: [
+          '../../src/main/services/editor-authoring-validation-service.ts',
+          '../../src/main/services/editor-runtime-cache-service.ts',
+          '../../src/main/services/legacy-native-authoring-preview.ts',
+          '../../src/shared/legacy-runtime-artifact-preparation.ts',
+          '../../src/shared/legacy-runtime-build-cache.ts',
+        ],
+        mappings: '',
+      }),
+    );
+    await writeFile(
+      path.join(island, 'island.mjs'),
+      '//#region scripts/noveltea-scriptc-island.ts\nexport {};\n',
+    );
+    const failures = (await verifyNativeProductionClosure([electron, island])).join('\n');
+    for (const module of [
+      'editor-authoring-validation-service.ts',
+      'editor-runtime-cache-service.ts',
+      'legacy-native-authoring-preview.ts',
+      'legacy-runtime-artifact-preparation.ts',
+      'legacy-runtime-build-cache.ts',
+    ])
+      assert.match(failures, new RegExp(`main/main\\.cjs.*${module.replaceAll('.', '\\.')}`));
+  });
+});
+
+void test('distinct output roots retain distinct violations for an identical chunk name', async () => {
+  await fixture(async ({ electron, island }) => {
+    const source = '//#region src/shared/authoring-dependency-graph.ts\nexport {}\n';
+    await writeFile(path.join(electron, 'main', 'shared.mjs'), source);
+    await writeFile(path.join(island, 'shared.mjs'), source);
+    const failures = await verifyNativeProductionClosure([path.join(electron, 'main'), island]);
+    assert.equal(failures.length, 2);
+    assert.match(failures.join('\n'), /main\/shared\.mjs includes retired/u);
+    assert.match(failures.join('\n'), /dist-scriptc-island\/shared\.mjs includes retired/u);
+  });
+});
+
 void test('missing build output and untraceable bundled code fail closed', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(path.join(electron, 'main', 'main.cjs'), 'module.exports = 42;');

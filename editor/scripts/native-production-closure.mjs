@@ -26,6 +26,14 @@ const retiredAuthority = new Set([
   'src/cli/application.ts',
   'src/cli/compile-project-command.ts',
   'src/shared/authoring-compiler.ts',
+  // Native editor sessions must not retain the second authoring validator,
+  // runtime-admission/cache owner or differential-only preview adapter under
+  // a different (formerly non-retired) module name.
+  'src/main/services/editor-authoring-validation-service.ts',
+  'src/main/services/editor-runtime-cache-service.ts',
+  'src/main/services/legacy-native-authoring-preview.ts',
+  'src/shared/legacy-runtime-artifact-preparation.ts',
+  'src/shared/legacy-runtime-build-cache.ts',
   'scripts/noveltea.ts',
   'scripts/compile-project.ts',
   'scripts/materialize-platform-export-fixture.ts',
@@ -113,11 +121,15 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
         if (!emitted.has(name)) violations.push(`stale manifest entry ${name} in ${root}`);
     for (const file of files) {
       const relative = path.relative(root, file).split(path.sep).join('/');
+      // A relative chunk name alone loses output-root provenance. The same
+      // module can appear in main, tools and the ScriptC island; keep every
+      // independent production root in the failure inventory.
+      const emittedIdentity = `${path.basename(root)}/${relative}`;
       const text = await readFile(file, 'utf8');
       if (manifest) {
         const entry = manifest.chunks[relative];
         if (!entry) {
-          violations.push(`missing manifest entry for ${relative}`);
+          violations.push(`missing manifest entry for ${emittedIdentity}`);
           continue;
         }
         if (
@@ -126,15 +138,17 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
           entry.modules.some((item) => typeof item !== 'string') ||
           !/^[a-f0-9]{64}$/.test(entry.sha256)
         ) {
-          violations.push(`invalid manifest entry for ${relative}`);
+          violations.push(`invalid manifest entry for ${emittedIdentity}`);
           continue;
         }
         if (createHash('sha256').update(text).digest('hex') !== entry.sha256)
-          violations.push(`hash mismatch for ${relative}; cannot trust emitted module provenance`);
+          violations.push(
+            `hash mismatch for ${emittedIdentity}; cannot trust emitted module provenance`,
+          );
         for (const source of entry.modules) {
           const module = sourceModule(source);
           if (module && retiredAuthority.has(module))
-            violations.push(`${relative} includes retired Project authority ${module}`);
+            violations.push(`${emittedIdentity} includes retired Project authority ${module}`);
         }
         // A forged module list must not conceal a retired module that is
         // still exposed by the emitted code's source regions or source map.
@@ -151,13 +165,13 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
           for (const source of map.sources) observed.add(source);
         } catch (error) {
           if (error.code !== 'ENOENT')
-            violations.push(`invalid source map for ${relative}: ${error.message}`);
+            violations.push(`invalid source map for ${emittedIdentity}: ${error.message}`);
         }
         const declared = new Set(entry.modules.map(sourceModule));
         for (const source of observed) {
           const module = sourceModule(source);
           if (module && retiredAuthority.has(module) && !declared.has(module))
-            violations.push(`${relative} hides emitted retired Project authority ${module}`);
+            violations.push(`${emittedIdentity} hides emitted retired Project authority ${module}`);
         }
         continue;
       }
@@ -171,7 +185,7 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
         for (const source of map.sources) sources.add(source);
       } catch (error) {
         if (error.code !== 'ENOENT') {
-          violations.push(`invalid source map for ${relative}: ${error.message}`);
+          violations.push(`invalid source map for ${emittedIdentity}: ${error.message}`);
           continue;
         }
       }
@@ -183,13 +197,15 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
       );
       if (filenameMatches.length) for (const match of filenameMatches) sources.add(match);
       if (!sources.size && text.trim() && !isPureForwarder(text)) {
-        violations.push(`no module provenance for ${relative}; cannot certify production closure`);
+        violations.push(
+          `no module provenance for ${emittedIdentity}; cannot certify production closure`,
+        );
         continue;
       }
       for (const source of sources) {
         const module = sourceModule(source);
         if (module && retiredAuthority.has(module))
-          violations.push(`${relative} includes retired Project authority ${module}`);
+          violations.push(`${emittedIdentity} includes retired Project authority ${module}`);
       }
     }
   }
