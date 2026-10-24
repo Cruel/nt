@@ -454,7 +454,7 @@ import type {
   ProjectAssetFileOperationResponse,
   ProjectAssetTrashMove,
 } from './project-asset-audit';
-import type { ProjectWorkspaceWatchEvent } from './project-workspace-watch';
+import type { ProjectWorkspaceWatchEvent } from './project-watch-events';
 import type { ProjectOriginalAssetUrlResponse } from './project-original-asset';
 import type {
   CreateProjectRequest,

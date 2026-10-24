@@ -1118,7 +1118,29 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         )
           throw new Error('Native Project Save completed after its editor session changed.');
         if (!saved.accepted) {
-          const rejected = nativeOnlyResult(saved.error || 'Native scoped Save rejected.');
+          const fallback = nativeOnlyResult(saved.error || 'Native scoped Save rejected.');
+          const nativeDiagnostics = saved.diagnosticsAdded?.length
+            ? saved.diagnosticsAdded
+            : (saved.snapshot?.diagnostics ?? []);
+          const details = nativeDiagnostics.map((diagnostic) => ({
+            severity: diagnostic.severity,
+            code: diagnostic.code,
+            path: diagnostic.path,
+            message: diagnostic.sourcePath
+              ? `${diagnostic.message} [${diagnostic.sourcePath}${diagnostic.line ? `:${diagnostic.line}` : ''}]`
+              : diagnostic.message,
+          }));
+          // A declined transaction must still expose a blocking error when
+          // the native owner provides warnings but no error-level diagnostic.
+          const rejected = {
+            ...fallback,
+            diagnostics: [
+              ...details,
+              ...(details.some((diagnostic) => diagnostic.severity === 'error')
+                ? []
+                : fallback.diagnostics),
+            ],
+          };
           set({ nativeMutationPending: false, lastDiagnostics: rejected.diagnostics });
           return { ...rejected, commentImpacts: saved.commentImpacts };
         }

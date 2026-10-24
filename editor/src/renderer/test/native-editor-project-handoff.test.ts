@@ -9,7 +9,7 @@ import { NativeAuthoringSessionBridge } from '../../main/services/native-authori
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
 import { NativeEditorObserverWatchService } from '../../main/services/native-editor-observer-watch-service';
-import type { ProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
+import type { ProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 
 async function projectRoot() {
   const root = await mkdtemp(path.join(tmpdir(), 'native-project-handoff-'));

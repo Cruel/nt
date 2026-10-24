@@ -4,6 +4,25 @@ Status: **pre-cutover readiness accepted** (2026-10-23; production routing uncha
 
 ## #521 current integration gate (2026-10-24)
 
+During #521 integration, the native renderer Save/Save All paths now delegate
+semantic rejection exclusively to the native revision-scoped transaction; the
+remaining editor checks cover pending input, external conflicts, and atomic
+Save-unit selection. Native rejection diagnostics are forwarded to the
+renderer rather than replaced unconditionally by a generic error. The shared
+watch-event payload and its view-only reconciliation predicate have been
+separated into `project-watch-events.ts`, so the eventual retirement of the
+TypeScript watcher does not require dropping the renderer's event contract.
+These changes **do not** constitute the production switch; the renderer's
+remaining legacy graph and other Project routes still require reconciliation.
+The edited workspace passed the complete editor suite (**3,080 passed, 165
+skipped** across 362 files), `pnpm -C editor run check`, Electron pack, and a
+fresh renderer build. The focused native Save/command suite passed 50/50 after
+the native rejection detail and fallback-error regression cases were added.
+The strict emitted production closure gate still fails with 38 retired edges;
+therefore neither native production certification nor #521's completion
+acceptance has been established. The normal `noveltea:certify` command and CI
+routing remain untouched until the coordinated production switch.
+
 The standalone #534 suite now supports **`--production`** on the same
 reference-independent public CLI, Feature Lab, cache, Tests, package, Web
 platform, ComfyUI publication/race and editor/CLI disk witnesses as its
@@ -23,9 +42,9 @@ NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authori
     "$PWD/build/cli/linux/noveltea" --production
 ```
 
-**Current blocker: production retirement is incomplete.** On the existing
-pre-cutover outputs `check:native-production-closure` finds 39 retired module
-edges in Electron main/tools/renderer. Production `editor/src/main.ts` still
+**Current blocker: production retirement is incomplete.** On the rebuilt
+pre-cutover Electron outputs `check:native-production-closure` still finds **38**
+retired module edges (39 before the watch-event DTO separation). Production `editor/src/main.ts` still
 uses the opt-in editor lifecycle/mutation flags and old tool/runtime-cache/
 workspace watcher imports. Separately, the renderer eagerly starts the
 TypeScript `authoring-dependency-graph-runtime.ts` service, whose direct

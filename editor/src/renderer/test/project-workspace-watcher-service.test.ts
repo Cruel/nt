@@ -56,7 +56,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
+import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 
 const tempRoots: string[] = [];
 

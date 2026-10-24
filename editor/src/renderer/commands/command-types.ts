@@ -10,6 +10,7 @@ export type CommandSeverity = 'info' | 'warning' | 'error';
 export interface CommandDiagnostic {
   severity: CommandSeverity;
   message: string;
+  code?: string;
   path?: string;
   commandType?: string;
 }

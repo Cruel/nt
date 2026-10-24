@@ -596,7 +596,7 @@ async function commitSelectedNativeSaveUnits(
       success: false,
       status: 'failed',
       diagnostics: submitted.diagnostics.map((diagnostic) => ({
-        code: 'editor.native-save.rejected',
+        code: diagnostic.code ?? 'editor.native-save.rejected',
         severity: diagnostic.severity,
         category: 'Project save',
         path: diagnostic.path ?? '/',
@@ -754,12 +754,23 @@ export async function saveActiveSaveUnit(
   }
 
   try {
-    const baselineDiagnostics = authoringDiagnostics(projectState.savedDocument);
     const candidateContent = buildCandidateForSaveUnitIds(
       projectState.savedDocument,
       snapshot.recovery,
       selectedIds,
     );
+    // The native Save operation owns scoped semantic admission and dependent
+    // record validation. Do not consult the obsolete TypeScript validator or
+    // infer dependencies from a second interpretation of the saved Project.
+    if (useCommandStore.getState().nativeWorkingRevision !== null)
+      return await commitSelectedNativeSaveUnits(
+        selectedIds,
+        snapshot,
+        candidateContent,
+        [],
+        options.allowExternalConflict ?? false,
+      );
+    const baselineDiagnostics = authoringDiagnostics(projectState.savedDocument);
     const candidateDiagnostics = authoringDiagnostics(candidateContent);
     const blocking = selectedBlockingDiagnostics(
       baselineDiagnostics,
@@ -792,15 +803,7 @@ export async function saveActiveSaveUnit(
         remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
       };
     }
-    return useCommandStore.getState().nativeWorkingRevision !== null
-      ? await commitSelectedNativeSaveUnits(
-          selectedIds,
-          snapshot,
-          candidateContent,
-          [],
-          options.allowExternalConflict ?? false,
-        )
-      : await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
+    return await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
   } catch (error) {
     const diagnostic = createProjectValidationDiagnostic({
       code: 'editor.save.candidate-failed',
@@ -1029,7 +1032,6 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       const snapshot = buildEditorProjectStateSnapshot();
       const ids = new Set(dirtyRecords);
       const entries = orderedEntries(snapshot.recovery, ids);
-      const selectedPaths = componentPaths(entries);
       const failures = entries.flatMap(([id, entry]) => [
         ...(entry.externalConflict ? [externalConflictSaveDiagnostic(id, entry)] : []),
         ...Object.keys(entry.pendingRawInputByPath).map((path) => pendingInputDiagnostic(id, path)),
@@ -1048,19 +1050,10 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
           snapshot.recovery,
           ids,
         );
-        const blocking = selectedBlockingDiagnostics(
-          authoringDiagnostics(projectState.savedDocument),
-          authoringDiagnostics(candidate),
-          selectedPaths,
-        );
-        if (blocking.length)
-          return {
-            success: false,
-            status: 'blocked',
-            diagnostics: blocking,
-            savedSaveUnitIds: [],
-            remainingDirtySaveUnitIds: all,
-          };
+        // The native Project owner validates the staged, revision-bound Save
+        // atomically. Revalidating the candidate with the retired TypeScript
+        // Project engine would introduce a second, potentially contradictory
+        // semantic authority and could reject a native-valid Save.
         return commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
       } catch (error) {
         return {
