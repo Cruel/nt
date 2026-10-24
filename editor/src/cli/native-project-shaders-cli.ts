@@ -11,7 +11,7 @@ import {
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import { nativeProjectDiagnostics } from './native-project-results';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
-import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
+import type { NativeResidentProjectPreparation } from '../shared/project-workspace/native-project-preparation-contracts';
 
 /** Certification candidate: local native admission or immutable daemon-pinned native preparation. */
 export async function runNativeProjectShadersCli(

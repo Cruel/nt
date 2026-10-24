@@ -1,5 +1,10 @@
 # NovelTea CLI
 
+> Pre-#521 status: ordinary production remains the TypeScript/QuickJS-backed
+> CLI described below. The native candidate, isolated Node build-only
+> generators and exact atomic-switch plan are recorded in
+> [Native CLI cutover handoff](NATIVE_CLI_CUTOVER_HANDOFF.md).
+
 NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing the shared TypeScript authoring/workspace implementation in an embedded QuickJS-ng island plus a narrow statically linked host/native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
 
 ## Native CLI cutover gate (#519)

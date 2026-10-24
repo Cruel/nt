@@ -297,7 +297,7 @@ try {
   const generatedRoot = path.join(root, 'generated-project');
   const generator = path.join(
     repositoryRoot,
-    'editor/dist-electron/tools/materialize-platform-export-fixture.mjs',
+    'editor/dist-build-tools/materialize-platform-export-fixture.mjs',
   );
   const generated = spawnSync(
     process.execPath,

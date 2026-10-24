@@ -716,6 +716,15 @@ NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authori
 pnpm -C editor run noveltea:certify:native-candidate -- "$PWD/build/cli/linux/noveltea" --cli-only
 ```
 
+#541 additionally splits the three reference-dependent fixture/compiled-project
+generators into unshipped `dist-build-tools` and stages a native candidate
+Node-tool forwarding graph with SHA256 installed CLI/island binding. After a
+candidate pack, `pnpm -C editor run check:native-node-candidate` checks both
+emitted roots and negative tamper cases; Linux CI runs it after candidate
+rebuild. The complete producer/entrypoint classification, typed contract
+relocations, unchanged production boundary and #521 deletion/CI order are in
+`docs/editor/NATIVE_CLI_CUTOVER_HANDOFF.md`.
+
 No production authority changed. `NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE=1`
 selects the **build output**, not a runtime fallback. Ordinary public suite
 invocations have certification routing unset; special race tests temporarily

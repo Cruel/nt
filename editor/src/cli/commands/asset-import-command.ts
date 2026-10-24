@@ -16,7 +16,7 @@ import { cloneAuthoringProject } from '../../shared/project-schema/authoring-pro
 import { PROJECT_WORKSPACE_ABSENT_REVISION } from '../../shared/project-workspace';
 import { sha256PrefixedBytes } from '../../shared/web-crypto';
 import { cliDiagnostic } from '../contracts';
-import type { CliSemanticResult } from '../semantic-project';
+import type { CliSemanticResult } from '../command-result-contract';
 import type { CliCommandContext, CliCommandDefinition } from './types';
 import { CliCommandUsageError, parseCommandFlags } from './types';
 

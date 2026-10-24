@@ -102,7 +102,7 @@ async function main() {
       await rm(project, { recursive: true, force: true });
       if (options.scenario === 'empty-playback') {
         await invoke('materialize', process.execPath, [
-          'editor/dist-electron/tools/materialize-platform-export-fixture.mjs', '--root', project, '--target', 'web',
+          'editor/dist-build-tools/materialize-platform-export-fixture.mjs', '--root', project, '--target', 'web',
         ]);
         await prepareShaderFreeFixture(project);
         await invoke('create-test', cli, ['--project', project, '--json', 'entity', 'create', 'tests', 'cache-certification']);

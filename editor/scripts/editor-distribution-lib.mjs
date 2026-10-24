@@ -752,8 +752,6 @@ export async function verifyStage(stageRoot, options = {}) {
     'dist-electron/main/main.cjs',
     'dist-electron/preload/preload.cjs',
     'dist-electron/renderer/index.html',
-    'dist-electron/tools/project-compile.mjs',
-    'dist-electron/tools/generate-compiled-project-goldens.mjs',
   ]) {
     if (!(await pathExists(path.join(appRoot, required)))) {
       throw new Error(`Required staged application file is missing: ${required}`);

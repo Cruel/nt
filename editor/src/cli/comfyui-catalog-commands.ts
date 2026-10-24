@@ -32,7 +32,7 @@ import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/pro
 import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
 import { CliCommandUsageError } from './commands/types';
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
-import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
+import type { NativeResidentProjectPreparation } from '../shared/project-workspace/native-project-preparation-contracts';
 import {
   cliDiagnostic,
   formatCliResult,

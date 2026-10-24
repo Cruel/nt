@@ -20,10 +20,12 @@ import type {
 } from './project-workspace-service';
 import type {
   NativeResidentProjectPreparation,
-  PinnedPortableResidentProjectInputs,
-  PreparedPortableResidentProjectSnapshot,
   ResidentProjectAuthority,
   ResidentProjectAuthorityObservation,
+} from './native-project-preparation-contracts';
+import type {
+  PinnedPortableResidentProjectInputs,
+  PreparedPortableResidentProjectSnapshot,
 } from './resident-project-workspace-service';
 
 /**

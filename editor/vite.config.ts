@@ -394,8 +394,23 @@ export default defineConfig({
       ...commonNodePack,
       name: 'node-tools',
       plugins: [
-        cliStartupPolicy('Node CLI', path.join(editorRoot, 'scripts/noveltea.ts')),
-        cliLazyModulePolicy('Node application', path.join(editorRoot, 'src/cli/application.ts')),
+        cliStartupPolicy(
+          nativeCliCandidateBuild ? 'Native Node CLI candidate' : 'Node CLI',
+          path.join(
+            editorRoot,
+            nativeCliCandidateBuild
+              ? 'scripts/noveltea-native-candidate.ts'
+              : 'scripts/noveltea.ts',
+          ),
+        ),
+        ...(nativeCliCandidateBuild
+          ? []
+          : [
+              cliLazyModulePolicy(
+                'Node application',
+                path.join(editorRoot, 'src/cli/application.ts'),
+              ),
+            ]),
         nativeProductionProvenance(editorRoot),
       ],
       deps: {
@@ -403,13 +418,34 @@ export default defineConfig({
         onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],
       },
       entry: {
-        noveltea: 'scripts/noveltea.ts',
+        noveltea: nativeCliCandidateBuild
+          ? 'scripts/noveltea-native-candidate.ts'
+          : 'scripts/noveltea.ts',
+      },
+      format: 'esm',
+      outDir: 'dist-electron/tools',
+      fixedExtension: true,
+      clean: true,
+      outputOptions: { codeSplitting: true },
+    },
+    {
+      ...commonNodePack,
+      // These are build/test producers, not installable CLI commands. Keeping
+      // them in a separate output graph prevents their legacy fixture readers
+      // from silently entering the distributed Node tools closure.
+      name: 'node-fixture-generators',
+      plugins: [nativeProductionProvenance(editorRoot)],
+      deps: {
+        ...commonNodePack.deps,
+        onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],
+      },
+      entry: {
         'project-compile': 'scripts/compile-project.ts',
         'materialize-platform-export-fixture': 'scripts/materialize-platform-export-fixture.ts',
         'generate-compiled-project-goldens': 'scripts/generate-compiled-project-goldens.ts',
       },
       format: 'esm',
-      outDir: 'dist-electron/tools',
+      outDir: 'dist-build-tools',
       fixedExtension: true,
       clean: true,
       outputOptions: { codeSplitting: true },

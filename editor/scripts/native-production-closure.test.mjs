@@ -182,6 +182,70 @@ void test('production manifests reject hidden retired modules and missing chunks
   });
 });
 
+void test('manifest-only forgery cannot hide retired sources visible in emitted chunks', async () => {
+  await fixture(async ({ electron, island }) => {
+    const code = '//#region src/cli/application.ts\nexport const legacy = true;\n';
+    await writeFile(path.join(island, 'candidate.mjs'), code);
+    await writeFile(
+      path.join(island, 'native-production-provenance.json'),
+      JSON.stringify({
+        version: 1,
+        chunks: {
+          'candidate.mjs': {
+            sha256: createHash('sha256').update(code).digest('hex'),
+            modules: ['src/cli/native-application.ts'],
+          },
+        },
+      }),
+    );
+    await writeFile(
+      path.join(electron, 'main', 'main.cjs'),
+      '//#region src/main.ts\nmodule.exports = {};',
+    );
+    assert.match(
+      (await verifyNativeProductionClosure([electron, island])).join('\n'),
+      /candidate\.mjs hides emitted retired Project authority src\/cli\/application\.ts/u,
+    );
+    await writeFile(
+      path.join(island, 'candidate.mjs.map'),
+      JSON.stringify({ version: 3, sources: ['scripts/noveltea.ts'], mappings: '' }),
+    );
+    assert.match(
+      (await verifyNativeProductionClosure([electron, island])).join('\n'),
+      /candidate\.mjs hides emitted retired Project authority scripts\/noveltea\.ts/u,
+    );
+  });
+});
+
+void test('legacy Node tools and fixture producers are rejected even when minified', async () => {
+  await fixture(async ({ electron, island }) => {
+    const code = 'export const legacy=1;';
+    await writeFile(path.join(electron, 'main', 'main.cjs'), code);
+    await writeFile(
+      path.join(electron, 'native-production-provenance.json'),
+      JSON.stringify({
+        version: 1,
+        chunks: {
+          'main/main.cjs': {
+            sha256: createHash('sha256').update(code).digest('hex'),
+            modules: ['scripts/generate-compiled-project-goldens.ts', 'src/cli/application.ts'],
+          },
+        },
+      }),
+    );
+    await writeFile(
+      path.join(island, 'native.mjs'),
+      '//#region scripts/noveltea-scriptc-island.ts\nexport {};',
+    );
+    const violations = (await verifyNativeProductionClosure([electron, island])).join('\n');
+    assert.match(
+      violations,
+      /retired Project authority scripts\/generate-compiled-project-goldens\.ts/u,
+    );
+    assert.match(violations, /retired Project authority src\/cli\/application\.ts/u);
+  });
+});
+
 void test('a manifest may identify an emitted forwarding-only chunk without owning modules', async () => {
   await fixture(async ({ electron, island }) => {
     await writeFile(

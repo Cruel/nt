@@ -1,5 +1,10 @@
 # Agent Kit
 
+The native CLI cutover does not delete generated schema references, curator
+provenance or the Agent Kit payload. Schema **generation** remains build/tooling
+work; it must not restore the old TypeScript Project validator to the shipped
+CLI. See [#541 handoff](NATIVE_CLI_CUTOVER_HANDOFF.md).
+
 NovelTea embeds a versioned agent kit in the standalone `noveltea` CLI. It provides generated compact project-format references, raw schemas, and public guidance for coding agents without making generated documentation part of tracked project source.
 
 ## Versions and manifest

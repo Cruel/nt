@@ -8,12 +8,7 @@ const result = spawnSync('pnpm', ['exec', 'vp', 'pack'], {
   stdio: 'inherit',
 });
 if (result.status !== 0) process.exit(result.status ?? 1);
-const tool = path.join(
-  editorRoot,
-  'dist-electron',
-  'tools',
-  'materialize-platform-export-fixture.mjs',
-);
+const tool = path.join(editorRoot, 'dist-build-tools', 'materialize-platform-export-fixture.mjs');
 const forwardedArgs = process.argv.slice(2);
 const targetIndex = forwardedArgs.indexOf('--target');
 const target = targetIndex >= 0 ? forwardedArgs[targetIndex + 1] : 'android';

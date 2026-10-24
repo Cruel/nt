@@ -1,4 +1,4 @@
-import type { CliSemanticResult } from '../semantic-project';
+import type { CliSemanticResult } from '../command-result-contract';
 import { assetAuditProjectPreparationIntent } from '../project-preparation';
 import type { CliCommandDefinition, CliScopedCommandContext } from './types';
 import { CliCommandUsageError } from './types';

@@ -62,7 +62,7 @@ export async function runNativeProjectLifecycleCli(
   pinned?: Readonly<{
     projectRoot: string;
     preparation:
-      | import('../shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation
+      | import('../shared/project-workspace/native-project-preparation-contracts').NativeResidentProjectPreparation
       | null;
   }>,
 ): Promise<NovelTeaCliCommandResult | null> {

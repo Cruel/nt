@@ -4,7 +4,7 @@ import { CliCommandUsageError } from './commands/errors';
 import { cliDiagnostic } from './contracts';
 import { parsePlatformOptions, parsePlatformTemplateToken } from './platform-command-helpers';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
-import type { CliSemanticResult } from './semantic-project';
+import type { CliSemanticResult } from './command-result-contract';
 
 function externalToken(template: InstalledTemplate): string {
   return `${template.descriptor.templateId}@${template.descriptor.buildId}`;

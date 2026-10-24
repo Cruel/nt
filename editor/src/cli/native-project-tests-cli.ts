@@ -5,7 +5,7 @@ import { cliDiagnostic, formatCliResult, type NovelTeaCliCommandResult } from '.
 import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import { nativeProjectDiagnostics } from './native-project-results';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
-import type { NativeResidentProjectPreparation } from '../shared/project-workspace/resident-project-workspace-service';
+import type { NativeResidentProjectPreparation } from '../shared/project-workspace/native-project-preparation-contracts';
 import type { LoadedProjectWorkspaceSnapshot } from '../shared/project-workspace/project-workspace-service';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 import { NodeProjectWorkspaceProcessLiveness } from '../shared/project-workspace/node-project-workspace-file-system';
@@ -55,7 +55,7 @@ import {
   runtimeArtifactPathsWithPinnedSources,
   type PinnedProjectTextSources,
 } from './pinned-project-text-sources';
-import type { CliSemanticResult } from './semantic-project';
+import type { CliSemanticResult } from './command-result-contract';
 
 type NativePinnedGeneration = Readonly<{
   projectRoot: string;

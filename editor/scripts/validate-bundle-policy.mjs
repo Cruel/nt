@@ -6,13 +6,14 @@ import { fileURLToPath } from 'node:url';
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const outputRoot = path.join(editorRoot, 'dist-electron');
+const fixtureRoot = path.join(editorRoot, 'dist-build-tools');
 const nodeBuiltins = new Set(builtinModules.map((moduleName) => moduleName.replace(/^node:/, '')));
 
 const requiredOutputs = {
   main: path.join(outputRoot, 'main', 'main.cjs'),
   preload: path.join(outputRoot, 'preload', 'preload.cjs'),
-  compiler: path.join(outputRoot, 'tools', 'project-compile.mjs'),
-  goldens: path.join(outputRoot, 'tools', 'generate-compiled-project-goldens.mjs'),
+  compiler: path.join(fixtureRoot, 'project-compile.mjs'),
+  goldens: path.join(fixtureRoot, 'generate-compiled-project-goldens.mjs'),
 };
 
 function fail(message) {
@@ -156,10 +157,17 @@ const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((file
 );
 const sharpRuntimeToolChunks = new Set([
   'runtime-artifact-preparation.mjs',
-  'materialize-platform-export-fixture.mjs',
   'platform-deployment.mjs',
   'platform-image-sharp-service.mjs',
 ]);
+for (const forbidden of [
+  'project-compile.mjs',
+  'materialize-platform-export-fixture.mjs',
+  'generate-compiled-project-goldens.mjs',
+]) {
+  if (toolFiles.some((file) => path.basename(file) === forbidden))
+    fail(`build-only producer leaked into distributed tools: ${forbidden}`);
+}
 for (const toolFile of toolFiles) {
   const text = await fs.readFile(toolFile, 'utf8');
   const label = path.relative(editorRoot, toolFile);

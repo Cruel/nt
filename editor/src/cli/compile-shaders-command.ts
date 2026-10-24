@@ -3,7 +3,7 @@ import { buildShaderMaterialProject } from '../shared/project-schema/shader-mate
 import type { AuthoringProject } from '../shared/project-schema/authoring-project';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { cliDiagnostic } from './contracts';
-import type { CliSemanticResult } from './semantic-project';
+import type { CliSemanticResult } from './command-result-contract';
 import { CliCommandUsageError } from './commands/errors';
 
 export function parseCliShaderCompile(arguments_: readonly string[]) {

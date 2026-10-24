@@ -1,7 +1,7 @@
 import { PREPARED_MEDIA_MANIFEST_PATH } from '../shared/prepared-media';
 import type { PreparedRuntimeArtifact } from '../shared/project-schema/prepared-runtime-artifact';
 import { cliDiagnostic } from './contracts';
-import type { CliSemanticResult } from './semantic-project';
+import type { CliSemanticResult } from './command-result-contract';
 
 export function preparedMediaTestRequest(artifact: PreparedRuntimeArtifact) {
   const manifest = artifact.packageOptions.textEntries.find(

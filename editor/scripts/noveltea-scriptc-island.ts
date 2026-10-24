@@ -147,7 +147,7 @@ export function novelTeaResidentProjectSessionCount(): number {
   return residentWorkspace?.residentSessionCount() ?? 0;
 }
 
-function residentProjectAuthority(): import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectAuthority {
+function residentProjectAuthority(): import('../src/shared/project-workspace/native-project-preparation-contracts').ResidentProjectAuthority {
   const stringArray = (value: unknown, field: string): string[] => {
     if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string'))
       throw new Error(`Native Project authority returned malformed ${field}.`);
@@ -216,7 +216,7 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
               sourceOverlays: result.sourceOverlays,
               referencedAssetIds: result.referencedAssetIds,
               cliDiagnostics: result.cliDiagnostics,
-            } as import('../src/shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation;
+            } as import('../src/shared/project-workspace/native-project-preparation-contracts').NativeResidentProjectPreparation;
           },
           async proveNativeProject(projectRoot: string, sourceGeneration: string) {
             const result = JSON.parse(
@@ -263,7 +263,7 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/res
         manifest: {
           canonicalRoot: manifest.canonicalRoot,
           entries:
-            manifest.entries as import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectAuthorityObservation['manifest']['entries'],
+            manifest.entries as import('../src/shared/project-workspace/native-project-preparation-contracts').ResidentProjectAuthorityObservation['manifest']['entries'],
         },
       };
     },
@@ -752,7 +752,7 @@ export interface ScriptcInvocationContext {
 async function createPinnedRuntimeArtifactPaths(
   fileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
   projectRoot: string,
-  inputs: import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs,
+  inputs: import('../src/shared/project-workspace/native-project-preparation-contracts').PinnedNativeResidentProjectInputs,
   cliExecutable: () => string,
   mediaRunner: (executable: string, args: readonly string[]) => { stdout: string; stderr: string },
   nativeAlphaEncoder: import('../src/main/services/transparent-video-tracer').NativeAlphaEncoder,
@@ -956,10 +956,10 @@ async function runNovelTeaScriptcIslandScoped(
     | readonly import('../src/cli/pinned-external-assets').PinnedExternalAssetExpectation[]
     | undefined;
   let pinnedProjectTextSources:
-    | import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs['projectTextSources']
+    | import('../src/shared/project-workspace/native-project-preparation-contracts').PinnedNativeResidentProjectInputs['projectTextSources']
     | undefined;
   let pinnedNativePreparation:
-    | import('../src/shared/project-workspace/resident-project-workspace-service').NativeResidentProjectPreparation
+    | import('../src/shared/project-workspace/native-project-preparation-contracts').NativeResidentProjectPreparation
     | null = null;
   let pinnedRuntimeBuildCacheInputs:
     | import('../src/shared/runtime-build-cache').PinnedRuntimeBuildCacheInputs

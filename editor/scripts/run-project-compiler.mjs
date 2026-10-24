@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const compilerPath = path.join(editorRoot, 'dist-electron', 'tools', 'project-compile.mjs');
+const compilerPath = path.join(editorRoot, 'dist-build-tools', 'project-compile.mjs');
 const commandArguments = process.argv.slice(2);
 const structuredOutput = commandArguments.includes('--json');
 const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';

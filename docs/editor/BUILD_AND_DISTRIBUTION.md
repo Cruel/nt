@@ -59,6 +59,14 @@ pnpm package:smoke
 
 ## Vite+ Toolchain
 
+Build-only compiled-Project/golden/platform-fixture entrypoints now emit to
+`editor/dist-build-tools` and are **not staged** inside `dist-electron`.
+The normal shipped Node CLI remains legacy until #521; candidate-only
+`NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE=1` pack produces a SHA-bound
+native-forwarding Node witness. See
+[the native cutover handoff](NATIVE_CLI_CUTOVER_HANDOFF.md) for the
+explicit root/producer map, candidate checks and required production switch.
+
 Vite+ owns renderer development/build, Vitest, Oxlint, Oxfmt, the cacheable task graph, and the
 main/preload/Node-tool executable bundles. `tsc --noEmit` remains an explicit independent check.
 

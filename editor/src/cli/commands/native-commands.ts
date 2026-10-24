@@ -21,7 +21,7 @@ import {
 } from '../../main/services/node-runtime-artifact-adapters';
 import { NodeProjectWorkspaceProcessLiveness } from '../../shared/project-workspace/node-project-workspace-file-system';
 import { cliDiagnostic } from '../contracts';
-import type { CliSemanticResult } from '../semantic-project';
+import type { CliSemanticResult } from '../command-result-contract';
 import type { CliCommandContext, CliCommandDefinition, CliCommandInvocation } from './types';
 import { CliCommandUsageError } from './types';
 import { executeCachedRuntimeArtifactWithRecovery } from '../../shared/runtime-cache-native-consumer';
