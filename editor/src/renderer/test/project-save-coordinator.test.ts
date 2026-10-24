@@ -410,6 +410,115 @@ describe('project save coordinator', () => {
     Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
   });
 
+  it.each(['Save', 'Save All'])(
+    '%s delegates semantic rejection to native authority rather than the old validator',
+    async (action) => {
+      const saved = projectWithRooms();
+      const working = projectWithRooms();
+      working.rooms.foyer!.label = 'Native working change';
+      // Deliberately malformed candidate data must reach the native owner,
+      // which alone decides whether the transaction is admissible. Keep the
+      // in-memory display snapshot valid so it can load normally.
+      loadProject(
+        saved,
+        working,
+        recoveryState({
+          'record:rooms:foyer': {
+            sequence: 1,
+            patches: [
+              { op: 'replace', path: '/rooms/foyer/label', value: 'Native working change' },
+              { op: 'replace', path: '/rooms/foyer/data', value: null },
+            ],
+            affectedPaths: ['/rooms/foyer/label', '/rooms/foyer/data'],
+            pendingRawInputByPath: {},
+            atomicTransactionGroupIds: [],
+          },
+        }),
+      );
+      useCommandStore.getState().enableNativeCommandMode(0);
+      const nativeSave = vi.fn().mockResolvedValue({
+        accepted: false,
+        error: 'Native semantic validation rejected the record.',
+        diagnosticsAdded: [
+          {
+            code: 'native.room.data',
+            severity: 'error',
+            path: '/rooms/foyer/data',
+            message: 'Invalid native Room data.',
+          },
+        ],
+        snapshot: { workingRevision: 0 },
+      });
+      Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+        configurable: true,
+        writable: true,
+        value: nativeSave,
+      });
+      const result =
+        action === 'Save'
+          ? await saveActiveSaveUnit('record:rooms:foyer')
+          : await saveAllSaveUnits();
+      expect(result).toMatchObject({ success: false, status: 'failed' });
+      expect(result.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'native.room.data',
+            message: 'Invalid native Room data.',
+          }),
+        ]),
+      );
+      expect(nativeSave).toHaveBeenCalledTimes(1);
+      expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+    },
+  );
+
+  it('preserves a blocking error when native Save rejects with only warning diagnostics', async () => {
+    const saved = projectWithRooms();
+    const working = projectWithRooms();
+    working.rooms.foyer!.label = 'Proposed';
+    loadProject(
+      saved,
+      working,
+      recoveryState({
+        'record:rooms:foyer': {
+          sequence: 1,
+          patches: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Proposed' }],
+          affectedPaths: ['/rooms/foyer/label'],
+          pendingRawInputByPath: {},
+          atomicTransactionGroupIds: [],
+        },
+      }),
+    );
+    useCommandStore.getState().enableNativeCommandMode(0);
+    const nativeSave = vi.fn().mockResolvedValue({
+      accepted: false,
+      error: 'Native source transaction rejected.',
+      diagnosticsAdded: [
+        { code: 'native.notice', severity: 'warning', path: '/rooms/foyer', message: 'Notice.' },
+      ],
+      snapshot: { workingRevision: 0 },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      writable: true,
+      value: nativeSave,
+    });
+    const result = await saveActiveSaveUnit('record:rooms:foyer');
+    expect(result).toMatchObject({ success: false, status: 'failed' });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ severity: 'warning', code: 'native.notice' }),
+        expect.objectContaining({
+          severity: 'error',
+          message: 'Native source transaction rejected.',
+        }),
+      ]),
+    );
+    expect(nativeSave).toHaveBeenCalledTimes(1);
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectSaveUnit');
+  });
+
   it('saves all native working owners in one revision-scoped atomic transaction', async () => {
     const saved = projectWithRooms();
     const working = projectWithRooms();

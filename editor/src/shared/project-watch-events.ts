@@ -1,6 +1,8 @@
 import type { ProjectMutationPathValue } from './editor-tooling';
 import type { ProjectValidationDiagnostic } from './project-schema/project-diagnostic-projection';
 
+/** Renderer-facing event contract. This carries a native-authoritative event
+ * projection; it does not own Project observation, parsing or reconciliation. */
 export type ProjectWorkspaceAuthoringWatchResult =
   | {
       readonly success: true;

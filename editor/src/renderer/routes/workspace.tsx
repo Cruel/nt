@@ -125,7 +125,7 @@ import {
   undisclosedAssetCandidates,
 } from '@/assets/asset-discovery-dismissals';
 import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
-import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
+import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 
 export const Route = createFileRoute('/workspace')({
   component: WorkspacePage,

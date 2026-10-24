@@ -5,7 +5,7 @@ import chokidar, { type FSWatcher } from 'chokidar';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ProjectAssetFileOperationResponse } from '../../shared/project-asset-audit';
 import type { ProjectMutationPathValue } from '../../shared/editor-tooling';
-import type { ProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
+import type { ProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   isSafeProjectAttachmentPath,
