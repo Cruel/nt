@@ -143,7 +143,7 @@ describe('certification-only native working Project runtime preparation', () => 
         if (cached.status === 'prepared') await cached.dispose();
         await writeFile(path.join(root, 'assets/asset.bin'), 'externally changed');
         await expect(cache.prepare(options)).rejects.toThrow(
-          'Native complete preparation source changed on disk: assets/asset.bin',
+          'Native export source changed since admission: assets/asset.bin',
         );
       } finally {
         await cache.clear();

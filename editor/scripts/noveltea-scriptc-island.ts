@@ -593,6 +593,16 @@ async function runInternalCommand(
     response = JSON.parse(
       invokeHost('native-project-commands', JSON.stringify({ ...input, action: 'project-create' })),
     );
+  } else if (operation === 'native-project-import') {
+    if (
+      typeof input.bundlePath !== 'string' ||
+      typeof input.destination !== 'string' ||
+      typeof input.projectName !== 'string'
+    )
+      return result(2, '', 'Native Project import requires bundle, destination and name.\n');
+    response = JSON.parse(
+      invokeHost('native-project-commands', JSON.stringify({ ...input, action: 'project-import' })),
+    );
   } else if (operation === 'native-runtime-compile-certify') {
     // Certificate-only parity seam: consume the exact native Project result
     // through the same existing runtime artifact compiler as the public CLI,

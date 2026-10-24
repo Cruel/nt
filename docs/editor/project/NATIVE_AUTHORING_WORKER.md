@@ -838,6 +838,14 @@ The UI then opens the created Project normally via candidate `OPEN_PROJECT`.
 No TypeScript Workspace creator, validator or YAML writer is invoked by this
 candidate path. The internal bridge extension does not change the public
 CLI/daemon production routing.
+`COMPLETE_PROJECT_IMPORT` similarly uses `native-project-import`; it reuses
+the desktop handoff's bounded HTTPS/SHA-256 download but delegates archive
+validation, source containment, exact file revisions and destination publication
+to the native transaction. A confirmed display-name override is applied to
+the **staged** `project.yaml` only after original archive validation; the
+stable Project ID is preserved and the renamed candidate is natively validated
+before atomic publication. Import failure or destination conflict cannot
+silently fall back to the legacy Workspace importer.
 
 `START_PROJECT_WORKSPACE_WATCHER` and `STOP_PROJECT_WORKSPACE_WATCHER` remain
 the existing authenticated renderer capability names but dispatch to
@@ -852,19 +860,37 @@ verified files, rather than the old Workspace snapshot.
 Regression entrypoints are
 `src/renderer/test/native-editor-project-handoff.test.ts` (incumbent,
 same-root reopen, rejected admission, dirty Save and physical observer)
-and `native-editor-project-create.test.ts` (private native Create and
-newly created Project Open). The additional
+and `native-editor-project-create.test.ts` (private native Create, bundle
+import with a confirmed name, newly created/imported native Project Open).
+The additional
 `native-editor-candidate-ipc.test.ts` exercises the actual guarded IPC
 registrar, sender validation and revision-checked Open/Patch/Validate/Save/
 reopen/Close with real Feature Lab workers, rather than a mock Project store.
-All three can exercise real worker/native CLI with:
+`native-editor-runtime-equivalence.test.ts` admits a native-created minimal
+Room/Test fixture, runs a successful authored Test in the actual player, and
+compares native compiled-game content, manifest previews, package options and
+**exact exported `.ntpkg` bytes** with a separate saved-Project baseline.
+These focused tests exercise real workers and CLI with:
 
 ```sh
 NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
   pnpm -C editor exec vp test run \
   src/renderer/test/native-editor-project-handoff.test.ts \
   src/renderer/test/native-editor-project-create.test.ts \
-  src/renderer/test/native-editor-candidate-ipc.test.ts
+  src/renderer/test/native-editor-candidate-ipc.test.ts \
+  src/renderer/test/native-editor-runtime-equivalence.test.ts
+```
+
+The optional Linux assembled-app smoke script runs Electron under Xvfb with
+the explicit candidate flag and connects through Chromium's debugging
+protocol. It waits for the real renderer/preload to load, authenticates native
+Create/Open/Validate/source-inventory/Close through preload IPC, then clicks
+the React New Project button, enters form values, submits and verifies that
+the resulting Project is visible in the workspace/Explorer. This script does
+not use an in-process mock window or worker:
+
+```sh
+node editor/scripts/certify-native-editor-lifecycle.mjs
 ```
 
 ### Editor consumer and final-gate inventory
@@ -875,6 +901,7 @@ channel names. Its source authority routes are:
 | Editor consumer | Native candidate ownership / IPC route |
 | --- | --- |
 | Create | `CREATE_PROJECT` -> private native `project-create` transaction, then candidate `OPEN_PROJECT` |
+| Desktop bundle import | `COMPLETE_PROJECT_IMPORT` -> private native `project-import` archive/rename transaction; UI opens the resulting physical Project through candidate Open |
 | Open, same-root reopen, close | `OPEN_PROJECT` and `CLOSE_ACTIVE_PROJECT` -> staged `NativeEditorProjectHandoff` and independent worker lifetimes |
 | Inspector, record edits, undo/redo | Initial complete native working Project, revision-checked `NATIVE_PROJECT_PATCH`, renderer-local inverse patch intents; no second TypeScript Project normalization |
 | Explorer and source buffers | `LIST_PROJECT_SOURCE_FILES`, `READ_PROJECT_TEXT_SOURCES`, `PROJECT_SOURCE_USAGES`, `MUTATE_PROJECT_SOURCES`, `NATIVE_PROJECT_STAGE_TEXT`, `NATIVE_PROJECT_SAVE_TEXT`; native source journal and main-owned physical file capabilities |
@@ -885,37 +912,44 @@ channel names. Its source authority routes are:
 | Package/platform export | `EXPORT_PACKAGE`, `STAGE_PLATFORM_EXPORT`, `EXPORT_PROJECT_TO_PLATFORM` demand `prepareCleanExport` and native source proof; binary source observation uses native physical fingerprints and tracks actual admitted Asset hashes |
 | External edits and invalidation | Existing watcher START/STOP and event IPC -> native worker's exact-byte observer; no legacy filesystem watcher in candidate |
 
-`COMPLETE_PROJECT_IMPORT` is deliberately fail-closed in the candidate: the
-desktop `.ntproject` handoff still depends on the legacy Workspace importer.
-Rewire it to the existing native `project-import` transaction before #532 can
-claim full editor entrypoint coverage. The shipping import route is unchanged.
-
-### Verification and unresolved acceptance (2026-10-23)
+### Verification and environment notes (2026-10-23)
 
 - `pnpm -C editor run check`: passed (schema policy, formatting, lint with
   zero warnings, typecheck). `pnpm -C editor run build:renderer` and
   `pnpm -C editor run build:electron`: passed. The private CLI was rebuilt
   successfully with Node 24.18.0 and `VCPKG_ROOT=/home/dev/dev/vcpkg`.
 - `NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" pnpm -C editor exec vp test run --maxWorkers=4`:
-  348 passed files, 3,099 passing tests, 124 skipped. Focused real-addon
-  Create, handoff and authenticated IPC integration tests also passed.
+  final complete rerun **350 passed files, 3,103 passing tests, 124 skipped**.
+  Focused real-addon Create/import, handoff, runtime equivalence and
+  authenticated IPC integration tests passed. Two initially exposed test
+  contract regressions (the static IPC registration inventory and the
+  physical-source error string) were corrected and the full rerun is green.
 - `ctest --test-dir build/native-authoring-host --output-on-failure -j 2 -R '^native_authoring_(working_preparation|asset_animation|tests|source_analysis|project_session|project_validation|yaml_transaction|layout)$'`:
   8/8 passed.
 - Feature Lab native Open, dirty patch/checkpoint, failed and same-root
   reopen, physical Save, verified clean export source, Layout inventory,
   external Room observation, authenticated IPC validation and preview
   artifact preparation were exercised without a TypeScript Workspace.
+- `node editor/scripts/certify-native-editor-lifecycle.mjs`: passed on Linux
+  with Xvfb, actual Electron renderer/preload native calls and React New
+  Project dialog creation/Open/Explorer presentation. Assembled Electron and
+  renderer builds pass. `clang-format --dry-run --Werror` also passes for the
+  native bundle importer. A redundant broader, CPU-intensive CLI native
+  certificate was stopped after native Create/import integration and dedicated
+  CTests already provided positive evidence; no incomplete certificate was
+  counted as a pass.
 
-**Not yet qualifying evidence:** an actual authored Feature Lab Test run
-reached the native player but reported `compiledProjectAdmissionRejected`
-because the fixture has experimental video motion and references to missing
-gameplay materials. The IPC test verifies the precise native diagnostic,
-not a false success. Runtime Test/package artifact equivalence still needs
-a runnable fixture or corrected native package inputs. Desktop bundle import
-remains fail-closed as above. An interactive Electron renderer/inspector
-smoke test and cross-platform GUI checks were not executed in this headless
-workspace. These prevent closing #532 as fully accepted; they are not reasons
-to switch production routing partially.
+An actual authored Feature Lab Test reached the native player but returned
+`compiledProjectAdmissionRejected` for its experimental video motion and
+missing gameplay materials. This fixture's negative case is deliberately
+retained and is **not** counted as a passing Test run. The independent minimal
+native-created Room/Test fixture instead **passes** its authored runtime Test,
+and the package-equivalence check compares emitted archive bytes rather than
+merely comparing an abstract runtime profile. The semantic runner now passes
+the main-owned Project root so the player can resolve Project Lua sources.
+An assembled Electron candidate and React Project Create/Open sequence also
+passed under Xvfb; platform-native manual GUI checks outside Linux remain
+out of scope for #532's preparatory certification and belong to #522.
 
 The actual final **#521-only deletion gate** is the removal of the legacy
 `openProject`/`createProject`/`saveActiveProjectContent` and

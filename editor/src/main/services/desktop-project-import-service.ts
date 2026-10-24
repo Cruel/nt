@@ -12,6 +12,7 @@ import {
   importPortableProjectBundle,
   PortableProjectBundleError,
 } from './portable-project-bundle-service';
+import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
 
 const MAX_REMOTE_PROJECT_BYTES = 512 * 1024 * 1024;
 
@@ -101,6 +102,54 @@ export async function importDesktopProject(
         ? error.message
         : String(error);
     return { success: false, error: message };
+  } finally {
+    if (temporaryRoot) await fs.rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+/** Candidate-only desktop bundle import. The native transaction validates the
+ * archive, retained source inventory and requested display name *before*
+ * publishing the target. No TypeScript Project Workspace is constructed. */
+export async function importNativeDesktopProject(
+  input: CompleteDesktopProjectImportRequest,
+  invoke: typeof invokeNovelTeaNativeOperation = invokeNovelTeaNativeOperation,
+): Promise<DesktopProjectImportResult> {
+  let temporaryRoot: string | null = null;
+  try {
+    let bundlePath: string;
+    if (input.request.source.kind === 'local') {
+      bundlePath = input.request.source.bundlePath;
+    } else {
+      temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'noveltea-project-import-'));
+      bundlePath = path.join(temporaryRoot, 'download.ntproject');
+      await downloadVerifiedProjectBundle(
+        input.request.source.url,
+        input.request.source.sha256,
+        bundlePath,
+      );
+    }
+    const destination = path.resolve(input.destination);
+    const raw = await invoke('native-project-import', {
+      bundlePath: path.resolve(bundlePath),
+      destination,
+      projectName: input.projectName,
+    });
+    if (!raw || typeof raw !== 'object' || !('ok' in raw) || raw.ok !== true) {
+      const failure = raw as { error?: unknown } | null;
+      throw new Error(
+        typeof failure?.error === 'string' ? failure.error : 'Native Project import failed.',
+      );
+    }
+    if (
+      !('projectRoot' in raw) ||
+      raw.projectRoot !== destination ||
+      !('projectFilePath' in raw) ||
+      raw.projectFilePath !== path.join(destination, 'project.yaml')
+    )
+      throw new Error('Native Project import returned an invalid destination.');
+    return { success: true, projectPath: destination, projectFilePath: raw.projectFilePath };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   } finally {
     if (temporaryRoot) await fs.rm(temporaryRoot, { recursive: true, force: true });
   }

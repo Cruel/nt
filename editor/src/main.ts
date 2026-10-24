@@ -90,7 +90,10 @@ import { readEngineShaderSource } from './main/services/project-source-file-serv
 import { TerminalNotificationService } from './main/services/terminal-notification-service';
 import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
 import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
-import { importDesktopProject } from './main/services/desktop-project-import-service';
+import {
+  importDesktopProject,
+  importNativeDesktopProject,
+} from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
 import {
@@ -411,6 +414,21 @@ function createNativeEditorController(): NativeEditorSessionController {
 const nativeEditorHandoff = nativeEditorLifecycleEnabled
   ? new NativeEditorProjectHandoff(activeProjectSessions, createNativeEditorController)
   : null;
+const candidateTestCatalogArgumentsSchema = {
+  parse(arguments_: unknown[]): [unknown] {
+    if (!nativeEditorHandoff) return listPlaybackTestsArgumentsSchema.parse(arguments_);
+    // Candidate view values are never another authoritative TypeScript
+    // Project. Validate only the IPC envelope, not its record data.
+    if (
+      arguments_.length !== 1 ||
+      !arguments_[0] ||
+      typeof arguments_[0] !== 'object' ||
+      Array.isArray(arguments_[0])
+    )
+      throw new Error('Native Test catalog request must carry one view-only object.');
+    return [null];
+  },
+};
 function closeNativeEditorHandoff(): void {
   const controller = nativeEditorHandoff?.current();
   if (controller) nativeEditorObservers.get(controller)?.close();
@@ -1357,11 +1375,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.COMPLETE_PROJECT_IMPORT,
     (arguments_) => completeProjectImportArgumentsSchema.parse(arguments_),
     (request) => {
-      if (nativeEditorHandoff)
-        return {
-          success: false,
-          error: 'Desktop bundle import is not yet wired to the native editor candidate.',
-        };
+      if (nativeEditorHandoff) return importNativeDesktopProject(request);
       return importDesktopProject(request);
     },
   );
@@ -1570,14 +1584,7 @@ void app.whenReady().then(async () => {
 
   guardedIpc.handle(
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
-    (arguments_) => {
-      if (!nativeEditorHandoff) return listPlaybackTestsArgumentsSchema.parse(arguments_);
-      // The renderer's Project argument is ignored in the native candidate;
-      // never parse it as a second authoritative TypeScript Project.
-      if (arguments_.length !== 1 || !arguments_[0] || typeof arguments_[0] !== 'object')
-        throw new Error('Native Test catalog request must carry one view-only argument.');
-      return [null] as [unknown];
-    },
+    (arguments_) => candidateTestCatalogArgumentsSchema.parse(arguments_),
     async (project) => {
       if (!nativeEditorHandoff) return listPlaybackTests(project);
       const sessionId = activeProjectSessions.currentSessionId();

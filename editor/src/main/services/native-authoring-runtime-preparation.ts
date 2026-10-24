@@ -482,6 +482,7 @@ export async function runNativeWorkingTest(
   return invoke('run-test', {
     project: artifact.compiledProject,
     spec: test.spec,
+    projectRoot,
     shaderVariants: artifact.packageOptions.shaderVariants,
   });
 }
