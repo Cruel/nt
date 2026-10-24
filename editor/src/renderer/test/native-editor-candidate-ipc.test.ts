@@ -101,6 +101,11 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         (id, revision) => handoff.current()!.validate(id, revision),
       );
       registrar.handle(
+        IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH,
+        (args) => nativeProjectValidateArgumentsSchema.parse(args),
+        (id, revision) => handoff.current()!.semanticGraph(id, revision),
+      );
+      registrar.handle(
         IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
         (args) => nativeProjectPrepareRuntimeArgumentsSchema.parse(args),
         (id, revision, shaderVariant) =>
@@ -138,12 +143,29 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         expect(patched).toMatchObject({ accepted: true, snapshot: { workingRevision: 1 } });
         const validated = await ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, trusted, id, 1);
         expect(validated).toBeDefined();
+        await expect(
+          ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, untrusted, id, 1),
+        ).rejects.toThrow();
+        await expect(
+          ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, trusted, id, 0),
+        ).rejects.toThrow();
+        const graph = await ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, trusted, id, 1);
+        expect(graph).toMatchObject({
+          projectSessionId: id,
+          workingRevision: 1,
+          nodes: expect.any(Array),
+          edges: expect.any(Array),
+          occurrences: expect.any(Array),
+        });
         const reopened = await ipc.invoke(IPC_CHANNELS.OPEN_PROJECT, trusted, root);
         expect(reopened).toMatchObject({
           success: true,
           nativeRecoveredContentProject: { project: { name: 'IPC native edit' } },
         });
         const reopenedId = (reopened as { projectSessionId: string }).projectSessionId;
+        await expect(
+          ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, trusted, id, 1),
+        ).rejects.toThrow();
         await expect(
           ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_SAVE_UNIT, trusted, id, 1, [], {
             structuralPathsByOwner: { project: ['/project/name'] },

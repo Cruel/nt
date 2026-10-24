@@ -30,6 +30,9 @@ export interface ProjectSearchExternalSource {
 
 export interface BuildProjectSearchIndexOptions {
   externalSources?: readonly ProjectSearchExternalSource[];
+  /** Native sessions supply revision-pinned reference evidence instead of
+   * rebuilding the retired TypeScript structural graph. */
+  referenceIndex?: ReferenceIndex;
 }
 
 function escapePathSegment(segment: string): string {
@@ -196,10 +199,9 @@ export function buildProjectSearchIndex(
   project: AuthoringProject,
   options: BuildProjectSearchIndexOptions = {},
 ): ProjectSearchIndex {
-  const referenceIndex = buildReferenceIndexFromGraph(
-    project,
-    buildAuthoringStructuralDependencyGraph(project),
-  );
+  const referenceIndex =
+    options.referenceIndex ??
+    buildReferenceIndexFromGraph(project, buildAuthoringStructuralDependencyGraph(project));
   const assetAliasIndex = buildAssetAliasIndex(project);
   const usagesBySource = new Map<string, ReturnType<typeof referenceIndex.usages.filter>>();
   for (const usage of referenceIndex.usages) {

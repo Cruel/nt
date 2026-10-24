@@ -11,10 +11,8 @@ import {
 } from '../commands/native-command-execution';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
 import { resolveProjectComments } from '../project/project-comment-confirmation';
-import {
-  authoringDependencyGraphService,
-  startAuthoringDependencyGraphService,
-} from '../project/authoring-dependency-graph-runtime';
+import { startAuthoringDependencyGraphService } from '../project/authoring-dependency-graph-runtime';
+import { nativeRendererGraphService } from '../project/native-authoring-graph-runtime';
 
 const sessionId = '5b33af83-d804-444c-b0dc-e8f10e4d03a0';
 const newSessionId = 'ed60bb33-e19e-4569-bf3c-08ab72bef3c4';
@@ -300,6 +298,30 @@ describe('native-backed renderer commands', () => {
       configurable: true,
       value: save,
     });
+    const nativeGraph = vi.fn(async (_session: string, expected: number) => {
+      expect(expected).toBe(nativeRevision);
+      const rooms = (nativeDocument as unknown as { rooms: Record<string, unknown> }).rooms;
+      return {
+        projectSessionId: sessionId,
+        generation: 1,
+        workingRevision: nativeRevision,
+        sourceRevisions: { 'project.yaml': 'sha256:' + '0'.repeat(64) },
+        textSourceRevisions: {},
+        complete: true,
+        incompleteOwners: [],
+        nodes: Object.keys(rooms).map((id) => {
+          const key = { kind: 'record' as const, collection: 'rooms', id };
+          return { key, keyText: JSON.stringify(key), owningPath: `/rooms/${id}`, label: id };
+        }),
+        edges: [],
+        occurrences: [],
+        diagnostics: [],
+      };
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectSemanticGraph', {
+      configurable: true,
+      value: nativeGraph,
+    });
     const created = await useCommandStore.getState().executeCommandAsync({
       type: 'entity.createRecord',
       label: 'Create native structural room',
@@ -325,9 +347,17 @@ describe('native-backed renderer commands', () => {
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(6);
     const stopGraph = startAuthoringDependencyGraphService();
     try {
-      const publication = useProjectStore.getState().lastMutationPublication;
-      if (!publication) throw new Error('Native structural mutation omitted graph publication.');
-      await authoringDependencyGraphService.publish(publication);
+      await nativeRendererGraphService.refresh();
+      expect(
+        nativeRendererGraphService.currentSnapshot(),
+        JSON.stringify({
+          graphError: nativeRendererGraphService.error(),
+          commands: useCommandStore.getState().nativeWorkingRevision,
+          projectionRevision: useCommandStore.getState().nativeProjectionRevision,
+          currentRevision: useProjectStore.getState().projectRevision,
+          requested: nativeGraph.mock.calls,
+        }),
+      ).not.toBeNull();
       const renamedId = 'renamed-native-structural-room';
       const renamed = await useCommandStore.getState().executeCommandAsync({
         type: 'entity.renameId',
@@ -350,10 +380,7 @@ describe('native-backed renderer commands', () => {
         rooms: { [createdId]: { id: createdId } },
       });
       expect(save).toHaveBeenCalledTimes(5);
-      const postUndoPublication = useProjectStore.getState().lastMutationPublication;
-      if (!postUndoPublication)
-        throw new Error('Native undo omitted dependency graph publication.');
-      await authoringDependencyGraphService.publish(postUndoPublication);
+      await nativeRendererGraphService.refresh();
       requireDeleteCommentApproval = true;
       const deleting = useCommandStore.getState().executeCommandAsync({
         type: 'entity.deleteRecord',

@@ -10,6 +10,11 @@ import {
   findUsages,
 } from '../../shared/project-schema/authoring-references';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  nativeGraphCommandPreflight,
+  nativeGraphUsages,
+} from '../../main/services/native-semantic-graph-queries';
+import type { NativeRendererGraphSnapshot } from './native-authoring-graph-projection';
 
 export interface SemanticGraphUsage {
   edgeId: string;
@@ -155,7 +160,7 @@ export function referenceIndexFromCurrentGraph(
   project: AuthoringProject,
   snapshot: AuthoringDependencyGraphSnapshot,
 ) {
-  return buildReferenceIndexFromGraph(project, snapshot.graph);
+  return buildReferenceIndexFromGraph(project, snapshot.graph, 'nativeGraph' in snapshot);
 }
 
 export function confirmedUsagesFromCurrentGraph(
@@ -185,6 +190,59 @@ export function preflightGraphCommand(input: {
       kind: 'blocked',
       reason: 'The dependency graph is not ready for the current project revision.',
       usages: [],
+    };
+  }
+  if ('nativeGraph' in input.snapshot) {
+    const native = (input.snapshot as NativeRendererGraphSnapshot).nativeGraph;
+    let nativeDecision: ReturnType<typeof nativeGraphCommandPreflight>;
+    try {
+      nativeDecision = nativeGraphCommandPreflight({
+        graph: native,
+        projectSessionId: native.projectSessionId,
+        workingRevision: native.workingRevision,
+        workerGeneration: native.generation,
+        target: 'collection' in input.target ? targetKey(input.target) : input.target,
+        operation: input.operation,
+        forceDelete: input.force,
+        confirmManualRename: input.confirmRenameWithoutLuaRewrite,
+      });
+    } catch {
+      return {
+        kind: 'blocked',
+        reason: 'Native Project graph evidence is incomplete or stale.',
+        usages: [],
+      };
+    }
+    const usages = semanticUsagesForTarget(input.snapshot, input.target);
+    if (nativeDecision.kind === 'blocked')
+      return { kind: 'blocked', reason: nativeDecision.reason, usages };
+    if (
+      input.operation === 'rename' &&
+      !input.confirmRenameWithoutLuaRewrite &&
+      nativeGraphUsages(
+        native,
+        'collection' in input.target ? targetKey(input.target) : input.target,
+      ).recognized.length > 0
+    )
+      return {
+        kind: 'blocked',
+        reason: 'Confirm rename without automatic physical source rewriting before continuing.',
+        usages,
+      };
+    // The native graph is an evidence reader, not a physical text writer.
+    // Even exact native source ranges cannot authorize JSON patch rewrites.
+    const displayUsages = usages.map((usage) =>
+      usage.sourceReferenceClassification === 'exact-rewriteable'
+        ? {
+            ...usage,
+            sourceReferenceClassification: 'exact-manual' as const,
+          }
+        : usage,
+    );
+    return {
+      kind: 'ready',
+      usages: displayUsages,
+      warnings: displayUsages.filter((usage) => usage.role === 'lua-possible-reference'),
     };
   }
   const usages = semanticUsagesForTarget(input.snapshot, input.target);

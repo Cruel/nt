@@ -11,9 +11,19 @@ import {
   nativeSemanticGraphSchema,
   type NativeSemanticGraph,
 } from '../../main/services/native-authoring-worker-contract';
+import { projectNativeGraphForRenderer } from '../project/native-authoring-graph-projection';
+import {
+  preflightGraphCommand,
+  semanticUsagesForTarget,
+} from '../project/authoring-graph-consumers';
+import { generateAuthoringRepairPlan } from '../project/authoring-repair';
+import { referenceIndexFromCurrentGraph } from '../project/authoring-graph-consumers';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
+import { searchProjectIndex } from '../../shared/project-search/project-search';
 
 const origin = { kind: 'record' as const, collection: 'rooms', id: 'foyer' };
-const target = { kind: 'record' as const, collection: 'assets', id: 'backdrop' };
+const target = { kind: 'record' as const, collection: 'assets' as const, id: 'backdrop' };
 const first = {
   ownerPath: '/rooms/foyer',
   sourceUrl: 'project:/scripts/room-hook.lua',
@@ -70,6 +80,87 @@ const fixture: NativeSemanticGraph = nativeSemanticGraphSchema.parse({
 });
 
 describe('revision-pinned native graph presentation-only queries', () => {
+  it('indexes Project Search references from native edges without deriving a TypeScript graph', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: {} as never };
+    project.assets.backdrop = { id: 'backdrop', label: 'Backdrop', data: {} as never };
+    const native = projectNativeGraphForRenderer(fixture, 'search-A', 1);
+    const index = buildProjectSearchIndex(project, {
+      referenceIndex: referenceIndexFromCurrentGraph(project, native),
+    });
+    const results = searchProjectIndex(index, {
+      referencesTo: [{ collection: 'assets', id: 'backdrop' }],
+      tokenMode: 'all',
+      sort: { kind: 'label' },
+    });
+    expect(results.results.map((item) => item.document.id)).toContain('record:rooms:foyer');
+  });
+  it('projects native structural edges and distinct physical-source evidence for real renderer consumers', () => {
+    const snapshot = projectNativeGraphForRenderer(fixture, 'renderer-A', 17);
+    const usages = semanticUsagesForTarget(snapshot, target);
+    expect(usages.map((usage) => usage.role)).toEqual([
+      'room-background',
+      'source-recognized-reference',
+      'source-recognized-reference',
+      'lua-possible-reference',
+    ]);
+    expect(usages.map((usage) => usage.sourceReferenceClassification).filter(Boolean)).toEqual(
+      expect.arrayContaining(['exact-rewriteable', 'exact-manual', 'possible-lexical']),
+    );
+    const input = {
+      snapshot,
+      projectInstanceId: 'renderer-A',
+      projectRevision: 17,
+      target,
+    };
+    expect(preflightGraphCommand({ ...input, operation: 'rename' })).toMatchObject({
+      kind: 'blocked',
+    });
+    expect(
+      preflightGraphCommand({
+        ...input,
+        operation: 'rename',
+        confirmRenameWithoutLuaRewrite: true,
+      }),
+    ).toMatchObject({
+      kind: 'blocked',
+      reason: expect.stringContaining('structural dependency'),
+    });
+    const sourceOnly = projectNativeGraphForRenderer({ ...fixture, edges: [] }, 'renderer-A', 17);
+    expect(
+      preflightGraphCommand({
+        ...input,
+        snapshot: sourceOnly,
+        operation: 'rename',
+        confirmRenameWithoutLuaRewrite: true,
+      }),
+    ).toMatchObject({
+      kind: 'ready',
+      usages: expect.arrayContaining([
+        expect.objectContaining({ sourceReferenceClassification: 'exact-manual' }),
+      ]),
+    });
+    expect(
+      generateAuthoringRepairPlan({
+        ...input,
+        deletePath: '/assets/backdrop',
+      }),
+    ).toMatchObject({ status: 'blocked' });
+    expect(
+      generateAuthoringRepairPlan({
+        ...input,
+        deletePath: '/assets/backdrop',
+        force: true,
+      }),
+    ).toMatchObject({ status: 'ready', plan: { warnings: expect.any(Array) } });
+    expect(() =>
+      projectNativeGraphForRenderer(
+        { ...fixture, complete: false, incompleteOwners: ['rooms/foyer'] },
+        'renderer-A',
+        17,
+      ),
+    ).toThrow('incomplete');
+  });
   it('keeps structural, exact manual, exact rewriteable and speculative evidence separate', () => {
     const usages = nativeGraphUsages(fixture, target);
     expect(nativeGraphUsageCounts(fixture, target)).toEqual({

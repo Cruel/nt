@@ -4872,7 +4872,11 @@ export const collectProjectWorkspaceLuaSources = (
   contributionKeys
     ? descriptorsForContributionKeys(snapshot, contributionKeys)
     : snapshot.externalSourceDescriptors;
-export const buildProjectWorkspaceSearchIndex = (snapshot: ProjectWorkspaceSnapshot) =>
+export const buildProjectWorkspaceSearchIndex = (
+  snapshot: ProjectWorkspaceSnapshot,
+  referenceIndex?: import('../project-schema/authoring-references').ReferenceIndex,
+) =>
   buildProjectSearchIndex(snapshot.project, {
     externalSources: externalSearchSources(snapshot.project, snapshot.externalSourceDescriptors),
+    ...(referenceIndex ? { referenceIndex } : {}),
   });

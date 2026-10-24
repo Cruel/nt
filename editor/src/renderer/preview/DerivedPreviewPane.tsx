@@ -16,6 +16,8 @@ import {
   authoringDependencyGraphService,
   useCurrentAuthoringDependencyGraphSnapshot,
 } from '@/project/authoring-dependency-graph-runtime';
+import { useCommandStore } from '@/commands/command-store';
+import { nativeRendererGraphService } from '@/project/native-authoring-graph-runtime';
 import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinator';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
@@ -82,22 +84,25 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const projectRevision = useProjectStore((state) => state.projectRevision);
   const publication = useProjectStore((state) => state.lastMutationPublication);
   const graph = useCurrentAuthoringDependencyGraphSnapshot();
+  const nativeMode = useCommandStore((state) => state.nativeWorkingRevision !== null);
   const sourceAnalysis = useMemo(
     () =>
-      graph && projectInstanceId
+      graph && projectInstanceId && !nativeMode
         ? (authoringDependencyGraphService.currentSourceAnalysis(
             projectInstanceId,
             projectRevision,
           ) ?? [])
         : [],
-    [graph, projectInstanceId, projectRevision],
+    [graph, nativeMode, projectInstanceId, projectRevision],
   );
   const previousGraph = useMemo(
     () =>
       graph && projectInstanceId
-        ? authoringDependencyGraphService.previousSnapshot(projectInstanceId, projectRevision)
+        ? nativeMode
+          ? nativeRendererGraphService.previousSnapshot()
+          : authoringDependencyGraphService.previousSnapshot(projectInstanceId, projectRevision)
         : null,
-    [graph, projectInstanceId, projectRevision],
+    [graph, nativeMode, projectInstanceId, projectRevision],
   );
   const [lease, setLease] = useState<PreviewHostLease | null>(null);
   const [readyRevision, setReadyRevision] = useState(0);

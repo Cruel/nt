@@ -43,6 +43,7 @@ import {
 import { confirmProjectComments } from '@/project/project-comment-confirmation';
 import {
   authoringDependencyGraphService,
+  currentAuthoringGraphSnapshot,
   isAuthoringDependencyGraphServiceStarted,
 } from '@/project/authoring-dependency-graph-runtime';
 
@@ -646,13 +647,9 @@ function busStateFromStores(history: CommandHistoryState): CommandBusState {
     document: project.document,
     savedDocument: project.savedDocument,
     history,
-    graphSnapshot:
-      !isAuthoringDependencyGraphServiceStarted() || project.projectInstanceId === null
-        ? null
-        : authoringDependencyGraphService.currentSnapshot(
-            project.projectInstanceId,
-            project.projectRevision,
-          ),
+    graphSnapshot: isAuthoringDependencyGraphServiceStarted()
+      ? currentAuthoringGraphSnapshot()
+      : null,
     projectInstanceId: project.projectInstanceId,
     projectRevision: project.projectRevision,
   };

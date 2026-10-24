@@ -15,6 +15,8 @@ import {
 } from '../../../shared/project-schema/authoring-project';
 import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
 import { searchProjectWorkspaceSnapshot } from '../../../shared/project-workspace/project-workspace-search';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
 import { createProjectWorkspaceSnapshot } from '../../../shared/project-workspace/project-workspace-service';
 import { AssetPreview } from './AssetPreview';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -153,6 +155,8 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
     ),
   );
   const executeCommand = useCommandStore((store) => store.executeCommandAsync);
+  const nativeWorkingRevision = useCommandStore((store) => store.nativeWorkingRevision);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const allAssets = useMemo(() => {
     if (!project) return [];
     return Object.entries(project.assets)
@@ -186,15 +190,20 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
   }, [project, scriptSourcePaths]);
   const assets = useMemo(() => {
     if (!project || !workspaceSnapshot) return [];
-    const response = searchProjectWorkspaceSnapshot(workspaceSnapshot, {
-      text: query,
-      collections: ['assets'],
-      assetTypes: kind === 'all' ? undefined : [kind],
-      tags: selectedTags,
-      tagMode: 'all',
-      tokenMode: 'all',
-      sort: { kind: 'label' },
-    });
+    if (nativeWorkingRevision !== null && !graphSnapshot) return [];
+    const response = searchProjectWorkspaceSnapshot(
+      workspaceSnapshot,
+      {
+        text: query,
+        collections: ['assets'],
+        assetTypes: kind === 'all' ? undefined : [kind],
+        tags: selectedTags,
+        tagMode: 'all',
+        tokenMode: 'all',
+        sort: { kind: 'label' },
+      },
+      graphSnapshot ? referenceIndexFromCurrentGraph(project, graphSnapshot) : undefined,
+    );
     return response.results.flatMap((result) => {
       const id = result.document.entityId;
       if (!id) return [];
@@ -202,7 +211,7 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
       if (!record) return [];
       return [{ id, record, data: parseAssetData(record.data), label: record.label || id }];
     });
-  }, [kind, project, query, selectedTags, workspaceSnapshot]);
+  }, [graphSnapshot, kind, nativeWorkingRevision, project, query, selectedTags, workspaceSnapshot]);
   const kinds = useMemo(
     () =>
       [...new Set(allAssets.map((asset) => asset.data?.kind).filter(Boolean))].sort((left, right) =>

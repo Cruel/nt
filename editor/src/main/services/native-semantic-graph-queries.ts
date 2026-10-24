@@ -214,7 +214,9 @@ export function nativeGraphImpactedOwnerPaths(
   // promote all record fields to preview dependencies.
   const impacted = new Set<string>();
   const frontier = [...changedPaths];
-  const byKey = new Map(graph.nodes.map((node) => [node.keyText, node.owningPath]));
+  // Native keyText is emitted by the C++ JSON serializer. Comparing its
+  // spelling to JS JSON.stringify(object) is not stable across field order.
+  const byKey = new Map(graph.nodes.map((node) => [JSON.stringify(node.key), node.owningPath]));
   while (frontier.length) {
     const current = frontier.shift()!;
     for (const edge of graph.edges) {
