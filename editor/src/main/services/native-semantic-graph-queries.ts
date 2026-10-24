@@ -45,7 +45,11 @@ export function nativeGraphUsages(
   recognized: readonly Occurrence[];
 } {
   return {
-    confirmed: graph.edges.filter((edge) => sameKey(edge.target, target)),
+    // Physical source references also have per-occurrence evidence. Their
+    // aggregate edge is an impact dependency, not a second usage to count.
+    confirmed: graph.edges.filter(
+      (edge) => edge.role !== 'source-recognized-reference' && sameKey(edge.target, target),
+    ),
     possible: graph.occurrences.filter(
       (occurrence) =>
         occurrence.classification === 'possible-lexical' && sameKey(occurrence.target, target),
@@ -142,7 +146,7 @@ export function nativeGraphCommandPreflight(input: {
       warnings: usages.possible,
     };
   if (
-    input.operation !== 'delete' &&
+    input.operation === 'repair' &&
     usages.confirmed.some((edge) => edge.repair.kind === 'blocked')
   )
     return {

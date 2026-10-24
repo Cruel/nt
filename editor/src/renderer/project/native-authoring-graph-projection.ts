@@ -118,6 +118,11 @@ export function projectNativeGraphForRenderer(
   for (const edge of nativeGraph.edges) {
     if (!roles.has(edge.role) || edge.facets.some((facet) => !facets.has(facet)))
       throw new Error('Native graph contains unsupported edge semantics.');
+    // One physical reference can have an aggregate dependency edge as well
+    // as one or more occurrence records. Find Usages presents the precise
+    // occurrences once; retain the aggregate only in the native DTO for
+    // dependency/preview impact calculations.
+    if (edge.role === 'source-recognized-reference') continue;
     insert(edges, incoming, outgoing, {
       ...edge,
       source: key(edge.source),
