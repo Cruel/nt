@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import { parseVerbData } from '../../shared/project-schema/authoring-verbs';
 import { validateInteractionProgram } from '../../shared/project-schema/authoring-interactions';
@@ -34,10 +35,8 @@ export function replaceVerbDataPatches(
       patches: [],
       diagnostics: [{ severity: 'error' as const, message: 'Verb data is invalid.', path }],
     };
-  const failure = validateInteractionProgram(
-    document,
-    data.defaultProgram,
-    `${path}/defaultProgram`,
+  const failure = legacyCommandDiagnostics(() =>
+    validateInteractionProgram(document, data.defaultProgram, `${path}/defaultProgram`),
   ).find((item) => item.severity === 'error');
   if (failure)
     return {

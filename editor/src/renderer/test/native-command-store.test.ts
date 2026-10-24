@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import * as legacyDecoder from '../../shared/project-schema/decode-authoring-project';
+import * as legacyValidation from '../../shared/project-schema/authoring-validation';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { useProjectStore } from '../project/project-store';
 import { toJsonValue, type JsonValue } from '../project/json-value';
@@ -187,6 +189,11 @@ describe('native-backed renderer commands', () => {
   });
 
   it('auto-commits structural creation, undo, and redo only after a native scoped Save', async () => {
+    const poison = () => {
+      throw new Error('Native structural command invoked legacy authority');
+    };
+    vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
+    vi.spyOn(legacyValidation, 'validateAuthoringProject').mockImplementation(poison);
     const createdId = 'native-structural-room';
     let nativeDocument: JsonValue = useProjectStore.getState().document!;
     let nativeRevision = 0;
@@ -814,6 +821,34 @@ describe('native-backed renderer commands', () => {
     expect(projectName()).toBe('Concurrent');
     expect(useCommandStore.getState().history.cursor).toBe(1);
     expect(useCommandStore.getState().nativeWorkingRevision).toBe(4);
+  });
+
+  it('publishes native Project Settings commands and Undo/Redo with legacy admission poisoned', async () => {
+    const poison = () => {
+      throw new Error('Legacy Project authority invoked');
+    };
+    const decode = vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
+    const validate = vi
+      .spyOn(legacyValidation, 'validateAuthoringProject')
+      .mockImplementation(poison);
+    vi.spyOn(window.noveltea, 'nativeProjectPatch')
+      .mockResolvedValueOnce(nativeAck('Native Settings', 1))
+      .mockResolvedValueOnce(nativeAck('Saved Project', 2))
+      .mockResolvedValueOnce(nativeAck('Native Settings', 3));
+    const result = await useCommandStore.getState().executeCommandAsync({
+      type: 'project.updateMetadata',
+      payload: { name: 'Native Settings' },
+      originSaveUnitId: 'project:settings',
+      persistencePolicy: 'manual-save',
+    });
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(projectName()).toBe('Native Settings');
+    expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
+    expect(projectName()).toBe('Saved Project');
+    expect((await useCommandStore.getState().redoAsync()).ok).toBe(true);
+    expect(projectName()).toBe('Native Settings');
+    expect(decode).not.toHaveBeenCalled();
+    expect(validate).not.toHaveBeenCalled();
   });
 
   it('Use Disk prunes acknowledged native history without blocking the next edit', async () => {

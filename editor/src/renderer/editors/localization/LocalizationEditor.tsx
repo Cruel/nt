@@ -44,6 +44,10 @@ import {
 } from '../../../shared/project-schema/authoring-localization';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  useNativeProjectDiagnostics,
+  nativeProjectDiagnosticsReady,
+} from '@/project/native-project-diagnostics';
 import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
 import {
   createLocalizationTranslation,
@@ -168,6 +172,8 @@ interface MessageView extends LocalizationMessageWorkflowView {
 export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
+  const nativeSession = useProjectStore((state) => state.nativeSession);
+  const nativeDiagnostics = useNativeProjectDiagnostics();
   const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const project = isAuthoringProject(document) ? document : null;
@@ -293,7 +299,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const sourceChangeBlocked =
     localization.sourceLocaleLock !== null || hasSubstantiveLocalizationWork(localization);
   const reconciliationPlan = planLocalizationReconciliation(project);
-  const localizationValidationDiagnostics = validateAuthoringProject(project);
+  const localizationValidationDiagnostics = nativeSession
+    ? nativeDiagnostics
+    : validateAuthoringProject(project);
 
   async function run(
     label: string,
@@ -780,6 +788,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   ) {
     const path = translationRecordPath(locale, view.id);
     return (
+      (!nativeSession || nativeProjectDiagnosticsReady()) &&
       !translation.useSource &&
       translation.sourceFingerprint === view.sourceFingerprint &&
       dialogueCuesReviewable(view, translation) &&

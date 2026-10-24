@@ -779,7 +779,64 @@ describe('WorkspacePage new project modal', () => {
     );
   });
 
+  it('opens and closes a native recovered Project without legacy semantic admission', async () => {
+    const clean = createAuthoringProject({ id: 'native-recovery', name: 'Saved title' });
+    const dirty = structuredClone(clean);
+    dirty.project.name = 'Recovered title';
+    vi.mocked(window.noveltea.openProject).mockResolvedValueOnce({
+      ok: true,
+      success: true,
+      projectPath: '/mock/native',
+      projectFilePath: '/mock/native/project.yaml',
+      projectSessionId: 'recovered-native-session',
+      contentProject: stripEditorProjectState(clean),
+      savedContentProject: stripEditorProjectState(clean),
+      nativeRecoveredContentProject: stripEditorProjectState(dirty),
+      nativeWorkingRevision: 3,
+      editorState: emptyEditorProjectState(),
+      repairs: [],
+      diagnostics: [],
+    });
+    const decoder = await import('../../shared/project-schema/decode-authoring-project');
+    const validator = await import('../../shared/project-schema/authoring-validation');
+    const poison = () => {
+      throw new Error('Legacy admission on native Open');
+    };
+    const decode = vi.spyOn(decoder, 'decodeAuthoringProject').mockImplementation(poison);
+    const validate = vi.spyOn(validator, 'validateAuthoringProject').mockImplementation(poison);
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
+    });
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/native');
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        project: { name: 'Recovered title' },
+      }),
+    );
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      project: { name: 'Saved title' },
+    });
+    expect(useCommandStore.getState().nativeWorkingRevision).toBe(3);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'close-project' }),
+      );
+    });
+    await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
+    expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled();
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
+    expect(decode).not.toHaveBeenCalled();
+    expect(validate).not.toHaveBeenCalled();
+    decode.mockRestore();
+    validate.mockRestore();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+  });
+
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {
+    const legacyDecoder = await import('../../shared/project-schema/decode-authoring-project');
+    const legacyValidation = await import('../../shared/project-schema/authoring-validation');
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -812,6 +869,13 @@ describe('WorkspacePage new project modal', () => {
       writable: true,
       value: nativeValidate,
     });
+    const poison = () => {
+      throw new Error('Legacy Project authority invoked');
+    };
+    const decode = vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
+    const validate = vi
+      .spyOn(legacyValidation, 'validateAuthoringProject')
+      .mockImplementation(poison);
     render(<WorkspacePage />);
     act(() => {
       window.dispatchEvent(
@@ -824,7 +888,45 @@ describe('WorkspacePage new project modal', () => {
         expect.objectContaining({ code: 'native.room.invalid', severity: 'error' }),
       ),
     );
+    let release!: (value: {
+      diagnostics: Array<{ code: string; severity: 'error'; path: string; message: string }>;
+    }) => void;
+    nativeValidate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    act(() => useCommandStore.setState({ nativeWorkingRevision: 5 }));
+    await waitFor(() =>
+      expect(nativeValidate).toHaveBeenLastCalledWith('opened-project-session', 5),
+    );
+    nativeValidate.mockResolvedValue({ ok: true, success: true, diagnostics: [] });
+    act(() => useCommandStore.setState({ nativeWorkingRevision: 6 }));
+    await waitFor(() =>
+      expect(nativeValidate).toHaveBeenLastCalledWith('opened-project-session', 6),
+    );
+    await act(async () =>
+      release({
+        diagnostics: [{ code: 'stale', severity: 'error', path: '/', message: 'Old revision' }],
+      }),
+    );
+    expect(useWorkspaceStore.getState().diagnostics).toEqual([]);
+    nativeValidate.mockRejectedValueOnce(new Error('Native session revoked'));
+    act(() => useCommandStore.setState({ nativeWorkingRevision: 7 }));
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: 'editor.native-validation.failed',
+          message: 'Native session revoked',
+        }),
+      ),
+    );
     expect(window.noveltea.validateProject).not.toHaveBeenCalled();
+    expect(decode).not.toHaveBeenCalled();
+    expect(validate).not.toHaveBeenCalled();
+    decode.mockRestore();
+    validate.mockRestore();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });
 

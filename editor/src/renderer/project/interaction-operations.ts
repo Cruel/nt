@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import {
   parseInteractionData,
@@ -36,10 +37,12 @@ export function replaceInteractionDataPatches(
       patches: [],
       diagnostics: [{ severity: 'error' as const, message: 'Interaction data is invalid.', path }],
     };
-  const failure = validateInteractionData(document, payload.interactionId, {
-    ...record,
-    data,
-  }).find((item) => item.severity === 'error');
+  const failure = legacyCommandDiagnostics(() =>
+    validateInteractionData(document, payload.interactionId, {
+      ...record,
+      data,
+    }),
+  ).find((item) => item.severity === 'error');
   if (failure)
     return {
       patches: [],

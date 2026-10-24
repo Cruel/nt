@@ -1,5 +1,6 @@
 export interface ProjectLoadPayload {
   document: unknown;
+  nativeSession?: boolean;
   savedDocument?: unknown;
   projectPath: string | null;
   projectFilePath: string | null;

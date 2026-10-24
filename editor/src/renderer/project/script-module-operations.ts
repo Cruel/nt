@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import {
   parseScriptModuleData,
@@ -38,9 +39,9 @@ export function replaceScriptModuleDataPatches(
         { severity: 'error' as const, message: 'Script Module data is invalid.', path },
       ],
     };
-  const failure = validateScriptModuleData(document, payload.scriptId, { ...record, data }).find(
-    (item) => item.severity === 'error',
-  );
+  const failure = legacyCommandDiagnostics(() =>
+    validateScriptModuleData(document, payload.scriptId, { ...record, data }),
+  ).find((item) => item.severity === 'error');
   if (failure)
     return {
       patches: [],

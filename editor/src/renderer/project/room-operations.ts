@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
 import {
@@ -111,7 +112,9 @@ export function replaceRoomDataPatches(
   const previous = parseRoomData(previousRecord.data);
   const changes = previous ? placementChanges(previous, incoming) : null;
   const data = changes ? repairLocalPlacementReferences(incoming, changes) : incoming;
-  const diagnostics = validateRoomData(document, payload.roomId, { ...record, data });
+  const diagnostics = legacyCommandDiagnostics(() =>
+    validateRoomData(document, payload.roomId, { ...record, data }),
+  );
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const overrides = overridesForGameplayInstanceEdit(document, 'rooms', payload.roomId, {

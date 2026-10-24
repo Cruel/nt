@@ -13,12 +13,8 @@ import {
   type ProjectAppSettings,
 } from '../../shared/project-schema/authoring-project-settings';
 import type { ProjectAudioSettings } from '../../shared/project-schema/authoring-audio';
-import {
-  type AuthoringProject,
-  type ProjectEntrypoint,
-} from '../../shared/project-schema/authoring-project';
-import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
-import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import type { ProjectEntrypoint } from '../../shared/project-schema/authoring-project';
+import { projectForEditor as projectForCommand } from './project-for-editor';
 import type { RoomNavigationTransition } from '../../shared/project-schema/authoring-rooms';
 import type { InteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import {
@@ -146,11 +142,6 @@ function patchValue(documentValue: JsonValue, path: string, value: unknown): Jso
     path,
     value: toJsonValue(value),
   };
-}
-
-function projectForCommand(document: unknown): AuthoringProject | null {
-  const decoded = decodeAuthoringProject(stripEditorProjectState(document));
-  return decoded.project ? (document as AuthoringProject) : null;
 }
 
 export function updateProjectMetadataPatches(

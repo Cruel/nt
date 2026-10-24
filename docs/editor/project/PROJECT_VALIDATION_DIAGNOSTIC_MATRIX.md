@@ -20,6 +20,41 @@ Generated authoring codes never use the message. They use the producer, normaliz
 canonical path rule. Dynamic record IDs become `record`, array indices become `item`, and localized
 locale keys become `locale`. Thus messages may be translated without changing code identity.
 
+## Native renderer validation handoff (#538, before #521)
+
+In an admitted native Project session, the main-owned session/revision is the **only** authority for
+Project semantics. The renderer requests `nativeProjectValidate(sessionId, workingRevision)` and
+publishes the returned diagnostics without reclassifying their code, path, or severity. The request
+is gated on the active Project instance, session, working revision, and matching renderer projection;
+superseded replies are discarded and native errors remain errors. Pending raw form input remains a
+separate editor-local diagnostic and is never admitted as Project content. Record editors use native
+diagnostics for display; their previous TypeScript record validators cannot veto native commands.
+Native Save/Save All, structural commit/Undo/Redo, comment decisions, Keep Mine, Use Disk, and
+recovery remain native revision-bound operations; the legacy structural persistence path is rejected
+in native mode rather than falling back to TypeScript validation.
+
+**Production renderer legacy semantic authority inventory (delete together in #521):**
+
+| Consumer | Legacy-only validation/decode | Native-session disposition |
+| --- | --- | --- |
+| `project/project-publication.ts` (`admitProjectCandidate`) | `decodeAuthoringProject` and its embedded semantic/repair interpretation | Native-acknowledged projections are copied without decoding or repair; legacy/project-free candidate behavior stays until routing cutover. |
+| `project/project-for-editor.ts` (shared UI/command helper) | `decodeAuthoringProject` | Native sessions use the existing Project projection as a non-admitting view. `ProjectSettingsEditor.tsx`, `project-settings-operations.ts`, and `routes/workspace.tsx` must not decode indirectly. |
+| `routes/workspace.tsx` (`collectWorkspaceProjectDiagnostics`, Validate) | `decodeAuthoringProject`, `validateAuthoringProject`, `validateProjectSettingsAuthoringState`; structural/semantic decoder diagnostics | Native diagnostics and pending-input diagnostics only. Legacy `validateProject` IPC and the TypeScript branches remain for non-native sessions. |
+| `editors/localization/LocalizationEditor.tsx` | `validateAuthoringProject` and localization semantic checks on the Project | Native diagnostics gate translation review; not-yet-validated revisions cannot be marked reviewed. |
+| `editors/project/ProjectSettingsEditor.tsx` | `validateProjectSettingsAuthoringState`, formerly direct decoder calls (including async attachment inspection) | Native diagnostics for settings, pending raw input retained, no decoder on the async completion path. |
+| `project/project-save-coordinator.ts` | `decodeAuthoringProject`, `validateAuthoringProject`, settings checks, baseline/candidate and dependency checks through `authoringDiagnostics` | Only the legacy Save and legacy Save All branches call these; native Save uses the scoped native transaction and preserves native diagnostics. |
+| `project/structural-command-persistence.ts` | `decodeAuthoringProject` and `validateAuthoringProject` through `newAuthoringErrors` | Native content must use the revision-bound structural command path; legacy candidate validation is unreachable. Metadata-only persistence remains allowed. |
+| `project/{character,dialogue,interactable,interaction,layout,map,room,scene,script-module,test,verb}-operations.ts` | Indirect family-level `validate*Data` and `validateInteractionProgram` through patch preflight | Native command preflight submits intent without a second semantic veto. Local field parsing and raw-input validation remain presentation/intent checks, not Project admission. |
+| `editors/{characters/CharacterEditor,dialogues/DialogueEditor,layouts/LayoutEditor,scenes/SceneEditor,tests/TestsEditor}.tsx` | Per-record semantic `validate*Data` UI calls | Record diagnostics come from the native revision rather than a parallel TypeScript semantic opinion. |
+
+The shared `authoring-project.ts` `isAuthoringProject` guards and the various `parse*Data` helpers
+still provide legacy display shape/command-intent checks. These are **not** a second native Save or
+Project-admission authority; #521 should remove or replace any remaining legacy-only whole-Project
+guards as it deletes the obsolete renderer command engine. The old decode/validate imports listed
+above must be deleted **atomically with** the ordinary production routing switch, not earlier:
+non-native editor sessions still exercise that path today. There is no schema-version change, dual
+reader, or compatibility fallback in this handoff.
+
 ## Authoring Schema and Project-Wide Validation
 
 | Code or code family | Producer | Severity | Canonical path / owner paths | Authoring Save | Play / `.ntpkg` | Platform export | Target scope and permitted fallback |

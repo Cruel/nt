@@ -106,6 +106,12 @@ import {
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { NativeAuthoringPatchResult } from '../../main/services/native-authoring-worker-contract';
 import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
+import { projectForEditor as authoringProjectForEditor } from '@/project/project-for-editor';
+import {
+  currentNativeProjectDiagnostics,
+  refreshNativeProjectDiagnostics,
+  useNativeProjectDiagnostics,
+} from '@/project/native-project-diagnostics';
 import {
   canonicalProjectPersistenceContentJson,
   stripLocalEditorProjectState,
@@ -176,7 +182,13 @@ function metadataFlushFailureDiagnostics(
 function collectWorkspaceProjectDiagnostics(
   document: unknown,
   persistentDiagnostics: readonly ToolDiagnostic[] = [],
+  nativeSession = useProjectStore.getState().nativeSession,
 ): ToolDiagnostic[] {
+  if (nativeSession)
+    return mergeEditorValidationDiagnostics(
+      [...persistentDiagnostics, ...currentNativeProjectDiagnostics()],
+      collectPendingInputDiagnostics(usePendingInputStore.getState()),
+    );
   const decoded = decodeAuthoringProject(stripLocalEditorProjectState(document));
   const supplementalSettingsDiagnostics = decoded.project
     ? validateProjectSettingsAuthoringState(decoded.project).filter(
@@ -208,11 +220,6 @@ function collectWorkspaceProjectDiagnostics(
     byKey.set(key, diagnostic);
   }
   return [...byKey.values()];
-}
-
-function authoringProjectForEditor(value: unknown): AuthoringProject | null {
-  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(value));
-  return decoded.project ? (value as AuthoringProject) : null;
 }
 
 function commandTouchedTests(paths: string[]) {
@@ -434,12 +441,14 @@ export function WorkspacePage() {
     projectSessionId: string | null,
     scriptSourcePaths: Record<string, string> | undefined,
     diagnostics: ToolDiagnostic[],
+    nativeSession = false,
   ) {
     setProjectPath(projectPathValue);
     setProjectFilePath(projectFilePathValue);
     setProject(document);
     loadProjectDocument({
       document,
+      nativeSession,
       savedDocument,
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
@@ -857,6 +866,7 @@ export function WorkspacePage() {
       const diagnostics = collectWorkspaceProjectDiagnostics(
         reconstructed.workingDocument,
         persistentRecoveryDiagnosticsRef.current,
+        loaded.nativeWorkingRevision !== undefined,
       );
       closeProjectTabs();
       loadAuthoringDocument(
@@ -868,6 +878,7 @@ export function WorkspacePage() {
         loaded.projectSessionId ?? null,
         loaded.scriptSourcePaths,
         diagnostics,
+        loaded.nativeWorkingRevision !== undefined,
       );
       if (loaded.nativeWorkingRevision !== undefined)
         useCommandStore.getState().enableNativeCommandMode(loaded.nativeWorkingRevision);
@@ -1894,6 +1905,7 @@ export function WorkspacePage() {
     setStatusMessage,
   ]);
 
+  const nativeProjectDiagnostics = useNativeProjectDiagnostics();
   useEffect(() => {
     if (!project) {
       setProject(null);
@@ -1904,7 +1916,7 @@ export function WorkspacePage() {
     setDiagnostics(
       collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current),
     );
-  }, [pendingInputEntries, project, setProject, setDiagnostics]);
+  }, [pendingInputEntries, project, setProject, setDiagnostics, nativeProjectDiagnostics]);
 
   useEffect(() => {
     if (!comfyUiConfig.enabled) return;
@@ -1925,6 +1937,36 @@ export function WorkspacePage() {
       } catch (error) {
         preparationFailure = error instanceof Error ? error.message : String(error);
       }
+    }
+    if (nativeMode) {
+      const instance = useProjectStore.getState().projectInstanceId;
+      await refreshNativeProjectDiagnostics(true);
+      if (
+        useProjectStore.getState().projectSessionId !== projectSessionId ||
+        useProjectStore.getState().projectInstanceId !== instance
+      )
+        return;
+      const diagnostics = collectWorkspaceProjectDiagnostics(
+        useProjectStore.getState().document,
+        persistentRecoveryDiagnosticsRef.current,
+      );
+      if (preparationFailure)
+        diagnostics.push({
+          code: 'editor.native-validation.failed',
+          severity: 'error',
+          path: '/',
+          category: 'Native authoring validation',
+          message: preparationFailure,
+        });
+      setDiagnostics(diagnostics);
+      addTimelineEntry({
+        source: 'validation',
+        message: authoringValidationSucceeded(diagnostics)
+          ? 'Validation passed'
+          : 'Validation reported issues',
+        detail: diagnostics,
+      });
+      return;
     }
     const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
     const authority = saveDirty ? 'session-local' : 'disk-authoritative';

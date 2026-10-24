@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import { parseLayoutData, validateLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -45,10 +46,12 @@ export function replaceLayoutDataPatches(
       patches: [],
       diagnostics: [error('Layout data is invalid.', pathForLayoutData(payload.layoutId))],
     };
-  const diagnostics = validateLayoutData(document, payload.layoutId, {
-    ...document.layouts[payload.layoutId],
-    data,
-  });
+  const diagnostics = legacyCommandDiagnostics(() =>
+    validateLayoutData(document, payload.layoutId, {
+      ...document.layouts[payload.layoutId],
+      data,
+    }),
+  );
   const failure = diagnostics.find((item) => item.severity === 'error');
   if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   return {

@@ -28,6 +28,7 @@ import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import type { Visual } from '../../../shared/project-schema/authoring-animations';
@@ -193,12 +194,16 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
       : null;
   const parsedData = parseCharacterData(effectiveRecord?.data);
   const data = parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/characters/${characterId}`);
+  const nativeSession = useProjectStore((state) => state.nativeSession);
   const diagnostics = useMemo(
     () =>
-      project && effectiveRecord && characterId
-        ? validateCharacterData(project, characterId, effectiveRecord)
-        : [],
-    [project, effectiveRecord, characterId],
+      nativeSession
+        ? nativeDiagnostics
+        : project && effectiveRecord && characterId
+          ? validateCharacterData(project, characterId, effectiveRecord)
+          : [],
+    [project, effectiveRecord, characterId, nativeSession, nativeDiagnostics],
   );
   const diagnosticItems = useMemo(
     () =>

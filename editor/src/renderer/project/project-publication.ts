@@ -43,8 +43,21 @@ export interface AdmittedProjectCandidate {
   document: JsonValue;
 }
 
-export function admitProjectCandidate(value: unknown): AdmittedProjectCandidate | null {
+export function admitProjectCandidate(
+  value: unknown,
+  nativeAcknowledged = false,
+): AdmittedProjectCandidate | null {
   const cloned = cloneJsonValue(value as JsonValue);
+  // Native replies already own admission. Never repair or normalize their working projection.
+  if (nativeAcknowledged) {
+    if (!cloned || typeof cloned !== 'object' || Array.isArray(cloned)) return null;
+    return {
+      project: deepFreeze(
+        stripLocalEditorProjectState(cloned),
+      ) as StructurallyAdmittedAuthoringProject,
+      document: deepFreeze(cloned),
+    };
+  }
   const decoded = decodeAuthoringProject(stripLocalEditorProjectState(cloned));
   if (!decoded.project) {
     // Historical renderer unit tests use deliberately tiny JSON documents to exercise generic store

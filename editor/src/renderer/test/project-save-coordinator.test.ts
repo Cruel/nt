@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import * as legacyDecoder from '../../shared/project-schema/decode-authoring-project';
+import * as legacyValidation from '../../shared/project-schema/authoring-validation';
+const legacyDecode = legacyDecoder.decodeAuthoringProject;
+const legacyValidate = legacyValidation.validateAuthoringProject;
 import {
   resolveExternalConflictUseDisk,
   saveActiveSaveUnit,
@@ -108,6 +112,16 @@ beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
   useDraftDirtyStore.getState().resetDraftDirty();
   setLoadedEditorProjectState(emptyEditorProjectState());
+  vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation((...args) => {
+    if (useProjectStore.getState().nativeSession)
+      throw new Error('Native Save invoked legacy decoder');
+    return legacyDecode(...args);
+  });
+  vi.spyOn(legacyValidation, 'validateAuthoringProject').mockImplementation((...args) => {
+    if (useProjectStore.getState().nativeSession)
+      throw new Error('Native Save invoked legacy validator');
+    return legacyValidate(...args);
+  });
 });
 
 describe('project save coordinator', () => {

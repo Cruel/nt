@@ -49,8 +49,8 @@ import {
   PROJECT_INVENTORY_LABEL,
   projectInventoryRef,
 } from '../../../shared/project-schema/authoring-inventories';
-import { decodeAuthoringProject } from '../../../shared/project-schema/decode-authoring-project';
-import { stripEditorProjectState } from '../../../shared/project-schema/editor-project-state';
+import { projectForEditor } from '@/project/project-for-editor';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import {
   assetMemoryBuiltinPresetValues,
   resolveAssetMemoryPolicy,
@@ -1112,14 +1112,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const developerMode = usePreferencesStore((state) => state.developerMode);
-  const decodedProject = useMemo(
-    () =>
-      projectDocument ? decodeAuthoringProject(stripEditorProjectState(projectDocument)) : null,
-    [projectDocument],
+  const nativeSession = useProjectStore((state) => state.nativeSession);
+  const nativeDiagnostics = useNativeProjectDiagnostics();
+  const project = useMemo(
+    () => projectForEditor(projectDocument, nativeSession),
+    [projectDocument, nativeSession],
   );
-  const project: AuthoringProject | null = decodedProject?.project
-    ? (projectDocument as AuthoringProject)
-    : null;
   const settings = useMemo(() => (project ? projectSettingsForEditing(project) : null), [project]);
   const pendingInputEntries = usePendingInputStore(
     (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID],
@@ -1134,8 +1132,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     [pendingInputEntries],
   );
   const projectSettingsDiagnostics = useMemo(
-    () => (project ? validateProjectSettingsAuthoringState(project) : []),
-    [project],
+    () =>
+      nativeSession
+        ? nativeDiagnostics
+        : project
+          ? validateProjectSettingsAuthoringState(project)
+          : [],
+    [project, nativeSession, nativeDiagnostics],
   );
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(
@@ -2930,9 +2933,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     !current.document
                   )
                     return;
-                  const decoded = decodeAuthoringProject(stripEditorProjectState(current.document));
-                  if (!decoded.project) return;
-                  const notices = projectSettingsForEditing(decoded.project).distributionNotices;
+                  const currentProject = projectForEditor(current.document);
+                  if (!currentProject) return;
+                  const notices = projectSettingsForEditing(currentProject).distributionNotices;
                   if (notices.some((notice) => notice.path === relativePath)) return;
                   if (!inspected.exists || inspected.noticeError) {
                     setNoticeValidationError(

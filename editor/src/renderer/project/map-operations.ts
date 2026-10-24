@@ -1,4 +1,5 @@
 import { buildJsonPointer } from '@/project/json-pointer';
+import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import { parseMapData, validateMapData } from '../../shared/project-schema/authoring-maps';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -33,9 +34,9 @@ export function replaceMapDataPatches(
       patches: [],
       diagnostics: [{ severity: 'error' as const, message: 'Map data is invalid.', path }],
     };
-  const failure = validateMapData(document, payload.mapId, { ...record, data }).find(
-    (item) => item.severity === 'error',
-  );
+  const failure = legacyCommandDiagnostics(() =>
+    validateMapData(document, payload.mapId, { ...record, data }),
+  ).find((item) => item.severity === 'error');
   if (failure)
     return {
       patches: [],
