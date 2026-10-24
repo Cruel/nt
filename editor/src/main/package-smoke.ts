@@ -6,20 +6,18 @@ import {
   type BrowserWindow as BrowserWindowType,
 } from 'electron';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import sharp from 'sharp';
 import type { CreateRaw } from 'sharp';
-import { assetDataFromImportMetadata } from '../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../shared/project-schema/authoring-project';
 import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
-import { openProject } from './services/editor-tool-service';
 import { checkMediaTools, prepareMedia } from './services/native-runtime-tool-service';
-import { createProject, saveProjectContent } from './services/project-file-service';
-import { importUntrackedProjectAssets } from './services/project-asset-audit-service';
+import { createNativeEditorProject } from './services/native-editor-project-create';
+import { resolveNovelTeaCliPath } from '../shared/noveltea-cli-subprocess';
 import { characterizePackagedNodePty } from './services/terminal-package-smoke';
 
 export const PACKAGE_SMOKE_FLAG = '--noveltea-package-smoke';
@@ -149,12 +147,11 @@ async function characterizeProductionThumbnailProtocol(
   );
   try {
     const projectRoot = path.join(fixtureRoot, 'project');
-    const created = await createProject({
+    const created = await createNativeEditorProject({
       projectName: 'Package Smoke Thumbnail',
       projectDirectory: projectRoot,
     });
     if (!created.success || !created.projectFilePath) return false;
-    const projectFilePath = created.projectFilePath;
     const sourceDirectory = path.join(projectRoot, 'assets', 'images');
     const sourcePath = path.join(sourceDirectory, 'source.png');
     await fs.promises.mkdir(sourceDirectory, { recursive: true });
@@ -169,34 +166,23 @@ async function characterizeProductionThumbnailProtocol(
       .png()
       .toBuffer();
     await fs.promises.writeFile(sourcePath, sourceBytes);
-    const imported = await importUntrackedProjectAssets(projectFilePath, [
-      'assets/images/source.png',
-    ]);
-    const opened = await openProject(projectRoot);
-    const openedWorkspaceRevision = opened._workspaceSnapshot?.workspaceRevision;
+    const { stdout } = await promisify(execFile)(
+      resolveNovelTeaCliPath(),
+      ['--no-daemon', '--json', '--project', projectRoot, 'asset', 'import', sourcePath],
+      { cwd: process.resourcesPath, encoding: 'utf8', windowsHide: true },
+    );
+    const imported = JSON.parse(stdout) as {
+      success?: boolean;
+      assets?: Array<{ assetId?: string; projectRelativePath?: string }>;
+    };
+    const asset = imported.assets?.[0];
     if (
-      !imported.success ||
-      !imported.assets?.[0] ||
-      !opened.success ||
-      !openedWorkspaceRevision ||
-      !opened.editorState ||
-      !isAuthoringProject(opened.contentProject)
+      imported.success !== true ||
+      !asset?.assetId ||
+      asset.projectRelativePath !== 'assets/images/source.png'
     )
       return false;
-    const assetId = 'package-smoke-image';
-    opened.contentProject.assets[assetId] = {
-      id: assetId,
-      label: 'Package Smoke Image',
-      data: assetDataFromImportMetadata(imported.assets[0]),
-    };
-    const saved = await saveProjectContent(
-      projectRoot,
-      openedWorkspaceRevision,
-      opened.contentProject,
-      opened.editorState,
-      opened.scriptSourcePaths ?? {},
-    );
-    if (!saved.success) return false;
+    const assetId = asset.assetId;
     const openedLiteral = JSON.stringify(projectRoot);
     const source = {
       projectRelativePath: 'assets/images/source.png',

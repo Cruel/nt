@@ -10,6 +10,7 @@ import { NativeAuthoringSessionBridge } from '../../main/services/native-authori
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
 import { NativeEditorObserverWatchService } from '../../main/services/native-editor-observer-watch-service';
+import { saveProjectEditorMetadata } from '../../main/services/project-editor-metadata-service';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 
 async function projectRoot() {
@@ -262,6 +263,16 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
       expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).not.toContain(
         'Native unsaved handoff',
       );
+      const dirtyStatePath = path.join(root, '.noveltea/editor/native-dirty-state.json');
+      const dirtyCheckpoint = await readFile(dirtyStatePath, 'utf8');
+      const localState = structuredClone(opened.editorState!);
+      localState.previewLocale = 'ja';
+      localState.recovery.sequence = 11;
+      const flushed = await saveProjectEditorMetadata(root, localState, () => {
+        sessions.requireActiveProjectRoot(firstId);
+      });
+      expect(flushed.success, flushed.error).toBe(true);
+      expect(await readFile(dirtyStatePath, 'utf8')).toBe(dirtyCheckpoint);
       const refused = await handoff.open(invalid);
       expect(refused.success).toBe(false);
       expect(handoff.current()).toBe(first);
@@ -271,6 +282,8 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
       expect(reopened.nativeRecoveredContentProject).toMatchObject({
         project: { name: 'Native unsaved handoff' },
       });
+      expect(reopened.editorState?.previewLocale).toBe('ja');
+      expect(reopened.editorState?.recovery.sequence).toBe(11);
       expect(handoff.current()).not.toBe(first);
       expect(first.isAdmitted(firstId)).toBe(false);
       const newId = reopened.projectSessionId!;

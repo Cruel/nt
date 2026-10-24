@@ -15,9 +15,9 @@ import {
   createProject,
   saveActiveProjectContent,
   saveProjectContent,
-  saveProjectEditorMetadata,
   saveProjectCopyAs,
 } from '../../main/services/project-file-service';
+import { saveProjectEditorMetadata } from '../../main/services/project-editor-metadata-service';
 import { ActiveProjectWorkspaceSession } from '../../main/services/active-project-workspace-session';
 import { filterExternallyChangedAuthoringPaths } from '../../main/services/project-workspace-watcher-service';
 import { ProjectWorkspaceService, projectWorkspaceFiles } from '../../shared/project-workspace';

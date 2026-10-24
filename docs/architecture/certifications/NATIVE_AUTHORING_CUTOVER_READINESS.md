@@ -8,6 +8,49 @@ Status: **pre-cutover readiness accepted** (2026-10-23; production routing uncha
 
 ## #521 current integration gate (2026-10-24)
 
+### Native metadata persistence readiness correction
+
+A direct regression against the admitted-native authority tripwire reproduced a
+previously missed readiness defect: metadata Save/close called the old
+`saveProjectEditorMetadata`, which constructed a TypeScript Workspace and failed
+with `Native editor reached retired TypeScript Project authority:
+createHostProjectWorkspaceService`. Native metadata flush now imports
+`main/services/project-editor-metadata-service.ts` instead; the old implementation
+is removed rather than retained as a fallback. This local-state-only writer uses
+the existing editor-state schema/serializer and filesystem adapter, checks
+containment and ordinary recovery paths, and checks session authority before
+replacement. Native replay/checkpoints and tracked source remain untouched.
+
+Regression coverage exercises the native guard, pending-input recovery roundtrip,
+unchanged native checkpoint, contained recovery symlink rejection, existing escaped
+symlink and revoked-session cases. The existing real-addon handoff test now flushes
+metadata between acknowledged dirty edits and reopen, then verifies local recovery,
+native dirty replay, scoped Save and observation with the legacy guard active.
+
+The packaged thumbnail smoke fixture no longer imports legacy Create/Open/Save
+services. It creates the fixture through native Create and imports its image through
+the installed CLI's ordinary public `asset import` command. It leaves the actual
+renderer Open/thumbnail protocol checks intact. Both the fixture and metadata
+writer are included in the candidate import-closure guard. Linux package creation,
+relocation verification and all package-smoke checks passed using the existing
+installed native candidate supplied as `NOVELTEA_CLI_PATH`; this does **not** prove
+ordinary editor/CLI cutover or old-engine-absent packaged closure.
+
+Verification: editor `check` (schema/generated metadata, formatting, lint and
+TypeScript), `build` and full tests passed (**3,114 passed / 166 skipped**).
+Focused metadata/persistence tests passed **49/49**; real-addon handoff/local-state/
+runtime-package tests passed **11/11**; candidate import-closure tests passed
+**3/3**. Final strict ordinary production closure still fails with **67 retired
+module occurrences**. Windows/macOS packaging and the old-engine-absent native
+production lifecycle were not run. Feature Lab content updates are not applicable
+to these editor-local persistence and packaged-protocol changes; the real-addon
+handoff continues to use its existing Feature Lab fixture.
+
+**Production remains pre-cutover.** These readiness corrections do not select a new
+production authority. The atomic editor+CLI switch, complete physical retirement,
+zero-retired-module emitted/packaged closure and native production qualification
+remain required for #521. No required gate has been waived.
+
 ### Retained runtime-tool separation (pre-cutover)
 
 Compiled-runtime Test transport, package publication/diagnostic projection and media
@@ -19,9 +62,9 @@ entrypoint resolves the installed CLI directly without loading the old Project s
 The candidate import-closure test includes the retained runtime-tool entrypoint.
 
 This is **not the atomic cutover**: `editor-tool-service.ts` still owns production
-legacy Open/validation/Project-to-Test routes. The package-smoke thumbnail fixture
-still uses legacy Create/Open/Save and must be replaced before claiming execution
-with the old engine absent. Ordinary editor and CLI selectors remain unchanged.
+legacy Open/validation/Project-to-Test routes. At `d514af9e`, the package-smoke
+thumbnail fixture still used legacy Create/Open/Save; the readiness correction above
+replaces those imports. Ordinary editor and CLI selectors remain unchanged.
 A fresh normal build still fails strict production closure with 67 reported retired
 module occurrences. No closure assertion was removed or waived.
 
