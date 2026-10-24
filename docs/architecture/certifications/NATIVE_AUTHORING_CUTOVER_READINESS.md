@@ -202,6 +202,82 @@ in `legacy-authoring-symbol-tables.ts`, not in compiler lowering.
 No #531 blocker remains. The independent production bundle gate remains a
 post-#521 cutover gate and is intentionally **not** relaxed by this work.
 
+### #533 CLI/daemon native handoff preparation (in progress, 2026-10-23)
+
+The ScriptC island now defers the legacy Workspace service and transaction imports
+to the **legacy-only** execution branch. Native certification uses a fail-closed
+Workspace factory instead of constructing retired Project authority. The installed
+CLI transport witness traces both branches and checks that the candidate never
+initializes the legacy writer, without changing the production route. This is a
+runtime-import invariant, **not** proof of a native-only packaged closure.
+
+Initial Linux evidence against the rebuilt standalone `build/cli/linux/noveltea`:
+
+- `pnpm -C editor run check`, `pnpm -C editor run build:electron` and
+  `pnpm -C editor run noveltea:build` (with required Node 24.18.0 and
+  `VCPKG_ROOT`): passed; the installed binary also passed its bundled media
+  and ScriptC smoke.
+- `node editor/scripts/certify-native-cli-inventory.mjs`: **39** public paths,
+  **28** native Project bridge actions and **10** native editor IPC entries.
+- `node editor/scripts/certify-native-cli-transport.mjs build/cli/linux/noveltea`:
+  **27** paired local/daemon cases passed, plus the new explicit legacy-import
+  exclusion witness on the native CLI candidate.
+- `node editor/scripts/certify-native-cli-project-routing.mjs build/cli/linux/noveltea`:
+  **82** public command comparisons passed, including Feature Lab records,
+  scoped reads and unrelated malformed owner isolation. The subsequent
+  `node editor/scripts/certify-native-cli-lifecycle.mjs build/cli/linux/noveltea`
+  passed local/daemon Create/Export/Import, deterministic ZIP bytes, full
+  source manifest/hashes and rejected-import isolation.
+- `node editor/scripts/certify-native-cli-package.mjs build/cli/linux/noveltea`:
+  passed Runtime Package artifact/manifest parity and pinned owner source-drift
+  rollback; `node editor/scripts/certify-native-cli-tests.mjs build/cli/linux/noveltea`:
+  **33** public local/daemon Test calls passed.
+- `node editor/scripts/certify-native-cli-platform.mjs build/cli/linux/noveltea`:
+  passed local/daemon preflight and publication differential; actual credentialed
+  signing was not exercised.
+- `node editor/scripts/certify-native-daemon-validation.mjs build/cli/linux/noveltea`:
+  passed native Project cold/warm validation, cache/source revision invalidation,
+  local and resident candidate comparison and invalid manifest repair.
+- `pnpm -C editor run noveltea:certify:native-production-unit`: **16/16** passed.
+- `pnpm -C editor exec vp test run --silent --maxWorkers=4`: **3,062 passed,
+  165 skipped; 347 files passed, 13 skipped** (environment-disabled native and
+  optional UI/GPU cases are not native candidate coverage).
+- `ctest --test-dir build/native-authoring-host --output-on-failure -j 2 -R '^native_authoring_(working_preparation|asset_animation|tests|source_analysis)$'`:
+  **4/4** passed.
+
+**Blocking acceptance gap:** the packaged ScriptC island still emits retired
+authority chunks, including `authoring-compiler.mjs`,
+`project-workspace-service.mjs`, `project-workspace.mjs`,
+`project-workspace-transaction.mjs`, `semantic-project.mjs`, `fmt-command.mjs`
+and `project-bundle-cli.mjs` (observed in the SHA-bound Vite provenance
+manifest). Moreover, the native candidate's resident owner and immutable heavy
+worker still instantiate `ResidentProjectWorkspaceService`, which inherits the
+old TypeScript Workspace service and uses legacy Project/source parsers in its
+shared implementation. Runtime poison/tracing, source import checks rooted only
+at downstream candidate modules, and successful installed CLI behavior cannot
+establish the requested *native-only module/packaged closure* while these
+dependencies exist. The strict production closure gate correctly rejects them.
+
+Before #533 can close, extract the native resident generation/portable snapshot
+owner and worker hydration from retired Workspace authority, build and exercise
+an independently verified native-only ScriptC candidate closure with all public
+and private routes (including cache hits/misses and disposable heavy work), and
+reconcile the exact package/production import deletion paths for #521. Preserve
+the legacy production bundle and routing until #521's coordinated editor/CLI
+switch and removal; do not weaken the production provenance gate or replace it
+with a runtime trace assertion.
+
+The #521 deletion boundary must remove `application.ts`'s legacy
+`workspaceServices`/semantic Project fallback, the production CLI `fmt-command`
+and `project-bundle-cli` dispatch, the current ScriptC island's legacy writer
+factory/transaction import and its `ResidentProjectWorkspaceService` dependency,
+and the associated old compiler/validation/authoring-cache chunk entries. It
+must also retire certification-only native-lifecycle routing, not promote it as
+an enduring user-configurable fallback. The existing `native-project-*` command
+adapters, static completion, broker protocol, and native compiler lowering are
+the retained downstream contracts; the old ScriptC host's authoritative
+snapshot-handling is not itself a second native Project admission authority.
+
 ## Atomic protocol/cache/state disposition
 
 
