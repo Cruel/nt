@@ -5,7 +5,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { exportProjectToPlatform } from '../../main/services/platform-export-orchestration-service';
-import { exportPackage } from '../../main/services/editor-tool-service';
+import { exportPackage } from '../../main/services/native-runtime-tool-service';
 import {
   configureTemplateRegistryRoot,
   templateRootForToken,

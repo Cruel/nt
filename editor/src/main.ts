@@ -100,16 +100,18 @@ import {
   probeProjectVideoTimeline,
 } from './main/services/project-video-preparation-service';
 import {
-  compileShaders,
-  exportPackage,
   listPlaybackTests,
   openProject,
-  runPlaybackSpec,
   runPlaybackSuite,
   runPlaybackTest,
-  runUiPlaybackSpec,
   validateProject,
 } from './main/services/editor-tool-service';
+import { compileShaders } from './main/services/native-shader-compiler-service';
+import {
+  exportPackage,
+  runPlaybackSpec,
+  runUiPlaybackSpec,
+} from './main/services/native-runtime-tool-service';
 import {
   createProject,
   saveActiveProjectContent,

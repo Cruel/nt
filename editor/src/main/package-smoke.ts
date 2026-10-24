@@ -16,7 +16,8 @@ import { assetDataFromImportMetadata } from '../shared/project-schema/authoring-
 import { isAuthoringProject } from '../shared/project-schema/authoring-project';
 import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
-import { checkMediaTools, openProject, prepareMedia } from './services/editor-tool-service';
+import { openProject } from './services/editor-tool-service';
+import { checkMediaTools, prepareMedia } from './services/native-runtime-tool-service';
 import { createProject, saveProjectContent } from './services/project-file-service';
 import { importUntrackedProjectAssets } from './services/project-asset-audit-service';
 import { characterizePackagedNodePty } from './services/terminal-package-smoke';

@@ -13,7 +13,7 @@ if (bootstrap.complete) {
   process.exitCode = bootstrap.result.exitCode;
 } else if (bootstrap.globals.command[0] === 'media-tool') {
   const { mediaToolCheckCommand } = await import('../src/cli/media-tool-command');
-  const { resolveNovelTeaCliPath } = await import('../src/main/services/editor-tool-service');
+  const { resolveNovelTeaCliPath } = await import('../src/shared/noveltea-cli-subprocess');
   const result = mediaToolCheckCommand(bootstrap.globals, resolveNovelTeaCliPath());
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);

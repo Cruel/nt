@@ -20,7 +20,7 @@ import {
   nodeShaderCompilerAdapter,
 } from '../../main/services/node-runtime-artifact-adapters';
 import { compileShaders } from '../../main/services/native-shader-compiler-service';
-import { exportPackage } from '../../main/services/editor-tool-service';
+import { exportPackage } from '../../main/services/native-runtime-tool-service';
 import {
   exportNativeEditorPackage,
   prepareNativeEditorExportAssessment,

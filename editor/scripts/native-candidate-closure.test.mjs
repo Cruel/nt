@@ -14,6 +14,7 @@ const candidates = [
   'cli/native-project-package-cli.ts',
   'cli/native-project-tests-cli.ts',
   'main/services/native-authoring-runtime-preparation.ts',
+  'main/services/native-runtime-tool-service.ts',
   'main/services/native-editor-project-handoff.ts',
   'main/services/native-editor-project-open.ts',
   'main/services/native-editor-project-create.ts',
@@ -105,7 +106,7 @@ void test('native candidate editor, CLI and runtime lowering contain no retired 
     // A pure lexical helper legitimately imports only one local utility.
     // Entrypoint closures must still traverse multiple implementation layers.
     const smallAdapter =
-      /native-(?:desktop-project-import|editor-project-(?:open|create|handoff)|editor-observer-watch|project-copy)/u.test(
+      /native-(?:runtime-tool|desktop-project-import|editor-project-(?:open|create|handoff)|editor-observer-watch|project-copy)/u.test(
         root,
       );
     assert.ok(
