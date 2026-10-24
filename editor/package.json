@@ -45,6 +45,7 @@
     "noveltea": "node scripts/run-noveltea-cli.mjs",
     "noveltea:build": "node scripts/build-noveltea-cli.mjs",
     "noveltea:certify": "node scripts/certify-noveltea-cli.mjs",
+    "noveltea:certify:native-candidate": "node scripts/certify-native-candidate-contracts.mjs",
     "noveltea:certify:native-project-commands": "node scripts/certify-native-project-command-differential.mjs",
     "noveltea:certify:native-cli-inventory": "node scripts/certify-native-cli-inventory.mjs",
     "noveltea:certify:native-cli-transport": "node scripts/certify-native-cli-transport.mjs",

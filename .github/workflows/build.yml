@@ -542,6 +542,17 @@ jobs:
           path: build/cli/linux
           if-no-files-found: error
 
+      # #534: keep the legacy production CLI artifact/certification untouched.
+      # Rebuild only after uploading it, then execute reference-independent
+      # native-only public contracts. #521 replaces this staged build with the
+      # normal production build and adds the strict whole-editor bundle gate.
+      - name: Certify independent native-only candidate contracts
+        env:
+          NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE: '1'
+        run: |
+          pnpm -C editor run noveltea:build
+          pnpm -C editor run noveltea:certify:native-candidate -- "$PWD/build/cli/linux/noveltea" --cli-only
+
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats

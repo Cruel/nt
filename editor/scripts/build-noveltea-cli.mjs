@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import {
   chmod,
   cp,
@@ -488,6 +489,9 @@ const libraries = [
 const outputDirectory = path.join(repositoryRoot, 'build', 'cli', releasePlatform);
 const outputPath = path.join(outputDirectory, executableName);
 await mkdir(outputDirectory, { recursive: true });
+// A legacy rebuild must never inherit proof of an older native candidate.
+const candidateBuildProof = path.join(outputDirectory, 'native-candidate-build.json');
+await rm(candidateBuildProof, { force: true });
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(islandPackageRoot, { recursive: true });
 await mkdir(agentKitSourcePackageRoot, { recursive: true });
@@ -769,5 +773,19 @@ try {
     );
 } finally {
   await removeCliRelocation(relocatedMediaRoot);
+}
+if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1') {
+  const provenance = await readFile(
+    path.join(editorRoot, 'dist-scriptc-native-island/native-production-provenance.json'),
+  );
+  const fingerprint = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  await writeFile(
+    candidateBuildProof,
+    `${JSON.stringify({
+      contract: 'noveltea.native-cli-candidate-build.v1',
+      executableSha256: fingerprint(await readFile(outputPath)),
+      islandProvenanceSha256: fingerprint(provenance),
+    })}\n`,
+  );
 }
 console.log(`NovelTea CLI: ${outputPath}`);

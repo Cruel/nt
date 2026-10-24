@@ -6,19 +6,23 @@ import { existsSync } from 'node:fs';
 import { cp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createCertificationRoot } from './certification-temp-root.mjs';
+import { isolatedProductionEnvironment } from './native-production-qualification.mjs';
 
 const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
 const root = await createCertificationRoot('noveltea-533-owner-');
 const project = path.join(root, 'project');
-const baseline = {
-  ...process.env,
-  NOVELTEA_CLI_CERTIFICATION: '1',
-  NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
-  NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
-  NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `nt533-native-${process.pid}`,
-  NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
-};
+const candidateMode = process.argv[4] === '--candidate';
+const baseline = candidateMode
+  ? isolatedProductionEnvironment(process.env, path.join(root, 'home'))
+  : {
+      ...process.env,
+      NOVELTEA_CLI_CERTIFICATION: '1',
+      NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `nt533-native-${process.pid}`,
+      NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
+    };
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function execute(args) {
@@ -35,6 +39,10 @@ function execute(args) {
 }
 
 try {
+  if (candidateMode)
+    await import('node:fs/promises').then(({ mkdir }) =>
+      mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 }),
+    );
   await cp(fixture, project, { recursive: true });
   const initial = execute(['platform', 'profiles']);
   assert.equal(initial.success, true, JSON.stringify(initial.diagnostics));
@@ -51,7 +59,13 @@ try {
   // any report that silently published a completed run after cancellation.
   const marker = path.join(root, 'cancel-after-snapshot');
   const command = spawn(executable, ['--json', '--project', project, 'test', 'run', 'semantic'], {
-    env: { ...baseline, NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker },
+    // The instrumentation gate only enables the snapshot interlock. The
+    // installed native-only island has no alternate Project authority.
+    env: {
+      ...baseline,
+      NOVELTEA_CLI_CERTIFICATION: '1',
+      NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let stdout = '';
