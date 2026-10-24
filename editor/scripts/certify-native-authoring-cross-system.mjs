@@ -17,18 +17,21 @@ if (!process.env.NOVELTEA_AUTHORING_NODE_ADDON)
   throw new Error('NOVELTEA_AUTHORING_NODE_ADDON is required; no mock addon fallback.');
 if (!process.argv[2]) throw new Error('Pass the installed NovelTea CLI executable path.');
 const production = process.argv[3] === '--production';
-if (process.argv.length > 4 || (process.argv[3] && !production))
+const candidate = process.argv[3] === '--candidate';
+if (process.argv.length > 4 || (process.argv[3] && !production && !candidate))
   throw new Error(
-    'Usage: certify-native-authoring-cross-system.mjs <installed-cli> [--production]',
+    'Usage: certify-native-authoring-cross-system.mjs <installed-cli> [--production|--candidate]',
   );
-if (production) {
+if (production || candidate) {
   await assertProductionInputs(path.resolve(process.argv[2]));
-  const roots = [
-    ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
-      path.join(editorRoot, 'dist-electron', name),
-    ),
-    path.join(editorRoot, 'dist-scriptc-island'),
-  ];
+  const roots = candidate
+    ? [path.join(editorRoot, 'dist-scriptc-native-island')]
+    : [
+        ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
+          path.join(editorRoot, 'dist-electron', name),
+        ),
+        path.join(editorRoot, 'dist-scriptc-island'),
+      ];
   for (const root of roots) {
     if (
       !(
@@ -39,14 +42,17 @@ if (production) {
   }
   const violations = await verifyNativeProductionClosure(roots);
   if (violations.length)
-    throw new Error(`#521 retirement is incomplete:\n${violations.join('\n')}`);
+    throw new Error(
+      `Native ${candidate ? 'candidate' : 'production'} closure is incomplete:\n${violations.join('\n')}`,
+    );
 }
 
 const require = createRequire(path.join(editorRoot, 'package.json'));
 const electron = require('electron');
-const temporaryHome = production
-  ? await mkdtemp(path.join(os.tmpdir(), 'noveltea-522-cross-system-home-'))
-  : null;
+const temporaryHome =
+  production || candidate
+    ? await mkdtemp(path.join(os.tmpdir(), 'noveltea-522-cross-system-home-'))
+    : null;
 if (temporaryHome)
   await mkdir(path.join(temporaryHome, 'runtime'), { mode: 0o700, recursive: true });
 const run = spawnSync(
@@ -55,7 +61,7 @@ const run = spawnSync(
     path.join(editorRoot, 'scripts/certify-native-authoring-cross-system-worker.cjs'),
     path.resolve(process.env.NOVELTEA_AUTHORING_NODE_ADDON),
     path.resolve(process.argv[2]),
-    ...(production ? ['--production'] : []),
+    ...(production ? ['--production'] : candidate ? ['--candidate'] : []),
   ],
   {
     cwd: editorRoot,

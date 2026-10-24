@@ -8,17 +8,19 @@ const { Worker } = require('node:worker_threads');
 
 const [addon, cli] = process.argv.slice(2);
 const production = process.argv[4] === '--production';
+const candidate = process.argv[4] === '--candidate';
 const workerScript = path.resolve('dist-electron/authoring-worker/native-authoring-worker.cjs');
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const cacheFile = (root) => path.join(root, '.noveltea/cache/authoring/native-clean-current.json');
-const nativeEnv = production
-  ? { ...process.env }
-  : {
-      ...process.env,
-      NOVELTEA_CLI_CERTIFICATION: '1',
-      NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
-      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
-    };
+const nativeEnv =
+  production || candidate
+    ? { ...process.env }
+    : {
+        ...process.env,
+        NOVELTEA_CLI_CERTIFICATION: '1',
+        NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+        NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
+      };
 
 function runCli(root, project, args, daemon = false) {
   const run = spawnSync(
@@ -31,13 +33,14 @@ function runCli(root, project, args, daemon = false) {
     ],
     {
       cwd: root,
-      env: production
-        ? nativeEnv
-        : {
-            ...nativeEnv,
-            NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-520-${process.pid}`,
-            NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
-          },
+      env:
+        production || candidate
+          ? nativeEnv
+          : {
+              ...nativeEnv,
+              NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-520-${process.pid}`,
+              NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
+            },
       encoding: 'utf8',
       timeout: 90_000,
       maxBuffer: 8 * 1024 * 1024,

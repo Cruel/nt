@@ -539,3 +539,113 @@ to isolate source/cache proof; full gameplay/UI verification remains covered
 by Feature Lab's authored content and the #504/#505/#522 suites, not by this
 smoke. No new authored Feature Lab content is necessary for the disk-cache
 invariant itself.
+
+### #534: Reference-independent native CLI certification, staged for #521
+
+The pre-cutover certification inventory is deliberately split between the
+**retired Project oracle** and legitimate tooling which survives the switch:
+
+| Current dependency | Disposition at the #521 atomic boundary |
+| --- | --- |
+| `editor/scripts/certify-noveltea-cli.mjs`: `nodeCli` at `dist-electron/tools/noveltea.mjs`, `runNode*`, `differentialCases`, Test/cache/resident/performance/ComfyUI comparisons and Node-backed Project fixtures | Delete or replace **Project-oracle comparisons**. Native candidate contracts and public filesystem readback, not two wrappers of the same Project engine, become mandatory assertions. Keep independent raw `shaderc`/`texturec`, bundled media, host relocation, ScriptC transport and useful non-Project tests. |
+| `certify-native-cli-project-routing`, `certify-native-cli-transport`, `certify-native-cli-lifecycle`, `certify-native-cli-tests`, `certify-native-cli-platform`, `certify-native-daemon-validation`, `certify-native-cli-performance` | Historical *differential evidence*, not post-switch tests. Retire their Node/legacy lanes and preserve public routing/errors/negative/source/daemon/platform/Tests/performance invariants in independent contracts. Do not turn comparisons into native-vs-native authority tests. |
+| `certify-native-cli-commands`, `certify-native-cli-mutations`, `certify-native-project-command-differential`, `certify-native-editor-performance` | Historical editor/CLI/native-bridge or Test-only parity; retain distinct editor and native addon/worker tests and any independent semantic/readback/transaction coverage. Avoid shipping old authority solely for a test. |
+| `certify-native-cli-package`, `certify-native-cli-owner-lifecycle`, `certify-native-authoring-cross-system` | Already assert native result/physical output and independent editor/CLI behavior; support a **native-only installed candidate** with no selection of retired authority. Race interlocks use test-only snapshot instrumentation, not authority selection. |
+| `.github/workflows/build.yml`, `release.yml`, `recertify-artifacts.yml` | Legacy certification remains mandatory **before** the cutover. Build also certifies a separate native-only CLI **after uploading** the current production artifact. #521 replaces legacy Project CI steps, updates the release-host and recertify matrix and enforces `check:native-production-closure` in the normal build/package flow. |
+| `build.yml` direct `dist-electron/tools/noveltea.mjs` Feature Lab invocation, `release.yml` Node `noveltea:certify`, and scripts invoking bundled reference fixtures | Switch Project commands to the installed native executable and native public contracts; leave intentional tool-only fixture builders and compiler/shader machinery in place. |
+| `docs/editor/CLI.md`, `docs/editor/SCRIPTC_COMPATIBILITY.md`, `docs/build/BUILD_AND_VERIFY.md`, `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md`, this readiness document | Replace oracle-as-required and candidate flag descriptions **with** the #521 production authoring route. Do not delete Zod schema generation or transient UI/transport instructions. |
+| `tests/projects/feature-lab`, generated malformed YAML/unsupported-version owners, new disposable Project/ZIP/Runtime Package and Test fixtures | Retain as stable, independently readback-testable fixtures. Native warm/cold and source revisions, JSON diagnostics, errors and files are inspected without running a TypeScript reference Project validator. |
+
+**Exact additional call sites to reconcile with the #521 change:**
+
+- `.github/workflows/release.yml` has two `noveltea:certify` invocations;
+  `.github/workflows/build.yml` has the separate `linux-cli-certify`
+  section matrix and a direct `dist-electron/tools/noveltea.mjs`
+  coverage run; `.github/workflows/recertify-artifacts.yml` has the
+  installed CLI comparison list and hosted editor qualification.
+  Replace Project oracles/coverage invocation at the switch, preserving
+  native coverage collection and non-Project shader/compiler witnesses.
+- `scripts/diagnostics/run-cli-diagnostics.mjs` invokes the full old
+  certification for Windows diagnostics. Redirect its certification scenario
+  to the native suite, retaining the diagnostic trace and artifact capture.
+  `scripts/certify-transparent-video-package-scenarios.mjs` defaults to the
+  old Node bundled CLI and still edits historical JSON fixture owners; fix
+  its current-format Project fixture and switch its default public CLI as
+  part of replacing that separate media scenario, rather than enshrining
+  its old fixture as a new oracle.
+- `tests/ci/cli_certification_synchronization_tests.mjs` asserts section
+  labels and method bodies *inside* the old monolithic runner. Retain the
+  daemon/scheduling postcondition tests while retargeting the source shape
+  assertions to the new suite when that runner is deleted.
+- `editor/scripts/certify-native-cli-inventory.mjs` still maps legacy tool,
+  ComfyUI, Test, platform and agent command ownership to
+  `certify-noveltea-cli.mjs` and earlier parity scripts. Keep its public
+  command completeness check, but update every owner to surviving native
+  contract/test files at #521. Don't silently shrink the 39-path inventory.
+- `docs/editor/CLI.md`, `docs/editor/SCRIPTC_COMPATIBILITY.md`,
+  `docs/editor/project/NATIVE_AUTHORING_WORKER.md`,
+  `docs/architecture/NATIVE_AUTHORING_CONTRACTS.md`,
+  `docs/build/COVERAGE.md`, `docs/build/BUILD_AND_VERIFY.md`, and
+  `docs/engine/TEST.md` describe prior candidate flags, Node parity,
+  certification or test commands. Reconcile those specific assertions with
+  the installed-native production workflow at #521; preserve unaffected
+  editor/YAML/schema and Engine Test runner documentation.
+
+**Non-Project coverage to preserve independently:** `raw-shaderc`,
+`typed-shaders`, private shaderc batching, texture compiler, media-tool
+bundling/relocation, `bootstrap-island`, ScriptC CLI host transport,
+independent template registry/config and executable platform dependency/ABI
+inspection do **not** depend semantically on a Node Project validator. Do
+not drop their goldens and diagnostics along with `differential`, Project
+test/cache/resident, mutation or ComfyUI Project-oracle lanes. The native
+candidate suite covers built-in media/ComfyUI and platform-publication
+behavior; raw shader/compiler and ABI coverage remains in existing required
+jobs pending deliberate relocation when #521 removes the monolithic runner.
+
+The new executable suite is `editor/scripts/certify-native-candidate-contracts.mjs`
+(`pnpm -C editor run noveltea:certify:native-candidate`). It requires an
+**installed native-only candidate** from the current tree plus SHA-bound
+`dist-scriptc-native-island` provenance. A generated
+`build/cli/<host>/native-candidate-build.json` binds the installed executable
+SHA256 to the island provenance SHA256; legacy rebuilds delete this proof,
+and the candidate runner rejects absent or stale proof. The public-contract fixture asserts
+exact usage/error categories, diagnostics, semantic defaults, formatting,
+ComfyUI workflow inventory, author-edit/delete reference safety, physical
+owners, both daemon modes, native cache proof and rejection of corrupt cache
+and malformed source. The Feature Lab suite asserts native semantic/readback
+and package ZIP hashes, all available record families, authored runtime/UI
+Tests, Project export/import, source mutation and cache invalidation. The
+package and resident tests exercise byte-equivalent local/daemon output,
+stale source rejection and pinned worker interruption. Native ComfyUI
+contracts use a deterministic local HTTP witness for workflow inspection,
+verification, execution, tracked Asset publication and local/daemon rejection
+of source changes while a remote request remains in flight. With
+`NOVELTEA_AUTHORING_NODE_ADDON`, the suite additionally executes a separate
+native Electron worker against the independently launched CLI and verifies
+bidirectional exact-source cache reuse, private unsaved edits, watcher and
+scoped Save. The native addon is never replaced with an adapter to the CLI.
+
+Run on a host with the pinned CLI build toolchain and real addon:
+
+```sh
+NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE=1 pnpm -C editor run noveltea:build
+NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
+  pnpm -C editor run noveltea:certify:native-candidate -- "$PWD/build/cli/linux/noveltea"
+# Linux CI also runs the independently valid CLI-only subset:
+pnpm -C editor run noveltea:certify:native-candidate -- "$PWD/build/cli/linux/noveltea" --cli-only
+```
+
+No production authority changed. `NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE=1`
+selects the **build output**, not a runtime fallback. Ordinary public suite
+invocations have certification routing unset; special race tests temporarily
+enable `NOVELTEA_CLI_CERTIFICATION=1` *solely* to expose the snapshot interlock
+and do not select a legacy authoring path. The strict multi-root production
+closure gate **still fails** against pre-#521 artifacts and must not be
+weakened. At #521 replace the candidate island with native production in the
+same edit as editor/CLI switch and retirement; run
+`pnpm -C editor run check:native-production-closure` plus the public and
+cross-system suite **without** the candidate build flag, and inspect the
+installed CLI and packaged resources for the retired engine. Enable this
+guard and corresponding Linux/Windows/macOS release/recertify steps as
+mandatory, not optional. Do not infer packaged-provenance or host-completeness
+from a passing Linux CLI-only stage.

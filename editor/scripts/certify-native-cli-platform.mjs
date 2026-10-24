@@ -10,14 +10,20 @@ import { cp, lstat, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import {
+  isolatedProductionEnvironment,
+  readPortableZipMembers,
+} from './native-production-qualification.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const cli = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
-if (process.argv.length > 3)
-  throw new Error('The #517 differential uses the generated canonical Web Project fixture.');
+const candidateMode = process.argv[3] === '--candidate';
+if (process.argv.length > (candidateMode ? 4 : 3))
+  throw new Error('Usage: certify-native-cli-platform.mjs [installed-cli] [--candidate]');
 const root = await createCertificationRoot('noveltea-517-platform-');
 const oracle = path.join(root, 'legacy');
 const candidate = path.join(root, 'native');
+const projects = candidateMode ? [candidate] : [oracle, candidate];
 const registry = path.join(root, 'templates');
 const source = path.join(root, 'template-source');
 const archive = path.join(root, 'template.tar.gz');
@@ -26,8 +32,9 @@ const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 let applicationId = '';
 const selectedProfile = 'canonical-web';
 const baseline = {
-  ...process.env,
-  NOVELTEA_CLI_CERTIFICATION: '1',
+  ...(candidateMode
+    ? isolatedProductionEnvironment(process.env, path.join(root, 'home'))
+    : { ...process.env, NOVELTEA_CLI_CERTIFICATION: '1' }),
   NOVELTEA_TEMPLATE_REGISTRY_ROOT: registry,
 };
 
@@ -46,16 +53,18 @@ function invoke(args, { native = false, project = null, daemon = false, timeout 
     ],
     {
       cwd: root,
-      env: {
-        ...baseline,
-        NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
-        NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `nt517-${process.pid}-${native ? 'native' : 'legacy'}`,
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
-          root,
-          native ? 'native-daemon' : 'legacy-daemon',
-        ),
-      },
+      env: candidateMode
+        ? baseline
+        : {
+            ...baseline,
+            NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: native ? '1' : '0',
+            NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: native ? '1' : '0',
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `nt517-${process.pid}-${native ? 'native' : 'legacy'}`,
+            NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(
+              root,
+              native ? 'native-daemon' : 'legacy-daemon',
+            ),
+          },
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
       timeout,
@@ -92,13 +101,25 @@ function errorProjection(response) {
 }
 
 function compare(args, { daemon = false, expectedSuccess, label = args.join(' ') } = {}) {
-  const legacy = invoke(args, { project: oracle, daemon });
+  const legacy = candidateMode ? null : invoke(args, { project: oracle, daemon });
   const native = invoke(args, { project: candidate, daemon, native: true });
-  assert.deepEqual(
-    errorProjection(native),
-    errorProjection(legacy),
-    `Installed CLI parity failed for ${label}`,
-  );
+  if (legacy) {
+    assert.deepEqual(
+      errorProjection(native),
+      errorProjection(legacy),
+      `Installed CLI parity failed for ${label}`,
+    );
+  } else {
+    assert.equal(
+      native.diagnostics.some((item) => item.code === 'CLI_NATIVE_CANDIDATE_UNCLAIMED'),
+      false,
+    );
+    if (!native.success)
+      assert.ok(
+        native.diagnostics.some((item) => item.severity === 'error' && item.code && item.path),
+        `Missing structured native preflight failure: ${label}`,
+      );
+  }
   if (expectedSuccess !== undefined)
     assert.equal(
       native.success,
@@ -216,6 +237,28 @@ function exportArgs(extra = []) {
 }
 
 async function comparePublished() {
+  if (candidateMode) {
+    for (const file of ['index.html', 'manifest.webmanifest', 'player.json'])
+      assert.ok((await stat(path.join(candidate, 'dist/platform-web', file))).isFile(), file);
+    const state = JSON.parse(
+      await readFile(path.join(candidate, '.noveltea/editor/state.json'), 'utf8'),
+    );
+    assert.equal(state.lastSuccessfulPlatformExportIdentity?.applicationId, applicationId);
+    const player = JSON.parse(
+      await readFile(path.join(candidate, 'dist/platform-web/player.json')),
+    );
+    const published = await readFile(
+      path.join(candidate, 'dist/platform-web', player.package.path),
+    );
+    assert.equal(hash(published), player.package.sha256, 'Native publication checksum mismatch.');
+    const game = readPortableZipMembers(published).get('game');
+    assert.ok(game, 'Native platform export omitted compiled gameplay.');
+    assert.ok(
+      JSON.parse(game.toString('utf8')).project?.name,
+      'Published gameplay has no Project identity.',
+    );
+    return;
+  }
   for (const name of ['index.html', 'manifest.webmanifest', 'player.json']) {
     const left = await readFile(path.join(oracle, 'dist/platform-web', name));
     const right = await readFile(path.join(candidate, 'dist/platform-web', name));
@@ -247,6 +290,7 @@ async function comparePublished() {
 }
 
 try {
+  if (candidateMode) await mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 });
   const generatedRoot = path.join(root, 'generated-project');
   const generator = path.join(
     repositoryRoot,
@@ -264,10 +308,7 @@ try {
   const match = manifest.match(/applicationId: ([^\n]+)/);
   assert.ok(match, 'Fixture must contain a platform application ID.');
   applicationId = match[1].trim();
-  await Promise.all([
-    cp(projectFixture, oracle, { recursive: true }),
-    cp(projectFixture, candidate, { recursive: true }),
-  ]);
+  await Promise.all(projects.map((project) => cp(projectFixture, project, { recursive: true })));
   // The canonical fixture has one selected Web profile. Duplicate it
   // without reparsing/reformatting restricted YAML to exercise ambiguity.
   const start = manifest.indexOf('    - format: noveltea.platform-export-profile');
@@ -278,18 +319,18 @@ try {
     .replace('id: canonical-web', 'id: canonical-web-secondary')
     .replace('label: Canonical Web', 'label: Secondary Web');
   manifest = manifest.slice(0, end) + duplicate + manifest.slice(end);
-  await Promise.all([
-    writeFile(path.join(oracle, 'project.yaml'), manifest),
-    writeFile(path.join(candidate, 'project.yaml'), manifest),
-  ]);
-  await Promise.all([
-    rm(path.join(oracle, '.noveltea'), { recursive: true, force: true }),
-    rm(path.join(candidate, '.noveltea'), { recursive: true, force: true }),
-  ]);
+  await Promise.all(
+    projects.map((project) => writeFile(path.join(project, 'project.yaml'), manifest)),
+  );
+  await Promise.all(
+    projects.map((project) =>
+      rm(path.join(project, '.noveltea'), { recursive: true, force: true }),
+    ),
+  );
   // This installed-transport differential exercises publication without
   // comparing the legacy shader compiler (which has a separate response-
   // shape defect). The existing material/shader export suites cover it.
-  for (const project of [oracle, candidate]) {
+  for (const project of projects) {
     const roomPath = path.join(project, 'records/rooms/foyer.yaml');
     const room = await readFile(roomPath, 'utf8');
     const withoutMaterial = room.replace(
@@ -347,7 +388,7 @@ try {
     ]),
     { expectedSuccess: true, label: 'private config preflight' },
   );
-  for (const project of [oracle, candidate])
+  for (const project of projects)
     await assert.rejects(lstat(path.join(project, 'dist/platform-web')), { code: 'ENOENT' });
 
   compare(exportArgs(['--check', '--allow-untrusted-template', '--allow-localization-warnings']), {
@@ -377,7 +418,7 @@ try {
       label: 'acknowledged replacement preflight',
     },
   );
-  for (const project of [oracle, candidate]) {
+  for (const project of projects) {
     await symlink(path.join(project, 'dist/platform-web'), path.join(project, 'dist/link-output'));
   }
   compare(
@@ -398,7 +439,7 @@ try {
     { expectedSuccess: false, label: 'symlink output refused even with --force' },
   );
 
-  for (const project of [oracle, candidate]) {
+  for (const project of projects) {
     const filename = path.join(project, '.noveltea/editor/state.json');
     const state = JSON.parse(await readFile(filename, 'utf8'));
     state.lastSuccessfulPlatformExportIdentity = {
@@ -422,10 +463,12 @@ try {
     { expectedSuccess: true, label: 'acknowledged identity change' },
   );
 
-  console.log('Native platform installed-CLI preflight and publication differential PASSED.');
+  console.log(
+    `Native platform installed-CLI preflight and publication ${candidateMode ? 'independent contracts' : 'differential'} PASSED.`,
+  );
   console.log('Signing credentials were not supplied: real certificate signing was NOT certified.');
 } finally {
-  for (const native of [false, true]) {
+  for (const native of candidateMode ? [true] : [false, true]) {
     try {
       invoke(['daemon', 'stop'], { native });
     } catch {

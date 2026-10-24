@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateRawSync } from 'node:zlib';
 import { createCertificationRoot } from './certification-temp-root.mjs';
+import { isolatedProductionEnvironment } from './native-production-qualification.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -18,13 +19,16 @@ const coldProject = path.join(root, 'cold');
 const daemonProject = path.join(root, 'daemon');
 const daemonRoot = path.join(root, 'daemon-runtime');
 const daemonId = `noveltea-516-${process.pid}`;
+const candidateMode = process.argv[4] === '--candidate';
 
-const baseline = {
-  ...process.env,
-  NOVELTEA_CLI_CERTIFICATION: '1',
-  NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
-  NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
-};
+const baseline = candidateMode
+  ? isolatedProductionEnvironment(process.env, path.join(root, 'home'))
+  : {
+      ...process.env,
+      NOVELTEA_CLI_CERTIFICATION: '1',
+      NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
+      NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
+    };
 
 function execute(project, args, noDaemon) {
   const run = spawnSync(
@@ -108,6 +112,10 @@ async function certifyVariant(name, extraOptions = []) {
 }
 
 try {
+  if (candidateMode)
+    await import('node:fs/promises').then(({ mkdir }) =>
+      mkdir(path.join(root, 'home/runtime'), { recursive: true, mode: 0o700 }),
+    );
   await Promise.all([
     cp(fixture, coldProject, { recursive: true }),
     cp(fixture, daemonProject, { recursive: true }),
@@ -142,6 +150,8 @@ try {
     {
       env: {
         ...baseline,
+        // Only enables the snapshot interlock; the built island is native-only.
+        NOVELTEA_CLI_CERTIFICATION: '1',
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: daemonId,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRoot,
         NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,

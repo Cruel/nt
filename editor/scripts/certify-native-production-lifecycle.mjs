@@ -1,5 +1,6 @@
-// #522: post-retirement public-surface smoke. The full acceptance matrix also
-// requires packaged editor, native worker, host CI, authored UI and manual runs.
+// #534/#522: independent native command contracts. The candidate mode verifies
+// only the native ScriptC island; production mode additionally requires every
+// editor/CLI output to have passed the coordinated #521 retirement gate.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -34,9 +35,12 @@ assert.equal(
   16,
   'Generated record family inventory changed.',
 );
+const candidateMode = process.argv[3] === '--candidate';
 const executable = process.argv[2];
-if (!executable)
-  throw new Error('Usage: node certify-native-production-lifecycle.mjs <installed-cli>');
+if (!executable || process.argv.length > (candidateMode ? 4 : 3))
+  throw new Error(
+    'Usage: node certify-native-production-lifecycle.mjs <installed-cli> [--candidate]',
+  );
 const cli = path.resolve(executable);
 await assertProductionInputs(cli);
 const revision = spawnSync('git', ['rev-parse', 'HEAD'], {
@@ -50,12 +54,14 @@ const cliSha256 = createHash('sha256')
   .update(await readFile(cli))
   .digest('hex');
 
-const artifacts = [
-  ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
-    path.join(editorRoot, 'dist-electron', name),
-  ),
-  path.join(editorRoot, 'dist-scriptc-island'),
-];
+const artifacts = candidateMode
+  ? [path.join(editorRoot, 'dist-scriptc-native-island')]
+  : [
+      ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
+        path.join(editorRoot, 'dist-electron', name),
+      ),
+      path.join(editorRoot, 'dist-scriptc-island'),
+    ];
 // No production eligibility can be inferred from a candidate-only run, or a
 // build which omits a provenance artifact for a lazy/worker chunk.
 for (const artifact of artifacts) {
@@ -72,7 +78,7 @@ const violations = await verifyNativeProductionClosure(artifacts, {
 assert.deepEqual(
   violations,
   [],
-  `#521 production retirement is incomplete:\n${violations.join('\n')}`,
+  `Native ${candidateMode ? 'candidate' : 'production'} provenance is incomplete:\n${violations.join('\n')}`,
 );
 
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-522-production-'));
@@ -259,7 +265,9 @@ try {
 
   console.log(
     JSON.stringify({
-      contract: 'noveltea.native-production-smoke',
+      contract: candidateMode
+        ? 'noveltea.native-candidate-contracts'
+        : 'noveltea.native-production-smoke',
       version: 1,
       status: 'passed-smoke-not-complete-qualification',
       sourceRevision: revision.stdout.trim(),
