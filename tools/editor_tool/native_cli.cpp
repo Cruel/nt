@@ -1,4 +1,5 @@
 #include "native_cli_contract.hpp"
+#include "native_cli_test_catalog.hpp"
 #include "tooling_native_c.h"
 #include "../project_authoring/material_semantics.hpp"
 
@@ -6,12 +7,15 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <iterator>
 #include <iostream>
 #include <map>
+#include <random>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -19,6 +23,10 @@
 #include <string>
 #include <vector>
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 #include <io.h>
 #include <fcntl.h>
 #else
@@ -211,6 +219,20 @@ Json native_request(const Json& request)
     return Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
 }
 
+using NativeJsonOperation = std::uint64_t (*)(const std::uint8_t*, std::uint64_t, std::uint8_t*,
+                                              std::uint64_t);
+
+Json invoke_native_json(NativeJsonOperation operation, const Json& request)
+{
+    const auto serialized = request.dump();
+    std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
+    const auto size = operation(reinterpret_cast<const std::uint8_t*>(serialized.data()),
+                                serialized.size(), buffer.data(), buffer.size());
+    if (size > buffer.size())
+        throw std::runtime_error("Native runtime response exceeds CLI limit.");
+    return Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
+}
+
 Json native_font_coverage(const std::string& project_root, const Json& locales)
 {
     const auto serialized = Json{{"projectRoot", project_root}, {"locales", locales}}.dump();
@@ -397,6 +419,585 @@ int missing_project(const Arguments& args, bool formatter = false)
                   : "No NovelTea project.yaml was found from the current directory upward.";
     return failure(args.json, 3, formatter ? "WORKSPACE_UNAVAILABLE" : "WORKSPACE_NOT_FOUND",
                    "/project.yaml", message, message);
+}
+
+int tests_from_native_runtime(const Arguments& args)
+{
+    const auto operation = args.command.size() > 1 ? args.command[1] : std::string{};
+    const bool authored = operation == "run";
+    const bool stdin_spec = operation == "run-spec" || operation == "run-ui-spec";
+    if ((!authored && !stdin_spec) || (authored && args.command.size() > 3) ||
+        (stdin_spec && args.command.size() != 2) ||
+        (authored && args.command.size() == 3 && args.command[2].starts_with("--")))
+        return usage(args.json, authored ? "test run accepts at most one test ID."
+                                         : "test " + operation + " does not accept arguments.");
+
+    Json spec;
+    if (stdin_spec) {
+        std::string source;
+        std::array<char, 4096> buffer{};
+        while (std::cin) {
+            std::cin.read(buffer.data(), buffer.size());
+            const auto count = std::cin.gcount();
+            if (count > 0)
+                source.append(buffer.data(), static_cast<std::size_t>(count));
+            if (source.size() > 8 * 1024 * 1024)
+                return usage(args.json, "Test spec stdin exceeds the native input limit.");
+        }
+        if (source.find_first_not_of(" \r\n\t") == std::string::npos)
+            return usage(args.json, "Command requires one UTF-8 JSON value on stdin.");
+        spec = Json::parse(source, nullptr, false);
+        if (spec.is_discarded())
+            return usage(args.json, "Test spec stdin is not valid JSON.");
+    }
+    const auto root = project_root(args.project);
+    if (root.empty())
+        return missing_project(args);
+    const auto root_text = path_text(root);
+    const auto command_error = [&](int code, const std::string& diagnostic_code,
+                                   const std::string& path, const std::string& message,
+                                   const Json& fields = Json::object()) {
+        Json envelope{{"success", false},
+                      {"exitCode", code},
+                      {"diagnostics", Json::array({diagnostic(diagnostic_code, path, message)})},
+                      {"projectRoot", root_text}};
+        envelope.update(fields);
+        return emit(std::move(envelope), args.json, message);
+    };
+    if (compiler_identity.empty())
+        return command_error(70, "CLI_NATIVE_RUNTIME_COMPILER_UNBOUND", "/tests",
+                             "Native Test requires an exactly bound runtime compiler identity.");
+
+    const auto probe = [&]() {
+        return invoke_native_json(
+            noveltea_tooling_probe_runtime_cache_json,
+            {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
+    };
+    const auto cached = probe();
+    const auto cache_observation = [&](const Json& value) {
+        Json observation{{"status", value.value("status", "unusable")},
+                         {"reason", value.value("reason", "native-probe-failed")}};
+        for (const auto* key : {"testCatalogStatus", "testCatalogReason"})
+            if (value.contains(key) && value.at(key).is_string())
+                observation[key] = value.at(key);
+        return Json{{"runtimeCache", std::move(observation)}};
+    };
+    const auto fields = cache_observation(cached);
+    if (!cached.value("ok", false) || cached.value("status", "") != "hit")
+        return command_error(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED", "/tests",
+                             "No current compiled runtime artifact is available; native cold "
+                             "runtime preparation is not yet implemented.",
+                             fields);
+    if (!cached.contains("artifact") || !cached.at("artifact").is_object() ||
+        !cached.at("artifact").contains("compiledProject"))
+        return command_error(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID", "/tests",
+                             "Verified runtime cache omitted compiled Project data.", fields);
+    const bool needs_catalog = authored;
+    const bool cached_catalog = needs_catalog && cached.value("testCatalogStatus", "") == "hit" &&
+                                cached.contains("catalog") && cached.at("catalog").is_object() &&
+                                cached.at("catalog").contains("entries") &&
+                                cached.at("catalog").at("entries").is_array();
+    Json catalog = cached_catalog ? cached.at("catalog") : Json::object();
+    std::string catalog_source_generation;
+    if (needs_catalog && !cached_catalog) {
+        // Tests do not enter the compiled gameplay fingerprint. Rebuild their
+        // authored playback catalog from the current native-admitted generation
+        // without reusing a damaged or stale published Test catalog.
+        const auto source =
+            native_request({{"action", "shader-preparation"}, {"projectRoot", root_text}});
+        if (!source.value("ok", false) || !source.contains("project") ||
+            !source.at("project").is_object() || !source.contains("sourceGeneration") ||
+            !source.at("sourceGeneration").is_string())
+            return command_error(70, "CLI_NATIVE_TEST_CATALOG_PREPARATION_REQUIRED", "/tests",
+                                 "Native Test catalog source admission failed.", fields);
+        catalog_source_generation = source.at("sourceGeneration").get<std::string>();
+        catalog = lower_test_catalog(source.at("project"), project_diagnostics(source));
+    }
+    const auto& artifact = cached.at("artifact");
+    const auto& options = artifact.at("packageOptions");
+    Json request{{"project", artifact.at("compiledProject")},
+                 {"projectRoot", root_text},
+                 {"shaderMaterialMetadata", artifact.value("shaderMaterialMetadata", Json())},
+                 {"shaderVariants", options.value("shaderVariants", Json::array())}};
+    for (const auto& item : options.value("textEntries", Json::array())) {
+        if (item.value("packagePath", "") == "assets/.prepared-media/manifest.json") {
+            request["preparedMediaManifest"] = item.at("text");
+            break;
+        }
+    }
+    NativeJsonOperation native_operation = noveltea_tooling_run_headless_test_json;
+    std::string success_message;
+    Json diagnostics = cached.value("diagnostics", Json::array());
+    if (!diagnostics.is_array())
+        return command_error(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID", "/tests",
+                             "Native runtime cache returned malformed diagnostics.", fields);
+    if (stdin_spec) {
+        request["spec"] = std::move(spec);
+        if (operation == "run-ui-spec")
+            native_operation = noveltea_tooling_run_ui_test_json;
+        success_message = "NovelTea test " + operation + " succeeded.";
+    } else if (args.command.size() == 3) {
+        const auto& id = args.command[2];
+        const auto& entries = catalog.at("entries");
+        const auto found = std::find_if(entries.begin(), entries.end(), [&](const Json& item) {
+            return item.value("id", "") == id;
+        });
+        if (found == entries.end())
+            return command_error(6, "native.test.spec", "/tests/" + id,
+                                 "Test record does not exist.", fields);
+        if (found->value("status", "") == "blocked") {
+            for (const auto& item : found->at("diagnostics")) {
+                auto result = diagnostic("native.test.spec", item.value("path", "/tests/" + id),
+                                         item.value("message", "Test is blocked."));
+                result["severity"] = item.value("severity", "error");
+                diagnostics.push_back(std::move(result));
+            }
+            Json response{{"success", false},
+                          {"exitCode", 6},
+                          {"diagnostics", diagnostics},
+                          {"projectRoot", root_text}};
+            response.update(fields);
+            return emit(std::move(response), args.json);
+        }
+        if (found->value("status", "") != "runnable")
+            return command_error(70, "CLI_NATIVE_TEST_CATALOG_INVALID", "/tests/" + id,
+                                 "Native Test catalog entry is not runnable.", fields);
+        request["spec"] = found->at("spec");
+        if (found->value("runner", "") == "runtime-ui")
+            native_operation = noveltea_tooling_run_ui_test_json;
+        success_message = "NovelTea test run " + id + " succeeded.";
+    } else {
+        request["catalog"] = catalog;
+        native_operation = noveltea_tooling_run_test_suite_json;
+    }
+
+    // Recheck the current artifact before and after using the same native
+    // verifier. Never return a result against a replaced or stale generation.
+    const auto current = [&]() {
+        const auto verified = probe();
+        if (!verified.value("ok", false) || verified.value("status", "") != "hit" ||
+            verified.value("artifact", Json()) != cached.at("artifact"))
+            return false;
+        if (!needs_catalog)
+            return true;
+        if (cached_catalog)
+            return verified.value("testCatalogStatus", "") == "hit" &&
+                   verified.value("catalog", Json()) == catalog;
+        const auto proof =
+            native_request({{"action", "source-generation-proof"},
+                            {"projectRoot", root_text},
+                            {"expectedSourceGeneration", catalog_source_generation}});
+        return proof.value("ok", false);
+    };
+    if (!current())
+        return command_error(5, "WORKSPACE_REVISION_CONFLICT", "/tests",
+                             "Native Test runtime cache changed before execution.", fields);
+    const auto native = invoke_native_json(native_operation, request);
+    if (!current())
+        return command_error(5, "WORKSPACE_REVISION_CONFLICT", "/tests",
+                             "Native Test runtime cache changed during execution.", fields);
+    const bool has_report = native.contains("report") && native.at("report").is_object() &&
+                            (native_operation == noveltea_tooling_run_test_suite_json
+                                 ? (native.at("report").contains("entries") &&
+                                    native.at("report").at("entries").is_array() &&
+                                    native.at("report").contains("counts") &&
+                                    native.at("report").at("counts").is_object())
+                                 : (native.at("report").contains("passed") &&
+                                    native.at("report").at("passed").is_boolean()));
+    bool passed = native.value("ok", false) && native.value("success", true) && has_report;
+    if (!native.value("ok", false)) {
+        const auto prior_count = diagnostics.size();
+        if (native.contains("diagnostics") && native.at("diagnostics").is_array()) {
+            for (const auto& item : native.at("diagnostics")) {
+                auto finding =
+                    diagnostic("native." + item.value("code", std::string("test")),
+                               item.value("path", std::string("/tests")),
+                               item.value("message", native.value("error", "Test failed.")));
+                finding["severity"] = item.value("severity", "error");
+                diagnostics.push_back(std::move(finding));
+            }
+        }
+        if (diagnostics.size() == prior_count)
+            diagnostics.push_back(diagnostic("native.test", "/tests",
+                                             native.value("error", "Test execution failed.")));
+    } else if (has_report) {
+        const auto& report = native.at("report");
+        passed = passed && report.value("passed", true);
+        if (authored && args.command.size() == 2 && report.contains("entries")) {
+            const auto& counts = report.value("counts", Json::object());
+            success_message = "Test suite: " + std::to_string(counts.value("passed", 0)) +
+                              " passed, " + std::to_string(counts.value("failed", 0)) +
+                              " failed, " + std::to_string(counts.value("blocked", 0)) +
+                              " blocked, " + std::to_string(counts.value("error", 0)) + " errors.";
+            for (const auto& item : report.at("entries")) {
+                const auto id = item.value("id", "");
+                const auto status = item.value("status", "");
+                if (status == "passed")
+                    continue;
+                if (status == "failed") {
+                    diagnostics.push_back(diagnostic("native.test.failed", "/tests/" + id,
+                                                     "Test '" + id + "' failed."));
+                    passed = false;
+                } else if (status == "error") {
+                    const auto before = diagnostics.size();
+                    for (const auto& finding : item.value("diagnostics", Json::array()))
+                        diagnostics.push_back(
+                            diagnostic("native.test.error", finding.value("path", "/tests/" + id),
+                                       finding.value("message", "Native Test execution failed.")));
+                    if (diagnostics.size() == before)
+                        diagnostics.push_back(diagnostic("native.test.error", "/tests/" + id,
+                                                         "Test '" + id + "' could not execute."));
+                    passed = false;
+                } else if (status == "blocked") {
+                    const auto before = diagnostics.size();
+                    for (const auto& item_diagnostic : item.value("diagnostics", Json::array())) {
+                        Json warning = diagnostic(
+                            "native.test.blocked", item_diagnostic.value("path", "/tests/" + id),
+                            item_diagnostic.value("message", "Test is blocked."));
+                        warning["severity"] = "warning";
+                        diagnostics.push_back(std::move(warning));
+                    }
+                    if (diagnostics.size() == before) {
+                        auto warning =
+                            diagnostic("native.test.blocked", "/tests/" + id,
+                                       "Test '" + id + "' is blocked and was not executed.");
+                        warning["severity"] = "warning";
+                        diagnostics.push_back(std::move(warning));
+                    }
+                }
+            }
+            if (!passed)
+                diagnostics.push_back(
+                    diagnostic("native.test.suite.summary", "/tests", success_message));
+        } else if (!passed) {
+            const auto before = diagnostics.size();
+            for (const auto& finding : report.value("diagnostics", Json::array())) {
+                if (!finding.is_object() || !finding.contains("message") ||
+                    !finding.at("message").is_string())
+                    continue;
+                auto item = diagnostic("native.test.failed", finding.value("path", "/tests"),
+                                       finding.at("message"));
+                item["severity"] = finding.value("severity", "error");
+                diagnostics.push_back(std::move(item));
+            }
+            if (diagnostics.size() == before)
+                diagnostics.push_back(
+                    diagnostic("native.test.failed", "/tests", "Authored Test failed."));
+        }
+    } else {
+        diagnostics.push_back(diagnostic("native.test.invalid_report", "/tests",
+                                         "Native Test runner returned no valid execution report."));
+    }
+    Json response{{"success", passed},
+                  {"exitCode", passed ? 0 : 6},
+                  {"diagnostics", diagnostics},
+                  {"projectRoot", root_text},
+                  {"native", native}};
+    response.update(fields);
+    return emit(std::move(response), args.json,
+                passed ? success_message : "Native Test execution failed.");
+}
+
+int package_from_native_runtime(const Arguments& args)
+{
+    const auto& command = args.command;
+    std::string output, requested_profile;
+    bool unused_assets = false, shader_sources = false, allow_localization_warnings = false;
+    if (command.size() < 2 || command[1] != "export")
+        return usage(args.json, "Unknown package command.");
+    for (std::size_t i = 2; i < command.size(); ++i) {
+        const auto& option = command[i];
+        if (option == "--output" || option == "--profile") {
+            if (++i == command.size() || command[i].starts_with("--"))
+                return usage(args.json, option + " requires a value.");
+            auto& destination = option == "--output" ? output : requested_profile;
+            if (destination.empty())
+                destination = command[i];
+        } else if (option == "--include-unused-assets") {
+            unused_assets = true;
+        } else if (option == "--include-shader-sources") {
+            shader_sources = true;
+        } else if (option == "--allow-localization-warnings") {
+            allow_localization_warnings = true;
+        } else {
+            return usage(args.json, "Unknown command option '" + option + "'.");
+        }
+    }
+    if (output.empty())
+        return usage(args.json, "package export requires '--output <path>'.");
+    const auto root = project_root(args.project);
+    if (root.empty())
+        return missing_project(args);
+    const auto root_text = path_text(root);
+    const auto fail = [&](int code, const std::string& category, const std::string& message,
+                          Json fields = Json::object()) {
+        const auto path = category == "export.output_invalid" ||
+                                  category == "export.publish_failed" ||
+                                  category == "WORKSPACE_REVISION_CONFLICT"
+                              ? "/output"
+                              : "/export/runtime";
+        Json response{{"success", false},
+                      {"exitCode", code},
+                      {"diagnostics", Json::array({diagnostic(category, path, message)})},
+                      {"projectRoot", root_text}};
+        response.update(fields);
+        return emit(std::move(response), args.json, message);
+    };
+    if (compiler_identity.empty())
+        return fail(70, "CLI_NATIVE_RUNTIME_COMPILER_UNBOUND",
+                    "Runtime Package export requires an exactly bound compiler identity.");
+    const auto probe = [&]() {
+        return invoke_native_json(
+            noveltea_tooling_probe_runtime_cache_json,
+            {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
+    };
+    const auto cached = probe();
+    const Json cache_fields{{"runtimeCache",
+                             {{"status", cached.value("status", "unusable")},
+                              {"reason", cached.value("reason", "native-probe-failed")}}}};
+    if (!cached.value("ok", false) || cached.value("status", "") != "hit")
+        return fail(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED",
+                    "No verified current runtime artifact is available for native Runtime "
+                    "Package export. Cold preparation is not yet implemented.",
+                    cache_fields);
+    const auto& artifact = cached.at("artifact");
+    if (!artifact.is_object() || !artifact.contains("profile") ||
+        !artifact.at("profile").is_object() || !artifact.contains("packageOptions") ||
+        !artifact.at("packageOptions").is_object() || !artifact.contains("compiledProject"))
+        return fail(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID",
+                    "Verified runtime cache omitted export authority.", cache_fields);
+    const auto& profile = artifact.at("profile");
+    if (!requested_profile.empty() && requested_profile != profile.value("id", ""))
+        return fail(4, "export.profile_missing",
+                    "Export profile '" + requested_profile + "' does not exist.", cache_fields);
+    if ((unused_assets && profile.value("excludeUnusedAssets", true)) ||
+        (shader_sources && !profile.value("includeShaderSources", false)))
+        return fail(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED",
+                    "Requested export overrides require a new native runtime build; "
+                    "the cached artifact cannot be repurposed.",
+                    cache_fields);
+
+    Json localization_warnings = Json::array();
+    for (const auto& item : artifact.value("diagnostics", Json::array())) {
+        if (item.value("severity", "") == "warning" &&
+            item.value("code", std::string{}).starts_with("localization.export.")) {
+            Json warning = diagnostic(item.value("code", "localization.export.warning"),
+                                      item.value("path", "/export/runtime/localization"),
+                                      item.value("message", ""));
+            warning["severity"] = "warning";
+            localization_warnings.push_back(std::move(warning));
+        }
+    }
+    if (!localization_warnings.empty() && !allow_localization_warnings) {
+        localization_warnings.push_back(diagnostic(
+            "localization.export.warning_override_required", "/export/runtime/localization",
+            "Localization quality warnings require explicit acknowledgement; pass "
+            "--allow-localization-warnings to continue."));
+        Json response{{"success", false},
+                      {"exitCode", 4},
+                      {"diagnostics", std::move(localization_warnings)},
+                      {"projectRoot", root_text}};
+        response.update(cache_fields);
+        return emit(std::move(response), args.json, "Runtime Package export was blocked.");
+    }
+
+    // Canonical runtime caches are machine-local, not portable artifacts.
+    // File entries in the prepared package must still belong to THIS Project,
+    // not an old checkout copied together with an otherwise valid cache.
+    const auto& options = artifact.at("packageOptions");
+    if (options.value("kind", "") != "runtime" || !options.contains("fileEntries") ||
+        !options.at("fileEntries").is_array())
+        return fail(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID",
+                    "Runtime Package options omitted physical source entries.", cache_fields);
+    const auto canonical_root = std::filesystem::canonical(root);
+    const auto confined = [&](const std::string& path) {
+        const auto selected = std::filesystem::u8path(path);
+        if (!selected.is_absolute())
+            return false;
+        std::error_code error;
+        if (std::filesystem::is_symlink(std::filesystem::symlink_status(selected, error)) ||
+            error || !std::filesystem::is_regular_file(selected, error) || error)
+            return false;
+        const auto relative = std::filesystem::relative(std::filesystem::canonical(selected, error),
+                                                        canonical_root, error);
+        if (error || relative.empty() || relative.is_absolute())
+            return false;
+        for (const auto& component : relative)
+            if (component == "..")
+                return false;
+        return true;
+    };
+    for (const auto& entry : options.at("fileEntries")) {
+        if (!entry.is_object() || !entry.contains("source") || !entry.at("source").is_string() ||
+            !confined(entry.at("source").get<std::string>()))
+            return fail(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID",
+                        "Runtime Package contains a missing, external, or unsafe source path.",
+                        cache_fields);
+    }
+    // All paths consumed by the native writer must remain under the current
+    // Project root. A cached package copied between checkouts is not portable.
+    const auto confined_root = [&](const std::string& path) {
+        const auto selected = std::filesystem::u8path(path);
+        if (!selected.is_absolute())
+            return false;
+        std::error_code error;
+        const auto relative = std::filesystem::relative(
+            std::filesystem::weakly_canonical(selected, error), canonical_root, error);
+        if (error || relative.empty() || relative.is_absolute())
+            return false;
+        for (const auto& component : relative)
+            if (component == "..")
+                return false;
+        return true;
+    };
+    if (options.contains("shaderAssetRoot") &&
+        (!options.at("shaderAssetRoot").is_string() ||
+         !confined_root(options.at("shaderAssetRoot").get<std::string>())))
+        return fail(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID",
+                    "Runtime Package shader sources are outside the current Project.",
+                    cache_fields);
+    for (const auto& asset_root : options.value("assetRoots", Json::array())) {
+        if (!asset_root.is_object() || !asset_root.contains("root") ||
+            !asset_root.at("root").is_string() ||
+            !confined_root(asset_root.at("root").get<std::string>()))
+            return fail(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID",
+                        "Runtime Package asset roots are outside the current Project.",
+                        cache_fields);
+    }
+
+    const auto target =
+        std::filesystem::absolute(std::filesystem::u8path(output)).lexically_normal();
+    if (target.filename().empty())
+        return fail(4, "export.output_invalid", "Runtime Package output path is invalid.",
+                    cache_fields);
+    const auto target_status = std::filesystem::symlink_status(target);
+    if (std::filesystem::exists(target_status) &&
+        (!std::filesystem::is_regular_file(target_status) ||
+         std::filesystem::is_symlink(target_status)))
+        return fail(4, "export.output_invalid",
+                    "Runtime Package output is not a replaceable regular file.", cache_fields);
+
+    // Fail cheap path checks before native Project admission. Publication
+    // still requires physical source authority from the current owner.
+    const auto owner =
+        native_request({{"action", "runtime-package-preparation"}, {"projectRoot", root_text}});
+    if (!owner.value("ok", false))
+        return native_failure(args, owner, "WORKSPACE_SOURCE_READ", "/export/runtime", 3,
+                              "Native Runtime Package Project admission failed.", root_text);
+    const auto generation = owner.value("sourceGeneration", std::string{});
+    if (generation.empty())
+        return fail(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID",
+                    "Native package admission omitted its physical source generation.",
+                    cache_fields);
+
+    struct StagedOutput {
+        std::filesystem::path path;
+        ~StagedOutput()
+        {
+            if (!path.empty()) {
+                std::error_code ignored;
+                std::filesystem::remove(path, ignored);
+            }
+        }
+    } staged;
+    std::random_device random;
+    for (int retry = 0; retry < 8; ++retry) {
+        const auto candidate = std::filesystem::u8path(
+            path_text(target) + ".tmp-" + std::to_string(random()) + "-" +
+            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+#if defined(_WIN32)
+        HANDLE handle = CreateFileW(candidate.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                    FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(handle);
+            staged.path = candidate;
+            break;
+        }
+#else
+        const auto handle = open(candidate.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+        if (handle >= 0) {
+            close(handle);
+            staged.path = candidate;
+            break;
+        }
+#endif
+    }
+    if (staged.path.empty())
+        return fail(4, "export.output_invalid", "Could not reserve a safe staged output.",
+                    cache_fields);
+
+    const auto unchanged = [&]() {
+        const auto proof = native_request({{"action", "source-generation-proof"},
+                                           {"projectRoot", root_text},
+                                           {"expectedSourceGeneration", generation}});
+        if (!proof.value("ok", false))
+            return false;
+        const auto verified = probe();
+        return verified.value("ok", false) && verified.value("status", "") == "hit" &&
+               verified.value("artifact", Json()) == artifact;
+    };
+    if (!unchanged())
+        return fail(5, "WORKSPACE_REVISION_CONFLICT",
+                    "Runtime inputs changed before package export.", cache_fields);
+    const auto written = invoke_native_json(noveltea_tooling_export_package_json,
+                                            {{"project", artifact.at("compiledProject")},
+                                             {"outputPath", path_text(staged.path)},
+                                             {"options", options}});
+    if (!written.value("ok", false) || !written.value("success", false)) {
+        Json errors = Json::array();
+        for (const auto& item : written.value("diagnostics", Json::array()))
+            errors.push_back(diagnostic(
+                "native." + item.value("code", std::string("operation")),
+                item.value("path", std::string("/export/runtime")),
+                item.value("message", std::string("Native Runtime Package writer failed."))));
+        if (errors.empty())
+            errors.push_back(diagnostic(
+                "native.operation", "/",
+                written.value("error", std::string("Native Runtime Package writer failed."))));
+        Json response{{"success", false},
+                      {"exitCode", 6},
+                      {"diagnostics", std::move(errors)},
+                      {"projectRoot", root_text}};
+        response.update(cache_fields);
+        return emit(std::move(response), args.json, "Runtime Package export failed.");
+    }
+    if (!unchanged())
+        return fail(5, "WORKSPACE_REVISION_CONFLICT",
+                    "Runtime inputs changed before package publication.", cache_fields);
+    const auto latest_status = std::filesystem::symlink_status(target);
+    if (std::filesystem::exists(latest_status) &&
+        (!std::filesystem::is_regular_file(latest_status) ||
+         std::filesystem::is_symlink(latest_status)))
+        return fail(4, "export.output_invalid",
+                    "Runtime Package output changed to an unsafe target.", cache_fields);
+    std::error_code error;
+#if defined(_WIN32)
+    const bool published = MoveFileExW(staged.path.c_str(), target.c_str(),
+                                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+    if (!published)
+        error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+#else
+    std::filesystem::rename(staged.path, target, error);
+    const bool published = !error;
+#endif
+    if (!published)
+        return fail(4, "export.publish_failed",
+                    "Runtime Package publication failed: " + error.message(), cache_fields);
+    staged.path.clear();
+    Json result_diagnostics = project_diagnostics(owner);
+    for (const auto& item : written.value("diagnostics", Json::array())) {
+        auto finding = diagnostic("native." + item.value("code", std::string("operation")),
+                                  item.value("path", std::string("/export/runtime")),
+                                  item.value("message", std::string{}));
+        finding["severity"] = item.value("severity", std::string("warning"));
+        result_diagnostics.push_back(std::move(finding));
+    }
+    Json response{{"success", true},
+                  {"exitCode", 0},
+                  {"diagnostics", std::move(result_diagnostics)},
+                  {"projectRoot", root_text},
+                  {"native", written}};
+    return emit(std::move(response), args.json, "NovelTea package export succeeded.");
 }
 
 // The public validator and standalone shader command must attribute the same
@@ -1558,13 +2159,20 @@ int run(const std::vector<std::string>& argv)
             return project_read(args, "project-validate");
         if (family == "shaders" && operation == "compile")
             return shaders_compile(args);
-        if (family == "shaderc") {
+        if (family == "test")
+            return tests_from_native_runtime(args);
+        if (family == "package" && operation == "export")
+            return package_from_native_runtime(args);
+        if (family == "shaderc" || family == "texturec") {
             if (args.json)
-                return usage(true, "Raw 'shaderc' does not support NovelTea --json mode.");
-            std::vector<const char*> raw_args{"shaderc"};
+                return usage(true, "Raw '" + family + "' does not support NovelTea --json mode.");
+            std::vector<const char*> raw_args{family.c_str()};
             for (std::size_t i = 1; i < args.command.size(); ++i)
                 raw_args.push_back(args.command[i].c_str());
-            return noveltea_tooling_shaderc(static_cast<int>(raw_args.size()), raw_args.data());
+            return family == "shaderc" ? noveltea_tooling_shaderc(static_cast<int>(raw_args.size()),
+                                                                  raw_args.data())
+                                       : noveltea_tooling_texturec(
+                                             static_cast<int>(raw_args.size()), raw_args.data());
         }
         if (family == "usages")
             return project_read(args, "entity-usages");

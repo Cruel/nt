@@ -19,11 +19,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     installed = root / binary.name
     shutil.copy2(binary, installed)
     shutil.copytree(binary.parent / 'assets/system', root / 'assets/system')
+    runner_name = 'noveltea-ui-test-runner.exe' if os.name == 'nt' else 'noveltea-ui-test-runner'
+    shutil.copy2(binary.parent / runner_name, root / runner_name)
     environment = {**os.environ, 'PATH': str(root), 'NOVELTEA_NO_DAEMON': '1'}
 
-    def run(*args, cwd=root, timeout=60):
+    def run(*args, cwd=root, timeout=60, input_text=None):
         return subprocess.run([str(installed), *args], cwd=cwd, env=environment,
-                              capture_output=True, text=True, timeout=timeout)
+                              capture_output=True, text=True, timeout=timeout, input=input_text)
 
     def envelope(*args, code=0, cwd=root, timeout=60):
         result = run('--json', *args, cwd=cwd, timeout=timeout)
@@ -69,7 +71,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         'entity inspect', 'entity create', 'entity rename', 'entity delete',
         'usages', 'asset audit', 'asset import', 'localization sync',
         'localization view', 'localization reconcile', 'localization accept',
-        'localization review', 'shaders compile', 'shaderc',
+        'localization review', 'shaders compile', 'shaderc', 'texturec',
+        'test run', 'test run-spec', 'test run-ui-spec', 'package export',
     }
     assert project_commands <= public_paths
     for command in public_paths - project_commands:
@@ -100,6 +103,32 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
                         "Option '--force-rebuild' may be supplied only once.")
     assert envelope('shaderc', code=2)['diagnostics'][0]['message'] == (
         "Raw 'shaderc' does not support NovelTea --json mode.")
+    assert envelope('texturec', code=2)['diagnostics'][0]['message'] == (
+        "Raw 'texturec' does not support NovelTea --json mode.")
+    for command in [('test', 'run', 'first', 'second'),
+                    ('test', 'run-spec', '--wrong'),
+                    ('test', 'run-ui-spec', 'unexpected')]:
+        assert envelope(*command, code=2)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    missing_input = run('--json', '--project', str(created), 'test', 'run-spec',
+                        input_text='')
+    assert missing_input.returncode == 2
+    assert json.loads(missing_input.stdout)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    malformed_input = run('--json', '--project', str(created), 'test', 'run-ui-spec',
+                          input_text='{broken')
+    assert malformed_input.returncode == 2
+    assert json.loads(malformed_input.stdout)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    unprepared = envelope('--project', str(created), 'test', 'run', code=70)
+    assert unprepared['diagnostics'][0]['code'] in {
+        'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND', 'CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED'}
+    assert envelope('--project', str(created), 'test', 'run', 'unknown', code=70)[
+        'diagnostics'][0]['code'] in {
+            'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND', 'CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED'}
+    assert envelope('--project', str(created), 'package', 'export', code=2)[
+        'diagnostics'][0]['message'] == "package export requires '--output <path>'."
+    assert envelope('--project', str(created), 'package', 'export',
+                    '--output', str(root / 'no-package.ntpkg'), code=70)[
+        'diagnostics'][0]['code'] in {
+            'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND', 'CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED'}
     envelope('--project', str(created), 'entity', 'create', 'rooms', 'witness-room')
     project = created
     inspect = ['entity', 'inspect', 'rooms', 'witness-room']

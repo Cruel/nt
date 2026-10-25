@@ -36,16 +36,32 @@ paths. Compiler failure logs cannot escape onto the CLI's JSON stdout.
 The unshipped standalone candidate also routes `shaders compile` through C++
 Project/Material admission and the linked native shader compiler, using pinned
 shader source overlays, variant/rebuild options, source-generation proofs,
-and native reflected-interface checks. Raw `shaderc` forwards arguments to the
-linked bgfx compiler without a JSON wrapper, matching its existing tool contract.
-This is not a replacement for the
-production ScriptC command. Cold compiled-gameplay lowering, authored Test
-catalog preparation, and Runtime Package assembly are still downstream
-TypeScript responsibilities: direct C++ `test run`, `test run-spec`,
-`test run-ui-spec`, and `package export` are not yet claimed by the candidate.
-Completing those commands, including their cache and atomic-publication
-contracts, remains #544. The standalone candidate stays unshipped until the
-complete CLI cutover is certified.
+and native reflected-interface checks. Raw `shaderc` and `texturec` forward
+arguments to their linked native compilers without a JSON wrapper.
+The direct C++ candidate also handles all four `test` invocation forms
+against a verified current canonical runtime cache. It uses the verified Test
+catalog where available and **rebuilds stale/missing authored Test catalogs**
+from a native-admitted Project generation without invoking TypeScript. The
+C++ catalog projection covers typed playback inputs, expectations, native
+blocked-Test diagnostics, and UI runner selection. Single/suite/UI runners
+read stdin playback specs and recheck both runtime and Test input source
+generations before and after execution. The runtime compiler identity
+must match the CMake-bound build identity; dirty-tree builds leave it unbound
+unless a release builder supplies an explicitly pinned identity. Cache misses,
+stale catalogs, and unbound identities fail explicitly without running ScriptC.
+The relocated candidate carries the native UI Test runner beside the binary.
+The unshipped C++ `package export` candidate can likewise consume a verified
+canonical compiled-runtime cache at its original Project root and invoke the
+linked native package writer. It checks the requested profile, rejects
+cache-incompatible export overrides, requires explicit acknowledgement of
+localization warnings, rejects external/symlinked physical package sources,
+and stages output before an atomic replacement. A relocated or stale cache
+cannot publish the old Project's physical sources.
+This remains an **unshipped candidate**, not a replacement for production
+ScriptC: cold compiled-gameplay lowering, uncached Runtime Package assembly,
+and runtime-artifact cache-rebuild recovery still require
+native implementations in #544. The final cutover needs their certification
+before public CLI replacement.
 Help and collection names
 are embedded from the canonical TypeScript declarations by CMake; no TypeScript
 executes during this build. Inspection is local in this slice, both with and
