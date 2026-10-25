@@ -123,6 +123,16 @@ public:
         parser = fy_parser_create(&cfg);
         if (!parser)
             throw SourceFailure("Could not create YAML parser.");
+        // Errors are returned through the authoring diagnostics, not written to process stderr.
+        // CLI --json requires stderr to remain empty even for malformed YAML.
+        if (auto* diag = fy_parser_get_diag(parser)) {
+            fy_diag_set_collect_errors(diag, true);
+            fy_diag_unref(diag);
+        } else {
+            fy_parser_destroy(parser);
+            parser = nullptr;
+            throw SourceFailure("Could not configure YAML diagnostics.");
+        }
         try {
             if (fy_parser_set_string(parser, source.data(), source.size()) != 0)
                 throw SourceFailure("Could not read YAML input.");

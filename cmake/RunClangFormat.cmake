@@ -32,6 +32,7 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES
     "${SOURCE_ROOT}/tests/*.cpp"
     "${SOURCE_ROOT}/tests/*.h"
     "${SOURCE_ROOT}/tests/*.hpp"
+    "${SOURCE_ROOT}/tools/editor_tool/native_cli.cpp"
     "${SOURCE_ROOT}/tools/benchmark/*.cpp"
     "${SOURCE_ROOT}/tools/benchmark/*.h"
     "${SOURCE_ROOT}/tools/benchmark/*.hpp"
