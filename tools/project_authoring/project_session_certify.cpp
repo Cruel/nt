@@ -1946,6 +1946,27 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 3 && std::string_view(argv[1]) == "--profile-cold-validation") {
+            const auto start = std::chrono::steady_clock::now();
+            std::string error;
+            auto project = ProjectSession::open(argv[2], error);
+            require(project != nullptr, "Project admission failed: " + error);
+            const auto opened = std::chrono::steady_clock::now();
+            const auto validation = project->validate_project();
+            const auto validated = std::chrono::steady_clock::now();
+            const auto milliseconds = [](auto duration) {
+                return std::chrono::duration<double, std::milli>(duration).count();
+            };
+            Json result = Json::object();
+            result["openMs"] = milliseconds(opened - start);
+            result["validateMs"] = milliseconds(validated - opened);
+            result["totalMs"] = milliseconds(validated - start);
+            result["valid"] = validation.valid;
+            result["diagnosticCount"] = validation.diagnostics.size();
+            result["recheckedRecords"] = project->validation_work().rechecked_records;
+            std::cout << result.to_string() << '\n';
+            return validation.valid ? 0 : 1;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--structural-only") {
             structural_record_roundtrip(argv[2]);
             std::cout << "Native structural transaction certification passed.\n";

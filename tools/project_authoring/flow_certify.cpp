@@ -2,6 +2,7 @@
 
 #include <jsoncons/json.hpp>
 
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -19,7 +20,21 @@ int main(int argc, char** argv)
             noveltea::authoring::validate_record("Condition", R"({"kind":"always"})");
         const auto command = noveltea::authoring::validate_record(
             "GameplayCommand", R"({"id":"check-flow","kind":"run-lua","source":"return true"})");
-        if (!condition.accepted || !command.accepted) {
+        const auto unsupported = noveltea::authoring::validate_record("Project", "{}");
+        const auto condition_again =
+            noveltea::authoring::validate_record("Condition", R"({"kind":"always"})");
+        const auto unsupported_again = noveltea::authoring::validate_record("Project", "{}");
+        const auto has_unsupported = [](const auto& result) {
+            return std::any_of(
+                result.diagnostics.begin(), result.diagnostics.end(), [](const auto& issue) {
+                    return issue.code == "contract.unsupported_operation" &&
+                           issue.message.find("editor.recovery-pointer") != std::string::npos;
+                });
+        };
+        if (!condition.accepted || !condition_again.accepted || !command.accepted ||
+            unsupported.accepted || !has_unsupported(unsupported) ||
+            !has_unsupported(unsupported_again) ||
+            unsupported.diagnostics.size() != unsupported_again.diagnostics.size()) {
             std::cerr << "Native Flow operation registration is incomplete.\n";
             return 1;
         }
