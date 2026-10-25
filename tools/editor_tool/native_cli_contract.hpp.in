@@ -5,5 +5,7 @@
 namespace noveltea::cli {
 inline constexpr std::string_view help = R"nt_cli(@NOVELTEA_NATIVE_CLI_HELP@)nt_cli";
 inline constexpr std::string_view version = "@NOVELTEA_VERSION@";
+// Empty unless the complete compiler build identity was sealed at configure time.
+inline constexpr std::string_view compiler_identity = "@NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY@";
 inline constexpr std::string_view collections[] = {@NOVELTEA_NATIVE_CLI_COLLECTIONS@};
 } // namespace noveltea::cli

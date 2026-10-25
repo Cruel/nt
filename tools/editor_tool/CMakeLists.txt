@@ -179,8 +179,31 @@ if(NOT _collection_keys)
     message(FATAL_ERROR "Cannot extract the canonical CLI collection keys")
 endif()
 string(REPLACE "'" "\"" NOVELTEA_NATIVE_CLI_COLLECTIONS "${CMAKE_MATCH_1}")
+# Runtime-cache admission must never guess the producer's compiler identity.
+# Clean Git builds can bind their identity to the commit; dirty standalone
+# builds cannot safely claim another executable's compiled-runtime cache.
+# Release builders can supply the exact pinned build identity explicitly.
+set(NOVELTEA_NATIVE_CLI_BUILD_IDENTITY "" CACHE STRING
+    "Exact build identity for native runtime cache acceptance")
+if(NOT NOVELTEA_NATIVE_CLI_BUILD_IDENTITY)
+    execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
+        OUTPUT_VARIABLE _native_cli_git_sha OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _native_cli_git_result ERROR_QUIET)
+    execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" status --porcelain
+        OUTPUT_VARIABLE _native_cli_git_dirty OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _native_cli_git_status ERROR_QUIET)
+    if(_native_cli_git_result EQUAL 0 AND _native_cli_git_status EQUAL 0 AND NOT _native_cli_git_dirty)
+        set(NOVELTEA_NATIVE_CLI_BUILD_IDENTITY "git:${_native_cli_git_sha}")
+    endif()
+endif()
+if(NOVELTEA_NATIVE_CLI_BUILD_IDENTITY)
+    set(NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY
+        "${NOVELTEA_VERSION}:${NOVELTEA_NATIVE_CLI_BUILD_IDENTITY}")
+else()
+    set(NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY "")
+endif()
 configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
-add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp)
+add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp native_cli_test_catalog.cpp)
 set_target_properties(noveltea-native-cli PROPERTIES
     OUTPUT_NAME noveltea
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
@@ -195,6 +218,9 @@ add_custom_command(TARGET noveltea-native-cli POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${CMAKE_SOURCE_DIR}/engine/assets/system"
         "$<TARGET_FILE_DIR:noveltea-native-cli>/assets/system"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "$<TARGET_FILE:noveltea-ui-test-runner>"
+        "$<TARGET_FILE_DIR:noveltea-native-cli>/$<TARGET_FILE_NAME:noveltea-ui-test-runner>"
     COMMENT "Staging native CLI system font assets")
 if(BUILD_TESTING)
     set_target_properties(noveltea-native-cli PROPERTIES EXCLUDE_FROM_ALL FALSE)
@@ -202,6 +228,11 @@ if(BUILD_TESTING)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_runtime_cache
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_runtime_cache.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
+            "--compiler-identity=${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
+    set_tests_properties(native_cli_runtime_cache PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(noveltea-cli-native-certify EXCLUDE_FROM_ALL tooling_native_project_commands_certify.cpp)
