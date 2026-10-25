@@ -163,6 +163,34 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-runtime-cache-") as tem
         }, suite
         print("Native CLI directly executes cached authored Test suite.")
 
+        # Production caches contain physical paths. For a *positive*
+        # relocated-publication witness, explicitly rebase every packaged
+        # source into the copied Project and refresh the artifact digest.
+        # Merely copying the cache without rebasing was rejected above.
+        artifact_file = generation / "artifact.json"
+        artifact = json.loads(artifact_file.read_text())
+
+        def rebased(absolute):
+            relative = Path(absolute).relative_to(fixture)
+            rewritten = project / relative
+            assert rewritten.is_file() or rewritten.is_dir() or (
+                not Path(absolute).exists()), rewritten
+            return str(rewritten)
+
+        for entry in artifact["fileEntries"]:
+            entry["source"] = rebased(entry["source"])
+        options = artifact["packageOptions"]
+        for entry in options["fileEntries"]:
+            entry["source"] = rebased(entry["source"])
+        if options.get("shaderAssetRoot"):
+            options["shaderAssetRoot"] = rebased(options["shaderAssetRoot"])
+        for entry in options.get("assetRoots", []):
+            entry["root"] = rebased(entry["root"])
+        artifact_bytes = json.dumps(artifact, separators=(",", ":")).encode()
+        artifact_file.write_bytes(artifact_bytes)
+        manifest["artifactSha256"] = "sha256:" + hashlib.sha256(artifact_bytes).hexdigest()
+        manifest_file.write_text(json.dumps(manifest))
+
         # A corrupted cached Test catalog must be rebuilt from the current
         # native Project owner rather than reused or sent through ScriptC.
         catalog_file.write_text(catalog_file.read_text() + " ")
@@ -170,9 +198,14 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-runtime-cache-") as tem
         assert corrupted["exitCode"] == 0, corrupted
         assert corrupted["native"]["report"]["passed"], corrupted
         assert corrupted["runtimeCache"]["testCatalogStatus"] != "hit", corrupted
+        assert corrupted["runtimeCache"]["published"] is True, corrupted
+        repaired_generation = (
+            project / ".noveltea/cache/runtime/current").read_text().strip()
+        assert repaired_generation != original_generation
         ui_rebuilt = call("run", "conversation-paths-ui", timeout=130)
         assert ui_rebuilt["exitCode"] == 0, ui_rebuilt
         assert ui_rebuilt["native"]["report"]["passed"], ui_rebuilt
+        assert ui_rebuilt["runtimeCache"]["testCatalogStatus"] == "hit", ui_rebuilt
         print("Native CLI rebuilt an unusable authored Test catalog directly in C++.")
         manifest["testCatalog"]["catalogSha256"] = "sha256:" + hashlib.sha256(
             catalog_file.read_bytes()).hexdigest()

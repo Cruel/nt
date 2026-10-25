@@ -203,7 +203,8 @@ else()
     set(NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY "")
 endif()
 configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
-add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp native_cli_test_catalog.cpp)
+add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp native_cli_test_catalog.cpp
+    native_compiled_project_save_contract.cpp native_authoring_resources.cpp)
 set_target_properties(noveltea-native-cli PROPERTIES
     OUTPUT_NAME noveltea
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
@@ -233,6 +234,15 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
             "--compiler-identity=${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
     set_tests_properties(native_cli_runtime_cache PROPERTIES SKIP_RETURN_CODE 77)
+    add_executable(noveltea-runtime-cache-publish-certify
+        tooling_runtime_cache_publish_certify.cpp native_compiled_project_save_contract.cpp
+        native_authoring_resources.cpp)
+    target_link_libraries(noveltea-runtime-cache-publish-certify PRIVATE
+        noveltea_tooling_native nlohmann_json::nlohmann_json)
+    add_test(NAME native_runtime_cache_publish
+        COMMAND "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+    set_tests_properties(native_runtime_cache_publish PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
 add_executable(noveltea-cli-native-certify EXCLUDE_FROM_ALL tooling_native_project_commands_certify.cpp)
