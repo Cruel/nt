@@ -69,7 +69,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         'entity inspect', 'entity create', 'entity rename', 'entity delete',
         'usages', 'asset audit', 'asset import', 'localization sync',
         'localization view', 'localization reconcile', 'localization accept',
-        'localization review',
+        'localization review', 'shaders compile', 'shaderc',
     }
     assert project_commands <= public_paths
     for command in public_paths - project_commands:
@@ -87,6 +87,19 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     new = envelope('project', 'create', str(created), '--name', 'Native CLI Test')
     assert new['projectRoot'] == str(created)
     assert (created / 'project.yaml').is_file()
+    # Shader compilation is a real standalone C++ command, including its
+    # variant parser and the native Project/source-generation admission path.
+    shader = envelope('--project', str(created), 'shaders', 'compile', '--variant', 'glsl-330')
+    assert shader['native']['ok'] and shader['native']['success']
+    assert shader['native']['outputs'] == []
+    assert envelope('--project', str(created), 'shaders', 'compile',
+                    '--variant', 'invalid', code=2)['diagnostics'][0]['message'] == (
+                        "Unknown shader variant 'invalid'.")
+    assert envelope('--project', str(created), 'shaders', 'compile',
+                    '--force-rebuild', '--force-rebuild', code=2)['diagnostics'][0]['message'] == (
+                        "Option '--force-rebuild' may be supplied only once.")
+    assert envelope('shaderc', code=2)['diagnostics'][0]['message'] == (
+        "Raw 'shaderc' does not support NovelTea --json mode.")
     envelope('--project', str(created), 'entity', 'create', 'rooms', 'witness-room')
     project = created
     inspect = ['entity', 'inspect', 'rooms', 'witness-room']

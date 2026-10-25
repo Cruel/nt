@@ -2,6 +2,7 @@
 #include "tooling_native_c.h"
 #include "../project_authoring/material_semantics.hpp"
 
+#include <noveltea/core/player_bootstrap.hpp>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -222,7 +223,21 @@ Json native_font_coverage(const std::string& project_root, const Json& locales)
     return Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
 }
 
-Json native_material_compile(const std::string& root, const Json& programs)
+std::string shader_program_id(const Json& program, const std::string& requested_id, bool custom)
+{
+    if (!custom)
+        return requested_id;
+    const auto serialized = program.dump();
+    const auto hash =
+        core::sha256_hex(std::as_bytes(std::span(serialized.data(), serialized.size())));
+    return "program-" + hash.substr(0, 24);
+}
+
+Json native_material_compile(const std::string& root, const Json& programs,
+                             const Json& variants = Json::array({"glsl-330", "essl-300", "metal"}),
+                             bool force_rebuild = false,
+                             const Json& source_overlays = Json::object(),
+                             const Json& effective_materials = Json::object())
 {
     // bgfx's embedded shaderc writes annotated failure excerpts to process
     // stdout. They are not JSON and must never corrupt the public CLI stream.
@@ -274,21 +289,25 @@ Json native_material_compile(const std::string& root, const Json& programs)
     for (const auto& [material_id, collection] : programs.items()) {
         for (const auto& [id, program] : collection.items()) {
             const auto identity = program.dump();
-            const auto [found, unique] = canonical_programs.emplace(identity, id);
+            const bool custom = effective_materials.contains(material_id) &&
+                                effective_materials.at(material_id).value("custom", false);
+            const auto program_id = shader_program_id(program, id, custom);
+            const auto [found, unique] = canonical_programs.emplace(identity, program_id);
             if (unique)
-                combined[id] = program;
+                combined[program_id] = program;
             material_program_aliases[material_id] = found->second;
         }
     }
-    const auto serialized =
-        Json{{"shaderProject",
-              {{"schema", "noveltea.shader-source-programs"}, {"programs", combined}}},
-             {"options",
-              {{"projectRoot", root},
-               {"outputRoot", root + "/.noveltea/build"},
-               {"cacheRoot", root + "/.noveltea/cache"},
-               {"shaderVariants", Json::array({"glsl-330", "essl-300", "metal"})}}}}
-            .dump();
+    const auto serialized = Json{
+        {"shaderProject", {{"schema", "noveltea.shader-source-programs"}, {"programs", combined}}},
+        {"options",
+         {{"projectRoot", root},
+          {"outputRoot", root + "/.noveltea/build"},
+          {"cacheRoot", root + "/.noveltea/cache"},
+          {"shaderVariants", variants},
+          {"forceRebuild", force_rebuild},
+          {"sourceOverlays",
+           source_overlays}}}}.dump();
     std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
     std::uint64_t size;
     {
@@ -378,6 +397,183 @@ int missing_project(const Arguments& args, bool formatter = false)
                   : "No NovelTea project.yaml was found from the current directory upward.";
     return failure(args.json, 3, formatter ? "WORKSPACE_UNAVAILABLE" : "WORKSPACE_NOT_FOUND",
                    "/project.yaml", message, message);
+}
+
+// The public validator and standalone shader command must attribute the same
+// native reflected-interface findings to their authored Material records.
+void append_material_reflection_diagnostics(Json& diagnostics, const Json& compiled,
+                                            const Json& materials)
+{
+    for (const auto& [material_id, effective] : materials.items()) {
+        if (!effective.value("custom", false))
+            continue;
+        Json outputs = Json::array();
+        for (const auto& output : compiled.value("outputs", Json::array()))
+            if (output.value("program", std::string{}) == material_id)
+                outputs.push_back(output);
+        const auto reflected = noveltea::authoring::validate_material_shader_compiler_result(
+            Json{{"ok", true},
+                 {"success", true},
+                 {"diagnostics", Json::array()},
+                 {"outputs", std::move(outputs)}}
+                .dump(),
+            material_id, effective.dump());
+        for (const auto& finding : reflected.diagnostics) {
+            auto message = finding.message;
+            if (finding.code == "material.shader.orphan") {
+                const auto name = finding.path.substr(finding.path.find_last_of('/') + 1);
+                std::string unescaped;
+                for (std::size_t i = 0; i < name.size(); ++i) {
+                    if (name[i] == '~' && i + 1 < name.size() &&
+                        (name[i + 1] == '0' || name[i + 1] == '1'))
+                        unescaped += name[++i] == '0' ? '~' : '/';
+                    else
+                        unescaped += name[i];
+                }
+                const bool texture = finding.path.find("/textures/") != std::string::npos;
+                message = "Material " + std::string(texture ? "texture" : "parameter") + " '" +
+                          unescaped +
+                          "' is not present in the reflected shader interface and remains "
+                          "orphaned.";
+            }
+            Json mapped = diagnostic("shader.material_project", finding.path, message);
+            mapped["severity"] = finding.severity;
+            diagnostics.push_back(std::move(mapped));
+        }
+    }
+}
+
+int shaders_compile(const Arguments& args)
+{
+    Json variants = Json::array();
+    bool force_rebuild = false;
+    for (std::size_t i = 2; i < args.command.size(); ++i) {
+        const auto& option = args.command[i];
+        if (option == "--force-rebuild") {
+            if (force_rebuild)
+                throw std::invalid_argument("Option '--force-rebuild' may be supplied only once.");
+            force_rebuild = true;
+        } else if (option == "--variant") {
+            if (++i == args.command.size() || args.command[i].starts_with("--"))
+                throw std::invalid_argument("--variant requires a value.");
+            const auto& variant = args.command[i];
+            if (variant != "glsl-330" && variant != "essl-300" && variant != "metal")
+                throw std::invalid_argument("Unknown shader variant '" + variant + "'.");
+            if (std::find(variants.begin(), variants.end(), variant) == variants.end())
+                variants.push_back(variant);
+        } else {
+            throw std::invalid_argument("Unknown command option '" + option + "'.");
+        }
+    }
+    if (variants.empty())
+        variants = Json::array({"glsl-330", "essl-300", "metal"});
+    const auto root = project_root(args.project);
+    if (root.empty())
+        return missing_project(args);
+    const auto root_text = path_text(root);
+    const auto fail = [&](const std::string& code, const std::string& message, int exit_code) {
+        return emit({{"success", false},
+                     {"exitCode", exit_code},
+                     {"diagnostics", Json::array({diagnostic(code, "/", message)})},
+                     {"projectRoot", root_text}},
+                    args.json, message);
+    };
+    const auto admitted = native_request({{"action", "project-validate"},
+                                          {"projectRoot", root_text},
+                                          {"includeFontCoverageInputs", true}});
+    if (!admitted.value("ok", false))
+        return native_failure(args, admitted, "WORKSPACE_SOURCE_READ", "/", 3,
+                              "Native shader Project admission failed.", root_text);
+    if (!admitted.value("valid", false))
+        return emit({{"success", false},
+                     {"exitCode", 4},
+                     {"diagnostics", project_diagnostics(admitted)},
+                     {"projectRoot", root_text}},
+                    args.json, "Native shader Project admission failed.");
+    if (!admitted.contains("materialCompilerPrograms") ||
+        !admitted.at("materialCompilerPrograms").is_object() ||
+        !admitted.contains("materialEffectiveInputs") ||
+        !admitted.at("materialEffectiveInputs").is_object() ||
+        !admitted.contains("sourceGeneration") || !admitted.at("sourceGeneration").is_string())
+        return fail("CLI_INTERNAL", "Native shader preparation omitted Material authority.", 70);
+    const auto generation = admitted.at("sourceGeneration");
+    const auto prepared =
+        native_request({{"action", "shader-preparation"}, {"projectRoot", root_text}});
+    if (!prepared.value("ok", false))
+        return native_failure(args, prepared, "WORKSPACE_SOURCE_READ", "/", 3,
+                              "Native shader source preparation failed.", root_text);
+    if (prepared.value("sourceGeneration", std::string{}) != generation.get<std::string>() ||
+        !prepared.contains("sourceOverlays") || !prepared.at("sourceOverlays").is_object())
+        return fail("WORKSPACE_REVISION_CONFLICT",
+                    "Project sources changed during shader admission.", 3);
+    const auto prove = [&]() {
+        return native_request({{"action", "source-generation-proof"},
+                               {"projectRoot", root_text},
+                               {"expectedSourceGeneration", generation}})
+            .value("ok", false);
+    };
+    if (!prove())
+        return fail("WORKSPACE_REVISION_CONFLICT", "Project sources changed before compilation.",
+                    3);
+
+    const auto& programs = admitted.at("materialCompilerPrograms");
+    Json compiled = Json{{"ok", true},
+                         {"success", true},
+                         {"diagnostics", Json::array()},
+                         {"outputs", Json::array()}};
+    if (!programs.empty())
+        compiled = native_material_compile(root_text, programs, variants, force_rebuild,
+                                           prepared.at("sourceOverlays"),
+                                           admitted.at("materialEffectiveInputs"));
+    Json diagnostics = project_diagnostics(admitted);
+    for (const auto& item : compiled.value("diagnostics", Json::array())) {
+        auto finding = diagnostic("native." + item.value("code", std::string("operation")),
+                                  item.value("path", item.value("sourcePath", std::string("/"))),
+                                  item.value("message", std::string{}));
+        finding["severity"] = item.value("severity", std::string("error"));
+        diagnostics.push_back(std::move(finding));
+    }
+    if (!compiled.value("ok", false) || !compiled.value("success", false)) {
+        if (compiled.value("diagnostics", Json::array()).empty())
+            diagnostics.push_back(diagnostic(
+                "native.operation", "/",
+                compiled.value("error", std::string("Native shader compilation failed."))));
+    } else
+        append_material_reflection_diagnostics(diagnostics, compiled,
+                                               admitted.at("materialEffectiveInputs"));
+    if (!prove())
+        return fail("WORKSPACE_REVISION_CONFLICT", "Project sources changed during compilation.",
+                    3);
+    const bool failed = std::any_of(diagnostics.begin(), diagnostics.end(), [](const Json& item) {
+        return item.value("severity", "error") == "error";
+    });
+    const bool native_error =
+        std::any_of(diagnostics.begin(), diagnostics.end(), [](const Json& item) {
+            return item.value("severity", "error") == "error" &&
+                   item.value("code", std::string{}).starts_with("native.");
+        });
+    Json response{{"success", !failed},
+                  {"exitCode", failed ? (native_error ? 6 : 4) : 0},
+                  {"diagnostics", diagnostics},
+                  {"projectRoot", root_text}};
+    if (!failed) {
+        // Aliases are needed for per-Material reflection, but are not
+        // independent shader programs in the public compiler response.
+        std::set<std::string> requested_programs;
+        for (const auto& [material_id, collection] : programs.items())
+            for (const auto& [program_id, program] : collection.items())
+                requested_programs.insert(shader_program_id(
+                    program, program_id,
+                    admitted.at("materialEffectiveInputs").at(material_id).value("custom", false)));
+        Json unique_outputs = Json::array();
+        for (const auto& output : compiled.at("outputs"))
+            if (requested_programs.contains(output.value("program", std::string{})))
+                unique_outputs.push_back(output);
+        compiled["outputs"] = std::move(unique_outputs);
+        response["native"] = std::move(compiled);
+    }
+    return emit(std::move(response), args.json,
+                failed ? "Shader compilation failed." : "NovelTea shaders compile succeeded.");
 }
 
 int validation_source_failure(const Arguments& args, const std::string& root,
@@ -701,51 +897,9 @@ int project_read(const Arguments& args, std::string action)
                             compiled.value("error", std::string("Shader compilation failed."))));
                     if (compiled.value("ok", false) && compiled.value("success", false) &&
                         response.contains("materialEffectiveInputs") &&
-                        response.at("materialEffectiveInputs").is_object()) {
-                        for (const auto& [material_id, effective] :
-                             response.at("materialEffectiveInputs").items()) {
-                            if (!effective.value("custom", false))
-                                continue;
-                            Json material_outputs = Json::array();
-                            for (const auto& output : compiled.value("outputs", Json::array()))
-                                if (output.value("program", std::string{}) == material_id)
-                                    material_outputs.push_back(output);
-                            const auto reflected =
-                                noveltea::authoring::validate_material_shader_compiler_result(
-                                    Json{{"ok", true},
-                                         {"success", true},
-                                         {"diagnostics", Json::array()},
-                                         {"outputs", std::move(material_outputs)}}
-                                        .dump(),
-                                    material_id, effective.dump());
-                            for (const auto& finding : reflected.diagnostics) {
-                                auto message = finding.message;
-                                if (finding.code == "material.shader.orphan") {
-                                    const auto name =
-                                        finding.path.substr(finding.path.find_last_of('/') + 1);
-                                    std::string unescaped;
-                                    for (std::size_t i = 0; i < name.size(); ++i) {
-                                        if (name[i] == '~' && i + 1 < name.size() &&
-                                            (name[i + 1] == '0' || name[i + 1] == '1'))
-                                            unescaped += name[++i] == '0' ? '~' : '/';
-                                        else
-                                            unescaped += name[i];
-                                    }
-                                    const bool texture =
-                                        finding.path.find("/textures/") != std::string::npos;
-                                    message = "Material " +
-                                              std::string(texture ? "texture" : "parameter") +
-                                              " '" + unescaped +
-                                              "' is not present in the reflected shader interface "
-                                              "and remains orphaned.";
-                                }
-                                Json mapped =
-                                    diagnostic("shader.material_project", finding.path, message);
-                                mapped["severity"] = finding.severity;
-                                diagnostics.push_back(std::move(mapped));
-                            }
-                        }
-                    }
+                        response.at("materialEffectiveInputs").is_object())
+                        append_material_reflection_diagnostics(
+                            diagnostics, compiled, response.at("materialEffectiveInputs"));
                 }
             }
             const auto proof =
@@ -1402,6 +1556,16 @@ int run(const std::vector<std::string>& argv)
         const auto operation = args.command.size() > 1 ? args.command[1] : "";
         if (family == "validate")
             return project_read(args, "project-validate");
+        if (family == "shaders" && operation == "compile")
+            return shaders_compile(args);
+        if (family == "shaderc") {
+            if (args.json)
+                return usage(true, "Raw 'shaderc' does not support NovelTea --json mode.");
+            std::vector<const char*> raw_args{"shaderc"};
+            for (std::size_t i = 1; i < args.command.size(); ++i)
+                raw_args.push_back(args.command[i].c_str());
+            return noveltea_tooling_shaderc(static_cast<int>(raw_args.size()), raw_args.data());
+        }
         if (family == "usages")
             return project_read(args, "entity-usages");
         if (family == "asset" && operation == "audit")
