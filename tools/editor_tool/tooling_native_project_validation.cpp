@@ -1,4 +1,6 @@
 #include "tooling_native_c.h"
+#include "tooling_native_project_bundle.hpp"
+#include "tooling_native_project_localization.hpp"
 #include "tooling_native_project_sync.hpp"
 
 #include "../project_authoring/room_session.hpp"
@@ -9,8 +11,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -40,6 +44,116 @@ OwnerValidation& resident()
 {
     static OwnerValidation value;
     return value;
+}
+
+// Derive text inputs from the native localization source-view resolver rather
+// than rediscovering Lua, RML, or structured Project Message identities in the CLI.
+void append_pattern_texts(const Json& pattern, const std::string& id, const std::string& path,
+                          Json& messages)
+{
+    if (!pattern.is_object())
+        return;
+    if (pattern.value("kind", std::string{}) == "text") {
+        if (pattern.contains("text") && pattern.at("text").is_string())
+            messages.push_back(
+                {{"messageId", id}, {"sourcePath", path}, {"text", pattern.at("text")}});
+    } else if (pattern.contains("cases") && pattern.at("cases").is_object()) {
+        for (const auto& [_, value] : pattern.at("cases").items())
+            append_pattern_texts(value, id, path, messages);
+    }
+}
+
+Json effective_translation(const Json& localization, std::string locale, const std::string& id)
+{
+    std::set<std::string> visited;
+    const auto source = localization.value("sourceLocale", std::string{});
+    const auto& locales = localization.at("locales");
+    const auto translations = localization.value("translations", Json::object());
+    while (!locale.empty() && locale != source && visited.insert(locale).second) {
+        if (translations.contains(locale) && translations.at(locale).is_object() &&
+            translations.at(locale).contains(id))
+            return translations.at(locale).at(id);
+        if (!locales.contains(locale))
+            break;
+        const auto& parent = locales.at(locale).value("parentLocale", Json(nullptr));
+        locale = parent.is_string() ? parent.get<std::string>() : std::string{};
+    }
+    return nullptr;
+}
+
+Json native_font_coverage_inputs(noveltea::authoring::ProjectSession& session, const Json& project)
+{
+    trace_native_validation("native font inputs: entering");
+    const auto& localization = project.at("localization");
+    const auto& locales = localization.at("locales");
+    if (locales.empty())
+        return Json::array();
+    const auto source_locale = localization.at("sourceLocale").get<std::string>();
+    trace_native_validation("native font inputs: resolving source localization views");
+    // The internal opt-in source view also covers the source locale; the public
+    // localization view command continues to reject source-locale requests.
+    const auto sources = native_project_localization_view(
+        {{"locale", source_locale}, {"allowSourceLocale", true}}, session);
+    trace_native_validation("native font inputs: source views resolved");
+    if (!sources.value("ok", false) || !sources.contains("messages"))
+        throw std::runtime_error(sources.value(
+            "error", std::string("Native localization source projection is unavailable.")));
+    Json result = Json::array();
+    for (const auto& [locale, definition] : locales.items()) {
+        trace_native_validation("native font inputs: projecting locale");
+        const auto& selected = definition.value("fontStack", Json(nullptr));
+        const auto& stack =
+            selected.is_array() ? selected : project.at("settings").at("text").at("fontStack");
+        Json fonts = Json::array();
+        for (const auto& reference : stack) {
+            if (!reference.is_object() || !reference.contains("$ref") ||
+                !reference.at("$ref").is_object())
+                continue;
+            const auto id = reference.at("$ref").value("id", std::string{});
+            if (!project.at("assets").contains(id))
+                continue;
+            const auto& asset = project.at("assets").at(id).at("data");
+            if (asset.value("kind", std::string{}) != "font")
+                continue;
+            const auto& source = asset.at("source");
+            if (source.contains("path") && source.at("path").is_string())
+                fonts.push_back("project:/" + source.at("path").get<std::string>());
+        }
+        Json messages = Json::array();
+        for (const auto& view : sources.at("messages")) {
+            const auto id = view.at("id").get<std::string>();
+            const bool named = view.value("kind", std::string{}) == "named";
+            std::string path = "/localization/messages/" + id + "/source";
+            if (!named && view.contains("usages") && view.at("usages").is_array() &&
+                !view.at("usages").empty())
+                path = view.at("usages")[0].get<std::string>();
+            const auto target = effective_translation(localization, locale, id);
+            const bool translated = target.is_object() && !target.value("useSource", false);
+            const auto text = translated ? target.value("text", std::string{})
+                                         : view.at("source").get<std::string>();
+            messages.push_back({{"messageId", id}, {"sourcePath", path}, {"text", text}});
+            const Json* pattern = nullptr;
+            if (translated && target.contains("pattern"))
+                pattern = &target.at("pattern");
+            else if (!translated && named && localization.at("messages").contains(id)) {
+                const auto& source = localization.at("messages").at(id);
+                if (source.contains("pattern"))
+                    pattern = &source.at("pattern");
+            }
+            if (pattern)
+                append_pattern_texts(*pattern, id, path, messages);
+        }
+        if (definition.contains("displayName") && definition.at("displayName").is_string())
+            messages.push_back({{"messageId", "locale-display-name:" + locale},
+                                {"sourcePath", "/localization/locales/" + locale + "/displayName"},
+                                {"text", definition.at("displayName")}});
+        result.push_back({{"locale", locale},
+                          {"supported", definition.value("supported", false)},
+                          {"fonts", std::move(fonts)},
+                          {"fingerprint", std::string{}},
+                          {"messages", std::move(messages)}});
+    }
+    return result;
 }
 
 Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool warm,
@@ -177,6 +291,23 @@ Json validate(std::string_view request_text)
         // Do not force a second complete shader/runtime preparation for it.
         result["entrypointConfigured"] =
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
+        if (request.value("includeFontCoverageInputs", false)) {
+            const auto prepared =
+                state.session->prepare_complete_working(state.session->snapshot().working_revision);
+            if (!prepared.accepted)
+                throw std::runtime_error("Native font coverage Project preparation failed: " +
+                                         prepared.error);
+            const auto admitted = Json::parse(prepared.complete_project_json);
+            const auto portable = native_project_bundle(
+                {{"action", "test-source-preparation"}, {"admittedProject", admitted}},
+                state.session.get(), root);
+            if (!portable.value("ok", false)) {
+                result["portableFailure"] = portable.value(
+                    "error", std::string("Native Project source preparation failed."));
+                return result;
+            }
+            result["fontCoverageInputs"] = native_font_coverage_inputs(*state.session, admitted);
+        }
         // Bind a successful diagnostic graph to the exact physical generation
         // consumed by downstream preparation; never mix separate admissions.
         result["sourceGeneration"] = native_project_source_generation(*state.session, root);

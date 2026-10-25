@@ -188,6 +188,14 @@ target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_BINARY_D
 target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
 target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 noveltea_apply_policy_warnings(noveltea-native-cli)
+# Native font coverage resolves the same trusted system fonts as the installed
+# production CLI. Stage them alongside the unshipped candidate, without a
+# launcher, runtime ScriptC island or source-tree absolute path dependency.
+add_custom_command(TARGET noveltea-native-cli POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_SOURCE_DIR}/engine/assets/system"
+        "$<TARGET_FILE_DIR:noveltea-native-cli>/assets/system"
+    COMMENT "Staging native CLI system font assets")
 if(BUILD_TESTING)
     set_target_properties(noveltea-native-cli PROPERTIES EXCLUDE_FROM_ALL FALSE)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)

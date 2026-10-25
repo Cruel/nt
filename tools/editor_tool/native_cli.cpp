@@ -201,6 +201,18 @@ Json native_request(const Json& request)
     return Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
 }
 
+Json native_font_coverage(const std::string& project_root, const Json& locales)
+{
+    const auto serialized = Json{{"projectRoot", project_root}, {"locales", locales}}.dump();
+    std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
+    const auto size = noveltea_tooling_validate_font_coverage_json(
+        reinterpret_cast<const std::uint8_t*>(serialized.data()), serialized.size(), buffer.data(),
+        buffer.size());
+    if (size > buffer.size())
+        throw std::runtime_error("Native font coverage response exceeds the CLI response limit.");
+    return Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
+}
+
 Json native_failure_diagnostics(const Json& response, std::string code, std::string path,
                                 const std::string& message)
 {
@@ -261,6 +273,16 @@ int missing_project(const Arguments& args, bool formatter = false)
                   : "No NovelTea project.yaml was found from the current directory upward.";
     return failure(args.json, 3, formatter ? "WORKSPACE_UNAVAILABLE" : "WORKSPACE_NOT_FOUND",
                    "/project.yaml", message, message);
+}
+
+int validation_source_failure(const Arguments& args, const std::string& root,
+                              const std::string& message)
+{
+    return emit({{"success", false},
+                 {"exitCode", 4},
+                 {"diagnostics", Json::array({diagnostic("WORKSPACE_SOURCE_READ", "/", message)})},
+                 {"projectRoot", root}},
+                args.json, message);
 }
 
 struct CommandFlags {
@@ -399,6 +421,8 @@ int inspect(const Arguments& args)
 int project_read(const Arguments& args, std::string action)
 {
     Json request{{"action", action}};
+    if (action == "project-validate")
+        request["includeFontCoverageInputs"] = true;
     std::string missing_path = "/";
     std::string human;
     if (action == "entity-usages") {
@@ -443,6 +467,16 @@ int project_read(const Arguments& args, std::string action)
     request["projectRoot"] = root_text;
     const auto response = native_request(request);
     if (action == "project-validate") {
+        if (!response.value("ok", false) &&
+            response.value("error", std::string{})
+                .starts_with("Portable Project source is missing:")) {
+            const auto message = response.at("error").get<std::string>();
+            return validation_source_failure(args, root_text, message);
+        }
+        if (response.contains("portableFailure") && response.at("portableFailure").is_string()) {
+            const auto message = response.at("portableFailure").get<std::string>();
+            return validation_source_failure(args, root_text, message);
+        }
         if (!response.value("ok", false) || !response.contains("valid") ||
             !response.at("valid").is_boolean() || !response.contains("cliDiagnostics") ||
             !response.at("cliDiagnostics").is_array()) {
@@ -491,10 +525,82 @@ int project_read(const Arguments& args, std::string action)
                 valid = false;
             }
         }
+        if (response.at("valid").get<bool>()) {
+            if (!response.contains("fontCoverageInputs") ||
+                !response.at("fontCoverageInputs").is_array())
+                return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
+                               "Native validation omitted its localization coverage inputs.",
+                               "Native validation omitted its localization coverage inputs.");
+            const auto coverage =
+                native_font_coverage(root_text, response.at("fontCoverageInputs"));
+            for (const auto& item : coverage.value("diagnostics", Json::array())) {
+                std::string stack;
+                for (const auto& font : item.value("fontStack", Json::array())) {
+                    if (!stack.empty())
+                        stack += ", ";
+                    stack += font.get<std::string>();
+                }
+                Json projected = diagnostic(item.value("code", "localization.font_coverage"),
+                                            item.value("path", "/localization"),
+                                            item.value("message", std::string{}) + " Message: " +
+                                                item.value("messageId", std::string{}) +
+                                                ". Effective stack: " + stack + ".");
+                projected["severity"] = item.value("severity", "error");
+                diagnostics.push_back(std::move(projected));
+            }
+            if (!coverage.value("ok", false) || !coverage.value("success", false)) {
+                diagnostics.push_back(diagnostic(
+                    "native.localization.font_coverage", "/localization",
+                    coverage.value("error", std::string("Font coverage validation failed."))));
+            }
+            const auto proof =
+                native_request({{"action", "source-generation-proof"},
+                                {"projectRoot", root_text},
+                                {"expectedSourceGeneration", response.at("sourceGeneration")}});
+            if (!proof.value("ok", false))
+                return failure(
+                    args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/",
+                    proof.value("error", std::string("Project sources changed during validation.")),
+                    "Project sources changed during validation.");
+            Json paths = Json::array();
+            std::vector<std::size_t> indices;
+            for (std::size_t i = 0; i < diagnostics.size(); ++i) {
+                if (!diagnostics[i].contains("sourceUrl") || !diagnostics[i].contains("line")) {
+                    indices.push_back(i);
+                    paths.push_back(diagnostics[i].at("path"));
+                }
+            }
+            if (!indices.empty()) {
+                const auto locations =
+                    native_request({{"action", "project-diagnostic-locations"},
+                                    {"projectRoot", root_text},
+                                    {"expectedSourceGeneration", response.at("sourceGeneration")},
+                                    {"paths", paths}});
+                if (!locations.value("ok", false) || !locations.contains("locations") ||
+                    locations.at("locations").size() != indices.size())
+                    return failure(args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/",
+                                   "Project sources changed during diagnostic source lookup.",
+                                   "Project sources changed during diagnostic source lookup.");
+                for (std::size_t i = 0; i < indices.size(); ++i)
+                    for (const auto* field : {"sourceUrl", "line", "column"})
+                        if (locations.at("locations")[i].contains(field))
+                            diagnostics[indices[i]][field] = locations.at("locations")[i].at(field);
+            }
+        }
+        const bool errors =
+            std::any_of(diagnostics.begin(), diagnostics.end(), [](const Json& item) {
+                return item.value("severity", "error") == "error";
+            });
+        const bool native_error =
+            std::any_of(diagnostics.begin(), diagnostics.end(), [](const Json& item) {
+                return item.value("code", std::string{}).starts_with("native.");
+            });
+        valid = valid && !errors;
         return emit({{"success", valid},
-                     {"exitCode", valid       ? 0
-                                  : workspace ? 3
-                                              : 4},
+                     {"exitCode", valid          ? 0
+                                  : workspace    ? 3
+                                  : native_error ? 6
+                                                 : 4},
                      {"diagnostics", diagnostics},
                      {"projectRoot", root_text}},
                     args.json,
