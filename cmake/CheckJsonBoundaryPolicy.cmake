@@ -55,6 +55,7 @@ set(approved_source_paths
     "engine/src/render/material_codec.cpp"
     "engine/src/runtime_preview_controller.cpp"
     "tools/benchmark/main.cpp"
+    "tools/editor_tool/native_cli.cpp"
     "tools/editor_tool/font_coverage_tool.cpp"
     "tools/editor_tool/shader_compiler.cpp"
     # The native alpha encoder owns a JSON-only tooling request/response ABI;

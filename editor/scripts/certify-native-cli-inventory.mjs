@@ -116,7 +116,7 @@ assert.deepEqual(
 
 // All concrete parser definitions must be reachable through a public route.
 const definitions = await readdir(path.join(root, 'src/cli/commands'));
-definitions.push('../platform-commands.ts');
+definitions.push('../platform-independent-commands.ts');
 const parsedDefinitions = new Set();
 for (const filename of definitions.filter((name) => name.endsWith('.ts'))) {
   const body = await source(`src/cli/commands/${filename}`);
@@ -133,7 +133,7 @@ for (const item of parsedDefinitions)
 // parser and the ScriptC island has its own scoped native host entrypoints.
 // Neither may introduce an unclassified family merely because the help and
 // routing table were not edited in the same change.
-for (const filename of ['src/cli/application.ts', 'scripts/noveltea-scriptc-island.ts']) {
+for (const filename of ['src/cli/native-application.ts', 'scripts/noveltea-scriptc-island.ts']) {
   const body = await source(filename);
   const specialFamilies = new Set([
     ...[...body.matchAll(/globals\.command\[0\] === '([^']+)'/g)].map((item) => item[1]),
@@ -157,7 +157,7 @@ const nativeActionOwners = {
   'project-validate': 'native-project-validation-cli',
   'source-generation-proof': 'native-project-validation-cli',
   'workspace-preflight': 'workspace-preflight',
-  'platform-profiles-preparation': 'project-preparation',
+  'platform-profiles-preparation': 'native-project-profiles-cli',
   'asset-audit': 'native-project-reads-cli',
   'asset-import': 'native-project-mutations-cli',
   'comfyui-assets': 'native-comfyui-asset-publication',
@@ -208,15 +208,16 @@ for (const [action, owner] of Object.entries(nativeActionOwners)) {
 }
 
 const nativeIpcOwners = {
-  NATIVE_PROJECT_PATCH: 'native-project-session-parity.test.ts',
+  NATIVE_PROJECT_PATCH: 'native-editor-session-controller.test.ts',
   NATIVE_PROJECT_SAVE_UNIT: 'project-save-coordinator.test.ts',
   NATIVE_PROJECT_SAVE_TEXT: 'native-project-source-transactions.test.ts',
   NATIVE_PROJECT_STAGE_TEXT: 'native-project-source-transactions.test.ts',
   NATIVE_PROJECT_RECONCILE: 'native-authoring-reconciliation.test.ts',
   NATIVE_PROJECT_USE_DISK_UNIT: 'native-authoring-reconciliation.test.ts',
-  NATIVE_PROJECT_VALIDATE: 'native-project-session-parity.test.ts',
+  NATIVE_PROJECT_VALIDATE: 'native-editor-session-controller.test.ts',
   NATIVE_PROJECT_SEMANTIC_GRAPH: 'native-renderer-graph-runtime.test.ts',
   NATIVE_PROJECT_PREPARE_RUNTIME: 'native-authoring-worker.test.ts',
+  NATIVE_PROJECT_TEST_READINESS: 'native-editor-test-readiness.test.ts',
   NATIVE_PROJECT_RUN_TEST: 'native-authoring-worker.test.ts',
   NATIVE_PROJECT_RUN_SUITE: 'native-authoring-worker.test.ts',
   NATIVE_PROJECT_PREPARE_EXPORT: 'native-editor-export-service.test.ts',

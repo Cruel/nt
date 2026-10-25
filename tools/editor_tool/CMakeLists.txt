@@ -162,6 +162,40 @@ target_compile_definitions(noveltea-tooling-bridge PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)
+# Unshipped direct-C++ CLI slice; the ScriptC production executable is unchanged.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts"
+    "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts"
+    "${CMAKE_SOURCE_DIR}/VERSION")
+file(READ "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts" _cli_contract)
+string(REGEX MATCH "export const NOVELTEA_CLI_HELP = `([^`]+)`;" _cli_help "${_cli_contract}")
+if(NOT _cli_help)
+    message(FATAL_ERROR "Cannot extract the canonical CLI help contract")
+endif()
+set(NOVELTEA_NATIVE_CLI_HELP "${CMAKE_MATCH_1}")
+file(READ "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts" _collections)
+string(REGEX MATCH "authoringCollectionKeys = \\[([^]]+)\\] as const" _collection_keys "${_collections}")
+if(NOT _collection_keys)
+    message(FATAL_ERROR "Cannot extract the canonical CLI collection keys")
+endif()
+string(REPLACE "'" "\"" NOVELTEA_NATIVE_CLI_COLLECTIONS "${CMAKE_MATCH_1}")
+configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
+add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp)
+set_target_properties(noveltea-native-cli PROPERTIES
+    OUTPUT_NAME noveltea
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
+target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+noveltea_apply_policy_warnings(noveltea-native-cli)
+if(BUILD_TESTING)
+    set_target_properties(noveltea-native-cli PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME native_cli_public_contract
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_contract.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+endif()
+
 add_executable(noveltea-cli-native-certify EXCLUDE_FROM_ALL tooling_native_project_commands_certify.cpp)
 target_link_libraries(noveltea-cli-native-certify PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
 target_compile_definitions(noveltea-cli-native-certify PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
