@@ -1,6 +1,7 @@
 #include "tooling_native_c.h"
 #include "native_authoring_resources.hpp"
 #include "native_authoring_messages.hpp"
+#include "native_authoring_shared.hpp"
 #include "native_compiled_project_save_contract.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <nlohmann/json.hpp>
@@ -78,7 +79,7 @@ int main(int argc, char** argv)
             require(create.value("ok", false), "Could not create native Project fixture.");
             for (const auto& [collection, id] :
                  {std::pair{"rooms", "starting-room"}, std::pair{"variables", "zeta"},
-                  std::pair{"variables", "alpha"}}) {
+                  std::pair{"variables", "alpha"}, std::pair{"maps", "overview"}}) {
                 const auto added = invoke(noveltea_tooling_native_project_commands_json,
                                           Json{{"action", "entity-create"},
                                                {"projectRoot", root},
@@ -123,12 +124,13 @@ int main(int argc, char** argv)
                                         {"managedSources", messages.rewritten_sources},
                                         {"rmlSources", messages.rewritten_rml}};
                 identity["resources"] = resources;
+                identity["shared"] =
+                    noveltea::cli::lower_shared_authoring_project(project, messages);
                 // Deliberately distinguish compiler omissions from supported-family
                 // agreement: this is not a publishable Compiled Project.
                 static const Json unsupported = Json::array(
-                    {"definitions", "resources.layouts", "resources.materialInterfaces",
-                     "localization.metadata", "traits", "archetypes", "inventories",
-                     "interactableInstances", "flowPrediction", "saveContract-production"});
+                    {"programs.room-scene", "programs.dialogue-interaction",
+                     "localization.metadata", "flowPrediction", "saveContract-production"});
                 std::cout << Json{{"ok", true},
                                   {"project", project},
                                   {"sourceGeneration", prepared.at("sourceGeneration")},
