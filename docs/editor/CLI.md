@@ -43,14 +43,15 @@ C++ hash projector against the reference compiler's computed value. The full
 reference value is also admitted by the existing strict C++ Compiled Project
 decoder; malformed wire must fail this independent native verifier.
 
-**Mandatory parity now:** Project identity, bootstrap, entrypoint, static
-Assets/Animations/Scripts, ordinary global Variables, and an explicitly
-unlowered inventory of global Message Variables. **Reported as not yet
-implemented:** gameplay definitions, Layout/material resources, localization,
-Message lowering, Traits, Archetypes, Inventories, Interactable Instances,
-Flow Prediction, and native assembly of the final Save Contract. Reference
-Message and Save Contract identities are observed without claiming that the
-partial C++ compiler can materialize them. The cold suite is a Linux-native
+**Mandatory parity in #552's original acceptance:** Project identity, bootstrap, entrypoint,
+static Assets/Animations/Scripts and ordinary global Variables; Message Variables were explicitly
+unresolved. **With #553, native Message IDs, Message-valued globals, source and translated Message
+catalog entries, and managed inline Lua lowering are additional mandatory comparisons.**
+**Still not implemented:** gameplay definitions, Layout/material resources, locale presentation
+metadata and CLDR formatting, Traits, Archetypes as compiled gameplay definitions, Inventories,
+Interactable Instances, Flow Prediction and native assembly of the final Save Contract.
+Native archetype resolution used for Message identity does not constitute compiled gameplay
+Archetype lowering. The cold suite is a Linux-native
 verification target, independent of whether the production ScriptC cache is
 present, and future compiler tickets must promote new families from the
 unimplemented list into mandatory comparison. This test changes neither the
@@ -72,6 +73,31 @@ tests were run against the resulting CMake-built executable, not a manually
 linked test substitute.
 `pnpm -C editor run check` passed; `pnpm -C editor run test` passed with
 2,221 tests passing and 133 pre-existing skips.
+
+### Native Message and managed Lua projection (#553)
+
+`native_authoring_messages.cpp` consumes only the C++ owner's normalized Project generation.
+It inventories schema-owned structured text by semantic path, applies preserved
+`structuredMessageIds`, resolves effective Archetype/instance content through the native
+authoring semantic resolver, and combines named, structured, inline RML and managed Lua
+sources before assigning deterministic package-local Message IDs. Settings Messages follow
+other Messages; system Messages retain their reserved IDs. A single mapping lowers both
+`$message` Property defaults and gameplay text references. Locale catalogs honor source
+messages, translated values, parent-locale inheritance, typed arguments, nested selector
+patterns and dialogue cue contracts. Inline managed `Text.tr`, `Text.msg`, `Text.plural`,
+and `Text.select` Lua calls use the native lexical source analyzer and tracked source
+identity, then lower to numeric `Text.__message` calls without executing or transpiling Lua.
+Unrelated sources and the authoring Project on disk are not modified.
+
+The differential acceptance is still `native_compiled_project_parity`: the test-only
+TypeScript reference independently compiles the *same admitted value* and rejects
+different Message IDs, catalog entries, rewritten Lua sources and Property defaults at
+an owning JSON pointer. It is never invoked by production native CLI code. The Feature Lab
+witness includes named Messages, plural/select patterns, RML-local text, inline managed
+Lua, translated catalogs and the global `story-message` default. The partial candidate is
+**not** a complete Compiled Project and must not publish a runtime cache based on this
+projection alone. Later tickets implement the missing gameplay definitions, runtime
+locale metadata and complete native assembly.
 
 ### Candidate executable status
 
