@@ -33,8 +33,18 @@ by complete program identity; reflected results are attributed back to each
 Material. The candidate stages the trusted system font assets next to its
 binary, matching installed font coverage resolution without source-checkout
 paths. Compiler failure logs cannot escape onto the CLI's JSON stdout.
-The distinct public `shaders compile`, runtime Test, and package commands
-remain part of #544; the standalone candidate stays unshipped until the
+The unshipped standalone candidate also routes `shaders compile` through C++
+Project/Material admission and the linked native shader compiler, using pinned
+shader source overlays, variant/rebuild options, source-generation proofs,
+and native reflected-interface checks. Raw `shaderc` forwards arguments to the
+linked bgfx compiler without a JSON wrapper, matching its existing tool contract.
+This is not a replacement for the
+production ScriptC command. Cold compiled-gameplay lowering, authored Test
+catalog preparation, and Runtime Package assembly are still downstream
+TypeScript responsibilities: direct C++ `test run`, `test run-spec`,
+`test run-ui-spec`, and `package export` are not yet claimed by the candidate.
+Completing those commands, including their cache and atomic-publication
+contracts, remains #544. The standalone candidate stays unshipped until the
 complete CLI cutover is certified.
 Help and collection names
 are embedded from the canonical TypeScript declarations by CMake; no TypeScript
