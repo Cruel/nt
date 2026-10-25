@@ -7,13 +7,18 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -44,6 +49,124 @@ OwnerValidation& resident()
 {
     static OwnerValidation value;
     return value;
+}
+
+// Distribution notices are physical authored inputs, not YAML fragments.
+// Keep the CLI's text/size/control policy at the native Project admission
+// boundary, rather than treating a successful portable copy as validation.
+bool valid_notice_utf8(std::string_view bytes, bool& prohibited_controls)
+{
+    prohibited_controls = false;
+    for (std::size_t i = 0; i < bytes.size();) {
+        const auto lead = static_cast<unsigned char>(bytes[i]);
+        std::size_t count = 1;
+        char32_t codepoint = lead;
+        if (lead >= 0xf0 && lead <= 0xf4) {
+            count = 4;
+            codepoint = lead & 0x07;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            count = 3;
+            codepoint = lead & 0x0f;
+        } else if (lead >= 0xc2 && lead <= 0xdf) {
+            count = 2;
+            codepoint = lead & 0x1f;
+        } else if (lead >= 0x80) {
+            return false;
+        }
+        if (i + count > bytes.size())
+            return false;
+        for (std::size_t offset = 1; offset < count; ++offset) {
+            const auto next = static_cast<unsigned char>(bytes[i + offset]);
+            if ((next & 0xc0) != 0x80)
+                return false;
+            codepoint = (codepoint << 6) | (next & 0x3f);
+        }
+        if ((count == 2 && codepoint < 0x80) || (count == 3 && codepoint < 0x800) ||
+            (count == 4 && codepoint < 0x10000) || codepoint > 0x10ffff ||
+            (codepoint >= 0xd800 && codepoint <= 0xdfff))
+            return false;
+        if ((codepoint < 32 && codepoint != 9 && codepoint != 10 && codepoint != 13) ||
+            (codepoint >= 127 && codepoint <= 159))
+            prohibited_controls = true;
+        i += count;
+    }
+    return true;
+}
+
+std::optional<std::string> native_distribution_notice_error(const std::filesystem::path& root,
+                                                            const Json& project)
+{
+    std::map<std::string, std::pair<std::string, bool>> notices;
+    const auto add = [&](const Json& notice) -> std::optional<std::string> {
+        if (!notice.is_object() || !notice.contains("path") || !notice.at("path").is_string())
+            return "Invalid distribution notice input.";
+        const auto path = notice.at("path").get<std::string>();
+        const auto name = notice.value("displayName", std::string{});
+        const bool explicit_name = !name.empty();
+        const auto extension = std::filesystem::path(path).extension().string();
+        std::string lowered = extension;
+        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const auto relative = std::filesystem::path(path);
+        if (relative.is_absolute() || relative != relative.lexically_normal() || path.empty() ||
+            path.find_first_of(":\\") != std::string::npos ||
+            (lowered != ".md" && lowered != ".txt"))
+            return "Invalid distribution notice path '" + path + "'.";
+        const auto found = notices.find(path);
+        if (found != notices.end() && found->second.second && explicit_name &&
+            found->second.first != name)
+            return "Conflicting distribution notice names for '" + path + "'.";
+        if (found == notices.end() || (!found->second.second && explicit_name))
+            notices[path] = {name, explicit_name};
+        return std::nullopt;
+    };
+    const auto& settings = project.at("settings");
+    if (settings.contains("distributionNotices") && settings.at("distributionNotices").is_array())
+        for (const auto& notice : settings.at("distributionNotices"))
+            if (auto error = add(notice))
+                return error;
+    if (project.contains("assets") && project.at("assets").is_object())
+        for (const auto& [_, record] : project.at("assets").items()) {
+            if (!record.contains("data") || !record.at("data").is_object())
+                continue;
+            const auto& asset = record.at("data");
+            if (!asset.contains("attachments") || !asset.at("attachments").is_array())
+                continue;
+            for (const auto& attachment : asset.at("attachments")) {
+                if (attachment.value("purpose", std::string{}) != "distribution-notice")
+                    continue;
+                if (auto error = add(attachment))
+                    return error;
+            }
+        }
+    if (notices.size() > 512)
+        return "Project distribution notices exceed the 512-entry runtime limit.";
+    const auto canonical_root = std::filesystem::canonical(root);
+    for (const auto& [relative, _] : notices) {
+        const auto target = std::filesystem::weakly_canonical(root / relative);
+        const auto contained = target.lexically_relative(canonical_root);
+        if (contained.empty() || contained == "." || *contained.begin() == ".." ||
+            !std::filesystem::is_regular_file(target))
+            return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
+        std::ifstream source(target, std::ios::binary | std::ios::ate);
+        if (!source)
+            return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
+        const auto length = source.tellg();
+        if (length <= 0 || length > 1024 * 1024)
+            return "Distribution notice '" + relative +
+                   "' is empty, too large, or contains prohibited controls.";
+        source.seekg(0);
+        std::string bytes(static_cast<std::size_t>(length), '\0');
+        if (!source.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))
+            return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
+        bool prohibited_controls = false;
+        if (!valid_notice_utf8(bytes, prohibited_controls))
+            return "Distribution notice '" + relative + "' is missing, unsafe, or invalid UTF-8.";
+        if (prohibited_controls)
+            return "Distribution notice '" + relative +
+                   "' is empty, too large, or contains prohibited controls.";
+    }
+    return std::nullopt;
 }
 
 // Derive text inputs from the native localization source-view resolver rather
@@ -99,6 +222,15 @@ Json native_font_coverage_inputs(noveltea::authoring::ProjectSession& session, c
         throw std::runtime_error(sources.value(
             "error", std::string("Native localization source projection is unavailable.")));
     Json result = Json::array();
+    // Locale names are rendered in the language selector even when the
+    // authored Message inventory contains no text in that language. Keep the
+    // native coverage projection aware of the runtime's deterministic autonyms.
+    static const std::map<std::string, std::string> autonyms{
+        {"ar", "العربية"},    {"de", "Deutsch"},    {"en", "English"},    {"es", "español"},
+        {"fr", "français"},   {"he", "עברית"},      {"hi", "हिन्दी"},      {"it", "italiano"},
+        {"ja", "日本語"},     {"ko", "한국어"},     {"nl", "Nederlands"}, {"pl", "polski"},
+        {"pt", "português"},  {"ru", "русский"},    {"sv", "svenska"},    {"tr", "Türkçe"},
+        {"uk", "українська"}, {"vi", "Tiếng Việt"}, {"zh", "中文"}};
     for (const auto& [locale, definition] : locales.items()) {
         trace_native_validation("native font inputs: projecting locale");
         const auto& selected = definition.value("fontStack", Json(nullptr));
@@ -143,7 +275,15 @@ Json native_font_coverage_inputs(noveltea::authoring::ProjectSession& session, c
             if (pattern)
                 append_pattern_texts(*pattern, id, path, messages);
         }
-        if (definition.contains("displayName") && definition.at("displayName").is_string())
+        auto language = locale.substr(0, locale.find('-'));
+        std::transform(language.begin(), language.end(), language.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        const auto native_name = autonyms.contains(language) ? autonyms.at(language) : locale;
+        messages.push_back({{"messageId", "locale-name:" + locale},
+                            {"sourcePath", "/localization/locales/" + locale + "/displayName"},
+                            {"text", native_name}});
+        if (definition.contains("displayName") && definition.at("displayName").is_string() &&
+            definition.at("displayName") != native_name)
             messages.push_back({{"messageId", "locale-display-name:" + locale},
                                 {"sourcePath", "/localization/locales/" + locale + "/displayName"},
                                 {"text", definition.at("displayName")}});
@@ -306,7 +446,48 @@ Json validate(std::string_view request_text)
                     "error", std::string("Native Project source preparation failed."));
                 return result;
             }
+            if (const auto notice_error = native_distribution_notice_error(root, admitted))
+                result["noticeValidationFailure"] = *notice_error;
             result["fontCoverageInputs"] = native_font_coverage_inputs(*state.session, admitted);
+            Json material_programs = Json::object();
+            Json material_effective = Json::object();
+            if (admitted.contains("materials") && admitted.at("materials").is_object()) {
+                for (const auto& [id, _] : admitted.at("materials").items()) {
+                    const auto inspected = state.session->inspect_record("materials/" + id);
+                    if (!inspected.accepted)
+                        throw std::runtime_error("Native Material owner cannot be inspected: " +
+                                                 id + ": " + inspected.error);
+                    const auto resolved = state.session->material_compiler_effective(id);
+                    if (!resolved)
+                        throw std::runtime_error("Native Material resolution failed: " + id);
+                    const auto effective_material = Json::parse(*resolved);
+                    material_effective[id] = effective_material;
+                    const auto request = state.session->material_compiler_request(id);
+                    if (request) {
+                        const auto programs = Json::parse(*request).at("programs");
+                        if (!programs.empty())
+                            material_programs[id] = programs;
+                    }
+                    // Public validate certifies preset programs too; unlike
+                    // regular runtime lowering, it cannot trust preset binaries
+                    // without the native stage's physical compiler evidence.
+                    if (!effective_material.at("custom").get<bool>()) {
+                        const auto& source = effective_material.at("shader");
+                        Json program = Json::object();
+                        for (const auto* field :
+                             {"vertexSource", "fragmentSource", "varyingDefinition"})
+                            program[field] = source.at(field);
+                        program["interfaceContract"] = effective_material.at("interfaceContract");
+                        program["interfaceFingerprint"] =
+                            effective_material.at("interfaceFingerprint");
+                        const auto key =
+                            "preset-" + effective_material.at("preset").get<std::string>();
+                        material_programs[id][key] = std::move(program);
+                    }
+                }
+            }
+            result["materialCompilerPrograms"] = std::move(material_programs);
+            result["materialEffectiveInputs"] = std::move(material_effective);
         }
         // Bind a successful diagnostic graph to the exact physical generation
         // consumed by downstream preparation; never mix separate admissions.

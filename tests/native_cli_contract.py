@@ -21,12 +21,12 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     shutil.copytree(binary.parent / 'assets/system', root / 'assets/system')
     environment = {**os.environ, 'PATH': str(root), 'NOVELTEA_NO_DAEMON': '1'}
 
-    def run(*args, cwd=root):
+    def run(*args, cwd=root, timeout=60):
         return subprocess.run([str(installed), *args], cwd=cwd, env=environment,
-                              capture_output=True, text=True, timeout=60)
+                              capture_output=True, text=True, timeout=timeout)
 
-    def envelope(*args, code=0, cwd=root):
-        result = run('--json', *args, cwd=cwd)
+    def envelope(*args, code=0, cwd=root, timeout=60):
+        result = run('--json', *args, cwd=cwd, timeout=timeout)
         assert result.returncode == code, (args, result)
         assert result.stderr == '', result.stderr
         assert len(result.stdout.splitlines()) == 1, result.stdout
@@ -234,6 +234,84 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
             cwd=root, env=environment, capture_output=True, text=True, timeout=60)
         assert reference.returncode == 4
         assert missing_notice == json.loads(reference.stdout)
+    notice_file = notices / 'notes/DOESNOTEXIST.md'
+    notice_file.parent.mkdir(parents=True)
+    notice_file.write_text('')
+    empty_notice = envelope('--project', str(notices), 'validate', code=4)
+    assert any(d['code'] == 'authoring.distribution-notice.invalid' and
+               'empty, too large, or contains prohibited controls' in d['message']
+               for d in empty_notice['diagnostics'])
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(notices), 'validate'],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        assert reference.returncode == 4
+        assert empty_notice == json.loads(reference.stdout)
+    notice_file.write_bytes(b'Invalid encoding: \xff\xfe')
+    invalid_utf8_notice = envelope('--project', str(notices), 'validate', code=4)
+    assert any(d['code'] == 'authoring.distribution-notice.invalid' and
+               'missing, unsafe, or invalid UTF-8' in d['message']
+               for d in invalid_utf8_notice['diagnostics'])
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(notices), 'validate'],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        assert reference.returncode == 4
+        assert invalid_utf8_notice == json.loads(reference.stdout)
+    notice_file.write_bytes(b'Prohibited control: \x01')
+    control_notice = envelope('--project', str(notices), 'validate', code=4)
+    assert any(d['code'] == 'authoring.distribution-notice.invalid' and
+               'contains prohibited controls' in d['message']
+               for d in control_notice['diagnostics'])
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(notices), 'validate'],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        assert reference.returncode == 4
+        assert control_notice == json.loads(reference.stdout)
+
+    # The embedded shader compiler can print annotated failed source directly
+    # to process stdout. The public relocated native CLI must still emit one
+    # strict JSON response with the exact production diagnostics, and shared
+    # shader requests must be compiled only once.
+    shader_root = root / 'shader-invalid'
+    shutil.copytree(feature_lab, shader_root, ignore=shutil.ignore_patterns('.noveltea'))
+    shader_file = shader_root / 'shaders/engine2d-draw-contract.fs.sc'
+    source_text = shader_file.read_text()
+    assert 'uniform vec4 u_strength;' in source_text
+    shader_file.write_text(source_text.replace('uniform vec4 u_strength;',
+                                               'uniform vec3 u_strength;'))
+    invalid_shader = envelope('--project', str(shader_root), 'validate', code=6, timeout=180)
+    shader_errors = [d for d in invalid_shader['diagnostics']
+                     if d['code'] == 'native.shader.contract_violation']
+    assert len(shader_errors) == 1
+    assert shader_errors[0]['message'].startswith("Author Material uniform 'u_strength'")
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(shader_root),
+             'validate'], cwd=root, env=environment, capture_output=True, text=True, timeout=180)
+        assert reference.returncode == 6
+        assert invalid_shader == json.loads(reference.stdout)
+    print('Native CLI shader-compiler error parity and strict JSON passed.')
+
+    # A successful compile can still change a Material's reflected interface.
+    # The same shared program may belong to several Materials with distinct
+    # authored overrides; each must retain its own warning and source owner.
+    shader_file.write_text(source_text.replace('uniform vec4 u_strength;', '')
+                           .replace('u_strength.x', '0.25'))
+    orphaned = envelope('--project', str(shader_root), 'validate', timeout=180)
+    orphan_warnings = [d for d in orphaned['diagnostics']
+                       if d['code'] == 'shader.material_project']
+    assert len(orphan_warnings) == 3
+    assert all('is not present in the reflected shader interface and remains orphaned.'
+               in d['message'] for d in orphan_warnings)
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(shader_root),
+             'validate'], cwd=root, env=environment, capture_output=True, text=True, timeout=180)
+        assert reference.returncode == 0
+        assert orphaned == json.loads(reference.stdout)
+    print('Native CLI reflected Material warnings match production.')
 
     if len(sys.argv) > 3:
         oracle = Path(sys.argv[3]).resolve()
