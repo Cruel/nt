@@ -2,13 +2,13 @@
 
 > After #521, production Project authority is C++, but the production CLI
 > still uses ScriptC/QuickJS command orchestration. The direct C++ executable
-> below is an unshipped #542 slice, not the final CLI cutover. Later sections
+> below is an unshipped #542/#543 candidate, not the final CLI cutover. Later sections
 > labelled with pre-#521 certification tickets describe their historical gates;
 > [Native CLI cutover handoff](NATIVE_CLI_CUTOVER_HANDOFF.md) records that earlier handoff.
 
 NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing retained TypeScript tooling in an embedded QuickJS-ng island plus statically linked C++ Project authority and host/native tooling. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
 
-## Direct C++ executable slice (#542)
+## Direct C++ executable candidate (#542, #543)
 
 `noveltea-native-cli` is an **unshipped** CMake target producing
 `tools/editor_tool/native-cli/noveltea` under the build directory. Testing builds
@@ -18,9 +18,16 @@ C++, with no QuickJS runtime, ScriptC compiler, Node launcher, or JavaScript
 fallback. It reuses `noveltea_tooling_native`'s existing Project authority;
 there is no second Project engine or daemon.
 
-This slice implements public global parsing, help/version, JSON protocol V1,
-human diagnostics, Project selection/upward discovery, and real
-`entity inspect <collection> <id> [--provenance]`. Help and collection names
+The candidate implements public global parsing, help/version, JSON protocol V1,
+human diagnostics, Project selection/upward discovery, and direct native Project
+commands: `validate`, `fmt`, `project create/import/export`, `entity create/inspect/rename/delete`,
+`usages`, `asset audit/import`, and `localization sync/view/reconcile/accept/review`.
+The mutation paths reuse native Project plans, exact revisions, source generation
+proofs, comment impacts, safe filesystem transactions, and no-op detection. Reconciliation
+requires explicit stdin decisions and expected workspace/fingerprint identity.
+Validation checks the compiler entrypoint directly from its admitted native
+Project generation without a second full runtime/shader preparation.
+Help and collection names
 are embedded from the canonical TypeScript declarations by CMake; no TypeScript
 executes during this build. Inspection is local in this slice, both with and
 without `--no-daemon` (including `NOVELTEA_NO_DAEMON=1`); native resident command
@@ -45,12 +52,13 @@ node editor/scripts/certify-native-cli-inventory.mjs
 
 The executable-seam test copies just the binary to a temporary installation,
 removes external tools from `PATH`, and exercises static contracts, usage errors,
-Project inspection/provenance, malformed-source recovery and unsupported workspace
+Project inspection/provenance, validation, physical mutation dry-runs and commits,
+create/import/export roundtrips, malformed-source recovery and unsupported workspace
 rejection. The existing **39 public paths / 28 native Project actions** inventory
 remains the complete cutover gate; this focused test does not replace it. The
 inventory now names the post-#521 owners and current editor IPC witnesses.
 #522/#506/#474 and the final ScriptC/QuickJS retirement remain separate acceptance
-work. Feature Lab already supplies the real inspection fixture; this slice adds
+work. Feature Lab already supplies the real inspection fixture; this candidate adds
 no authorable or player-visible behavior.
 
 ## Native CLI cutover gate (#519)

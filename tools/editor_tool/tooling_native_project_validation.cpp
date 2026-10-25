@@ -170,6 +170,13 @@ Json validate(std::string_view request_text)
     // Computing it for invalid validation turns a workspace error into an
     // internal CLI failure (and hides the actionable YAML location).
     if (validated.snapshot.valid) {
+        const auto effective = Json::parse(validated.snapshot.normalized_json, nullptr, false);
+        if (!effective.is_object())
+            throw std::runtime_error("Native validation returned no normalized Project.");
+        // The CLI compiler preflight needs only this Project-authoritative fact.
+        // Do not force a second complete shader/runtime preparation for it.
+        result["entrypointConfigured"] =
+            effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
         // Bind a successful diagnostic graph to the exact physical generation
         // consumed by downstream preparation; never mix separate admissions.
         result["sourceGeneration"] = native_project_source_generation(*state.session, root);
