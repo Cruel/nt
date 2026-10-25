@@ -482,7 +482,7 @@ int tests_from_native_runtime(const Arguments& args)
                 observation[key] = value.at(key);
         return Json{{"runtimeCache", std::move(observation)}};
     };
-    const auto fields = cache_observation(cached);
+    auto fields = cache_observation(cached);
     if (!cached.value("ok", false) || cached.value("status", "") != "hit")
         return command_error(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED", "/tests",
                              "No current compiled runtime artifact is available; native cold "
@@ -687,6 +687,25 @@ int tests_from_native_runtime(const Arguments& args)
     } else {
         diagnostics.push_back(diagnostic("native.test.invalid_report", "/tests",
                                          "Native Test runner returned no valid execution report."));
+    }
+    if (needs_catalog && !cached_catalog) {
+        // A stale Test catalog does not invalidate compiled gameplay. After
+        // native execution and the final source proof, publish a fresh
+        // generation through the native cache writer. This is best-effort
+        // maintenance: a failed cache write must not falsify the Test verdict.
+        const auto published = invoke_native_json(
+            noveltea_tooling_publish_runtime_cache_json,
+            {{"projectRoot", root_text},
+             {"compilerIdentity", compiler_identity},
+             {"artifact", artifact},
+             {"catalog", catalog},
+             {"runtimeInputPaths", cached.value("runtimeInputPaths", Json::array())},
+             {"testInputPaths", cached.value("testInputPaths", Json::array())},
+             {"authoringDiagnostics", cached.value("diagnostics", Json::array())}});
+        fields["runtimeCache"]["published"] = published.value("published", false);
+        if (!published.value("published", false))
+            fields["runtimeCache"]["publicationReason"] =
+                published.value("reason", "native-publication-failed");
     }
     Json response{{"success", passed},
                   {"exitCode", passed ? 0 : 6},

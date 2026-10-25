@@ -43,12 +43,19 @@ against a verified current canonical runtime cache. It uses the verified Test
 catalog where available and **rebuilds stale/missing authored Test catalogs**
 from a native-admitted Project generation without invoking TypeScript. The
 C++ catalog projection covers typed playback inputs, expectations, native
-blocked-Test diagnostics, and UI runner selection. Single/suite/UI runners
+blocked-Test diagnostics, and UI runner selection. Rebuilt Test catalogs can
+be published as a fresh canonical runtime-cache generation by the native
+writer. The writer verifies the compiled gameplay via the engine decoder,
+requires self-contained physical Asset sources, captures Project/Test input
+metadata and checks discovery membership, rejects source drift, and updates
+the active generation pointer only after durable artifact/manifest writes.
+Single/suite/UI runners
 read stdin playback specs and recheck both runtime and Test input source
 generations before and after execution. The runtime compiler identity
 must match the CMake-bound build identity; dirty-tree builds leave it unbound
-unless a release builder supplies an explicitly pinned identity. Cache misses,
-stale catalogs, and unbound identities fail explicitly without running ScriptC.
+unless a release builder supplies an explicitly pinned identity. Compiled
+runtime cache misses and unbound identities fail explicitly without running
+ScriptC.
 The relocated candidate carries the native UI Test runner beside the binary.
 The unshipped C++ `package export` candidate can likewise consume a verified
 canonical compiled-runtime cache at its original Project root and invoke the
@@ -58,9 +65,14 @@ localization warnings, rejects external/symlinked physical package sources,
 and stages output before an atomic replacement. A relocated or stale cache
 cannot publish the old Project's physical sources.
 This remains an **unshipped candidate**, not a replacement for production
-ScriptC: cold compiled-gameplay lowering, uncached Runtime Package assembly,
-and runtime-artifact cache-rebuild recovery still require
-native implementations in #544. The final cutover needs their certification
+ScriptC: native authoring-to-gameplay lowering is currently incomplete. A
+nonpublishable C++ partial compiler covers static Asset/Animation/Script
+resources, Project identity, entrypoints, bootstrap references, and ordinary
+global Variables; localized Message Variables and the remaining gameplay
+definitions/programs are not yet lowered. The native Save Contract projection
+has a separate canonical-hash certification. Cold compiled-gameplay creation,
+uncached Runtime Package assembly, and full cache-rebuild recovery still
+require native implementations in #544. The final cutover needs their certification
 before public CLI replacement.
 Help and collection names
 are embedded from the canonical TypeScript declarations by CMake; no TypeScript

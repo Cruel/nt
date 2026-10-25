@@ -40,6 +40,8 @@ uint64_t noveltea_tooling_probe_authoring_cache_json(const uint8_t* request, uin
                                                      uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_probe_runtime_cache_json(const uint8_t* request, uint64_t request_size,
                                                    uint8_t* response, uint64_t response_capacity);
+uint64_t noveltea_tooling_publish_runtime_cache_json(const uint8_t* request, uint64_t request_size,
+                                                     uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_create_archive_json(const uint8_t* request, uint64_t request_size,
                                               uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_daemon_json(const uint8_t* request, uint64_t request_size,
