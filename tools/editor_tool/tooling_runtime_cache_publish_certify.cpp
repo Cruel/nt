@@ -1,6 +1,7 @@
 #include "tooling_native_c.h"
 #include "native_authoring_resources.hpp"
 #include "native_compiled_project_save_contract.hpp"
+#include <noveltea/core/compiled_project_codec.hpp>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
@@ -45,14 +46,26 @@ Json invoke(std::uint64_t (*operation)(const std::uint8_t*, std::uint64_t, std::
 int main(int argc, char** argv)
 {
     try {
-        if (argc == 2 && std::string_view(argv[1]) == "--hash-compiled-stdin") {
+        if (argc == 2 && std::string_view(argv[1]) == "--verify-compiled-stdin") {
             const std::string input{std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>()};
             const auto project = Json::parse(input);
-            std::cout << Json{{"saveContract",
-                               noveltea::cli::compiled_project_save_contract(project)}}
-                             .dump()
-                      << '\n';
+            const auto decoded =
+                noveltea::core::decode_compiled_project(project, "compiled-project-parity");
+            if (!decoded) {
+                Json diagnostics = Json::array();
+                for (const auto& item : decoded.error())
+                    diagnostics.push_back({{"code", item.code},
+                                           {"path", item.json_pointer},
+                                           {"message", item.message}});
+                std::cout << Json{{"verified", false}, {"diagnostics", diagnostics}}.dump() << '\n';
+            } else {
+                std::cout << Json{{"verified", true},
+                                  {"saveContract",
+                                   noveltea::cli::compiled_project_save_contract(project)}}
+                                 .dump()
+                          << '\n';
+            }
             return 0;
         }
         if (argc == 3 && std::string_view(argv[2]) == "--create-small") {

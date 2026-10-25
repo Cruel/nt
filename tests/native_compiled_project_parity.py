@@ -99,10 +99,12 @@ def main():
                 assert (target / "records/variables/zeta.yaml").is_file()
                 assert (target / "records/variables/alpha.yaml").is_file()
             if name == "invalid-asset":
-                asset = target / "records/assets/ui-pattern.yaml"
-                asset.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(fixture / "records/assets/ui-pattern.yaml", asset)
-                edit(asset, "kind: image", "kind: invalid-kind")
+                for asset_id in ("zz-bad", "aa-bad"):
+                    asset = target / "records/assets" / f"{asset_id}.yaml"
+                    asset.parent.mkdir(parents=True, exist_ok=True)
+                    source_text = (fixture / "records/assets/ui-pattern.yaml").read_text()
+                    asset.write_text(source_text.replace("id: ui-pattern", f"id: {asset_id}")
+                                     .replace("kind: image", "kind: invalid-kind"))
 
             admitted = invoke(binary, str(target), "--emit-parity")
             cases[name] = admitted
@@ -130,9 +132,10 @@ def main():
                     compare(name, "diagnostics.entrypoint", reference_diagnostics,
                             data["diagnostics"])
                 else:
-                    assert any(diagnostic.get("code") == "schema.enum" and
-                               diagnostic.get("path") == "/assets/ui-pattern/data/kind"
-                               for diagnostic in data["diagnostics"]), data["diagnostics"]
+                    invalid_asset_paths = [diagnostic["path"] for diagnostic in data["diagnostics"]
+                                           if diagnostic.get("code") == "schema.enum"]
+                    assert invalid_asset_paths == ["/assets/aa-bad/data/kind",
+                                                   "/assets/zz-bad/data/kind"], data["diagnostics"]
                 print(f"{name}: native admission/lowering rejected with {data['diagnostics'][0]}")
                 continue
             assert data["sourceGeneration"] and data["sourceRevisions"], name
@@ -171,8 +174,15 @@ def main():
                            for entry in catalog["entries"]), message
             compare(name, "diagnostics.supported", expected["diagnostics"],
                     data["loweringDiagnostics"])
-            native_hash = invoke(binary, "--hash-compiled-stdin", stdin=json.dumps(wire))
-            compare(name, "saveContract", wire["saveContract"], native_hash["saveContract"])
+            verified = invoke(binary, "--verify-compiled-stdin", stdin=json.dumps(wire))
+            assert verified["verified"], (name, verified.get("diagnostics"))
+            compare(name, "saveContract", wire["saveContract"], verified["saveContract"])
+            if name == "feature-lab":
+                malformed_wire = {**wire, "schemaVersion": -1}
+                rejected = invoke(binary, "--verify-compiled-stdin",
+                                  stdin=json.dumps(malformed_wire))
+                assert rejected["verified"] is False and rejected["diagnostics"], rejected
+                assert rejected["diagnostics"][0]["path"] == "/schemaVersion", rejected
             missing = data["unsupportedFamilies"]
             assert "definitions" in missing and "resources.layouts" in missing
             print(f"{name}: PASS supported Project/Asset/Animation/Script/global Variable parity; "
