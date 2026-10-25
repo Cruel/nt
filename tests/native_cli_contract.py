@@ -63,25 +63,59 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     public_section = help_text.split('\nCommands:\n', 1)[1].split('\nGlobal options:\n', 1)[0]
     public_paths = set(re.findall(r'^  ([a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*)', public_section, re.MULTILINE))
     assert len(public_paths) == 39
-    for command in public_paths - {'entity inspect'}:
+    project_commands = {
+        'validate', 'fmt', 'project create', 'project import', 'project export',
+        'entity inspect', 'entity create', 'entity rename', 'entity delete',
+        'usages', 'asset audit', 'asset import', 'localization sync',
+        'localization view', 'localization reconcile', 'localization accept',
+        'localization review',
+    }
+    assert project_commands <= public_paths
+    for command in public_paths - project_commands:
         assert envelope(*command.split(), code=70)['diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
 
-    project = source / 'tests/projects/feature-lab'
-    inspect = ['entity', 'inspect', 'rooms', 'active-text-finish']
+    # One realistic authored fixture, then a small native-created Project for
+    # repeated relocated/negative checks (avoid repeatedly parsing Feature Lab).
+    feature_lab = source / 'tests/projects/feature-lab'
+    feature = envelope('--project', str(feature_lab), 'entity', 'inspect', 'rooms',
+                       'active-text-finish')
+    assert feature['record']['label'] == 'Notice acknowledged'
+    assert feature['record']['data']['anchors'] == []
+
+    created = root / 'created'
+    new = envelope('project', 'create', str(created), '--name', 'Native CLI Test')
+    assert new['projectRoot'] == str(created)
+    assert (created / 'project.yaml').is_file()
+    envelope('--project', str(created), 'entity', 'create', 'rooms', 'witness-room')
+    project = created
+    inspect = ['entity', 'inspect', 'rooms', 'witness-room']
     value = envelope('--no-daemon', '--project', str(project), *inspect)
-    assert value['collection'] == 'rooms' and value['id'] == 'active-text-finish'
-    assert value['record']['label'] == 'Notice acknowledged'
+    assert value['collection'] == 'rooms' and value['id'] == 'witness-room'
     assert value['record']['data']['anchors'] == []
     assert envelope(*inspect, cwd=project / 'records/rooms') == value
     assert envelope('--project', '.', *inspect, cwd=project) == value
     assert envelope(*inspect, cwd=project) == value
     assert envelope('--project', str(project), *inspect) == value
+    usages = envelope('--project', str(project), 'usages', 'rooms', 'witness-room')
+    assert usages['collection'] == 'rooms' and usages['id'] == 'witness-room'
+    assert isinstance(usages['usages'], list)
+    audit = envelope('--project', str(project), 'asset', 'audit')
+    assert audit['projectRoot'] == str(project)
+    for args, expected in [
+        (['entity', 'rename', 'rooms', 'one'], 'Usage: noveltea entity rename'),
+        (['localization', 'view'], 'Usage: noveltea localization view'),
+        (['asset', 'import'], 'Usage: noveltea asset import'),
+        (['project', 'create'], 'Project directory is required.'),
+        (['fmt', '--wat'], 'Usage: noveltea fmt'),
+    ]:
+        failure = envelope(*args, code=2)
+        assert failure['diagnostics'][0]['message'].startswith(expected)
+
     proven = envelope('--project', str(project), *inspect, '--provenance')
     assert proven['provenance']['label'] == 'explicit'
     assert proven['provenance']['data']['anchors'] == 'default'
     human = run('--project', str(project), *inspect)
     assert human.returncode == 0 and json.loads(human.stdout) == value['record']
-    assert '[info] hotspot.authoring.target.none' in human.stderr
     missing = envelope('--project', str(root), *inspect, code=3)
     assert missing['diagnostics'][0]['code'] == 'WORKSPACE_NOT_FOUND'
     absent = envelope('--project', str(project), 'entity', 'inspect', 'rooms', 'absent-room', code=4)
@@ -90,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     shutil.copytree(project, damaged, ignore=shutil.ignore_patterns('.noveltea'))
     selected = ['--project', str(damaged), *inspect]
     assert envelope(*selected)['record'] == value['record']
-    record = damaged / 'records/rooms/active-text-finish.yaml'
+    record = damaged / 'records/rooms/witness-room.yaml'
     original = record.read_bytes()
     record.write_text('id: [broken\n')
     malformed = envelope(*selected, code=3)
@@ -102,8 +136,59 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     manifest.write_text(manifest.read_text().replace('schemaVersion: 1', 'schemaVersion: 999'))
     unsupported = envelope(*selected, code=3)
     assert any(item['code'] == 'WORKSPACE_VERSION_UNSUPPORTED' for item in unsupported['diagnostics'])
-    # An invalid discovered manifest must not fall through to another Project.
     assert envelope(*inspect, code=3, cwd=damaged / 'records')['projectRoot'] == str(damaged)
+
+    # Relocated binary owns actual source writes, not just argument routing.
+    missing_entrypoint = envelope('--project', str(created), 'validate', code=4)
+    assert any(d['code'] == 'COMPILER_ENTRYPOINT_REQUIRED'
+               for d in missing_entrypoint['diagnostics'])
+    assert envelope('--project', str(created), 'fmt', '--check')['changed'] == 0
+    assert envelope('--project', str(created), 'asset', 'audit')['untrackedFiles'] == []
+    assert envelope('--project', str(created), 'localization', 'sync', '--dry-run')['dryRun']
+    # The generated Project has only a source locale; view needs a target locale.
+    view_failure = envelope('--project', str(created), 'localization', 'view', 'en', code=3)
+    assert view_failure['diagnostics'][0]['code'] == 'WORKSPACE_SOURCE_READ'
+    plan = envelope('--project', str(created), 'entity', 'create', 'rooms',
+                    'first-room', '--dry-run')
+    assert plan['dryRun'] and plan['plan']['writes']
+    entity_file = created / 'records/rooms/first-room.yaml'
+    assert not entity_file.exists()
+    assert envelope('--project', str(created), 'entity', 'create', 'rooms',
+                    'first-room')['plan'] == plan['plan']
+    assert entity_file.is_file()
+    rename = envelope('--project', str(created), 'entity', 'rename', 'rooms',
+                      'first-room', 'second-room', '--dry-run')
+    assert rename['fromId'] == 'first-room' and rename['dryRun']
+    assert entity_file.is_file()
+    envelope('--project', str(created), 'entity', 'rename', 'rooms', 'first-room', 'second-room')
+    assert not entity_file.exists()
+    renamed = created / 'records/rooms/second-room.yaml'
+    assert renamed.is_file()
+    envelope('--project', str(created), 'entity', 'delete', 'rooms', 'second-room', '--dry-run')
+    assert renamed.is_file()
+    envelope('--project', str(created), 'entity', 'delete', 'rooms', 'second-room')
+    assert not renamed.exists()
+    source_image = source / 'tests/projects/feature-lab/assets/images/ui-pattern.png'
+    planned_asset = envelope('--project', str(created), 'asset', 'import',
+                             str(source_image), '--dry-run')
+    assert planned_asset['dryRun'] and not planned_asset['assets'][0]['alreadyImported']
+    asset_file = created / planned_asset['assets'][0]['projectRelativePath']
+    assert not asset_file.exists()
+    committed_asset = envelope('--project', str(created), 'asset', 'import', str(source_image))
+    assert committed_asset['assets'][0]['assetId'] == planned_asset['assets'][0]['assetId']
+    assert asset_file.is_file()
+    # An already registered in-Project source is recognized without writing;
+    # re-importing an external original is intentionally a distinct import.
+    repeated_asset = envelope('--project', str(created), 'asset', 'import',
+                              str(asset_file), '--dry-run')
+    assert repeated_asset['assets'][0]['alreadyImported']
+    archive = root / 'portable.ntproject'
+    bundle = envelope('--project', str(created), 'project', 'export', '--output', str(archive))
+    assert bundle['outputPath'] == str(archive) and archive.is_file()
+    imported = envelope('project', 'import', str(archive), str(root / 'imported'))
+    assert Path(imported['projectFilePath']).is_file()
+    assert Path(imported['projectFilePath']).read_bytes() == (created / 'project.yaml').read_bytes()
+    print('Native CLI physical mutation, lifecycle and validation contracts passed.')
 
     if len(sys.argv) > 3:
         oracle = Path(sys.argv[3]).resolve()
@@ -116,6 +201,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
             ['--no-daemon', '--project', str(project), *inspect],
             ['--json', '--project', str(project), 'entity', 'inspect', 'rooms', 'absent-room'],
             ['--json', *selected],
+            ['--json', '--project', str(created), 'validate'],
+            ['--json', '--project', str(created), 'fmt', '--check'],
+            ['--json', '--project', str(created), 'asset', 'audit'],
+            ['--json', '--project', str(created), 'localization', 'sync', '--dry-run'],
+            ['--json', '--project', str(created), 'localization', 'view', 'en'],
+            ['--json', '--project', str(created), 'localization', 'reconcile'],
+            ['--json', '--project', str(created), 'usages', 'rooms', 'missing-room'],
         ]
         for args in cases:
             native = run(*args)
