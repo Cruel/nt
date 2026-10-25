@@ -26,7 +26,14 @@ The mutation paths reuse native Project plans, exact revisions, source generatio
 proofs, comment impacts, safe filesystem transactions, and no-op detection. Reconciliation
 requires explicit stdin decisions and expected workspace/fingerprint identity.
 Validation checks the compiler entrypoint directly from its admitted native
-Project generation without a second full runtime/shader preparation.
+Project generation, and checks native localization font coverage and portable
+source inventory against the same admitted generation. The candidate stages
+the trusted system font assets next to its binary, matching installed font
+coverage resolution without relying on source-checkout paths.
+**This is not yet complete public `validate` parity:** the downstream
+shader/material compiler and reflection stage still needs direct C++ orchestration,
+alongside `shaders compile`, in #544. The standalone candidate remains unshipped
+until that stage and the later native CLI cutover requirements are certified.
 Help and collection names
 are embedded from the canonical TypeScript declarations by CMake; no TypeScript
 executes during this build. Inspection is local in this slice, both with and
@@ -50,10 +57,11 @@ python3 tests/native_cli_contract.py \
 node editor/scripts/certify-native-cli-inventory.mjs
 ```
 
-The executable-seam test copies just the binary to a temporary installation,
-removes external tools from `PATH`, and exercises static contracts, usage errors,
+The executable-seam test copies the binary and its required system fonts to a
+temporary installation, removes external tools from `PATH`, and exercises static contracts, usage errors,
 Project inspection/provenance, validation, physical mutation dry-runs and commits,
-create/import/export roundtrips, malformed-source recovery and unsupported workspace
+create/import/export roundtrips, missing portable sources, font-coverage failures,
+malformed-source recovery and unsupported workspace
 rejection. The existing **39 public paths / 28 native Project actions** inventory
 remains the complete cutover gate; this focused test does not replace it. The
 inventory now names the post-#521 owners and current editor IPC witnesses.

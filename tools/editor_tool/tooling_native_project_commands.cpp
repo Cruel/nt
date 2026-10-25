@@ -101,8 +101,7 @@ void collect_runtime_asset_references(const Json& value, const std::string& path
         // App icon and launch art are platform-assembly inputs, not gameplay
         // Runtime Package dependencies. The existing platform stager reads
         // them independently, so including them here changes .ntpkg contents.
-        if (child_path == "/settings/app/icon" ||
-            child_path == "/settings/app/launchImage")
+        if (child_path == "/settings/app/icon" || child_path == "/settings/app/launchImage")
             continue;
         // Localization-owned Assets are resolved by the separate export locale closure.
         if (child_path.starts_with("/localization/assets/") ||
@@ -260,7 +259,11 @@ Json operate(const Json& request)
         return {{"ok", true}, {"locations", std::move(located)}};
     }
     if (action == "project-validate") {
-        const auto serialized = Json{{"projectRoot", root_utf8}, {"action", "validate"}}.dump();
+        const auto serialized =
+            Json{{"projectRoot", root_utf8},
+                 {"action", "validate"},
+                 {"includeFontCoverageInputs", request.value("includeFontCoverageInputs", false)}}
+                .dump();
         const auto* bytes = reinterpret_cast<const std::uint8_t*>(serialized.data());
         // Validation retains a warm owner cache. A length probe would execute
         // it twice and change the published cold/warm generation between the
@@ -419,9 +422,9 @@ Json operate(const Json& request)
 
     // Capture before validation so a disk race cannot attach newer source bytes
     // to an effective Project assembled from an earlier generation.
-    const bool complete_runtime_preparation =
-        action == "shader-preparation" || action == "runtime-package-preparation" ||
-        action == "platform-export-preparation";
+    const bool complete_runtime_preparation = action == "shader-preparation" ||
+                                              action == "runtime-package-preparation" ||
+                                              action == "platform-export-preparation";
     const auto preparation_generation = complete_runtime_preparation
                                             ? native_project_source_generation(*session, root)
                                             : std::string{};
@@ -494,9 +497,10 @@ Json operate(const Json& request)
                                      {"error", "Native Project authoring admission failed."}});
         const auto generation = native_project_source_generation(*session, root);
         if (!native_project_source_generation_is_current(root, generation))
-            return with_diagnostics({{"ok", false},
-                                     {"kind", "conflict"},
-                                     {"error", "Project sources changed during ComfyUI admission."}});
+            return with_diagnostics(
+                {{"ok", false},
+                 {"kind", "conflict"},
+                 {"error", "Project sources changed during ComfyUI admission."}});
         return with_diagnostics({{"ok", true}, {"sourceGeneration", generation}});
     }
 

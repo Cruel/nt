@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     root = Path(temporary)
     installed = root / binary.name
     shutil.copy2(binary, installed)
+    shutil.copytree(binary.parent / 'assets/system', root / 'assets/system')
     environment = {**os.environ, 'PATH': str(root), 'NOVELTEA_NO_DAEMON': '1'}
 
     def run(*args, cwd=root):
@@ -189,6 +190,50 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     assert Path(imported['projectFilePath']).is_file()
     assert Path(imported['projectFilePath']).read_bytes() == (created / 'project.yaml').read_bytes()
     print('Native CLI physical mutation, lifecycle and validation contracts passed.')
+
+    # Font coverage is a public validation contract, not only static YAML admission.
+    coverage_root = root / 'font-coverage'
+    envelope('project', 'create', str(coverage_root), '--name', 'Native Font Coverage')
+    envelope('--project', str(coverage_root), 'entity', 'create', 'rooms', 'sample-room')
+    (coverage_root / 'project.yaml').open('a', encoding='utf-8').write(
+        '\nentrypoint:\n  kind: room\n  id: sample-room\n')
+    message_file = coverage_root / 'i18n/messages.yaml'
+    message_file.write_text(message_file.read_text().replace(
+        'messages: {}',
+        'messages:\n  17111111-1111-4111-8111-111111111111:\n'
+        '    kind: named\n    key: coverage.test\n    source: "珍"'))
+    with (coverage_root / 'i18n/project.yaml').open('a', encoding='utf-8') as file:
+        file.write('  fr:\n    supported: true\n    parentLocale: null\n    fontStack: null\n')
+    uncovered = envelope('--project', str(coverage_root), 'validate', code=6)
+    gaps = [d for d in uncovered['diagnostics'] if d['code'] == 'localization.font_coverage']
+    assert {d['message'].split("Locale '", 1)[1].split("'", 1)[0] for d in gaps} == {'en', 'fr'}
+    assert all(d['path'] ==
+               '/localization/messages/17111111-1111-4111-8111-111111111111/source'
+               for d in gaps)
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(coverage_root),
+             'validate'], cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        assert reference.returncode == 6
+        assert uncovered == json.loads(reference.stdout)
+    print('Native CLI font coverage validation matches production.')
+
+    notices = root / 'missing-notice'
+    shutil.copytree(created, notices, ignore=shutil.ignore_patterns('.noveltea'))
+    manifest = notices / 'project.yaml'
+    manifest.write_text(manifest.read_text().replace(
+        'distributionNotices: []',
+        'distributionNotices:\n    - path: notes/DOESNOTEXIST.md'))
+    missing_notice = envelope('--project', str(notices), 'validate', code=4)
+    assert missing_notice['diagnostics'][0]['code'] == 'WORKSPACE_SOURCE_READ'
+    assert 'Portable Project source is missing: notes/DOESNOTEXIST.md' in (
+        missing_notice['diagnostics'][0]['message'])
+    if len(sys.argv) > 3:
+        reference = subprocess.run(
+            [str(Path(sys.argv[3]).resolve()), '--json', '--project', str(notices), 'validate'],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=60)
+        assert reference.returncode == 4
+        assert missing_notice == json.loads(reference.stdout)
 
     if len(sys.argv) > 3:
         oracle = Path(sys.argv[3]).resolve()

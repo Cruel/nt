@@ -600,8 +600,9 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         return failure(prepared.error);
     const auto project = Json::parse(prepared.project_json);
     const auto& localization = project.at("localization");
-    if (locale == localization.at("sourceLocale").get<std::string>() ||
-        !localization.at("locales").contains(locale))
+    const bool source_locale = locale == localization.at("sourceLocale").get<std::string>();
+    if ((source_locale && !request.value("allowSourceLocale", false)) ||
+        (!source_locale && !localization.at("locales").contains(locale)))
         return failure("Localization view requires a registered target locale.");
     std::map<std::string, Json> messages;
     std::map<std::string, std::set<std::string>> usages;
