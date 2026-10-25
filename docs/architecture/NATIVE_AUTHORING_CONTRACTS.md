@@ -424,3 +424,40 @@ tests also verify literal projections and plural/select operation-ID registratio
 The native differential tests skip explicitly when `NOVELTEA_SCHEMA_CERTIFY` is not supplied; Build
 CI always supplies it after building the executable. Generator/staleness tests run without a C++
 build. Feature Lab is not applicable: this foundation has no runtime-observable or editor UI behavior.
+
+## Native validation performance audit (October 2026)
+
+`contracts.cpp` now uses one immutable `Contracts` instance. Its generated schema nodes are
+indexed once with pointers into its unmodified JSON document; the compiled structural validators
+and generated-root operation-support diagnostics are also reused. Unsupported generated operations
+still fail closed, including operations in branches not selected by the input. Source projection,
+union selection, defaults, normalization, and diagnostic ordering follow the original paths.
+
+For repeatable read-only cold Project timing, build the standalone authoring Release target and run:
+
+```sh
+cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build/native-authoring-host --target noveltea-project-session-certify
+build/native-authoring-host/noveltea-project-session-certify --profile-cold-validation tests/projects/feature-lab
+```
+
+The profiler reports Project opening, cold `validate_project`, total elapsed milliseconds, valid
+status, diagnostic count, and rechecked record count. Feature Lab contains 294 record YAML files
+and 306 checked owners. Four sequential fresh-process Release runs after indexing measured
+**543–560 ms opening**, **815–842 ms validating**, and **1,358–1,402 ms combined**. This benchmark
+is not directly comparable to the earlier approximately 58-second *Debug* shader-preparation
+certification, which performs additional work and uses a different build mode.
+
+In the standalone Debug build, two fresh-process runs measured **4,379–4,462 ms opening** and
+**7,496–7,615 ms validating** (11.87–12.08 seconds combined). The earlier Debug shader-preparation
+instrumentation measured about 4.9 seconds opening and 36.9–37.8 seconds validating, implying an
+approximately 80% reduction in the validation stage. These are the same *stages* but not an
+identical executable/entry point, and should not be presented as a controlled end-to-end comparison.
+
+Temporary phase probes attributed approximately 205 ms of opening to manifest admission/inventory,
+165 ms to source-authority initialization, 74 ms to text-source digesting and indexing, and 102 ms
+to localization admission. Within validation, about 500 ms was source-record admission, 222 ms
+semantic snapshot computation, 70 ms spatial graph validation, and 38 ms diagnostics/final source
+observation. Instrumentation was removed. The spatial validator still independently checks Room
+and Map structures after individual source admission. Removing this or source-freshness checks
+requires separate semantic and race proofs; this optimization does not relax them.

@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace noveltea::authoring {
@@ -250,17 +251,54 @@ Json embedded_document()
 }
 
 struct Contracts {
+    struct StringHash {
+        using is_transparent = void;
+        std::size_t operator()(std::string_view value) const noexcept
+        {
+            return std::hash<std::string_view>{}(value);
+        }
+    };
+
     Json document = embedded_document();
     std::map<std::string, CompiledSchema> validators;
+    // These pointers remain stable: the embedded document is never mutated after construction.
+    std::unordered_map<std::string, const Json*, StringHash, std::equal_to<>> nodes;
+    std::map<std::string, std::vector<Diagnostic>> root_support_diagnostics;
+
+    const Json& node(std::string_view id) const
+    {
+        const auto found = nodes.find(id);
+        if (found == nodes.end())
+            throw std::runtime_error("Unknown native schema node: " + std::string(id));
+        return *found->second;
+    }
+
+    void check_support(const std::string& id, std::set<std::string>& seen,
+                       std::vector<Diagnostic>& errors) const
+    {
+        if (!seen.insert(id).second)
+            return;
+        const auto& current = node(id);
+        for (const auto& op : current.at("operations").array_range()) {
+            const auto name = op.at("id").as<std::string>();
+            if (!implemented_operations.contains(name))
+                errors.push_back({"", "contract.unsupported_operation",
+                                  "Native operation is registered but not implemented: " + name});
+        }
+        for (const auto& child : current.at("children").object_range())
+            check_support(child.value().as<std::string>(), seen, errors);
+    }
 
     Contracts()
     {
         if (document.at("schema") != "noveltea.native-authoring-contracts")
             throw std::runtime_error("Invalid embedded contract identity");
         auto options = jsoncons::jsonschema::evaluation_options{}.require_format_validation(true);
+        nodes.reserve(document.at("nodes").size());
         for (const auto& item : document.at("nodes").object_range()) {
             const auto id = std::string(item.key());
             const auto& node = item.value();
+            nodes.emplace(id, &node);
             if (node.contains("validation"))
                 validators.emplace(
                     id, jsoncons::jsonschema::make_json_schema(node.at("validation"), options));
@@ -279,8 +317,23 @@ struct Contracts {
                 throw std::runtime_error("Native implementation has no generated registration: " +
                                          id);
         }
+        for (const auto& root : document.at("roots").object_range()) {
+            const auto id = root.value().as<std::string>();
+            if (root_support_diagnostics.contains(id))
+                continue;
+            std::set<std::string> seen;
+            auto& errors = root_support_diagnostics[id];
+            check_support(id, seen, errors);
+        }
     }
 };
+
+const Contracts& shared_contracts()
+{
+    // All source adapters and the validator consume the same immutable generated schema.
+    static const Contracts contracts;
+    return contracts;
+}
 
 // Select only tagged branches of an otherwise ordinary union. Gameplay Commands
 // use z.union (rather than z.discriminatedUnion), and transfer/consume have an
@@ -289,7 +342,7 @@ struct Contracts {
 const Json& unwrapped_node(const Contracts& contracts, std::string id)
 {
     for (unsigned int depth = 0; depth < 64; ++depth) {
-        const auto& current = contracts.document.at("nodes").at(id);
+        const auto& current = contracts.node(id);
         const auto type = current.at("type").as<std::string>();
         if (type == "lazy" || type == "optional" || type == "nullable" || type == "default")
             id = current.at("children").at("inner").as<std::string>();
@@ -421,7 +474,7 @@ class Validator {
     const Contracts& contracts_;
     std::size_t visits_ = 0;
 
-    const Json& node(const std::string& id) const { return contracts_.document.at("nodes").at(id); }
+    const Json& node(const std::string& id) const { return contracts_.node(id); }
 
     void issue(std::vector<Diagnostic>& errors, const std::string& path, std::string code,
                std::string message) const
@@ -763,22 +816,6 @@ class Validator {
 public:
     explicit Validator(const Contracts& contracts) : contracts_(contracts) {}
 
-    void check_support(const std::string& id, std::set<std::string>& seen,
-                       std::vector<Diagnostic>& errors) const
-    {
-        if (!seen.insert(id).second)
-            return;
-        const auto& current = node(id);
-        for (const auto& op : current.at("operations").array_range()) {
-            const auto name = op.at("id").as<std::string>();
-            if (!implemented_operations.contains(name))
-                issue(errors, "", "contract.unsupported_operation",
-                      "Native operation is registered but not implemented: " + name);
-        }
-        for (const auto& child : current.at("children").object_range())
-            check_support(child.value().as<std::string>(), seen, errors);
-    }
-
     void parse(const std::string& id, Value& value, const std::string& path,
                std::vector<Diagnostic>& errors, std::size_t depth = 0)
     {
@@ -964,7 +1001,7 @@ class SparseSourceProjection {
     const std::string family_kind_;
     const std::string condition_id_;
 
-    const Json& node(std::string_view id) const { return contracts_.document.at("nodes").at(id); }
+    const Json& node(std::string_view id) const { return contracts_.node(id); }
 
     std::string unwrap(std::string id) const
     {
@@ -1167,15 +1204,14 @@ ValidationResult validate_record(std::string_view contract, std::string_view sou
 {
     ValidationResult result;
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         if (!contracts.document.at("roots").contains(contract)) {
             result.diagnostics.push_back({"", "contract.unknown", "Unknown generated contract."});
             return result;
         }
         Validator validator(contracts);
         const auto id = contracts.document.at("roots").at(contract).as<std::string>();
-        std::set<std::string> visited;
-        validator.check_support(id, visited, result.diagnostics);
+        result.diagnostics = contracts.root_support_diagnostics.at(id);
         if (!result.diagnostics.empty())
             return result;
         Value value = Json::parse(source_json);
@@ -1209,13 +1245,12 @@ static ValidationResult validate_workspace_domain(std::string_view domain,
 {
     ValidationResult result;
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         const auto root = contracts.document.at("roots").at("WorkspaceManifest").as<std::string>();
-        const auto id =
-            contracts.document.at("nodes").at(root).at("children").at(domain).as<std::string>();
+        const auto id = contracts.node(root).at("children").at(domain).as<std::string>();
         Validator validator(contracts);
         std::set<std::string> visited;
-        validator.check_support(id, visited, result.diagnostics);
+        contracts.check_support(id, visited, result.diagnostics);
         if (!result.diagnostics.empty())
             return result;
         Value value = Json::parse(source_json);
@@ -1236,7 +1271,7 @@ ValidationResult validate_workspace_project_identity(std::string_view source_jso
 
 std::string structural_reference_rules_json()
 {
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     return contracts.document.at("structuralReferenceRules").to_string();
 }
 
@@ -1245,7 +1280,7 @@ ValidationResult validate_workspace_export_settings(std::string_view source_json
     auto result = validate_workspace_domain("export", source_json);
     if (!result.accepted)
         return result;
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     const auto& metadata = contracts.document.at("scopedExportValidation");
     const auto lower_label = [&](std::string text) {
         text = trim_ecmascript(std::move(text));
@@ -1372,7 +1407,7 @@ ValidationResult validate_workspace_export_settings(std::string_view source_json
 ValidationResult validate_room_source(std::string_view source_json)
 {
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         Json source = Json::parse(source_json);
         if (source.is_object() && source.contains("data") && source.at("data").is_object() &&
             source.at("data").contains("kind")) {
@@ -1395,7 +1430,7 @@ ValidationResult validate_room_source(std::string_view source_json)
 ValidationResult validate_map_source(std::string_view source_json)
 {
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         Json source = Json::parse(source_json);
         if (source.is_object() && source.contains("data") && source.at("data").is_object() &&
             source.at("data").contains("kind")) {
@@ -1421,7 +1456,7 @@ ValidationResult validate_sparse_record_source(std::string_view source_json,
                                                std::string_view kind)
 {
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         Json source = Json::parse(source_json);
         if (source.is_object() && source.contains("data") && source.at("data").is_object() &&
             source.at("data").contains("kind")) {
@@ -1633,7 +1668,7 @@ ValidationResult validate_test_source(std::string_view source_json)
 {
     ValidationResult intent{true};
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         TestSourceIntent{contracts.document.at("testSourceIntent"), intent}.check(
             Json::parse(source_json));
     } catch (const std::exception& error) {
@@ -1654,7 +1689,7 @@ ValidationResult validate_layout_source(std::string_view source_json,
                                       std::move(source_path)});
     };
     try {
-        static const Contracts contracts;
+        const auto& contracts = shared_contracts();
         Json source = Json::parse(source_json);
         if (!source.is_object() || !source.contains("data") || !source.at("data").is_object()) {
             add("/data", "Layout metadata must contain a data mapping.");
@@ -1760,7 +1795,7 @@ ValidationResult validate_layout_source(std::string_view source_json,
 
 std::optional<std::string> archetype_template_json(std::string_view instance_kind)
 {
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     const auto& templates = contracts.document.at("archetypeTemplates");
     if (!templates.contains(instance_kind))
         return std::nullopt;
@@ -1769,7 +1804,7 @@ std::optional<std::string> archetype_template_json(std::string_view instance_kin
 
 std::optional<std::string> source_omission_defaults_json(std::string_view family)
 {
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     const auto& families = contracts.document.at("sourceDefaults");
     if (!families.contains(family))
         return std::nullopt;
@@ -1838,7 +1873,7 @@ ValidationResult normalize_compaction_source(std::string_view family, std::strin
 
 std::optional<std::string> default_entity_source_json(std::string_view family)
 {
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     const auto& families = contracts.document.at("entityRecordSources");
     if (!families.contains(family))
         return std::nullopt;
@@ -1847,13 +1882,13 @@ std::optional<std::string> default_entity_source_json(std::string_view family)
 
 std::string project_creation_files_json()
 {
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     return contracts.document.at("projectCreationFiles").to_string();
 }
 
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id)
 {
-    static const Contracts contracts;
+    const auto& contracts = shared_contracts();
     const auto& presets = contracts.document.at("materialPresets");
     if (!presets.contains(preset_id))
         return std::nullopt;
