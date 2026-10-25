@@ -48,6 +48,7 @@ export const IPC_CHANNELS = {
   NATIVE_PROJECT_VALIDATE: 'noveltea:native-project-validate',
   NATIVE_PROJECT_SEMANTIC_GRAPH: 'noveltea:native-project-semantic-graph',
   NATIVE_PROJECT_PREPARE_RUNTIME: 'noveltea:native-project-prepare-runtime',
+  NATIVE_PROJECT_TEST_READINESS: 'noveltea:native-project-test-readiness',
   NATIVE_PROJECT_RUN_TEST: 'noveltea:native-project-run-test',
   NATIVE_PROJECT_RUN_SUITE: 'noveltea:native-project-run-suite',
   NATIVE_PROJECT_PREPARE_EXPORT: 'noveltea:native-project-prepare-export',

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useCommandStore } from '@/commands/command-store';
 import { TraitsEditor } from '@/editors/traits/TraitsEditor';
@@ -10,6 +10,7 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
@@ -18,11 +19,7 @@ beforeEach(() => {
 
 function loadProject() {
   const project = createAuthoringProject();
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock',
-    projectFilePath: '/mock/project.yaml',
-  });
+  admitNativeRendererCommandFixture(project);
   return project;
 }
 
@@ -39,16 +36,18 @@ describe('TraitsEditor', () => {
     await user.type(screen.getByPlaceholderText('Inspectable'), 'Inspectable');
     await user.click(screen.getByRole('button', { name: 'Create Trait' }));
 
-    const document = useProjectStore.getState().document;
-    expect(isAuthoringProject(document)).toBe(true);
-    if (!isAuthoringProject(document)) throw new Error('Expected authoring project');
-    expect(document.traits.inspectable).toEqual({
-      id: 'inspectable',
-      label: 'Inspectable',
-      ownerKinds: ['room'],
-      properties: [],
+    await waitFor(() => {
+      const document = useProjectStore.getState().document;
+      expect(isAuthoringProject(document)).toBe(true);
+      if (!isAuthoringProject(document)) throw new Error('Expected authoring project');
+      expect(document.traits.inspectable).toEqual({
+        id: 'inspectable',
+        label: 'Inspectable',
+        ownerKinds: ['room'],
+        properties: [],
+      });
+      expect(document.editor.recordMetadata.traits?.inspectable?.color).toMatch(/^#[0-9a-f]{6}$/i);
     });
-    expect(document.editor.recordMetadata.traits?.inspectable?.color).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
   it('authors ordered typed Trait Properties with an optional Default', async () => {
@@ -60,11 +59,7 @@ describe('TraitsEditor', () => {
       ownerKinds: ['room'],
       properties: [],
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     render(<TraitsEditor tab={tab} />);
 
     await user.click(screen.getByRole('button', { name: 'Add Property' }));
@@ -80,17 +75,14 @@ describe('TraitsEditor', () => {
     expect(defaultInput).toHaveValue('portrait');
     await user.click(screen.getByRole('button', { name: 'Add Property' }));
 
-    const document = useProjectStore.getState().document;
-    expect(isAuthoringProject(document)).toBe(true);
-    if (!isAuthoringProject(document)) throw new Error('Expected authoring project');
-    expect(document.traits.inspectable?.properties).toEqual([
-      {
-        id: 'clue',
-        type: 'string',
-        nullable: false,
-        defaultValue: 'portrait',
-      },
-    ]);
+    await waitFor(() => {
+      const document = useProjectStore.getState().document;
+      expect(isAuthoringProject(document)).toBe(true);
+      if (!isAuthoringProject(document)) throw new Error('Expected authoring project');
+      expect(document.traits.inspectable?.properties).toEqual([
+        { id: 'clue', type: 'string', nullable: false, defaultValue: 'portrait' },
+      ]);
+    });
   });
 
   it('renames straightforward typed Trait references along with attachments and metadata', async () => {
@@ -124,11 +116,7 @@ describe('TraitsEditor', () => {
     ];
     verb.bindingOrder = ['target'];
     project.verbs.inspect = { id: 'inspect', label: 'Inspect', data: verb };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<TraitsEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Edit Inspectable' }));
@@ -137,6 +125,12 @@ describe('TraitsEditor', () => {
     await user.type(idInput, 'examinable');
     await user.click(screen.getByRole('button', { name: 'Save Trait' }));
 
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof createAuthoringProject>).traits
+          .examinable?.id,
+      ).toBe('examinable'),
+    );
     const document = useProjectStore.getState().document;
     expect(isAuthoringProject(document)).toBe(true);
     if (!isAuthoringProject(document)) throw new Error('Expected authoring project');

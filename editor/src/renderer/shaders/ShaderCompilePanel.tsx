@@ -5,10 +5,8 @@ import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { useShaderCompileStore } from './shader-compile-store';
 import { useProjectStore } from '@/project/project-store';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { resolveMaterialData } from '../../shared/project-schema/authoring-materials';
 import { buildDefaultRecordTab } from '@/workbench/editor-registry';
 import type { ShaderCompileDiagnostic } from '../../shared/editor-tooling';
@@ -54,7 +52,7 @@ export function ShaderCompilePanel() {
   const error = useShaderCompileStore((state) => state.error);
   const clear = useShaderCompileStore((state) => state.clear);
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((diagnostic) => ({

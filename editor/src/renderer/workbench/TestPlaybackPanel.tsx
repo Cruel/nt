@@ -5,10 +5,8 @@ import { DiagnosticList, type EditorDiagnosticItem } from '@/diagnostics/Diagnos
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -73,7 +71,7 @@ export function TestPlaybackPanel() {
   const [showRaw, setShowRaw] = useState(false);
   const report = useWorkspaceStore((state) => state.lastPlaybackReport);
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   if (!report || !isRecord(report)) {
     return <p className="p-3 text-xs text-muted-foreground">No playback report yet.</p>;
   }

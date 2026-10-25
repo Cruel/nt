@@ -15,7 +15,7 @@ import {
   variableValueToText,
 } from '../../../shared/project-schema/authoring-variables';
 import type { VariableType } from '../../../shared/project-schema/authoring-variables';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 
 export interface PropertyValueSchema {
   type: VariableType;
@@ -44,7 +44,7 @@ export function PropertyValueInput({
 }) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const resolvedLabel = label ?? t('propertyManager.fields.value');
   const enumValues = [...(schema.enumValues ?? [])];
   const namedMessages = project

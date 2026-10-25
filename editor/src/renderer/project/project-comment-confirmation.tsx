@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import type { ProjectWorkspaceCommentImpact } from '../../shared/project-workspace/project-workspace-service';
+import type { ProjectWorkspaceCommentImpact } from '../../shared/project-workspace/project-workspace-contracts';
 
 export type CommentDecision = 'keep' | 'remove' | 'delete' | 'cancel';
 interface PendingConfirmation {

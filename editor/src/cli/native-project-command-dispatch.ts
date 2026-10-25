@@ -3,7 +3,7 @@ import type { ParsedGlobalArguments } from './bootstrap';
 import type { NovelTeaCliCommandResult } from './contracts';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
-import type { RunNovelTeaCliOptions } from './application';
+import type { RunNovelTeaCliOptions } from './cli-options';
 
 /** Shared native Project dispatch for standalone and daemon ScriptC hosts.
  * A non-claimed Project command is never silently dispatched to TypeScript

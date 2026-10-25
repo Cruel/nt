@@ -9,7 +9,7 @@ import { NativeEditorProjectHandoff } from '../../main/services/native-editor-pr
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
-import { importNativeDesktopProject } from '../../main/services/desktop-project-import-service';
+import { importNativeDesktopProject } from '../../main/services/native-desktop-project-import-service';
 import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
 
 describe('native editor Project Create candidate', () => {
@@ -126,9 +126,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           id: 'created-in-native',
           name: 'Created in Native',
         });
-        expect(() => sessions.requireActiveWorkspace(admitted.projectSessionId!)).toThrow(
-          'no workspace',
-        );
+        expect('requireActiveWorkspace' in sessions).toBe(false);
       } finally {
         handoff.close();
         sessions.dispose();
@@ -200,9 +198,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
           id: 'original-story',
           name: 'Imported & Renamed Story',
         });
-        expect(() => sessions.requireActiveWorkspace(opened.projectSessionId!)).toThrow(
-          'no workspace',
-        );
+        expect('requireActiveWorkspace' in sessions).toBe(false);
         expect((await importNativeDesktopProject(input)).success).toBe(false);
         expect(await readFile(path.join(destination, 'project.yaml'), 'utf8')).toBe(manifest);
       } finally {

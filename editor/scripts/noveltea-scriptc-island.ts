@@ -1,34 +1,29 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { NovelTeaCliNativeToolService } from '../src/cli/native-tool-service';
+import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
+import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from '../src/cli/static-contracts';
 import type {
   LocalizationFontCoverageRequest,
   LocalizationFontCoverageResponse,
 } from '../src/shared/localization-font-coverage';
-import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-service';
-import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from '../src/cli/static-contracts';
 import type { ProjectWorkspaceFileSystem } from '../src/shared/project-workspace/project-workspace-file-system';
 import {
-  scopedResidentObservationConfiguration,
   scopedAuthorityRelevantDeltaPaths,
   scopedAuthoritySignature,
+  scopedResidentObservationConfiguration,
   type ScopedReadAuthorityToken,
 } from '../src/shared/scoped-read-authority';
 import type { ScriptcHostInvoke } from './noveltea-scriptc-path-metadata';
-
-// Replaced with a literal at ScriptC pack time. The candidate pack must contain
-// no retired CLI/Workspace chunks; the normal production bundle remains unchanged.
-const nativeOnlyBundle = process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1';
 
 let residentInvokeHost: ScriptcHostInvoke | null = null;
 let residentFileSystem:
   | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
   | undefined;
 let residentWorkspace:
-  | import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService
   | import('../src/shared/project-workspace/native-resident-project-owner').NativeResidentProjectOwner
   | undefined;
 const publishedResidentProjectSnapshots = new Map<string, string>();
@@ -67,33 +62,14 @@ export async function commitNovelTeaResidentComfyUiAssetPublication(
   if (request === null || typeof request !== 'object' || Array.isArray(request))
     throw new Error('ComfyUI Asset publication request is malformed.');
   const typedRequest =
-    request as import('../src/main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest;
-  let result: Record<
-    string,
-    import('../src/main/services/comfyui-asset-publication-service').ComfyUiPublishedAssetOutput[]
-  >;
-  if (nativeOnlyBundle) {
-    const { publishNativeStagedComfyUiAssets } =
-      await import('../src/main/services/native-comfyui-asset-publication');
-    result = await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
-      JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
-    );
-  } else {
-    const { publishStagedComfyUiAssets, publishNativeStagedComfyUiAssets } =
-      await import('../src/main/services/comfyui-asset-publication-service');
-    result = typedRequest.nativeCandidate
-      ? await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
-          JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
-        )
-      : await publishStagedComfyUiAssets({
-          request: typedRequest,
-          workspace:
-            residentWorkspace as import('../src/shared/project-workspace/resident-project-workspace-service').ResidentProjectWorkspaceService,
-          fileSystem: residentFileSystem,
-        });
-  }
-  if (typedRequest.nativeCandidate || nativeOnlyBundle)
-    await residentWorkspace.reconcileAfterOpaqueWrite(typedRequest.projectRoot);
+    request as import('../src/main/services/comfyui-publication-contracts').ComfyUiStagedAssetPublicationRequest;
+  const { publishNativeStagedComfyUiAssets } =
+    await import('../src/main/services/native-comfyui-asset-publication');
+  const result = await publishNativeStagedComfyUiAssets(typedRequest, (nativeRequest) =>
+    JSON.parse(invokeHost('native-project-commands', JSON.stringify(nativeRequest))),
+  );
+
+  await residentWorkspace.reconcileAfterOpaqueWrite(typedRequest.projectRoot);
   announceResidentProjectGenerations();
   return result;
 }
@@ -154,85 +130,75 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/nat
     return value;
   };
   return {
-    ...(nativeOnlyBundle ||
-    (process.env.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      process.env.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1')
-      ? {
-          async prepareNativeProject(projectRoot: string) {
-            const result = JSON.parse(
-              invokeResidentHost(
-                'native-project-commands',
-                JSON.stringify({ action: 'shader-preparation', projectRoot }),
-              ),
-            ) as Record<string, unknown>;
-            if (result.ok !== true) {
-              const { NativeResidentProjectAdmissionError } =
-                await import('../src/shared/project-workspace/native-resident-project-owner');
-              const { classifyProjectValidationDiagnostics } =
-                await import('../src/shared/project-schema/project-diagnostic-projection');
-              const errors = Array.isArray(result.projectDiagnostics)
-                ? result.projectDiagnostics.filter(
-                    (
-                      item,
-                    ): item is {
-                      code: string;
-                      path: string;
-                      message: string;
-                      severity: 'error' | 'warning' | 'info';
-                    } =>
-                      item !== null &&
-                      typeof item === 'object' &&
-                      typeof item.code === 'string' &&
-                      typeof item.path === 'string' &&
-                      typeof item.message === 'string' &&
-                      ['error', 'warning', 'info'].includes(item.severity),
-                  )
-                : [];
-              // A transport/source-proof failure can contain advisory warnings. Only a
-              // genuine native validation error is a semantic Project rejection.
-              if (errors.some((diagnostic) => diagnostic.severity === 'error'))
-                throw new NativeResidentProjectAdmissionError(
-                  classifyProjectValidationDiagnostics(errors, { producer: 'authoring' }),
-                );
-              throw new Error(
-                typeof result.error === 'string'
-                  ? result.error
-                  : 'Native Project preparation could not admit the resident generation.',
-              );
-            }
-            // Empty collection maps are the required in-memory Project transport structure;
-            // admission and normalization of their contents remain native-owned.
-            const { authoringCollectionKeys } =
-              await import('../src/shared/project-schema/authoring-collections');
-            const project = { ...(result.project as Record<string, unknown>) };
-            for (const family of authoringCollectionKeys)
-              if (!(family in project)) project[family] = {};
-            // The native command envelope contains transport bookkeeping (ok, reused owner).
-            // Persist only the exact immutable preparation contract into the generation.
-            return {
-              project,
-              sourceGeneration: result.sourceGeneration,
-              sourceRevisions: result.sourceRevisions,
-              sourceOverlays: result.sourceOverlays,
-              referencedAssetIds: result.referencedAssetIds,
-              cliDiagnostics: result.cliDiagnostics,
-            } as import('../src/shared/project-workspace/native-project-preparation-contracts').NativeResidentProjectPreparation;
-          },
-          async proveNativeProject(projectRoot: string, sourceGeneration: string) {
-            const result = JSON.parse(
-              invokeResidentHost(
-                'native-project-commands',
-                JSON.stringify({
-                  action: 'source-generation-proof',
-                  projectRoot,
-                  expectedSourceGeneration: sourceGeneration,
-                }),
-              ),
-            ) as Record<string, unknown>;
-            return result.ok === true;
-          },
-        }
-      : {}),
+    async prepareNativeProject(projectRoot: string) {
+      const result = JSON.parse(
+        invokeResidentHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'shader-preparation',
+            projectRoot,
+          }),
+        ),
+      ) as Record<string, unknown>;
+      if (result.ok !== true) {
+        const { NativeResidentProjectAdmissionError } =
+          await import('../src/shared/project-workspace/native-resident-project-owner');
+        const { classifyProjectValidationDiagnostics } =
+          await import('../src/shared/project-schema/project-diagnostic-projection');
+        const errors = Array.isArray(result.projectDiagnostics)
+          ? result.projectDiagnostics.filter(
+              (
+                item,
+              ): item is {
+                code: string;
+                path: string;
+                message: string;
+                severity: 'error' | 'warning' | 'info';
+              } =>
+                item !== null &&
+                typeof item === 'object' &&
+                typeof item.code === 'string' &&
+                typeof item.path === 'string' &&
+                typeof item.message === 'string' &&
+                ['error', 'warning', 'info'].includes(item.severity),
+            )
+          : [];
+        if (errors.some((diagnostic) => diagnostic.severity === 'error'))
+          throw new NativeResidentProjectAdmissionError(
+            classifyProjectValidationDiagnostics(errors, { producer: 'authoring' }),
+          );
+        throw new Error(
+          typeof result.error === 'string'
+            ? result.error
+            : 'Native Project preparation could not admit the resident generation.',
+        );
+      }
+      const { authoringCollectionKeys } =
+        await import('../src/shared/project-schema/authoring-collections');
+      const project = { ...(result.project as Record<string, unknown>) };
+      for (const family of authoringCollectionKeys) if (!(family in project)) project[family] = {};
+      return {
+        project,
+        sourceGeneration: result.sourceGeneration,
+        sourceRevisions: result.sourceRevisions,
+        sourceOverlays: result.sourceOverlays,
+        referencedAssetIds: result.referencedAssetIds,
+        cliDiagnostics: result.cliDiagnostics,
+      } as import('../src/shared/project-workspace/native-project-preparation-contracts').NativeResidentProjectPreparation;
+    },
+    async proveNativeProject(projectRoot: string, sourceGeneration: string) {
+      const result = JSON.parse(
+        invokeResidentHost(
+          'native-project-commands',
+          JSON.stringify({
+            action: 'source-generation-proof',
+            projectRoot,
+            expectedSourceGeneration: sourceGeneration,
+          }),
+        ),
+      ) as Record<string, unknown>;
+      return result.ok === true;
+    },
     async observe(request) {
       const value = JSON.parse(
         invokeResidentHost('daemon-project-observe', JSON.stringify(request)),
@@ -275,7 +241,7 @@ function residentProjectAuthority(): import('../src/shared/project-workspace/nat
 
 function scopedResidentReadAuthority(
   fileSystem: ProjectWorkspaceFileSystem,
-): import('../src/cli/application').CliScopedReadAuthority {
+): import('../src/cli/cli-options').CliScopedReadAuthority {
   const authority = residentProjectAuthority();
   const emptyAssetSourcePaths = new Set<string>();
   const capture = async (
@@ -684,7 +650,6 @@ async function runInternalCommand(
           : []) as import('../src/shared/editor-tooling').ToolDiagnostic[],
         { producer: 'authoring' },
       ),
-      admittedValidationContributions: [],
       admittedRuntimeAssetReferences: nativePrepared.referencedAssetIds as string[],
       projectRoot: input.projectRoot,
       profile:
@@ -949,9 +914,6 @@ async function runNovelTeaScriptcIslandScoped(
   let fileSystem:
     | import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem
     | undefined;
-  let workspace:
-    | import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService
-    | undefined;
   let pinnedExternalAssets:
     | readonly import('../src/cli/pinned-external-assets').PinnedExternalAssetExpectation[]
     | undefined;
@@ -986,97 +948,21 @@ async function runNovelTeaScriptcIslandScoped(
       if (invocationContext.residentProjectSessions) residentFileSystem = fileSystem;
     }
     if (!scopedProjectPreparation) {
-      const nativeCandidate =
-        nativeOnlyBundle ||
-        (environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1');
       const cryptoModule = await import('../src/shared/web-crypto');
       cryptoModule.configureSha256BytesImplementation(async (bytes) =>
         createHash('sha256').update(bytes).digest('hex'),
       );
-      // Never load the retired writer or its transaction implementation into a
-      // native candidate invocation. This factory is deliberately unusable in
-      // that mode; the resident native owner must not call it as a fallback.
-      let createWorkspace: (
-        workspaceFileSystem: ProjectWorkspaceFileSystem,
-      ) => import('../src/shared/project-workspace/project-workspace-service').ProjectWorkspaceService;
-      if (nativeCandidate) {
-        createWorkspace = () => {
-          throw new Error('Native CLI candidate attempted retired TypeScript Workspace admission.');
-        };
-      } else {
-        trace('legacy workspace services import starting');
-        const [serviceModule, transactionModule] = await Promise.all([
-          import('../src/shared/project-workspace/project-workspace-service'),
-          import('../src/shared/project-workspace/project-workspace-transaction'),
-        ]);
-        createWorkspace = (workspaceFileSystem) => {
-          const daemonTransactionLifecycle = invocationContext.residentProjectSessions
-            ? {
-                enterCriticalSection() {
-                  const response = JSON.parse(invokeResidentHost('daemon-enter-critical', '')) as {
-                    ok?: boolean;
-                    error?: string;
-                  };
-                  if (response.ok !== true)
-                    throw new Error(
-                      response.error ?? 'Failed to enter daemon transaction boundary.',
-                    );
-                },
-                leaveCriticalSection() {
-                  const response = JSON.parse(invokeResidentHost('daemon-leave-critical', '')) as {
-                    ok?: boolean;
-                    error?: string;
-                  };
-                  if (response.ok !== true)
-                    throw new Error(
-                      response.error ?? 'Failed to leave daemon transaction boundary.',
-                    );
-                },
-              }
-            : undefined;
-          return new serviceModule.ProjectWorkspaceService(
-            workspaceFileSystem,
-            new transactionModule.ProjectWorkspaceTransactionService(
-              workspaceFileSystem,
-              {
-                async isProcessAlive(pid) {
-                  const value = (
-                    invocationContext.residentProjectSessions ? invokeResidentHost : invokeHost
-                  )('process-alive', String(pid));
-                  return value === 'true' ? true : value === 'false' ? false : null;
-                },
-              },
-              process.pid,
-              randomUUID,
-              daemonTransactionLifecycle,
-            ),
-          );
-        };
-        workspace = createWorkspace(fileSystem);
-      }
       if (
         (invocationContext.residentProjectSessions || invocationContext.pinnedProjectSnapshot) &&
         !residentWorkspace
       ) {
-        if (nativeCandidate) {
-          const { NativeResidentProjectOwner } =
-            await import('../src/shared/project-workspace/native-resident-project-owner');
-          residentWorkspace = new NativeResidentProjectOwner(
-            fileSystem,
-            residentProjectAuthority(),
-            invocationContext.residentProjectSessionEpoch,
-          );
-        } else {
-          const { ResidentProjectWorkspaceService } =
-            await import('../src/shared/project-workspace/resident-project-workspace-service');
-          residentWorkspace = new ResidentProjectWorkspaceService(
-            fileSystem,
-            createWorkspace,
-            invocationContext.residentProjectSessions ? residentProjectAuthority() : undefined,
-            invocationContext.residentProjectSessionEpoch,
-          );
-        }
+        const { NativeResidentProjectOwner } =
+          await import('../src/shared/project-workspace/native-resident-project-owner');
+        residentWorkspace = new NativeResidentProjectOwner(
+          fileSystem,
+          residentProjectAuthority(),
+          invocationContext.residentProjectSessionEpoch,
+        );
       }
       if (invocationContext.residentProjectSnapshot && residentWorkspace) {
         const retained = invocationContext.residentProjectSnapshot;
@@ -1188,24 +1074,17 @@ async function runNovelTeaScriptcIslandScoped(
   }
 
   try {
-    let validationProfileText = '';
     const residentSessionCountBefore = residentWorkspace?.residentSessionCount() ?? 0;
     trace('application import starting');
-    const nativeOnlyApplication =
-      nativeOnlyBundle ||
-      (environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-        environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1');
-    const runNovelTeaCli: typeof import('../src/cli/application').runNovelTeaCli =
-      nativeOnlyApplication
-        ? async (arguments_, options) => {
-            if (!options?.nativeProjectCommands)
-              throw new Error('Native-only ScriptC application requires a native Project host.');
-            return (await import('../src/cli/native-application')).runNativeOnlyNovelTeaCli(
-              arguments_,
-              { ...options, nativeProjectCommands: options.nativeProjectCommands },
-            );
-          }
-        : (await import('../src/cli/application')).runNovelTeaCli;
+    const runNovelTeaCli: typeof import('../src/cli/native-application').runNativeOnlyNovelTeaCli =
+      async (arguments_, options) => {
+        if (!options?.nativeProjectCommands)
+          throw new Error('Native-only ScriptC application requires a native Project host.');
+        return (await import('../src/cli/native-application')).runNativeOnlyNovelTeaCli(
+          arguments_,
+          { ...options, nativeProjectCommands: options.nativeProjectCommands },
+        );
+      };
     trace('application import completed');
     trace('application invocation starting');
     let commandResult: Awaited<ReturnType<typeof runNovelTeaCli>>;
@@ -1214,16 +1093,11 @@ async function runNovelTeaScriptcIslandScoped(
         ...(invocationContext.cwd ? { cwd: invocationContext.cwd } : {}),
         ...(invocationContext.terminal ? { terminal: invocationContext.terminal } : {}),
         ...(fileSystem ? { fileSystem } : {}),
-        ...(workspace ? { workspace } : {}),
         ...(invocationContext.residentProjectSessions && residentWorkspace
-          ? {
-              residentWorkspace:
-                residentWorkspace as import('../src/cli/application').ResidentCliProjectWorkspace,
-            }
+          ? { residentWorkspace }
           : invocationContext.pinnedProjectSnapshot && residentWorkspace
             ? {
-                residentWorkspace:
-                  residentWorkspace as import('../src/cli/application').ResidentCliProjectWorkspace,
+                residentWorkspace,
                 trustPinnedResidentSnapshot: true,
               }
             : {}),
@@ -1234,14 +1108,8 @@ async function runNovelTeaScriptcIslandScoped(
           ? { scopedReadAuthority: scopedResidentReadAuthority(fileSystem) }
           : {}),
         nativeTools,
-        ...(nativeOnlyBundle ||
-        (environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-          environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE === '1')
-          ? {
-              nativeProjectCommands: (request: Readonly<Record<string, unknown>>) =>
-                JSON.parse(invokeHost('native-project-commands', JSON.stringify(request))),
-            }
-          : {}),
+        nativeProjectCommands: (request: Readonly<Record<string, unknown>>) =>
+          JSON.parse(invokeHost('native-project-commands', JSON.stringify(request))),
         ...(runtimeArtifactPaths ? { runtimeArtifactPaths } : {}),
         ...(platformTools ? { platformTools } : {}),
         ...(embeddedBuiltInFiles
@@ -1253,19 +1121,28 @@ async function runNovelTeaScriptcIslandScoped(
         ...(invocationContext.residentProjectSessions && !bootstrap.globals.json
           ? {
               onPlatformProgress: (stage: string, message: string) => {
-                invokeHost('emit-progress', JSON.stringify({ stage, message }));
+                invokeHost(
+                  'emit-progress',
+                  JSON.stringify({
+                    stage,
+                    message,
+                  }),
+                );
               },
               onComfyUiProgress: (stage: string, message: string) => {
-                invokeHost('emit-progress', JSON.stringify({ stage, message }));
+                invokeHost(
+                  'emit-progress',
+                  JSON.stringify({
+                    stage,
+                    message,
+                  }),
+                );
               },
             }
           : {}),
         ...(agentKitPayload ? { agentKitPayload } : {}),
         readStdinText: () => invokeHost('read-stdin', ''),
         forceRuntimeCacheRebuild,
-        // A native whole-result miss must not become a second whole-result hit inside the island,
-        // but stale generations can still contribute individually proven source/validation work.
-        skipAuthoringWholeResultCache: true,
         ...(invocationContext.prepareResidentSnapshotOnly
           ? { prepareResidentSnapshotOnly: true }
           : {}),
@@ -1280,12 +1157,6 @@ async function runNovelTeaScriptcIslandScoped(
               },
             }
           : {}),
-        onAuthoringValidationInstrumentation:
-          environment.NOVELTEA_CLI_VALIDATION_PROFILE === '1'
-            ? (instrumentation) => {
-                validationProfileText = `[validation-profile] ${JSON.stringify(instrumentation)}\n`;
-              }
-            : undefined,
       });
     } finally {
       if (invocationContext.residentProjectSessionEpoch !== undefined)
@@ -1301,308 +1172,20 @@ async function runNovelTeaScriptcIslandScoped(
     // #500 parallel native daemon certification. The C++ disk Project graph
     // stays resident in this existing Project owner, but cannot affect the
     // public TS validation result, diagnostic presentation, or exit status.
-    if (
-      family === 'validate' &&
-      invocationContext.residentProjectSessionEpoch !== undefined &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string'
-    ) {
-      const native = JSON.parse(
-        invokeHost(
-          'native-disk-project-validation',
-          JSON.stringify({ projectRoot: commandResult.envelope.projectRoot }),
-        ),
-      ) as {
-        ok?: boolean;
-        error?: string;
-        valid?: boolean;
-        warm?: boolean;
-        diagnostics?: unknown[];
-        cliDiagnostics?: unknown[];
-        work?: unknown;
-      };
-      if (native.ok !== true)
-        throw new Error(native.error ?? 'Parallel native disk validation failed.');
-      // Certification diagnostics remain on stderr; JSON CLI output is unchanged.
-      validationProfileText +=
-        '[native-disk-validation] ' +
-        JSON.stringify({
-          valid: native.valid,
-          warm: native.warm,
-          diagnostics: native.diagnostics,
-          cliDiagnostics: native.cliDiagnostics,
-          work: native.work,
-          oracle: {
-            success: commandResult.envelope.success,
-            exitCode: commandResult.exitCode,
-            diagnostics: commandResult.envelope.diagnostics,
-          },
-        }) +
-        '\n';
-    }
+
     // #501: the existing daemon's CLI result remains the production oracle.
     // Observe native record/provenance semantics without mutating disk or
     // introducing a second authoring command dispatcher for users.
-    if (
-      family === 'usages' &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string' &&
-      bootstrap.globals.command.length === 3
-    ) {
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'entity-usages',
-            projectRoot: commandResult.envelope.projectRoot,
-            collection: bootstrap.globals.command[1],
-            id: bootstrap.globals.command[2],
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; usages?: unknown[] };
-      validationProfileText +=
-        '[native-cli-usages] ' +
-        JSON.stringify({ native, oracle: commandResult.envelope.usages }) +
-        '\n';
-    }
-    if (
-      family === 'entity' &&
-      operation === 'inspect' &&
-      invocationContext.residentProjectSessionEpoch !== undefined &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string' &&
-      bootstrap.globals.command.length >= 4
-    ) {
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'entity-inspect',
-            projectRoot: commandResult.envelope.projectRoot,
-            collection: bootstrap.globals.command[2],
-            id: bootstrap.globals.command[3],
-            provenance: bootstrap.globals.command.includes('--provenance'),
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; fields?: unknown };
-      validationProfileText +=
-        '[native-cli-inspect] ' +
-        JSON.stringify({
-          native,
-          oracle: {
-            success: commandResult.envelope.success,
-            exitCode: commandResult.exitCode,
-            record: commandResult.envelope.record,
-            provenance: commandResult.envelope.provenance,
-          },
-        }) +
-        '\n';
-    }
-    if (
-      family === 'entity' &&
-      ['create', 'rename', 'delete'].includes(operation) &&
-      bootstrap.globals.command.includes('--dry-run') &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string' &&
-      bootstrap.globals.command.length >= 4
-    ) {
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: `entity-${operation}`,
-            projectRoot: commandResult.envelope.projectRoot,
-            collection: bootstrap.globals.command[2],
-            id: bootstrap.globals.command[3],
-            ...(operation === 'rename' ? { toId: bootstrap.globals.command[4] } : {}),
-            dryRun: true,
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; sourcePath?: string; rewrittenSources?: string[] };
-      validationProfileText +=
-        '[native-cli-entity-edit] ' +
-        JSON.stringify({ native, operation, oracle: commandResult.envelope }) +
-        '\n';
-    }
-    if (
-      bootstrap.globals.command[0] === 'fmt' &&
-      bootstrap.globals.command.includes('--check') &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string'
-    ) {
-      const requestedPath = bootstrap.globals.command[1];
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'fmt',
-            projectRoot: commandResult.envelope.projectRoot,
-            ...(requestedPath && !requestedPath.startsWith('--') ? { path: requestedPath } : {}),
-            check: true,
-            stripDefaults: bootstrap.globals.command.includes('--strip-defaults'),
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; changed?: boolean; files?: string[] };
-      validationProfileText += '[native-cli-fmt] ' + JSON.stringify({ native }) + '\n';
-    }
-    if (
-      family === 'localization' &&
-      operation === 'sync' &&
-      bootstrap.globals.command.includes('--dry-run') &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string'
-    ) {
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'localization-sync',
-            projectRoot: commandResult.envelope.projectRoot,
-            dryRun: true,
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; changed?: boolean };
-      validationProfileText +=
-        '[native-cli-localization-sync] ' +
-        JSON.stringify({
-          native,
-          oracle: {
-            success: commandResult.envelope.success,
-            changed: commandResult.envelope.changed,
-            materializedMessageIds: commandResult.envelope.materializedMessageIds,
-            preservedMessageIds: commandResult.envelope.preservedMessageIds,
-            unresolved: commandResult.envelope.unresolved,
-            structuredMessageCount: commandResult.envelope.structuredMessageCount,
-          },
-        }) +
-        '\n';
-    }
-    if (
-      family === 'localization' &&
-      operation === 'view' &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string' &&
-      typeof bootstrap.globals.command[2] === 'string' &&
-      Array.isArray(commandResult.envelope.messages)
-    ) {
-      const statusIndex = bootstrap.globals.command.indexOf('--status');
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'localization-view',
-            projectRoot: commandResult.envelope.projectRoot,
-            locale: bootstrap.globals.command[2],
-            ...(statusIndex < 0 ? {} : { status: bootstrap.globals.command[statusIndex + 1] }),
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; locale?: string; messages?: unknown[] };
-      validationProfileText +=
-        '[native-cli-localization-view] ' +
-        JSON.stringify({
-          native,
-          oracle: {
-            locale: commandResult.envelope.locale,
-            statusFilter: commandResult.envelope.statusFilter,
-            messages: commandResult.envelope.messages,
-          },
-        }) +
-        '\n';
-    }
-    if (
-      family === 'localization' &&
-      operation === 'reconcile' &&
-      !bootstrap.globals.command.includes('--apply') &&
-      !invocationContext.prepareResidentSnapshotOnly &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string' &&
-      typeof commandResult.envelope.plan === 'object' &&
-      commandResult.envelope.plan !== null
-    ) {
-      const oracle = commandResult.envelope.plan as { expectedWorkspaceRevision: string };
-      const native = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'localization-reconcile',
-            projectRoot: commandResult.envelope.projectRoot,
-            workspaceRevision: oracle.expectedWorkspaceRevision,
-            dryRun: true,
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; plan?: unknown };
-      validationProfileText +=
-        '[native-cli-reconcile] ' + JSON.stringify({ native, oracle }) + '\n';
-    }
+
     // A reproducible certification-only sibling bundle is compared against
     // the public exporter in the installed-headless integration fixture.
     // Both the write and native import occur outside the active Project root.
-    if (
-      family === 'project' &&
-      operation === 'export' &&
-      commandResult.envelope.success &&
-      environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
-      environment.NOVELTEA_CLI_CERTIFICATION_NATIVE_COMMANDS === '1' &&
-      typeof commandResult.envelope.projectRoot === 'string' &&
-      typeof commandResult.envelope.outputPath === 'string'
-    ) {
-      const original = commandResult.envelope.outputPath;
-      const parsed = path.parse(original);
-      const nativeOutput = path.join(parsed.dir, `.${parsed.name}.native-cert.ntproject`);
-      const nativeDestination = path.join(parsed.dir, `.${parsed.name}.native-import`);
-      const exported = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'project-export',
-            projectRoot: commandResult.envelope.projectRoot,
-            outputPath: nativeOutput,
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; manifest?: unknown };
-      if (!exported.ok)
-        throw new Error(exported.error ?? 'Native portable Project export certification failed.');
-      const imported = JSON.parse(
-        invokeHost(
-          'native-project-commands',
-          JSON.stringify({
-            action: 'project-import',
-            bundlePath: nativeOutput,
-            destination: nativeDestination,
-          }),
-        ),
-      ) as { ok?: boolean; error?: string; manifest?: unknown };
-      if (!imported.ok)
-        throw new Error(imported.error ?? 'Native portable Project import certification failed.');
-      validationProfileText +=
-        '[native-cli-bundle] ' +
-        JSON.stringify({ nativeOutput, nativeDestination, exported, imported }) +
-        '\n';
-    }
+
     trace('application invocation completed');
     const residentSessionCountAfter = residentWorkspace?.residentSessionCount() ?? 0;
     if (residentSessionCountAfter > residentSessionCountBefore)
       trace(`resident Project session admitted: ${String(residentSessionCountAfter)}`);
-    return result(
-      commandResult.exitCode,
-      commandResult.stdout,
-      `${validationProfileText}${commandResult.stderr}`,
-    );
+    return result(commandResult.exitCode, commandResult.stdout, commandResult.stderr);
   } finally {
     // Report owner admission even when a request fails after opening a Project.
     publishResidentProjectSessionCount();

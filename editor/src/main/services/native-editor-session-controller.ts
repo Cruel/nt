@@ -1002,6 +1002,55 @@ export class NativeEditorSessionController {
     };
   }
 
+  async testReadiness(
+    projectSessionId: string,
+    expectedRevision: number,
+    testId: string,
+  ): Promise<import('../../shared/project-schema/test-playback-projection').TestRunReadiness> {
+    if (!this.isAdmitted(projectSessionId))
+      throw new Error('Native Project is not admitted for this editor session.');
+    const generation = this.generation;
+    const root = this.authority.requireActiveProjectRoot(projectSessionId);
+    if (this.working.snapshot()?.workingRevision !== expectedRevision)
+      throw new Error('Stale native Test readiness revision.');
+    const prepared = await this.working.prepareCompleteWorking(testId);
+    const result = await this.runtimeCache.prepare({ prepared, projectRoot: root, testId });
+    let readiness: import('../../shared/project-schema/test-playback-projection').TestRunReadiness;
+    try {
+      if (
+        generation !== this.generation ||
+        !this.isAdmitted(projectSessionId) ||
+        this.working.snapshot()?.workingRevision !== expectedRevision
+      )
+        throw new Error('Native Test readiness was superseded.');
+      readiness =
+        result.status === 'blocked'
+          ? {
+              runnable: false,
+              reason: 'not-runnable-project-compilation-failed',
+              diagnostics: result.diagnostics.map((diagnostic) => ({
+                code: 'native.test.prepare',
+                severity: 'error' as const,
+                path: diagnostic.path,
+                message: diagnostic.message,
+              })),
+            }
+          : { runnable: true, reason: 'runnable', diagnostics: [] };
+    } finally {
+      if (result.status === 'prepared') await result.dispose();
+    }
+    // Disposing the caller's runtime lease is asynchronous. A Project switch,
+    // worker failure or further edit during disposal must not publish a stale
+    // runnable status back to an editor tab that has already changed.
+    if (
+      generation !== this.generation ||
+      !this.isAdmitted(projectSessionId) ||
+      this.working.snapshot()?.workingRevision !== expectedRevision
+    )
+      throw new Error('Native Test readiness was superseded during lease release.');
+    return readiness;
+  }
+
   async runTest(
     projectSessionId: string,
     expectedRevision: number,

@@ -1,27 +1,23 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { LoaderCircle } from 'lucide-react';
 import {
   PreviewPane,
   type PreviewHostLease,
   type PreviewPanePolicy,
 } from '@/preview/preview-host-pool';
-import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { nativeRendererGraphService } from '@/project/native-authoring-graph-runtime';
+import { useProjectStore } from '@/project/project-store';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { LoaderCircle } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type {
   AppliedPreviewDocumentResult,
   PreviewRootKey,
 } from '../../shared/focused-preview-contracts';
-import { usePreferencesStore } from '@/stores/preferences-store';
-import { useProjectStore } from '@/project/project-store';
-import {
-  authoringDependencyGraphService,
-  useCurrentAuthoringDependencyGraphSnapshot,
-} from '@/project/authoring-dependency-graph-runtime';
-import { useCommandStore } from '@/commands/command-store';
-import { nativeRendererGraphService } from '@/project/native-authoring-graph-runtime';
-import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinator';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
+import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
+import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
+import { FocusedPreviewFreshnessCoordinator } from './focused-preview-coordinator';
 import { usePreviewManagerStore } from './preview-manager-store';
 
 type FocusedProps = {
@@ -84,25 +80,10 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const projectRevision = useProjectStore((state) => state.projectRevision);
   const publication = useProjectStore((state) => state.lastMutationPublication);
   const graph = useCurrentAuthoringDependencyGraphSnapshot();
-  const nativeMode = useCommandStore((state) => state.nativeWorkingRevision !== null);
-  const sourceAnalysis = useMemo(
-    () =>
-      graph && projectInstanceId && !nativeMode
-        ? (authoringDependencyGraphService.currentSourceAnalysis(
-            projectInstanceId,
-            projectRevision,
-          ) ?? [])
-        : [],
-    [graph, nativeMode, projectInstanceId, projectRevision],
-  );
+  const sourceAnalysis = useMemo(() => [], []);
   const previousGraph = useMemo(
-    () =>
-      graph && projectInstanceId
-        ? nativeMode
-          ? nativeRendererGraphService.previousSnapshot()
-          : authoringDependencyGraphService.previousSnapshot(projectInstanceId, projectRevision)
-        : null,
-    [graph, nativeMode, projectInstanceId, projectRevision],
+    () => (graph && projectInstanceId ? nativeRendererGraphService.previousSnapshot() : null),
+    [graph, projectInstanceId],
   );
   const [lease, setLease] = useState<PreviewHostLease | null>(null);
   const [readyRevision, setReadyRevision] = useState(0);
@@ -118,7 +99,9 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const revealFocusedDocument = props.root ? (props.revealFocusedDocument ?? true) : true;
   const projectSettings = useMemo(
     () =>
-      isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument) : undefined,
+      isAuthoringProjectView(projectDocument)
+        ? projectSettingsFromProject(projectDocument)
+        : undefined,
     [projectDocument],
   );
   const effectiveDisplay = useMemo(

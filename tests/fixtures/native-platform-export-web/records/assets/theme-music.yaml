@@ -1,0 +1,10 @@
+id: theme-music
+label: theme-music
+data:
+  kind: audio
+  source:
+    type: project-file
+    path: assets/audio/theme.wav
+  attachments: []
+  aliases: []
+  imageMetadata: null

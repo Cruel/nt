@@ -1,25 +1,8 @@
-import type { NovelTeaCliNativeToolService } from '../native-tool-service';
-import type { NovelTeaCliPlatformToolService } from '../platform-tool-service';
-import type { CliSemanticResult } from '../semantic-project';
-import type {
-  CliProjectPreparationIntent,
-  CliScopedProjectPreparation,
-} from '../project-preparation';
 import {
   isAuthoringCollectionKey,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
-import type {
-  LoadedProjectWorkspaceSnapshot,
-  ProjectWorkspaceFileSystem,
-  ProjectWorkspaceSourceWork,
-  ProjectWorkspaceService,
-} from '../../shared/project-workspace';
 import { CliCommandUsageError } from './errors';
-import type { PinnedExternalAssetExpectation } from '../pinned-external-assets';
-import type { RuntimeArtifactPathAdapter } from '../../shared/runtime-artifact-preparation';
-import type { PinnedRuntimeBuildCacheInputs } from '../../shared/runtime-build-cache';
-
 export { CliCommandUsageError } from './errors';
 
 export interface CliTerminalContext {
@@ -28,57 +11,6 @@ export interface CliTerminalContext {
   readonly stderr: boolean;
   readonly columns: number | null;
   readonly rows: number | null;
-}
-
-interface CliCommandContextBase {
-  readonly cwd: string;
-  readonly terminal?: CliTerminalContext;
-  readonly stdinJson?: unknown;
-  readonly fileSystem: ProjectWorkspaceFileSystem;
-  readonly nativeTools: NovelTeaCliNativeToolService;
-  readonly platformTools: NovelTeaCliPlatformToolService;
-  readonly onPlatformProgress?: (stage: string, message: string) => void;
-  readonly abortSignal?: AbortSignal;
-  readonly forceRuntimeCacheRebuild: boolean;
-  readonly pinnedExternalAssets?: readonly PinnedExternalAssetExpectation[];
-  readonly pinnedProjectTextSources?: Readonly<
-    Record<string, Readonly<{ text: string; contentHash?: string }>>
-  >;
-  readonly runtimeArtifactPaths?: RuntimeArtifactPathAdapter;
-  readonly pinnedRuntimeBuildCacheInputs?: PinnedRuntimeBuildCacheInputs | null;
-}
-
-export interface CliCommandContext extends CliCommandContextBase {
-  readonly workspace: ProjectWorkspaceService;
-  readonly snapshot: LoadedProjectWorkspaceSnapshot;
-  readonly sourceWork: ProjectWorkspaceSourceWork;
-}
-
-export interface CliScopedCommandContext extends CliCommandContextBase {
-  readonly preparation: CliScopedProjectPreparation;
-}
-
-export interface CliCommandInvocation {
-  readonly dryRun: boolean;
-  readonly mutation: boolean;
-  readonly projectPreparation?: undefined;
-  /** Semantic Project paths that must reflect current disk state for a resident read. */
-  readonly requiredSemanticPaths?: readonly string[];
-  run(context: CliCommandContext): Promise<CliSemanticResult> | CliSemanticResult;
-}
-
-export interface CliScopedCommandInvocation {
-  readonly dryRun: true;
-  readonly mutation: false;
-  readonly projectPreparation: CliProjectPreparationIntent;
-  run(context: CliScopedCommandContext): Promise<CliSemanticResult> | CliSemanticResult;
-}
-
-export type CliParsedCommand = CliCommandInvocation | CliScopedCommandInvocation;
-
-export interface CliCommandDefinition {
-  readonly path: readonly string[];
-  parse(arguments_: readonly string[]): CliParsedCommand;
 }
 
 export function requireAuthoringCollection(value: string): AuthoringCollectionKey {

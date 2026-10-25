@@ -1,6 +1,6 @@
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { collectiveCollectionSet } from '@/workspace/project-explorer-tree';
 import {
   isAuthoringCollectionKey,
@@ -175,7 +175,7 @@ export function assignChaptersPatches(
   document: unknown,
   payload: AssignChaptersPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (collectiveCollectionSet.has(payload.collection))
     return {

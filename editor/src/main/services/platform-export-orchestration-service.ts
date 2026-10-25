@@ -1,8 +1,46 @@
-import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
+import path from 'node:path';
+import type { PackageExportResponse, ShaderCompileResponse } from '../../shared/editor-tooling';
+import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
 import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  deriveProjectDisplayGeometry,
+  projectSettingsFromProject,
+} from '../../shared/project-schema/authoring-project-settings';
+import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
+import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
+import {
+  PLAYER_RUNTIME_API_VERSION,
+  parseProjectPlatformExportRequest,
+  parseProjectPlatformExportSettings,
+  type PlatformExportProgressEvent,
+  type PlatformStageDiagnostic,
+  type PlatformStageResult,
+  type ProjectPlatformExportRequest,
+  type TemplateResolveResult,
+} from '../../shared/project-schema/platform-export-contracts';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  createPlatformExportValidationDiagnostic,
+} from '../../shared/project-schema/project-diagnostic-projection';
+import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
+import type {
+  PreparedRuntimeArtifact,
+  RuntimeArtifactPathAdapter,
+} from '../../shared/runtime-artifact-preparation';
+import { exportAndroidPlatform } from './android-export-service';
+import { resolveSigningSecret, signingFailure } from './export-signing-service';
+import {
+  nodeRuntimeArtifactPaths,
+  nodeShaderCompilerAdapter,
+} from './node-runtime-artifact-adapters';
 import {
   checkPlatformExportCancelled,
   clearPlatformExportCancellation,
@@ -13,72 +51,6 @@ import {
   templateRootForToken,
   verifyTemplateToken,
 } from './template-registry-service';
-import { exportAndroidPlatform } from './android-export-service';
-import { resolveSigningSecret, signingFailure } from './export-signing-service';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
-import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  deriveProjectDisplayGeometry,
-  projectSettingsFromProject,
-} from '../../shared/project-schema/authoring-project-settings';
-import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
-import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
-import type {
-  PreparedRuntimeArtifact,
-  RuntimeArtifactPathAdapter,
-} from '../../shared/runtime-artifact-preparation';
-import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import type { AuthoringValidationContribution } from '../../shared/project-schema/authoring-validation-contributions';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
-import {
-  classifyProjectValidationDiagnostics,
-  collectProjectValidationDiagnostics,
-  createPlatformExportValidationDiagnostic,
-} from '../../shared/project-schema/project-diagnostic-projection';
-import {
-  PLAYER_RUNTIME_API_VERSION,
-  parseProjectPlatformExportSettings,
-  parseProjectPlatformExportRequest,
-  type ProjectPlatformExportRequest,
-  type PlatformExportProgressEvent,
-  type PlatformStageDiagnostic,
-  type PlatformStageResult,
-  type TemplateResolveResult,
-} from '../../shared/project-schema/platform-export-contracts';
-import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
-import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
-import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
-import type { OpenProjectResponse, PackageExportResponse } from '../../shared/editor-tooling';
-import type { ShaderCompileResponse } from '../../shared/editor-tooling';
-import {
-  nodeRuntimeArtifactPaths,
-  nodeShaderCompilerAdapter,
-} from './node-runtime-artifact-adapters';
-
-async function openProjectForPlatformExport(projectPath: string): Promise<OpenProjectResponse> {
-  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-    throw new Error('Native-only platform export requires an admitted native Project.');
-  const { createNodeProjectWorkspaceService } =
-    await import('../../shared/project-workspace/node-project-workspace-service');
-  const opened = await createNodeProjectWorkspaceService().open(projectPath);
-  if (!opened.ok)
-    return {
-      ok: true,
-      success: false,
-      diagnostics: [...opened.diagnostics],
-      projectPath: opened.projectRoot,
-      projectFilePath: opened.manifestPath,
-    } as unknown as OpenProjectResponse;
-  return {
-    ok: true,
-    success: true,
-    diagnostics: [...opened.diagnostics],
-    contentProject: opened.contentProject,
-    editorState: opened.editorState,
-    projectPath: opened.snapshot.projectRoot,
-    projectFilePath: opened.snapshot.manifestPath,
-  } as unknown as OpenProjectResponse;
-}
 
 const defaultNativeTools = {
   compileShaders(
@@ -129,7 +101,7 @@ function cancelled(operationId: string): PlatformStageResult {
   };
 }
 
-function iconPath(project: ReturnType<typeof parseAuthoringProject>, projectRoot: string) {
+function iconPath(project: AuthoringProject, projectRoot: string) {
   const icon = projectSettingsFromProject(project).app.icon;
   if (!icon) return undefined;
   const data = parseAssetData(project.assets[icon.$ref.id]?.data);
@@ -202,14 +174,9 @@ export async function exportProjectToPlatform(
   registerRecoveryPath?: (path: string) => Promise<void>,
   runtimeArtifactPaths: RuntimeArtifactPathAdapter = nodeRuntimeArtifactPaths,
   admitted?: Readonly<{
-    project: ReturnType<typeof parseAuthoringProject>;
+    project: AuthoringProject;
     diagnostics: readonly ProjectValidationDiagnostic[];
-    contributions: readonly AuthoringValidationContribution[];
     runtimeAssetReferences?: readonly string[];
-    sourceGraph?: Pick<
-      import('../../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
-      'graph' | 'externalSourceRevisions'
-    > & { readonly project: ReturnType<typeof parseAuthoringProject> };
   }>,
 ): Promise<PlatformStageResult> {
   let request: ProjectPlatformExportRequest;
@@ -231,59 +198,17 @@ export async function exportProjectToPlatform(
   try {
     checkPlatformExportCancelled(operationId);
     progress('validating', 'Validating project and export profile');
-    const loaded = request.project
-      ? ({
-          success: true,
-          contentProject: request.project,
-          projectPath: request.projectRoot ?? '',
-        } as OpenProjectResponse)
-      : request.projectPath
-        ? await openProjectForPlatformExport(request.projectPath)
-        : null;
-    if (!loaded?.success || !loaded.contentProject || !loaded.projectPath) {
-      return failure(
-        operationId,
-        (loaded?.diagnostics ?? [])
-          .map((item) => diagnostic('project-load-failed', item.path ?? '/', item.message))
-          .concat(
-            loaded
-              ? []
-              : [
-                  diagnostic(
-                    'project-load-failed',
-                    '/projectPath',
-                    'A project path or in-memory project with projectRoot is required.',
-                  ),
-                ],
-          ),
-      );
-    }
-
-    const reusableAdmission =
-      admitted?.project === loaded.contentProject && !loaded.editorState ? admitted : undefined;
-    if (admitted && !reusableAdmission)
+    if (!admitted || admitted.project !== request.project || !request.projectRoot)
       return failure(operationId, [
         diagnostic(
           'platform-export-admission-mismatch',
           '/project',
-          'Native export admission does not match the requested Project.',
+          'Platform export requires the matching native-admitted Project and source root.',
         ),
       ]);
-    let project: ReturnType<typeof parseAuthoringProject>;
-    try {
-      project =
-        reusableAdmission?.project ??
-        parseAuthoringProject({
-          ...(stripEditorProjectState(loaded.contentProject) as Record<string, unknown>),
-          ...(loaded.editorState ? { editor: loaded.editorState } : {}),
-        });
-    } catch (error) {
-      return failure(operationId, [
-        diagnostic('invalid-project', '/', error instanceof Error ? error.message : String(error)),
-      ]);
-    }
-
-    const projectRoot = loaded.projectPath;
+    const reusableAdmission = admitted;
+    const project = admitted.project;
+    const projectRoot = request.projectRoot;
     const profiles = parseProjectPlatformExportSettings({
       profiles: project.export.profiles,
       assetMemoryPolicies: project.export.assetMemoryPolicies,
@@ -316,14 +241,7 @@ export async function exportProjectToPlatform(
 
     // Admission evidence is supplied out-of-band by the CLI's trusted
     // workspace, never through the user-parsed platform export request.
-    let validation = reusableAdmission?.diagnostics;
-    if (!validation) {
-      if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-        throw new Error('Native-only platform export has no native validation admission.');
-      const { validateAuthoringProject } =
-        await import('../../shared/project-schema/authoring-validation');
-      validation = validateAuthoringProject(project);
-    }
+    const validation = reusableAdmission.diagnostics;
     const validationErrors = validation.filter(
       (item) =>
         item.severity === 'error' &&
@@ -356,9 +274,7 @@ export async function exportProjectToPlatform(
     }
     let artifact: PreparedRuntimeArtifact;
     const { prepareRuntimeArtifact, verifyPreparedRuntimeArtifact } =
-      reusableAdmission || process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1'
-        ? await import('../../shared/runtime-artifact-preparation')
-        : await import('../../shared/legacy-runtime-artifact-preparation');
+      await import('../../shared/runtime-artifact-preparation');
     if (request.preparedRuntimeArtifact) {
       progress('compiling-project', 'Verifying the prepared current-revision runtime artifact');
       const verified = await verifyPreparedRuntimeArtifact(request.preparedRuntimeArtifact, {
@@ -385,12 +301,8 @@ export async function exportProjectToPlatform(
         ...(reusableAdmission
           ? {
               admittedAuthoringDiagnostics: reusableAdmission.diagnostics,
-              admittedValidationContributions: reusableAdmission.contributions,
               ...(reusableAdmission.runtimeAssetReferences
                 ? { admittedRuntimeAssetReferences: reusableAdmission.runtimeAssetReferences }
-                : {}),
-              ...(reusableAdmission.sourceGraph
-                ? { admittedSourceGraph: reusableAdmission.sourceGraph }
                 : {}),
             }
           : {}),

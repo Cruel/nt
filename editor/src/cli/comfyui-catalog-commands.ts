@@ -1,13 +1,13 @@
 import path from 'node:path';
 import { checkHeadlessComfyUiConnection } from '../main/services/comfyui-connection-service';
-import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
   ComfyUiRunError,
-  prepareComfyUiWorkflow,
   preflightComfyUiRun,
+  prepareComfyUiWorkflow,
   runComfyUiWorkflow,
   type ComfyUiRunnableWorkflowEntry,
 } from '../main/services/comfyui-run-service';
+import { loadComfyUiUserConfig } from '../main/services/comfyui-user-config-service';
 import {
   listComfyUiWorkflowLibrary,
   verifyComfyUiWorkflowLibrary,
@@ -27,12 +27,9 @@ import {
   type ComfyUiWorkflowDiagnostic,
   type ComfyUiWorkflowLibraryEntry,
 } from '../shared/comfyui-workflows';
-import type { ProjectWorkspaceDiscoveryResult } from '../shared/project-workspace/project-workspace-discovery';
-import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
-import type { ProjectWorkspaceService } from '../shared/project-workspace/project-workspace-service';
-import { CliCommandUsageError } from './commands/types';
-import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import type { NativeResidentProjectPreparation } from '../shared/project-workspace/native-project-preparation-contracts';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
+import { CliCommandUsageError } from './commands/types';
 import {
   cliDiagnostic,
   formatCliResult,
@@ -40,6 +37,7 @@ import {
   type NovelTeaCliCommandResult,
   type NovelTeaCliDiagnostic,
 } from './contracts';
+import { nativeProjectRoot, type NativeProjectCommandCall } from './native-project-lifecycle-cli';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 
 interface RunComfyUiCatalogCommandOptions {
@@ -48,7 +46,6 @@ interface RunComfyUiCatalogCommandOptions {
   json: boolean;
   cwd: string;
   fileSystem: ProjectWorkspaceFileSystem;
-  workspace?: ProjectWorkspaceService;
   nativeTools?: NovelTeaCliNativeToolService;
   nativeProjectCommands?: NativeProjectCommandCall;
   pinnedNativePreparation?: Readonly<{
@@ -263,10 +260,6 @@ function boundedConnectionFailure(message: string | null) {
   return 'ComfyUI connection check failed.';
 }
 
-function discoveryDiagnostic(discovery: Exclude<ProjectWorkspaceDiscoveryResult, { ok: true }>) {
-  return cliDiagnostic(discovery.code, discovery.path, discovery.message);
-}
-
 async function optionalProjectRoot(
   projectOption: string | null,
   cwd: string,
@@ -279,7 +272,8 @@ async function optionalProjectRoot(
   sourceGeneration?: string;
   error?: NovelTeaCliDiagnostic;
 }> {
-  if (native) {
+  if (!native) throw new Error('ComfyUI Project access requires native Project authority.');
+  {
     const root =
       pinned?.projectRoot ?? (await nativeProjectRoot(cwd, projectOption ?? undefined, fileSystem));
     if (!root)
@@ -339,18 +333,6 @@ async function optionalProjectRoot(
     }
     return { projectRoot: root };
   }
-  // No native-only bundle may parse the Project manifest through the old YAML
-  // discovery codec. The native branch above is the only candidate route.
-  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-    throw new Error('Native ComfyUI invocation is missing native Project authority.');
-  const { validateExplicitProjectRoot, discoverProjectRoot } =
-    await import('../shared/project-workspace/project-workspace-discovery');
-  const discovery = projectOption
-    ? await validateExplicitProjectRoot(fileSystem, path.resolve(cwd, projectOption))
-    : await discoverProjectRoot(fileSystem, cwd);
-  if (discovery.ok) return { projectRoot: discovery.projectRoot };
-  if (!projectOption && discovery.code === 'WORKSPACE_NOT_FOUND') return { projectRoot: null };
-  return { projectRoot: null, error: discoveryDiagnostic(discovery) };
 }
 
 function workflowDiagnosticToCli(value: ComfyUiWorkflowDiagnostic): NovelTeaCliDiagnostic {
@@ -653,13 +635,7 @@ export async function runComfyUiCatalogCommand(
         !options.nativeProjectCommands &&
         Object.values(runPlan.routes).some((route) => route.target === 'asset')
       )
-        if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-          throw new Error('Native ComfyUI Asset preflight requires native Project admission.');
-        else {
-          const { preflightComfyUiAssetPublication } =
-            await import('../main/services/comfyui-asset-publication-service');
-          await preflightComfyUiAssetPublication(project.projectRoot, options.workspace!);
-        }
+        throw new Error('Native ComfyUI Asset preflight requires native Project admission.');
     } catch (error) {
       if (error instanceof CliCommandUsageError) throw error;
       const failure =
@@ -753,7 +729,6 @@ export async function runComfyUiCatalogCommand(
       try {
         const publicationOptions = {
           projectRoot: project.projectRoot,
-          workspace: options.workspace,
           fileSystem: options.fileSystem,
           nativeProjectCommands: options.nativeProjectCommands,
           expectedSourceGeneration: project.sourceGeneration,
@@ -767,15 +742,15 @@ export async function runComfyUiCatalogCommand(
             : undefined,
           commitStagedProjectAssets: options.nativeTools?.commitComfyUiAssetPublication
             ? async (
-                request: import('../main/services/comfyui-asset-publication-service').ComfyUiStagedAssetPublicationRequest,
+                request: import('../main/services/comfyui-publication-contracts').ComfyUiStagedAssetPublicationRequest,
               ) =>
                 (await options.nativeTools!.commitComfyUiAssetPublication!(request)) as Record<
                   string,
-                  import('../main/services/comfyui-asset-publication-service').ComfyUiPublishedAssetOutput[]
+                  import('../main/services/comfyui-publication-contracts').ComfyUiPublishedAssetOutput[]
                 >
             : undefined,
         };
-        if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1') {
+        {
           if (!options.nativeProjectCommands)
             throw new Error('Native ComfyUI publication requires native Project authority.');
           const { publishNativeComfyUiOutputs } =
@@ -784,10 +759,6 @@ export async function runComfyUiCatalogCommand(
             ...publicationOptions,
             nativeProjectCommands: options.nativeProjectCommands,
           });
-        } else {
-          const { publishComfyUiOutputs } =
-            await import('../main/services/comfyui-asset-publication-service');
-          published = await publishComfyUiOutputs(publicationOptions);
         }
       } catch (error) {
         if (error instanceof ComfyUiRunError)

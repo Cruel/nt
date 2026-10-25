@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   createLocalizedAssetVariant,
-  localizationAssetSourceFingerprint,
   localizationAssetWorkflowView,
 } from '../../shared/authoring-localized-assets';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 function addImage(project: ReturnType<typeof createAuthoringProject>, id: string, hash: string) {
   project.assets[id] = {
@@ -45,30 +43,6 @@ describe('localized Assets', () => {
 
     (project.assets.logo!.data as { contentHash?: string }).contentHash = 'sha256:base-v2';
     expect(localizationAssetWorkflowView(project, 'fr-CA', 'logo')?.freshness).toBe('outdated');
-  });
-
-  it('rejects a localized variant that points back to the semantic base Asset', () => {
-    const project = createAuthoringProject();
-    addImage(project, 'logo', 'sha256:base-v1');
-    project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
-    project.localization.assets.fr = {
-      logo: {
-        asset: { $ref: { collection: 'assets', id: 'logo' } },
-        sourceFingerprint: localizationAssetSourceFingerprint(project, 'logo')!,
-        origin: 'human',
-        review: 'needs-review',
-      },
-    };
-    expect(createLocalizedAssetVariant(project, 'logo', 'logo')).toBeNull();
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/localization/assets/fr/logo/asset',
-          message: expect.stringContaining('distinct Asset'),
-        }),
-      ]),
-    );
   });
 
   it('treats Use source intentionally as current and rejects incompatible variant creation', () => {

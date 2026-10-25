@@ -1,21 +1,17 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
-import {
-  parseInteractableData,
-  validateInteractableData,
-} from '../../shared/project-schema/authoring-interactables';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonPatchOperation } from './json-patch';
+import { parseInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { overridesForGameplayInstanceEdit } from './archetype-operations';
-import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import type { EntityOperationResult } from './entity-operations';
+import type { JsonPatchOperation } from './json-patch';
 
 export function replaceInteractableDataPatches(
   document: unknown,
   payload: { interactableId: string; data: unknown },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return {
       patches: [],
       diagnostics: [{ severity: 'error', message: 'Current document is not a NovelTea project.' }],
@@ -32,13 +28,6 @@ export function replaceInteractableDataPatches(
       patches: [],
       diagnostics: [{ severity: 'error', message: 'Interactable data is invalid.' }],
     };
-  const issue = legacyCommandDiagnostics(() =>
-    validateInteractableData(document, payload.interactableId, {
-      ...record,
-      data,
-    }),
-  ).find((diagnostic) => diagnostic.severity === 'error');
-  if (issue) return { patches: [], diagnostics: [issue as EntityOperationDiagnostic] };
   const effectiveRecord = record.archetype
     ? resolveGameplayInstanceRecord(document, 'interactable', record)
     : record;

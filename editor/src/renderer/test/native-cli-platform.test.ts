@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vite-plus/test';
-import { runNovelTeaCli } from '../../cli/application';
+import { runNativeOnlyNovelTeaCli as runNovelTeaCli } from '../../cli/native-application';
 import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
@@ -11,7 +11,7 @@ import { emptyEditorProjectState } from '../../shared/project-schema/editor-proj
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { logicalRuntimeArtifactPaths } from '../../shared/runtime-artifact-preparation';
-import { projectWorkspaceLocalStateFile } from '../../shared/project-workspace/project-workspace-service';
+import { projectWorkspaceLocalStateFile } from '../../shared/editor-local-state-file';
 
 const roots: string[] = [];
 afterEach(async () => {

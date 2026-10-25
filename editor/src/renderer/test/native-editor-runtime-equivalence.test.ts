@@ -12,14 +12,6 @@ import { NativeAuthoringWorkingProject } from '../../main/services/native-author
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
 import { NativeEditorProjectHandoff } from '../../main/services/native-editor-project-handoff';
 import { createNativeEditorProject } from '../../main/services/native-editor-project-create';
-import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
-import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
-import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
-import {
-  nodeRuntimeArtifactPaths,
-  nodeShaderCompilerAdapter,
-} from '../../main/services/node-runtime-artifact-adapters';
-import { compileShaders } from '../../main/services/native-shader-compiler-service';
 import { exportPackage } from '../../main/services/native-runtime-tool-service';
 import {
   exportNativeEditorPackage,
@@ -27,7 +19,7 @@ import {
 } from '../../main/services/native-editor-export-service';
 
 describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
-  'candidate native Test and runtime package on runnable starter',
+  'production native Test and runtime package on runnable starter',
   () => {
     it('builds and runs a valid authored Test with no legacy Workspace or material fallback', async () => {
       const parent = await mkdtemp(path.join(tmpdir(), 'native-editor-smoke-'));
@@ -95,49 +87,24 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
             ).stdout;
         expect(opened.success, `${JSON.stringify(opened)}; validate: ${diagnostics}`).toBe(true);
         const id = opened.projectSessionId!;
-        expect(() => sessions.requireActiveWorkspace(id)).toThrow('no workspace');
+        expect('requireActiveWorkspace' in sessions).toBe(false);
         const native = handoff.current()!;
         const prepared = await native.prepareRuntime(id, opened.nativeWorkingRevision!, 'glsl-330');
         expect(prepared, JSON.stringify(prepared)).toMatchObject({ status: 'prepared' });
         if (prepared.status !== 'prepared') return;
-        const legacy = await createNodeProjectWorkspaceService().open(root);
-        expect(legacy.ok).toBe(true);
-        if (!legacy.ok) return;
-        const baseline = await prepareRuntimeArtifact({
-          project: legacy.snapshot.project,
-          projectRoot: root,
-          admittedAuthoringDiagnostics: [],
-          admittedValidationContributions: [],
-          admittedRuntimeAssetReferences: [],
-          profile: {
-            ...selectedExportProfile(legacy.snapshot.project),
-            shaderVariants: ['glsl-330'],
-          },
-          intent: 'play',
-          shaderCompiler: nodeShaderCompilerAdapter(compileShaders),
-          paths: nodeRuntimeArtifactPaths,
-        });
-        expect(baseline.status).toBe('prepared');
-        if (baseline.status === 'prepared') {
-          expect(prepared.artifact.compiledProject).toEqual(baseline.artifact.compiledProject);
-          expect(prepared.artifact.manifestPreview).toEqual(baseline.artifact.manifestPreview);
-          expect(prepared.artifact.packageOptions).toEqual(baseline.artifact.packageOptions);
-          const candidateBundle = path.join(parent, 'candidate.ntpkg');
-          const baselineBundle = path.join(parent, 'baseline.ntpkg');
-          const candidatePublished = await exportPackage(
-            prepared.artifact.compiledProject,
-            candidateBundle,
-            prepared.artifact.packageOptions,
-          );
-          const baselinePublished = await exportPackage(
-            baseline.artifact.compiledProject,
-            baselineBundle,
-            baseline.artifact.packageOptions,
-          );
-          expect(candidatePublished).toMatchObject({ success: true });
-          expect(baselinePublished).toMatchObject({ success: true });
-          expect(await readFile(candidateBundle)).toEqual(await readFile(baselineBundle));
-        }
+        // Compare native working preparation with the *same native-admitted*
+        // clean export path and a reference-independent runtime expectation.
+        expect(prepared.artifact.manifestPreview.projectName).toBe('Native Run');
+        expect(prepared.artifact.compiledProject.definitions.rooms).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: 'native-room' })]),
+        );
+        const previewBundle = path.join(parent, 'native-preview.ntpkg');
+        const previewPublished = await exportPackage(
+          prepared.artifact.compiledProject,
+          previewBundle,
+          prepared.artifact.packageOptions,
+        );
+        expect(previewPublished).toMatchObject({ success: true });
         const report = await native.runTest(id, opened.nativeWorkingRevision!, 'native-smoke');
         expect(report, JSON.stringify(report)).toMatchObject({
           ok: true,
@@ -165,6 +132,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         );
         expect(nativePackage).toMatchObject({ success: true });
         expect((await readFile(nativePackagePath)).length).toBeGreaterThan(0);
+        expect(await readFile(nativePackagePath)).toEqual(await readFile(previewBundle));
 
         // Native editor admission must use acknowledged dirty content for
         // Preview/Tests without silently falling back to the saved manifest.

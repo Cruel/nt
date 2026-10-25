@@ -5,7 +5,7 @@ import {
   NOVELTEA_AGENT_BOOTSTRAP_START,
   NOVELTEA_PROJECT_AGENTS_MANAGED_BLOCK,
   repairNovelTeaAgentBootstrapText,
-} from '../../shared/project-workspace';
+} from '../../shared/project-workspace/agent-bootstrap';
 
 describe('NovelTea managed agent bootstrap', () => {
   it('inserts after only an initial H1 and preserves BOM and CRLF user content', () => {

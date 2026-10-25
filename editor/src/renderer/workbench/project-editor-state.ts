@@ -33,7 +33,7 @@ import {
   type EditorRecoverySaveUnit,
   type EditorRecoveryState,
 } from '../../shared/project-schema/editor-project-state';
-import type { AuthoringEnumRepair } from '../../shared/project-schema/decode-authoring-project';
+type AuthoringEnumRepair = never;
 import { isAuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import {
   createProjectValidationDiagnostic,
@@ -158,14 +158,6 @@ function mergeContentAndEditorState(
   const cloned = cloneJsonValue(content);
   if (!isObject(cloned)) return cloned;
   return { ...cloned, editor: cloneSerializable(editorState) as JsonValue };
-}
-
-function repairPatches(repairs: readonly AuthoringEnumRepair[]): JsonPatchOperation[] {
-  return repairs.map((repair) => ({
-    op: 'replace' as const,
-    path: repair.path,
-    value: repair.replacement,
-  }));
 }
 
 export function reconstructEditorProject(
@@ -454,14 +446,6 @@ function buildRecoveryEntries(): EditorProjectState['recovery'] {
     if (!sequenceByUnit.has(saveUnitId)) sequenceByUnit.set(saveUnitId, ++sequence);
   }
 
-  for (const repair of recoveryContext.repairs) {
-    const saveUnitId = contentSaveUnitForPath(repair.path);
-    const paths = pathsByUnit.get(saveUnitId) ?? new Set<string>();
-    paths.add(repair.path);
-    pathsByUnit.set(saveUnitId, paths);
-    if (!sequenceByUnit.has(saveUnitId)) sequenceByUnit.set(saveUnitId, ++sequence);
-  }
-
   const history = useCommandStore.getState().history;
   const autoCommitOwnedPaths = new Set<string>();
   for (const [index, entry] of history.entries.slice(0, history.cursor + 1).entries()) {
@@ -569,10 +553,6 @@ export function currentRecoveryDirtySaveUnitIds(): Set<string> {
     recoveryContext.editorState.recovery.saveUnitsById,
   )) {
     for (const path of entry.affectedPaths) markIfChanged(saveUnitId, path);
-  }
-
-  for (const repair of recoveryContext.repairs) {
-    markIfChanged(contentSaveUnitForPath(repair.path), repair.path);
   }
 
   const history = useCommandStore.getState().history;
@@ -743,8 +723,4 @@ export function restoreEditorProjectState(
       ),
     ),
   );
-}
-
-export function repairOperationsForTests(repairs: readonly AuthoringEnumRepair[]) {
-  return repairPatches(repairs);
 }

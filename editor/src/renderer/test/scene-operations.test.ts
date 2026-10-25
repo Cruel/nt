@@ -2,11 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  defaultSceneData,
-  defaultSceneStep,
-  sceneDialogueRef,
-} from '../../shared/project-schema/authoring-scenes';
+import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { structuredMessageId } from '../../shared/authoring-structured-messages';
 import { testTranslation } from './fixtures/localization-workflow';
@@ -76,20 +72,10 @@ describe('scene commands', () => {
     });
   });
 
-  it('rejects invalid references and supports undo for valid replacements', () => {
+  it('supports undo for scene patch intents; native admission checks references', () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
     let state = createInitialCommandBusState(toJsonValue(project));
-    const invalid = defaultSceneData('Opening');
-    invalid.events = [
-      { ...defaultSceneStep('call-dialogue'), dialogue: sceneDialogueRef('missing') },
-    ];
-    expect(
-      executeCommand(state, {
-        type: 'scene.replaceData',
-        payload: { sceneId: 'opening', data: invalid },
-      }).ok,
-    ).toBe(false);
     const next = defaultSceneData('Opening Scene');
     next.events.push({ ...defaultSceneStep('wait'), id: 'wait' });
     const valid = executeCommand(state, {

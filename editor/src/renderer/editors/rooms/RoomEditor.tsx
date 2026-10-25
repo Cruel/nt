@@ -157,7 +157,7 @@ import {
   type RoomPlacementData,
   type RoomPropData,
 } from '../../../shared/project-schema/authoring-rooms';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
@@ -696,7 +696,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const roomId = tab.resource?.entityId;
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const hookRegistryAnalysis = useMemo(
     () => (project && activeCategory === 'behavior' ? analyzeHookRegistry(project) : null),
     [activeCategory, project],

@@ -2,12 +2,8 @@ import type {
   ProjectMutationChangeSet,
   ProjectMutationPublication,
 } from '../../shared/authoring-dependency-contracts';
-import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import {
-  asStructurallyAdmittedAuthoringProject,
-  type StructurallyAdmittedAuthoringProject,
-} from '../../shared/project-schema/structurally-admitted-authoring-project';
+import { type StructurallyAdmittedAuthoringProject } from '../../shared/project-schema/structurally-admitted-authoring-project';
 import { buildJsonPointer, parseJsonPointer, type JsonPointer } from './json-pointer';
 import { cloneJsonValue, type JsonValue } from './json-value';
 
@@ -45,41 +41,17 @@ export interface AdmittedProjectCandidate {
 
 export function admitProjectCandidate(
   value: unknown,
-  nativeAcknowledged = false,
+  _nativeAcknowledged = false,
 ): AdmittedProjectCandidate | null {
   const cloned = cloneJsonValue(value as JsonValue);
   // Native replies already own admission. Never repair or normalize their working projection.
-  if (nativeAcknowledged) {
-    if (!cloned || typeof cloned !== 'object' || Array.isArray(cloned)) return null;
-    return {
-      project: deepFreeze(
-        stripLocalEditorProjectState(cloned),
-      ) as StructurallyAdmittedAuthoringProject,
-      document: deepFreeze(cloned),
-    };
-  }
-  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(cloned));
-  if (!decoded.project) {
-    // Historical renderer unit tests use deliberately tiny JSON documents to exercise generic store
-    // mechanics. They are not project-file candidates and remain isolated from production builds.
-    const isLegacyTestDocument =
-      import.meta.env.MODE === 'test' &&
-      typeof cloned === 'object' &&
-      cloned !== null &&
-      !Array.isArray(cloned) &&
-      !('schema' in cloned);
-    if (!isLegacyTestDocument) return null;
-    const admittedDocument = deepFreeze(cloned);
-    return {
-      project: admittedDocument as unknown as StructurallyAdmittedAuthoringProject,
-      document: admittedDocument,
-    };
-  }
-  // Keep the editor metadata from the authoritative candidate adjacent to admitted content.
-  const admittedDocument = deepFreeze(cloned);
+
+  if (!cloned || typeof cloned !== 'object' || Array.isArray(cloned)) return null;
   return {
-    project: deepFreeze(asStructurallyAdmittedAuthoringProject(decoded.project)),
-    document: admittedDocument,
+    project: deepFreeze(
+      stripLocalEditorProjectState(cloned),
+    ) as StructurallyAdmittedAuthoringProject,
+    document: deepFreeze(cloned),
   };
 }
 

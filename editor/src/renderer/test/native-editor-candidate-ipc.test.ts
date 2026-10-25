@@ -140,7 +140,7 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
         const first = await ipc.invoke(IPC_CHANNELS.OPEN_PROJECT, trusted, root);
         expect(first).toMatchObject({ success: true, nativeWorkingRevision: 0 });
         const id = (first as { projectSessionId: string }).projectSessionId;
-        expect(() => sessions.requireActiveWorkspace(id)).toThrow('no workspace');
+        expect('requireActiveWorkspace' in sessions).toBe(false);
         await expect(
           ipc.invoke(IPC_CHANNELS.NATIVE_PROJECT_PATCH, trusted, id, 99, [
             { op: 'replace', path: '/project/name', value: 'Never admitted' },

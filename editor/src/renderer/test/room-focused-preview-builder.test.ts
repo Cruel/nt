@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import {
-  buildAuthoringStructuralDependencyGraph,
   recordNodeKey,
   serializeAuthoringDependencyNodeKey,
-} from '../../shared/authoring-dependency-graph';
+} from '../../shared/authoring-graph-queries';
+import { nativeViewRecordGraphFixture } from '../test-support/native-renderer-graph-fixture';
 import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
 import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeText } from '../../shared/pseudo-localization';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
@@ -72,7 +72,7 @@ function fixture() {
 }
 
 async function build(project = fixture()) {
-  const graph = buildAuthoringStructuralDependencyGraph(project);
+  const graph = nativeViewRecordGraphFixture(project);
   return buildFocusedRoomPreview({
     project,
     projectSessionId: '11111111-1111-4111-8111-111111111111',
@@ -1027,7 +1027,7 @@ describe('graph-driven Room builder', () => {
 
   it('fails closed when the current graph omits the requested Room root', async () => {
     const project = fixture();
-    const graph = buildAuthoringStructuralDependencyGraph(project);
+    const graph = nativeViewRecordGraphFixture(project);
     const nodesByKey = new Map(graph.nodesByKey);
     nodesByKey.delete(serializeAuthoringDependencyNodeKey(recordNodeKey('rooms', 'bedroom')));
     await expect(

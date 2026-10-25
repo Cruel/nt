@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useCommandStore } from '@/commands/command-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,63 +10,62 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, Plus, Trash2 } from 'lucide-react';
-import { useCommandStore } from '@/commands/command-store';
-import { useProjectStore } from '@/project/project-store';
 import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
+import { useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { buildProjectSettingsTab, buildSettingsTab } from '@/workbench/editor-registry';
+import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
+import { Copy, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
-import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   defaultPackageOutputFileName,
   runtimeExportProfileForPlatform,
   selectedExportProfile,
   type ExportProfileData,
 } from '../../shared/project-schema/authoring-export';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
+import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
+import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {
-  prepareRuntimeArtifact,
-  hasAuthoringShadersOrMaterials,
-  type RuntimeArtifactAssessment,
-} from '../../shared/legacy-runtime-artifact-preparation';
-import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
+  PLAYER_RUNTIME_API_VERSION,
+  defaultPlatformExportProfile,
+  parsePlatformExportProfile,
+  parseProjectPlatformExportSettings,
+  resolveAssetMemoryPolicy,
+  userSigningProfileToExportSigningState,
+  type AssetMemoryProfile,
+  type ExportPlatform,
+  type PlatformExportProfile,
+  type ProjectPlatformExportSettings,
+  type UserExportConfig,
+} from '../../shared/project-schema/platform-export-contracts';
 import {
   classifyProjectValidationDiagnostics,
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-diagnostic-projection';
 import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
-import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {
-  defaultPlatformExportProfile,
-  resolveAssetMemoryPolicy,
-  PLAYER_RUNTIME_API_VERSION,
-  parsePlatformExportProfile,
-  parseProjectPlatformExportSettings,
-  userSigningProfileToExportSigningState,
-  type ExportPlatform,
-  type AssetMemoryProfile,
-  type PlatformExportProfile,
-  type ProjectPlatformExportSettings,
-  type UserExportConfig,
-} from '../../shared/project-schema/platform-export-contracts';
-import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
-import { runPackageExportWorkflow } from './package-export-workflow';
+  hasAuthoringShadersOrMaterials,
+  type RuntimeArtifactAssessment,
+} from '../../shared/runtime-artifact-preparation';
+import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
 import { usePackageExportStore } from './package-export-store';
+import { runPackageExportWorkflow } from './package-export-workflow';
+import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
+import { evaluatePlatformExportReadiness } from './platform-export-readiness';
 import {
   cancelPlatformStageWorkflow,
   runProjectPlatformExportWorkflow,
 } from './platform-export-workflow';
-import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
-import { evaluatePlatformExportReadiness } from './platform-export-readiness';
-import { rendererRuntimeArtifactPaths } from './runtime-artifact-adapters';
 import { useTemplateRegistryStore } from './template-registry-store';
-import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -437,49 +435,34 @@ export function PackageExportDialog({
     }
     setPreviewPending(true);
     setPreviewFailure(null);
-    if (nativeRevision !== null) {
-      setPreview(null);
-      if (!projectSessionId) {
-        setPreviewFailure('Native export readiness requires an active Project session.');
-        setPreviewPending(false);
-        return () => {
-          current = false;
-        };
-      }
-      void window.noveltea
-        .nativeProjectPrepareExport(
-          projectSessionId,
-          nativeRevision,
-          mode,
-          mode === 'platform' ? (selectedPlatformProfile?.id ?? undefined) : undefined,
-        )
-        .then((result) => {
-          if (!current) return;
-          setPreview(result.status === 'cancelled' ? null : result.assessment);
-        })
-        .catch((error: unknown) => {
-          if (!current) return;
-          setPreview(null);
-          setPreviewFailure(error instanceof Error ? error.message : String(error));
-        })
-        .finally(() => {
-          if (current) setPreviewPending(false);
-        });
+
+    setPreview(null);
+    if (!projectSessionId || nativeRevision === null) {
+      setPreviewFailure('Native export readiness requires an active Project session.');
+      setPreviewPending(false);
       return () => {
         current = false;
       };
     }
-    void prepareRuntimeArtifact({
-      project,
-      projectRoot,
-      profile: previewProfile,
-      intent: mode === 'platform' ? 'platform-preflight' : 'runtime-package-preflight',
-      paths: rendererRuntimeArtifactPaths,
-    }).then((result) => {
-      if (!current) return;
-      if (result.status !== 'cancelled') setPreview(result.assessment);
-      setPreviewPending(false);
-    });
+    void window.noveltea
+      .nativeProjectPrepareExport(
+        projectSessionId,
+        nativeRevision,
+        mode,
+        mode === 'platform' ? (selectedPlatformProfile?.id ?? undefined) : undefined,
+      )
+      .then((result) => {
+        if (!current) return;
+        setPreview(result.status === 'cancelled' ? null : result.assessment);
+      })
+      .catch((error: unknown) => {
+        if (!current) return;
+        setPreview(null);
+        setPreviewFailure(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (current) setPreviewPending(false);
+      });
     return () => {
       current = false;
     };

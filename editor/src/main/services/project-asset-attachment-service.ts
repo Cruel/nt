@@ -1,7 +1,7 @@
+import { dialog, shell, type BrowserWindow } from 'electron';
 import { createHash } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { dialog, shell, type BrowserWindow } from 'electron';
 import type {
   ProjectAttachmentFileInfo,
   ProjectAttachmentImportRequest,
@@ -12,7 +12,6 @@ import {
   isSafeProjectAttachmentPath,
   type AssetAttachmentPurpose,
 } from '../../shared/project-schema/authoring-assets';
-import { writeProjectAssetFilesTransaction } from './project-asset-file-transaction';
 
 const DEFAULT_DIRECTORIES: Record<AssetAttachmentPurpose, string> = {
   'distribution-notice': 'support/licenses',
@@ -227,8 +226,9 @@ export async function importProjectAttachmentFiles(
     assertAuthority?.();
     if (planned.size) {
       const files = [...planned].map(([filePath, bytes]) => ({ path: filePath, bytes }));
-      if (nativePublish) await nativePublish(files);
-      else await writeProjectAssetFilesTransaction(root, files, 'import Project attachments');
+      if (!nativePublish)
+        throw new Error('Attachment import requires the admitted native Project session.');
+      await nativePublish(files);
     }
     return { paths, reused };
   } catch (error) {

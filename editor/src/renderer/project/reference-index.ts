@@ -1,5 +1,4 @@
 export {
-  buildReferenceIndex,
   findUsages,
   referenceTargetKey,
   type ReferenceIndex,

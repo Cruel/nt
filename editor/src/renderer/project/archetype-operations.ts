@@ -12,10 +12,10 @@ import {
   type InheritableConfiguration,
 } from '../../shared/project-schema/authoring-archetypes';
 import {
-  isAuthoringProject,
   type AuthoringProject,
   type AuthoringRecordBase,
 } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
@@ -62,7 +62,7 @@ export function setGameplayInstanceArchetypePatches(
     archetypeId: string | null;
   },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const target = gameplayRecord(document, payload.collection, payload.entityId);
   if (!target)
@@ -128,7 +128,7 @@ export function clearGameplayInstanceArchetypeOverridesPatches(
   document: unknown,
   payload: { collection: GameplayInstanceCollection; entityId: string },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const target = gameplayRecord(document, payload.collection, payload.entityId);
   if (!target)
@@ -165,7 +165,7 @@ export function replaceArchetypeConfigurationPatches(
   document: unknown,
   payload: { archetypeId: string; configuration: InheritableConfiguration },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.archetypes[payload.archetypeId];
   const data = parseArchetypeData(record?.data);
@@ -200,7 +200,7 @@ export function setArchetypeBasePatches(
   document: unknown,
   payload: { archetypeId: string; baseArchetypeId: string | null },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.archetypes[payload.archetypeId];
   const data = parseArchetypeData(record?.data);
@@ -252,7 +252,7 @@ export function setArchetypeKindPatches(
   document: unknown,
   payload: { archetypeId: string; instanceKind: GameplayInstanceKind },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.archetypes[payload.archetypeId];
   const data = parseArchetypeData(record?.data);

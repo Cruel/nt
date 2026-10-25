@@ -7,7 +7,7 @@ import type {
   NativeResidentProjectPreparation,
   ResidentProjectAuthority,
   ResidentProjectAuthorityRequest,
-} from '../../shared/project-workspace/resident-project-workspace-service';
+} from '../../shared/project-workspace/native-project-preparation-contracts';
 
 const root = '/native-project';
 const hash = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`;

@@ -9,7 +9,7 @@ import type {
   ComfyUiPublishedFilesystemOutput,
   ComfyUiPublishedOutput,
   ComfyUiStagedAssetPublicationRequest,
-} from './comfyui-asset-publication-service';
+} from './comfyui-publication-contracts';
 import { ComfyUiRunError } from './comfyui-run-errors';
 import type {
   ComfyUiGeneratedImage,
@@ -294,7 +294,6 @@ export async function publishNativeComfyUiOutputs(options: {
         projectRoot: options.projectRoot,
         workflow: { id: options.workflow.id, label: options.workflow.label },
         promptId: options.promptId,
-        nativeCandidate: true,
         ...(options.expectedSourceGeneration
           ? { expectedSourceGeneration: options.expectedSourceGeneration }
           : {}),

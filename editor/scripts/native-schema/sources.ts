@@ -7,7 +7,7 @@ import {
 } from '../../src/shared/project-schema/authoring-flow';
 import { schemaSources } from '../../src/shared/project-schema/schema-reference';
 import { z } from 'zod';
-import { projectWorkspaceSourceSchemas } from '../../src/shared/project-workspace/project-workspace-service';
+import { projectWorkspaceSourceSchemas } from './workspace-source-schemas';
 
 const title = (value: string) => value[0]!.toUpperCase() + value.slice(1);
 

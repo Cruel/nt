@@ -202,7 +202,7 @@ export async function runNativeProjectValidationCli(
     // compilable gameplay entrypoint. This compiler preflight reads the native
     // effective Project only, without revalidating authoring sources in TS.
     diagnostics.push(
-      ...preflightAdmittedAuthoringProject(project, () => []).diagnostics.map((item) =>
+      ...preflightAdmittedAuthoringProject(project).diagnostics.map((item) =>
         cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
       ),
     );

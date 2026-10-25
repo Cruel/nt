@@ -35,7 +35,7 @@ import {
 import { sampleHotspotMotionTrack } from '../../../shared/project-schema/authoring-hotspots';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isTextEntryKeyboardTarget } from '@/components/image-stage/keyboard-target';
@@ -105,7 +105,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     const workspaceRef = useRef<HTMLDivElement | null>(null);
 
     const animation = useMemo(() => {
-      if (!session || session.ownerKind !== 'interactable' || !isAuthoringProject(project))
+      if (!session || session.ownerKind !== 'interactable' || !isAuthoringProjectView(project))
         return null;
       const record = project.interactables[session.ownerId];
       const interactable = record

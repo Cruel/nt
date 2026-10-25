@@ -17,7 +17,6 @@ import {
   type NativeDirtyCheckpoint,
 } from '../../main/services/native-authoring-working-project';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
-import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 import {
   nativeProjectPatchArgumentsSchema,
   nativeProjectSaveUnitArgumentsSchema,
@@ -170,6 +169,21 @@ function fixture(projectRoot = '/trusted/project') {
       fail?.(error);
     },
   };
+}
+
+/** Exercise the shipped native candidate admission/promotion boundary, not
+ * the retired TypeScript Project Workspace activation shortcut. */
+async function admitNativeSession(
+  sessions: ActiveProjectSessionService,
+  controller: NativeEditorSessionController,
+  root: string,
+) {
+  const generation = sessions.beginProjectActivation();
+  const id = await sessions.stageNativeProjectFile(path.join(root, 'project.yaml'), generation);
+  const admitted = await controller.admitFromNative(id);
+  await sessions.acceptNativeProject(id, admitted.savedProject);
+  sessions.commitStagedNativeProject(id, generation);
+  return { id, admitted };
 }
 
 describe('native admission at the editor main Project lifecycle', () => {
@@ -817,8 +831,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     const incumbent = makeController();
     const pending = makeController();
     try {
-      const oldId = await sessions.activateProjectFile(path.join(original, 'project.yaml'));
-      await incumbent.admitFromNative(oldId);
+      const { id: oldId } = await admitNativeSession(sessions, incumbent, original);
       const rejected = await openNativeEditorProject(
         candidate,
         sessions.beginProjectActivation(),
@@ -868,9 +881,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(sessions.currentProjectIdentity()).toEqual({ id: 'feature-lab', name: 'Feature Lab' });
       expect(opened.editorState).toBeDefined();
       expect(opened.recoveryFileRevisions?.['project.yaml']).toMatch(/^sha256:[a-f0-9]{64}$/u);
-      expect(() => sessions.requireActiveWorkspace(opened.projectSessionId!)).toThrow(
-        'no workspace',
-      );
+      expect('requireActiveWorkspace' in sessions).toBe(false);
       const raw = await working.prepareCompleteWorking();
       const projected = projectFromNativeCompletePreparation(raw);
       // The production adapter does not normalize; this test-only comparison
@@ -904,8 +915,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       new NativeAuthoringWorkingProject(bridge),
     );
     try {
-      const sessionId = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
-      const admitted = await controller.admitFromNative(sessionId);
+      const { id: sessionId, admitted } = await admitNativeSession(sessions, controller, root);
       expect(admitted.savedProject.project).toMatchObject({
         id: 'feature-lab',
         name: 'Feature Lab',
@@ -933,9 +943,6 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       (await readFile(assetRecord, 'utf8')) +
         '  attachments:\n    - path: support/issue-511-license.txt\n      purpose: reference\n',
     );
-    const saved = await createNodeProjectWorkspaceService().open(root);
-    expect(saved.ok).toBe(true);
-    if (!saved.ok) return;
     const sessions = new ActiveProjectSessionService();
     const bridge = new NativeAuthoringSessionBridge(sessions, {
       addonPath: nativeAddon!,
@@ -951,8 +958,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       new NativeAuthoringWorkingProject(bridge),
     );
     try {
-      const id = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
-      await controller.admit(id, saved.snapshot.project);
+      const { id } = await admitNativeSession(sessions, controller, root);
       const created = await controller.mutateProjectSources({
         projectSessionId: id,
         operation: { kind: 'create-file', path: 'scripts/issue-511.lua', fileKind: 'lua' },
@@ -1070,9 +1076,6 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), fixture, {
       recursive: true,
     });
-    const opened = await createNodeProjectWorkspaceService().open(fixture);
-    expect(opened.ok).toBe(true);
-    if (!opened.ok) return;
     const sessions = new ActiveProjectSessionService();
     const bridge = new NativeAuthoringSessionBridge(sessions, {
       addonPath: nativeAddon!,
@@ -1088,8 +1091,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       new NativeAuthoringWorkingProject(bridge),
     );
     try {
-      const id = await sessions.activateProjectFile(path.join(fixture, 'project.yaml'));
-      await controller.admit(id, opened.snapshot.project);
+      const { id, admitted } = await admitNativeSession(sessions, controller, fixture);
       expect(controller.isAdmitted(id)).toBe(true);
       const before = await readFile(path.join(fixture, 'project.yaml'), 'utf8');
       const edited = await controller.applyRevisionedPatches(id, 0, [
@@ -1100,8 +1102,8 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(edited.snapshot.source).toMatchObject({ project: { name: 'Unsaved Native Name' } });
       const beforeCommand = createInitialCommandBusState(
         toJsonValue({
-          ...opened.snapshot.project,
-          project: { ...opened.snapshot.project.project, name: 'Unsaved Native Name' },
+          ...admitted.savedProject,
+          project: { ...admitted.savedProject.project, name: 'Unsaved Native Name' },
         }),
       );
       const proposal = executeCommand(beforeCommand, {
@@ -1133,7 +1135,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(await readFile(path.join(fixture, 'project.yaml'), 'utf8')).toBe(before);
       controller.close();
       expect(controller.isAdmitted(id)).toBe(false);
-      await expect(controller.admit('stale-id', opened.snapshot.project)).rejects.toThrow('stale');
+      await expect(controller.admitFromNative('stale-id')).rejects.toThrow('stale');
     } finally {
       controller.dispose();
       sessions.dispose();
@@ -1145,9 +1147,6 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     const root = await mkdtemp(path.join(tmpdir(), 'native-editor-restart-'));
     const source = path.resolve(process.cwd(), '../tests/projects/feature-lab');
     await cp(source, root, { recursive: true });
-    const saved = await createNodeProjectWorkspaceService().open(root);
-    expect(saved.ok).toBe(true);
-    if (!saved.ok) return;
     const sessions = new ActiveProjectSessionService();
     const makeController = () => {
       const bridge = new NativeAuthoringSessionBridge(sessions, {
@@ -1166,8 +1165,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
     };
     let controller = makeController();
     try {
-      const first = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
-      await controller.admit(first, saved.snapshot.project);
+      const { id: first } = await admitNativeSession(sessions, controller, root);
       const patched = await controller.applyRevisionedPatches(first, 0, [
         { op: 'replace', path: '/project/name', value: 'Recovered across restart' },
       ]);
@@ -1178,8 +1176,8 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       controller.dispose();
       sessions.closeActiveProject();
       controller = makeController();
-      const second = await sessions.activateProjectFile(path.join(root, 'project.yaml'));
-      expect(await controller.admit(second, saved.snapshot.project)).toBeGreaterThan(0);
+      const { admitted } = await admitNativeSession(sessions, controller, root);
+      expect(admitted.revision).toBeGreaterThan(0);
       expect(controller.recoveredContentProject()?.project.name).toBe('Recovered across restart');
       expect(controller.isAdmitted(first)).toBe(false);
       const failed = await controller

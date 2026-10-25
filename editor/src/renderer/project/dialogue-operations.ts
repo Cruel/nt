@@ -1,13 +1,9 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
-import {
-  parseDialogueData,
-  validateDialogueData,
-} from '../../shared/project-schema/authoring-dialogues';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonPatchOperation } from './json-patch';
+import { parseDialogueData } from '../../shared/project-schema/authoring-dialogues';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import type { JsonPatchOperation } from './json-patch';
 import {
   preserveStructuredMessageIdentityPatches,
   type StructuredMessageOwnerMove,
@@ -35,7 +31,7 @@ export function replaceDialogueDataPatches(
   document: unknown,
   payload: ReplaceDialogueDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.dialogues[payload.dialogueId];
   if (!record)
@@ -49,11 +45,6 @@ export function replaceDialogueDataPatches(
       patches: [],
       diagnostics: [error('Dialogue data is invalid.', pathForDialogueData(payload.dialogueId))],
     };
-  const diagnostics = legacyCommandDiagnostics(() =>
-    validateDialogueData(document, payload.dialogueId, { ...record, data }),
-  );
-  const failure = diagnostics.find((item) => item.severity === 'error');
-  if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const messageIdentity = preserveStructuredMessageIdentityPatches(
     document,
     payload.semanticOwnerMoves ?? [],

@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TestsEditor } from '@/editors/tests/TestsEditor';
@@ -45,6 +46,18 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useWorkspaceStore.getState().setLastPlaybackReport(null);
   useWorkspaceStore.getState().setStatusMessage('');
+  Object.defineProperty(window.noveltea, 'nativeProjectTestReadiness', {
+    configurable: true,
+    value: vi.fn(async () => ({ runnable: true, reason: 'runnable', diagnostics: [] })),
+  });
+  Object.defineProperty(window.noveltea, 'nativeProjectRunTest', {
+    configurable: true,
+    value: vi.fn(async (_session, _revision, id) => ({
+      ok: true,
+      success: true,
+      report: { id, passed: true, observations: [] },
+    })),
+  });
 });
 
 describe('TestsEditor', () => {
@@ -53,11 +66,7 @@ describe('TestsEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<TestsEditor tab={tab} />);
 
@@ -70,11 +79,7 @@ describe('TestsEditor', () => {
   it('commits metadata and step edits through test.replaceData', async () => {
     const project = createAuthoringProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<TestsEditor tab={tab} />);
 
@@ -100,11 +105,7 @@ describe('TestsEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<TestsEditor tab={tab} />);
 
@@ -150,11 +151,7 @@ describe('TestsEditor', () => {
     data.steps = [{ ...defaultTestStep('dialogue-choice'), id: 'choose', label: 'Choose route' }];
     data.preview.selectedStepId = 'choose';
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<TestsEditor tab={tab} />);
 
@@ -174,16 +171,18 @@ describe('TestsEditor', () => {
     data.steps = [{ ...defaultTestStep('ui-click'), id: 'click', label: 'Click confirm' }];
     data.preview.selectedStepId = 'click';
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<TestsEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Document ID'), {
       target: { value: 'runtime_inventory' },
+    });
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.steps[0]?.uiClick.documentId).toBe('runtime_inventory');
     });
     fireEvent.change(screen.getByLabelText('Selector'), { target: { value: '#confirm' } });
     await waitFor(() => {
@@ -218,12 +217,8 @@ describe('TestsEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     project.entrypoint = { kind: 'room', id: 'foyer' };
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
-    const runPlaybackTest = vi.mocked(window.noveltea.runPlaybackTest);
+    admitNativeRendererCommandFixture(project);
+    const runPlaybackTest = vi.mocked(window.noveltea.nativeProjectRunTest);
     runPlaybackTest.mockClear();
 
     render(<TestsEditor tab={tab} />);
@@ -232,10 +227,7 @@ describe('TestsEditor', () => {
     fireEvent.click(screen.getByText('Run Test'));
 
     await waitFor(() => expect(runPlaybackTest).toHaveBeenCalledOnce());
-    expect(runPlaybackTest.mock.calls[0]?.[0]).toBeNull();
-    expect(runPlaybackTest.mock.calls[0]?.[1]).toEqual(project);
-    expect(runPlaybackTest.mock.calls[0]?.[2]).toBe('smoke');
-    expect(runPlaybackTest.mock.calls[0]?.[3]).toEqual({});
+    expect(runPlaybackTest).toHaveBeenCalledWith(expect.any(String), 0, 'smoke');
   });
 
   it('runs selector-click tests through the runtime UI runner', async () => {
@@ -253,13 +245,8 @@ describe('TestsEditor', () => {
     ];
     data.preview.selectedStepId = 'click-confirm';
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-      projectSessionId: 'project-session',
-    });
-    const runPlaybackTest = vi.mocked(window.noveltea.runPlaybackTest);
+    admitNativeRendererCommandFixture(project, 'project-session');
+    const runPlaybackTest = vi.mocked(window.noveltea.nativeProjectRunTest);
     runPlaybackTest.mockClear();
 
     render(<TestsEditor tab={tab} />);
@@ -268,19 +255,25 @@ describe('TestsEditor', () => {
     fireEvent.click(screen.getByText('Run Test'));
 
     await waitFor(() => expect(runPlaybackTest).toHaveBeenCalledOnce());
-    expect(runPlaybackTest.mock.calls[0]?.[0]).toBe('project-session');
-    expect(runPlaybackTest.mock.calls[0]?.[1]).toEqual(project);
-    expect(runPlaybackTest.mock.calls[0]?.[2]).toBe('smoke');
+    expect(runPlaybackTest).toHaveBeenCalledWith('project-session', 0, 'smoke');
   });
 
   it('opens the playback panel and stores readiness reports when a test cannot run', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
+    admitNativeRendererCommandFixture(project);
+    vi.mocked(window.noveltea.nativeProjectTestReadiness).mockResolvedValue({
+      runnable: false,
+      reason: 'not-runnable-project-compilation-failed',
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'native.test.fixture',
+          path: '/tests/smoke',
+          message: 'Missing entrypoint.',
+        },
+      ],
     });
 
     render(<TestsEditor tab={tab} />);

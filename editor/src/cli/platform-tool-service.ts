@@ -1,3 +1,4 @@
+import type { AuthoringProject } from '../shared/project-schema/authoring-project';
 import type {
   EditorExportLocalState,
   InstalledTemplate,
@@ -7,21 +8,14 @@ import type {
   TemplateInstallResult,
   UserExportConfig,
 } from '../shared/project-schema/platform-export-contracts';
-import type { AuthoringProject } from '../shared/project-schema/authoring-project';
-import type { AuthoringValidationContribution } from '../shared/project-schema/authoring-validation-contributions';
 import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-diagnostic-projection';
 
 export interface AdmittedPlatformExportValidation {
   readonly project: AuthoringProject;
   readonly diagnostics: readonly ProjectValidationDiagnostic[];
-  readonly contributions: readonly AuthoringValidationContribution[];
   readonly runtimeAssetReferences?: readonly string[];
   /** Owner-captured shader bytes, never reread from a newer on-disk generation. */
   readonly shaderSourceOverlays?: Readonly<Record<string, string>>;
-  readonly sourceGraph?: Pick<
-    import('../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
-    'graph' | 'externalSourceRevisions'
-  > & { readonly project: AuthoringProject };
 }
 
 export interface NovelTeaCliPlatformToolService {

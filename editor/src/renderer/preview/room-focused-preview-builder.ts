@@ -7,7 +7,7 @@ import type {
 import {
   recordContributionKey,
   serializeAuthoringDependencyNodeKey,
-} from '../../shared/authoring-dependency-graph';
+} from '../../shared/authoring-graph-queries';
 import type {
   PreviewResourceManifestEntry,
   RoomPreviewInputs,

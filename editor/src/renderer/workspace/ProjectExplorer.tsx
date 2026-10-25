@@ -1,5 +1,69 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
+import { TagBadge } from '@/components/tags/TagBadge';
+import { TagInput } from '@/components/tags/TagInput';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenuCheckboxItem,
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { SearchInput } from '@/components/ui/search-input';
+import { Select, SelectItem } from '@/components/ui/select';
+import {
+  diagnosticCountsForCollection,
+  diagnosticSeverityForRecord,
+} from '@/diagnostics/project-diagnostic-severity';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { semanticUsagesForTarget } from '@/project/authoring-graph-consumers';
+import {
+  authoringRepairEdgesForTarget,
+  generateAuthoringRepairPlan,
+  recordTarget,
+} from '@/project/authoring-repair';
+import { referenceTargetFromEntity } from '@/project/entity-operations';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
+import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
+import { buildNativeProjectSearchIndex } from '@/project/native-project-search';
+import {
+  ProjectCommentReviewContents,
+  resolveProjectComments,
+  setInlineProjectCommentOwner,
+  usePendingProjectComments,
+} from '@/project/project-comment-confirmation';
+import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
+import { useProjectStore } from '@/project/project-store';
+import {
+  MUTATION_SURFACE_ATTRIBUTIONS,
+  recordSaveUnitId,
+  structuralSaveUnitId,
+} from '@/project/save-unit-registry';
+import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
+import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useDraftDirtyStore, type DraftDirtyEntry } from '@/workbench/draft-dirty-store';
+import {
+  buildAssetsEditorTab,
+  buildDefaultRecordTab,
+  buildImageGenerationTab,
+  buildLocalizationTab,
+  buildProjectChaptersTab,
+  buildProjectSettingsTab,
+  buildProjectSourceTab,
+  buildProjectTagsTab,
+  buildTestsEditorTab,
+  buildVariablesEditorTab,
+} from '@/workbench/editor-registry';
+import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import type { WorkbenchTab } from '@/workbench/workbench-types';
 import {
   ChevronDown,
   ChevronRight,
@@ -17,110 +81,45 @@ import {
   Trash2,
   WholeWord,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { TagBadge } from '@/components/tags/TagBadge';
-import { TagInput } from '@/components/tags/TagInput';
-import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { SearchInput } from '@/components/ui/search-input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
-import {
-  DropdownMenuCheckboxItem,
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useCommandStore } from '@/commands/command-store';
-import type { CommandRequest } from '@/commands/command-types';
-import {
-  diagnosticCountsForCollection,
-  diagnosticSeverityForRecord,
-} from '@/diagnostics/project-diagnostic-severity';
-import { useProjectStore } from '@/project/project-store';
-import {
-  ProjectCommentReviewContents,
-  resolveProjectComments,
-  setInlineProjectCommentOwner,
-  usePendingProjectComments,
-} from '@/project/project-comment-confirmation';
-import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
-import {
-  MUTATION_SURFACE_ATTRIBUTIONS,
-  recordSaveUnitId,
-  structuralSaveUnitId,
-} from '@/project/save-unit-registry';
-import { referenceTargetFromEntity } from '@/project/entity-operations';
-import { useEntityUsagesStore } from '@/project/entity-usages-store';
-import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
-import { semanticUsagesForTarget } from '@/project/authoring-graph-consumers';
-import {
-  authoringRepairEdgesForTarget,
-  generateAuthoringRepairPlan,
-  recordTarget,
-} from '@/project/authoring-repair';
-import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
-import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   authoringCollectionMetadata,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
-  isAuthoringProject,
   type AuthoringProject,
   type AuthoringRecordBase,
 } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import {
   collectProjectTags,
   normalizeTagKey,
   recordEditorMetadata,
 } from '../../shared/project-schema/authoring-tags';
-import { searchProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-search';
-import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
-import { createProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
-import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
-import {
-  buildAssetsEditorTab,
-  buildDefaultRecordTab,
-  buildImageGenerationTab,
-  buildLocalizationTab,
-  buildProjectChaptersTab,
-  buildProjectSettingsTab,
-  buildProjectSourceTab,
-  buildProjectTagsTab,
-  buildTestsEditorTab,
-  buildVariablesEditorTab,
-} from '@/workbench/editor-registry';
-import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { useDraftDirtyStore, type DraftDirtyEntry } from '@/workbench/draft-dirty-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
-import {
-  WORKSPACE_TOOLBAR_COMMAND_EVENT,
-  type WorkspaceToolbarCommandDetail,
-} from './workspace-toolbar-events';
-import { visualForCollection, chapterVisual, hiddenVisual } from './collection-visuals';
+import { searchProjectIndex } from '../../shared/project-search/project-search';
+import type { ProjectSourceUsage } from '../../shared/project-source-files';
+import { chapterVisual, hiddenVisual, visualForCollection } from './collection-visuals';
+import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
 import {
   buildProjectExplorerTree,
   collectiveCollectionSet,
   findProjectExplorerPlacementForTab,
   type ProjectExplorerNode,
 } from './project-explorer-tree';
-import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
 import {
   buildProjectFilesTree,
   filterProjectFiles,
   projectFilesPlacementForSource,
   type ProjectFilesNode,
 } from './project-files-tree';
+import {
+  dispatchWorkspaceToolbarCommand,
+  WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  type WorkspaceToolbarCommandDetail,
+} from './workspace-toolbar-events';
 import { RecentProjectsList } from './WorkspaceDashboard';
-import type { WorkbenchTab } from '@/workbench/workbench-types';
-import type { ProjectSourceUsage } from '../../shared/project-source-files';
-import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
 
 type EntityAction = 'rename' | 'duplicate' | 'delete' | 'metadata';
 
@@ -917,7 +916,6 @@ function ExplorerContextMenu({
   const projectFilePath = useProjectStore((store) => store.projectFilePath);
   const projectSessionId = useProjectStore((store) => store.projectSessionId);
   const executeCommand = useCommandStore((store) => store.executeCommandAsync);
-  const nativeWorkingRevision = useCommandStore((store) => store.nativeWorkingRevision);
   const setHiddenCollectionKeys = useProjectExplorerStore((store) => store.setHiddenCollectionKeys);
   const hiddenCollectionKeys = useProjectExplorerStore((store) => store.hiddenCollectionKeys);
   const chapters = useProjectExplorerStore((store) => store.chapters);
@@ -1036,7 +1034,7 @@ function ExplorerContextMenu({
 
   async function findNodeUsages() {
     if (!node.entityId) return;
-    if (nativeWorkingRevision !== null && !graphSnapshot) {
+    if (!graphSnapshot) {
       setStatusMessage('Native dependency graph is refreshing; Find Usages is not ready.');
       return;
     }
@@ -1044,18 +1042,14 @@ function ExplorerContextMenu({
     const record = activeProject[collection][node.entityId];
     const aliases =
       collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
-    const searchResults = searchProjectWorkspaceSnapshot(
-      await createProjectWorkspaceSnapshot(
-        activeProject,
-        useProjectStore.getState().scriptSourcePaths,
-      ),
+    const searchResults = searchProjectIndex(
+      buildNativeProjectSearchIndex(activeProject, graphSnapshot!),
       {
         referencesTo: [target],
         aliases,
         tokenMode: 'all',
         sort: { kind: 'label' },
       },
-      graphSnapshot ? referenceIndexFromCurrentGraph(activeProject, graphSnapshot) : undefined,
     ).results;
     const sourceUsages = graphSnapshot
       ? semanticUsagesForTarget(graphSnapshot, target).filter(
@@ -1768,10 +1762,9 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const nativeWorkingRevision = useCommandStore((state) => state.nativeWorkingRevision);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
-  const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
   const hiddenCollectionKeys = useProjectExplorerStore((state) => state.hiddenCollectionKeys);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
@@ -1895,24 +1888,10 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       showTagFilter,
     ],
   );
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<Awaited<
-    ReturnType<typeof createProjectWorkspaceSnapshot>
-  > | null>(null);
-  useEffect(() => {
-    let active = true;
-    if (!project) {
-      setWorkspaceSnapshot(null);
-      return () => {
-        active = false;
-      };
-    }
-    void createProjectWorkspaceSnapshot(project, scriptSourcePaths).then((snapshot) => {
-      if (active) setWorkspaceSnapshot(snapshot);
-    });
-    return () => {
-      active = false;
-    };
-  }, [project, scriptSourcePaths]);
+  const workspaceSnapshot = useMemo(
+    () => (project && graphSnapshot ? buildNativeProjectSearchIndex(project, graphSnapshot) : null),
+    [project, graphSnapshot],
+  );
   const activeFilterTags = useMemo(
     () => (showTagFilter ? filterTags : []),
     [filterTags, showTagFilter],
@@ -1921,18 +1900,14 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const searchResponse = useMemo(() => {
     if (!workspaceSnapshot || !isFiltering) return null;
     if (nativeWorkingRevision !== null && (!graphSnapshot || !project)) return null;
-    return searchProjectWorkspaceSnapshot(
-      workspaceSnapshot,
-      {
-        text: searchQuery,
-        tags: activeFilterTags,
-        tagMode: 'all',
-        tokenMode: 'all',
-        threshold: exactMatch ? 0 : undefined,
-        sort: { kind: 'label' },
-      },
-      graphSnapshot && project ? referenceIndexFromCurrentGraph(project, graphSnapshot) : undefined,
-    );
+    return searchProjectIndex(workspaceSnapshot, {
+      text: searchQuery,
+      tags: activeFilterTags,
+      tagMode: 'all',
+      tokenMode: 'all',
+      threshold: exactMatch ? 0 : undefined,
+      sort: { kind: 'label' },
+    });
   }, [
     activeFilterTags,
     exactMatch,

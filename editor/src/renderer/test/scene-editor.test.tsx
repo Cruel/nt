@@ -7,6 +7,7 @@ import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultSceneData, defaultSceneStep } from '../../shared/project-schema/authoring-scenes';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 vi.mock('@/preview/DerivedPreviewPane', () => ({
   DerivedPreviewPane: ({
@@ -36,8 +37,8 @@ const tab: WorkbenchTab = {
 
 beforeEach(() => {
   window.PointerEvent = window.PointerEvent ?? window.MouseEvent;
-  useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
 });
 
 afterEach(() => {
@@ -58,11 +59,7 @@ function loadTimelineScene() {
   hold.timeline = { trackId: 'effects', startMs: 750, durationMs: 150 };
   data.events = [opening, overlap, hold];
   project.scenes.opening = { id: 'opening', label: 'Opening', data };
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock',
-    projectFilePath: '/mock/project.yaml',
-  });
+  admitNativeRendererCommandFixture(project);
   return project;
 }
 
@@ -70,11 +67,7 @@ describe('SceneEditor', () => {
   it('renders strict scene data and keeps selection out of project data', async () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     render(<SceneEditor tab={tab} />);
     expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute(
       'data-kind',

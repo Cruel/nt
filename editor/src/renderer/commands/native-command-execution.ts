@@ -40,14 +40,16 @@ export function nativeLocalizationTarget(
   if (field === 'messages' || field === 'structuredMessageIds')
     return { owner: 'i18n/messages.yaml', relative: buildJsonPointer(segments.slice(1)) };
   if (field === 'usageNotes' || field === 'sourceMessageTracking' || field === 'orphanedMessages') {
-    if (segments.length < 3) return null;
     const file =
       field === 'usageNotes'
         ? 'usage-notes'
         : field === 'sourceMessageTracking'
           ? 'tracking'
           : 'orphans';
-    return { owner: `i18n/${file}.yaml`, relative: buildJsonPointer(segments.slice(2)) };
+    return {
+      owner: `i18n/${file}.yaml`,
+      relative: segments.length === 2 ? '/' : buildJsonPointer(segments.slice(2)),
+    };
   }
   if (field === 'translations' || field === 'assets') {
     if (segments.length < 3 || !locale) return null;

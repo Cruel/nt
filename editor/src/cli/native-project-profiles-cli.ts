@@ -6,7 +6,7 @@ import { nativeProjectDiagnostics } from './native-project-results';
 import { profileRows } from './platform-profile-rows';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
-import type { CliScopedReadAuthority } from './application';
+import type { CliScopedReadAuthority } from './cli-options';
 import type { AuthoringProject } from '../shared/project-schema/authoring-project';
 
 /** Native-only scoped read: unrelated invalid records do not block profile enumeration. */

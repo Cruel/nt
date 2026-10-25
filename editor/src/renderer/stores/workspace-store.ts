@@ -3,10 +3,8 @@ import {
   authoringCollectionKeys,
   authoringCollectionMetadata,
 } from '../../shared/project-schema/authoring-collections';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
 import type {
   DevtoolsConsoleRecord,
@@ -91,7 +89,7 @@ export function buildProjectTree(
   project: unknown,
   _tests: PlaybackTestSummary[] = [],
 ): AssetNode[] {
-  if (!isAuthoringProject(project)) return [];
+  if (!isAuthoringProjectView(project)) return [];
   return buildAuthoringProjectTree(project);
 }
 

@@ -679,12 +679,10 @@ std::optional<LocalizationPatchTarget> localization_patch_target(std::string_vie
     if (field == "messages" || field == "structuredMessageIds")
         return LocalizationPatchTarget{"i18n/messages.yaml", "/" + std::string(tail)};
     if (field == "usageNotes" || field == "sourceMessageTracking" || field == "orphanedMessages") {
-        if (suffix.empty())
-            return std::nullopt;
         return LocalizationPatchTarget{field == "usageNotes"              ? "i18n/usage-notes.yaml"
                                        : field == "sourceMessageTracking" ? "i18n/tracking.yaml"
                                                                           : "i18n/orphans.yaml",
-                                       std::string(suffix)};
+                                       suffix.empty() ? "/" : std::string(suffix)};
     }
     if (field == "translations" || field == "assets") {
         if (suffix.empty())

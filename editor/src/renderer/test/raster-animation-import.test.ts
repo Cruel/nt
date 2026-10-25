@@ -4,20 +4,6 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { importAnimationFiles } from '../../main/services/animation-import-service';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
-import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
-import { buildAuthoringStructuralDependencyGraph } from '../../shared/authoring-dependency-graph';
-import { buildFocusedRoomPreview } from '../preview/room-focused-preview-builder';
-import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
-import { importAssetRecordsPatches } from '../project/asset-operations';
-import { applyJsonPatch } from '../project/json-patch';
-import { toJsonValue } from '../project/json-value';
-import { prepareRuntimeAssessmentForTest } from './runtime-artifact-test-helpers';
-import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
-import { createLocalizedAssetVariant } from '../../shared/authoring-localized-assets';
 import { expect, it } from 'vite-plus/test';
 import { prepareRasterAnimation } from '../../main/services/raster-animation-import';
 
@@ -109,135 +95,6 @@ function apngFixture(alpha = 255, disposal = 2, poster = false) {
   ]);
 }
 
-it('imports APNG into ordinary Assets and matches manual Animation compilation and focused closure', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'nt-animation-'));
-  try {
-    const source = path.join(root, 'pulse.apng');
-    await fs.writeFile(source, apngFixture());
-    const result = await importAnimationFiles(root, [source], 100);
-    expect(result.ok).toBe(true);
-    expect(result.animation?.frames.map((frame) => frame.durationMs)).toEqual([100, 50, 10]);
-    for (const asset of result.assets)
-      expect(await fs.readFile(path.join(root, asset.projectRelativePath))).not.toHaveLength(0);
-    const project = createAuthoringProject();
-    project.materials.surface = {
-      id: 'surface',
-      label: 'Surface',
-      data: defaultMaterialData('Surface', 'engine-2d'),
-    };
-    const room = defaultRoomData('Room');
-    room.environments = [
-      {
-        id: 'pulse',
-        condition: { kind: 'always' },
-        visual: {
-          kind: 'animation',
-          animation: { $ref: { collection: 'animations', id: 'pulse' } },
-          motionId: null,
-          playback: null,
-        },
-        materialApplication: emptyMaterialApplication('surface'),
-        bounds: { x: 0, y: 0, width: 1, height: 1 },
-        plane: 'world-overlay',
-        order: 0,
-        clock: 'gameplay',
-        scrollPerSecond: { x: 0, y: 0 },
-        opacity: 1,
-        visible: true,
-      },
-    ];
-    project.rooms.room = { id: 'room', label: 'Room', data: room };
-    project.entrypoint = { kind: 'room', id: 'room' };
-    const patches = importAssetRecordsPatches(project, result);
-    const imported = applyJsonPatch(toJsonValue(project), patches.patches)
-      .document as unknown as typeof project;
-    const manual = structuredClone(imported);
-    manual.animations.pulse = {
-      id: 'pulse',
-      label: 'pulse',
-      data: {
-        kind: 'animation',
-        canvas: { width: 2, height: 1 },
-        defaultMotionId: 'default',
-        motions: [
-          {
-            id: 'default',
-            kind: 'sprite-sequence',
-            markers: [],
-            frames: [100, 50, 10].map((durationMs, index) => ({
-              image: { $ref: { collection: 'assets', id: `pulse-frame-000${index + 1}` } },
-              durationMs,
-            })),
-          },
-        ],
-      },
-    };
-    const compiled = lowerSharedAuthoringProject(imported);
-    expect(compiled.diagnostics).toEqual([]);
-    expect(compiled.draft).toEqual(lowerSharedAuthoringProject(manual).draft);
-    const preview = (p: typeof project) =>
-      buildFocusedRoomPreview({
-        project: p,
-        projectSessionId: '11111111-1111-4111-8111-111111111111',
-        roomId: 'room',
-        inputs: { displayPreference: DEFAULT_PREVIEW_DISPLAY_PREFERENCE },
-        graph: {
-          projectInstanceId: 'test',
-          projectRevision: 1,
-          graphRevision: 1,
-          graph: buildAuthoringStructuralDependencyGraph(p),
-        },
-        sourceAnalysis: [],
-        activeShaderVariant: 'glsl-330',
-      });
-    const importedPreview = await preview(imported);
-    expect(importedPreview).toEqual(await preview(manual));
-    expect(JSON.stringify(importedPreview)).not.toContain('.apng');
-    expect(JSON.stringify(importedPreview)).toContain('pulse-frame-0003');
-    expect(
-      await fs.readFile(path.join(root, imported.animations.pulse!.import!.sources[0]!.path)),
-    ).toEqual(apngFixture());
-    const localized = structuredClone(imported);
-    localized.assets.french = {
-      ...structuredClone(imported.assets['pulse-frame-0001']!),
-      id: 'french',
-      label: 'French frame',
-      data: {
-        ...structuredClone(imported.assets['pulse-frame-0001']!.data),
-        source: { type: 'project-file', path: 'assets/images/french.png' },
-      },
-    };
-    localized.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
-    localized.localization.assets.fr = {
-      'pulse-frame-0001': createLocalizedAssetVariant(
-        localized,
-        'pulse-frame-0001',
-        'french',
-        'human',
-      )!,
-    };
-    const assessment = await prepareRuntimeAssessmentForTest(localized, {
-      projectRoot: root,
-      profile: {
-        ...defaultExportProfile(),
-        compileShadersBeforeExport: false,
-        localization: { locales: ['fr'], defaultLocale: 'fr', quality: 'development' },
-      },
-    });
-    expect(assessment.ready).toBe(true);
-    expect(assessment.fileEntries.map((entry) => entry.assetId).sort()).toEqual([
-      'french',
-      'pulse-frame-0002',
-      'pulse-frame-0003',
-    ]);
-    expect(assessment.compiledProject?.resources.animations).toEqual(
-      compiled.draft!.resources.animations,
-    );
-  } finally {
-    await fs.rm(root, { recursive: true, force: true });
-  }
-});
-
 it('excludes an APNG poster and composites partial alpha with background disposal', async () => {
   const result = await prepareRasterAnimation(
     [{ name: 'poster.apng', bytes: apngFixture(128, 1, true) }],
@@ -314,8 +171,16 @@ it('orders sequence filenames naturally and preserves originals for rebuilds', a
       .toBuffer();
     await fs.writeFile(first, red);
     await fs.writeFile(second, blue);
-    const result = await importAnimationFiles(root, [second, first], 85);
+    const staged: string[] = [];
+    const stageAsset = async (relative: string, bytes: Uint8Array) => {
+      staged.push(relative);
+      const destination = path.join(root, relative);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.writeFile(destination, bytes);
+    };
+    const result = await importAnimationFiles(root, [second, first], 85, () => {}, stageAsset);
     expect(result.ok).toBe(true);
+    expect(staged).toHaveLength(4);
     expect(result.animation?.frames.map((frame) => frame.durationMs)).toEqual([85, 85]);
     expect(
       result.animation?.sourceAssetIndices.map((index) => result.assets[index]!.originalName),

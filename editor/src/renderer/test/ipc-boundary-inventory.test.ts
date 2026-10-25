@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
+import { IPC_CHANNELS } from '../../shared/ipc-channels';
+import { incompatibleLegacyNativeEditChannels } from '../../main/services/native-editor-ipc-routing';
 
 function source(relativePath: string) {
   return fs.readFileSync(path.resolve(relativePath), 'utf8');
@@ -47,6 +49,17 @@ describe('preload-to-main IPC trust-boundary inventory', () => {
     expect([...preloadInvokes.keys()].sort()).not.toHaveLength(0);
     for (const [channel, count] of preloadInvokes) {
       expect(count, `${channel} preload invoke count`).toBe(1);
+      if (
+        incompatibleLegacyNativeEditChannels.has(IPC_CHANNELS[channel as keyof typeof IPC_CHANNELS])
+      ) {
+        // Retired routes may retain a guarded compatibility rejection handler,
+        // but a missing registration must not be mistaken for an unguarded one.
+        expect(
+          guardedRegistrations.get(channel) ?? 0,
+          `${channel} compatibility registrations`,
+        ).toBeLessThanOrEqual(1);
+        continue;
+      }
       expect(guardedRegistrations.get(channel), `${channel} guarded registration count`).toBe(1);
     }
 

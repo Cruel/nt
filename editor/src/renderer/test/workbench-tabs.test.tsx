@@ -11,6 +11,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import {
   defaultInteractableData,
   defaultInteractableInstanceData,
@@ -61,7 +62,7 @@ beforeEach(() => {
 });
 
 describe('workbench tabs', () => {
-  it('shows the tab dirty marker for cross-path changes attributed to its save unit', () => {
+  it('shows the tab dirty marker for cross-path changes attributed to its save unit', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = {
       id: 'foyer',
@@ -74,11 +75,7 @@ describe('workbench tabs', () => {
       data: defaultInteractableData('Key'),
     };
     project.interactableInstances.key = defaultInteractableInstanceData('key', 'key');
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     const roomTab: WorkbenchTab = {
       id: 'tab:room-detail:rooms:foyer',
       title: 'Foyer',
@@ -94,8 +91,8 @@ describe('workbench tabs', () => {
     renderRootTabs();
 
     expect(screen.getByText('Foyer')).toBeInTheDocument();
-    act(() => {
-      const result = useCommandStore.getState().executeCommand({
+    await act(async () => {
+      const result = await useCommandStore.getState().executeCommandAsync({
         type: 'project.replaceAtPath',
         label: 'Set Instance Property',
         payload: {

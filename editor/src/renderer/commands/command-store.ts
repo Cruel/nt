@@ -1,25 +1,26 @@
-import { create } from 'zustand';
-import { useProjectStore } from '@/project/project-store';
-import type { JsonValue } from '@/project/json-value';
+import {
+  currentAuthoringGraphSnapshot,
+  isAuthoringDependencyGraphServiceStarted,
+} from '@/project/authoring-dependency-graph-runtime';
 import { applyJsonPatch, type JsonPatchOperation } from '@/project/json-patch';
 import {
-  parseJsonPointer,
   buildJsonPointer,
   getJsonAtPointer,
   hasJsonAtPointer,
+  parseJsonPointer,
 } from '@/project/json-pointer';
+import type { JsonValue } from '@/project/json-value';
 import { jsonValuesEqual } from '@/project/json-value';
-import {
-  persistAutoCommitPlan,
-  remapRecoveryForAutoCommit,
-} from '@/project/structural-command-persistence';
+import { confirmProjectComments } from '@/project/project-comment-confirmation';
+import { useProjectStore } from '@/project/project-store';
+import { remapRecoveryForAutoCommit } from '@/project/structural-command-persistence';
 import {
   buildEditorProjectStateSnapshot,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
+import { create } from 'zustand';
 import {
   beginTransaction as beginTransactionCore,
-  cancelTransaction as cancelTransactionCore,
   commitTransaction as commitTransactionCore,
   createInitialCommandHistoryState,
   executeCommand as executeCommandCore,
@@ -40,12 +41,6 @@ import {
   confirmNativeCommand,
   nativeLocalizationTarget,
 } from './native-command-execution';
-import { confirmProjectComments } from '@/project/project-comment-confirmation';
-import {
-  authoringDependencyGraphService,
-  currentAuthoringGraphSnapshot,
-  isAuthoringDependencyGraphServiceStarted,
-} from '@/project/authoring-dependency-graph-runtime';
 
 interface CommandStoreState {
   history: CommandHistoryState;
@@ -679,33 +674,7 @@ function applyBusResult(
   return true;
 }
 
-function rejectedPublicationResult(): CommandExecutionResult {
-  return {
-    ok: false,
-    diagnostics: [
-      {
-        severity: 'error',
-        message: 'The project change was rejected because it is not structurally admissible.',
-      },
-    ],
-    projectChanged: false,
-  };
-}
-
-function persistenceBusyResult(): CommandExecutionResult {
-  return {
-    ok: false,
-    diagnostics: [
-      {
-        severity: 'error',
-        message: 'Wait for the structural project change to finish saving.',
-      },
-    ],
-    projectChanged: false,
-  };
-}
-
-let structuralPersistenceQueue: Promise<void> = Promise.resolve();
+const structuralPersistenceQueue: Promise<void> = Promise.resolve();
 
 // The UI can dispatch more than one editor intent before the native worker
 // responds (typing, numeric steppers, drag commits). Construct each proposal
@@ -742,136 +711,6 @@ function queueNativeCommand(
     if (nativeCommandQueues.get(queueId) === tail) nativeCommandQueues.delete(queueId);
   });
   return result;
-}
-
-function commandDiagnostics(
-  diagnostics: Array<{ severity: string; message: string; path?: string }>,
-) {
-  return diagnostics.map((diagnostic) => ({
-    severity:
-      diagnostic.severity === 'warning'
-        ? ('warning' as const)
-        : diagnostic.severity === 'info'
-          ? ('info' as const)
-          : ('error' as const),
-    message: diagnostic.message,
-    ...(diagnostic.path ? { path: diagnostic.path } : {}),
-  }));
-}
-
-function dispatchPersistenceResult(
-  commandId: string,
-  result: Awaited<ReturnType<typeof persistAutoCommitPlan>>,
-) {
-  window.dispatchEvent(
-    new CustomEvent('noveltea-structural-persistence-result', {
-      detail: { commandId, result },
-    }),
-  );
-}
-
-function rollbackFailedStructuralPersistence(
-  entry: CommandHistoryEntry,
-  direction: 'forward' | 'undo' | 'redo',
-  diagnostics: CommandDiagnostic[],
-  result: Awaited<ReturnType<typeof persistAutoCommitPlan>>,
-) {
-  const state = useCommandStore.getState();
-  const busState = busStateFromStores(state.history);
-  const rollback = direction === 'undo' ? redoCommandCore(busState) : undoCommandCore(busState);
-  if (!applyBusResult(rollback, 'persistence-rollback')) {
-    useCommandStore.setState({ persistencePending: false, lastDiagnostics: diagnostics });
-    return;
-  }
-  let history = rollback.state.history;
-  if (direction === 'forward') {
-    const index = history.entries.findIndex((candidate) => candidate.id === entry.id);
-    if (index >= 0) {
-      const entries = history.entries.filter((candidate) => candidate.id !== entry.id);
-      history = {
-        ...history,
-        entries,
-        cursor: Math.min(history.cursor, entries.length - 1),
-      };
-      useProjectStore.getState().setHistoryCursor(history.cursor);
-    }
-  }
-  useCommandStore.setState({
-    persistencePending: false,
-    lastDiagnostics: diagnostics,
-    history,
-  });
-  if (result.status !== 'cancelled')
-    useProjectStore
-      .getState()
-      .setSaveError(diagnostics[0]?.message ?? 'Structural project persistence failed.');
-  dispatchPersistenceResult(entry.id, result);
-}
-
-function scheduleStructuralPersistence(
-  entry: CommandHistoryEntry,
-  direction: 'forward' | 'undo' | 'redo',
-) {
-  if (!entry.autoCommitPlan) return;
-  useCommandStore.setState({ persistencePending: true });
-  structuralPersistenceQueue = structuralPersistenceQueue
-    .catch(() => undefined)
-    .then(async () => {
-      try {
-        const result = await persistAutoCommitPlan(entry.id, entry.autoCommitPlan!, direction);
-        const diagnostics = commandDiagnostics(result.diagnostics);
-        const state = useCommandStore.getState();
-        if (result.status === 'persisted') {
-          const project = useProjectStore.getState();
-          if (isAuthoringDependencyGraphServiceStarted() && project.projectInstanceId !== null) {
-            await authoringDependencyGraphService.waitForCurrentSnapshot(
-              project.projectInstanceId,
-              project.projectRevision,
-            );
-          }
-          useCommandStore.setState({ persistencePending: false, lastDiagnostics: diagnostics });
-          dispatchPersistenceResult(entry.id, result);
-          return;
-        }
-        if (result.status === 'converted-to-manual-save' && direction === 'forward') {
-          useCommandStore.setState({
-            persistencePending: false,
-            lastDiagnostics: diagnostics,
-            history: {
-              ...state.history,
-              entries: state.history.entries.map((candidate) =>
-                candidate.id === entry.id
-                  ? { ...candidate, persistencePolicy: 'manual-save', autoCommitPlan: undefined }
-                  : candidate,
-              ),
-            },
-          });
-          dispatchPersistenceResult(entry.id, result);
-          return;
-        }
-        rollbackFailedStructuralPersistence(entry, direction, diagnostics, result);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Structural project persistence failed.';
-        const result = {
-          status: 'failed' as const,
-          diagnostics: [
-            {
-              severity: 'error' as const,
-              category: 'Project structural persistence',
-              path: entry.affectedPaths[0] ?? '/',
-              message,
-            },
-          ],
-        };
-        rollbackFailedStructuralPersistence(
-          entry,
-          direction,
-          commandDiagnostics(result.diagnostics),
-          result,
-        );
-      }
-    });
 }
 
 export function flushStructuralCommandPersistence(): Promise<void> {
@@ -1050,20 +889,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     });
   },
   executeCommandAsync: async (request) => {
-    if (get().nativeWorkingRevision === null) {
-      if (get().persistencePending) {
-        const { projectSessionId, projectInstanceId } = useProjectStore.getState();
-        await flushStructuralCommandPersistence();
-        const current = useProjectStore.getState();
-        if (
-          current.projectSessionId !== projectSessionId ||
-          current.projectInstanceId !== projectInstanceId ||
-          get().nativeWorkingRevision !== null
-        )
-          return nativeOnlyResult('Project changed while awaiting structural persistence.');
-      }
-      return get().executeCommand(request);
-    }
+    if (get().nativeWorkingRevision === null)
+      return nativeOnlyResult('Native Project session is required.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -1308,35 +1135,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     });
   },
   executeCommandBatchAsync: async (transaction, requests) => {
-    if (get().nativeWorkingRevision === null) {
-      if (get().persistencePending) {
-        const { projectSessionId, projectInstanceId } = useProjectStore.getState();
-        await flushStructuralCommandPersistence();
-        const current = useProjectStore.getState();
-        if (
-          current.projectSessionId !== projectSessionId ||
-          current.projectInstanceId !== projectInstanceId ||
-          get().nativeWorkingRevision !== null
-        )
-          return nativeOnlyResult('Project changed while awaiting structural persistence.');
-      }
-      if (get().persistencePending) return persistenceBusyResult();
-      if (get().history.activeTransaction)
-        return nativeOnlyResult('Another editor transaction is still active.');
-      get().beginTransaction(transaction);
-      if (!get().history.activeTransaction)
-        return nativeOnlyResult('Cannot start editor command transaction.');
-      for (const request of requests) {
-        const step = get().executeCommand(request);
-        if (!step.ok) {
-          get().cancelTransaction();
-          return step;
-        }
-      }
-      const committed = get().commitTransaction();
-      if (!committed.ok && get().history.activeTransaction) get().cancelTransaction();
-      return committed;
-    }
+    if (get().nativeWorkingRevision === null)
+      return nativeOnlyResult('Native Project session is required.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -1362,7 +1162,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     });
   },
   undoAsync: async () => {
-    if (get().nativeWorkingRevision === null) return get().undo();
+    if (get().nativeWorkingRevision === null)
+      return nativeOnlyResult('Native Project session is required.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -1371,7 +1172,8 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
     });
   },
   redoAsync: async () => {
-    if (get().nativeWorkingRevision === null) return get().redo();
+    if (get().nativeWorkingRevision === null)
+      return nativeOnlyResult('Native Project session is required.');
     return queueNativeCommand(() => {
       if (get().nativeMutationFailure)
         return Promise.resolve(nativeOnlyResult(get().nativeMutationFailure!));
@@ -1379,77 +1181,23 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       return submitNativeCommand(proposal, proposal.historyEntry?.patches ?? [], 'redo');
     });
   },
-  executeCommand: (request) => {
-    if (get().nativeWorkingRevision !== null)
-      return nativeOnlyResult('Native Project commands must use executeCommandAsync.');
-    if (get().persistencePending) return persistenceBusyResult();
-    const result = executeCommandCore(busStateFromStores(get().history), request);
-    const kind = get().history.activeTransaction ? 'transaction-step' : 'command';
-    if (!applyBusResult(result, kind)) return rejectedPublicationResult();
-    set({ history: result.state.history, lastDiagnostics: result.diagnostics });
-    if (result.historyEntry?.autoCommitPlan) {
-      scheduleStructuralPersistence(result.historyEntry, 'forward');
-    }
-    return result;
+  executeCommand: (_request) => {
+    return nativeOnlyResult('Native Project commands must use executeCommandAsync.');
   },
   undo: () => {
-    if (get().nativeWorkingRevision !== null)
-      return nativeOnlyResult('Native Project undo must use undoAsync.');
-    if (get().persistencePending) return persistenceBusyResult();
-    const result = undoCommandCore(busStateFromStores(get().history));
-    if (!applyBusResult(result, 'undo')) return rejectedPublicationResult();
-    set({ history: result.state.history, lastDiagnostics: result.diagnostics });
-    if (result.projectChanged && result.historyEntry?.autoCommitPlan) {
-      scheduleStructuralPersistence(result.historyEntry, 'undo');
-    }
-    return result;
+    return nativeOnlyResult('Native Project undo must use undoAsync.');
   },
   redo: () => {
-    if (get().nativeWorkingRevision !== null)
-      return nativeOnlyResult('Native Project redo must use redoAsync.');
-    if (get().persistencePending) return persistenceBusyResult();
-    const result = redoCommandCore(busStateFromStores(get().history));
-    if (!applyBusResult(result, 'redo')) return rejectedPublicationResult();
-    set({ history: result.state.history, lastDiagnostics: result.diagnostics });
-    if (result.projectChanged && result.historyEntry?.autoCommitPlan) {
-      scheduleStructuralPersistence(result.historyEntry, 'redo');
-    }
-    return result;
+    return nativeOnlyResult('Native Project redo must use redoAsync.');
   },
-  beginTransaction: (request) => {
-    if (get().nativeWorkingRevision !== null) return;
-    if (get().persistencePending) return;
-    const next = beginTransactionCore(busStateFromStores(get().history), request);
-    set({ history: next.history, lastDiagnostics: [] });
+  beginTransaction: (_request) => {
+    return;
   },
   commitTransaction: () => {
-    if (get().nativeWorkingRevision !== null)
-      return nativeOnlyResult('Native Project transactions require asynchronous commit support.');
-    if (get().persistencePending) return persistenceBusyResult();
-    const result = commitTransactionCore(busStateFromStores(get().history));
-    // Transaction steps are already visible publications; commit only finalizes history.
-    if (!applyBusResult(result, 'replace')) return rejectedPublicationResult();
-    set({ history: result.state.history, lastDiagnostics: result.diagnostics });
-    if (result.historyEntry?.autoCommitPlan) {
-      scheduleStructuralPersistence(result.historyEntry, 'forward');
-    }
-    return result;
+    return nativeOnlyResult('Native Project transactions require asynchronous commit support.');
   },
   cancelTransaction: () => {
-    if (get().nativeWorkingRevision !== null) return;
-    if (get().persistencePending) return;
-    const next = cancelTransactionCore(busStateFromStores(get().history));
-    if (next.document !== null) {
-      const transaction = get().history.activeTransaction;
-      const accepted = useProjectStore
-        .getState()
-        .replaceDocumentFromCommand(next.document, next.history.cursor, {
-          kind: 'transaction-cancel',
-          affectedPaths: transaction?.affectedPaths ?? ['/'],
-        });
-      if (!accepted) return;
-    }
-    set({ history: next.history, lastDiagnostics: [] });
+    return;
   },
   resetCommandHistory: () =>
     set((current) => {
@@ -1476,31 +1224,19 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
   // patches can restore paths that no longer exist, including through redo or an
   // active transaction. Invalidate the history at the physical commit boundary.
   invalidateHistoryAfterCommittedFileMove: () => {
-    if (get().nativeWorkingRevision !== null) {
-      set({
-        nativeMutationFailure: 'Legacy filesystem moves cannot update native Project history.',
-      });
-      return;
-    }
-    set({ history: createInitialCommandHistoryState(), lastDiagnostics: [] });
-    useProjectStore.getState().setHistoryCursor(-1);
+    set({
+      // Physical source moves are owned by the native host. An undo entry
+      // created before that move cannot safely replay the old source path;
+      // drop the obsolete history after the committed source reconciliation.
+      history: createInitialCommandHistoryState(),
+      lastDiagnostics: [],
+    });
   },
-  discardSaveUnitHistory: (saveUnitId) => {
-    if (get().nativeWorkingRevision !== null) {
-      set({
-        nativeMutationFailure:
-          'Legacy Save-unit history changes are unavailable for native Project.',
-      });
-      return;
-    }
-    const history = get().history;
-    const removedApplied = history.entries
-      .slice(0, history.cursor + 1)
-      .filter((entry) => entry.originSaveUnitId === saveUnitId).length;
-    const entries = history.entries.filter((entry) => entry.originSaveUnitId !== saveUnitId);
-    const cursor = Math.max(-1, history.cursor - removedApplied);
-    set({ history: { ...history, entries, cursor } });
-    useProjectStore.getState().setHistoryCursor(cursor);
+  discardSaveUnitHistory: (_saveUnitId) => {
+    set({
+      nativeMutationFailure: 'Legacy Save-unit history changes are unavailable for native Project.',
+    });
+    return;
   },
 }));
 

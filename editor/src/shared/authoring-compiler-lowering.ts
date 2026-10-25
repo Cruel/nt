@@ -1,18 +1,16 @@
+import { lowerDialogueAndInteractionPrograms } from './authoring-compiler-dialogue-interaction-lowering';
+import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';
+import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowering';
+import { lowerManagedLuaLocalization } from './authoring-lua-localization-lowering';
+import { withPackageMessageIds } from './authoring-message-lowering';
+import { compileFlowPredictionIndex } from './flow-prediction-index-compiler';
+import type { AuthoringProject } from './project-schema/authoring-project';
 import {
   compiledProjectWireSchema,
   computeCompiledProjectSaveContract,
-  serializeCompiledProjectWire,
   type CompiledDiagnostic,
   type CompiledProjectWire,
 } from './project-schema/compiled-project';
-import type { AuthoringProject } from './project-schema/authoring-project';
-import type { ProjectValidationDiagnostic } from './project-schema/project-diagnostic-projection';
-import { lowerSharedAuthoringProject } from './authoring-compiler-shared-lowering';
-import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lowering';
-import { lowerDialogueAndInteractionPrograms } from './authoring-compiler-dialogue-interaction-lowering';
-import { compileFlowPredictionIndex } from './flow-prediction-index-compiler';
-import { lowerManagedLuaLocalization } from './authoring-lua-localization-lowering';
-import { withPackageMessageIds } from './authoring-message-lowering';
 
 export const compilerStageNames = [
   'normalize',
@@ -61,21 +59,6 @@ interface CompilerContext {
   diagnostics: CompiledDiagnostic[];
   normalizedProject?: AuthoringProject;
   stages: CompilerStageReport[];
-}
-
-/** Only the legacy authoring route supplies these admission/linking operations.
- * The native candidate imports the lowering module without importing old authority. */
-export interface LegacyAuthoringCompilerHooks {
-  normalize: (value: unknown) =>
-    | { project: AuthoringProject; issues?: never }
-    | {
-        project?: never;
-        issues: readonly { code: string; path: readonly PropertyKey[]; message: string }[];
-      };
-  missingReferences: (
-    project: AuthoringProject,
-  ) => readonly { sourcePath: string; targetLabel: string }[];
-  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[];
 }
 
 interface LoweringResult {
@@ -256,76 +239,6 @@ function hasErrors(diagnostics: readonly CompiledDiagnostic[]): boolean {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
-function normalizeAuthoringProject(
-  value: unknown,
-  context: CompilerContext,
-  normalize: LegacyAuthoringCompilerHooks['normalize'],
-): void {
-  const parsed = normalize(value);
-  if (!parsed.project) {
-    parsed.issues.forEach((issue) => {
-      const pointer = `/${issue.path.map(String).map(escapeJsonPointerSegment).join('/')}`;
-      context.diagnostics.push(
-        makeDiagnostic(
-          `AUTHORING_SCHEMA_${normalizeDiagnosticCode(issue.code)}`,
-          'error',
-          pointer,
-          issue.message,
-        ),
-      );
-    });
-    addStage(context, 'normalize', 'failed');
-    return;
-  }
-
-  context.normalizedProject = parsed.project;
-  addStage(context, 'normalize', 'completed');
-}
-
-function validateSemantics(
-  context: CompilerContext,
-  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[],
-): void {
-  const project = context.normalizedProject;
-  if (!project) {
-    addStage(context, 'semantic-validation', 'skipped');
-    return;
-  }
-
-  validate(project).forEach((diagnostic) => {
-    context.diagnostics.push(
-      makeDiagnostic(
-        `AUTHORING_${normalizeDiagnosticCode(diagnostic.code)}`,
-        diagnostic.severity,
-        diagnostic.path,
-        diagnostic.message,
-      ),
-    );
-  });
-  addStage(context, 'semantic-validation', hasErrors(context.diagnostics) ? 'failed' : 'completed');
-}
-
-function linkAuthoringProject(
-  context: CompilerContext,
-  missingReferences: LegacyAuthoringCompilerHooks['missingReferences'],
-): void {
-  if (!context.normalizedProject || hasErrors(context.diagnostics)) {
-    addStage(context, 'link', 'skipped');
-    return;
-  }
-  for (const edge of missingReferences(context.normalizedProject)) {
-    context.diagnostics.push(
-      makeDiagnostic(
-        'AUTHORING_LINK_MISSING_TARGET',
-        'error',
-        edge.sourcePath,
-        `Reference target '${edge.targetLabel}' does not exist.`,
-      ),
-    );
-  }
-  addStage(context, 'link', hasErrors(context.diagnostics) ? 'failed' : 'completed');
-}
-
 /** Lowers every specialized family into the complete, unpublished wire draft. */
 function lowerAuthoringProject(project: AuthoringProject): LoweringResult {
   const managedLua = lowerManagedLuaLocalization(project);
@@ -375,17 +288,14 @@ function finish(context: CompilerContext): CompileFailure {
 /** Lightweight validation-only compiler preflight for an already admitted Project. */
 export function preflightAdmittedAuthoringProject(
   project: AuthoringProject,
-  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[],
 ): AuthoringPreflightResult {
   const context: CompilerContext = {
     diagnostics: [],
     normalizedProject: project,
     stages: [{ name: 'normalize', status: 'skipped' }],
   };
-  validateSemantics(context, validate);
-  // Validation owns reference integrity through the shared dependency graph. Running the compiler's
-  // link graph here would rebuild the complete Project merely to rediscover the same authoring
-  // errors, defeating change-proportional validation.
+  // Native admission owns Project semantics and reference integrity.
+  addStage(context, 'semantic-validation', 'skipped');
   addStage(context, 'link', 'skipped');
   if (!hasErrors(context.diagnostics) && !project.entrypoint)
     context.diagnostics.push(
@@ -409,40 +319,17 @@ export function preflightAdmittedAuthoringProject(
   };
 }
 
-/**
- * The one public authoring-to-gameplay compiler boundary. It is pure: input is
- * parsed into a normalized copy and no project/editor state is mutated.
- */
-export function compileAuthoringProject(
-  project: unknown,
-  validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[],
-  hooks: LegacyAuthoringCompilerHooks,
-): CompileResult<CompiledProjectWire> {
-  const compiled = compileAuthoringProjectValue(project, validate, false, hooks);
-  if (!compiled.ok) return compiled;
-  return {
-    ...compiled,
-    canonicalJson: serializeCompiledProjectWire(compiled.project),
-    stages: [...compiled.stages, { name: 'serialize', status: 'completed' }],
-  };
-}
-
 /** Validated compiler output for consumers that finalize the value before serializing it. */
 export function compileAuthoringProjectValue(
-  project: unknown,
-  validate?: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[],
-  admitted = false,
-  legacyHooks?: LegacyAuthoringCompilerHooks,
+  project: AuthoringProject,
 ): CompileValueResult<CompiledProjectWire> {
-  if (!admitted && !legacyHooks)
-    throw new Error('Legacy compilation requires the explicit legacy authoring adapter.');
   const context: CompilerContext = { diagnostics: [], stages: [] };
-  if (admitted) {
-    // Native admission already established the current schema and semantic generation.
-    // The runtime projection is only allowed to lower this admitted value, not re-admit it.
-    context.normalizedProject = project as AuthoringProject;
-    addStage(context, 'normalize', 'skipped');
-  } else normalizeAuthoringProject(project, context, legacyHooks!.normalize);
+
+  // Native admission already established the current schema and semantic generation.
+  // The runtime projection is only allowed to lower this admitted value, not re-admit it.
+  context.normalizedProject = project as AuthoringProject;
+  addStage(context, 'normalize', 'skipped');
+
   if (!context.normalizedProject) {
     addSkippedStages(context, [
       'semantic-validation',
@@ -456,8 +343,7 @@ export function compileAuthoringProjectValue(
     return finish(context);
   }
 
-  if (admitted) addStage(context, 'semantic-validation', 'skipped');
-  else validateSemantics(context, validate ?? legacyHooks!.validate);
+  addStage(context, 'semantic-validation', 'skipped');
   if (hasErrors(context.diagnostics)) {
     addSkippedStages(context, [
       'link',
@@ -470,8 +356,7 @@ export function compileAuthoringProjectValue(
     return finish(context);
   }
 
-  if (admitted) addStage(context, 'link', 'skipped');
-  else linkAuthoringProject(context, legacyHooks!.missingReferences);
+  addStage(context, 'link', 'skipped');
 
   const lowered = lowerAuthoringProject(context.normalizedProject);
   context.diagnostics.push(...lowered.diagnostics);

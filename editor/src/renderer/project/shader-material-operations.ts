@@ -4,10 +4,8 @@ import {
   parseMaterialData,
   type MaterialData,
 } from '../../shared/project-schema/authoring-materials';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type { JsonPatchOperation } from './json-patch';
 
 export interface ShaderMaterialOperationDiagnostic {
@@ -29,7 +27,7 @@ function error(message: string, path?: string): ShaderMaterialOperationDiagnosti
 }
 
 function validateProject(document: unknown): AuthoringProject | ShaderMaterialOperationDiagnostic {
-  if (isAuthoringProject(document)) return document;
+  if (isAuthoringProjectView(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
 
@@ -42,7 +40,7 @@ export function replaceMaterialDataPatches(
   payload: MaterialDataPatchPayload,
 ): ShaderMaterialOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   if (!project.materials[payload.materialId])
     return {
       patches: [],

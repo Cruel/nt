@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { createHash } from 'node:crypto';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -14,6 +13,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 function validProject() {
   const project = createAuthoringProject({ name: 'Workflow Demo' });
@@ -30,9 +30,7 @@ beforeEach(() => {
   useWorkspaceStore.getState().setLastExportResult(null);
   useWorkspaceStore.getState().setStatusMessage('');
   useProjectStore.getState().clearProject();
-  useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useCommandStore.getState().resetCommandHistory();
-  useCommandStore.setState({ nativeWorkingRevision: null });
   vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
     ok: true,
     success: true,
@@ -41,44 +39,42 @@ beforeEach(() => {
     byteCount: 512,
     checksums: { game: 'abcd' },
   });
+  vi.mocked(window.noveltea.nativeProjectExportPackage).mockResolvedValue({
+    ok: true,
+    success: true,
+    diagnostics: [],
+    byteCount: 512,
+    manifest: { format: 'noveltea.runtime-package', entries: [] },
+  });
 });
 
 describe('package export workflow', () => {
   it('routes native package export through native admission without renderer TypeScript compilation', async () => {
     const project = validProject();
     const profile = defaultExportProfile(project);
+    admitNativeRendererCommandFixture(project);
     useCommandStore.getState().enableNativeCommandMode(7);
-    const legacy = await import('../../shared/legacy-runtime-artifact-preparation');
-    const prepareLegacy = vi.spyOn(legacy, 'prepareRuntimeArtifact').mockImplementation(() => {
-      throw new Error('Renderer recompiled the native Project.');
-    });
-    try {
+    {
       const result = await runPackageExportWorkflow({
         project,
         projectRoot: '/project',
         outputPath: '/project/native.ntpkg',
         profile,
       });
-      expect(result).toMatchObject({ success: true, byteCount: 1 });
+      expect(result).toMatchObject({ success: true, byteCount: 512 });
       expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledWith(
         '11111111-1111-4111-8111-111111111111',
         7,
         '/project/native.ntpkg',
       );
       expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
-      expect(prepareLegacy).not.toHaveBeenCalled();
-    } finally {
-      prepareLegacy.mockRestore();
     }
   });
 
   it('hands native platform export to main without renderer-side compilation or prepared artifacts', async () => {
-    useCommandStore.getState().enableNativeCommandMode(5);
     const project = validProject();
-    const legacy = await import('../../shared/legacy-runtime-artifact-preparation');
-    const legacyPrepare = vi.spyOn(legacy, 'prepareRuntimeArtifact').mockImplementation(() => {
-      throw new Error('Native platform export invoked the renderer legacy compiler.');
-    });
+    admitNativeRendererCommandFixture(project);
+    useCommandStore.getState().enableNativeCommandMode(5);
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValueOnce({
       ok: false,
       success: false,
@@ -86,7 +82,7 @@ describe('package export workflow', () => {
       operationId: 'native-platform',
       diagnostics: [],
     });
-    try {
+    {
       const result = await runProjectPlatformExportWorkflow(
         {
           operationId: 'native-platform',
@@ -106,26 +102,12 @@ describe('package export workflow', () => {
           profileId: 'linux-release',
         }),
       );
-      expect(legacyPrepare).not.toHaveBeenCalled();
-    } finally {
-      legacyPrepare.mockRestore();
     }
   });
-  it('passes original-byte SHA-256 notice pins and a dedicated catalog to the native exporter', async () => {
+  it('delegates licensing and original-byte notice handling exclusively to the native exporter', async () => {
     const project = validProject();
     project.settings.distributionNotices = [{ path: 'support/licenses/TERMS.md' }];
-    const contents = '# Copyright\r\n';
-    const hash = `sha256:${createHash('sha256').update(contents).digest('hex')}`;
-    vi.mocked(window.noveltea.readProjectTextSources).mockImplementation(async (request) => ({
-      entries: request.entries.map(({ readKey, projectRelativePath }) => ({
-        status: 'ready' as const,
-        readKey,
-        projectRelativePath,
-        text: contents,
-        contentHash: hash as `sha256:${string}`,
-        hadUtf8Bom: false,
-      })),
-    }));
+    admitNativeRendererCommandFixture(project);
     const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
     const result = await runPackageExportWorkflow({
       project,
@@ -134,27 +116,17 @@ describe('package export workflow', () => {
       profile,
     });
     expect(result.success).toBe(true);
-    expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
+    expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      0,
       '/project/out.ntpkg',
-      expect.objectContaining({
-        fileEntries: expect.arrayContaining([
-          expect.objectContaining({
-            packagePath: 'licenses/support/licenses/TERMS.md',
-            expectedSha256: hash,
-          }),
-        ]),
-        textEntries: expect.arrayContaining([
-          expect.objectContaining({
-            packagePath: 'licenses/index.json',
-          }),
-        ]),
-      }),
     );
+    expect(window.noveltea.readProjectTextSources).not.toHaveBeenCalled();
+    expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
   });
-  it('validates, builds runtime data, writes package, and stores result', async () => {
+  it('uses revision-bound native export and stores the publication result', async () => {
     const project = validProject();
+    admitNativeRendererCommandFixture(project);
     const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
     const result = await runPackageExportWorkflow({
       project,
@@ -164,15 +136,12 @@ describe('package export workflow', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+    expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledWith(
       '11111111-1111-4111-8111-111111111111',
-      expect.objectContaining({
-        project: expect.objectContaining({ name: 'Workflow Demo' }),
-        entrypoint: { kind: 'room', room: { kind: 'room', id: 'foyer' } },
-      }),
+      0,
       '/project/out.ntpkg',
-      expect.objectContaining({ kind: 'runtime', projectName: 'Workflow Demo' }),
     );
+    expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
     expect(usePackageExportStore.getState().lastResult).toMatchObject({
       success: true,
       outputPath: '/project/out.ntpkg',
@@ -183,9 +152,23 @@ describe('package export workflow', () => {
     });
   });
 
-  it('blocks validation errors before native export', async () => {
+  it('surfaces native structural admission diagnostics without a TypeScript validation pass', async () => {
     const project = createAuthoringProject();
     project.rooms['bad id'] = { id: 'bad id', label: '', data: {} as never };
+    admitNativeRendererCommandFixture(project);
+    vi.mocked(window.noveltea.nativeProjectExportPackage).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      diagnostics: [
+        {
+          code: 'authoring.schema.invalid_key',
+          severity: 'error',
+          path: '/rooms/bad id',
+          message: 'Invalid Room ID',
+          ownerPaths: ['/rooms/bad id'],
+        },
+      ],
+    });
     const profile = defaultExportProfile(project);
     const result = await runPackageExportWorkflow({
       project,
@@ -204,14 +187,15 @@ describe('package export workflow', () => {
         severity: 'error',
         path: '/rooms/bad id',
         ownerPaths: ['/rooms/bad id'],
-        boundaries: ['authoring', 'runtime-package', 'platform-export'],
+        boundaries: ['runtime-package', 'platform-export'],
       }),
     );
+    expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledOnce();
     expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
   });
 
   it('normalizes package publication diagnostics without changing failure behavior', async () => {
-    vi.mocked(window.noveltea.exportPackage).mockResolvedValue({
+    vi.mocked(window.noveltea.nativeProjectExportPackage).mockResolvedValue({
       ok: true,
       success: false,
       diagnostics: [
@@ -224,6 +208,7 @@ describe('package export workflow', () => {
       ],
     });
     const project = validProject();
+    admitNativeRendererCommandFixture(project);
     const result = await runPackageExportWorkflow({
       project,
       projectRoot: '/project',
@@ -243,7 +228,7 @@ describe('package export workflow', () => {
     );
   });
 
-  it('prepares shader publication outputs without mutating authoring state or command history', async () => {
+  it('delegates shader package preparation to native without mutating editor state', async () => {
     const project = validProject();
     project.materials.basic = {
       id: 'basic',
@@ -257,12 +242,7 @@ describe('package export workflow', () => {
       },
     };
     const authored = structuredClone(project);
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/game.json',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(project);
     vi.mocked(window.noveltea.compileShaders).mockImplementation(async (_session, request) => {
       const programs = (
         request as { programs: Record<string, { vertexSource: string; fragmentSource: string }> }
@@ -307,33 +287,13 @@ describe('package export workflow', () => {
     expect(project).toEqual(authored);
     expect(useProjectStore.getState().document).toEqual(authored);
     expect(useCommandStore.getState().history.entries).toEqual([]);
-    expect(window.noveltea.exportPackage).toHaveBeenCalledTimes(1);
-    const [sessionId, , outputPath, exportOptions] = vi.mocked(window.noveltea.exportPackage).mock
-      .calls[0]!;
-    expect(sessionId).toBe('11111111-1111-4111-8111-111111111111');
-    expect(outputPath).toBe('/project/out.ntpkg');
-    expect(exportOptions).toMatchObject({
-      shaderVariants: ['glsl-330'],
-      requiredShaderBinaryPaths: [
-        'shaders/derived/glsl-330/basic-program-identity.fs.bin',
-        'shaders/derived/glsl-330/basic-program-identity.vs.bin',
-      ],
-    });
-    const shaders = Object.values(exportOptions.shaderMaterialMetadata?.shaders ?? {});
-    expect(shaders).toHaveLength(1);
-    expect(shaders[0]).toMatchObject({
-      stages: {
-        fragment: {
-          compiled: {
-            'glsl-330': {
-              runtimePath: 'project:/shaders/derived/glsl-330/basic-program-identity.fs.bin',
-              byteHash: `sha256:${'a'.repeat(64)}`,
-              byteSize: 4,
-            },
-          },
-        },
-      },
-    });
+    expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      0,
+      '/project/out.ntpkg',
+    );
+    expect(window.noveltea.compileShaders).not.toHaveBeenCalled();
+    expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
   });
 
   it('applies streamed platform export progress for the active operation', async () => {
@@ -394,6 +354,7 @@ describe('package export workflow', () => {
   });
 
   it('preserves diagnostic boundaries and owner paths returned by platform orchestration', async () => {
+    admitNativeRendererCommandFixture(validProject());
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue({
       ok: false,
       success: false,
@@ -519,11 +480,7 @@ describe('package export workflow', () => {
     },
   ])('does not record export identity after a $label export', async ({ result }) => {
     const project = validProject();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project);
     vi.mocked(window.noveltea.exportProjectToPlatform).mockResolvedValue(result);
 
     await runProjectPlatformExportWorkflow(

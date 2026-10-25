@@ -12,7 +12,7 @@ import { updateInteractableHotspots, updateRoomHotspots } from '@/project/hotspo
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import {
   imageAssetMetadataSchema,
   parseAssetData,
@@ -161,7 +161,7 @@ function sourceIdentityForAsset(
   document: ReturnType<typeof useProjectStore.getState>['document'],
   assetId: string | null,
 ): HotspotFocusSourceIdentity | null {
-  if (!assetId || !isAuthoringProject(document)) return null;
+  if (!assetId || !isAuthoringProjectView(document)) return null;
   const data = parseAssetData(document.assets[assetId]?.data);
   if (data?.kind !== 'image' || !data.imageMetadata) return null;
   return {
@@ -184,7 +184,7 @@ function currentOwnerAssetId(
   ownerKind: HotspotFocusOwnerKind,
   ownerId: string,
 ): string | null | undefined {
-  if (!isAuthoringProject(document)) return undefined;
+  if (!isAuthoringProjectView(document)) return undefined;
   if (ownerKind === 'room') {
     const record = document.rooms[ownerId];
     if (!record) return undefined;
@@ -204,7 +204,7 @@ function currentOwnerMode(
   ownerKind: HotspotFocusOwnerKind,
   ownerId: string,
 ): HotspotFocusMode | null | undefined {
-  if (!isAuthoringProject(document)) return undefined;
+  if (!isAuthoringProjectView(document)) return undefined;
   if (ownerKind === 'room') return document.rooms[ownerId] ? 'rectangles' : undefined;
   const record = document.interactables[ownerId];
   if (!record) return undefined;
@@ -577,7 +577,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       return true;
     }
     const document = useProjectStore.getState().document;
-    if (!isAuthoringProject(document)) return false;
+    if (!isAuthoringProjectView(document)) return false;
     const latestOwnerAssetId = currentOwnerAssetId(document, session.ownerKind, session.ownerId);
     const latestOwnerMode = currentOwnerMode(document, session.ownerKind, session.ownerId);
     if (

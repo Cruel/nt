@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
+import { useCommandStore } from '@/commands/command-store';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -8,8 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ColorField } from '@/components/ui/color-field';
-import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import {
   Dialog,
   DialogDescription,
@@ -20,83 +18,22 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
-import { usePreferencesStore } from '@/stores/preferences-store';
-import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
-import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
-import { useProjectStore } from '@/project/project-store';
-import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
-import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import {
-  audioPurposeValues,
-  type AudioPurpose,
-  type ProjectAudioSettings,
-} from '../../../shared/project-schema/authoring-audio';
-import {
-  getSystemLayoutSetting,
-  isSystemLayoutCompatible,
-  systemLayoutRoleValues,
-  type SystemLayoutRole,
-} from '../../../shared/project-schema/authoring-layouts';
-import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  defaultInteractableInstanceData,
-  parseInteractableData,
-} from '../../../shared/project-schema/authoring-interactables';
-import {
-  PROJECT_INVENTORY_ID,
-  PROJECT_INVENTORY_LABEL,
-  projectInventoryRef,
-} from '../../../shared/project-schema/authoring-inventories';
-import { projectForEditor } from '@/project/project-for-editor';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
-import {
-  assetMemoryBuiltinPresetValues,
-  resolveAssetMemoryPolicy,
-  type AssetMemoryPolicyDefinition,
-  type AssetMemoryBuiltinPreset,
-} from '../../../shared/project-schema/platform-export-contracts';
-import {
-  deriveProjectDisplayGeometry,
-  projectSettingsForEditing,
-  systemCursorNames,
-  validateProjectSettingsAuthoringState,
-  type ProjectAccessibilityScalePolicy,
-  type ProjectAppSettings,
-  type ProjectDisplaySettings,
-  type ProjectCursorSettings,
-  type SystemCursorName,
-} from '../../../shared/project-schema/authoring-project-settings';
-import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
-import {
-  defaultInteractionProgram,
-  type InteractionProgram,
-} from '../../../shared/project-schema/authoring-interaction-programs';
-import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
-import { AssetPreview } from '../assets/AssetPreview';
+import { projectForEditor } from '@/project/project-for-editor';
+import { useProjectStore } from '@/project/project-store';
+import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
 } from '@/workbench/pending-input-store';
-import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
-  AppWindow,
-  BadgeInfo,
-  Blocks,
-  Gauge,
-  Image,
-  MousePointer2,
-  Plus,
-  Trash2,
-  LayoutTemplate,
-  MonitorCog,
-  ShieldCheck,
-  Sparkles,
-  Volume2,
-} from 'lucide-react';
+  navigateToWorkbenchTarget,
+  registerWorkbenchTargetHandler,
+} from '@/workbench/workbench-navigation';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -111,6 +48,70 @@ import {
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import {
+  AppWindow,
+  BadgeInfo,
+  Blocks,
+  Gauge,
+  Image,
+  LayoutTemplate,
+  MonitorCog,
+  MousePointer2,
+  Plus,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Volume2,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import {
+  audioPurposeValues,
+  type AudioPurpose,
+  type ProjectAudioSettings,
+} from '../../../shared/project-schema/authoring-audio';
+import {
+  defaultInteractableInstanceData,
+  parseInteractableData,
+} from '../../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractionProgram,
+  type InteractionProgram,
+} from '../../../shared/project-schema/authoring-interaction-programs';
+import {
+  PROJECT_INVENTORY_ID,
+  PROJECT_INVENTORY_LABEL,
+  projectInventoryRef,
+} from '../../../shared/project-schema/authoring-inventories';
+import {
+  getSystemLayoutSetting,
+  isSystemLayoutCompatible,
+  systemLayoutRoleValues,
+  type SystemLayoutRole,
+} from '../../../shared/project-schema/authoring-layouts';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  deriveProjectDisplayGeometry,
+  projectSettingsForEditing,
+  systemCursorNames,
+  type ProjectAccessibilityScalePolicy,
+  type ProjectAppSettings,
+  type ProjectCursorSettings,
+  type ProjectDisplaySettings,
+  type SystemCursorName,
+} from '../../../shared/project-schema/authoring-project-settings';
+import {
+  assetMemoryBuiltinPresetValues,
+  resolveAssetMemoryPolicy,
+  type AssetMemoryBuiltinPreset,
+  type AssetMemoryPolicyDefinition,
+} from '../../../shared/project-schema/platform-export-contracts';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
+import { AssetPreview } from '../assets/AssetPreview';
+import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
 
 const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
 
@@ -1131,15 +1132,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       }),
     [pendingInputEntries],
   );
-  const projectSettingsDiagnostics = useMemo(
-    () =>
-      nativeSession
-        ? nativeDiagnostics
-        : project
-          ? validateProjectSettingsAuthoringState(project)
-          : [],
-    [project, nativeSession, nativeDiagnostics],
-  );
+  const projectSettingsDiagnostics = useMemo(() => nativeDiagnostics, [nativeDiagnostics]);
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(
     () =>

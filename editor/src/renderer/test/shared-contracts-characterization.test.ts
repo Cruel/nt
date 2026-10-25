@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
 import {
   FOCUSED_EDITOR_DOCUMENT_LIMITS,
   FOCUSED_PREVIEW_RESOURCE_LIMITS,
@@ -536,9 +536,9 @@ describe('shared contracts characterization', () => {
     const layout = defaultLayoutData('Layout');
     project.layouts.layout = { id: 'layout', label: 'Layout', data: layout };
     project.entrypoint = { kind: 'room', id: 'room' };
-    const before = compileAuthoringProject(project);
-    expect(before.ok).toBe(true);
-    if (!before.ok) return;
+    const before = lowerSharedAuthoringProject(project);
+    expect(before.draft, JSON.stringify(before.diagnostics)).toBeDefined();
+    if (!before.draft) return;
 
     project.rooms.room!.data = roomDataSchema.parse({
       ...room,
@@ -556,12 +556,12 @@ describe('shared contracts characterization', () => {
       dependencies: { ...layout.dependencies, templates: [] },
     });
     expect(project.layouts.layout.data.dependencies.templates).toEqual([]);
-    const after = compileAuthoringProject(project);
-    expect(after.ok, JSON.stringify(after.diagnostics)).toBe(true);
-    if (!after.ok) return;
-    const clean = JSON.parse(after.canonicalJson);
+    const after = lowerSharedAuthoringProject(project);
+    expect(after.draft, JSON.stringify(after.diagnostics)).toBeDefined();
+    if (!after.draft) return;
+    const clean = after.draft;
     expect(JSON.stringify(clean)).not.toContain('additionalDependencies');
     expect(JSON.stringify(clean)).not.toContain('templates');
-    expect(after.canonicalJson).toBe(before.canonicalJson);
+    expect(after.draft).toEqual(before.draft);
   });
 });

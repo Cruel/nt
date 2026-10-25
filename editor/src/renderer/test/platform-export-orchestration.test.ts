@@ -247,7 +247,6 @@ describe('platform export main-process trust boundary', () => {
       const admission = {
         project,
         diagnostics: [],
-        contributions: [],
         runtimeAssetReferences: ['icon'],
       };
       const published = await exportProjectToPlatform(
@@ -313,7 +312,7 @@ describe('platform export main-process trust boundary', () => {
       undefined,
       undefined,
       undefined,
-      { project, diagnostics: [issue], contributions: [] },
+      { project, diagnostics: [issue] },
     );
     expect(result.success).toBe(false);
     expect(result.diagnostics).toContainEqual(issue);
@@ -326,7 +325,7 @@ describe('platform export main-process trust boundary', () => {
       undefined,
       undefined,
       undefined,
-      { project: structuredClone(project), diagnostics: [issue], contributions: [] },
+      { project: structuredClone(project), diagnostics: [issue] },
     );
     expect(mismatch.diagnostics).not.toContainEqual(issue);
     expect(mismatch.diagnostics).toContainEqual(
@@ -342,17 +341,7 @@ describe('platform export main-process trust boundary', () => {
     fs.writeFileSync(path.join(projectRoot, 'assets/icon.png'), 'icon');
     const project = exportableProject();
     const templateToken = installLinuxTemplate(root, ['glsl-330']);
-    const legacy = await import('../../shared/legacy-runtime-artifact-preparation');
-    const validator = await import('../../shared/project-schema/authoring-validation');
-    const legacyPrepare = vi.spyOn(legacy, 'prepareRuntimeArtifact').mockImplementation(() => {
-      throw new Error('Legacy runtime preparation was invoked during native export.');
-    });
-    const legacyValidate = vi
-      .spyOn(validator, 'validateAuthoringProject')
-      .mockImplementation(() => {
-        throw new Error('Legacy authoring validation was invoked during native export.');
-      });
-    try {
+    {
       const nativeTools = {
         compileShaders: vi.fn(async () => ({
           ok: true,
@@ -375,7 +364,6 @@ describe('platform export main-process trust boundary', () => {
       const admitted = {
         project,
         diagnostics: [],
-        contributions: [],
         runtimeAssetReferences: ['icon'],
       };
       const result = await exportProjectToPlatform(
@@ -389,8 +377,6 @@ describe('platform export main-process trust boundary', () => {
       );
       expect(result, JSON.stringify(result.diagnostics)).toMatchObject({ success: true });
       expect(beforePublish).toHaveBeenCalledOnce();
-      expect(legacyPrepare).not.toHaveBeenCalled();
-      expect(legacyValidate).not.toHaveBeenCalled();
 
       beforePublish.mockResolvedValueOnce('CLI changed the admitted sources.');
       const drift = await exportProjectToPlatform(
@@ -407,9 +393,6 @@ describe('platform export main-process trust boundary', () => {
         expect.objectContaining({ code: 'export-source-changed' }),
       );
       expect(fs.existsSync(path.join(root, 'dist/game'))).toBe(false);
-    } finally {
-      legacyPrepare.mockRestore();
-      legacyValidate.mockRestore();
     }
   });
   it('rejects malformed serialized requests before orchestration', async () => {
@@ -432,14 +415,22 @@ describe('platform export main-process trust boundary', () => {
     const project = exportableProject();
     const preparation = await prepared(project);
     project.project.name = 'Changed after readiness';
-    const result = await exportProjectToPlatform({
-      operationId: 'stale-fingerprint',
-      project,
-      projectRoot: '/project',
-      profileId: preparation.profile.id,
-      outputDirectory: '/dist',
-      preparedRuntimeArtifact: preparation.runtime,
-    });
+    const result = await exportProjectToPlatform(
+      {
+        operationId: 'stale-fingerprint',
+        project,
+        projectRoot: '/project',
+        profileId: preparation.profile.id,
+        outputDirectory: '/dist',
+        preparedRuntimeArtifact: preparation.runtime,
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { project, diagnostics: [], runtimeAssetReferences: ['icon'] },
+    );
     expect(result.success).toBe(false);
     expect(result.diagnostics).toEqual([
       expect.objectContaining({
@@ -463,32 +454,48 @@ describe('platform export main-process trust boundary', () => {
       message: 'Contract test blocker.',
       ownerPaths: ['/settings/app/applicationId'],
     });
-    const result = await exportProjectToPlatform({
-      operationId: 'diagnostic-contract',
-      project,
-      projectRoot: '/project',
-      profileId: preparation.profile.id,
-      outputDirectory: '/dist',
-      preparedRuntimeArtifact: {
-        ...preparation.runtime,
-        diagnostics: [...preparation.runtime.diagnostics, blocker],
+    const result = await exportProjectToPlatform(
+      {
+        operationId: 'diagnostic-contract',
+        project,
+        projectRoot: '/project',
+        profileId: preparation.profile.id,
+        outputDirectory: '/dist',
+        preparedRuntimeArtifact: {
+          ...preparation.runtime,
+          diagnostics: [...preparation.runtime.diagnostics, blocker],
+        },
       },
-    });
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { project, diagnostics: [], runtimeAssetReferences: ['icon'] },
+    );
     expect(result.diagnostics).toContainEqual(blocker);
   });
 
   it('requires signing configuration only when signing is explicitly requested', async () => {
     const project = exportableProject();
     const preparation = await prepared(project);
-    const result = await exportProjectToPlatform({
-      operationId: 'signing-request',
-      project,
-      projectRoot: '/project',
-      profileId: preparation.profile.id,
-      outputDirectory: '/dist',
-      sign: true,
-      preparedRuntimeArtifact: preparation.runtime,
-    });
+    const result = await exportProjectToPlatform(
+      {
+        operationId: 'signing-request',
+        project,
+        projectRoot: '/project',
+        profileId: preparation.profile.id,
+        outputDirectory: '/dist',
+        sign: true,
+        preparedRuntimeArtifact: preparation.runtime,
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { project, diagnostics: [], runtimeAssetReferences: ['icon'] },
+    );
 
     expect(result.success).toBe(false);
     expect(result.diagnostics).toContainEqual(
@@ -503,17 +510,25 @@ describe('platform export main-process trust boundary', () => {
     const preparation = await prepared(project);
     const templateToken = installLinuxTemplate(root, ['essl-300']);
 
-    const result = await exportProjectToPlatform({
-      operationId: 'explicit-incompatible-template',
-      project,
-      projectRoot: '/project',
-      profileId: preparation.profile.id,
-      outputDirectory: path.join(root, 'output'),
-      templateToken,
-      allowUntrustedTemplate: true,
-      checkOnly: true,
-      preparedRuntimeArtifact: preparation.runtime,
-    });
+    const result = await exportProjectToPlatform(
+      {
+        operationId: 'explicit-incompatible-template',
+        project,
+        projectRoot: '/project',
+        profileId: preparation.profile.id,
+        outputDirectory: path.join(root, 'output'),
+        templateToken,
+        allowUntrustedTemplate: true,
+        checkOnly: true,
+        preparedRuntimeArtifact: preparation.runtime,
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { project, diagnostics: [], runtimeAssetReferences: ['icon'] },
+    );
 
     expect(result.success).toBe(false);
     expect(result.diagnostics).toContainEqual(
@@ -560,6 +575,10 @@ describe('platform export main-process trust boundary', () => {
           return { success: false, diagnostics: [] };
         },
       } as never,
+      undefined,
+      undefined,
+      undefined,
+      { project, diagnostics: [], runtimeAssetReferences: ['icon'] },
     );
 
     expect(result.success).toBe(false);

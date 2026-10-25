@@ -1,10 +1,9 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { parseTestData, validateTestData } from '../../shared/project-schema/authoring-tests';
-import type { JsonPatchOperation } from './json-patch';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
+import { parseTestData } from '../../shared/project-schema/authoring-tests';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import type { JsonPatchOperation } from './json-patch';
 
 export interface ReplaceTestDataPayload {
   testId: string;
@@ -27,7 +26,7 @@ export function replaceTestDataPatches(
   document: unknown,
   payload: ReplaceTestDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.tests[payload.testId];
   if (!record)
@@ -41,11 +40,6 @@ export function replaceTestDataPatches(
       patches: [],
       diagnostics: [error('Test data is invalid.', pathForTestData(payload.testId))],
     };
-  const diagnostics = legacyCommandDiagnostics(() =>
-    validateTestData(document, payload.testId, { ...record, data }),
-  );
-  const failure = diagnostics.find((item) => item.severity === 'error');
-  if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const patch: JsonPatchOperation = {
     op: 'replace',
     path: pathForTestData(payload.testId),

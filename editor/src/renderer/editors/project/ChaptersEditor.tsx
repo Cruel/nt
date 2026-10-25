@@ -11,7 +11,7 @@ import {
   authoringCollectionMetadata,
   isAuthoringCollectionKey,
 } from '../../../shared/project-schema/authoring-collections';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { recordTargetKey } from '@/workspace/project-explorer-store';
 import {
@@ -30,7 +30,7 @@ const CHAPTERS_TAB_STATE_SCHEMA = 'noveltea.editor.chapters-tab-state';
 export function ChaptersEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommandAsync);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const editorState = useMemo(
     () => (project ? editorProjectStateFromProject(project) : null),
     [project],

@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DialogueEditor } from '@/editors/dialogues/DialogueEditor';
@@ -99,11 +100,7 @@ beforeEach(() => {
 function loadDialogue() {
   const project = createAuthoringProject();
   project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock',
-    projectFilePath: '/mock/project.yaml',
-  });
+  admitNativeRendererCommandFixture(project);
 }
 
 describe('DialogueEditor', () => {
@@ -149,6 +146,9 @@ describe('DialogueEditor', () => {
       }),
     );
 
+    // The native patch is acknowledged before the selected block's local
+    // inspector state catches up to the newly added graph node.
+    fireEvent.click(screen.getByRole('button', { name: /^Choice$/i }));
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Choices' })).toBeInTheDocument(),
     );
@@ -194,6 +194,15 @@ describe('DialogueEditor', () => {
     render(<DialogueEditor tab={tab} />);
 
     fireEvent.click(screen.getByText('Add Stage Slot'));
+    await waitFor(() =>
+      expect(
+        (
+          useProjectStore.getState().document as {
+            dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
+          }
+        ).dialogues.intro.data.stageSlots,
+      ).toHaveLength(1),
+    );
     fireEvent.click(screen.getByText('Add Media Slot'));
     await waitFor(() => {
       const document = useProjectStore.getState().document as {
@@ -208,6 +217,18 @@ describe('DialogueEditor', () => {
     });
 
     fireEvent.click(screen.getByText('Add Stage mutation'));
+    await waitFor(() => {
+      const data = (
+        useProjectStore.getState().document as {
+          dialogues: { intro: { data: ReturnType<typeof defaultDialogueData> } };
+        }
+      ).dialogues.intro.data;
+      expect(
+        data.blocks[0]?.type === 'sequence' &&
+          data.blocks[0].segments[0]?.type === 'line' &&
+          data.blocks[0].segments[0].cues.length,
+      ).toBe(1);
+    });
     fireEvent.click(screen.getByText('Add Media mutation'));
     await waitFor(() => {
       const document = useProjectStore.getState().document as {

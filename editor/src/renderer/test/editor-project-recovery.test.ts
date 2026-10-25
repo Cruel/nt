@@ -18,6 +18,7 @@ import {
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
@@ -317,18 +318,13 @@ describe('project recovery reconstruction', () => {
     );
   });
 
-  it('splits shared tag-registry mutations into an atomic project-tags recovery owner', () => {
+  it('splits shared tag-registry mutations into an atomic project-tags recovery owner', async () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      savedDocument: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     setLoadedEditorProjectState(project.editor);
 
-    const result = useCommandStore.getState().executeCommand({
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'entity.updateMetadata',
       label: 'Tag Hall',
       payload: { collection: 'rooms', entityId: 'hall', tags: ['Story'] },
@@ -350,17 +346,12 @@ describe('project recovery reconstruction', () => {
     expect(tagGroups).toEqual(recordGroups);
   });
 
-  it('keeps platform export profile edits in their dedicated save unit', () => {
+  it('keeps platform export profile edits in their dedicated save unit', async () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      savedDocument: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     setLoadedEditorProjectState(project.editor);
 
-    const result = useCommandStore.getState().executeCommand({
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'project.replaceAtPath',
       label: 'Update platform export profiles',
       payload: {
@@ -379,15 +370,11 @@ describe('project recovery reconstruction', () => {
     expect(recovery.saveUnitsById['project:settings']).toBeUndefined();
   });
 
-  it('serializes the same dirty command state deterministically', () => {
+  it('serializes the same dirty native-acknowledged state deterministically', async () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     setLoadedEditorProjectState(emptyEditorProjectState());
-    useCommandStore.getState().executeCommand({
+    await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Rename project',
       payload: [{ op: 'replace', path: '/project/name', value: 'Dirty' }],

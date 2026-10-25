@@ -247,7 +247,7 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
       expect(opened.success, opened.error).toBe(true);
       const first = handoff.current()!;
       const firstId = opened.projectSessionId!;
-      expect(() => sessions.requireActiveWorkspace(firstId)).toThrow('no workspace');
+      expect('requireActiveWorkspace' in sessions).toBe(false);
       expect((await sessions.listProjectSourceFiles({ projectSessionId: firstId })).files).toEqual(
         expect.arrayContaining([
           expect.objectContaining({

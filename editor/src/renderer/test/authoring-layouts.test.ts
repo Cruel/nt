@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
 import {
   defaultLayoutData,
   resolveLayoutScalePolicy,
-  layoutRecordRef,
   validateLayoutData,
 } from '../../shared/project-schema/authoring-layouts';
 import {
@@ -267,63 +264,6 @@ describe('authoring layouts schema', () => {
       ui: 'inherit',
       text: 'ignore',
     });
-  });
-
-  it('diagnoses invalid or empty layout source data', () => {
-    const project = createAuthoringProject();
-    project.layouts.empty = {
-      id: 'empty',
-      label: 'Empty',
-      data: {
-        ...defaultLayoutData('Empty'),
-        rml: { sourceMode: 'inline', sourceText: '', sourceAsset: null },
-      },
-    };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/layouts/empty/data/rml/sourceText',
-          category: 'Layouts',
-        }),
-      ]),
-    );
-  });
-
-  it('validates system layout references and indexes settings usage', () => {
-    const project = createAuthoringProject();
-    project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
-
-    expect(
-      validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Layouts'),
-    ).toEqual([]);
-    expect(findUsages(buildReferenceIndex(project), { collection: 'layouts', id: 'main' })).toEqual(
-      [
-        expect.objectContaining({
-          sourceCollection: 'project',
-          sourceId: 'settings',
-          path: '/settings/ui/systemLayouts/title/$ref',
-        }),
-      ],
-    );
-  });
-
-  it('rejects custom contracts on fixed System Layout Roles', () => {
-    const project = createAuthoringProject();
-    const data = defaultLayoutData('Main UI');
-    data.contract.inputs.title = { type: 'string', nullable: false, defaultValue: 'HUD' };
-    project.layouts.main = { id: 'main', label: 'Main UI', data };
-    project.settings.ui = { systemLayouts: { title: layoutRecordRef('main') } };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/settings/ui/systemLayouts/title/$ref',
-          message: expect.stringContaining('fixed engine contract'),
-        }),
-      ]),
-    );
   });
 
   it('reports missing dependency refs', () => {

@@ -12,7 +12,7 @@ import { validateRoomHotspotAuthoringSemantics } from '../../shared/project-sche
 import { validateInteractableRecordHotspotAuthoringSemantics } from '../../shared/project-schema/authoring-hotspot-validation';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
-import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
@@ -540,18 +540,16 @@ describe.skipIf(!executable)('native Room/Map/Hotspot semantic differential', ()
     expect(normalized.data.connections).toEqual(project.maps.world!.data.connections);
     const reopenedProject = structuredClone(project);
     reopenedProject.maps.world = normalized;
-    const beforeCompiled = compileAuthoringProject(project);
-    const afterCompiled = compileAuthoringProject(reopenedProject);
-    expect(beforeCompiled.ok, JSON.stringify(beforeCompiled.diagnostics)).toBe(true);
-    expect(afterCompiled.ok, JSON.stringify(afterCompiled.diagnostics)).toBe(true);
-    if (beforeCompiled.ok && afterCompiled.ok) {
-      expect(afterCompiled.project.definitions.maps[0]!.connections).toEqual(
-        beforeCompiled.project.definitions.maps[0]!.connections,
+    const beforeCompiled = lowerSharedAuthoringProject(project);
+    const afterCompiled = lowerSharedAuthoringProject(reopenedProject);
+    expect(beforeCompiled.draft, JSON.stringify(beforeCompiled.diagnostics)).toBeDefined();
+    expect(afterCompiled.draft, JSON.stringify(afterCompiled.diagnostics)).toBeDefined();
+    if (beforeCompiled.draft && afterCompiled.draft) {
+      expect(afterCompiled.draft.definitions.maps[0]!.connections).toEqual(
+        beforeCompiled.draft.definitions.maps[0]!.connections,
       );
-      expect(afterCompiled.project.definitions.rooms).toEqual(
-        beforeCompiled.project.definitions.rooms,
-      );
-      expect(afterCompiled.project.definitions.maps[0]!.locations[0]!.pickOrder).toBe(7);
+      expect(afterCompiled.draft.definitions.rooms).toEqual(beforeCompiled.draft.definitions.rooms);
+      expect(afterCompiled.draft.definitions.maps[0]!.locations[0]!.pickOrder).toBe(7);
     }
   });
 });

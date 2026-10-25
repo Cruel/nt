@@ -1,24 +1,21 @@
+import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
+import {
+  localizationMessageWorkflowView,
+  localizationMessageWorkflowViews,
+} from '../../shared/authoring-localization-workflow';
 import { collectManagedLuaLocalizationSources } from '../../shared/authoring-lua-localization-lowering';
-import { collectRmlLocalizationSources } from '../../shared/authoring-rml-localization-lowering';
 import {
   namedMessageUsageDetails,
   namedMessageUsages,
   type NamedMessageUsage,
 } from '../../shared/authoring-named-message-usages';
-import {
-  localizationMessageWorkflowView,
-  localizationMessageWorkflowViews,
-} from '../../shared/authoring-localization-workflow';
-import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
+import { collectRmlLocalizationSources } from '../../shared/authoring-rml-localization-lowering';
+import { analyzeManagedLuaLocalization } from '../../shared/authoring-source-downstream';
 import { structuredMessageById } from '../../shared/authoring-structured-messages';
-import { analyzeManagedLuaLocalization } from '../../shared/authoring-source-analysis';
 import { buildJsonPointer } from '../../shared/json-pointer';
-import {
-  authoringProjectSchema,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
-import type { AuthoringMessage } from '../../shared/project-schema/authoring-localization';
 import { resolveLocalizationSourceIdentity } from '../../shared/localization-source-tracking';
+import type { AuthoringMessage } from '../../shared/project-schema/authoring-localization';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
 import { toJsonValue } from './json-value';
 
@@ -209,9 +206,10 @@ export function renameMessageValueReferencePatches(
   }
 
   if (changedSourceKeys.size > 0) {
-    const candidateProject = authoringProjectSchema.parse(
-      applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
-    );
+    const candidateProject = applyJsonPatch(
+      toJsonValue(project),
+      patches as unknown as JsonPatchOperation[],
+    ).document as unknown as AuthoringProject;
     const synchronized = synchronizeLocalizationMessageTracking(candidateProject);
     const refreshedTracking = structuredClone(project.localization.sourceMessageTracking);
     for (const sourceKey of changedSourceKeys) {
@@ -378,9 +376,10 @@ export function demoteNamedMessageUsage(
 
   const refreshChangedTracking = () => {
     if (!changedSourceKey) return null;
-    const candidateProject = authoringProjectSchema.parse(
-      applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
-    );
+    const candidateProject = applyJsonPatch(
+      toJsonValue(project),
+      patches as unknown as JsonPatchOperation[],
+    ).document as unknown as AuthoringProject;
     const synchronized = synchronizeLocalizationMessageTracking(candidateProject);
     const unresolved = synchronized.unresolved.find(
       (item) => `${item.family}:${item.ownerKey}:${item.sourcePath}` === changedSourceKey,
@@ -551,9 +550,10 @@ function rewriteLocalMessageIntoNamed(
     patches.push({ op: 'replace', path: '/localization/sourceMessageTracking', value: tracking });
 
   if (changedSourceKeys.size > 0) {
-    const candidateProject = authoringProjectSchema.parse(
-      applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
-    );
+    const candidateProject = applyJsonPatch(
+      toJsonValue(project),
+      patches as unknown as JsonPatchOperation[],
+    ).document as unknown as AuthoringProject;
     const synchronized = synchronizeLocalizationMessageTracking(candidateProject);
     const unresolvedChangedSource = synchronized.unresolved.find((item) =>
       changedSourceKeys.has(`${item.family}:${item.ownerKey}:${item.sourcePath}`),
@@ -583,9 +583,8 @@ function rewriteLocalMessageIntoNamed(
         value: refreshedTracking,
       });
   }
-  const after = authoringProjectSchema.parse(
-    applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
-  );
+  const after = applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[])
+    .document as unknown as AuthoringProject;
   const namedMessageId = Object.entries(after.localization.messages).find(
     ([, message]) => message.kind === 'named' && message.key === key,
   )?.[0];
@@ -874,9 +873,10 @@ export function promoteAndLinkLocalMessages(
   }
 
   if (changedSourceKeys.size > 0) {
-    const candidateProject = authoringProjectSchema.parse(
-      applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
-    );
+    const candidateProject = applyJsonPatch(
+      toJsonValue(project),
+      patches as unknown as JsonPatchOperation[],
+    ).document as unknown as AuthoringProject;
     const synchronized = synchronizeLocalizationMessageTracking(candidateProject);
     const unresolvedChangedSource = synchronized.unresolved.find((item) =>
       changedSourceKeys.has(`${item.family}:${item.ownerKey}:${item.sourcePath}`),
@@ -908,9 +908,8 @@ export function promoteAndLinkLocalMessages(
       });
   }
 
-  const after = authoringProjectSchema.parse(
-    applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[]).document,
-  );
+  const after = applyJsonPatch(toJsonValue(project), patches as unknown as JsonPatchOperation[])
+    .document as unknown as AuthoringProject;
   patches.push(...remapLocalUsageNotesToNamed(project, after, selected, canonicalMessageId));
   return { ok: true, patches };
 }

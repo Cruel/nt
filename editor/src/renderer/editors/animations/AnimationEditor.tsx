@@ -24,7 +24,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import type { VideoFrameSampling } from '../../../shared/prepared-media-contracts';
 import { targetFpsDuplicatesSource } from '../../../shared/video-fps-duplicates';
 import {
@@ -48,7 +48,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
   const session = useProjectStore((state) => state.projectSessionId);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const id = tab.resource?.entityId;
   const record = id ? project?.animations[id] : null;
   const parsed = useMemo(() => animationDataSchema.safeParse(record?.data), [record?.data]);

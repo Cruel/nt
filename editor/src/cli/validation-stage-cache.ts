@@ -2,7 +2,7 @@ import type { ShaderCompileOptions, ShaderCompileResponse } from '../shared/edit
 import type { LocalizationFontCoverageResponse } from '../shared/localization-font-coverage';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 import { assertProjectWorkspacePathContained } from '../shared/project-workspace/project-workspace-file-system';
-import type { LoadedProjectWorkspaceSnapshot } from '../shared/project-workspace/project-workspace-service';
+import type { LoadedProjectWorkspaceSnapshot } from '../shared/project-workspace/project-workspace-contracts';
 import { parseAssetData } from '../shared/project-schema/authoring-assets';
 import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from './static-contracts';
 

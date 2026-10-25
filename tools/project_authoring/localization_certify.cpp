@@ -523,6 +523,16 @@ void certify(const std::filesystem::path& source)
         for (const auto& issue : project->snapshot().diagnostics)
             std::cerr << issue.path << " [" << issue.code << "] " << issue.message << "\n";
     require(project->snapshot().valid, "Valid localization is admitted in Project snapshot");
+    // Reconciliation replaces the complete physical tracking map, not a
+    // single occurrence. Production must route that operation to the native
+    // i18n/tracking.yaml owner and keep the disk untouched until Save.
+    const auto replaced_tracking = project->patch(
+        project->snapshot().working_revision,
+        {{RoomPatch::Operation::Replace, "/localization/sourceMessageTracking",
+          model.at("sourceMessageTracking").to_string()}});
+    require(replaced_tracking.accepted && replaced_tracking.snapshot.valid &&
+                contents(fixture.root / "i18n/tracking.yaml") == before_tracking,
+            "Whole tracking-map reconciliation is admitted natively without early disk writes");
     auto dirty_assets = ProjectSession::open(fixture.root, error);
     require(dirty_assets != nullptr, "Dirty Asset localization fixture opens");
     const auto altered_asset = dirty_assets->patch(

@@ -17,11 +17,7 @@ import type {
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { PROJECT_TRUST_FAILURE } from '../../shared/project-trust-boundary';
 import { getComfyUiWorkflowExecutionSupport } from '../../shared/comfyui-workflows';
-import {
-  createNodeProjectWorkspaceFileSystem,
-  createNodeProjectWorkspaceService,
-} from '../../shared/project-workspace';
-import { publishComfyUiOutputs } from './comfyui-asset-publication-service';
+import { publishNativeComfyUiOutputs } from './native-comfyui-asset-publication';
 import {
   listComfyUiWorkflowLibrary,
   verifyComfyUiWorkflowLibrary,
@@ -346,12 +342,13 @@ async function executeEditorImageRun(options: {
       throw new Error('Project session is stale or unknown.');
     }
 
-    const workspace = createNodeProjectWorkspaceService();
-    const fileSystem = createNodeProjectWorkspaceFileSystem();
-    const published = await publishComfyUiOutputs({
+    const published = await publishNativeComfyUiOutputs({
       projectRoot,
-      workspace,
-      fileSystem,
+      nativeProjectCommands: async () => {
+        throw new Error(
+          'Editor image generation publishes filesystem output, not Project records.',
+        );
+      },
       workflow: entry,
       promptId: remote.promptId,
       plan,

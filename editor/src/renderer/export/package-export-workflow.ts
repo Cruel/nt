@@ -1,23 +1,15 @@
-import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import type { PackageExportResponse, ToolDiagnostic } from '../../shared/editor-tooling';
-import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ExportProfileData } from '../../shared/project-schema/authoring-export';
-import { prepareRuntimeArtifact } from '../../shared/legacy-runtime-artifact-preparation';
-import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   classifyProjectValidationDiagnostics,
-  collectProjectValidationDiagnostics,
-  createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
 } from '../../shared/project-schema/project-diagnostic-projection';
 import { type PackageExportWorkflowResult, usePackageExportStore } from './package-export-store';
-import {
-  rendererRuntimeArtifactPaths,
-  rendererShaderCompilerAdapter,
-} from './runtime-artifact-adapters';
 
 export interface RunPackageExportWorkflowOptions {
   project: AuthoringProject;
@@ -25,10 +17,6 @@ export interface RunPackageExportWorkflowOptions {
   outputPath: string;
   profile: ExportProfileData;
   allowLocalizationWarnings?: boolean;
-}
-
-function hasErrors(diagnostics: Array<{ severity: string }>) {
-  return diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
 function failureResult(
@@ -79,194 +67,68 @@ export async function runPackageExportWorkflow(
   exportStore.setStage('compiling-project');
   workspace.setStatusMessage('Building runtime package data');
   const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
-  if (nativeRevision !== null) {
-    const projectSessionId = useProjectStore.getState().projectSessionId;
-    if (!projectSessionId)
-      throw new Error('Native package export requires an active Project session.');
-    let response: PackageExportResponse;
-    try {
-      response = normalizePackageResponse(
-        await window.noveltea.nativeProjectExportPackage(
-          projectSessionId,
-          nativeRevision,
-          options.outputPath,
-        ),
-      );
-    } catch (error) {
-      response = {
-        ok: false,
-        success: false,
-        diagnostics: [
-          {
-            severity: 'error',
-            category: 'Native export admission',
-            path: '/',
-            message: error instanceof Error ? error.message : String(error),
-          },
-        ],
-      };
-    }
-    const diagnostics = classifyProjectValidationDiagnostics(response.diagnostics, {
-      producer: 'package-publication',
-    });
-    const result: PackageExportWorkflowResult = {
-      ...failureResult(response.success ? 'complete' : 'failed', options, diagnostics),
-      ok: response.ok,
-      success: response.ok && response.success,
-      validationDiagnostics: diagnostics,
-      packageResponse: response,
-      manifest: response.manifest,
-      byteCount: response.byteCount,
-      checksums: response.checksums,
-    };
-    exportStore.finish(result);
-    workspace.setLastExportResult(result);
-    workspace.addTimelineEntry({
-      source: 'export',
-      message: result.success ? 'Runtime package exported' : 'Runtime package export failed',
-      detail: result,
-    });
-    workspace.setStatusMessage(result.success ? 'Runtime package exported' : 'Export failed');
-    useBottomPanelStore.getState().setActivePanelId('package-export');
-    return result;
-  }
-  const prepared = await prepareRuntimeArtifact({
-    project: options.project,
-    projectRoot: options.projectRoot,
-    profile: options.profile,
-    intent: 'runtime-package-export',
-    shaderCompiler: rendererShaderCompilerAdapter,
-    paths: rendererRuntimeArtifactPaths,
-    onStage: (stage) => {
-      exportStore.setStage(stage);
-      workspace.setStatusMessage(
-        stage === 'compiling-project'
-          ? 'Building runtime package data'
-          : 'Compiling shaders before export',
-      );
-    },
-  });
-  if (prepared.status !== 'prepared') {
-    const diagnostics = prepared.diagnostics;
-    const assessment = prepared.status === 'blocked' ? prepared.assessment : null;
-    const result = failureResult('failed', options, diagnostics, {
-      validationDiagnostics: assessment?.runtimeDiagnostics ?? diagnostics,
-      shaderDiagnostics: prepared.status === 'blocked' ? prepared.shaderDiagnostics : [],
-      shaderOutputs: prepared.status === 'blocked' ? prepared.shaderOutputs : [],
-      fileEntries: assessment?.fileEntries ?? [],
-      manifestPreview: assessment?.manifestPreview ?? null,
-    });
-    exportStore.finish(result);
-    workspace.setLastExportResult(result);
-    workspace.addTimelineEntry({
-      source: 'export',
-      message: 'Export blocked by runtime conversion diagnostics',
-      detail: result,
-    });
-    workspace.setStatusMessage('Export blocked by runtime conversion diagnostics');
-    useBottomPanelStore.getState().setActivePanelId('package-export');
-    return result;
-  }
-
-  const localizationWarnings = localizationWarningDiagnostics(prepared.artifact.diagnostics);
-  if (localizationWarnings.length > 0 && options.allowLocalizationWarnings !== true) {
-    const diagnostics = [
-      ...localizationWarnings,
-      createProjectValidationDiagnostic({
-        code: 'localization.export.warning_override_required',
-        severity: 'error',
-        path: '/export/runtime/localization',
-        message:
-          'Localization quality warnings must be acknowledged before Runtime Package export.',
-        category: 'Localization export',
-        boundaries: ['runtime-package'],
-        ownerPaths: ['/export/runtime/localization'],
-      }),
-    ];
-    const result = failureResult('failed', options, diagnostics, {
-      validationDiagnostics: diagnostics,
-      fileEntries: prepared.artifact.fileEntries,
-      manifestPreview: prepared.artifact.manifestPreview,
-    });
-    exportStore.finish(result);
-    workspace.setLastExportResult(result);
-    workspace.setStatusMessage('Localization warnings require acknowledgement');
-    useBottomPanelStore.getState().setActivePanelId('package-export');
-    return result;
-  }
-
-  exportStore.setStage('writing-package');
-  workspace.setStatusMessage('Writing runtime package');
-  const projectSessionId = useProjectStore.getState().projectSessionId;
-  if (!projectSessionId) {
-    const diagnostics = [
-      createProjectValidationDiagnostic({
-        code: 'runtime-export.active-project-session-required',
+  if (nativeRevision === null) {
+    const result = failureResult('failed', options, [
+      {
+        code: 'editor.native-export.session-required',
         severity: 'error',
         path: '/',
-        message: 'Runtime package export requires the active saved Project session.',
-        category: 'Runtime package export',
+        message: 'Native Project session is required.',
         boundaries: ['runtime-package'],
         ownerPaths: ['/'],
-      }),
-    ];
-    const result = failureResult('failed', options, diagnostics);
+      },
+    ]);
     exportStore.finish(result);
-    workspace.setLastExportResult(result);
-    workspace.setStatusMessage(diagnostics[0]!.message);
     return result;
   }
-  const response = normalizePackageResponse(
-    await window.noveltea.exportPackage(
-      projectSessionId,
-      prepared.artifact.compiledProject,
-      options.outputPath,
-      prepared.artifact.packageOptions,
-    ),
-  );
-  const publicationDiagnostics = classifyProjectValidationDiagnostics(response.diagnostics ?? [], {
+
+  const projectSessionId = useProjectStore.getState().projectSessionId;
+  if (!projectSessionId)
+    throw new Error('Native package export requires an active Project session.');
+  let response: PackageExportResponse;
+  try {
+    response = normalizePackageResponse(
+      await window.noveltea.nativeProjectExportPackage(
+        projectSessionId,
+        nativeRevision,
+        options.outputPath,
+      ),
+    );
+  } catch (error) {
+    response = {
+      ok: false,
+      success: false,
+      diagnostics: [
+        {
+          severity: 'error',
+          category: 'Native export admission',
+          path: '/',
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ],
+    };
+  }
+  const diagnostics = classifyProjectValidationDiagnostics(response.diagnostics, {
     producer: 'package-publication',
   });
-  const diagnostics = collectProjectValidationDiagnostics(
-    prepared.artifact.diagnostics,
-    publicationDiagnostics,
-  );
-  const runtimeDiagnostics = diagnostics.filter((diagnostic) =>
-    diagnostic.boundaries.includes('runtime-package'),
-  );
-  const success = response.ok && response.success && !hasErrors(runtimeDiagnostics);
   const result: PackageExportWorkflowResult = {
+    ...failureResult(response.success ? 'complete' : 'failed', options, diagnostics),
     ok: response.ok,
-    success,
-    stage: success ? 'complete' : 'failed',
-    profile: options.profile,
-    outputPath: options.outputPath,
-    diagnostics,
-    validationDiagnostics: prepared.assessment.runtimeDiagnostics,
-    shaderDiagnostics: prepared.shaderDiagnostics,
-    shaderOutputs: prepared.shaderOutputs,
-    fileEntries: prepared.artifact.fileEntries,
-    manifestPreview: prepared.artifact.manifestPreview,
+    success: response.ok && response.success,
+    validationDiagnostics: diagnostics,
     packageResponse: response,
     manifest: response.manifest,
     byteCount: response.byteCount,
     checksums: response.checksums,
   };
-
   exportStore.finish(result);
   workspace.setLastExportResult(result);
   workspace.addTimelineEntry({
     source: 'export',
-    message: success
-      ? `Exported package ${options.outputPath}`
-      : (response.error ?? 'Package export failed'),
+    message: result.success ? 'Runtime package exported' : 'Runtime package export failed',
     detail: result,
   });
-  workspace.setStatusMessage(
-    success
-      ? `Exported ${response.byteCount ?? 0} bytes to ${options.outputPath}`
-      : (response.error ?? 'Package export failed'),
-  );
+  workspace.setStatusMessage(result.success ? 'Runtime package exported' : 'Export failed');
   useBottomPanelStore.getState().setActivePanelId('package-export');
   return result;
 }

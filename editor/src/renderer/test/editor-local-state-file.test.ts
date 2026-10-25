@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { projectWorkspaceLocalStateFile } from '../../shared/editor-local-state-file';
-import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
 import { EDITOR_LOCAL_STATE_SCHEMA } from '../../shared/project-workspace/project-workspace-contracts';
 
 describe('authoring-independent local editor-state JSON writer', () => {
@@ -18,12 +17,8 @@ describe('authoring-independent local editor-state JSON writer', () => {
       schema: _schema,
       ...local
     } = state;
-    const expected = projectWorkspaceSourceCodec('machine.json').encode({
-      schema: EDITOR_LOCAL_STATE_SCHEMA,
-      ...local,
-    });
     const actual = projectWorkspaceLocalStateFile(state);
-    expect(actual).toBe(expected);
+    expect(JSON.parse(actual)).toEqual({ schema: EDITOR_LOCAL_STATE_SCHEMA, ...local });
     expect(actual).toMatch(/\n$/u);
     expect(actual).not.toContain('Not local');
   });
@@ -44,11 +39,9 @@ describe('authoring-independent local editor-state JSON writer', () => {
       schema: _schema,
       ...local
     } = state;
-    expect(projectWorkspaceLocalStateFile(state)).toBe(
-      projectWorkspaceSourceCodec('machine.json').encode({
-        schema: EDITOR_LOCAL_STATE_SCHEMA,
-        ...local,
-      }),
-    );
+    const serialized = projectWorkspaceLocalStateFile(state);
+    expect(JSON.parse(serialized)).toEqual({ schema: EDITOR_LOCAL_STATE_SCHEMA, ...local });
+    expect(serialized.indexOf('"z"')).toBeLessThan(serialized.indexOf('"á"'));
+    expect(serialized.indexOf('"á"')).toBeLessThan(serialized.indexOf('"🫖"'));
   });
 });

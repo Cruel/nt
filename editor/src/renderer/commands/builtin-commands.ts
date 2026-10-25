@@ -113,7 +113,7 @@ import {
   setHiddenCollectionsPatches,
 } from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
-import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
+import { projectForEditor } from '@/project/project-for-editor';
 import { gameplayInstanceKindValues } from '../../shared/project-schema/authoring-archetypes';
 import {
   cursorNamedIdSchema,
@@ -178,9 +178,9 @@ function legacyCommandReferenceIndex(
   graphSnapshot: Parameters<typeof preflightGraphCommand>[0]['snapshot'],
 ): ReferenceIndex {
   if (!graphSnapshot) return EMPTY_REFERENCE_INDEX;
-  const project = authoringProjectSchema.safeParse(document);
-  return project.success
-    ? buildReferenceIndexFromGraph(project.data, graphSnapshot.graph)
+  const project = projectForEditor(document);
+  return project
+    ? buildReferenceIndexFromGraph(project, graphSnapshot.graph)
     : EMPTY_REFERENCE_INDEX;
 }
 
@@ -1166,9 +1166,9 @@ export const projectRenameNamedCursorCommand: CommandHandler = ({
   projectRevision,
 }) =>
   parseEntityCommand(renameNamedCursorSchema, payload, (parsed) => {
-    const project = authoringProjectSchema.safeParse(document);
-    if (!project.success)
-      return { patches: [], diagnostics: [error('Project document is invalid.')] };
+    const project = projectForEditor(document);
+    if (!project)
+      return { patches: [], diagnostics: [error('No native Project view is available.')] };
     if (parsed.fromId === parsed.toId)
       return {
         patches: [],
@@ -1184,7 +1184,7 @@ export const projectRenameNamedCursorCommand: CommandHandler = ({
         patches: [],
         diagnostics: [error(`Cursor ID '${parsed.toId}' is reserved by NovelTea.`)],
       };
-    const cursorIndex = project.data.settings.cursors.named.findIndex(
+    const cursorIndex = project.settings.cursors.named.findIndex(
       (cursor) => cursor.id === parsed.fromId,
     );
     if (cursorIndex < 0)
@@ -1192,7 +1192,7 @@ export const projectRenameNamedCursorCommand: CommandHandler = ({
         patches: [],
         diagnostics: [error(`Named cursor '${parsed.fromId}' does not exist.`)],
       };
-    if (project.data.settings.cursors.named.some((cursor) => cursor.id === parsed.toId))
+    if (project.settings.cursors.named.some((cursor) => cursor.id === parsed.toId))
       return {
         patches: [],
         diagnostics: [error(`Named cursor '${parsed.toId}' already exists.`)],
@@ -1244,10 +1244,10 @@ export const projectDeleteNamedCursorCommand: CommandHandler = ({
   projectRevision,
 }) =>
   parseEntityCommand(deleteNamedCursorSchema, payload, (parsed) => {
-    const project = authoringProjectSchema.safeParse(document);
-    if (!project.success)
-      return { patches: [], diagnostics: [error('Project document is invalid.')] };
-    const cursorIndex = project.data.settings.cursors.named.findIndex(
+    const project = projectForEditor(document);
+    if (!project)
+      return { patches: [], diagnostics: [error('No native Project view is available.')] };
+    const cursorIndex = project.settings.cursors.named.findIndex(
       (cursor) => cursor.id === parsed.cursorId,
     );
     if (cursorIndex < 0)

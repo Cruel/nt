@@ -30,6 +30,20 @@ export type PortableResidentProjectTextSource = Readonly<{
   text: string;
 }>;
 
+export interface PreparedPortableResidentProjectSnapshot {
+  readonly projectRoot: string;
+  readonly identity: Readonly<{ sessionEpoch: number; generation: number }>;
+  readonly snapshotText: string;
+  readonly ownerMetadataText: string;
+}
+
+export type PinnedPortableResidentProjectInputs = Readonly<{
+  physicalAuthority: readonly PortableResidentProjectAuthorityEntry[];
+  externalAssets: readonly PortableResidentProjectAuthorityEntry[];
+  projectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>>;
+  nativePreparation: NativeResidentProjectPreparation | null;
+}>;
+
 export type PinnedNativeResidentProjectInputs = Readonly<{
   externalAssets: readonly PortableResidentProjectAuthorityEntry[];
   projectTextSources: Readonly<Record<string, PortableResidentProjectTextSource>>;

@@ -17,10 +17,8 @@ import { useProjectStore } from '@/project/project-store';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { parseInteractionData } from '../../../shared/project-schema/authoring-interactions';
 import {
   propertyOwnerKindValues,
@@ -444,7 +442,7 @@ function TraitMetadataFields({
 export function TraitsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommandAsync);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [metadataId, setMetadataId] = useState<string | null>(null);
   const [metadataDraft, setMetadataDraft] = useState<TraitMetadataDraft | null>(null);
   const [message, setMessage] = useState<string | null>(null);

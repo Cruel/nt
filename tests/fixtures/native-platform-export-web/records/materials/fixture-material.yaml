@@ -1,0 +1,13 @@
+id: fixture-material
+label: Fixture Material
+data:
+  base:
+    kind: preset
+    preset: engine-2d
+  displayName: Fixture Material
+  shader:
+    fragment:
+      kind: project
+      path: shaders/fixture.fs.sc
+  parameters: {}
+  textures: {}

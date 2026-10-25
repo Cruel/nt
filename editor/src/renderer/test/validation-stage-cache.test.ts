@@ -4,16 +4,13 @@ import {
   compileWithVerifiedValidationCache,
   shaderOutputsStillValid,
 } from '../../cli/validation-stage-cache';
-import { InMemoryProjectWorkspaceFileSystem } from '../../shared/project-workspace';
+import { MemoryFileSystem } from '../test-support/memory-file-system';
 
 describe('verified native validation stage outputs', () => {
   it('shares exact shader results with export but respects variants, source edits and forced recompilation', async () => {
     const root = '/projects/stage-cache-export';
     const shader = `${root}/shaders/test.fs.sc`;
-    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
-      { [shader]: '// version 1' },
-      { pathMetadata: true },
-    );
+    const fileSystem = new MemoryFileSystem({ [shader]: '// version 1' });
     const options = { projectRoot: root, shaderVariants: ['glsl-330', 'essl-300', 'metal'] };
     let compilations = 0;
     const compile = async () => {
@@ -44,10 +41,10 @@ describe('verified native validation stage outputs', () => {
     const root = '/projects/stage-cache-includes';
     const shader = `${root}/shaders/main.fs.sc`;
     const include = `${root}/shaders/shared.sh`;
-    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
-      { [shader]: '#include "shared.sh"', [include]: 'vec4 shade() { return vec4(1.0); }' },
-      { pathMetadata: true },
-    );
+    const fileSystem = new MemoryFileSystem({
+      [shader]: '#include "shared.sh"',
+      [include]: 'vec4 shade() { return vec4(1.0); }',
+    });
     let compilations = 0;
     const invoke = () =>
       compileWithVerifiedValidationCache(
@@ -75,12 +72,7 @@ describe('verified native validation stage outputs', () => {
     const root = '/projects/stage-cache-test';
     const path = `${root}/.noveltea/build/shaders/sample.bin`;
     const bytes = 'verified compiled shader';
-    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
-      { [path]: bytes },
-      {
-        pathMetadata: true,
-      },
-    );
+    const fileSystem = new MemoryFileSystem({ [path]: bytes });
     const response = {
       ok: true,
       success: true,

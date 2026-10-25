@@ -1,0 +1,31 @@
+id: fixture-hud
+label: Fixture HUD
+data:
+  layoutKind: fragment
+  displayName: Fixture HUD
+  rml:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  lua:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: layout_preview
+    additionalDependencies:
+      targets: []
+  mount:
+    defaultParent: nt-layout-preview-mount
+    scopedStyles: true
+  dependencies:
+    images: []
+    fonts:
+      - $ref:
+          collection: assets
+          id: body-font
+      - $ref:
+          collection: assets
+          id: alternate-font
+    stylesheets: []
+    materials: []
+    scripts: []

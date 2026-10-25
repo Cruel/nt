@@ -1,39 +1,32 @@
 import { createHash } from 'node:crypto';
+import type { AssetData } from '../project-schema/authoring-assets';
+import type { LayoutData } from '../project-schema/authoring-layouts';
+import type { MaterialData } from '../project-schema/authoring-materials';
 import type { AuthoringProject } from '../project-schema/authoring-project';
-import { parseAssetData } from '../project-schema/authoring-assets';
-import { parseLayoutData } from '../project-schema/authoring-layouts';
-import { parseMaterialData } from '../project-schema/authoring-materials';
-import { parseScriptModuleData } from '../project-schema/authoring-script-modules';
 import { projectSettingsFromProject } from '../project-schema/authoring-project-settings';
-import { classifyProjectValidationDiagnostics } from '../project-schema/project-diagnostic-projection';
+import type { ScriptModuleData } from '../project-schema/authoring-script-modules';
 import type { ProjectValidationDiagnostic } from '../project-schema/project-diagnostic-projection';
+import { classifyProjectValidationDiagnostics } from '../project-schema/project-diagnostic-projection';
 import {
   scopedAuthorityRelevantDeltaPaths,
   scopedAuthoritySignature,
   type ScopedReadAuthorityToken,
 } from '../scoped-read-authority';
-import { assetSourcePaths } from './project-asset-source-paths';
-import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
-import type {
-  LoadedProjectWorkspaceSnapshot,
-  ProjectWorkspaceOpenResult,
-} from './project-workspace-service';
 import type {
   NativeResidentProjectPreparation,
+  PinnedPortableResidentProjectInputs,
+  PreparedPortableResidentProjectSnapshot,
   ResidentProjectAuthority,
   ResidentProjectAuthorityObservation,
 } from './native-project-preparation-contracts';
+import { assetSourcePaths } from './project-asset-source-paths';
 import type {
-  PinnedPortableResidentProjectInputs,
-  PreparedPortableResidentProjectSnapshot,
-} from './resident-project-workspace-service';
+  LoadedProjectWorkspaceSnapshot,
+  ProjectWorkspaceOpenResult,
+} from './project-workspace-contracts';
+import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system';
 
-/**
- * Certification-only, native-authoritative CLI daemon owner. It intentionally does
- * not inherit ProjectWorkspaceService, construct a TS resident session, or parse
- * authored YAML. This is a separate owner from the editor's existing production
- * Workspace until the coordinated cutover in #521.
- */
+/** Native CLI/daemon Project owner, independent of editor sessions. */
 type Identity = Readonly<{ sessionEpoch: number; generation: number }>;
 type PhysicalEntry = ResidentProjectAuthorityObservation['manifest']['entries'][number];
 type TextSource = Readonly<{ text: string; contentHash: `sha256:${string}` }>;
@@ -103,17 +96,16 @@ function textPaths(project: AuthoringProject, physical: readonly PhysicalEntry[]
   for (const notice of projectSettingsFromProject(project).distributionNotices)
     paths.add(notice.path);
   for (const record of Object.values(project.assets))
-    for (const attachment of parseAssetData(record.data)?.attachments ?? [])
+    for (const attachment of (record.data as AssetData).attachments ?? [])
       if (attachment.purpose === 'distribution-notice') paths.add(attachment.path);
   for (const record of Object.values(project.scripts)) {
-    const source = parseScriptModuleData(record.data)?.source;
+    const source = (record.data as ScriptModuleData).source;
     if (source?.kind === 'project-file') paths.add(source.path);
   }
   for (const record of Object.values(project.layouts))
-    for (const source of parseLayoutData(record.data)?.dependencies.scripts ?? [])
-      paths.add(source);
+    for (const source of (record.data as LayoutData).dependencies.scripts ?? []) paths.add(source);
   for (const record of Object.values(project.materials)) {
-    const shader = parseMaterialData(record.data)?.shader;
+    const shader = (record.data as MaterialData).shader;
     for (const source of [shader?.vertex, shader?.fragment, shader?.varying])
       if (source?.kind === 'project') paths.add(source.path);
   }
@@ -251,8 +243,6 @@ export class NativeResidentProjectOwner {
         sourceRevision: native.sourceGeneration,
         canonicalSourceFiles: paths,
         fileRevisions,
-        saveUnitFileOwnership: {},
-        externalSourceDescriptors: {},
         scriptSourcePaths: {},
       } as unknown as LoadedProjectWorkspaceSnapshot;
       const opened = {
@@ -265,9 +255,6 @@ export class NativeResidentProjectOwner {
         repairs: [],
         contentProject: native.project,
         savedContentProject: native.project,
-        sourceContributions: {},
-        validationContributions: [],
-        validationWork: { executed: 0, reused: 0 },
         sourceWork: {
           authoredFilesReread: paths.length,
           parsedJsonSources: 0,
@@ -514,9 +501,6 @@ export class NativeResidentProjectOwner {
       repairs: [],
       contentProject: portable.nativePreparation.project,
       savedContentProject: portable.nativePreparation.project,
-      sourceContributions: {},
-      validationContributions: [],
-      validationWork: { executed: 0, reused: 0 },
       sourceWork: {
         authoredFilesReread: 0,
         parsedJsonSources: 0,
@@ -543,7 +527,6 @@ export class NativeResidentProjectOwner {
       pinned: true,
       portable: null,
       pinnedInputs: {
-        sourceContributions: {},
         physicalAuthority: portable.physicalAuthority,
         externalAssets: portable.externalAssets,
         projectTextSources: portable.projectTextSources,

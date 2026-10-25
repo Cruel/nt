@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { buildProjectSearchIndex } from '../../shared/project-search/project-search-index';
 import { searchProject, searchProjectIndex } from '../../shared/project-search/project-search';
+import { admittedSearchReferenceFixture } from '../test-support/native-reference-search-fixture';
 
 function project() {
   const next = createAuthoringProject();
@@ -195,9 +196,13 @@ describe('project search service', () => {
   });
 
   it('filters by stable reference target using the existing reference index', () => {
-    const response = searchProject(project(), {
-      referencesTo: [{ collection: 'rooms', id: 'classroom' }],
-    });
+    const response = searchProject(
+      project(),
+      {
+        referencesTo: [{ collection: 'rooms', id: 'classroom' }],
+      },
+      admittedSearchReferenceFixture(),
+    );
     expect(ids(response)).toEqual(['record:scenes:opening']);
     expect(response.results[0]?.matches).toEqual(
       expect.arrayContaining([

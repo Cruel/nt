@@ -2,6 +2,10 @@
  * This module does not parse, validate, normalize or write a Project. */
 import type { ToolDiagnostic } from '../editor-tooling';
 
+export function authoringValidationSucceeded(diagnostics: readonly ToolDiagnostic[]): boolean {
+  return !diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+}
+
 export type ProjectValidationBoundary = 'authoring' | 'runtime-package' | 'platform-export';
 
 export interface ProjectValidationDiagnostic extends ToolDiagnostic {

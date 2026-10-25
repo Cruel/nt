@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vite-plus/test';
-import { runNovelTeaCli } from '../../cli/application';
+import { runNativeOnlyNovelTeaCli as runNovelTeaCli } from '../../cli/native-application';
 import { parseNovelTeaCliGlobals } from '../../cli/bootstrap';
 import { runNativeProjectPackageCli } from '../../cli/native-project-package-cli';
 import type { NovelTeaCliNativeToolService } from '../../cli/native-tool-service';

@@ -1,29 +1,26 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Images, Pencil, Trash2, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { TagInput } from '@/components/tags/TagInput';
-import { SearchInput } from '@/components/ui/search-input';
 import { useCommandStore } from '@/commands/command-store';
-import { SAVE_UNIT_IDS, structuralSaveUnitId } from '@/project/save-unit-registry';
-import { useProjectStore } from '@/project/project-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { buildAssetDetailTabForRecord, buildImageGenerationTab } from '@/workbench/editor-registry';
-import { parseAssetData, type AssetData } from '../../../shared/project-schema/authoring-assets';
-import {
-  isAuthoringProject,
-  type AuthoringRecordBase,
-} from '../../../shared/project-schema/authoring-project';
-import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
-import { searchProjectWorkspaceSnapshot } from '../../../shared/project-workspace/project-workspace-search';
+import { TagInput } from '@/components/tags/TagInput';
+import { Button } from '@/components/ui/button';
+import { SearchInput } from '@/components/ui/search-input';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
-import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
-import { createProjectWorkspaceSnapshot } from '../../../shared/project-workspace/project-workspace-service';
-import { AssetPreview } from './AssetPreview';
+import { buildNativeProjectSearchIndex } from '@/project/native-project-search';
+import { useProjectStore } from '@/project/project-store';
+import { SAVE_UNIT_IDS, structuralSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { buildAssetDetailTabForRecord, buildImageGenerationTab } from '@/workbench/editor-registry';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { ExternalLink, Images, Pencil, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { parseAssetData, type AssetData } from '../../../shared/project-schema/authoring-assets';
+import { type AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
+import { collectProjectTags } from '../../../shared/project-schema/authoring-tags';
+import { searchProjectIndex } from '../../../shared/project-search/project-search';
+import { AssetPreview } from './AssetPreview';
 
 interface AssetListItem {
   id: string;
@@ -119,8 +116,7 @@ const ASSET_LIBRARY_TAB_STATE_SCHEMA = 'noveltea.editor.asset-library-tab-state'
 export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const openTab = useWorkbenchStore((state) => state.openTab);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('all');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -170,40 +166,22 @@ export function AssetLibraryEditor({ tab }: WorkbenchEditorProps) {
         (left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id),
       );
   }, [project]);
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<Awaited<
-    ReturnType<typeof createProjectWorkspaceSnapshot>
-  > | null>(null);
-  useEffect(() => {
-    let active = true;
-    if (!project) {
-      setWorkspaceSnapshot(null);
-      return () => {
-        active = false;
-      };
-    }
-    void createProjectWorkspaceSnapshot(project, scriptSourcePaths).then((snapshot) => {
-      if (active) setWorkspaceSnapshot(snapshot);
-    });
-    return () => {
-      active = false;
-    };
-  }, [project, scriptSourcePaths]);
+  const workspaceSnapshot = useMemo(
+    () => (project && graphSnapshot ? buildNativeProjectSearchIndex(project, graphSnapshot) : null),
+    [project, graphSnapshot],
+  );
   const assets = useMemo(() => {
     if (!project || !workspaceSnapshot) return [];
     if (nativeWorkingRevision !== null && !graphSnapshot) return [];
-    const response = searchProjectWorkspaceSnapshot(
-      workspaceSnapshot,
-      {
-        text: query,
-        collections: ['assets'],
-        assetTypes: kind === 'all' ? undefined : [kind],
-        tags: selectedTags,
-        tagMode: 'all',
-        tokenMode: 'all',
-        sort: { kind: 'label' },
-      },
-      graphSnapshot ? referenceIndexFromCurrentGraph(project, graphSnapshot) : undefined,
-    );
+    const response = searchProjectIndex(workspaceSnapshot, {
+      text: query,
+      collections: ['assets'],
+      assetTypes: kind === 'all' ? undefined : [kind],
+      tags: selectedTags,
+      tagMode: 'all',
+      tokenMode: 'all',
+      sort: { kind: 'label' },
+    });
     return response.results.flatMap((result) => {
       const id = result.document.entityId;
       if (!id) return [];

@@ -216,6 +216,14 @@ describe('Project Asset discovery', () => {
 
   it('only performs requested no-overwrite organization moves', async () => {
     const { root, projectFilePath, project } = await projectFixture();
+    const nativeMove = vi.fn(async (from: string, to: string) => {
+      const source = path.join(root, from);
+      const destination = path.join(root, to);
+      await mkdir(path.dirname(destination), { recursive: true });
+      // Native authority supplies the final no-overwrite transactional rename.
+      await fs.link(source, destination);
+      await fs.unlink(source);
+    });
     await writeFile(path.join(root, 'assets/images/CREDITS.md'), 'author credit');
     await writeFile(path.join(root, 'assets/images/song.wav'), 'RIFFxxxxWAVEfmt ');
     const support = await organizeUntrackedProjectAsset(
@@ -223,6 +231,8 @@ describe('Project Asset discovery', () => {
       project,
       'assets/images/CREDITS.md',
       'support',
+      undefined,
+      nativeMove,
     );
     expect(support.success).toBe(true);
     expect(await readFile(path.join(root, 'support/CREDITS.md'), 'utf8')).toBe('author credit');
@@ -232,6 +242,8 @@ describe('Project Asset discovery', () => {
       project,
       'assets/images/CREDITS.md',
       'support',
+      undefined,
+      nativeMove,
     );
     expect(conflict.success).toBe(false);
     expect(await readFile(path.join(root, 'assets/images/CREDITS.md'), 'utf8')).toBe('new credit');
@@ -241,6 +253,8 @@ describe('Project Asset discovery', () => {
       project,
       'assets/images/song.wav',
       'correct-folder',
+      undefined,
+      nativeMove,
     );
     expect(correct.success).toBe(true);
     expect(await readFile(path.join(root, 'assets/audio/song.wav'), 'utf8')).toBe(

@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetEditor } from '@/editors/assets/AssetEditor';
@@ -66,13 +67,7 @@ beforeEach(() => {
 describe('AssetEditor', () => {
   it('merges imported associations with changes made during the asynchronous file picker', async () => {
     const document = project();
-    useProjectStore.getState().loadProjectDocument({
-      document,
-      savedDocument: document,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(document, '11111111-1111-4111-8111-111111111111');
     let finishImport!: (value: { paths: string[]; reused: string[] }) => void;
     vi.mocked(window.noveltea.importProjectAttachmentFiles).mockReturnValue(
       new Promise((resolve) => {
@@ -82,19 +77,21 @@ describe('AssetEditor', () => {
     render(<AssetEditor tab={tab} />);
     fireEvent.click(screen.getByRole('button', { name: 'Import Files…' }));
     await waitFor(() => expect(window.noveltea.importProjectAttachmentFiles).toHaveBeenCalled());
-    act(() => {
+    await act(async () => {
       const live = useProjectStore.getState().document as typeof document;
       expect(
-        useCommandStore.getState().executeCommand({
-          type: 'project.applyPatch',
-          label: 'Attach from another inspector',
-          payload: assetAttachmentPatches(live, ['logo'], {
-            kind: 'add',
-            attachment: { path: 'support/other.md', purpose: 'other' },
-          }),
-          originSaveUnitId: 'record:assets:logo',
-          persistencePolicy: 'manual-save',
-        }).ok,
+        (
+          await useCommandStore.getState().executeCommandAsync({
+            type: 'project.applyPatch',
+            label: 'Attach from another inspector',
+            payload: assetAttachmentPatches(live, ['logo'], {
+              kind: 'add',
+              attachment: { path: 'support/other.md', purpose: 'other' },
+            }),
+            originSaveUnitId: 'record:assets:logo',
+            persistencePolicy: 'manual-save',
+          })
+        ).ok,
       ).toBe(true);
       finishImport({ paths: ['support/imported.md'], reused: [] });
     });
@@ -106,8 +103,8 @@ describe('AssetEditor', () => {
         { path: 'support/imported.md', purpose: 'reference' },
       ]),
     );
-    act(() => {
-      useCommandStore.getState().undo();
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
     });
     expect(
       (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
@@ -116,13 +113,7 @@ describe('AssetEditor', () => {
 
   it('does not attach completed imports to a different active Project session', async () => {
     const document = project();
-    useProjectStore.getState().loadProjectDocument({
-      document,
-      savedDocument: document,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(document, '11111111-1111-4111-8111-111111111111');
     let finishImport!: (value: { paths: string[]; reused: string[] }) => void;
     vi.mocked(window.noveltea.importProjectAttachmentFiles).mockReturnValue(
       new Promise((resolve) => {
@@ -134,13 +125,7 @@ describe('AssetEditor', () => {
     await waitFor(() => expect(window.noveltea.importProjectAttachmentFiles).toHaveBeenCalled());
     const other = project();
     act(() => {
-      useProjectStore.getState().loadProjectDocument({
-        document: other,
-        savedDocument: other,
-        projectPath: '/mock/another',
-        projectFilePath: '/mock/another/project.yaml',
-        projectSessionId: '22222222-2222-4222-8222-222222222222',
-      });
+      admitNativeRendererCommandFixture(other, '22222222-2222-4222-8222-222222222222');
       finishImport({ paths: ['support/stale.md'], reused: [] });
     });
     await waitFor(() =>
@@ -154,13 +139,7 @@ describe('AssetEditor', () => {
   it('invalidates stale undo patches after a committed attachment file move', async () => {
     const document = project();
     document.assets.logo.data.attachments = [{ path: 'support/original.md', purpose: 'reference' }];
-    useProjectStore.getState().loadProjectDocument({
-      document,
-      savedDocument: document,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(document, '11111111-1111-4111-8111-111111111111');
     vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
       async (_session, filePath) => ({ path: filePath, exists: true, byteSize: 20 }),
     );
@@ -171,19 +150,25 @@ describe('AssetEditor', () => {
       changedPaths: ['support/original.md', 'support/moved.md'],
     });
     render(<AssetEditor tab={tab} />);
-    act(() => {
+    await act(async () => {
       const live = useProjectStore.getState().document as typeof document;
       expect(
-        useCommandStore.getState().executeCommand({
-          type: 'project.applyPatch',
-          label: 'Rename attachment display name',
-          payload: assetAttachmentPatches(live, ['logo'], {
-            kind: 'replace',
-            attachment: { path: 'support/original.md', purpose: 'reference', displayName: 'Notes' },
-          }),
-          originSaveUnitId: 'record:assets:logo',
-          persistencePolicy: 'manual-save',
-        }).ok,
+        (
+          await useCommandStore.getState().executeCommandAsync({
+            type: 'project.applyPatch',
+            label: 'Rename attachment display name',
+            payload: assetAttachmentPatches(live, ['logo'], {
+              kind: 'replace',
+              attachment: {
+                path: 'support/original.md',
+                purpose: 'reference',
+                displayName: 'Notes',
+              },
+            }),
+            originSaveUnitId: 'record:assets:logo',
+            persistencePolicy: 'manual-save',
+          })
+        ).ok,
       ).toBe(true);
       useProjectStore.getState().markSaved();
     });
@@ -197,8 +182,8 @@ describe('AssetEditor', () => {
         (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
       ).toEqual([{ path: 'support/moved.md', purpose: 'reference', displayName: 'Notes' }]),
     );
-    expect(useCommandStore.getState().history.entries).toHaveLength(0);
-    expect(useCommandStore.getState().undo().projectChanged).toBe(false);
+    await waitFor(() => expect(useCommandStore.getState().history.entries).toHaveLength(0));
+    expect((await useCommandStore.getState().undoAsync()).projectChanged).toBe(false);
     expect(
       (useProjectStore.getState().savedDocument as typeof document).assets.logo.data.attachments,
     ).toEqual([{ path: 'support/moved.md', purpose: 'reference', displayName: 'Notes' }]);
@@ -216,13 +201,7 @@ describe('AssetEditor', () => {
         imageMetadata: null,
       },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document,
-      savedDocument: document,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(document, '11111111-1111-4111-8111-111111111111');
     vi.mocked(window.noveltea.listProjectAttachmentFiles).mockResolvedValue({
       files: [{ path: 'support/licenses/font.txt', byteSize: 42 }],
     });
@@ -256,7 +235,9 @@ describe('AssetEditor', () => {
       ).toMatchObject([{ path: 'support/licenses/font.txt', purpose: 'reference' }]),
     );
     expect(screen.getByText('Used by 2 Assets')).toBeInTheDocument();
-    useCommandStore.getState().undo();
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
+    });
     expect(
       (useProjectStore.getState().document as typeof document).assets.other.data.attachments,
     ).toBeUndefined();
@@ -267,13 +248,7 @@ describe('AssetEditor', () => {
 
   it('imports multiple supporting files as one undoable association without deleting physical files', async () => {
     const document = project();
-    useProjectStore.getState().loadProjectDocument({
-      document,
-      savedDocument: document,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(document, '11111111-1111-4111-8111-111111111111');
     vi.mocked(window.noveltea.importProjectAttachmentFiles).mockResolvedValue({
       paths: ['support/references/one.md', 'support/references/two.md'],
       reused: [],
@@ -291,7 +266,9 @@ describe('AssetEditor', () => {
         projectSessionId: '11111111-1111-4111-8111-111111111111',
       }),
     );
-    useCommandStore.getState().undo();
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
+    });
     expect(
       (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
     ).toBeUndefined();
@@ -299,11 +276,7 @@ describe('AssetEditor', () => {
   });
 
   it('edits asset tags through the shared tag input', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<AssetEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Asset tags'), { target: { value: 'Hero,' } });
@@ -327,11 +300,7 @@ describe('AssetEditor', () => {
         resolveInspection = resolve;
       }),
     );
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -418,11 +387,7 @@ describe('AssetEditor', () => {
         },
       ],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -503,11 +468,7 @@ describe('AssetEditor', () => {
         },
       ],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     const firstView = render(<AssetEditor tab={tab} />);
@@ -604,11 +565,7 @@ describe('AssetEditor', () => {
         );
       });
       try {
-        useProjectStore.getState().loadProjectDocument({
-          document: project(),
-          projectPath: '/mock/project',
-          projectFilePath: '/mock/project/game.json',
-        });
+        admitNativeRendererCommandFixture(project());
         useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
         restoreSerializedWorkbenchTabStates({
           [tab.id]: {
@@ -700,11 +657,7 @@ describe('AssetEditor', () => {
         },
       ],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: changedProject,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(changedProject);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -759,11 +712,7 @@ describe('AssetEditor', () => {
         },
       ],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: audioProject,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(audioProject);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -815,11 +764,7 @@ describe('AssetEditor', () => {
         },
       ],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -860,11 +805,7 @@ describe('AssetEditor', () => {
       },
       groups: [],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -890,11 +831,7 @@ describe('AssetEditor', () => {
       },
       groups: [],
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     render(<AssetEditor tab={tab} />);
@@ -905,11 +842,7 @@ describe('AssetEditor', () => {
   });
 
   it('shows successful-empty, failure, and unsupported metadata inspection states', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     const emptyView = render(<AssetEditor tab={tab} />);
@@ -935,11 +868,7 @@ describe('AssetEditor', () => {
       kind: 'audio',
       imageMetadata: null,
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: audioProject,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(audioProject);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     vi.mocked(window.noveltea.inspectProjectAssetMetadata).mockResolvedValue({
       ok: true,
@@ -957,11 +886,7 @@ describe('AssetEditor', () => {
 
   it('requests fresh metadata when the Asset content hash changes', async () => {
     const firstProject = project();
-    useProjectStore.getState().loadProjectDocument({
-      document: firstProject,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(firstProject);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     render(<AssetEditor tab={tab} />);
     await waitFor(() =>
@@ -973,11 +898,7 @@ describe('AssetEditor', () => {
       ...changedProject.assets.logo!.data,
       contentHash: `sha256:${'b'.repeat(64)}`,
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: changedProject,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(changedProject);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
 
     await waitFor(() =>

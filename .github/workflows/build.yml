@@ -542,53 +542,23 @@ jobs:
           path: build/cli/linux
           if-no-files-found: error
 
-      # #534: keep the legacy production CLI artifact/certification untouched.
-      # Rebuild only after uploading it, then execute reference-independent
-      # native-only public contracts. #521 replaces this staged build with the
-      # normal production build and adds the strict whole-editor bundle gate.
-      - name: Certify independent native-only candidate contracts
-        env:
-          NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE: '1'
+      # The ordinary shipped editor and standalone CLI are native-only. Their
+      # proof must bind the installed host executable to the emitted ScriptC
+      # island and check all Electron roots, not a candidate-only bundle.
+      - name: Certify native production closure
         run: |
-          pnpm -C editor run noveltea:build
-          # The candidate pack emits native-only ScriptC and Node-tool roots.
-          # The legacy installed production artifact was uploaded above.
-          pnpm -C editor run check:native-node-candidate
-          pnpm -C editor run noveltea:certify:native-candidate -- "$PWD/build/cli/linux/noveltea" --cli-only
+          pnpm -C editor run check:native-production-closure
+          pnpm -C editor run noveltea:certify:native-cli-inventory
 
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats
 
   linux-cli-certify:
-    name: Linux host CLI certification (${{ matrix.name }})
+    name: Linux native production CLI certification
     runs-on: ubuntu-24.04
     needs: linux-cli
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: differential-a
-            sections: bootstrap-island,differential,typed-shaders,raw-shaderc
-            differential_shard: 1/2
-          - name: differential-b
-            sections: differential
-            differential_shard: 2/2
-          - name: authoring
-            sections: authoring-cache,daemon-authoring-cache,daemon-authoring-cache-pressure,editor-authoring-cache-sharing,scoped-preparation,runtime-cache
-          - name: performance
-            sections: performance
-          - name: test-parity
-            sections: test-command-parity
-          - name: daemon-scheduling
-            sections: project-owner-scheduling,disposable-tests,build-protocol-isolation
-          - name: daemon-output
-            sections: disposable-output,authority-mutation,comfyui-owner-isolation
-          - name: resident-daemon-core
-            sections: resident-daemon-core
-          - name: operations
-            sections: native-operations,feature-lab-tests,platform-host,comfyui-standalone,relocation
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -623,14 +593,11 @@ jobs:
       - name: Make NovelTea host CLI executables executable
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
 
-      - name: Build Node reference bundle for differential-only shard
-        if: matrix.sections == 'differential'
+      - name: Build native editor and ScriptC production bundles
         run: pnpm -C editor exec vp pack
 
-      - name: Certify NovelTea host CLI
-        env:
-          NOVELTEA_CLI_CERTIFICATION_DIFFERENTIAL_SHARD: ${{ matrix.differential_shard }}
-        run: pnpm -C editor run noveltea:certify --only "${{ matrix.sections }}"
+      - name: Certify installed native CLI production
+        run: pnpm -C editor run noveltea:certify -- "$PWD/build/cli/linux/noveltea" --cli-only
 
   linux-cooperative:
     name: Linux cooperative build coverage

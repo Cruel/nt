@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
+import { admitNativeTestProject } from './native-admitted-project-fixture';
 import { readBoundedComfyUiSourceImage } from '../../main/services/comfyui-service';
 import { COMFYUI_IPC_LIMITS } from '../../shared/comfyui';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -48,7 +49,11 @@ function imageProject(
 
 async function activate(projectFilePath: string, project: unknown) {
   const sessions = new ActiveProjectSessionService();
-  const sessionId = await sessions.activateProjectFile(projectFilePath, undefined, project);
+  const sessionId = await admitNativeTestProject(
+    sessions,
+    projectFilePath,
+    project as ReturnType<typeof createAuthoringProject>,
+  );
   return { sessions, sessionId };
 }
 

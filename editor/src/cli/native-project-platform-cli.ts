@@ -399,7 +399,6 @@ export async function runNativeProjectPlatformCli(
       {
         project,
         diagnostics: admittedDiagnostics(preparation),
-        contributions: [],
         runtimeAssetReferences: preparation.referencedAssetIds,
         shaderSourceOverlays: preparation.sourceOverlays,
       },
