@@ -10,6 +10,7 @@ import {
 } from './authoring-structured-messages';
 import { collectRmlLocalMessages } from './authoring-rml-localization-lowering';
 import {
+  compareMessagePatternCaseKeys,
   messagePlaceholderNames,
   type MessagePattern,
 } from './project-schema/authoring-localization';
@@ -110,7 +111,7 @@ function compileMessagePattern(pattern: MessagePattern): CompiledPattern {
       return index;
     }
     const cases = Object.entries(current.cases)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareMessagePatternCaseKeys(left, right))
       .map(([key, branch]) => ({ key, node: append(branch) }));
     nodes[index] = { kind: current.kind, argument: current.argument, cases };
     return index;

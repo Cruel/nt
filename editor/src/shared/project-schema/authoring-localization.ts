@@ -271,6 +271,19 @@ export function messagePlaceholderNames(source: string): readonly string[] {
   return Object.freeze([...names].sort());
 }
 
+/** Canonical compiled selector ordering: Unicode scalar-value order (UTF-8 byte order).
+ * Do not use localeCompare here: locale collation is environment-dependent and
+ * differs from the native ordered JSON representation for mixed-case keys.
+ */
+export function compareMessagePatternCaseKeys(left: string, right: string): number {
+  const lhs = Array.from(left, (character) => character.codePointAt(0)!);
+  const rhs = Array.from(right, (character) => character.codePointAt(0)!);
+  for (let index = 0; index < Math.min(lhs.length, rhs.length); index += 1) {
+    if (lhs[index] !== rhs[index]) return lhs[index]! - rhs[index]!;
+  }
+  return lhs.length - rhs.length;
+}
+
 export function messagePatternPlaceholderNames(pattern: MessagePattern): readonly string[] {
   const names = new Set<string>();
   const visit = (node: MessagePattern) => {
