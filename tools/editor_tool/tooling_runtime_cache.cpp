@@ -585,6 +585,10 @@ Json probe(const Json& request)
     auto result = response("hit", "current-runtime-generation-valid");
     result["artifact"] = artifact;
     result["diagnostics"] = manifest["authoringDiagnostics"];
+    // These revisions were verified against the compiled gameplay generation.
+    // A caller refreshing only the Test catalog must pin them, not ask the
+    // publisher to stamp old gameplay with newer filesystem revisions.
+    result["runtimeInputs"] = manifest["inputs"];
     result["runtimeInputPaths"] = Json::array();
     for (const auto& entry : manifest["inputs"])
         result["runtimeInputPaths"].push_back(entry["path"]);
@@ -997,7 +1001,8 @@ Json publish_runtime(const Json& request)
     const auto identity = string_field(request, "compilerIdentity");
     if (!root_text || !identity || identity->empty() || !request.contains("artifact") ||
         !request.contains("catalog") || !request.contains("runtimeInputPaths") ||
-        !request.contains("testInputPaths") || !request.contains("authoringDiagnostics"))
+        !request.contains("testInputPaths") || !request.contains("authoringDiagnostics") ||
+        !request.contains("expectedRuntimeInputs") || !request.contains("expectedTestInputs"))
         return fail("publication-request-invalid");
     const auto& artifact = request["artifact"];
     const auto& catalog = request["catalog"];
@@ -1028,6 +1033,9 @@ Json publish_runtime(const Json& request)
     auto test_inputs = collect_cache_inputs(root, request["testInputPaths"]);
     if (!runtime_inputs || !test_inputs)
         return fail("input-inspection-failed");
+    if (*runtime_inputs != request["expectedRuntimeInputs"] ||
+        *test_inputs != request["expectedTestInputs"])
+        return fail("prepared-inputs-changed");
     std::set<std::string> runtime_paths, test_paths;
     for (const auto& item : *runtime_inputs)
         runtime_paths.insert(item.at("path").get<std::string>());
