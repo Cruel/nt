@@ -29,8 +29,9 @@ The harness copies Feature Lab **without** `.noveltea` artifacts and creates
 focused small Project fixtures through the existing native Project/Entity
 commands. It exercises native admission and native source-generation/revision
 capture, including physical Asset source authority, Unicode labels, sorted
-global Variables, missing entrypoints, and invalid Asset records. The reference
-process accepts *only* the admitted normalized Project JSON over stdin and invokes
+global Variables, missing entrypoints, and deterministically ordered invalid
+Asset diagnostics. The reference process accepts *only* the admitted normalized
+Project JSON over stdin and invokes
 `compileAuthoringProjectValue`; it cannot reopen Project files or inspect
 runtime cache. The C++ executable similarly uses the existing native Project
 owner (`shader-preparation`) and the candidate lowering functions, without a
@@ -38,7 +39,9 @@ TypeScript process or fallback. Project source revisions include external
 Asset source authority as captured by the native portable collector. Mismatch
 reports contain a JSON pointer and owning family, including ordered-array
 positions. Canonical Save Contract parity is certified independently by the
-C++ hash projector against the reference compiler's computed value.
+C++ hash projector against the reference compiler's computed value. The full
+reference value is also admitted by the existing strict C++ Compiled Project
+decoder; malformed wire must fail this independent native verifier.
 
 **Mandatory parity now:** Project identity, bootstrap, entrypoint, static
 Assets/Animations/Scripts, ordinary global Variables, and an explicitly
@@ -55,14 +58,18 @@ shipped ScriptC CLI nor the separate #545 platform export.
 
 Linux verification on 2026-10-25: three cold supported-family cases passed
 (Feature Lab, Unicode label, sorted Variable ordering); the missing-entrypoint
-and invalid-Asset cases were rejected with owning-path diagnostics. The Feature
-Lab reference retained its unresolved global Message identity, and all three
-native Save Contract hash projections matched the separately compiled reference.
+and invalid-Asset cases were rejected with owning-path diagnostics; two invalid
+Asset paths remained in canonical order. The Feature Lab reference retained its
+unresolved global Message identity, all three native Save Contract hash
+projections matched the separately compiled reference, and the C++ decoder
+admitted each full reference Compiled Project while rejecting malformed wire at
+`/schemaVersion`.
 The registered `native_runtime_cache_publish` and `native_compiled_project_parity`
-CTest targets both passed (2/2). The full `linux-debug` target rebuild was
-interrupted during unrelated engine prerequisites; for these focused results,
-the helper was compiled and linked against the existing native build's CMake
-link closure. A fresh complete Linux build remains a separate verification step.
+CTest targets both passed (2/2) after a successful fresh `linux-debug` build of
+`noveltea-runtime-cache-publish-certify`, using the otherwise-unset
+`CMAKE_BUILD_PARALLEL_LEVEL=6` for bounded native compilation. Both registered
+tests were run against the resulting CMake-built executable, not a manually
+linked test substitute.
 `pnpm -C editor run check` passed; `pnpm -C editor run test` passed with
 2,221 tests passing and 133 pre-existing skips.
 
