@@ -1,4 +1,5 @@
 #include "native_authoring_resources.hpp"
+#include "native_authoring_messages.hpp"
 
 #include <stdexcept>
 
@@ -178,6 +179,33 @@ Json lower_static_authoring_identity(const Json& admitted_project)
             {"entrypoint", std::move(entrypoint)},
             {"unresolvedMessageVariables", std::move(pending_messages)},
             {"globalProperties", std::move(global_properties)}};
+}
+
+Json lower_authoring_global_properties(const Json& admitted_project,
+                                       const NativeMessageProjection& messages)
+{
+    Json globals = Json::array();
+    for (const auto& [id, record] : object(admitted_project, "variables").items()) {
+        const auto& data = object(record, "data");
+        if (str(data, "scope") != "global")
+            throw std::runtime_error("Native Variable must have global scope.");
+        Json lowered_value;
+        try {
+            lowered_value =
+                lower_authoring_message_value(admitted_project, messages, data.at("value"));
+        } catch (const std::exception& error) {
+            throw std::runtime_error("at /variables/" + id + "/data/value: " + error.what());
+        }
+        globals.push_back({{"id", id},
+                           {"label", record.at("label")},
+                           {"description", record.value("description", std::string{})},
+                           {"type", data.at("type")},
+                           {"nullable", data.at("nullable")},
+                           {"defaultValue", std::move(lowered_value)},
+                           {"enumValues", array(data, "enumValues")},
+                           {"scope", "global"}});
+    }
+    return globals;
 }
 
 } // namespace noveltea::cli

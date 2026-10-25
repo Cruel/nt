@@ -1,5 +1,6 @@
 #include "tooling_native_c.h"
 #include "native_authoring_resources.hpp"
+#include "native_authoring_messages.hpp"
 #include "native_compiled_project_save_contract.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <nlohmann/json.hpp>
@@ -108,15 +109,26 @@ int main(int argc, char** argv)
             }
             try {
                 const auto& project = prepared.at("project");
-                const auto resources = noveltea::cli::lower_static_authoring_resources(project);
+                const auto messages = noveltea::cli::lower_authoring_messages(project);
+                const auto resources =
+                    noveltea::cli::lower_static_authoring_resources(messages.lowered_project);
                 Json identity = noveltea::cli::lower_static_authoring_identity(project);
+                identity["globalProperties"] =
+                    noveltea::cli::lower_authoring_global_properties(project, messages);
+                identity.erase("unresolvedMessageVariables");
+                identity["messages"] = {{"ids", messages.ids},
+                                        {"sourceEntries", messages.source_entries},
+                                        {"catalogs", messages.translated_entries},
+                                        {"compiledTexts", messages.compiled_texts},
+                                        {"managedSources", messages.rewritten_sources},
+                                        {"rmlSources", messages.rewritten_rml}};
                 identity["resources"] = resources;
                 // Deliberately distinguish compiler omissions from supported-family
                 // agreement: this is not a publishable Compiled Project.
                 static const Json unsupported = Json::array(
                     {"definitions", "resources.layouts", "resources.materialInterfaces",
-                     "localization", "traits", "archetypes", "inventories", "interactableInstances",
-                     "properties.message", "flowPrediction", "saveContract-production"});
+                     "localization.metadata", "traits", "archetypes", "inventories",
+                     "interactableInstances", "flowPrediction", "saveContract-production"});
                 std::cout << Json{{"ok", true},
                                   {"project", project},
                                   {"sourceGeneration", prepared.at("sourceGeneration")},
@@ -134,6 +146,14 @@ int main(int argc, char** argv)
                     (!prepared.at("project").contains("entrypoint") ||
                      prepared.at("project").at("entrypoint").is_null()) &&
                     std::string_view(error.what()) == "Native Project entrypoint kind is invalid.";
+                std::string message = error.what();
+                std::string pointer = "/compiler";
+                if (message.starts_with("at /")) {
+                    if (const auto separator = message.find(": "); separator != std::string::npos) {
+                        pointer = message.substr(3, separator - 3);
+                        message.erase(0, separator + 2);
+                    }
+                }
                 std::cout
                     << Json{{"ok", false},
                             {"project", prepared.at("project")},
@@ -142,11 +162,11 @@ int main(int argc, char** argv)
                                  {{{"code", missing_entrypoint ? "COMPILER_ENTRYPOINT_REQUIRED"
                                                                : "native.lowering"},
                                    {"severity", "error"},
-                                   {"path", missing_entrypoint ? "/entrypoint" : "/compiler"},
+                                   {"path", missing_entrypoint ? "/entrypoint" : pointer},
                                    {"message", missing_entrypoint
                                                    ? "A Room, Scene, or Dialogue entrypoint is "
                                                      "required for compiled gameplay."
-                                                   : error.what()}}})}}
+                                                   : message}}})}}
                            .dump()
                     << '\n';
             }
@@ -177,18 +197,17 @@ int main(int argc, char** argv)
             const auto& expected = artifact.at("compiledProject").at("resources");
             const auto identity =
                 noveltea::cli::lower_static_authoring_identity(source.at("project"));
+            const auto messages = noveltea::cli::lower_authoring_messages(source.at("project"));
             for (const auto* key : {"project", "bootstrapModule", "entrypoint"})
                 require(identity.at(key) == artifact.at("compiledProject").at(key),
                         "Native compiled Project identity differs from Feature Lab.");
             Json actual_globals = Json::array();
             for (const auto& property : artifact.at("compiledProject").at("properties"))
-                if (property.value("scope", "") == "global" &&
-                    property.value("type", "") != "message")
+                if (property.value("scope", "") == "global")
                     actual_globals.push_back(property);
-            require(identity.at("globalProperties") == actual_globals,
-                    "Native global Variable projection differs from Feature Lab.");
-            require(identity.at("unresolvedMessageVariables") == Json::array({"story-message"}),
-                    "Localized Message Variables must remain unlowered until Message ID parity.");
+            require(noveltea::cli::lower_authoring_global_properties(source.at("project"),
+                                                                     messages) == actual_globals,
+                    "Native global Variables and Message IDs differ from Feature Lab.");
             require(partial.at("scripts") == expected.at("scripts"),
                     "Native Script resources differ from compiled Feature Lab.");
             require(partial.at("animations") == expected.at("animations"),
