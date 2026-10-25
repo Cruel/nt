@@ -1,4 +1,4 @@
-"""Cold C++/TypeScript differential certification for #552/#553 (not a production compiler).
+"""Cold C++/TypeScript differential certification for #552–#554 (not a production compiler).
 
 An authoritative C++ Project reader admits every case. A separately run TS
 reference compiles only those admitted JSON generations; neither process reads
@@ -7,6 +7,7 @@ silently counted as passing parity.
 """
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -56,6 +57,8 @@ def compare(case, family, expected, actual):
     mismatch = difference(expected, actual, "/" + family.replace(".", "/"))
     if mismatch:
         pointer, left, right = mismatch
+        if os.environ.get("NOVELTEA_PARITY_INSPECT"):
+            print(f"MISMATCH {case}: {pointer}: reference={str(left)[:200]!r}, native={str(right)[:200]!r}", flush=True)
         raise AssertionError(f"{case}: {family} mismatch at {pointer}: "
                              f"reference={str(left)[:350]!r}, native={str(right)[:350]!r}")
 
@@ -85,9 +88,12 @@ def main():
         root = Path(temporary)
         cases = {}
         for name in ("feature-lab", "unicode-label", "ordering", "duplicate-text",
+                     "metadata-edge",
                      "source-drift", "lua-spacing", "rml-arguments", "selector-order",
                      "missing-entrypoint", "invalid-asset", "invalid-message",
                      "invalid-locale", "invalid-lua-arguments"):
+            if os.environ.get("NOVELTEA_PARITY_CASES") and name not in os.environ["NOVELTEA_PARITY_CASES"].split(","):
+                continue
             target = root / name
             if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
                         "selector-order", "invalid-lua-arguments"):
@@ -110,6 +116,51 @@ def main():
                                      .replace("id: starting-room", "id: second-room")
                                      .replace("label: Room starting-room", "label: Second Room"),
                                      encoding="utf-8")
+            if name == "metadata-edge":
+                # Small, independently admitted metadata witness: no warmed cache
+                # and no unrelated Feature Lab gameplay definitions.
+                (target / "traits.yaml").write_text(
+                    "map-reader:\n  id: map-reader\n  label: Map reader\n"
+                    "  ownerKinds:\n    - room\n  properties: []\n", encoding="utf-8")
+                (target / "records/archetypes").mkdir(parents=True)
+                shutil.copy2(fixture / "records/archetypes/runtime-workshop-room.yaml",
+                             target / "records/archetypes/runtime-workshop-room.yaml")
+                (target / "records/materials").mkdir(parents=True)
+                shutil.copy2(fixture / "records/materials/lab-decorator.yaml",
+                             target / "records/materials/lab-decorator.yaml")
+                (target / "records/assets").mkdir(parents=True)
+                shutil.copy2(fixture / "records/assets/pilot-room-backdrop.yaml",
+                             target / "records/assets/pilot-room-backdrop.yaml")
+                background = target / "assets/images/bedroom.webp"
+                background.parent.mkdir(parents=True)
+                shutil.copy2(fixture / "assets/images/bedroom.webp", background)
+                layout = target / "records/layouts/effects-panel"
+                layout.mkdir(parents=True)
+                for source_file in (fixture / "records/layouts/effects-panel").iterdir():
+                    shutil.copy2(source_file, layout / source_file.name)
+                room = target / "records/rooms/starting-room.yaml"
+                edit(room, "traits: []", "traits:\n  - map-reader")
+                edit(room, "  displayName: Room starting-room\n",
+                     "  displayName: Room starting-room\n  background:\n"
+                     "    asset: pilot-room-backdrop\n")
+                with room.open("a", encoding="utf-8") as output:
+                    output.write(
+                        "  features:\n"
+                        "    - id: strip\n      label: Status strip\n"
+                        "      traits: []\n      localProperties: []\n"
+                        "      defaultProperties: []\n      inventories: []\n"
+                        "  hotspots:\n"
+                        "    - id: strip-hit\n      label: Status strip\n"
+                        "      condition: always\n      inputOrder: 0\n"
+                        "      highlight:\n        kind: default\n"
+                        "      shape:\n        kind: rect\n"
+                        "        bounds:\n          x: 0.1\n          \"y\": 0.2\n"
+                        "          width: 0.3\n          height: 0.2\n"
+                        "      target:\n        kind: owner-feature\n        featureId: strip\n"
+                    )
+                edit(target / "records/maps/overview.yaml", "data: {}",
+                     "data:\n  locations:\n"
+                     "    - id: start\n      room: starting-room\n      regions: []")
             if name == "source-drift":
                 edit(target / "records/scenes/localized-story.yaml",
                      "Managed letter for {name}", "Révisé 😀 letter for {name}")
@@ -152,11 +203,17 @@ def main():
         admitted_cases = [{"name": name, "project": data["project"]}
                           for name, data in cases.items()
                           if "project" in data and (data["ok"] or name == "missing-entrypoint")]
-        assert {entry["name"] for entry in admitted_cases} >= {"feature-lab", "unicode-label",
-                                                                  "ordering", "missing-entrypoint"}, cases
+        required = {"feature-lab", "unicode-label", "ordering", "missing-entrypoint"}
+        if os.environ.get("NOVELTEA_PARITY_CASES"):
+            required &= set(os.environ["NOVELTEA_PARITY_CASES"].split(","))
+        assert {entry["name"] for entry in admitted_cases} >= required
         reference_results = invoke("node", reference,
                                    stdin=json.dumps({"cases": admitted_cases}, ensure_ascii=False))
         references = {value["name"]: value for value in reference_results["results"]}
+        if os.environ.get("NOVELTEA_PARITY_CAPTURE"):
+            Path(os.environ["NOVELTEA_PARITY_CAPTURE"]).write_text(
+                json.dumps({"cases": cases, "references": references}, ensure_ascii=False),
+                encoding="utf-8")
         checked = 0
         for name, data in cases.items():
             if not data["ok"]:
@@ -205,6 +262,53 @@ def main():
             global_properties = [property for property in wire["properties"]
                                  if property["scope"] == "global"]
             compare(name, "properties.global", global_properties, partial["globalProperties"])
+            shared = partial["shared"]
+            # The staged draft must not accidentally acquire a publishable wire header.
+            assert "schema" not in shared and "schemaVersion" not in shared and \
+                   "saveContract" not in shared, name
+            if name == "metadata-edge":
+                assert shared["traits"] and shared["archetypes"], name
+                assert shared["resources"]["layouts"] and \
+                       shared["resources"]["materialInterfaces"], name
+                assert shared["definitions"]["rooms"][0]["hotspots"], name
+                assert shared["definitions"]["maps"][0]["locations"], name
+                assert shared["inventories"] == [] and shared["settings"]["inventory"], name
+            if name == "feature-lab":
+                unpublished = invoke(binary, "--verify-compiled-stdin",
+                                     stdin=json.dumps(shared))
+                assert unpublished["verified"] is False and unpublished["diagnostics"], unpublished
+            for family in ("settings", "traits", "archetypes", "inventories",
+                           "interactableInstances"):
+                compare(name, family, wire[family], shared[family])
+            for family in ("layouts", "materialInterfaces"):
+                compare(name, "resources." + family, wire["resources"][family],
+                        shared["resources"][family])
+            for family in ("characters", "rooms", "interactables", "verbs",
+                           "interactions", "scenes", "dialogues", "maps"):
+                rows = []
+                for source in wire["definitions"][family]:
+                    value = dict(source)
+                    for key in {"verbs": ("availability", "defaultProgram"),
+                                "interactions": ("rules",),
+                                "scenes": ("program", "terminal"),
+                                "dialogues": ("program", "completion")}.get(family, ()):
+                        value.pop(key, None)
+                    if family == "rooms":
+                        value["lifecycle"] = dict(value["lifecycle"])
+                        value["lifecycle"].pop("hooks", None)
+                        for program in ("beforeEnter", "afterEnter", "beforeLeave", "afterLeave",
+                                        "onEnterRejected", "onLeaveRejected"):
+                            value["lifecycle"][program] = []
+                        value["exits"] = [{**exit, "onRejected": []} for exit in value["exits"]]
+                    if family == "verbs":
+                        value["offers"] = [{key: field for key, field in offer.items()
+                                            if key != "condition"} for offer in value["offers"]]
+                    if family == "dialogues":
+                        value["stageSlots"] = []
+                        value["mediaSlots"] = []
+                    rows.append(value)
+                compare(name, "definitions." + family, rows, shared["definitions"][family])
+            compare(name, "properties", wire["properties"], shared["properties"])
             native_messages = partial["messages"]
             source = wire["localization"]["sourceLocale"]
             reference_catalogs = {catalog["locale"]: catalog["entries"]
@@ -283,18 +387,19 @@ def main():
                 assert rejected["verified"] is False and rejected["diagnostics"], rejected
                 assert rejected["diagnostics"][0]["path"] == "/schemaVersion", rejected
             missing = data["unsupportedFamilies"]
-            assert "definitions" in missing and "resources.layouts" in missing
+            assert "programs.room-scene" in missing and "programs.dialogue-interaction" in missing
             assert "properties.message" not in missing
-            print(f"{name}: PASS supported Project/Asset/Animation/Script/global Variable/Message parity; "
+            print(f"{name}: PASS supported shared gameplay/resource/Message parity; "
                   f"UNIMPLEMENTED {', '.join(missing)}; "
                   f"reference messages={len(reference_catalogs[source])}, save={wire['saveContract']}")
             checked += 1
-        assert checked >= 5
+        assert checked >= (1 if os.environ.get("NOVELTEA_PARITY_CASES") else 5)
         # An edited Lua literal may change its source text, but tracked source
         # identity must not silently receive a new package-local ID.
-        stable = "48d01321-b758-5fcd-8380-42872aef0bd1"
-        assert cases["feature-lab"]["native"]["messages"]["ids"][stable] == \
-               cases["source-drift"]["native"]["messages"]["ids"][stable]
+        if "source-drift" in cases and "feature-lab" in cases:
+            stable = "48d01321-b758-5fcd-8380-42872aef0bd1"
+            assert cases["feature-lab"]["native"]["messages"]["ids"][stable] == \
+                   cases["source-drift"]["native"]["messages"]["ids"][stable]
         # Verify mismatch reporting pinpoints the actual family and ordered index.
         assert difference(["a", "b"], ["b", "a"], "/resources/assets")[0] == "/resources/assets/0"
         print(f"Native compiled Project cold parity PASSED: {checked} supported-family cases; "
