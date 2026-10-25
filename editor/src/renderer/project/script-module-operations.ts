@@ -1,18 +1,14 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
-import {
-  parseScriptModuleData,
-  validateScriptModuleData,
-} from '../../shared/project-schema/authoring-script-modules';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
+import { parseScriptModuleData } from '../../shared/project-schema/authoring-script-modules';
 
 export function replaceScriptModuleDataPatches(
   document: unknown,
   payload: { scriptId: string; data: unknown },
 ) {
   const path = buildJsonPointer(['scripts', payload.scriptId, 'data']);
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return {
       patches: [],
       diagnostics: [
@@ -38,14 +34,6 @@ export function replaceScriptModuleDataPatches(
       diagnostics: [
         { severity: 'error' as const, message: 'Script Module data is invalid.', path },
       ],
-    };
-  const failure = legacyCommandDiagnostics(() =>
-    validateScriptModuleData(document, payload.scriptId, { ...record, data }),
-  ).find((item) => item.severity === 'error');
-  if (failure)
-    return {
-      patches: [],
-      diagnostics: [{ severity: 'error' as const, message: failure.message, path: failure.path }],
     };
   return {
     patches: [{ op: 'replace' as const, path, value: toJsonValue(data) }],

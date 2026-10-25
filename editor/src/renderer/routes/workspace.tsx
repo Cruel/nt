@@ -1,7 +1,25 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Group, Panel, usePanelRef } from 'react-resizable-panels';
+import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
+import {
+  dismissAssetCandidates,
+  undisclosedAssetCandidates,
+} from '@/assets/asset-discovery-dismissals';
+import { useAssetTrashStore } from '@/assets/asset-trash-store';
+import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
+import {
+  useComfyUiGenerationStore,
+  type GeneratedImageRevision,
+} from '@/comfyui/comfyui-generation-store';
+import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
+import {
+  bestComfyUiErrorMessage,
+  cancelComfyUiJob,
+  editComfyUiImage,
+  generateComfyUiImage,
+  subscribeComfyUiProgress,
+} from '@/comfyui/comfyui-service';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
+import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
+import { PanelResizeSeparator } from '@/components/resize-separator';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,125 +30,102 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PanelResizeSeparator } from '@/components/resize-separator';
-import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
-import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
-import { useAssetTrashStore } from '@/assets/asset-trash-store';
-import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
-import {
-  bestComfyUiErrorMessage,
-  cancelComfyUiJob,
-  editComfyUiImage,
-  generateComfyUiImage,
-  subscribeComfyUiProgress,
-} from '@/comfyui/comfyui-service';
-import {
-  useComfyUiGenerationStore,
-  type GeneratedImageRevision,
-} from '@/comfyui/comfyui-generation-store';
-import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
-import { useComfyUiStore } from '@/comfyui/comfyui-store';
-import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
-import {
-  saveActiveSaveUnit,
-  saveAllSaveUnits,
-  saveConflictingSaveUnitKeepMine,
-  saveProjectAsCopy,
-  resolveExternalConflictUseDisk,
-  type ProjectSaveCoordinatorResult,
-} from '@/project/project-save-coordinator';
-import { ProjectExternalConflictDialog } from '@/project/ProjectExternalConflictDialog';
-import {
-  applyProjectMutationValues,
-  buildRecoveryFileOwnershipHints,
-} from '@/project/project-save-request';
-import {
-  externalConflictDiagnostic,
-  reconcileExternalProjectChange,
-} from '@/project/project-external-reconciliation';
-import {
-  nativeOwnersForChangedSources,
-  nativeExternalOwnerPath,
-  projectNativeExternalResult,
-} from '@/project/native-external-projection';
-import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
-import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
-import { selectProjectDirty, useProjectStore } from '@/project/project-store';
-import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
-import { usePreferencesStore } from '@/stores/preferences-store';
-import { useTemplateRegistryStore } from '@/export/template-registry-store';
-import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { mergeEditorValidationDiagnostics } from '@/diagnostics/validation-diagnostic-merge';
-import { BottomPanel } from '@/workbench/BottomPanel';
-import { useCloseGuardStore } from '@/workbench/close-guard-store';
-import { Workbench } from '@/workbench/Workbench';
-import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useTemplateRegistryStore } from '@/export/template-registry-store';
+import { ProjectExternalConflictDialog } from '@/project/ProjectExternalConflictDialog';
+import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
+import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import {
-  runDraftActions,
-  selectDraftEntriesForTab,
-  useDraftDirtyStore,
-} from '@/workbench/draft-dirty-store';
-import {
-  buildEditorProjectStateSnapshot,
-  clearLocalEditorSessionSnapshot,
-  editorProjectStateFromProject,
-  mergeEditorProjectState,
-  reconstructEditorProject,
-  adoptNativeRecoveredProject,
-  restoreEditorProjectState,
-  restoreNoProjectEditorSession,
-  saveLocalEditorSessionSnapshot,
-  setLoadedEditorProjectState,
-} from '@/workbench/project-editor-state';
-import {
-  collectPendingInputDiagnostics,
-  usePendingInputStore,
-} from '@/workbench/pending-input-store';
-import {
-  buildFullGamePreviewTab,
-  buildPlatformExportTab,
-  buildProjectSettingsTab,
-  buildTestDetailTabForRecord,
-} from '@/workbench/editor-registry';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
-import { ImageThumbnailPrewarmCoordinator } from '@/workspace/image-thumbnail-prewarm';
-import {
-  dispatchWorkspaceToolbarCommand,
-  WORKSPACE_TOOLBAR_COMMAND_EVENT,
-  type WorkspaceToolbarCommandDetail,
-} from '@/workspace/workspace-toolbar-events';
-import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { NativeAuthoringPatchResult } from '../../main/services/native-authoring-worker-contract';
-import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
-import { projectForEditor as authoringProjectForEditor } from '@/project/project-for-editor';
+  nativeExternalOwnerPath,
+  nativeOwnersForChangedSources,
+  projectNativeExternalResult,
+} from '@/project/native-external-projection';
 import {
   currentNativeProjectDiagnostics,
   refreshNativeProjectDiagnostics,
   useNativeProjectDiagnostics,
 } from '@/project/native-project-diagnostics';
 import {
+  externalConflictDiagnostic,
+  reconcileExternalProjectChange,
+} from '@/project/project-external-reconciliation';
+import { projectForEditor as authoringProjectForEditor } from '@/project/project-for-editor';
+import { applyProjectMutationValues } from '@/project/project-mutation-values';
+import {
+  resolveExternalConflictUseDisk,
+  saveActiveSaveUnit,
+  saveAllSaveUnits,
+  saveConflictingSaveUnitKeepMine,
+  saveProjectAsCopy,
+  type ProjectSaveCoordinatorResult,
+} from '@/project/project-save-coordinator';
+import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
+import { selectProjectDirty, useProjectStore } from '@/project/project-store';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
+import { BottomPanel } from '@/workbench/BottomPanel';
+import { Workbench } from '@/workbench/Workbench';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useCloseGuardStore } from '@/workbench/close-guard-store';
+import {
+  runDraftActions,
+  selectDraftEntriesForTab,
+  useDraftDirtyStore,
+} from '@/workbench/draft-dirty-store';
+import {
+  buildFullGamePreviewTab,
+  buildPlatformExportTab,
+  buildProjectSettingsTab,
+  buildTestDetailTabForRecord,
+} from '@/workbench/editor-registry';
+import {
+  collectPendingInputDiagnostics,
+  usePendingInputStore,
+} from '@/workbench/pending-input-store';
+import {
+  adoptNativeRecoveredProject,
+  buildEditorProjectStateSnapshot,
+  clearLocalEditorSessionSnapshot,
+  editorProjectStateFromProject,
+  mergeEditorProjectState,
+  reconstructEditorProject,
+  restoreEditorProjectState,
+  restoreNoProjectEditorSession,
+  saveLocalEditorSessionSnapshot,
+  setLoadedEditorProjectState,
+} from '@/workbench/project-editor-state';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
+import { ImageThumbnailPrewarmCoordinator } from '@/workspace/image-thumbnail-prewarm';
+import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
+import {
+  dispatchWorkspaceToolbarCommand,
+  WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  type WorkspaceToolbarCommandDetail,
+} from '@/workspace/workspace-toolbar-events';
+import { createFileRoute } from '@tanstack/react-router';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Group, Panel, usePanelRef } from 'react-resizable-panels';
+import type { NativeAuthoringPatchResult } from '../../main/services/native-authoring-worker-contract';
+import type { ToolDiagnostic } from '../../shared/editor-tooling';
+import type {
+  ProjectAssetAuditFile,
+  ProjectAssetOrganizationAction,
+} from '../../shared/project-asset-audit';
+import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
   canonicalProjectPersistenceContentJson,
-  stripLocalEditorProjectState,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import {
   authoringValidationSucceeded,
-  validateAuthoringProject,
-} from '../../shared/project-schema/authoring-validation';
-import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
-import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
-import type { ToolDiagnostic } from '../../shared/editor-tooling';
-import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
-import type { ProjectAssetOrganizationAction } from '../../shared/project-asset-audit';
-import {
-  dismissAssetCandidates,
-  undisclosedAssetCandidates,
-} from '@/assets/asset-discovery-dismissals';
-import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
+  createProjectValidationDiagnostic,
+} from '../../shared/project-schema/project-diagnostic-projection';
 import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 
 export const Route = createFileRoute('/workspace')({
@@ -182,44 +177,12 @@ function metadataFlushFailureDiagnostics(
 function collectWorkspaceProjectDiagnostics(
   document: unknown,
   persistentDiagnostics: readonly ToolDiagnostic[] = [],
-  nativeSession = useProjectStore.getState().nativeSession,
+  _nativeSession = useProjectStore.getState().nativeSession,
 ): ToolDiagnostic[] {
-  if (nativeSession)
-    return mergeEditorValidationDiagnostics(
-      [...persistentDiagnostics, ...currentNativeProjectDiagnostics()],
-      collectPendingInputDiagnostics(usePendingInputStore.getState()),
-    );
-  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(document));
-  const supplementalSettingsDiagnostics = decoded.project
-    ? validateProjectSettingsAuthoringState(decoded.project).filter(
-        (diagnostic) =>
-          !decoded.semanticDiagnostics.some(
-            (existing) =>
-              existing.path === diagnostic.path &&
-              existing.severity === diagnostic.severity &&
-              existing.message === diagnostic.message,
-          ),
-      )
-    : [];
-  const current = decoded.project
-    ? [
-        ...decoded.semanticDiagnostics,
-        ...validateAuthoringProject(decoded.project),
-        ...supplementalSettingsDiagnostics,
-      ]
-    : decoded.structuralDiagnostics;
-  const byKey = new Map<string, ToolDiagnostic>();
-  const pendingInputDiagnostics = collectPendingInputDiagnostics(usePendingInputStore.getState());
-  for (const diagnostic of [...persistentDiagnostics, ...current, ...pendingInputDiagnostics]) {
-    const key = [
-      diagnosticCode(diagnostic) ?? '',
-      diagnostic.path,
-      diagnostic.severity,
-      diagnostic.message,
-    ].join('\u0000');
-    byKey.set(key, diagnostic);
-  }
-  return [...byKey.values()];
+  return mergeEditorValidationDiagnostics(
+    [...persistentDiagnostics, ...currentNativeProjectDiagnostics()],
+    collectPendingInputDiagnostics(usePendingInputStore.getState()),
+  );
 }
 
 function commandTouchedTests(paths: string[]) {
@@ -649,12 +612,7 @@ export function WorkspacePage() {
     const result = await window.noveltea.saveProjectEditorMetadata(
       latestProjectSessionId,
       editorState,
-      buildRecoveryFileOwnershipHints({
-        recovery: editorState.recovery,
-        baselineDocument: latestSavedProject,
-        candidateDocument: latestProject,
-        baselineScriptSourcePaths: useProjectStore.getState().scriptSourcePaths,
-      }),
+      {},
     );
     if (!result.success) {
       const message = result.error ?? 'Editor recovery metadata save failed.';
@@ -1971,45 +1929,20 @@ export function WorkspacePage() {
       });
       return;
     }
-    const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
-    const authority = saveDirty ? 'session-local' : 'disk-authoritative';
-    let diagnostics =
-      nativeRevision !== null
-        ? [...persistentRecoveryDiagnosticsRef.current]
-        : saveDirty
-          ? collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current)
-          : [...persistentRecoveryDiagnosticsRef.current];
-    try {
-      if (preparationFailure) throw new Error(preparationFailure);
-      const native =
-        nativeRevision !== null
-          ? await window.noveltea.nativeProjectValidate(projectSessionId, nativeRevision)
-          : await window.noveltea.validateProject(projectSessionId, project, authority);
-      const nativeDiagnostics =
-        nativeRevision === null && saveDirty
-          ? native.diagnostics.filter((diagnostic) =>
-              diagnostic.code?.startsWith('localization.font_coverage'),
-            )
-          : native.diagnostics;
-      diagnostics = mergeEditorValidationDiagnostics(diagnostics, nativeDiagnostics);
-    } catch (error) {
-      if (!saveDirty && nativeRevision === null)
-        diagnostics = collectWorkspaceProjectDiagnostics(
-          project,
-          persistentRecoveryDiagnosticsRef.current,
-        );
-      diagnostics.push({
-        code:
-          nativeRevision === null
-            ? 'localization.font_coverage.tool'
-            : 'editor.native-validation.failed',
-        severity: 'error',
-        category:
-          nativeRevision === null ? 'Localization font coverage' : 'Native authoring validation',
-        path: nativeRevision === null ? '/localization' : '/',
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+    // Native admission is the only production authority. During an Open,
+    // close or failed recovery the editor may temporarily have a document but
+    // no acknowledged native revision; do not call the removed TS validator.
+    const diagnostics = collectWorkspaceProjectDiagnostics(
+      project,
+      persistentRecoveryDiagnosticsRef.current,
+    );
+    diagnostics.push({
+      code: 'editor.native-validation.unavailable',
+      severity: 'error',
+      category: 'Native authoring validation',
+      path: '/',
+      message: 'Native Project validation is unavailable until admission or recovery completes.',
+    });
     setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',

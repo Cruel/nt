@@ -275,7 +275,7 @@ jobs:
       - name: Verify PE inspection tool
         shell: pwsh
         run: Get-Command dumpbin | Out-Null
-      - name: Build Node reference bundle
+      - name: Build native production bundles
         run: pnpm -C editor exec vp pack
       - name: Certify Windows CLI
         run: pnpm -C editor run noveltea:certify

@@ -1,6 +1,12 @@
 import { cliDiagnostic } from './contracts';
 import type { CliSemanticResult } from './command-result-contract';
-import type { CliCommandContext } from './commands/types';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
+import type { NovelTeaCliNativeToolService } from './native-tool-service';
+
+interface CliCommandContext {
+  readonly fileSystem: ProjectWorkspaceFileSystem;
+  readonly nativeTools: NovelTeaCliNativeToolService;
+}
 
 export async function removeFileIfPresent(
   context: Pick<CliCommandContext, 'fileSystem'>,

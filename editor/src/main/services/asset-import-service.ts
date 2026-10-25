@@ -17,14 +17,8 @@ import {
   inferAssetKindFromExtension,
   sanitizeAssetFilename,
 } from '../../shared/project-schema/authoring-assets';
-import {
-  PROJECT_WORKSPACE_ABSENT_REVISION,
-  type ProjectWorkspaceExpectedRevision,
-} from '../../shared/project-workspace/project-workspace-transaction';
-import {
-  readProjectAssetFileRevision,
-  writeProjectAssetFileTransaction,
-} from './project-asset-file-transaction';
+import type { ProjectSourceExpectedRevision } from '../../shared/project-source-files';
+import { readProjectAssetFileRevision } from './project-asset-file-revision';
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
@@ -92,7 +86,7 @@ async function copyAssetIntoProject(
   sourcePath: string,
   replacement?: Readonly<{
     path: string;
-    expectedRevision: ProjectWorkspaceExpectedRevision;
+    expectedRevision: ProjectSourceExpectedRevision;
   }>,
   assertAuthority?: () => void,
   stageAsset?: (projectRelativePath: string, bytes: Uint8Array) => Promise<void>,
@@ -152,17 +146,8 @@ async function copyAssetIntoProject(
           })
       : null;
   assertAuthority?.();
-  if (stageAsset) {
-    await stageAsset(slashPath(path.relative(projectRoot, destination)), bytes);
-  } else {
-    await writeProjectAssetFileTransaction(
-      projectRoot,
-      slashPath(path.relative(projectRoot, destination)),
-      bytes,
-      replacement ? 'asset reimport' : 'asset import',
-      replacement?.expectedRevision ?? PROJECT_WORKSPACE_ABSENT_REVISION,
-    );
-  }
+  if (!stageAsset) throw new Error('Asset import requires the admitted native Project session.');
+  await stageAsset(slashPath(path.relative(projectRoot, destination)), bytes);
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   const common = {
     originalPath: sourceAbsolute,
@@ -287,7 +272,7 @@ export async function reimportAsset(
     };
   assertAuthority?.();
   const projectRoot = projectRootFromFile(projectFilePath);
-  let replacementExpectedRevision: ProjectWorkspaceExpectedRevision;
+  let replacementExpectedRevision: ProjectSourceExpectedRevision;
   try {
     replacementExpectedRevision = await readProjectAssetFileRevision(
       projectRoot,

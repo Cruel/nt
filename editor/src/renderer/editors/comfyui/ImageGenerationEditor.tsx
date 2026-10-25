@@ -31,7 +31,7 @@ import {
   defaultAssetIdFromFilename,
   parseAssetData,
 } from '../../../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 
 const EMPTY_REVISIONS: GeneratedImageRevision[] = [];
 
@@ -299,7 +299,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     );
   }, [projectFilePath, queueJobsByPromptId, queueOrder]);
   const sourceAsset = useMemo(() => {
-    if (!initialSource.sourceAssetId || !isAuthoringProject(project)) return null;
+    if (!initialSource.sourceAssetId || !isAuthoringProjectView(project)) return null;
     const record = project.assets[initialSource.sourceAssetId];
     const data = parseAssetData(record?.data);
     if (!record || !data) return null;

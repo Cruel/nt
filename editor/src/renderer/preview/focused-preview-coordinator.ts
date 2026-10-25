@@ -7,7 +7,7 @@ import {
   findPreviewRootsImpactedByPaths,
   recordNodeKey,
   serializeAuthoringDependencyNodeKey,
-} from '../../shared/authoring-dependency-graph';
+} from '../../shared/authoring-graph-queries';
 import { nativeGraphImpactedOwnerPaths } from '../../main/services/native-semantic-graph-queries';
 import type { NativeRendererGraphSnapshot } from '../project/native-authoring-graph-projection';
 import type {

@@ -25,6 +25,7 @@ import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildProjectSettingsTab } from '@/workbench/editor-registry';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { WORKSPACE_TOOLBAR_COMMAND_EVENT } from '@/workspace/workspace-toolbar-events';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 const bottomPanelRef = vi.hoisted(() => ({
   current: {
@@ -797,13 +798,6 @@ describe('WorkspacePage new project modal', () => {
       repairs: [],
       diagnostics: [],
     });
-    const decoder = await import('../../shared/project-schema/decode-authoring-project');
-    const validator = await import('../../shared/project-schema/authoring-validation');
-    const poison = () => {
-      throw new Error('Legacy admission on native Open');
-    };
-    const decode = vi.spyOn(decoder, 'decodeAuthoringProject').mockImplementation(poison);
-    const validate = vi.spyOn(validator, 'validateAuthoringProject').mockImplementation(poison);
     Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
       configurable: true,
       value: vi.fn().mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
@@ -827,16 +821,10 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() => expect(useProjectStore.getState().document).toBeNull());
     expect(window.noveltea.saveProjectEditorMetadata).toHaveBeenCalled();
     expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
-    expect(decode).not.toHaveBeenCalled();
-    expect(validate).not.toHaveBeenCalled();
-    decode.mockRestore();
-    validate.mockRestore();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });
 
   it('routes Validate through the native revision and does not use legacy Project validation', async () => {
-    const legacyDecoder = await import('../../shared/project-schema/decode-authoring-project');
-    const legacyValidation = await import('../../shared/project-schema/authoring-validation');
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     useProjectStore.getState().loadProjectDocument({
       document: project,
@@ -869,13 +857,6 @@ describe('WorkspacePage new project modal', () => {
       writable: true,
       value: nativeValidate,
     });
-    const poison = () => {
-      throw new Error('Legacy Project authority invoked');
-    };
-    const decode = vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
-    const validate = vi
-      .spyOn(legacyValidation, 'validateAuthoringProject')
-      .mockImplementation(poison);
     render(<WorkspacePage />);
     act(() => {
       window.dispatchEvent(
@@ -923,10 +904,6 @@ describe('WorkspacePage new project modal', () => {
       ),
     );
     expect(window.noveltea.validateProject).not.toHaveBeenCalled();
-    expect(decode).not.toHaveBeenCalled();
-    expect(validate).not.toHaveBeenCalled();
-    decode.mockRestore();
-    validate.mockRestore();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });
 
@@ -1065,13 +1042,7 @@ describe('WorkspacePage new project modal', () => {
     vi.useFakeTimers();
     try {
       const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-      useProjectStore.getState().loadProjectDocument({
-        document: project,
-        savedDocument: project,
-        projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.yaml',
-        projectSessionId: 'opened-project-session',
-      });
+      const native = admitNativeRendererCommandFixture(project, 'opened-project-session');
       useWorkspaceStore.setState({
         project,
         projectPath: '/mock/project',
@@ -1081,8 +1052,8 @@ describe('WorkspacePage new project modal', () => {
       useWorkbenchStore.getState().openTab(settingsTab);
       render(<WorkspacePage />);
 
-      act(() => {
-        useCommandStore.getState().executeCommand({
+      await act(async () => {
+        await useCommandStore.getState().executeCommandAsync({
           type: 'project.replaceAtPath',
           label: 'Rename project',
           payload: { path: '/project/name', value: 'Saved immediately' },
@@ -1096,7 +1067,8 @@ describe('WorkspacePage new project modal', () => {
         await vi.advanceTimersByTimeAsync(0);
       });
 
-      expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+      expect(native.save).toHaveBeenCalledOnce();
+      expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
       expect(window.noveltea.saveProjectEditorMetadata).not.toHaveBeenCalled();
 
       await act(async () => {
@@ -1110,12 +1082,7 @@ describe('WorkspacePage new project modal', () => {
 
   it('applies an active serializable draft before saving the project snapshot', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: 'opened-project-session',
-    });
+    const native = admitNativeRendererCommandFixture(project, 'opened-project-session');
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
@@ -1123,15 +1090,15 @@ describe('WorkspacePage new project modal', () => {
     });
     const settingsTab = buildProjectSettingsTab();
     useWorkbenchStore.getState().openTab(settingsTab);
-    const apply = vi.fn(() => {
-      useCommandStore.getState().executeCommand({
+    const apply = vi.fn(async () => {
+      const result = await useCommandStore.getState().executeCommandAsync({
         type: 'project.replaceAtPath',
         label: 'Apply settings draft',
         payload: { path: '/project/name', value: 'Saved Draft Title' },
         originSaveUnitId: 'project:settings',
         persistencePolicy: 'manual-save',
       });
-      return true;
+      return result.ok;
     });
     useDraftDirtyStore.getState().setDraftDirty('tab:settings:draft', {
       tabId: settingsTab.id,
@@ -1145,16 +1112,12 @@ describe('WorkspacePage new project modal', () => {
     const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
     act(() => shortcutHandler?.('save'));
 
-    await waitFor(() => expect(window.noveltea.saveProjectContent).toHaveBeenCalled());
+    await waitFor(() => expect(native.save).toHaveBeenCalledOnce());
     expect(apply).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
-      'opened-project-session',
-    );
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
-      localValueByPath: {
-        '/project/name': { exists: true, value: 'Saved Draft Title' },
-      },
+    expect(native.save).toHaveBeenCalledWith('opened-project-session', 1, 'project:settings', {
+      comments: 'keep',
     });
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useDraftDirtyStore.getState().entriesByKey).not.toHaveProperty('tab:settings:draft');
   });
 
@@ -1319,18 +1282,13 @@ describe('WorkspacePage new project modal', () => {
 
   it('persists dirty recovery metadata on close without saving dirty content', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: 'opened-project-session',
-    });
+    admitNativeRendererCommandFixture(project, 'opened-project-session');
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.yaml',
       project,
     });
-    useCommandStore.getState().executeCommand({
+    await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Rename project',
       payload: [{ op: 'replace', path: '/project/name', value: 'Dirty Name' }],
@@ -1359,17 +1317,13 @@ describe('WorkspacePage new project modal', () => {
           }),
         }),
       }),
-      { 'project:settings': ['project.yaml'] },
+      {},
     );
   });
 
   it('refreshes the recent project label from the current name when closing', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'Old Name' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project, 'opened-project-session');
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.yaml',
@@ -1387,8 +1341,8 @@ describe('WorkspacePage new project modal', () => {
     });
 
     render(<WorkspacePage />);
-    act(() => {
-      useCommandStore.getState().executeCommand({
+    await act(async () => {
+      await useCommandStore.getState().executeCommandAsync({
         type: 'project.applyPatch',
         label: 'Rename project',
         payload: [{ op: 'replace', path: '/project/name', value: 'New Name' }],
@@ -1518,12 +1472,7 @@ describe('WorkspacePage new project modal', () => {
     vi.useFakeTimers();
     try {
       const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-      useProjectStore.getState().loadProjectDocument({
-        document: project,
-        projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.yaml',
-        projectSessionId: 'opened-project-session',
-      });
+      admitNativeRendererCommandFixture(project, 'opened-project-session');
       useWorkspaceStore.setState({
         projectPath: '/mock/project',
         projectFilePath: '/mock/project/project.yaml',
@@ -1531,8 +1480,8 @@ describe('WorkspacePage new project modal', () => {
       });
       render(<WorkspacePage />);
 
-      act(() => {
-        useCommandStore.getState().executeCommand({
+      await act(async () => {
+        await useCommandStore.getState().executeCommandAsync({
           type: 'project.applyPatch',
           label: 'Rename project',
           payload: [{ op: 'replace', path: '/project/name', value: 'Changed' }],
@@ -1573,7 +1522,7 @@ describe('WorkspacePage new project modal', () => {
             }),
           }),
         }),
-        { 'project:settings': ['project.yaml'] },
+        {},
       );
       await act(async () => {
         vi.advanceTimersByTime(500);

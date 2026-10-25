@@ -10,6 +10,16 @@ import {
   type PreparedRuntimeArtifact,
 } from './project-schema/prepared-runtime-artifact';
 import {
+  captureProjectSourceInventory,
+  projectSourceDiscoveryScopesEqual,
+  projectSourceInventoriesEqual,
+  ProjectSourceInventoryError,
+  type ProjectSourceDiscoveryScope,
+  type ProjectSourceInventory,
+} from './project-source-inventory';
+import { assetSourcePaths } from './project-workspace/project-asset-source-paths';
+import type { LoadedProjectWorkspaceSnapshot } from './project-workspace/project-workspace-contracts';
+import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace/project-workspace-contracts';
@@ -18,27 +28,9 @@ import {
   type ProjectWorkspaceFileSystem,
   type ProjectWorkspaceProcessLiveness,
 } from './project-workspace/project-workspace-file-system';
-import { assetSourcePaths } from './project-workspace/project-asset-source-paths';
 import { compareProjectWorkspaceUnicodeCodePoints } from './project-workspace/workspace-codepoint-order';
-import type { LoadedProjectWorkspaceSnapshot } from './project-workspace/project-workspace-service';
-import {
-  captureProjectSourceInventory,
-  ProjectSourceInventoryError,
-  projectSourceDiscoveryScopesEqual,
-  projectSourceInventoriesEqual,
-  type ProjectSourceDiscoveryScope,
-  type ProjectSourceInventory,
-} from './project-source-inventory';
-import { sha256PrefixedUtf8 } from './web-crypto';
 import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-test-catalog';
-import type { AuthoringProject } from './project-schema/authoring-project';
-
-export type LegacyRuntimeCacheValidator = (project: AuthoringProject) => readonly Readonly<{
-  code: string;
-  severity: 'error' | 'warning' | 'info';
-  path: string;
-  message: string;
-}>[];
+import { sha256PrefixedUtf8 } from './web-crypto';
 
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
@@ -873,7 +865,6 @@ async function publishRuntimeBuildCache(
     path: string;
     message: string;
   }>[],
-  legacyValidator?: LegacyRuntimeCacheValidator,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   if (!fileSystem.readPathMetadata) return { published: false, reason: 'metadata-unavailable' };
 
@@ -897,11 +888,9 @@ async function publishRuntimeBuildCache(
   if (!sameInputSnapshot(expectedTestInputs, currentTestInputs))
     return { published: false, reason: 'test-inputs-changed-during-preparation' };
 
-  if (!admittedAuthoringDiagnostics && !legacyValidator)
+  if (!admittedAuthoringDiagnostics)
     return { published: false, reason: 'native-authoring-admission-required' };
-  const authoringDiagnostics = (
-    admittedAuthoringDiagnostics ?? legacyValidator!(currentSnapshot.project)
-  ).map((item) => ({
+  const authoringDiagnostics = admittedAuthoringDiagnostics.map((item) => ({
     code: item.code,
     severity: item.severity,
     path: item.path,
@@ -1055,7 +1044,6 @@ export function publishCanonicalRuntimeBuildCache(
     path: string;
     message: string;
   }>[],
-  legacyValidator?: LegacyRuntimeCacheValidator,
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   return publishRuntimeBuildCache(
     fileSystem,
@@ -1070,37 +1058,5 @@ export function publishCanonicalRuntimeBuildCache(
     RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
     compilerIdentity,
     admittedAuthoringDiagnostics,
-    legacyValidator,
-  );
-}
-
-export function publishRuntimeBuildCacheVariant(
-  fileSystem: ProjectWorkspaceFileSystem,
-  snapshot: LoadedProjectWorkspaceSnapshot,
-  currentSnapshot: LoadedProjectWorkspaceSnapshot,
-  artifact: PreparedRuntimeArtifact,
-  testCatalog: RuntimeTestCatalog,
-  expectedInputs: RuntimeBuildCacheInputSnapshot,
-  expectedTestInputs: RuntimeBuildCacheInputSnapshot,
-  reusedArtifactText: string | undefined,
-  host: RuntimeBuildCachePublicationHost,
-  variant: string,
-  compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
-  legacyValidator?: LegacyRuntimeCacheValidator,
-): Promise<Readonly<{ published: boolean; reason?: string }>> {
-  return publishRuntimeBuildCache(
-    fileSystem,
-    snapshot,
-    currentSnapshot,
-    artifact,
-    testCatalog,
-    expectedInputs,
-    expectedTestInputs,
-    reusedArtifactText,
-    host,
-    variant,
-    compilerIdentity,
-    undefined,
-    legacyValidator,
   );
 }

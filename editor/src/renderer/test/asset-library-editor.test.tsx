@@ -5,6 +5,9 @@ import { useProjectStore } from '@/project/project-store';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { useCommandStore } from '@/commands/command-store';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import { publishNativeViewGraphFixture } from '../test-support/native-renderer-graph-fixture';
 
 const tab: WorkbenchTab = {
   id: 'tab:assets',
@@ -44,6 +47,7 @@ function project() {
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   clearWorkbenchTabStates();
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
@@ -67,12 +71,8 @@ beforeEach(() => {
 
 describe('AssetLibraryEditor', () => {
   it('renders image cards from thumbnail URLs while retaining resolved audio URLs', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(project());
+    await publishNativeViewGraphFixture();
     render(<AssetLibraryEditor tab={tab} />);
 
     await waitFor(() =>
@@ -108,11 +108,8 @@ describe('AssetLibraryEditor', () => {
   });
 
   it('filters assets by type and user tags separately', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
+    await publishNativeViewGraphFixture();
     render(<AssetLibraryEditor tab={tab} />);
 
     await screen.findByText('Logo');
@@ -127,11 +124,8 @@ describe('AssetLibraryEditor', () => {
   });
 
   it('restores filters after the active-only editor remounts', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
+    await publishNativeViewGraphFixture();
     const view = render(<AssetLibraryEditor tab={tab} />);
     await screen.findByText('Logo');
     fireEvent.change(screen.getByLabelText('Asset type'), { target: { value: 'audio' } });
@@ -145,18 +139,20 @@ describe('AssetLibraryEditor', () => {
   });
 
   it('renames an asset inline through the command bus', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project());
+    await publishNativeViewGraphFixture();
     render(<AssetLibraryEditor tab={tab} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit name for Logo' }));
     const input = screen.getByRole('textbox', { name: 'Edit name for Logo' });
     fireEvent.change(input, { target: { value: 'Brand Logo' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof project>).assets.logo.label,
+      ).toBe('Brand Logo'),
+    );
+    await publishNativeViewGraphFixture();
     await waitFor(() => expect(screen.getByText('Brand Logo')).toBeInTheDocument());
     expect(screen.queryByText('Logo')).not.toBeInTheDocument();
     expect(

@@ -50,6 +50,18 @@ async function fixture() {
   return { root, project };
 }
 
+/** Emulates the native publication authority after the JS import planner has
+ * validated its candidate bytes. The renderer must never write them directly. */
+function admittedNativePublish(root: string) {
+  return vi.fn(async (files: ReadonlyArray<{ path: string; bytes: Uint8Array }>) => {
+    for (const file of files) {
+      const destination = path.join(root, file.path);
+      await mkdir(path.dirname(destination), { recursive: true });
+      await writeFile(destination, file.bytes);
+    }
+  });
+}
+
 afterEach(async () => {
   picker.files = [];
   vi.restoreAllMocks();
@@ -175,6 +187,7 @@ describe('first-class Asset attachment contract', () => {
 describe('Project-owned attachment files', () => {
   it('validates complete Distribution Notice bytes before permitting import or association', async () => {
     const { root } = await fixture();
+    const nativePublish = admittedNativePublish(root);
     const external = await mkdtemp(path.join(os.tmpdir(), 'nt-invalid-notice-'));
     roots.push(external);
     const invalid = path.join(external, 'notice.txt');
@@ -185,9 +198,15 @@ describe('Project-owned attachment files', () => {
     ] as const) {
       await writeFile(invalid, contents);
       picker.files = [invalid];
-      const imported = await importProjectAttachmentFiles({} as never, root, {
-        purpose: 'distribution-notice',
-      });
+      const imported = await importProjectAttachmentFiles(
+        {} as never,
+        root,
+        {
+          purpose: 'distribution-notice',
+        },
+        undefined,
+        nativePublish,
+      );
       expect(imported.error).toMatch(reason);
       await mkdir(path.join(root, 'support/licenses'), { recursive: true });
       await writeFile(path.join(root, 'support/licenses/notice.txt'), contents);
@@ -195,10 +214,17 @@ describe('Project-owned attachment files', () => {
       expect(inspected.noticeError).toMatch(reason);
     }
     await writeFile(invalid, 'Valid notice\n');
-    const valid = await importProjectAttachmentFiles({} as never, root, {
-      purpose: 'distribution-notice',
-    });
+    const valid = await importProjectAttachmentFiles(
+      {} as never,
+      root,
+      {
+        purpose: 'distribution-notice',
+      },
+      undefined,
+      nativePublish,
+    );
     expect(valid.error).toBeUndefined();
+    expect(nativePublish).toHaveBeenCalledOnce();
   });
   it('lists Project-contained files and offers bounded inspection without entering excluded trees', async () => {
     const { root } = await fixture();
@@ -221,6 +247,7 @@ describe('Project-owned attachment files', () => {
 
   it('imports a batch without overwrite, reuses byte-identical files, and honors purpose defaults', async () => {
     const { root } = await fixture();
+    const nativePublish = admittedNativePublish(root);
     const outside = await mkdtemp(path.join(os.tmpdir(), 'nt-import-source-'));
     roots.push(outside);
     const a = path.join(outside, 'notice.txt');
@@ -230,9 +257,15 @@ describe('Project-owned attachment files', () => {
     await mkdir(path.join(root, 'support/licenses'), { recursive: true });
     await writeFile(path.join(root, 'support/licenses/notice.txt'), 'different existing data');
     picker.files = [a, b];
-    const imported = await importProjectAttachmentFiles({} as never, root, {
-      purpose: 'distribution-notice',
-    });
+    const imported = await importProjectAttachmentFiles(
+      {} as never,
+      root,
+      {
+        purpose: 'distribution-notice',
+      },
+      undefined,
+      nativePublish,
+    );
     expect(imported).toMatchObject({
       paths: ['support/licenses/notice-2.txt', 'support/licenses/another.md'],
       reused: [],
@@ -244,12 +277,19 @@ describe('Project-owned attachment files', () => {
       'first notice',
     );
     picker.files = [a];
-    const reused = await importProjectAttachmentFiles({} as never, root, {
-      purpose: 'distribution-notice',
-      destinationDirectory: 'support/licenses',
-    });
+    const reused = await importProjectAttachmentFiles(
+      {} as never,
+      root,
+      {
+        purpose: 'distribution-notice',
+        destinationDirectory: 'support/licenses',
+      },
+      undefined,
+      nativePublish,
+    );
     expect(reused.reused).toEqual(['support/licenses/notice-2.txt']);
     expect(reused.paths).toEqual(['support/licenses/notice-2.txt']);
+    expect(nativePublish).toHaveBeenCalledTimes(1);
   });
 
   it('refuses symlink traversal and outside/occupied destinations without modifying physical files', async () => {

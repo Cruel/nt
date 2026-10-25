@@ -1,6 +1,4 @@
 import { compileAuthoringProjectValue } from './authoring-compiler-lowering';
-import { collectRuntimeDistributionNotices } from './runtime-distribution-notices';
-import { applyExportLocalizationClosure } from './export-localization-closure';
 import type {
   PackageExportOptions,
   ShaderCompileDiagnostic,
@@ -8,40 +6,7 @@ import type {
   ShaderCompileOutput,
   ShaderCompileResponse,
 } from './editor-tooling';
-import type { AssetData } from './project-schema/authoring-assets';
-import type { AnimationData } from './project-schema/authoring-animations';
-import type { LayoutData } from './project-schema/authoring-layouts';
-import type { ScriptModuleData } from './project-schema/authoring-script-modules';
-import { serializeCompiledProjectWire } from './project-schema/compiled-project';
-import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
-import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
-import type { Sha256Digest } from './project-text-sources';
-import {
-  defaultProjectAppIdentity,
-  deriveProjectDisplayGeometry,
-} from './project-schema/authoring-project-settings';
-import {
-  classifyProjectValidationDiagnostics,
-  collectProjectValidationDiagnostics,
-  createProjectValidationDiagnostic,
-  projectValidationBlocksBoundary,
-  projectValidationBoundariesForCompilerDiagnostic,
-  type ProjectValidationDiagnostic,
-} from './project-schema/project-diagnostic-projection';
-import type { AuthoringValidationContribution } from './project-schema/authoring-validation-contributions';
-import {
-  canonicalProjectContentJson,
-  emptyEditorProjectState,
-} from './project-schema/editor-project-state';
-import { buildShaderMaterialProject } from './project-schema/shader-material-project';
-import {
-  PREPARED_RUNTIME_ARTIFACT_SCHEMA,
-  preparedRuntimeArtifactSchema,
-  type ExportFileEntry,
-  type ExportManifestPreview,
-  type PreparedRuntimeArtifact,
-  type PreparedRuntimePackageOptions,
-} from './project-schema/prepared-runtime-artifact';
+import { applyExportLocalizationClosure } from './export-localization-closure';
 import {
   PREPARED_MEDIA_MANIFEST_PATH,
   PREPARED_MEDIA_SCHEMA,
@@ -52,11 +17,45 @@ import {
   type OpaqueVideoPreparationResult,
   type PreparedMediaManifest,
 } from './prepared-media';
+import type { AnimationData } from './project-schema/authoring-animations';
+import type { AssetData } from './project-schema/authoring-assets';
+import type { ExportProfileData, ExportShaderVariant } from './project-schema/authoring-export';
+import type { LayoutData } from './project-schema/authoring-layouts';
+import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
+import {
+  defaultProjectAppIdentity,
+  deriveProjectDisplayGeometry,
+} from './project-schema/authoring-project-settings';
+import type { ScriptModuleData } from './project-schema/authoring-script-modules';
+import { serializeCompiledProjectWire } from './project-schema/compiled-project';
+import {
+  canonicalProjectContentJson,
+  emptyEditorProjectState,
+} from './project-schema/editor-project-state';
+import {
+  PREPARED_RUNTIME_ARTIFACT_SCHEMA,
+  preparedRuntimeArtifactSchema,
+  type ExportFileEntry,
+  type ExportManifestPreview,
+  type PreparedRuntimeArtifact,
+  type PreparedRuntimePackageOptions,
+} from './project-schema/prepared-runtime-artifact';
+import {
+  classifyProjectValidationDiagnostics,
+  collectProjectValidationDiagnostics,
+  createProjectValidationDiagnostic,
+  projectValidationBlocksBoundary,
+  projectValidationBoundariesForCompilerDiagnostic,
+  type ProjectValidationDiagnostic,
+} from './project-schema/project-diagnostic-projection';
+import { buildShaderMaterialProject } from './project-schema/shader-material-project';
+import type { Sha256Digest } from './project-text-sources';
+import { collectRuntimeDistributionNotices } from './runtime-distribution-notices';
 
 export { PREPARED_RUNTIME_ARTIFACT_SCHEMA, preparedRuntimeArtifactSchema };
 
 /** Project records have already been admitted by their current owner (native
- * candidate, or the legacy adapter). These accessors only read physical
+ * native owner). These accessors only read physical
  * packaging fields; they do not reparse or normalize authored records. */
 function assetPackagingData(value: unknown): AssetData | null {
   const data = value as AssetData | null | undefined;
@@ -92,11 +91,6 @@ interface RuntimeArtifactAssemblyOptions {
   paths: RuntimeArtifactPathAdapter;
   compilation: ReturnType<typeof compileRuntimeArtifact>;
   admittedRuntimeAssetReferences?: readonly string[];
-  legacySourceGraph?: LegacyRuntimeSourceGraphResolver;
-  admittedSourceGraph?: Pick<
-    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
-    'graph' | 'externalSourceRevisions'
-  > & { readonly project: AuthoringProject };
 }
 
 export interface RuntimeArtifactAssessment {
@@ -173,23 +167,8 @@ export interface PrepareRuntimeArtifactOptions {
   project: AuthoringProject;
   /** Validation result bound to this exact admitted Project generation. */
   admittedAuthoringDiagnostics?: readonly ProjectValidationDiagnostic[];
-  /** Admitted contributions from that same generation for runtime projection validation. */
-  admittedValidationContributions?: readonly AuthoringValidationContribution[];
   /** Native semantic Asset-reference closure pinned to the admitted Project generation. */
   admittedRuntimeAssetReferences?: readonly string[];
-  /** Legacy-only admission/analysis hooks. Native candidates leave these absent. */
-  legacyValidate?: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[];
-  legacyCompile?: (
-    project: AuthoringProject,
-    runtimeProject: AuthoringProject,
-    contributions?: readonly AuthoringValidationContribution[],
-  ) => ReturnType<typeof compileAuthoringProjectValue>;
-  legacySourceGraph?: LegacyRuntimeSourceGraphResolver;
-  /** Current admitted graph, supplied by a trusted workspace generation only. */
-  admittedSourceGraph?: Pick<
-    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
-    'graph' | 'externalSourceRevisions'
-  > & { readonly project: AuthoringProject };
   projectRoot: string | null;
   profile: ExportProfileData;
   intent: RuntimeArtifactPreparationIntent;
@@ -207,8 +186,6 @@ export interface VerifyPreparedRuntimeArtifactOptions {
   recoveryFingerprint?: unknown;
   paths: RuntimeArtifactPathAdapter;
   admittedRuntimeAssetReferences?: readonly string[];
-  legacyCompile?: (project: AuthoringProject) => ReturnType<typeof compileAuthoringProjectValue>;
-  legacySourceGraph?: LegacyRuntimeSourceGraphResolver;
 }
 
 export type PrepareRuntimeArtifactResult =
@@ -398,60 +375,12 @@ export function hasAuthoringShadersOrMaterials(project: AuthoringProject) {
   return Object.keys(project.materials).length > 0;
 }
 
-export interface RuntimeSourceGraphAssessment {
-  referencedAssetIds: ReadonlySet<string>;
-  diagnostics: ProjectValidationDiagnostic[];
-}
-
-export type LegacyRuntimeSourceGraphResolver = (
-  project: AuthoringProject,
-  projectRoot: string | null,
-  paths: RuntimeArtifactPathAdapter,
-  admittedAnalysis?: Pick<
-    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
-    'graph' | 'externalSourceRevisions'
-  > & { readonly project: AuthoringProject },
-) => Promise<RuntimeSourceGraphAssessment | null>;
-
-async function runtimeSourceGraphAssessment(
-  project: AuthoringProject,
-  projectRoot: string | null,
-  paths: RuntimeArtifactPathAdapter,
-  admittedAnalysis?: Pick<
-    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
-    'graph' | 'externalSourceRevisions'
-  > & { readonly project: AuthoringProject },
-  admittedRuntimeAssetReferences?: readonly string[],
-  legacyResolver?: LegacyRuntimeSourceGraphResolver,
-): Promise<RuntimeSourceGraphAssessment | null> {
-  if (admittedRuntimeAssetReferences)
-    return { referencedAssetIds: new Set(admittedRuntimeAssetReferences), diagnostics: [] };
-  if (!legacyResolver)
-    throw new Error(
-      'Runtime preparation requires native admitted Asset references or the legacy adapter.',
-    );
-  return legacyResolver(project, projectRoot, paths, admittedAnalysis);
-}
-
 async function referencedRuntimeAssetIds(
-  project: AuthoringProject,
-  projectRoot: string | null,
-  paths: RuntimeArtifactPathAdapter,
-  admittedRuntimeAssetReferences?: readonly string[],
-  legacyResolver?: LegacyRuntimeSourceGraphResolver,
-): Promise<ReadonlySet<string> | null> {
-  return (
-    (
-      await runtimeSourceGraphAssessment(
-        project,
-        projectRoot,
-        paths,
-        undefined,
-        admittedRuntimeAssetReferences,
-        legacyResolver,
-      )
-    )?.referencedAssetIds ?? null
-  );
+  references: readonly string[] | undefined,
+): Promise<ReadonlySet<string>> {
+  if (!Array.isArray(references))
+    throw new Error('Runtime preparation requires native admitted Asset references.');
+  return new Set(references);
 }
 
 type CompiledMaterialInterface =
@@ -614,18 +543,13 @@ function reconcileCompiledMaterialParameters<T>(
 function compileRuntimeArtifact(options: PrepareRuntimeArtifactOptions) {
   const project = options.project;
   const runtimeProject = runtimeCompilationProject(project);
-  const nativeAdmitted =
-    options.admittedAuthoringDiagnostics !== undefined &&
-    options.admittedValidationContributions !== undefined;
-  if (!nativeAdmitted && (!options.legacyValidate || !options.legacyCompile))
-    throw new Error(
-      'Runtime preparation requires complete native admission or the legacy adapter.',
-    );
-  const authoringDiagnostics =
-    options.admittedAuthoringDiagnostics ?? options.legacyValidate!(project);
-  const published = nativeAdmitted
-    ? compileAuthoringProjectValue(runtimeProject, undefined, true)
-    : options.legacyCompile!(project, runtimeProject, options.admittedValidationContributions);
+  if (
+    options.admittedAuthoringDiagnostics === undefined ||
+    options.admittedRuntimeAssetReferences === undefined
+  )
+    throw new Error('Runtime preparation requires complete native admission.');
+  const authoringDiagnostics = options.admittedAuthoringDiagnostics;
+  const published = compileAuthoringProjectValue(runtimeProject);
   return { authoringDiagnostics, runtimeProject, published };
 }
 
@@ -667,14 +591,10 @@ async function assembleRuntimeArtifact(
     },
   };
 
-  const sourceGraph = await runtimeSourceGraphAssessment(
-    project,
-    options.projectRoot ?? null,
-    options.paths,
-    options.admittedSourceGraph,
-    options.admittedRuntimeAssetReferences,
-    options.legacySourceGraph,
-  );
+  const sourceGraph = {
+    referencedAssetIds: await referencedRuntimeAssetIds(options.admittedRuntimeAssetReferences),
+    diagnostics: [] as ProjectValidationDiagnostic[],
+  };
   const runtimeReferencedAssetIds = sourceGraph?.referencedAssetIds ?? null;
   const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
   const localizationClosure = published.ok
@@ -1403,8 +1323,6 @@ export async function prepareRuntimeArtifact(
     ...(options.admittedRuntimeAssetReferences
       ? { admittedRuntimeAssetReferences: options.admittedRuntimeAssetReferences }
       : {}),
-    ...(options.admittedSourceGraph ? { admittedSourceGraph: options.admittedSourceGraph } : {}),
-    ...(options.legacySourceGraph ? { legacySourceGraph: options.legacySourceGraph } : {}),
   });
   if (effectsAllowed(options.intent) && assessment.compiledArtifactAvailable) {
     if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
@@ -1535,13 +1453,7 @@ async function expectedFileEntriesForVerification(
 > {
   const entries: ExportFileEntry[] = [];
   const referencedAssetIds = options.profile.excludeUnusedAssets
-    ? await referencedRuntimeAssetIds(
-        options.project,
-        options.projectRoot,
-        options.paths,
-        options.admittedRuntimeAssetReferences,
-        options.legacySourceGraph,
-      )
+    ? await referencedRuntimeAssetIds(options.admittedRuntimeAssetReferences)
     : null;
   if (options.profile.excludeUnusedAssets && referencedAssetIds === null)
     return {
@@ -1756,10 +1668,7 @@ export async function verifyPreparedRuntimeArtifact(
       '/artifact/gameplayJson',
     );
   const expectedRuntimeProject = runtimeCompilationProject(options.project);
-  const freshlyCompiled =
-    options.admittedRuntimeAssetReferences !== undefined
-      ? compileAuthoringProjectValue(expectedRuntimeProject, undefined, true)
-      : options.legacyCompile?.(expectedRuntimeProject);
+  const freshlyCompiled = compileAuthoringProjectValue(expectedRuntimeProject);
   if (!freshlyCompiled?.ok)
     return rejectedEvidence(
       'Current Project cannot be freshly compiled while verifying the prepared runtime artifact.',
@@ -1781,11 +1690,7 @@ export async function verifyPreparedRuntimeArtifact(
     );
 
   const localizationBaseAssetIds = await referencedRuntimeAssetIds(
-    options.project,
-    options.projectRoot,
-    options.paths,
     options.admittedRuntimeAssetReferences,
-    options.legacySourceGraph,
   );
   if (options.profile.excludeUnusedAssets && localizationBaseAssetIds === null)
     return rejectedEvidence(

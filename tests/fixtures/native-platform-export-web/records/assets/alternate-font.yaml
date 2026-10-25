@@ -1,0 +1,13 @@
+id: alternate-font
+label: Alternate Font
+data:
+  kind: font
+  source:
+    type: project-file
+    path: assets/fonts/alternate.ttf
+  attachments:
+    - path: support/licenses/shared-font.txt
+      purpose: distribution-notice
+      displayName: Shared Font License
+  aliases: []
+  imageMetadata: null

@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -134,11 +135,7 @@ describe('LayoutEditor', () => {
   it('renders typed layout defaults and preview surface', () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LayoutEditor tab={tab} />);
 
@@ -163,11 +160,7 @@ describe('LayoutEditor', () => {
       label: 'Main UI',
       data: { ...defaultLayoutData('Main UI'), target: 'scene-overlay' },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LayoutEditor tab={tab} />);
 
@@ -191,11 +184,7 @@ describe('LayoutEditor', () => {
   it('commits source edits immediately through layout.replaceData', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LayoutEditor tab={tab} />);
 
@@ -224,11 +213,7 @@ describe('LayoutEditor', () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LayoutEditor tab={tab} />);
 
@@ -249,11 +234,7 @@ describe('LayoutEditor', () => {
       label: 'Stateful UI',
       data: defaultLayoutData('Stateful UI', 'document'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     render(<LayoutEditor tab={tab} />);
     expect(screen.getByRole('button', { name: 'Set as Title UI' })).toBeDisabled();
     expect(
@@ -265,11 +246,7 @@ describe('LayoutEditor', () => {
   it('captures and restores tab state for scroll and local source draft', async () => {
     const project = createAuthoringProject();
     project.layouts.main = { id: 'main', label: 'Main UI', data: defaultLayoutData('Main UI') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     const view = render(<LayoutEditor tab={tab} />);
     const scrollContainer = view.container.querySelector<HTMLElement>(

@@ -91,12 +91,7 @@ async function collectUtf8Files(root, directory, files = {}) {
   return files;
 }
 
-const islandBundleRoot = path.join(
-  editorRoot,
-  process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1'
-    ? 'dist-scriptc-native-island'
-    : 'dist-scriptc-island',
-);
+const islandBundleRoot = path.join(editorRoot, 'dist-scriptc-island');
 const islandBundle = path.join(islandBundleRoot, 'noveltea-scriptc-island.mjs');
 const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
 const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
@@ -285,15 +280,14 @@ await stagePrebuiltShadercLinkClosure();
 run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buildEnv });
 if (!existsSync(islandBundle))
   throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
-if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-  run(
-    process.execPath,
-    [path.join(editorRoot, 'scripts/check-native-cli-candidate-closure.mjs'), '--with-node-tools'],
-    {
-      cwd: editorRoot,
-      env: buildEnv,
-    },
-  );
+run(
+  process.execPath,
+  [path.join(editorRoot, 'scripts/check-native-cli-closure.mjs'), '--with-node-tools'],
+  {
+    cwd: editorRoot,
+    env: buildEnv,
+  },
+);
 
 const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
 const engineRoot = path.join(buildRoot, 'engine');
@@ -493,10 +487,7 @@ const libraries = [
 const outputDirectory = path.join(repositoryRoot, 'build', 'cli', releasePlatform);
 const outputPath = path.join(outputDirectory, executableName);
 await mkdir(outputDirectory, { recursive: true });
-// A legacy rebuild must never inherit proof of an older native candidate.
-const candidateBuildProof = path.join(outputDirectory, 'native-candidate-build.json');
 const productionBuildProof = path.join(outputDirectory, 'native-production-build.json');
-await rm(candidateBuildProof, { force: true });
 await rm(productionBuildProof, { force: true });
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(islandPackageRoot, { recursive: true });
@@ -736,10 +727,9 @@ try {
   // Native validation uses the bundled fallback font as well as the media
   // tools. Relocate the complete standalone runtime tree rather than testing
   // validation with an intentionally incomplete installation.
-  if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1')
-    await cp(path.join(outputDirectory, 'assets'), path.join(relocatedMediaRoot, 'assets'), {
-      recursive: true,
-    });
+  await cp(path.join(outputDirectory, 'assets'), path.join(relocatedMediaRoot, 'assets'), {
+    recursive: true,
+  });
   run(relocatedCli, ['--json', 'media-tool', 'check'], {
     cwd: tmpdir(),
     env: { ...process.env, NOVELTEA_FFMPEG: undefined },
@@ -780,33 +770,20 @@ try {
 } finally {
   await removeCliRelocation(relocatedMediaRoot);
 }
-if (process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1') {
-  const provenance = await readFile(
-    path.join(editorRoot, 'dist-scriptc-native-island/native-production-provenance.json'),
-  );
-  const fingerprint = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  await writeFile(
-    candidateBuildProof,
-    `${JSON.stringify({
-      contract: 'noveltea.native-cli-candidate-build.v1',
-      executableSha256: fingerprint(await readFile(outputPath)),
-      islandProvenanceSha256: fingerprint(provenance),
-    })}\n`,
-  );
-} else {
-  // A build-binding alone does not qualify production: the certification
-  // runner additionally requires a clean all-roots runtime module closure.
-  const provenance = await readFile(
-    path.join(editorRoot, 'dist-scriptc-island/native-production-provenance.json'),
-  );
-  const fingerprint = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-  await writeFile(
-    productionBuildProof,
-    `${JSON.stringify({
-      contract: 'noveltea.native-cli-production-build.v1',
-      executableSha256: fingerprint(await readFile(outputPath)),
-      islandProvenanceSha256: fingerprint(provenance),
-    })}\n`,
-  );
-}
+
+// A build-binding alone does not qualify production: the certification
+// runner additionally requires a clean all-roots runtime module closure.
+const provenance = await readFile(
+  path.join(editorRoot, 'dist-scriptc-island/native-production-provenance.json'),
+);
+const fingerprint = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+await writeFile(
+  productionBuildProof,
+  `${JSON.stringify({
+    contract: 'noveltea.native-cli-production-build.v1',
+    executableSha256: fingerprint(await readFile(outputPath)),
+    islandProvenanceSha256: fingerprint(provenance),
+  })}\n`,
+);
+
 console.log(`NovelTea CLI: ${outputPath}`);

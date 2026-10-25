@@ -1,4 +1,3 @@
-import { buildAuthoringStructuralDependencyGraph } from '../authoring-dependency-graph';
 import type {
   AuthoringDependencyEdge,
   AuthoringDependencyGraph,
@@ -140,10 +139,6 @@ export function buildReferenceIndexFromGraph(
     byTarget.set(key, group);
   }
   return { usages, byTarget };
-}
-
-export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
-  return buildReferenceIndexFromGraph(project, buildAuthoringStructuralDependencyGraph(project));
 }
 
 export function findUsages(index: ReferenceIndex, target: ReferenceTarget): ReferenceUsage[] {

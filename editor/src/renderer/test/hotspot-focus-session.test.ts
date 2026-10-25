@@ -30,6 +30,7 @@ import {
 } from '../../shared/project-schema/authoring-rooms';
 import { editorI18n } from '@/i18n';
 import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 const originalBounds = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
 const movedBounds = { x: 0.2, y: 0.25, width: 0.3, height: 0.4 };
@@ -335,7 +336,7 @@ describe('Hotspot Focus session', () => {
 
   it('preserves a recovered dirty draft when the Room source Asset was replaced', async () => {
     const project = projectWithRoomHotspotImage();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',
@@ -349,19 +350,21 @@ describe('Hotspot Focus session', () => {
     const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
 
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'project.applyPatch',
-        label: 'Replace Room background',
-        payload: [
-          {
-            op: 'replace',
-            path: '/rooms/foyer/data/background/asset',
-            value: { $ref: { collection: 'assets', id: 'replacement' } },
-          },
-        ],
-        originSaveUnitId: 'record:rooms:foyer',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.applyPatch',
+          label: 'Replace Room background',
+          payload: [
+            {
+              op: 'replace',
+              path: '/rooms/foyer/data/background/asset',
+              value: { $ref: { collection: 'assets', id: 'replacement' } },
+            },
+          ],
+          originSaveUnitId: 'record:rooms:foyer',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
 
     useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
@@ -401,7 +404,7 @@ describe('Hotspot Focus session', () => {
     data.presentation.visual = { kind: 'image', image: interactableAssetRef('background') };
     data.presentation.hotspots = { kind: 'custom', hotspots: [interactableHotspot] };
     project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'interactable-tab',
@@ -415,19 +418,21 @@ describe('Hotspot Focus session', () => {
     const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
 
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'project.applyPatch',
-        label: 'Disable Interactable hotspots',
-        payload: [
-          {
-            op: 'replace',
-            path: '/interactables/door/data/presentation/hotspots',
-            value: { kind: 'none' },
-          },
-        ],
-        originSaveUnitId: 'record:interactables:door',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.applyPatch',
+          label: 'Disable Interactable hotspots',
+          payload: [
+            {
+              op: 'replace',
+              path: '/interactables/door/data/presentation/hotspots',
+              value: { kind: 'none' },
+            },
+          ],
+          originSaveUnitId: 'record:interactables:door',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
 
     useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
@@ -503,7 +508,7 @@ describe('Hotspot Focus session', () => {
 
   it('commits all geometry edits as one project undo step', async () => {
     const project = projectWithRoomHotspot();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',
@@ -525,7 +530,7 @@ describe('Hotspot Focus session', () => {
     expect(room?.hotspots).toHaveLength(2);
     expect(room?.hotspots[0]?.shape.bounds).toEqual(movedBounds);
 
-    expect(useCommandStore.getState().undo().ok).toBe(true);
+    expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
     const undone = useProjectStore.getState().document as typeof project;
     const undoneRoom = parseRoomData(undone.rooms.foyer?.data);
     expect(undoneRoom?.hotspots).toHaveLength(1);
@@ -534,7 +539,7 @@ describe('Hotspot Focus session', () => {
 
   it('refuses stale geometry when another edit replaces the Room background source', async () => {
     const project = projectWithRoomHotspotImage();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',
@@ -556,7 +561,7 @@ describe('Hotspot Focus session', () => {
       },
     });
 
-    const sourceChange = useCommandStore.getState().executeCommand({
+    const sourceChange = await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Replace Room background',
       payload: [
@@ -584,7 +589,7 @@ describe('Hotspot Focus session', () => {
 
   it('accepts Focus commits when the effective Room background is inherited from an Archetype', async () => {
     const project = projectWithArchetypedRoomHotspotImage(null, 'background');
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',
@@ -605,7 +610,7 @@ describe('Hotspot Focus session', () => {
 
   it('rejects stale geometry when an Archetype changes the effective Room background source', async () => {
     const project = projectWithArchetypedRoomHotspotImage('background', 'background');
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',
@@ -617,7 +622,7 @@ describe('Hotspot Focus session', () => {
     });
     store.setBounds('room-tab', 'door', movedBounds);
 
-    const sourceChange = useCommandStore.getState().executeCommand({
+    const sourceChange = await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Replace inherited Room background',
       payload: [
@@ -641,7 +646,7 @@ describe('Hotspot Focus session', () => {
 
   it('refuses stale geometry when the source Asset is replaced in place', async () => {
     const project = projectWithRoomHotspotImage();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',
@@ -653,7 +658,7 @@ describe('Hotspot Focus session', () => {
     });
     store.setBounds('room-tab', 'door', movedBounds);
 
-    const sourceChange = useCommandStore.getState().executeCommand({
+    const sourceChange = await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Reimport Room background',
       payload: [
@@ -691,7 +696,7 @@ describe('Hotspot Focus session', () => {
       hotspots: [interactableHotspot],
     };
     project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'interactable-tab',
@@ -703,7 +708,7 @@ describe('Hotspot Focus session', () => {
     });
     store.setBounds('interactable-tab', 'door', movedBounds);
 
-    const sourceChange = useCommandStore.getState().executeCommand({
+    const sourceChange = await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Replace Interactable sprite',
       payload: [
@@ -732,7 +737,7 @@ describe('Hotspot Focus session', () => {
   it('localizes Focus draft and project-command labels', async () => {
     await editorI18n.changeLanguage('pseudo');
     const project = projectWithRoomHotspot();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-tab',

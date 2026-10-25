@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   defaultTestData,
   defaultTestExpectation,
@@ -223,23 +222,5 @@ describe('authoring tests schema', () => {
         ],
       }),
     ).toBeNull();
-  });
-
-  it('reports invalid current test data through project validation', () => {
-    const project = createAuthoringProject();
-    const data = defaultTestData('Smoke');
-    data.steps = [{ ...defaultTestStep('load'), saveSlot: { slotId: '' } }];
-    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: 'Tests',
-          path: '/tests/smoke/data/steps/0/saveSlot/slotId',
-          severity: 'error',
-          message: "Save slot must be 'autosave' or 'slot-N' for a non-negative integer N.",
-        }),
-      ]),
-    );
   });
 });

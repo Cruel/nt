@@ -29,6 +29,18 @@ function nativeStub() {
   };
 }
 
+async function admitIncumbent(
+  sessions: ActiveProjectSessionService,
+  projectFile: string,
+  project: ReturnType<typeof createAuthoringProject>,
+): Promise<string> {
+  const generation = sessions.beginProjectActivation();
+  const id = await sessions.stageNativeProjectFile(projectFile, generation);
+  await sessions.acceptNativeProject(id, project);
+  sessions.commitStagedNativeProject(id, generation);
+  return id;
+}
+
 describe('native-only editor Open lifecycle', () => {
   it('preserves the previous session on an attempted unverified Project handoff', async () => {
     const original = await workspace();
@@ -37,7 +49,11 @@ describe('native-only editor Open lifecycle', () => {
     const native = nativeStub();
     native.admitFromNative.mockRejectedValueOnce(new Error('Native candidate verification failed'));
     try {
-      const originalId = await sessions.activateProjectFile(path.join(original, 'project.yaml'));
+      const originalId = await admitIncumbent(
+        sessions,
+        path.join(original, 'project.yaml'),
+        native.savedProject,
+      );
       const attempted = await openNativeEditorProject(
         candidate,
         sessions.beginProjectActivation(),
@@ -63,7 +79,11 @@ describe('native-only editor Open lifecycle', () => {
     const sessions = new ActiveProjectSessionService();
     const native = nativeStub();
     try {
-      const originalId = await sessions.activateProjectFile(path.join(original, 'project.yaml'));
+      const originalId = await admitIncumbent(
+        sessions,
+        path.join(original, 'project.yaml'),
+        native.savedProject,
+      );
       native.admitFromNative.mockImplementationOnce(async (id) => {
         expect(sessions.currentSessionId()).toBe(originalId);
         expect(sessions.isCurrent(originalId)).toBe(true);
@@ -137,9 +157,7 @@ describe('native-only editor Open lifecycle', () => {
         id: 'native-source',
         name: 'Native Source',
       });
-      expect(() => sessions.requireActiveWorkspace(response.projectSessionId!)).toThrow(
-        'no workspace',
-      );
+      expect('requireActiveWorkspace' in sessions).toBe(false);
     } finally {
       sessions.dispose();
       await rm(root, { recursive: true, force: true });

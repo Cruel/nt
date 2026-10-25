@@ -145,6 +145,11 @@ interface NovelTeaElectronApiContract {
     expectedRevision: number,
     shaderVariant: import('./shader-variants').ShaderVariant,
   ): Promise<import('./editor-runtime-cache').EditorRuntimePreparationResult>;
+  nativeProjectTestReadiness(
+    projectSessionId: string,
+    expectedRevision: number,
+    testId: string,
+  ): Promise<import('./project-schema/test-playback-projection').TestRunReadiness>;
   nativeProjectRunTest(
     projectSessionId: string,
     expectedRevision: number,

@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import * as legacyDecoder from '../../shared/project-schema/decode-authoring-project';
-import * as legacyValidation from '../../shared/project-schema/authoring-validation';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { useProjectStore } from '../project/project-store';
 import { toJsonValue, type JsonValue } from '../project/json-value';
@@ -189,11 +187,8 @@ describe('native-backed renderer commands', () => {
   });
 
   it('auto-commits structural creation, undo, and redo only after a native scoped Save', async () => {
-    const poison = () => {
-      throw new Error('Native structural command invoked legacy authority');
-    };
-    vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
-    vi.spyOn(legacyValidation, 'validateAuthoringProject').mockImplementation(poison);
+    // Retired whole-Project TS admission no longer exists: emitted-closure
+    // tests assert that it cannot be linked into the production editor.
     const createdId = 'native-structural-room';
     let nativeDocument: JsonValue = useProjectStore.getState().document!;
     let nativeRevision = 0;
@@ -824,13 +819,6 @@ describe('native-backed renderer commands', () => {
   });
 
   it('publishes native Project Settings commands and Undo/Redo with legacy admission poisoned', async () => {
-    const poison = () => {
-      throw new Error('Legacy Project authority invoked');
-    };
-    const decode = vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
-    const validate = vi
-      .spyOn(legacyValidation, 'validateAuthoringProject')
-      .mockImplementation(poison);
     vi.spyOn(window.noveltea, 'nativeProjectPatch')
       .mockResolvedValueOnce(nativeAck('Native Settings', 1))
       .mockResolvedValueOnce(nativeAck('Saved Project', 2))
@@ -847,8 +835,6 @@ describe('native-backed renderer commands', () => {
     expect(projectName()).toBe('Saved Project');
     expect((await useCommandStore.getState().redoAsync()).ok).toBe(true);
     expect(projectName()).toBe('Native Settings');
-    expect(decode).not.toHaveBeenCalled();
-    expect(validate).not.toHaveBeenCalled();
   });
 
   it('Use Disk prunes acknowledged native history without blocking the next edit', async () => {
@@ -964,7 +950,12 @@ describe('native-backed renderer commands', () => {
     expect((await pending).ok).toBe(false);
     expect(projectName()).toBe('New Project');
     expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
-    expect(useCommandStore.getState().executeCommand(request('TS New Project')).ok).toBe(true);
+    // The synchronous TS fallback was retired. A newly opened Project must
+    // first acknowledge its native working revision before accepting writes.
+    expect(useCommandStore.getState().executeCommand(request('TS New Project'))).toMatchObject({
+      ok: false,
+      diagnostics: [{ message: 'Native Project commands must use executeCommandAsync.' }],
+    });
   });
 
   it('does not block commands in a new Project while an old native worker reply is pending', async () => {

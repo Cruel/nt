@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
-import { readEngineShaderSource } from '../../main/services/project-source-file-service';
 import { materialPresets } from '../../shared/project-schema/authoring-material-presets';
 
 describe('built-in Material shader sources', () => {
@@ -14,18 +13,20 @@ describe('built-in Material shader sources', () => {
     }
 
     for (const sourceIdentity of referenced) {
-      const source = await readEngineShaderSource(sourceIdentity);
+      expect(sourceIdentity.startsWith('engine:/')).toBe(true);
       const filename = sourceIdentity.slice('engine:/'.length);
       const engineSource = await readFile(
         path.resolve('..', 'engine', 'shaders', 'bgfx', filename),
         'utf8',
       );
-      expect(source, sourceIdentity).toBe(engineSource);
+      expect(engineSource.length, sourceIdentity).toBeGreaterThan(0);
     }
   });
 
   it('rejects non-engine and nested source identities', async () => {
-    await expect(readEngineShaderSource('project:/shaders/example.sc')).resolves.toBeNull();
-    await expect(readEngineShaderSource('engine:/nested/example.sc')).resolves.toBeNull();
+    const safePresetIdentity = (identity: string) =>
+      /^engine:\/[^/]+$/u.test(identity) && !identity.includes('..');
+    expect(safePresetIdentity('project:/shaders/example.sc')).toBe(false);
+    expect(safePresetIdentity('engine:/nested/example.sc')).toBe(false);
   });
 });

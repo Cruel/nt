@@ -19,7 +19,6 @@ import {
   parseComfyUiWorkflowDefinition,
   type ComfyUiWorkflowKey,
 } from '../shared/comfyui-workflows';
-import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import {
   assetAttachmentPurposeValues,
   isSafeProjectAssetPath,
@@ -449,7 +448,9 @@ export const reimportAssetArgumentsSchema = z.tuple([
 
 export const auditProjectAssetsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  // The renderer may still send a display projection for API compatibility;
+  // only the main-owned native session supplies authoritative Project data.
+  z.unknown(),
 ]);
 
 export const projectAssetPathsArgumentsSchema = z.tuple([
@@ -459,7 +460,7 @@ export const projectAssetPathsArgumentsSchema = z.tuple([
 
 export const organizeUntrackedProjectAssetArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  z.unknown(),
   projectRelativePathSchema,
   z.enum(['support', 'correct-folder']),
 ]);
@@ -581,7 +582,9 @@ export const saveProjectEditorMetadataArgumentsSchema = z.tuple([
 ]);
 export const saveProjectCopyAsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  // Only editor-local state is extracted by Save Copy; Project files are
+  // copied from verified native saved sources, never serialized from here.
+  z.unknown(),
   z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
   scriptSourcePathsSchema,
 ]);
@@ -965,29 +968,29 @@ const playbackSpecSchema = z
 
 export const validateProjectArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  z.unknown(),
   z.enum(['disk-authoritative', 'session-local']),
 ]);
-export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const listPlaybackTestsArgumentsSchema = z.tuple([z.unknown()]);
 const runtimeRecoveryFingerprintSchema = z.record(
   z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
   z.record(z.string().min(1).max(MAX_PROJECT_PATH_LENGTH), editorPendingRawInputSchema),
 );
 export const prepareEditorRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  z.unknown(),
   runtimeRecoveryFingerprintSchema,
   shaderVariantSchema,
 ]);
 export const runPlaybackTestArgumentsSchema = z.tuple([
   projectSessionIdSchema.nullable(),
-  authoringProjectSchema,
+  z.unknown(),
   z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
   runtimeRecoveryFingerprintSchema.default({}),
 ]);
 export const runPlaybackSuiteArgumentsSchema = z.tuple([
   projectSessionIdSchema.nullable(),
-  authoringProjectSchema,
+  z.unknown(),
   runtimeRecoveryFingerprintSchema.default({}),
 ]);
 export const runPlaybackSpecArgumentsSchema = z.tuple([
@@ -1182,7 +1185,7 @@ export const stagePlatformExportArgumentsSchema = z.tuple([
 
 const projectPlatformExportIpcRequestSchema = z
   .object({
-    project: authoringProjectSchema,
+    project: z.unknown(),
     profileId: boundedExportIdentifierSchema,
     outputDirectory: boundedExportStringSchema,
     operationId: boundedExportIdentifierSchema.optional(),

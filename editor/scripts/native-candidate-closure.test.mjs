@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  readFileSync,
+  existsSync,
+  statSync,
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+} from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
@@ -7,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src');
 const candidates = [
+  'renderer/main.tsx',
   'shared/authoring-compiler-lowering.ts',
   'shared/authoring-source-downstream.ts',
   'shared/authoring-native-lua-sources.ts',
@@ -63,16 +72,21 @@ function imports(source) {
 }
 
 function localTarget(from, spec) {
-  if (!spec.startsWith('.')) return null;
-  const name = path.resolve(path.dirname(from), spec);
+  if (!spec.startsWith('.') && !spec.startsWith('@/')) return null;
+  spec = spec.split('?')[0];
+  const name = spec.startsWith('@/')
+    ? path.join(sourceRoot, 'renderer', spec.slice(2))
+    : path.resolve(path.dirname(from), spec);
+  if (/\.(?:css|scss|svg|json|png|webp|rml|rcss|md|lua)$/u.test(name)) return null;
   for (const candidate of [
     name,
     `${name}.ts`,
     `${name}.tsx`,
     `${name}.mjs`,
     path.join(name, 'index.ts'),
+    path.join(name, 'index.tsx'),
   ])
-    if (existsSync(candidate)) return candidate;
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   // Only declared non-script imports (such as styles) are intentionally opaque.
   if (/\.(?:css|scss|svg|json|png|webp)$/u.test(name)) return null;
   throw new Error(`Unresolved candidate import ${spec} in ${from}`);

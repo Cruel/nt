@@ -4,11 +4,7 @@ import { parseAssetData } from '../project-schema/authoring-assets';
 import { buildAssetAliasIndex } from '../project-schema/authoring-asset-references';
 import type { AuthoringProject, AuthoringRecordBase } from '../project-schema/authoring-project';
 import { deriveProjectDisplayGeometry } from '../project-schema/authoring-project-settings';
-import { buildAuthoringStructuralDependencyGraph } from '../authoring-dependency-graph';
-import {
-  buildReferenceIndexFromGraph,
-  referenceTargetKey,
-} from '../project-schema/authoring-references';
+import { referenceTargetKey } from '../project-schema/authoring-references';
 import { recordEditorMetadata } from '../project-schema/authoring-tags';
 import type { ReferenceIndex } from '../project-schema/authoring-references';
 import type { AssetAliasIndex } from '../project-schema/authoring-asset-references';
@@ -199,9 +195,7 @@ export function buildProjectSearchIndex(
   project: AuthoringProject,
   options: BuildProjectSearchIndexOptions = {},
 ): ProjectSearchIndex {
-  const referenceIndex =
-    options.referenceIndex ??
-    buildReferenceIndexFromGraph(project, buildAuthoringStructuralDependencyGraph(project));
+  const referenceIndex = options.referenceIndex ?? { usages: [], byTarget: new Map() };
   const assetAliasIndex = buildAssetAliasIndex(project);
   const usagesBySource = new Map<string, ReturnType<typeof referenceIndex.usages.filter>>();
   for (const usage of referenceIndex.usages) {

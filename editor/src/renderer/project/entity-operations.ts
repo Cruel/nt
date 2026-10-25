@@ -21,11 +21,11 @@ import { defaultVariableData } from '../../shared/project-schema/authoring-varia
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import {
   entityIdPattern,
-  isAuthoringProject,
   type AuthoringProject,
   type AuthoringRecordBase,
   type ReferenceTarget,
 } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import {
   collectProjectTags,
   normalizeTagKey,
@@ -138,7 +138,7 @@ function validateTargetCollection(collection: string): EntityOperationDiagnostic
 }
 
 function validateProject(document: unknown): AuthoringProject | EntityOperationDiagnostic {
-  if (isAuthoringProject(document)) return document;
+  if (isAuthoringProjectView(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
 
@@ -226,7 +226,7 @@ export function createEntityRecordPatches(
   payload: CreateEntityRecordPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const diagnostics = [
     validateTargetCollection(payload.collection),
     entityIdDiagnostic(payload.entityId, pathForRecord(payload.collection, payload.entityId)),
@@ -405,7 +405,7 @@ export function renameEntityIdPatches(
   // The admitted native working projection does not need a second TypeScript
   // whole-Project schema parse. The legacy route still validates normally.
   const project = nativeAdmitted ? (document as AuthoringProject) : validateProject(document);
-  if (!nativeAdmitted && !isAuthoringProject(project))
+  if (!nativeAdmitted && !isAuthoringProjectView(project))
     return { patches: [], diagnostics: [project as EntityOperationDiagnostic] };
   const admittedProject = project as AuthoringProject;
   const diagnostics = [
@@ -508,7 +508,7 @@ export function duplicateEntityRecordPatches(
   payload: DuplicateEntityRecordPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const diagnostics = [
     validateTargetCollection(payload.collection),
     entityIdDiagnostic(payload.sourceId, pathForRecord(payload.collection, payload.sourceId)),
@@ -568,7 +568,7 @@ export function deleteEntityRecordPatches(
   referenceIndex: ReferenceIndex,
 ): EntityOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const diagnostics = [
     validateTargetCollection(payload.collection),
     entityIdDiagnostic(payload.entityId, pathForRecord(payload.collection, payload.entityId)),
@@ -616,7 +616,7 @@ export function updateEntityMetadataPatches(
   payload: UpdateEntityMetadataPayload,
 ): EntityOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const diagnostics = [
     validateTargetCollection(payload.collection),
     entityIdDiagnostic(payload.entityId, pathForRecord(payload.collection, payload.entityId)),

@@ -18,7 +18,7 @@ import {
   collectProjectTags,
   recordEditorMetadata,
 } from '../../../shared/project-schema/authoring-tags';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { findUsages } from '../../../shared/project-schema/authoring-references';
 import { referenceIndexFromCurrentGraph } from '@/project/authoring-graph-consumers';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
@@ -38,7 +38,7 @@ import { AssetAttachments } from './AssetAttachments';
 import type { AssetEmbeddedMetadataHandle } from './AssetEmbeddedMetadata';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
-  if (!assetId || !isAuthoringProject(project)) return null;
+  if (!assetId || !isAuthoringProjectView(project)) return null;
   return project.assets[assetId] ?? null;
 }
 
@@ -103,7 +103,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   );
 
   const stableUsages = useMemo(() => {
-    if (!assetId || !isAuthoringProject(project) || !graphSnapshot) return [];
+    if (!assetId || !isAuthoringProjectView(project) || !graphSnapshot) return [];
     return findUsages(referenceIndexFromCurrentGraph(project, graphSnapshot), {
       collection: 'assets',
       id: assetId,
@@ -111,20 +111,20 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
   }, [assetId, graphSnapshot, project]);
 
   const aliasUsages = useMemo(() => {
-    if (!data || !isAuthoringProject(project)) return [];
+    if (!data || !isAuthoringProjectView(project)) return [];
     const index = buildAssetAliasIndex(project);
     return data.aliases.flatMap((alias) => findAssetAliasUsages(index, alias));
   }, [data, project]);
 
   const recordTags = useMemo(
     () =>
-      isAuthoringProject(project) && assetId
+      isAuthoringProjectView(project) && assetId
         ? recordEditorMetadata(project, 'assets', assetId).tags
         : [],
     [assetId, project],
   );
   const tagSuggestions = useMemo(() => {
-    if (!isAuthoringProject(project)) return [];
+    if (!isAuthoringProjectView(project)) return [];
     return collectProjectTags(project, recordTags);
   }, [project, recordTags]);
 
@@ -386,7 +386,7 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
             </div>
           </section>
 
-          {isAuthoringProject(project) ? (
+          {isAuthoringProjectView(project) ? (
             <AssetAttachments
               assetId={assetId}
               project={project}

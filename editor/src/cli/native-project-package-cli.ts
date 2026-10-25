@@ -362,7 +362,6 @@ export async function runNativeProjectPackageCli(
     const prepared = await prepareRuntimeArtifact({
       project,
       admittedAuthoringDiagnostics: admittedDiagnostics(preparation),
-      admittedValidationContributions: [],
       admittedRuntimeAssetReferences: preparation.referencedAssetIds,
       projectRoot: root,
       profile,

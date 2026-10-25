@@ -66,7 +66,6 @@ describe('native editor package export admission', () => {
         expect.objectContaining({
           project: admission.project,
           admittedAuthoringDiagnostics: [],
-          admittedValidationContributions: [],
           admittedRuntimeAssetReferences: ['included'],
           intent: 'runtime-package-export',
         }),

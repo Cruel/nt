@@ -10,7 +10,7 @@ import { useProjectStore } from '@/project/project-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import {
   availableBottomPanelDefinitions,
   type BottomPanelId,
@@ -36,7 +36,7 @@ function ProblemsPanel() {
   const diagnostics = useWorkspaceStore((state) => state.diagnostics);
   const developerMode = usePreferencesStore((state) => state.developerMode);
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((diagnostic) => ({
@@ -456,7 +456,7 @@ function CommandHistoryPanel() {
   const history = useCommandStore((state) => state.history);
   const lastDiagnostics = useCommandStore((state) => state.lastDiagnostics);
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const lastDiagnosticItems = useMemo(
     () =>
       lastDiagnostics.map((diagnostic) => ({

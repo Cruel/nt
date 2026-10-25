@@ -1,0 +1,17 @@
+id: gallery
+label: Gallery
+traits: []
+data:
+  displayName: Gallery
+  description:
+    source:
+      kind: inline
+      text: Navigation reached the gallery, revision 1.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540

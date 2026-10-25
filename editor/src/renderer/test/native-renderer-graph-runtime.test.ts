@@ -3,10 +3,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { toJsonValue } from '../project/json-value';
 import { useProjectStore } from '../project/project-store';
 import { useCommandStore } from '../commands/command-store';
-import {
-  authoringDependencyGraphService,
-  startAuthoringDependencyGraphService,
-} from '../project/authoring-dependency-graph-runtime';
+import { startAuthoringDependencyGraphService } from '../project/authoring-dependency-graph-runtime';
 import { nativeRendererGraphService } from '../project/native-authoring-graph-runtime';
 
 const session = 'bb974e72-e2dd-43c4-b0ee-3c3b616d7418';
@@ -53,7 +50,6 @@ afterEach(() => {
 describe('admitted native renderer graph lifecycle', () => {
   it('never builds the TypeScript semantic graph and accepts only the latest working revision', async () => {
     openNative();
-    const publishLegacy = vi.spyOn(authoringDependencyGraphService, 'publish');
     let resolveOlder!: (value: ReturnType<typeof nativeGraph>) => void;
     const older = new Promise<ReturnType<typeof nativeGraph>>((resolve) => {
       resolveOlder = resolve;
@@ -76,7 +72,6 @@ describe('admitted native renderer graph lifecycle', () => {
       await oldQuery;
       expect(nativeRendererGraphService.currentSnapshot()?.nativeGraph.workingRevision).toBe(1);
       expect(read).toHaveBeenCalledWith(session, 1);
-      expect(publishLegacy).not.toHaveBeenCalled();
       // A refresh that is incomplete must remove the previously usable graph.
       read.mockImplementation(() =>
         Promise.resolve({

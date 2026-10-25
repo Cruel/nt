@@ -2,10 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { toJsonValue } from '@/project/json-value';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import {
-  defaultDialogueBlock,
-  defaultDialogueData,
-} from '../../shared/project-schema/authoring-dialogues';
+import { defaultDialogueData } from '../../shared/project-schema/authoring-dialogues';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { structuredMessageId } from '../../shared/authoring-structured-messages';
 import { testTranslation } from './fixtures/localization-workflow';
@@ -72,30 +69,10 @@ describe('dialogue commands', () => {
     });
   });
 
-  it('patches valid Dialogue data and rejects invalid block/edge combinations', () => {
+  it('produces undoable Dialogue patch intents; native admission validates graph edges', () => {
     const project = createAuthoringProject();
     project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
     let state = createInitialCommandBusState(toJsonValue(project));
-
-    const invalidData = defaultDialogueData('Intro');
-    invalidData.blocks.push(defaultDialogueBlock('choice', 'decision', 'Decision'));
-    invalidData.edges = [
-      {
-        id: 'invalid-choice',
-        kind: 'choice',
-        fromBlockId: 'start',
-        toBlockId: 'decision',
-        label: inlineTextContent('Choose'),
-        effects: [],
-        logged: true,
-        autosaveSafePoint: false,
-      },
-    ];
-    const invalid = executeCommand(state, {
-      type: 'dialogue.replaceData',
-      payload: { dialogueId: 'intro', data: invalidData },
-    });
-    expect(invalid.ok).toBe(false);
 
     const next = defaultDialogueData('Intro');
     const start = next.blocks[0]!;

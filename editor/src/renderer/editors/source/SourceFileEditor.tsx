@@ -36,7 +36,7 @@ import {
 } from '@/shaders/shader-source-tab-state';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
 import { sourceFileLanguage } from '../../../shared/project-source-files';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { buildMaterialDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -83,7 +83,7 @@ export function SourceFileEditor({ tab }: WorkbenchEditorProps) {
     [files, sourceId],
   );
   const buffer = sourceId ? buffersById[sourceId] : undefined;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const isShaderSource = source?.kind === 'shader';
   const usages = useMemo(
     () =>

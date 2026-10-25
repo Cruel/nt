@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, waitFor } from '@testing-library/react';
 import { FullGamePreviewEditor } from '@/editors/preview/FullGamePreviewEditor';
+import { useCommandStore } from '@/commands/command-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
@@ -97,11 +98,35 @@ beforeEach(() => {
   });
   usePendingInputStore.getState().resetPendingInputs();
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
 
   const project = createAuthoringProject();
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
   project.entrypoint = { kind: 'room', id: 'foyer' };
-  useProjectStore.getState().loadUnsavedProjectDocument(project);
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    savedDocument: project,
+    nativeSession: true,
+    projectSessionId: 'test-project-session',
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/project.yaml',
+  });
+  useCommandStore.getState().enableNativeCommandMode(0);
+  Object.defineProperty(window.noveltea, 'nativeProjectPrepareRuntime', {
+    configurable: true,
+    value: vi.fn().mockResolvedValue({
+      status: 'prepared',
+      artifact: {
+        compiledProject: { rooms: {} },
+        shaderMaterialMetadata: null,
+        fileEntries: [],
+        requiredShaderBinaryPaths: [],
+        packageOptions: { textEntries: [] },
+        sourceFingerprint: 'test-source-fingerprint',
+        diagnostics: [],
+      },
+    }),
+  });
 });
 
 describe('FullGamePreviewEditor bootstrap ordering', () => {

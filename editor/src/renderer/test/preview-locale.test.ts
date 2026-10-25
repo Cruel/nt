@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
 import { DEFAULT_PREVIEW_DISPLAY_PREFERENCE } from '../../shared/preview-display';
 import { effectivePreviewLocale, projectWithPreviewLocale } from '../../shared/preview-locale';
 import {
@@ -268,11 +268,11 @@ describe('Preview Locale', () => {
     expect(project.localization.locales[runtimeLocale]).toBeUndefined();
     expect(project.localization.translations[runtimeLocale]).toBeUndefined();
 
-    const compiled = compileAuthoringProject(preview);
-    expect(compiled.ok, JSON.stringify(compiled.ok ? [] : compiled.diagnostics)).toBe(true);
-    if (!compiled.ok) return;
-    expect(compiled.project.localization.defaultLocale).toBe(runtimeLocale);
-    const pseudoCatalog = compiled.project.localization.catalogs.find(
+    const compiled = lowerSharedAuthoringProject(preview);
+    expect(compiled.draft, JSON.stringify(compiled.diagnostics)).toBeDefined();
+    if (!compiled.draft) return;
+    expect(compiled.draft.localization.defaultLocale).toBe(runtimeLocale);
+    const pseudoCatalog = compiled.draft.localization.catalogs.find(
       (catalog) => catalog.locale === runtimeLocale,
     );
     expect(pseudoCatalog).toBeDefined();
@@ -291,7 +291,7 @@ describe('Preview Locale', () => {
           ) === true,
       ),
     ).toBe(true);
-    const compiledRml = compiled.project.resources.layouts.find(
+    const compiledRml = compiled.draft.resources.layouts.find(
       (entry) => entry.id === 'pseudo',
     )?.rml;
     expect(compiledRml?.kind).toBe('inline');
@@ -300,14 +300,14 @@ describe('Preview Locale', () => {
       expect(compiledRml.text).not.toContain('⟦');
     }
 
-    const shipping = compileAuthoringProject(project);
-    expect(shipping.ok).toBe(true);
-    if (!shipping.ok) return;
+    const shipping = lowerSharedAuthoringProject(project);
+    expect(shipping.draft, JSON.stringify(shipping.diagnostics)).toBeDefined();
+    if (!shipping.draft) return;
     expect(
-      shipping.project.localization.locales.some((locale) => locale.locale === runtimeLocale),
+      shipping.draft.localization.locales.some((locale) => locale.locale === runtimeLocale),
     ).toBe(false);
     expect(
-      shipping.project.localization.catalogs.some((catalog) => catalog.locale === runtimeLocale),
+      shipping.draft.localization.catalogs.some((catalog) => catalog.locale === runtimeLocale),
     ).toBe(false);
   });
 });

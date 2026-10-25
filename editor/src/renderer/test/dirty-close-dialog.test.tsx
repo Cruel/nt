@@ -25,6 +25,7 @@ import {
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 const tab: WorkbenchTab = {
   id: 'tab:rooms:foyer',
@@ -74,12 +75,37 @@ function authoringProjectWithRooms(foyerLabel = 'Foyer', kitchenLabel = 'Kitchen
   return project;
 }
 
+async function nativeDirtyRooms(foyerLabel?: string, kitchenLabel?: string) {
+  const native = admitNativeRendererCommandFixture(
+    authoringProjectWithRooms(),
+    'test-project-session',
+  );
+  for (const [roomId, label] of [
+    ['foyer', foyerLabel],
+    ['kitchen', kitchenLabel],
+  ] as const) {
+    if (label === undefined) continue;
+    const result = await useCommandStore.getState().executeCommandAsync({
+      type: 'project.replaceAtPath',
+      label: `Rename ${roomId}`,
+      payload: { path: `/rooms/${roomId}/label`, value: label },
+      originSaveUnitId: `record:rooms:${roomId}`,
+      persistencePolicy: 'manual-save',
+    });
+    if (!result.ok)
+      throw new Error(
+        `Native test fixture rejected ${roomId}: ${JSON.stringify(result.diagnostics)}`,
+      );
+  }
+  return native;
+}
+
 beforeEach(() => {
   useWorkbenchStore.getState().resetWorkbench();
   useCloseGuardStore.getState().clearPendingClose();
   useDraftDirtyStore.getState().resetDraftDirty();
-  useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   useProjectSourceStore.getState().clear();
   clearWorkbenchTabStates();
   setLoadedEditorProjectState(emptyEditorProjectState());
@@ -248,25 +274,7 @@ describe('dirty tab close guard', () => {
 
   it('prompts once for close to the right and confirms the whole requested range', async () => {
     const user = userEvent.setup();
-    useProjectStore.getState().loadProjectDocument({
-      document: {
-        rooms: {
-          foyer: { id: 'foyer', label: 'Foyer' },
-          kitchen: { id: 'kitchen', label: 'Kitchen' },
-        },
-      },
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
-    useProjectStore.getState().replaceDocumentFromCommand(
-      {
-        rooms: {
-          foyer: { id: 'foyer', label: 'Foyer' },
-          kitchen: { id: 'kitchen', label: 'New Kitchen' },
-        },
-      },
-      0,
-    );
+    await nativeDirtyRooms(undefined, 'New Kitchen');
     openTestTabs();
     render(<DirtyCloseDialog />);
 
@@ -279,25 +287,7 @@ describe('dirty tab close guard', () => {
 
   it('discards a dirty batch and closes every requested tab', async () => {
     const user = userEvent.setup();
-    useProjectStore.getState().loadProjectDocument({
-      document: {
-        rooms: {
-          foyer: { id: 'foyer', label: 'Foyer' },
-          kitchen: { id: 'kitchen', label: 'Kitchen' },
-        },
-      },
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
-    useProjectStore.getState().replaceDocumentFromCommand(
-      {
-        rooms: {
-          foyer: { id: 'foyer', label: 'New Foyer' },
-          kitchen: { id: 'kitchen', label: 'New Kitchen' },
-        },
-      },
-      0,
-    );
+    await nativeDirtyRooms('New Foyer', 'New Kitchen');
     openTestTabs();
     render(<DirtyCloseDialog />);
 
@@ -308,7 +298,7 @@ describe('dirty tab close guard', () => {
     );
     await user.click(await screen.findByText("Don't Save"));
 
-    expect(useProjectStore.getState().document).toEqual({
+    expect(useProjectStore.getState().document).toMatchObject({
       rooms: {
         foyer: { id: 'foyer', label: 'Foyer' },
         kitchen: { id: 'kitchen', label: 'Kitchen' },
@@ -320,63 +310,32 @@ describe('dirty tab close guard', () => {
 
   it('saves dirty batch changes before closing every requested tab', async () => {
     const user = userEvent.setup();
-    const saved = authoringProjectWithRooms();
-    const working = authoringProjectWithRooms('New Foyer', 'New Kitchen');
-    useProjectStore.getState().loadProjectDocument({
-      document: saved,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-      projectSessionId: 'test-project-session',
-    });
-    useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    const native = await nativeDirtyRooms('New Foyer', 'New Kitchen');
     openTestTabs();
     render(<DirtyCloseDialog />);
 
     act(() => useCloseGuardStore.getState().requestCloseAllTabsInGroup(ROOT_GROUP_ID));
     await user.click(await screen.findByText('Save'));
 
-    expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[0]).toBe(
-      'test-project-session',
+    expect(native.save).toHaveBeenCalledTimes(2);
+    expect(native.save.mock.calls.map((call) => call[2])).toEqual(
+      expect.arrayContaining(['record:rooms:foyer', 'record:rooms:kitchen']),
     );
-    const requests = vi
-      .mocked(window.noveltea.saveProjectContent)
-      .mock.calls.map((call) => call[1]);
-    expect(requests).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          localValueByPath: expect.objectContaining({
-            '/rooms/foyer/label': { exists: true, value: 'New Foyer' },
-          }),
-        }),
-        expect.objectContaining({
-          localValueByPath: expect.objectContaining({
-            '/rooms/kitchen/label': { exists: true, value: 'New Kitchen' },
-          }),
-        }),
-      ]),
-    );
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
     expect(useWorkbenchStore.getState().tabsById[kitchenTab.id]).toBeUndefined();
   });
 
   it('discards dirty record changes through the command bus before closing', async () => {
     const user = userEvent.setup();
-    useProjectStore.getState().loadProjectDocument({
-      document: { rooms: { foyer: { id: 'foyer', label: 'Foyer' } } },
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
-    useProjectStore
-      .getState()
-      .replaceDocumentFromCommand({ rooms: { foyer: { id: 'foyer', label: 'New Foyer' } } }, 0);
+    await nativeDirtyRooms('New Foyer');
     openTestTab();
     render(<DirtyCloseDialog />);
 
     act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
     await user.click(await screen.findByText("Don't Save"));
 
-    expect(useProjectStore.getState().document).toEqual({
+    expect(useProjectStore.getState().document).toMatchObject({
       rooms: { foyer: { id: 'foyer', label: 'Foyer' } },
     });
     expect(useCommandStore.getState().history.entries.at(-1)?.label).toBe(
@@ -387,26 +346,27 @@ describe('dirty tab close guard', () => {
 
   it('prompts for and discards a cross-path Instance change attributed to the Room save unit', async () => {
     const user = userEvent.setup();
-    useProjectStore.getState().loadProjectDocument({
-      document: {
-        rooms: { foyer: { id: 'foyer', label: 'Foyer' } },
-        interactableInstances: { key: { id: 'key', localProperties: [] } },
-      },
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    const project = authoringProjectWithRooms();
+    (
+      project as unknown as { interactableInstances: Record<string, unknown> }
+    ).interactableInstances = {
+      key: { id: 'key', localProperties: [] },
+    };
+    admitNativeRendererCommandFixture(project, 'test-project-session');
     openTestTab();
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'project.replaceAtPath',
-        label: 'Set Instance Property',
-        payload: {
-          path: '/interactableInstances/key/localProperties',
-          value: [{ id: 'locked', type: 'boolean', nullable: false, value: true }],
-        },
-        originSaveUnitId: 'record:rooms:foyer',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.replaceAtPath',
+          label: 'Set Instance Property',
+          payload: {
+            path: '/interactableInstances/key/localProperties',
+            value: [{ id: 'locked', type: 'boolean', nullable: false, value: true }],
+          },
+          originSaveUnitId: 'record:rooms:foyer',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
     render(<DirtyCloseDialog />);
 
@@ -422,27 +382,17 @@ describe('dirty tab close guard', () => {
 
   it('saves dirty record changes before closing', async () => {
     const user = userEvent.setup();
-    const saved = authoringProjectWithRooms();
-    const working = authoringProjectWithRooms('New Foyer');
-    useProjectStore.getState().loadProjectDocument({
-      document: saved,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-      projectSessionId: 'test-project-session',
-    });
-    useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    const native = await nativeDirtyRooms('New Foyer');
     openTestTab();
     render(<DirtyCloseDialog />);
 
     act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
     await user.click(await screen.findByText('Save'));
 
-    expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
-      localValueByPath: {
-        '/rooms/foyer/label': { exists: true, value: 'New Foyer' },
-      },
+    expect(native.save).toHaveBeenCalledWith('test-project-session', 1, 'record:rooms:foyer', {
+      comments: 'keep',
     });
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useProjectStore.getState().savedDocument).toMatchObject({
       rooms: { foyer: { label: 'New Foyer' } },
     });
@@ -451,27 +401,24 @@ describe('dirty tab close guard', () => {
 
   it('applies draft changes before saving and closing', async () => {
     const user = userEvent.setup();
-    const project = authoringProjectWithRooms();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-      projectSessionId: 'test-project-session',
-    });
+    const native = admitNativeRendererCommandFixture(
+      authoringProjectWithRooms(),
+      'test-project-session',
+    );
     openTestTab();
     useDraftDirtyStore.getState().setDraftDirty(tab.id, {
       tabId: tab.id,
       dirty: true,
       label: 'Draft',
-      apply: () => {
-        useCommandStore.getState().executeCommand({
+      apply: async () => {
+        const response = await useCommandStore.getState().executeCommandAsync({
           type: 'project.replaceAtPath',
           label: 'Apply draft',
           payload: { path: '/rooms/foyer/label', value: 'Draft Foyer' },
           originSaveUnitId: 'record:rooms:foyer',
           persistencePolicy: 'manual-save',
         });
-        return true;
+        return response.ok;
       },
       discard: () => true,
     });
@@ -480,12 +427,10 @@ describe('dirty tab close guard', () => {
     act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
     await user.click(await screen.findByText('Save'));
 
-    expect(window.noveltea.saveProjectContent).toHaveBeenCalledOnce();
-    expect(vi.mocked(window.noveltea.saveProjectContent).mock.calls[0]?.[1]).toMatchObject({
-      localValueByPath: {
-        '/rooms/foyer/label': { exists: true, value: 'Draft Foyer' },
-      },
+    expect(native.save).toHaveBeenCalledWith('test-project-session', 1, 'record:rooms:foyer', {
+      comments: 'keep',
     });
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
@@ -588,11 +533,7 @@ describe('dirty tab close guard', () => {
   it('shares pending Project Settings input across duplicate views and blocks Save on final close', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
+    admitNativeRendererCommandFixture(project, 'test-project-session');
     setLoadedEditorProjectState({
       ...emptyEditorProjectState(),
       recovery: {
@@ -734,14 +675,7 @@ describe('dirty tab close guard', () => {
 
   it("Don't Save removes the logical recovery overlay, including pending raw input", async () => {
     const user = userEvent.setup();
-    const saved = authoringProjectWithRooms();
-    const working = authoringProjectWithRooms('Dirty Foyer');
-    useProjectStore.getState().loadProjectDocument({
-      document: saved,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/game.json',
-    });
-    useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
+    await nativeDirtyRooms('Dirty Foyer');
     setLoadedEditorProjectState({
       ...emptyEditorProjectState(),
       recovery: {

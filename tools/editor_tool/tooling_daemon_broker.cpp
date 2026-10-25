@@ -3903,11 +3903,9 @@ private:
                     const auto owner = owner_id == project_owner_by_root_.end()
                                            ? project_owners_.end()
                                            : project_owners_.find(owner_id->second);
-                    if (owner_request.value("nativeCandidate", false) &&
-                        (owner == project_owners_.end() || owner->second.retiring ||
-                         !active->second.pinned_generation ||
-                         !owner->second.active_generation ||
-                         *owner->second.active_generation != *active->second.pinned_generation)) {
+                    if (owner == project_owners_.end() || owner->second.retiring ||
+                        !active->second.pinned_generation || !owner->second.active_generation ||
+                        *owner->second.active_generation != *active->second.pinned_generation) {
                         client->send(result_event_json(
                             request_id, false, "null",
                             "ComfyUI Project owner generation changed before Asset publication"));

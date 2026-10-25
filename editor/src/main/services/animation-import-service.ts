@@ -8,7 +8,6 @@ import {
 } from '../../shared/project-schema/authoring-assets';
 import { prepareRasterAnimation } from './raster-animation-import';
 import { MAX_RASTER_IMPORT_FRAMES } from './raster-import-limits';
-import { writeProjectAssetFilesTransaction } from './project-asset-file-transaction';
 
 const MAX_SOURCE_BYTES = 128 * 1024 * 1024;
 
@@ -102,7 +101,7 @@ export async function importAnimationFiles(
         await stageAsset(file.path, file.bytes);
         staged.push(file.path);
       }
-    } else await writeProjectAssetFilesTransaction(projectRoot, files, 'Animation import');
+    } else throw new Error('Animation import requires the admitted native Project session.');
     return {
       ok: true,
       success: true,

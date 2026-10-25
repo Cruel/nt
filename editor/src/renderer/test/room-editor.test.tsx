@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { describe, expect, it, beforeEach, vi } from 'vite-plus/test';
 import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -118,7 +119,7 @@ describe('RoomEditor', () => {
   it('splits Room editing into the shared categorical layout', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     expect(screen.getByRole('navigation', { name: 'Room editor categories' })).toBeInTheDocument();
@@ -136,7 +137,7 @@ describe('RoomEditor', () => {
     expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
   });
 
-  it('routes Contents Add through exact resource selection and dedicated-placement semantics', () => {
+  it('routes Contents Add through exact resource selection and dedicated-placement semantics', async () => {
     const project = createAuthoringProject();
     project.assets.pixel = {
       id: 'pixel',
@@ -152,7 +153,7 @@ describe('RoomEditor', () => {
       },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     selectRoomCategory('Contents');
@@ -160,6 +161,12 @@ describe('RoomEditor', () => {
 
     expect(screen.getByText('Choose Prop source')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Image · Pixel/i }));
+    await waitFor(() => {
+      const updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      expect(parseRoomData(updated.rooms.foyer?.data)?.props).toHaveLength(1);
+    });
 
     const updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
@@ -188,14 +195,14 @@ describe('RoomEditor', () => {
       localProperties: [{ id: 'clue', type: 'string', nullable: false, value: 'portrait' }],
       data: defaultRoomData('Foyer'),
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
     expect(within(navigation).getByRole('button', { name: 'Properties' })).toHaveTextContent('2');
   });
 
-  it('uses compact master-detail editors for Camera Views and Anchors', () => {
+  it('uses compact master-detail editors for Camera Views and Anchors', async () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.presentationSpace.views = [
@@ -213,7 +220,7 @@ describe('RoomEditor', () => {
       { id: 'desk', bounds: { x: 0.5, y: 0.6, width: 0.2, height: 0.1 } },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     selectRoomCategory('Camera');
@@ -229,7 +236,7 @@ describe('RoomEditor', () => {
     expect(screen.queryByDisplayValue('door')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add View' }));
-    expect(screen.getByDisplayValue('view')).toBeInTheDocument();
+    expect(await screen.findByDisplayValue('view')).toBeInTheDocument();
     const updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
     if (!isAuthoringProject(updated)) return;
@@ -252,7 +259,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     selectRoomCategory('Composition');
@@ -262,10 +269,10 @@ describe('RoomEditor', () => {
     expect(screen.queryByRole('heading', { name: 'Room Contents' })).toBeNull();
   });
 
-  it('edits shared Gameplay Commands for every Room lifecycle command hook', () => {
+  it('edits shared Gameplay Commands for every Room lifecycle command hook', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     selectRoomCategory('Behavior');
@@ -287,6 +294,12 @@ describe('RoomEditor', () => {
     expect(beforeEnter).not.toBeNull();
     expect(within(beforeEnter!).queryByRole('button', { name: '+ Run Lua' })).toBeNull();
     fireEvent.click(within(afterEnter!).getByRole('button', { name: '+ Run Lua' }));
+    await waitFor(() => {
+      const updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      expect(parseRoomData(updated.rooms.foyer?.data)?.lifecycle.afterEnter).toHaveLength(1);
+    });
 
     const updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
@@ -319,7 +332,7 @@ describe('RoomEditor', () => {
       },
     });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     selectRoomCategory('Behavior');
@@ -328,7 +341,7 @@ describe('RoomEditor', () => {
     expect(screen.getByText('Room definition')).toBeInTheDocument();
     expect(screen.getAllByText('gameplay-effect').length).toBeGreaterThanOrEqual(1);
   });
-  it('moves geometry interaction into the temporary full-tab Hotspot Focus workspace', () => {
+  it('moves geometry interaction into the temporary full-tab Hotspot Focus workspace', async () => {
     const project = createAuthoringProject();
     project.assets.image = {
       id: 'image',
@@ -365,16 +378,18 @@ describe('RoomEditor', () => {
       inventories: [],
     });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchStore.getState().openTab(tab);
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'project.applyPatch',
-        label: 'Rename Room externally',
-        payload: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Foyer renamed' }],
-        originSaveUnitId: 'record:rooms:foyer',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.applyPatch',
+          label: 'Rename Room externally',
+          payload: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Foyer renamed' }],
+          originSaveUnitId: 'record:rooms:foyer',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
     renderEditor();
 
@@ -396,8 +411,12 @@ describe('RoomEditor', () => {
         .getState()
         .setBounds(tab.id, 'door', { x: 0.25, y: 0.3, width: 0.3, height: 0.4 });
     });
-    const projectUndo = vi.fn(() => useCommandStore.getState().undo());
-    const projectRedo = vi.fn(() => useCommandStore.getState().redo());
+    const projectUndo = vi.fn(() => {
+      void useCommandStore.getState().undoAsync();
+    });
+    const projectRedo = vi.fn(() => {
+      void useCommandStore.getState().redoAsync();
+    });
     const globalProjectShortcut = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       const key = event.key.toLowerCase();
@@ -459,7 +478,7 @@ describe('RoomEditor', () => {
     });
     fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
     expect(projectUndo).toHaveBeenCalledTimes(1);
-    expect(useCommandStore.getState().history.cursor).toBe(-1);
+    await waitFor(() => expect(useCommandStore.getState().history.cursor).toBe(-1));
     expect(
       useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
     ).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
@@ -496,7 +515,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -559,7 +578,7 @@ describe('RoomEditor', () => {
     const room = defaultRoomData('Foyer');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
@@ -649,7 +668,7 @@ describe('RoomEditor', () => {
     const room = defaultRoomData('Foyer');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     const previewSurface = document.querySelector<HTMLElement>('[data-room-preview-surface]');
@@ -696,7 +715,7 @@ describe('RoomEditor', () => {
     const room = defaultRoomData('Foyer');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const first = renderEditor();
 
     const previewSurface = document.querySelector<HTMLElement>('[data-room-preview-surface]');
@@ -772,7 +791,7 @@ describe('RoomEditor', () => {
         },
       ];
       project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-      useProjectStore.getState().loadUnsavedProjectDocument(project);
+      admitNativeRendererCommandFixture(project);
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
       const view = renderEditor();
 
@@ -848,7 +867,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -881,7 +900,7 @@ describe('RoomEditor', () => {
       'desk',
     ]);
   });
-  it('uses the shared dialog for consequential multi-occupant Placement deletion', () => {
+  it('uses the shared dialog for consequential multi-occupant Placement deletion', async () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -912,7 +931,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -951,6 +970,12 @@ describe('RoomEditor', () => {
 
       fireEvent.keyDown(window, { key: 'Delete' });
       fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+      await waitFor(() => {
+        const updated = useProjectStore.getState().document;
+        expect(isAuthoringProject(updated)).toBe(true);
+        if (!isAuthoringProject(updated)) return;
+        expect(parseRoomData(updated.rooms.foyer?.data)?.placements).toHaveLength(0);
+      });
       current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
       if (!isAuthoringProject(current)) return;
@@ -982,7 +1007,7 @@ describe('RoomEditor', () => {
     const room = defaultRoomData('Foyer');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     renderEditor();
 
@@ -1028,7 +1053,7 @@ describe('RoomEditor', () => {
   it('selects the owning Room category for workbench targets', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     act(() => {
@@ -1049,7 +1074,7 @@ describe('RoomEditor', () => {
   it('selects the Properties category for Room Property targets', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     act(() => {
@@ -1098,7 +1123,7 @@ describe('RoomEditor', () => {
       'key',
       { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
     );
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     expect(
@@ -1166,7 +1191,7 @@ describe('RoomEditor', () => {
       data: defaultLayoutData('Desk UI'),
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -1179,7 +1204,9 @@ describe('RoomEditor', () => {
       if (!isAuthoringProject(current)) return;
       expect(parseRoomData(current.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.25);
     });
-    await act(() => useCommandStore.getState().undo());
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
+    });
     await waitFor(() => {
       const current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -1201,10 +1228,20 @@ describe('RoomEditor', () => {
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Add label' }));
+    await waitFor(() => expect(document.querySelector('textarea')).not.toBeNull());
     const labelEditor = document.querySelector('textarea');
     expect(labelEditor).not.toBeNull();
     if (!labelEditor) return;
     fireEvent.change(labelEditor, { target: { value: 'Writing desk' } });
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      if (!isAuthoringProject(current)) throw new Error('Project not admitted.');
+      expect(
+        parseRoomData(current.rooms.foyer?.data)?.placements[0]?.presentation.label,
+      ).toMatchObject({
+        source: { kind: 'inline', text: 'Writing desk' },
+      });
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Choose Layout' }));
     fireEvent.click(screen.getByRole('button', { name: /Desk UI/i }));
 
@@ -1262,7 +1299,7 @@ describe('RoomEditor', () => {
     ];
     project.interactableInstances['key-instance'] = instance;
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -1293,7 +1330,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -1335,7 +1372,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -1386,7 +1423,7 @@ describe('RoomEditor', () => {
   it('updates the display name through the command bus', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('General');
     fireEvent.change(screen.getByDisplayValue('Foyer'), { target: { value: 'Foyer East' } });
@@ -1410,12 +1447,7 @@ describe('RoomEditor', () => {
       },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('General');
 
@@ -1457,7 +1489,7 @@ describe('RoomEditor', () => {
   it('shows visual background-fit options and updates the selected fit', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('General');
 
@@ -1550,7 +1582,7 @@ describe('RoomEditor', () => {
       label: 'Long Hallway',
       data: defaultRoomData('Long Hallway'),
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('Navigation');
 
@@ -1592,7 +1624,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('Navigation');
 
@@ -1629,7 +1661,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('Navigation');
 
@@ -1673,7 +1705,7 @@ describe('RoomEditor', () => {
       label: 'Long Hallway',
       data: defaultRoomData('Long Hallway'),
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('Navigation');
 
@@ -1704,7 +1736,7 @@ describe('RoomEditor', () => {
       label: 'Long Hallway',
       data: defaultRoomData('Long Hallway'),
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('Navigation');
 
@@ -1740,8 +1772,8 @@ describe('RoomEditor', () => {
       persistencePolicy: 'manual-save',
     });
 
-    act(() => {
-      useCommandStore.getState().undo();
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
     });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -1778,7 +1810,7 @@ describe('RoomEditor', () => {
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: foyer };
     project.rooms.hallway = { id: 'hallway', label: 'Long Hallway', data: hallway };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     selectRoomCategory('Navigation');
 
@@ -1812,7 +1844,7 @@ describe('RoomEditor', () => {
   it('uses the shared resizable preview split', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     expect(screen.getByRole('separator', { name: 'Resize room preview' })).toBeInTheDocument();
@@ -1821,7 +1853,7 @@ describe('RoomEditor', () => {
   it('persists the Room Edit and Preview mode independently from preview collapse', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const view = renderEditor();
 
     const modes = screen.getByRole('group', { name: 'Room presentation mode' });
@@ -1851,7 +1883,7 @@ describe('RoomEditor', () => {
   it('discards replaced Room tab-state shapes instead of migrating missing fields', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -1885,7 +1917,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const authoredBefore = structuredClone(useProjectStore.getState().document);
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -2003,7 +2035,7 @@ describe('RoomEditor', () => {
   it('cancels an active middle-mouse pan on Escape before any lower-priority action', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -2050,7 +2082,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -2150,7 +2182,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -2251,7 +2283,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -2310,7 +2342,7 @@ describe('RoomEditor', () => {
         },
       ];
       project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-      useProjectStore.getState().loadUnsavedProjectDocument(project);
+      admitNativeRendererCommandFixture(project);
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
       renderEditor();
 
@@ -2340,7 +2372,7 @@ describe('RoomEditor', () => {
   it('uses the full Edit pane as a workspace around the fitted Room frame', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
       function (this: HTMLElement) {
         if (this.dataset.testid === 'room-edit-viewport')
@@ -2405,7 +2437,7 @@ describe('RoomEditor', () => {
   it('cancels an active Edit pan before the animated Preview transition owns the surface', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const originalMatchMedia = window.matchMedia;
     const originalRequestAnimationFrame = window.requestAnimationFrame;
     const originalCancelAnimationFrame = window.cancelAnimationFrame;
@@ -2454,7 +2486,7 @@ describe('RoomEditor', () => {
   it('captures and restores its tab-scoped preview collapse state', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const view = renderEditor();
 
     act(() => {
@@ -2516,7 +2548,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
 
@@ -2586,7 +2618,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -2646,7 +2678,7 @@ describe('RoomEditor', () => {
       order: index * 1024,
     }));
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchTabStateStore.getState().setTabState(tab.id, {
       schema: 'noveltea.editor.tab-state.room',
       payload: {
@@ -2710,7 +2742,7 @@ describe('RoomEditor', () => {
       data: defaultLayoutData('Desk UI'),
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -2773,7 +2805,7 @@ describe('RoomEditor', () => {
     }
   });
 
-  it('marquee-selects placements and moves a mixed explicit-occurrence selection atomically', () => {
+  it('marquee-selects placements and moves a mixed explicit-occurrence selection atomically', async () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: query === '(prefers-reduced-motion: reduce)',
@@ -2833,7 +2865,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -2882,6 +2914,11 @@ describe('RoomEditor', () => {
       fireEvent.mouseDown(surface, { button: 0, clientX: 200, clientY: 100 });
       fireEvent.mouseMove(window, { clientX: 300, clientY: 150 });
       fireEvent.mouseUp(window, { button: 0, clientX: 300, clientY: 150 });
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(parseRoomData(result.rooms.foyer?.data)?.placements).toHaveLength(3);
+      });
 
       const updated = useProjectStore.getState().document;
       expect(isAuthoringProject(updated)).toBe(true);
@@ -2933,7 +2970,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -2989,7 +3026,7 @@ describe('RoomEditor', () => {
     }
   });
 
-  it('uses the clamped draft projection during a move before committing it', () => {
+  it('uses the clamped draft projection during a move before committing it', async () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: query === '(prefers-reduced-motion: reduce)',
@@ -3011,7 +3048,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -3050,16 +3087,20 @@ describe('RoomEditor', () => {
       expect(parseRoomData(duringDrag.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.7);
 
       fireEvent.mouseUp(window, { button: 0, clientX: 1000, clientY: 100 });
-      const committed = useProjectStore.getState().document;
-      expect(isAuthoringProject(committed)).toBe(true);
-      if (!isAuthoringProject(committed)) return;
-      expect(parseRoomData(committed.rooms.foyer?.data)?.placements[0]?.bounds.x).toBeCloseTo(0.8);
+      await waitFor(() => {
+        const committed = useProjectStore.getState().document;
+        expect(isAuthoringProject(committed)).toBe(true);
+        if (!isAuthoringProject(committed)) return;
+        expect(parseRoomData(committed.rooms.foyer?.data)?.placements[0]?.bounds.x).toBeCloseTo(
+          0.8,
+        );
+      });
     } finally {
       window.matchMedia = originalMatchMedia;
     }
   });
 
-  it('updates the resize draft projection before committing the Project change', () => {
+  it('updates the resize draft projection before committing the Project change', async () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -3070,7 +3111,7 @@ describe('RoomEditor', () => {
       },
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
     fireEvent.click(screen.getByRole('button', { name: /Placement · desk/i }));
 
@@ -3107,12 +3148,14 @@ describe('RoomEditor', () => {
     expect(parseRoomData(duringResize.rooms.foyer?.data)?.placements[0]?.bounds.width).toBe(0.2);
 
     fireEvent.mouseUp(window, { button: 0, clientX: 400, clientY: 200 });
-    const committed = useProjectStore.getState().document;
-    expect(isAuthoringProject(committed)).toBe(true);
-    if (!isAuthoringProject(committed)) return;
-    expect(parseRoomData(committed.rooms.foyer?.data)?.placements[0]?.bounds.width).toBeGreaterThan(
-      0.2,
-    );
+    await waitFor(() => {
+      const committed = useProjectStore.getState().document;
+      expect(isAuthoringProject(committed)).toBe(true);
+      if (!isAuthoringProject(committed)) return;
+      expect(
+        parseRoomData(committed.rooms.foyer?.data)?.placements[0]?.bounds.width,
+      ).toBeGreaterThan(0.2);
+    });
   });
 
   it('does not split a shared placement when a resize handle is clicked without moving', () => {
@@ -3146,7 +3189,7 @@ describe('RoomEditor', () => {
       order: index * 1024,
     }));
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -3244,7 +3287,7 @@ describe('RoomEditor', () => {
       },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -3282,6 +3325,11 @@ describe('RoomEditor', () => {
       fireEvent.mouseMove(surface, { clientX: 300, clientY: 200 });
       expect(screen.getByTestId('room-edit-add-ghost')).toBeInTheDocument();
       fireEvent.mouseDown(surface, { button: 0, clientX: 300, clientY: 200 });
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(parseRoomData(result.rooms.foyer?.data)?.props[0]?.asset?.$ref.id).toBe('second');
+      });
 
       current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3295,6 +3343,13 @@ describe('RoomEditor', () => {
       const propItems = await screen.findAllByRole('menuitem', { name: 'Prop' });
       fireEvent.click(propItems.at(-1)!);
       fireEvent.click(await screen.findByRole('button', { name: /Image · First Image/i }));
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(
+          parseRoomData(result.rooms.foyer?.data)?.props.map((item) => item.asset?.$ref.id),
+        ).toEqual(['second', 'first']);
+      });
 
       current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3339,7 +3394,7 @@ describe('RoomEditor', () => {
       },
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -3356,7 +3411,7 @@ describe('RoomEditor', () => {
     expect(screen.queryByText('Sound Effect')).toBeNull();
   });
 
-  it('lets Interactable Add choose an existing exact Instance or create a new exact Instance', () => {
+  it('lets Interactable Add choose an existing exact Instance or create a new exact Instance', async () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({
       matches: query === '(prefers-reduced-motion: reduce)',
@@ -3379,7 +3434,7 @@ describe('RoomEditor', () => {
       'key',
     );
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -3410,6 +3465,13 @@ describe('RoomEditor', () => {
       fireEvent.click(screen.getByRole('button', { name: /Existing Instance · key-instance/i }));
       fireEvent.mouseMove(surface, { clientX: 250, clientY: 180 });
       fireEvent.mouseDown(surface, { button: 0, clientX: 250, clientY: 180 });
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(
+          parseRoomData(result.rooms.foyer?.data)?.interactables[0]?.interactable.$ref.id,
+        ).toBe('key-instance');
+      });
 
       let current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3423,6 +3485,11 @@ describe('RoomEditor', () => {
       fireEvent.click(screen.getByRole('button', { name: /New Instance · Brass Key/i }));
       fireEvent.mouseMove(surface, { clientX: 650, clientY: 320 });
       fireEvent.mouseDown(surface, { button: 0, clientX: 650, clientY: 320 });
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(parseRoomData(result.rooms.foyer?.data)?.interactables).toHaveLength(2);
+      });
 
       current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3449,7 +3516,7 @@ describe('RoomEditor', () => {
     }));
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     try {
       renderEditor();
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -3493,6 +3560,11 @@ describe('RoomEditor', () => {
       );
       fireEvent.mouseMove(surface, { clientX: 300, clientY: 200 });
       fireEvent.mouseDown(surface, { button: 0, clientX: 300, clientY: 200 });
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(parseRoomData(result.rooms.foyer?.data)?.placements).toHaveLength(1);
+      });
       let updated = useProjectStore.getState().document;
       expect(isAuthoringProject(updated)).toBe(true);
       if (!isAuthoringProject(updated)) return;
@@ -3504,6 +3576,11 @@ describe('RoomEditor', () => {
       fireEvent.keyDown(addMenu, { key: 'ArrowRight' });
       const placementItems = await screen.findAllByRole('menuitem', { name: 'Placement' });
       fireEvent.click(placementItems.at(-1)!);
+      await waitFor(() => {
+        const result = useProjectStore.getState().document;
+        if (!isAuthoringProject(result)) throw new Error('Missing native Project.');
+        expect(parseRoomData(result.rooms.foyer?.data)?.placements).toHaveLength(2);
+      });
       updated = useProjectStore.getState().document;
       expect(isAuthoringProject(updated)).toBe(true);
       if (!isAuthoringProject(updated)) return;
@@ -3533,7 +3610,7 @@ describe('RoomEditor', () => {
       data: defaultLayoutData('Desk UI'),
     };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useWorkbenchStore.setState({ activeGroupId: 'group:left' });
     const rightTab = { ...tab, id: `${tab.id}:right` };
 

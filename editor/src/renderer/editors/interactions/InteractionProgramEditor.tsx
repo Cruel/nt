@@ -3,11 +3,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import type { InteractionProgram } from '../../../shared/project-schema/authoring-interaction-programs';
 export { defaultInteractionProgram } from '../../../shared/project-schema/authoring-interaction-programs';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 
 export type AuthoringEditorProject = NonNullable<ReturnType<typeof authoringProjectFromDocument>>;
 export const authoringProjectFromDocument = (value: unknown) =>
-  isAuthoringProject(value) ? value : null;
+  isAuthoringProjectView(value) ? value : null;
 export const typedRef = <Collection extends string>(collection: Collection, id: string) => ({
   $ref: { collection, id },
 });

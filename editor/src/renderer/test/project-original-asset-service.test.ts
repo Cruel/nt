@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
+import { admitNativeTestProject } from './native-admitted-project-fixture';
 import {
   createProjectOriginalAssetProtocolHandler,
   resolveContainedOriginalAsset,
@@ -64,7 +65,11 @@ function projectWithAsset(
 
 async function activate(projectFilePath: string, project: unknown) {
   const sessions = new ActiveProjectSessionService();
-  const sessionId = await sessions.activateProjectFile(projectFilePath, undefined, project);
+  const sessionId = await admitNativeTestProject(
+    sessions,
+    projectFilePath,
+    project as ReturnType<typeof createAuthoringProject>,
+  );
   return { sessions, sessionId };
 }
 
@@ -315,17 +320,17 @@ describe('session-scoped original Asset streaming', () => {
     fs.writeFileSync(path.join(a.root, 'assets', 'images', 'logo.png'), bytes);
     fs.writeFileSync(path.join(b.root, 'assets', 'images', 'logo.png'), bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionA = await sessions.activateProjectFile(
+    const sessionA = await admitNativeTestProject(
+      sessions,
       a.projectFilePath,
-      undefined,
       projectWithAsset('logo', 'assets/images/logo.png', bytes),
     );
     const urlA = await resolveProjectOriginalAssetUrl(sessions, sessionA, 'logo');
     expect(urlA.ok).toBe(true);
 
-    await sessions.activateProjectFile(
+    await admitNativeTestProject(
+      sessions,
       b.projectFilePath,
-      undefined,
       projectWithAsset('logo', 'assets/images/logo.png', bytes),
     );
     const handler = createProjectOriginalAssetProtocolHandler(sessions);

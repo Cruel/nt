@@ -1,0 +1,15 @@
+id: app-icon
+label: app-icon
+data:
+  kind: image
+  source:
+    type: project-file
+    path: assets/images/app-icon.png
+  attachments: []
+  aliases: []
+  sampling: linear
+  imageMetadata:
+    width: 1024
+    height: 1024
+    hasAlpha: true
+    orientation: 1

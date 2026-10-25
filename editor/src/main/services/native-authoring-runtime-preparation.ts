@@ -1,34 +1,34 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile, mkdir, readFile, realpath } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
+import { projectWithPreviewLocale } from '../../shared/preview-locale';
 import {
   AUTHORING_PROJECT_SCHEMA,
   authoringCollectionKeys,
 } from '../../shared/project-schema/authoring-collections';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { TestData } from '../../shared/project-schema/authoring-tests';
+import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
+import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
 import { buildRuntimePlaybackSpecFromTestData } from '../../shared/project-schema/test-playback-projection';
-import { projectWithPreviewLocale } from '../../shared/preview-locale';
+import type { Sha256Digest } from '../../shared/project-text-sources';
 import {
   prepareRuntimeArtifact,
   type PreparedRuntimeArtifact,
   type RuntimeArtifactPathAdapter,
   type RuntimeArtifactShaderCompilerAdapter,
 } from '../../shared/runtime-artifact-preparation';
+import type { ShaderVariant } from '../../shared/shader-variants';
+import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
+import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
+import { compileShaders } from './native-shader-compiler-service';
 import {
   nodeRuntimeArtifactPaths,
   nodeShaderCompilerAdapter,
 } from './node-runtime-artifact-adapters';
-import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
-import type { Sha256Digest } from '../../shared/project-text-sources';
-import type { ShaderVariant } from '../../shared/shader-variants';
-import { compileShaders } from './native-shader-compiler-service';
-import type { NativeAuthoringPreparation } from './native-authoring-worker-contract';
-import { classifyProjectValidationDiagnostics } from '../../shared/project-schema/project-diagnostic-projection';
-import { nativeAssetContentHashes, verifyNativeSourceBytes } from './native-authoring-source-proof';
 
 /** Consume every effective native owner without TypeScript schema validation
  * or normalization. The addon owns canonical Project and record semantics;
@@ -87,9 +87,7 @@ export function projectFromNativeCompletePreparation(
 }
 
 function nativeRuntimeProject(options: NativeWorkingRuntimeOptions): AuthoringProject {
-  return options.legacy
-    ? options.legacy.project()
-    : projectFromNativeCompletePreparation(options.prepared);
+  return projectFromNativeCompletePreparation(options.prepared);
 }
 
 function admittedPlaybackTestData(
@@ -97,7 +95,7 @@ function admittedPlaybackTestData(
   project: AuthoringProject,
 ): TestData | null {
   const value = project.tests[options.testId!]?.data;
-  if (options.legacy) return options.legacy.testData(value);
+
   // Native admission owns defaults/validation. Only assert the transport
   // fields required to construct a typed runtime playback specification.
   const data = value as TestData | null | undefined;
@@ -110,7 +108,6 @@ function admittedPlaybackTestData(
  * independent TypeScript saved Workspace. Recheck every byte before compile
  * or cache reuse so neither files nor binary Assets can change unnoticed. */
 async function verifyCompleteNativeSources(options: NativeWorkingRuntimeOptions): Promise<void> {
-  if (options.legacy) return;
   const root = await realpath(options.projectRoot);
   const revisions = Object.entries(options.prepared.sourceRevisions);
   const assetHashes = nativeAssetContentHashes(
@@ -179,8 +176,8 @@ export class NativeWorkingRuntimePreparationCache {
   }
 
   private key(options: NativeWorkingRuntimeOptions): string {
-    const { prepared, legacy } = options;
-    const effective = legacy ? legacy.project() : projectFromNativeCompletePreparation(prepared);
+    const { prepared } = options;
+    const effective = projectFromNativeCompletePreparation(prepared);
     const runtimeOverrides = Object.fromEntries(
       Object.entries(prepared.recordOverrides).filter(([owner]) => owner !== 'tests'),
     );
@@ -298,12 +295,6 @@ export class NativeWorkingRuntimePreparationCache {
 
 export interface NativeWorkingRuntimeOptions {
   prepared: NativeAuthoringPreparation;
-  /** Isolated pre-#521 legacy adapter. Native candidate never imports its implementation. */
-  legacy?: {
-    project(): AuthoringProject;
-    prepare: typeof prepareRuntimeArtifact;
-    testData(value: unknown): TestData | null;
-  };
   projectRoot: string;
   testId?: string;
   testSuite?: boolean;
@@ -312,7 +303,7 @@ export interface NativeWorkingRuntimeOptions {
   paths?: RuntimeArtifactPathAdapter;
 }
 
-/** Certification-only native dirty → existing runtime/native playback seam.
+/** Native dirty → existing runtime/native playback seam.
  * Temporary source files never touch the Project or its published cache. */
 export async function prepareNativeWorkingRuntime(
   options: NativeWorkingRuntimeOptions,
@@ -408,21 +399,15 @@ export async function prepareNativeWorkingRuntime(
       },
     };
     const baseCompiler = options.shaderCompiler ?? nodeShaderCompilerAdapter(compileShaders);
-    const prepare = options.legacy?.prepare ?? prepareRuntimeArtifact;
-    if (!options.legacy && !Array.isArray(prepared.referencedAssetIds))
+    const prepare = prepareRuntimeArtifact;
+    if (!Array.isArray(prepared.referencedAssetIds))
       throw new Error('Native complete preparation omitted admitted Runtime Asset references.');
     const runtime = await prepare({
       project,
-      ...(!options.legacy
-        ? {
-            admittedAuthoringDiagnostics: classifyProjectValidationDiagnostics(
-              prepared.diagnostics,
-              { producer: 'authoring' },
-            ),
-            admittedValidationContributions: [],
-            admittedRuntimeAssetReferences: prepared.referencedAssetIds,
-          }
-        : {}),
+      admittedAuthoringDiagnostics: classifyProjectValidationDiagnostics(prepared.diagnostics, {
+        producer: 'authoring',
+      }),
+      admittedRuntimeAssetReferences: prepared.referencedAssetIds,
       projectRoot,
       profile: {
         ...selectedExportProfile(project),
@@ -433,7 +418,10 @@ export async function prepareNativeWorkingRuntime(
         compile: (shaderProject, shaderOptions) =>
           baseCompiler.compile(shaderProject, {
             ...shaderOptions,
-            sourceOverlays: { ...shaderOptions.sourceOverlays, ...prepared.shaderOverlays },
+            sourceOverlays: {
+              ...shaderOptions.sourceOverlays,
+              ...prepared.shaderOverlays,
+            },
           }),
       },
       paths,

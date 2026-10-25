@@ -14,10 +14,8 @@ const { encodeVariableYaml } =
   await import('../src/shared/project-workspace/variable-yaml-source.ts');
 const { createAuthoringProject } =
   await import('../src/shared/project-schema/authoring-project.ts');
-const { parseEditorProjectState } =
-  await import('../src/shared/project-schema/editor-project-state.ts');
-const { projectWorkspaceFiles } =
-  await import('../src/shared/project-workspace/project-workspace-service.ts');
+const { encodeNativeCreationTemplate } =
+  await import('./native-schema/project-creation-template.ts');
 const { NOVELTEA_PROJECT_AGENTS_BOOTSTRAP, NOVELTEA_LOCAL_STATE_GITIGNORE_RULE } =
   await import('../src/shared/project-workspace/agent-bootstrap.ts');
 const nativeCreateTemplate = createAuthoringProject({
@@ -105,7 +103,7 @@ const { defaultArchetypeConfiguration } =
 const { materialContractRegistry } =
   await import('../src/shared/project-schema/material-contract-registry.generated.ts');
 const { nativeStructuralReferenceRules } =
-  await import('../src/shared/authoring-dependency-graph.ts');
+  await import('./native-schema/structural-reference-rules.ts');
 const { resolveAssetMemoryPolicy } =
   await import('../src/shared/project-schema/platform-export-contracts.ts');
 const unicodeLowercase = {};
@@ -190,10 +188,7 @@ const files = new Map([
         },
       },
       projectCreationFiles: {
-        ...projectWorkspaceFiles(
-          nativeCreateTemplate,
-          parseEditorProjectState(nativeCreateTemplate.editor),
-        ),
+        ...encodeNativeCreationTemplate(nativeCreateTemplate),
         'AGENTS.md': NOVELTEA_PROJECT_AGENTS_BOOTSTRAP,
         '.gitignore': `${NOVELTEA_LOCAL_STATE_GITIGNORE_RULE}\n`,
       },

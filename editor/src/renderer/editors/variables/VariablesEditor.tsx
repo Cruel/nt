@@ -24,7 +24,7 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import {
   parseVariableData,
   variableTypeValues,
@@ -101,7 +101,7 @@ function parseManagerState(value: unknown): PropertyManagerState | null {
 export function VariablesEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const executeCommand = useCommandStore((state) => state.executeCommandAsync);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);

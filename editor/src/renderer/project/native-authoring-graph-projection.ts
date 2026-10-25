@@ -10,7 +10,7 @@ import type {
 } from '../../shared/authoring-dependency-contracts';
 import { AUTHORING_DEPENDENCY_ROLES } from '../../shared/authoring-dependency-contracts';
 import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
-import { serializeAuthoringDependencyNodeKey } from '../../shared/authoring-dependency-graph';
+import { serializeAuthoringDependencyNodeKey } from '../../shared/authoring-graph-queries';
 
 export type NativeRendererGraphSnapshot = AuthoringDependencyGraphSnapshot & {
   readonly nativeGraph: NativeSemanticGraph;

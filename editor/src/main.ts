@@ -1,197 +1,26 @@
 import {
   app,
   BrowserWindow,
-  ipcMain,
-  shell,
   dialog,
+  ipcMain,
   Menu,
-  screen,
-  protocol,
-  session,
-  powerMonitor,
   Notification,
+  powerMonitor,
+  protocol,
+  screen,
+  session,
+  shell,
 } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { guardNativeEditorProjectAuthority } from './shared/project-workspace/legacy-project-authority-guard';
-import { nodeRuntimeArtifactPaths } from './main/services/node-runtime-artifact-adapters';
-import {
-  exportNativeEditorPackage,
-  prepareNativeEditorExportAssessment,
-  verifyNativeCleanExportAdmission,
-} from './main/services/native-editor-export-service';
-import { IPC_CHANNELS } from './shared/ipc-channels';
-import type { EditorProjectState } from './shared/project-schema/editor-project-state';
-import { withNativeRecoveredTextSources } from './main/services/native-recovery-editor-state';
-import { setNovelTeaNativeOperationObserver } from './shared/noveltea-cli-subprocess';
-import { NOVELTEA_VERSION } from './shared/product-version';
-import { EnginePreviewServer } from './main/engine-preview-server';
-import {
-  PACKAGE_SMOKE_FLAG,
-  PACKAGE_SMOKE_PREFIX,
-  runPackageSmoke,
-  THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME,
-} from './main/package-smoke';
-import { importAssets, reimportAsset } from './main/services/asset-import-service';
-import { configureSharpPlatformImageService } from './main/services/platform-image-sharp-service';
-import {
-  cancelComfyUiJob,
-  checkComfyUiConnection,
-  editComfyUiImage,
-  generateComfyUiImage,
-  getComfyUiQueue,
-} from './main/services/comfyui-service';
-import {
-  copyComfyUiWorkflow,
-  deleteComfyUiWorkflow,
-  importComfyUiWorkflowToLibrary,
-  listComfyUiWorkflowLibrary,
-  repairComfyUiWorkflowInLibrary,
-  renameComfyUiWorkflow,
-  revealComfyUiWorkflow,
-  verifyComfyUiWorkflowLibrary,
-} from './main/services/comfyui-workflow-library-service';
-import { analyzeComfyUiWorkflowImport } from './main/services/comfyui-workflow-import-service';
-import {
-  loadComfyUiUserConfig,
-  saveComfyUiUserConfig,
-} from './main/services/comfyui-user-config-service';
-import {
-  auditProjectAssets,
-  importUntrackedProjectAssets,
-  organizeUntrackedProjectAsset,
-  purgeProjectTrash,
-  restoreProjectAssetFiles,
-  trashProjectAssetFiles,
-} from './main/services/project-asset-audit-service';
-import {
-  importProjectAttachmentFiles,
-  inspectProjectAttachmentFile,
-  listProjectAttachmentFiles,
-  openProjectAttachmentFile,
-} from './main/services/project-asset-attachment-service';
-import {
-  startProjectWorkspaceWatcher,
-  stopProjectWorkspaceWatcher,
-} from './main/services/project-workspace-watcher-service';
-import {
-  createProjectOriginalAssetProtocolHandler,
-  PROJECT_ORIGINAL_ASSET_SCHEME,
-  resolveProjectOriginalAssetUrl,
-} from './main/services/project-original-asset-service';
-import { ActiveProjectSessionService } from './main/services/active-project-session-service';
-import { NativeAuthoringSessionBridge } from './main/services/native-authoring-session-bridge';
-import { NativeAuthoringWorkingProject } from './main/services/native-authoring-working-project';
-import { NativeEditorSessionController } from './main/services/native-editor-session-controller';
-import { NativeEditorProjectHandoff } from './main/services/native-editor-project-handoff';
-import { createNativeEditorProject } from './main/services/native-editor-project-create';
-import { NativeEditorObserverWatchService } from './main/services/native-editor-observer-watch-service';
-import { incompatibleLegacyNativeEditChannels } from './main/services/native-editor-ipc-routing';
-import { readEngineShaderSource } from './main/services/project-source-planning-helpers';
-import { TerminalNotificationService } from './main/services/terminal-notification-service';
-import { EditorAuthoringValidationService } from './main/services/editor-authoring-validation-service';
-import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-service';
-import { importDesktopProject } from './main/services/desktop-project-import-service';
-import { importNativeDesktopProject } from './main/services/native-desktop-project-import-service';
-import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
-import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
-import {
-  prepareProjectOpaqueVideo,
-  probeProjectVideoTimeline,
-} from './main/services/project-video-preparation-service';
-import {
-  listPlaybackTests,
-  openProject,
-  runPlaybackSuite,
-  runPlaybackTest,
-  validateProject,
-} from './main/services/editor-tool-service';
-import { compileShaders } from './main/services/native-shader-compiler-service';
-import {
-  exportPackage,
-  runPlaybackSpec,
-  runUiPlaybackSpec,
-} from './main/services/native-runtime-tool-service';
-import {
-  createProject,
-  saveActiveProjectContent,
-  saveActiveProjectEditorMetadata,
-  saveProjectCopyAs,
-} from './main/services/project-file-service';
-import { saveNativeProjectCopyAs } from './main/services/native-project-copy-service';
-import { saveProjectEditorMetadata } from './main/services/project-editor-metadata-service';
-import {
-  cancelPlatformExport,
-  stagePlatformExport,
-} from './main/services/platform-staging-service';
-import {
-  configureTemplateRegistryRoot,
-  inspectPlayerTemplate,
-  installPlayerTemplate,
-  listPlayerTemplates,
-  removePlayerTemplate,
-  resolvePlayerTemplate,
-} from './main/services/template-registry-service';
-import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
-import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
-import {
-  loadUserExportConfig,
-  saveUserExportConfig,
-} from './main/services/user-export-config-service';
-import {
-  loadNovelTeaUserPreferences,
-  saveNovelTeaUserPreferences,
-} from './main/services/user-config-service';
-import {
-  createNodePtyAdapter,
-  resolveDefaultTerminalShell,
-  TerminalService,
-} from './main/services/terminal-service';
-import type { CreateProjectRequest } from './shared/editor-tooling';
-import {
-  normalizeDesktopProjectImportArgument,
-  type DesktopProjectImportRequest,
-} from './shared/project-import-handoff';
-import type {
-  ListProjectSourceFilesRequest,
-  ProjectSourceStructuralRequest,
-  ProjectSourceUsageRequest,
-  ProjectSourceWriteRequest,
-} from './shared/project-source-files';
-import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
-import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
-import { normalizeTerminalPreferences } from './shared/terminal-preferences';
-import {
-  DEFAULT_EDITOR_LANGUAGE,
-  isSupportedEditorLanguage,
-  resolveEditorLanguage,
-  type EditorLanguage,
-} from './renderer/i18n/language-types';
-import { editorI18nResources } from './renderer/i18n/resources';
-import {
-  createImageThumbnailProtocolHandler,
-  IMAGE_THUMBNAIL_SCHEME,
-} from './main/image-thumbnail-protocol';
-import { ImageThumbnailService } from './main/services/image-thumbnail-service';
-import {
-  isStrictlyContainedPath,
-  resolveEditorCacheRoot,
-  resolveSystemCachePath,
-} from './main/services/image-thumbnail-cache-paths';
 import {
   auditProjectAssetsArgumentsSchema,
-  importProjectAttachmentFilesArgumentsSchema,
-  inspectProjectAttachmentFileArgumentsSchema,
-  listProjectAttachmentFilesArgumentsSchema,
-  openProjectAttachmentFileArgumentsSchema,
-  organizeUntrackedProjectAssetArgumentsSchema,
   cancelImageThumbnailPrewarmArgumentsSchema,
   cancelPlatformExportArgumentsSchema,
   comfyUiAnalyzeWorkflowArgumentsSchema,
   comfyUiCancelJobArgumentsSchema,
   comfyUiConfigArgumentsSchema,
   comfyUiCopyWorkflowArgumentsSchema,
-  comfyUiUserConfigArgumentsSchema,
   comfyUiDeleteWorkflowArgumentsSchema,
   comfyUiEditImageArgumentsSchema,
   comfyUiGenerateImageArgumentsSchema,
@@ -200,11 +29,12 @@ import {
   comfyUiRenameWorkflowArgumentsSchema,
   comfyUiRepairWorkflowArgumentsSchema,
   comfyUiRevealWorkflowArgumentsSchema,
+  comfyUiUserConfigArgumentsSchema,
   comfyUiVerifyWorkflowArgumentsSchema,
   compileShadersArgumentsSchema,
+  completeProjectImportArgumentsSchema,
   createEditorDocumentPolicy,
   createGuardedIpcRegistrar,
-  completeProjectImportArgumentsSchema,
   createProjectArgumentsSchema,
   downloadPlayerTemplateArgumentsSchema,
   exportPackageArgumentsSchema,
@@ -212,65 +42,200 @@ import {
   imageThumbnailArgumentsSchema,
   imageThumbnailPrewarmArgumentsSchema,
   importAssetsArgumentsSchema,
+  importProjectAttachmentFilesArgumentsSchema,
   inspectPlayerTemplateArgumentsSchema,
+  inspectProjectAttachmentFileArgumentsSchema,
+  installEditorNavigationPolicy,
   installPlayerTemplateArgumentsSchema,
-  listPlaybackTestsArgumentsSchema,
   listPlayerTemplatesArgumentsSchema,
+  listProjectAttachmentFilesArgumentsSchema,
   listProjectSourceFilesArgumentsSchema,
   mutateProjectSourcesArgumentsSchema,
-  projectSourceUsagesArgumentsSchema,
-  writeProjectSourceArgumentsSchema,
-  installEditorNavigationPolicy,
-  noArgumentsSchema,
+  nativeProjectExportPackageArgumentsSchema,
   nativeProjectPatchArgumentsSchema,
-  nativeProjectSaveUnitArgumentsSchema,
-  nativeProjectSaveTextArgumentsSchema,
+  nativeProjectPrepareExportArgumentsSchema,
+  nativeProjectPrepareRuntimeArgumentsSchema,
   nativeProjectReconcileArgumentsSchema,
+  nativeProjectRunSuiteArgumentsSchema,
+  nativeProjectRunTestArgumentsSchema,
+  nativeProjectSaveTextArgumentsSchema,
+  nativeProjectSaveUnitArgumentsSchema,
   nativeProjectUseDiskUnitArgumentsSchema,
   nativeProjectValidateArgumentsSchema,
-  nativeProjectPrepareRuntimeArgumentsSchema,
-  nativeProjectRunTestArgumentsSchema,
-  nativeProjectRunSuiteArgumentsSchema,
-  nativeProjectPrepareExportArgumentsSchema,
-  nativeProjectExportPackageArgumentsSchema,
+  noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  openProjectAttachmentFileArgumentsSchema,
+  organizeUntrackedProjectAssetArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
-  probeVideoTimelineArgumentsSchema,
   previewExportedPackageArgumentsSchema,
-  prepareEditorRuntimeArgumentsSchema,
   previewSessionArgumentsSchema,
+  probeVideoTimelineArgumentsSchema,
   projectAssetIdentityArgumentsSchema,
   projectAssetPathsArgumentsSchema,
   projectSessionArgumentsSchema,
-  readProjectTextSourcesArgumentsSchema,
+  projectSourceUsagesArgumentsSchema,
   readEngineShaderSourceArgumentsSchema,
+  readProjectTextSourcesArgumentsSchema,
   reimportAssetArgumentsSchema,
   removePlayerTemplateArgumentsSchema,
   resolvePlayerTemplateArgumentsSchema,
+  restoreProjectAssetFilesArgumentsSchema,
   runPlaybackSpecArgumentsSchema,
-  runPlaybackSuiteArgumentsSchema,
-  runPlaybackTestArgumentsSchema,
   runUiPlaybackSpecArgumentsSchema,
-  saveProjectContentArgumentsSchema,
   saveProjectCopyAsArgumentsSchema,
   saveProjectEditorMetadataArgumentsSchema,
-  restoreProjectAssetFilesArgumentsSchema,
   saveUserExportConfigArgumentsSchema,
   saveUserPreferencesArgumentsSchema,
   selectDirectoryArgumentsSchema,
-  validateDirectoryArgumentsSchema,
-  stagePlatformExportArgumentsSchema,
   selectPackageOutputPathArgumentsSchema,
   setNativeWindowFrameArgumentsSchema,
   showItemInFolderArgumentsSchema,
+  stagePlatformExportArgumentsSchema,
   terminalCloseArgumentsSchema,
   terminalNotificationArgumentsSchema,
   terminalResizeArgumentsSchema,
   terminalSessionArgumentsSchema,
   terminalWriteArgumentsSchema,
-  validateProjectArgumentsSchema,
+  validateDirectoryArgumentsSchema,
 } from './main/editor-ipc-trust-boundary';
+import { EnginePreviewServer } from './main/engine-preview-server';
+import {
+  createImageThumbnailProtocolHandler,
+  IMAGE_THUMBNAIL_SCHEME,
+} from './main/image-thumbnail-protocol';
+import {
+  PACKAGE_SMOKE_FLAG,
+  PACKAGE_SMOKE_PREFIX,
+  runPackageSmoke,
+  THUMBNAIL_PROTOCOL_CHARACTERIZATION_SCHEME,
+} from './main/package-smoke';
+import { ActiveProjectSessionService } from './main/services/active-project-session-service';
+import { importAssets, reimportAsset } from './main/services/asset-import-service';
+import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
+import {
+  cancelComfyUiJob,
+  checkComfyUiConnection,
+  editComfyUiImage,
+  generateComfyUiImage,
+  getComfyUiQueue,
+} from './main/services/comfyui-service';
+import {
+  loadComfyUiUserConfig,
+  saveComfyUiUserConfig,
+} from './main/services/comfyui-user-config-service';
+import { analyzeComfyUiWorkflowImport } from './main/services/comfyui-workflow-import-service';
+import {
+  copyComfyUiWorkflow,
+  deleteComfyUiWorkflow,
+  importComfyUiWorkflowToLibrary,
+  listComfyUiWorkflowLibrary,
+  renameComfyUiWorkflow,
+  repairComfyUiWorkflowInLibrary,
+  revealComfyUiWorkflow,
+  verifyComfyUiWorkflowLibrary,
+} from './main/services/comfyui-workflow-library-service';
+import {
+  isStrictlyContainedPath,
+  resolveEditorCacheRoot,
+  resolveSystemCachePath,
+} from './main/services/image-thumbnail-cache-paths';
+import { ImageThumbnailService } from './main/services/image-thumbnail-service';
+import { NativeAuthoringSessionBridge } from './main/services/native-authoring-session-bridge';
+import { NativeAuthoringWorkingProject } from './main/services/native-authoring-working-project';
+import { importNativeDesktopProject } from './main/services/native-desktop-project-import-service';
+import {
+  exportNativeEditorPackage,
+  prepareNativeEditorExportAssessment,
+  verifyNativeCleanExportAdmission,
+} from './main/services/native-editor-export-service';
+import { NativeEditorObserverWatchService } from './main/services/native-editor-observer-watch-service';
+import { createNativeEditorProject } from './main/services/native-editor-project-create';
+import { NativeEditorProjectHandoff } from './main/services/native-editor-project-handoff';
+import { NativeEditorSessionController } from './main/services/native-editor-session-controller';
+import { saveNativeProjectCopyAs } from './main/services/native-project-copy-service';
+import {
+  exportPackage,
+  runPlaybackSpec,
+  runUiPlaybackSpec,
+} from './main/services/native-runtime-tool-service';
+import { compileShaders } from './main/services/native-shader-compiler-service';
+import { nodeRuntimeArtifactPaths } from './main/services/node-runtime-artifact-adapters';
+import { exportProjectToPlatform } from './main/services/platform-export-orchestration-service';
+import { configureSharpPlatformImageService } from './main/services/platform-image-sharp-service';
+import {
+  cancelPlatformExport,
+  stagePlatformExport,
+} from './main/services/platform-staging-service';
+import {
+  importProjectAttachmentFiles,
+  inspectProjectAttachmentFile,
+  listProjectAttachmentFiles,
+  openProjectAttachmentFile,
+} from './main/services/project-asset-attachment-service';
+import {
+  auditProjectAssets,
+  importUntrackedProjectAssets,
+  organizeUntrackedProjectAsset,
+  purgeProjectTrash,
+} from './main/services/project-asset-audit-service';
+import { saveProjectEditorMetadata } from './main/services/project-editor-metadata-service';
+import {
+  createProjectOriginalAssetProtocolHandler,
+  PROJECT_ORIGINAL_ASSET_SCHEME,
+  resolveProjectOriginalAssetUrl,
+} from './main/services/project-original-asset-service';
+import { readEngineShaderSource } from './main/services/project-source-planning-helpers';
+import {
+  prepareProjectOpaqueVideo,
+  probeProjectVideoTimeline,
+} from './main/services/project-video-preparation-service';
+import { downloadPlayerTemplateForRelease } from './main/services/template-download-service';
+import {
+  configureTemplateRegistryRoot,
+  inspectPlayerTemplate,
+  installPlayerTemplate,
+  listPlayerTemplates,
+  removePlayerTemplate,
+  resolvePlayerTemplate,
+} from './main/services/template-registry-service';
+import { TerminalNotificationService } from './main/services/terminal-notification-service';
+import {
+  createNodePtyAdapter,
+  resolveDefaultTerminalShell,
+  TerminalService,
+} from './main/services/terminal-service';
+import {
+  loadNovelTeaUserPreferences,
+  saveNovelTeaUserPreferences,
+} from './main/services/user-config-service';
+import {
+  loadUserExportConfig,
+  saveUserExportConfig,
+} from './main/services/user-export-config-service';
+import {
+  DEFAULT_EDITOR_LANGUAGE,
+  isSupportedEditorLanguage,
+  resolveEditorLanguage,
+  type EditorLanguage,
+} from './renderer/i18n/language-types';
+import { editorI18nResources } from './renderer/i18n/resources';
+import { resolveEditorShortcutCommand } from './shared/editor-shortcuts';
+import type { CreateProjectRequest } from './shared/editor-tooling';
+import { IPC_CHANNELS } from './shared/ipc-channels';
+import { setNovelTeaNativeOperationObserver } from './shared/noveltea-cli-subprocess';
+import { NOVELTEA_VERSION } from './shared/product-version';
+import {
+  normalizeDesktopProjectImportArgument,
+  type DesktopProjectImportRequest,
+} from './shared/project-import-handoff';
+import type {
+  ListProjectSourceFilesRequest,
+  ProjectSourceStructuralRequest,
+  ProjectSourceUsageRequest,
+} from './shared/project-source-files';
+import type { ReadProjectTextSourcesRequest } from './shared/project-text-sources';
+import { normalizeTerminalPreferences } from './shared/terminal-preferences';
 
 configureSharpPlatformImageService();
 
@@ -382,18 +347,9 @@ const packageSmokeCacheRoot = process.argv.includes(PACKAGE_SMOKE_FLAG)
   ? process.env.NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT?.trim()
   : undefined;
 const activeProjectSessions = new ActiveProjectSessionService();
-// The cutover admission gate is intentionally explicit until #504/#506 have
-// migrated synchronous renderer mutation, Save and watcher ownership together.
-// It operates on the actual main-owned Project lifecycle, not a test-only root.
-// This separate certification route exercises native admission *before*
-// committing an Open. Neither the ordinary editor nor the existing legacy
-// differential certification route is switched by this preparatory flag.
-const nativeEditorLifecycleEnabled = process.argv.includes('--certify-native-authoring-lifecycle');
-// #539 preparatory runtime proof: admitted native sessions must never create
-// the retired Project reader, transaction writer or filesystem watcher.
-if (nativeEditorLifecycleEnabled) guardNativeEditorProjectAuthority();
-const nativeEditorMutationEnabled =
-  nativeEditorLifecycleEnabled || process.argv.includes('--certify-native-authoring-edit');
+// Native Project authority is unconditional in the production editor. Each
+// admitted Project owns one main-process worker; the CLI owns a separate
+// native session and cannot substitute for the editor's working revision.
 const nativeEditorObservers = new WeakMap<
   NativeEditorSessionController,
   NativeEditorObserverWatchService
@@ -417,13 +373,13 @@ function createNativeEditorController(): NativeEditorSessionController {
   );
   return controller;
 }
-const nativeEditorHandoff = nativeEditorLifecycleEnabled
-  ? new NativeEditorProjectHandoff(activeProjectSessions, createNativeEditorController)
-  : null;
-const candidateTestCatalogArgumentsSchema = {
+const nativeEditorHandoff = new NativeEditorProjectHandoff(
+  activeProjectSessions,
+  createNativeEditorController,
+);
+const nativeTestCatalogArgumentsSchema = {
   parse(arguments_: unknown[]): [unknown] {
-    if (!nativeEditorHandoff) return listPlaybackTestsArgumentsSchema.parse(arguments_);
-    // Candidate view values are never another authoritative TypeScript
+    // Renderer display values are never another authoritative TypeScript
     // Project. Validate only the IPC envelope, not its record data.
     if (
       arguments_.length !== 1 ||
@@ -441,7 +397,6 @@ function closeNativeEditorHandoff(): void {
   nativeEditorHandoff?.close();
 }
 async function refreshNativeCandidateCapabilities(projectSessionId: string): Promise<void> {
-  if (!nativeEditorHandoff) return;
   const controller = nativeEditorHandoff.current();
   if (!controller?.isAdmitted(projectSessionId))
     throw new Error('Native Asset and source inventory requires the admitted Project.');
@@ -450,68 +405,7 @@ async function refreshNativeCandidateCapabilities(projectSessionId: string): Pro
     throw new Error('Native Project changed during source authority refresh.');
   await activeProjectSessions.acceptNativeProject(projectSessionId, current);
 }
-let nativeEditorAdmission: NativeEditorSessionController | null =
-  !nativeEditorHandoff &&
-  (nativeEditorMutationEnabled || process.argv.includes('--certify-native-authoring-open'))
-    ? createNativeEditorController()
-    : null;
-
-async function admitNativeEditorProject(
-  result: { success?: boolean; projectSessionId?: string; editorState?: EditorProjectState },
-  activationGeneration: number,
-): Promise<
-  | {
-      nativeWorkingRevision: number;
-      nativeRecoveredContentProject?: unknown;
-      nativeRecoveredConflicts?: Record<string, { paths: string[]; revision: string }>;
-      editorState?: EditorProjectState;
-    }
-  | undefined
-> {
-  if (!nativeEditorAdmission || !result.success || !result.projectSessionId) return;
-  const sessionId = result.projectSessionId;
-  try {
-    const revision = await nativeEditorAdmission.admit(
-      sessionId,
-      activeProjectSessions.requireActiveWorkspace(sessionId).project(),
-    );
-    if (!activeProjectSessions.isProjectActivationCurrent(activationGeneration))
-      throw new Error('Project activation was superseded.');
-    const recovered = nativeEditorAdmission.recoveredContentProject();
-    const textSources = nativeEditorAdmission.recoveredTextSources();
-    const editorState =
-      nativeEditorMutationEnabled && result.editorState && Object.keys(textSources).length
-        ? await withNativeRecoveredTextSources(
-            activeProjectSessions.requireActiveProjectRoot(sessionId),
-            result.editorState,
-            (await activeProjectSessions.listProjectSourceFiles({ projectSessionId: sessionId }))
-              .files,
-            textSources,
-          )
-        : result.editorState;
-    if (!activeProjectSessions.isProjectActivationCurrent(activationGeneration))
-      throw new Error('Project recovery admission was superseded.');
-    return nativeEditorMutationEnabled
-      ? {
-          nativeWorkingRevision: revision,
-          ...(recovered ? { nativeRecoveredContentProject: recovered } : {}),
-          ...(recovered
-            ? { nativeRecoveredConflicts: nativeEditorAdmission.recoveredConflicts() }
-            : {}),
-          ...(editorState ? { editorState } : {}),
-        }
-      : undefined;
-  } catch (error) {
-    // A second Open/Create request may already be in progress while its old
-    // Project is still the current ID. Never revoke that newer activation.
-    if (
-      activeProjectSessions.isProjectActivationCurrent(activationGeneration) &&
-      activeProjectSessions.isCurrent(sessionId)
-    )
-      activeProjectSessions.closeActiveProject();
-    throw error;
-  }
-}
+let nativeEditorAdmission: NativeEditorSessionController | null = null;
 const terminalService = new TerminalService({
   pty: createNodePtyAdapter(),
   resolveProjectRoot: () => activeProjectSessions.currentProjectRoot(),
@@ -549,22 +443,7 @@ const terminalNotificationService = new TerminalNotificationService({
     }
   },
 });
-// Legacy-only services are not initialized in a native lifecycle process.
-// #521 deletes both and their handlers when ordinary production switches.
-let editorAuthoringValidationService: EditorAuthoringValidationService | null = null;
-let editorRuntimeCache: EditorRuntimeCacheService | null = null;
-function requireLegacyEditorAuthoringValidationService(): EditorAuthoringValidationService {
-  if (nativeEditorLifecycleEnabled)
-    throw new Error('Native Project validation must not initialize legacy authoring validation.');
-  return (editorAuthoringValidationService ??= new EditorAuthoringValidationService());
-}
-function requireLegacyEditorRuntimeCache(): EditorRuntimeCacheService {
-  if (nativeEditorLifecycleEnabled)
-    throw new Error('Native Project runtime preparation must not initialize legacy runtime cache.');
-  return (editorRuntimeCache ??= new EditorRuntimeCacheService());
-}
 const assetMetadataInspectionService = new AssetMetadataInspectionService(activeProjectSessions);
-const localizationFontCoverageService = new LocalizationFontCoverageService();
 const imageThumbnailService = new ImageThumbnailService(
   packageSmokeCacheRoot
     ? path.resolve(packageSmokeCacheRoot)
@@ -952,8 +831,7 @@ function createWindow(): BrowserWindow {
   const sessionOwner = mainWindow;
   mainWindow.on('closed', () => {
     terminalService.dispose();
-    if (nativeEditorHandoff) closeNativeEditorHandoff();
-    else nativeEditorAdmission?.dispose();
+    closeNativeEditorHandoff();
     activeProjectSessions.dispose();
     if (mainWindow === sessionOwner) mainWindow = null;
   });
@@ -1041,12 +919,6 @@ void app.whenReady().then(async () => {
     getOwner: () => mainWindow,
     documentPolicy: editorDocumentPolicy,
     onInvocation: emitToolingActivity,
-    beforeInvocation: (channel) => {
-      if (nativeEditorMutationEnabled && incompatibleLegacyNativeEditChannels.has(channel))
-        throw new Error(
-          `Legacy Project operation ${channel} is disabled during native-edit certification.`,
-        );
-    },
   });
 
   guardedIpc.handle(
@@ -1343,26 +1215,14 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.OPEN_PROJECT,
     (arguments_) => openProjectArgumentsSchema.parse(arguments_),
     async (projectPath: string) => {
-      if (nativeEditorHandoff) {
-        const incumbent = nativeEditorHandoff.current();
-        const result = await nativeEditorHandoff.open(projectPath);
-        if (result.success) {
-          if (incumbent && incumbent !== nativeEditorHandoff.current())
-            nativeEditorObservers.get(incumbent)?.close();
-          nativeEditorAdmission = nativeEditorHandoff.current();
-          await stopProjectWorkspaceWatcher();
-        }
-        return rememberPreviewProjectRoot(result);
+      const incumbent = nativeEditorHandoff.current();
+      const result = await nativeEditorHandoff.open(projectPath);
+      if (result.success) {
+        if (incumbent && incumbent !== nativeEditorHandoff.current())
+          nativeEditorObservers.get(incumbent)?.close();
+        nativeEditorAdmission = nativeEditorHandoff.current();
       }
-      const activationGeneration = activeProjectSessions.beginProjectActivation();
-      const result = await activeProjectSessions.attachToSuccessfulResult(
-        await openProject(projectPath),
-        activationGeneration,
-      );
-      const nativeRecovery = await admitNativeEditorProject(result, activationGeneration);
-      return rememberPreviewProjectRoot(
-        nativeRecovery === undefined ? result : { ...result, ...nativeRecovery },
-      );
+      return rememberPreviewProjectRoot(result);
     },
   );
 
@@ -1370,16 +1230,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.CREATE_PROJECT,
     (arguments_) => createProjectArgumentsSchema.parse(arguments_),
     async (request: CreateProjectRequest) => {
-      if (nativeEditorHandoff) return createNativeEditorProject(request);
-      const activationGeneration = activeProjectSessions.beginProjectActivation();
-      const result = await activeProjectSessions.attachToSuccessfulResult(
-        await createProject(request),
-        activationGeneration,
-      );
-      const nativeRecovery = await admitNativeEditorProject(result, activationGeneration);
-      return rememberPreviewProjectRoot(
-        nativeRecovery === undefined ? result : { ...result, ...nativeRecovery },
-      );
+      return createNativeEditorProject(request);
     },
   );
 
@@ -1393,8 +1244,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.COMPLETE_PROJECT_IMPORT,
     (arguments_) => completeProjectImportArgumentsSchema.parse(arguments_),
     (request) => {
-      if (nativeEditorHandoff) return importNativeDesktopProject(request);
-      return importDesktopProject(request);
+      return importNativeDesktopProject(request);
     },
   );
 
@@ -1402,15 +1252,9 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.CLOSE_ACTIVE_PROJECT,
     (arguments_) => noArgumentsSchema.parse(arguments_),
     async () => {
-      await stopProjectWorkspaceWatcher();
-      if (nativeEditorHandoff) {
-        closeNativeEditorHandoff();
-        nativeEditorAdmission = null;
-        return;
-      }
-      if (nativeEditorAdmission) nativeEditorObservers.get(nativeEditorAdmission)?.close();
-      nativeEditorAdmission?.close();
-      activeProjectSessions.closeActiveProject();
+      closeNativeEditorHandoff();
+      nativeEditorAdmission = null;
+      return;
     },
   );
 
@@ -1418,11 +1262,9 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_PATCH,
     (arguments_) => nativeProjectPatchArgumentsSchema.parse(arguments_),
     (...[projectSessionId, expectedRevision, patches, layoutCopySources]) => {
-      // Never activate a second writable Project behind the normal Save
-      // pipeline. This endpoint is enabled only by an explicit cutover
-      // certification launch; physical Save uses a separate revision-checked
-      // native transaction boundary, never the legacy Workspace writer.
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      // The main-owned worker alone performs revisioned mutations and Save;
+      // never expose a path to a parallel Project writer.
+      if (!nativeEditorAdmission)
         throw new Error('Native Project mutation is not enabled for this editor.');
       return nativeEditorAdmission.applyRevisionedPatches(
         projectSessionId,
@@ -1437,7 +1279,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_SAVE_UNIT,
     (arguments_) => nativeProjectSaveUnitArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, saveUnitIds, options) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project Save is not enabled for this editor.');
       return nativeEditorAdmission.saveUnit(
         projectSessionId,
@@ -1452,7 +1294,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_SAVE_TEXT,
     (arguments_) => nativeProjectSaveTextArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, path, diskRevision, text) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project text Save is not enabled for this editor.');
       return nativeEditorAdmission.saveText(
         projectSessionId,
@@ -1468,7 +1310,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_STAGE_TEXT,
     (arguments_) => nativeProjectSaveTextArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, path, diskRevision, text) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project text staging is not enabled for this editor.');
       return nativeEditorAdmission.stageText(
         projectSessionId,
@@ -1484,7 +1326,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_RECONCILE,
     (arguments_) => nativeProjectReconcileArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, owner) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project reconciliation is not enabled for this editor.');
       return nativeEditorAdmission.reconcile(projectSessionId, expectedRevision, owner);
     },
@@ -1494,7 +1336,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,
     (arguments_) => nativeProjectUseDiskUnitArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, saveUnitId) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project Use Disk is not enabled for this editor.');
       return nativeEditorAdmission.useDiskUnit(projectSessionId, expectedRevision, saveUnitId);
     },
@@ -1504,7 +1346,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_VALIDATE,
     (arguments_) => nativeProjectValidateArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project validation is not enabled for this editor.');
       return nativeEditorAdmission.validate(projectSessionId, expectedRevision);
     },
@@ -1514,7 +1356,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH,
     (arguments_) => nativeProjectValidateArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native Project graph queries are not enabled for this editor.');
       return nativeEditorAdmission.semanticGraph(projectSessionId, expectedRevision);
     },
@@ -1524,7 +1366,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
     (arguments_) => nativeProjectPrepareRuntimeArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, shaderVariant) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native runtime preparation is not enabled for this editor.');
       return nativeEditorAdmission.prepareRuntime(
         projectSessionId,
@@ -1535,10 +1377,19 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
+    IPC_CHANNELS.NATIVE_PROJECT_TEST_READINESS,
+    (arguments_) => nativeProjectRunTestArgumentsSchema.parse(arguments_),
+    (projectSessionId, expectedRevision, testId) => {
+      if (!nativeEditorAdmission) throw new Error('No native Project is admitted.');
+      return nativeEditorAdmission.testReadiness(projectSessionId, expectedRevision, testId);
+    },
+  );
+
+  guardedIpc.handle(
     IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST,
     (arguments_) => nativeProjectRunTestArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, testId) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native authored Tests are not enabled for this editor.');
       return nativeEditorAdmission.runTest(projectSessionId, expectedRevision, testId);
     },
@@ -1548,7 +1399,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_RUN_SUITE,
     (arguments_) => nativeProjectRunSuiteArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native authored Test suite is not enabled for this editor.');
       return nativeEditorAdmission.runSuite(projectSessionId, expectedRevision);
     },
@@ -1558,7 +1409,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_PREPARE_EXPORT,
     (arguments_) => nativeProjectPrepareExportArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, mode, profileId) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native export assessment is not enabled for this editor.');
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       return prepareNativeEditorExportAssessment(
@@ -1576,7 +1427,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.NATIVE_PROJECT_EXPORT_PACKAGE,
     (arguments_) => nativeProjectExportPackageArgumentsSchema.parse(arguments_),
     (projectSessionId, expectedRevision, outputPath) => {
-      if (!nativeEditorMutationEnabled || !nativeEditorAdmission)
+      if (!nativeEditorAdmission)
         throw new Error('Native package export is not enabled for this editor.');
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       return exportNativeEditorPackage(
@@ -1594,66 +1445,9 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
-    IPC_CHANNELS.VALIDATE_PROJECT,
-    (arguments_) => validateProjectArgumentsSchema.parse(arguments_),
-    async (projectSessionId, project, authority) => {
-      const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      const workspace = activeProjectSessions.requireActiveWorkspace(projectSessionId);
-      return requireLegacyEditorAuthoringValidationService().validate({
-        workspace,
-        project,
-        authority,
-        validateSessionLocal: async () => {
-          const result = await validateProject(project);
-          try {
-            const fontDiagnostics = await localizationFontCoverageService.validate(
-              projectSessionId,
-              projectRoot,
-              project,
-            );
-            const diagnostics = [
-              ...result.diagnostics,
-              ...fontDiagnostics.map((diagnostic) => ({
-                code: diagnostic.code,
-                severity: diagnostic.severity,
-                category: 'Localization font coverage',
-                path: diagnostic.path,
-                message: `${diagnostic.message} Message: ${diagnostic.messageId}. Effective stack: ${diagnostic.fontStack.join(', ')}.`,
-              })),
-            ];
-            return {
-              ...result,
-              success:
-                result.success &&
-                !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
-              diagnostics,
-            };
-          } catch (error) {
-            return {
-              ...result,
-              success: false,
-              diagnostics: [
-                ...result.diagnostics,
-                {
-                  code: 'localization.font_coverage.tool',
-                  severity: 'error' as const,
-                  category: 'Localization font coverage',
-                  path: '/localization',
-                  message: error instanceof Error ? error.message : String(error),
-                },
-              ],
-            };
-          }
-        },
-      });
-    },
-  );
-
-  guardedIpc.handle(
     IPC_CHANNELS.LIST_PLAYBACK_TESTS,
-    (arguments_) => candidateTestCatalogArgumentsSchema.parse(arguments_),
-    async (project) => {
-      if (!nativeEditorMutationEnabled) return listPlaybackTests(project);
+    (arguments_) => nativeTestCatalogArgumentsSchema.parse(arguments_),
+    async (_project) => {
       const sessionId = activeProjectSessions.currentSessionId();
       const controller = nativeEditorHandoff?.current() ?? nativeEditorAdmission;
       if (!sessionId || !controller?.isAdmitted(sessionId))
@@ -1668,45 +1462,6 @@ void app.whenReady().then(async () => {
         diagnostics: [],
       };
     },
-  );
-
-  guardedIpc.handle(
-    IPC_CHANNELS.PREPARE_EDITOR_RUNTIME,
-    (arguments_) => prepareEditorRuntimeArgumentsSchema.parse(arguments_),
-    (projectSessionId, project, recoveryFingerprint, shaderVariant) =>
-      requireLegacyEditorRuntimeCache().preparePlay(
-        activeProjectSessions.requireActiveWorkspace(projectSessionId),
-        project,
-        recoveryFingerprint,
-        shaderVariant,
-      ),
-  );
-
-  guardedIpc.handle(
-    IPC_CHANNELS.RUN_PLAYBACK_TEST,
-    (arguments_) => runPlaybackTestArgumentsSchema.parse(arguments_),
-    (projectSessionId, project, testId, recoveryFingerprint) =>
-      projectSessionId
-        ? requireLegacyEditorRuntimeCache().runPlaybackTest(
-            activeProjectSessions.requireActiveWorkspace(projectSessionId),
-            project,
-            testId,
-            recoveryFingerprint ?? {},
-          )
-        : runPlaybackTest(project, testId),
-  );
-
-  guardedIpc.handle(
-    IPC_CHANNELS.RUN_PLAYBACK_SUITE,
-    (arguments_) => runPlaybackSuiteArgumentsSchema.parse(arguments_),
-    (projectSessionId, project, recoveryFingerprint) =>
-      projectSessionId
-        ? requireLegacyEditorRuntimeCache().runPlaybackSuite(
-            activeProjectSessions.requireActiveWorkspace(projectSessionId),
-            project,
-            recoveryFingerprint ?? {},
-          )
-        : runPlaybackSuite(project),
   );
 
   guardedIpc.handle(
@@ -1732,22 +1487,19 @@ void app.whenReady().then(async () => {
     async (projectSessionId, project, outputPath, options) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       assertPackageProjectAuthority(projectRoot, options);
-      if (nativeEditorMutationEnabled) {
-        if (!nativeEditorAdmission)
-          throw new Error('Native runtime package export requires an admitted Project.');
-        return exportNativeEditorPackage(
-          nativeEditorAdmission,
-          projectSessionId,
-          projectRoot,
-          outputPath,
-          {
-            publish: exportPackage,
-            authorizePackageOptions: (options) =>
-              assertPackageProjectAuthority(projectRoot, options),
-          },
-        );
-      }
-      return exportPackage(project, outputPath, options);
+
+      if (!nativeEditorAdmission)
+        throw new Error('Native runtime package export requires an admitted Project.');
+      return exportNativeEditorPackage(
+        nativeEditorAdmission,
+        projectSessionId,
+        projectRoot,
+        outputPath,
+        {
+          publish: exportPackage,
+          authorizePackageOptions: (options) => assertPackageProjectAuthority(projectRoot, options),
+        },
+      );
     },
   );
 
@@ -1761,8 +1513,7 @@ void app.whenReady().then(async () => {
         requireProjectContainedPath(projectRoot, request.iconSourcePath, 'Platform icon source');
       if (request.systemAssetsRoot)
         requireProjectContainedPath(projectRoot, request.systemAssetsRoot, 'System assets root');
-      if (nativeEditorMutationEnabled)
-        await nativeEditorAdmission!.prepareCleanExport(projectSessionId);
+      await nativeEditorAdmission!.prepareCleanExport(projectSessionId);
       return stagePlatformExport(request);
     },
   );
@@ -1773,48 +1524,37 @@ void app.whenReady().then(async () => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
       if (request.preparedRuntimeArtifact)
         assertPackageProjectAuthority(projectRoot, request.preparedRuntimeArtifact.packageOptions);
-      if (nativeEditorMutationEnabled) {
-        if (!nativeEditorAdmission)
-          throw new Error('Native platform export requires an admitted Project.');
-        const controller = nativeEditorAdmission;
-        const admission = await controller.prepareCleanExportAdmission(projectSessionId);
-        return exportProjectToPlatform(
-          {
-            ...request,
-            project: admission.project,
-            preparedRuntimeArtifact: undefined,
-            projectPath: path.join(projectRoot, 'project.yaml'),
-            projectRoot,
-          },
-          (progress) =>
-            mainWindow?.webContents.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
-          undefined,
-          async () => {
-            try {
-              await verifyNativeCleanExportAdmission(controller, projectSessionId, admission);
-              return null;
-            } catch (error) {
-              return error instanceof Error ? error.message : String(error);
-            }
-          },
-          undefined,
-          nodeRuntimeArtifactPaths,
-          {
-            project: admission.project,
-            diagnostics: admission.diagnostics,
-            contributions: [],
-            runtimeAssetReferences: admission.runtimeAssetReferences,
-          },
-        );
-      }
+
+      if (!nativeEditorAdmission)
+        throw new Error('Native platform export requires an admitted Project.');
+      const controller = nativeEditorAdmission;
+      const admission = await controller.prepareCleanExportAdmission(projectSessionId);
       return exportProjectToPlatform(
         {
           ...request,
+          project: admission.project,
+          preparedRuntimeArtifact: undefined,
           projectPath: path.join(projectRoot, 'project.yaml'),
           projectRoot,
         },
         (progress) =>
           mainWindow?.webContents.send(IPC_CHANNELS.PLATFORM_EXPORT_PROGRESS_EVENT, progress),
+        undefined,
+        async () => {
+          try {
+            await verifyNativeCleanExportAdmission(controller, projectSessionId, admission);
+            return null;
+          } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+          }
+        },
+        undefined,
+        nodeRuntimeArtifactPaths,
+        {
+          project: admission.project,
+          diagnostics: admission.diagnostics,
+          runtimeAssetReferences: admission.runtimeAssetReferences,
+        },
       );
     },
   );
@@ -1886,49 +1626,15 @@ void app.whenReady().then(async () => {
   );
 
   guardedIpc.handle(
-    IPC_CHANNELS.SAVE_PROJECT_CONTENT,
-    (arguments_) => saveProjectContentArgumentsSchema.parse(arguments_),
-    async (projectSessionId, request, editorState) => {
-      try {
-        if (nativeEditorMutationEnabled)
-          throw new Error('Legacy Project Save is disabled in native mutation certification mode.');
-        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        const workspace = activeProjectSessions.requireActiveWorkspace(projectSessionId);
-        const result = await saveActiveProjectContent(workspace, request, editorState, () =>
-          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-        );
-        if (result.success) activeProjectSessions.refreshActiveWorkspaceAssets(projectSessionId);
-        return result;
-      } catch (error) {
-        return {
-          ok: false,
-          success: false,
-          diagnostics: [],
-          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
-        };
-      }
-    },
-  );
-
-  guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_EDITOR_METADATA,
     (arguments_) => saveProjectEditorMetadataArgumentsSchema.parse(arguments_),
-    async (projectSessionId, editorState, recoveryFileOwnershipHints) => {
+    async (projectSessionId, editorState, _recoveryFileOwnershipHints) => {
       try {
-        if (nativeEditorMutationEnabled) {
-          // This writes only .noveltea/editor/state.json, never tracked source or
-          // the native working Project. Native replay remains authoritative.
-          return await saveProjectEditorMetadata(
-            activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-            editorState,
-            () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-          );
-        }
-        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await saveActiveProjectEditorMetadata(
-          activeProjectSessions.requireActiveWorkspace(projectSessionId),
+        // This writes only .noveltea/editor/state.json, never tracked source or
+        // the native working Project. Native replay remains authoritative.
+        return await saveProjectEditorMetadata(
+          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
           editorState,
-          recoveryFileOwnershipHints,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
@@ -1945,24 +1651,15 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.SAVE_PROJECT_COPY_AS,
     (arguments_) => saveProjectCopyAsArgumentsSchema.parse(arguments_),
-    async (projectSessionId, project, workingProjectAssetPaths, scriptSourcePaths) => {
+    async (projectSessionId, project, _workingProjectAssetPaths, _scriptSourcePaths) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        if (nativeEditorMutationEnabled) {
-          if (!nativeEditorAdmission?.isAdmitted(projectSessionId))
-            throw new Error('Native Project Copy requires an admitted Project.');
-          const controller = nativeEditorAdmission;
-          return await saveNativeProjectCopyAs(mainWindow, projectRoot, project, () =>
-            controller.verifySavedCopySources(projectSessionId),
-          );
-        }
-        return await saveProjectCopyAs(
-          mainWindow,
-          projectRoot,
-          project,
-          workingProjectAssetPaths,
-          scriptSourcePaths,
-          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+
+        if (!nativeEditorAdmission?.isAdmitted(projectSessionId))
+          throw new Error('Native Project Copy requires an admitted Project.');
+        const controller = nativeEditorAdmission;
+        return await saveNativeProjectCopyAs(mainWindow, projectRoot, project, () =>
+          controller.verifySavedCopySources(projectSessionId),
         );
       } catch (error) {
         return {
@@ -1986,13 +1683,9 @@ void app.whenReady().then(async () => {
           path.join(projectRoot, 'project.yaml'),
           options,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-          nativeEditorMutationEnabled
-            ? (assetPath, bytes) =>
-                nativeEditorAdmission!.stageAsset(projectSessionId, assetPath, bytes)
-            : undefined,
-          nativeEditorMutationEnabled
-            ? (paths) => nativeEditorAdmission!.discardStagedAssets(projectSessionId, paths)
-            : undefined,
+          (assetPath, bytes) =>
+            nativeEditorAdmission!.stageAsset(projectSessionId, assetPath, bytes),
+          (paths) => nativeEditorAdmission!.discardStagedAssets(projectSessionId, paths),
         );
       } catch (error) {
         return {
@@ -2017,10 +1710,8 @@ void app.whenReady().then(async () => {
           path.join(projectRoot, 'project.yaml'),
           projectRelativePath,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-          nativeEditorMutationEnabled
-            ? (assetPath, bytes) =>
-                nativeEditorAdmission!.stageAsset(projectSessionId, assetPath, bytes)
-            : undefined,
+          (assetPath, bytes) =>
+            nativeEditorAdmission!.stageAsset(projectSessionId, assetPath, bytes),
         );
       } catch (error) {
         return {
@@ -2036,14 +1727,12 @@ void app.whenReady().then(async () => {
   guardedIpc.handle(
     IPC_CHANNELS.AUDIT_PROJECT_ASSETS,
     (arguments_) => auditProjectAssetsArgumentsSchema.parse(arguments_),
-    async (projectSessionId, project) => {
+    async (projectSessionId, _project) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await auditProjectAssets(
           path.join(projectRoot, 'project.yaml'),
-          nativeEditorMutationEnabled
-            ? await nativeEditorAdmission!.currentWorkingProject(projectSessionId)
-            : project,
+          await nativeEditorAdmission!.currentWorkingProject(projectSessionId),
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
@@ -2091,16 +1780,12 @@ void app.whenReady().then(async () => {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await organizeUntrackedProjectAsset(
           path.join(projectRoot, 'project.yaml'),
-          nativeEditorMutationEnabled
-            ? await nativeEditorAdmission!.currentWorkingProject(projectSessionId)
-            : project,
+          await nativeEditorAdmission!.currentWorkingProject(projectSessionId),
           projectRelativePath,
           action,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-          nativeEditorMutationEnabled
-            ? (fromPath, toPath) =>
-                nativeEditorAdmission!.organizeUntrackedAsset(projectSessionId, fromPath, toPath)
-            : undefined,
+          (fromPath, toPath) =>
+            nativeEditorAdmission!.organizeUntrackedAsset(projectSessionId, fromPath, toPath),
         );
       } catch (error) {
         return {
@@ -2132,9 +1817,7 @@ void app.whenReady().then(async () => {
         root,
         request,
         () => activeProjectSessions.requireActiveProjectRoot(request.projectSessionId),
-        nativeEditorMutationEnabled
-          ? (files) => nativeEditorAdmission!.publishAttachments(request.projectSessionId, files)
-          : undefined,
+        (files) => nativeEditorAdmission!.publishAttachments(request.projectSessionId, files),
       );
     },
   );
@@ -2163,17 +1846,11 @@ void app.whenReady().then(async () => {
     (arguments_) => projectAssetPathsArgumentsSchema.parse(arguments_),
     async (projectSessionId, projectRelativePaths) => {
       try {
-        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        if (nativeEditorMutationEnabled) {
-          return nativeEditorAdmission!.trashOrDiscardAssetFiles(
-            projectSessionId,
-            projectRelativePaths,
-          );
-        }
-        return await trashProjectAssetFiles(
-          path.join(projectRoot, 'project.yaml'),
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+
+        return nativeEditorAdmission!.trashOrDiscardAssetFiles(
+          projectSessionId,
           projectRelativePaths,
-          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
         return {
@@ -2191,17 +1868,13 @@ void app.whenReady().then(async () => {
     (arguments_) => restoreProjectAssetFilesArgumentsSchema.parse(arguments_),
     async (projectSessionId, moves) => {
       try {
-        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        if (nativeEditorMutationEnabled) {
-          await nativeEditorAdmission!.transitionAssetFiles(projectSessionId, {
-            kind: 'restore',
-            moves,
-          });
-          return { ok: true, success: true, diagnostics: [], restored: moves };
-        }
-        return await restoreProjectAssetFiles(path.join(projectRoot, 'project.yaml'), moves, () =>
-          activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-        );
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+
+        await nativeEditorAdmission!.transitionAssetFiles(projectSessionId, {
+          kind: 'restore',
+          moves,
+        });
+        return { ok: true, success: true, diagnostics: [], restored: moves };
       } catch (error) {
         return {
           ok: false,
@@ -2238,25 +1911,12 @@ void app.whenReady().then(async () => {
     (arguments_) => projectSessionArgumentsSchema.parse(arguments_),
     (projectSessionId) => {
       try {
-        if (nativeEditorHandoff) {
-          activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-          const controller = nativeEditorHandoff.current();
-          if (!controller?.isAdmitted(projectSessionId))
-            throw new Error('Native Project observer requires the current admitted session.');
-          nativeEditorObservers.get(controller)!.start(projectSessionId);
-          return { ok: true, success: true, diagnostics: [] };
-        }
-        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return startProjectWorkspaceWatcher(
-          mainWindow,
-          projectSessionId,
-          projectRoot,
-          activeProjectSessions.requireActiveWorkspace(projectSessionId),
-          (sessionId) => activeProjectSessions.isCurrent(sessionId),
-          async (sessionId, projectFilePath, project) => {
-            await activeProjectSessions.refreshActiveProject(sessionId, projectFilePath, project);
-          },
-        );
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        const controller = nativeEditorHandoff.current();
+        if (!controller?.isAdmitted(projectSessionId))
+          throw new Error('Native Project observer requires the current admitted session.');
+        nativeEditorObservers.get(controller)!.start(projectSessionId);
+        return { ok: true, success: true, diagnostics: [] };
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Project session is stale or unknown.';
@@ -2276,11 +1936,9 @@ void app.whenReady().then(async () => {
     (projectSessionId) => {
       try {
         activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        if (nativeEditorHandoff) {
-          nativeEditorObservers.get(nativeEditorHandoff.current()!)?.close();
-          return { ok: true, success: true, diagnostics: [] };
-        }
-        return stopProjectWorkspaceWatcher(projectSessionId);
+
+        nativeEditorObservers.get(nativeEditorHandoff.current()!)?.close();
+        return { ok: true, success: true, diagnostics: [] };
       } catch (error) {
         const message =
           error instanceof Error ? error.message : 'Project session is stale or unknown.';
@@ -2349,9 +2007,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.PROJECT_SOURCE_USAGES,
     (arguments_) => projectSourceUsagesArgumentsSchema.parse(arguments_),
     (request: ProjectSourceUsageRequest) =>
-      nativeEditorMutationEnabled
-        ? nativeEditorAdmission!.sourceUsages(request.projectSessionId, request.path)
-        : activeProjectSessions.projectSourceUsages(request),
+      nativeEditorAdmission!.sourceUsages(request.projectSessionId, request.path),
   );
 
   guardedIpc.handle(
@@ -2359,9 +2015,7 @@ void app.whenReady().then(async () => {
     (arguments_) => mutateProjectSourcesArgumentsSchema.parse(arguments_),
     async (request: ProjectSourceStructuralRequest) => {
       try {
-        return nativeEditorMutationEnabled
-          ? await nativeEditorAdmission!.mutateProjectSources(request)
-          : await activeProjectSessions.mutateProjectSources(request);
+        return await nativeEditorAdmission!.mutateProjectSources(request);
       } catch (error) {
         return {
           ok: false,
@@ -2370,12 +2024,6 @@ void app.whenReady().then(async () => {
         };
       }
     },
-  );
-
-  guardedIpc.handle(
-    IPC_CHANNELS.WRITE_PROJECT_SOURCE,
-    (arguments_) => writeProjectSourceArgumentsSchema.parse(arguments_),
-    (request: ProjectSourceWriteRequest) => activeProjectSessions.writeProjectSource(request),
   );
 
   guardedIpc.handle(
@@ -2581,10 +2229,8 @@ void app.whenReady().then(async () => {
 });
 
 app.on('before-quit', () => {
-  if (nativeEditorHandoff) closeNativeEditorHandoff();
-  else nativeEditorAdmission?.dispose();
+  closeNativeEditorHandoff();
   activeProjectSessions.dispose();
-  void stopProjectWorkspaceWatcher();
   void enginePreviewServer.stop();
 });
 

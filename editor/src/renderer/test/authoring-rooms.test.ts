@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
   defaultRoomData,
@@ -40,86 +38,6 @@ describe('authoring rooms schema', () => {
       exits: [],
       placements: [],
     });
-  });
-
-  it.each(['beforeEnter', 'beforeLeave'] as const)(
-    'rejects Flow-capable commands recursively in %s, regardless of Lua source',
-    (stage) => {
-      const project = createAuthoringProject();
-      const data = defaultRoomData('Foyer');
-      project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
-      data.lifecycle[stage] = [
-        {
-          id: 'branch',
-          kind: 'if',
-          condition: { kind: 'always' },
-          // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
-          then: [{ id: 'fault', kind: 'run-lua', source: "error('intentional')" }],
-          else: [{ id: 'notify', kind: 'notify', message: data.description }],
-        },
-      ];
-      const errors = validateAuthoringProject(project).filter(
-        (item) => item.code === 'room.lifecycle.non-immediate-command',
-      );
-      expect(errors.map((item) => item.path)).toEqual([
-        `/rooms/foyer/data/lifecycle/${stage}/0/else/0`,
-        `/rooms/foyer/data/lifecycle/${stage}/0/then/0`,
-      ]);
-      data.lifecycle.afterEnter = data.lifecycle[stage];
-      data.lifecycle[stage] = [];
-      expect(
-        validateAuthoringProject(project).filter(
-          (item) => item.code === 'room.lifecycle.non-immediate-command',
-        ),
-      ).toEqual([]);
-    },
-  );
-
-  it('checks unused Room Archetype pre-commit programs and permits immediate branches', () => {
-    const project = createAuthoringProject();
-    project.archetypes.shared = {
-      id: 'shared',
-      label: 'Shared',
-      data: {
-        kind: 'archetype',
-        instanceKind: 'room',
-        base: null,
-        overrides: {
-          '/data/lifecycle/beforeEnter': [
-            {
-              id: 'call',
-              kind: 'call-scene',
-              scene: { $ref: { collection: 'scenes', id: 'scene' } },
-            },
-          ],
-          '/data/lifecycle/beforeLeave': [
-            {
-              id: 'call',
-              kind: 'call-dialogue',
-              dialogue: { $ref: { collection: 'dialogues', id: 'dialogue' } },
-            },
-          ],
-        },
-      },
-    };
-    expect(
-      validateAuthoringProject(project)
-        .filter((item) => item.code === 'room.lifecycle.non-immediate-command')
-        .map((item) => item.path),
-    ).toEqual([
-      '/archetypes/shared/data/effectiveConfiguration/data/lifecycle/beforeEnter/0',
-      '/archetypes/shared/data/effectiveConfiguration/data/lifecycle/beforeLeave/0',
-    ]);
-    const data = defaultRoomData('Foyer');
-    data.lifecycle.beforeEnter = [
-      // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
-      { id: 'immediate', kind: 'if', condition: { kind: 'always' }, then: [], else: [] },
-    ];
-    expect(
-      validateRoomData(project, 'foyer', { id: 'foyer', label: 'Foyer', data }).filter(
-        (item) => item.code === 'room.lifecycle.non-immediate-command',
-      ),
-    ).toEqual([]);
   });
 
   it('authors Room Interactable occurrences against exact declared Instance identities', () => {
@@ -224,43 +142,6 @@ describe('authoring rooms schema', () => {
         (diagnostic) => diagnostic.path === '/rooms/foyer/data/exits/0/target/$ref',
       ),
     ).toEqual([]);
-  });
-
-  it('warns for non-image background assets and empty descriptions through project validation', () => {
-    const project = createAuthoringProject();
-    project.assets.theme = {
-      id: 'theme',
-      label: 'Theme',
-      data: assetDataFromImportMetadata({
-        kind: 'audio',
-        projectRelativePath: 'assets/audio/theme.mp3',
-        extension: '.mp3',
-        byteSize: 10,
-        contentHash: 'hash-audio',
-        importedAt: '2026-01-01T00:00:00.000Z',
-        originalName: 'theme.mp3',
-        originalPath: '/tmp/theme.mp3',
-        imageMetadata: null,
-      }),
-    };
-    const data = defaultRoomData('Foyer');
-    data.background.asset = roomAssetRef('theme');
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: 'Rooms',
-          path: '/rooms/foyer/data/background/asset/$ref',
-          severity: 'warning',
-        }),
-        expect.objectContaining({
-          category: 'Rooms',
-          path: '/rooms/foyer/data/description',
-          severity: 'warning',
-        }),
-      ]),
-    );
   });
 
   it('validates Camera Views, presentation bounds, and Anchor identities', () => {

@@ -61,7 +61,6 @@ export async function prepareNativeEditorExportAssessment(
   const result = await prepareRuntimeArtifact({
     project: admission.project,
     admittedAuthoringDiagnostics: admission.diagnostics,
-    admittedValidationContributions: [],
     admittedRuntimeAssetReferences: admission.runtimeAssetReferences,
     projectRoot,
     profile,
@@ -117,7 +116,6 @@ export async function exportNativeEditorPackage(
   const prepared = await (tools.prepare ?? prepareRuntimeArtifact)({
     project: admission.project,
     admittedAuthoringDiagnostics: admission.diagnostics,
-    admittedValidationContributions: [],
     admittedRuntimeAssetReferences: admission.runtimeAssetReferences,
     projectRoot,
     profile: { ...selectedExportProfile(admission.project), outputPath },

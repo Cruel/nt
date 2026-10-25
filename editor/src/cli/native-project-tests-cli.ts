@@ -6,7 +6,7 @@ import { nativeProjectRoot, type NativeProjectCommandCall } from './native-proje
 import { nativeProjectDiagnostics } from './native-project-results';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import type { NativeResidentProjectPreparation } from '../shared/project-workspace/native-project-preparation-contracts';
-import type { LoadedProjectWorkspaceSnapshot } from '../shared/project-workspace/project-workspace-service';
+import type { LoadedProjectWorkspaceSnapshot } from '../shared/project-workspace/project-workspace-contracts';
 import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 import { NodeProjectWorkspaceProcessLiveness } from '../shared/project-workspace/node-project-workspace-file-system';
 import { createNodeProjectWorkspaceFileSystem } from '../shared/project-workspace/node-project-workspace-file-system';
@@ -343,7 +343,6 @@ export async function runNativeProjectTestsCli(
           profile,
           intent: 'test-playback',
           admittedAuthoringDiagnostics: [],
-          admittedValidationContributions: [],
           admittedRuntimeAssetReferences: preparation.referencedAssetIds,
           shaderCompiler: nodeShaderCompilerAdapter((shaderProject, shaderOptions) =>
             nativeTools.compileShaders(shaderProject, {

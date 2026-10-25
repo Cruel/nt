@@ -1,6 +1,4 @@
-import { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { useCommandStore } from '@/commands/command-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,9 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
-import { useProjectStore } from '@/project/project-store';
 import {
   canPromoteLocalMessage,
   demoteNamedMessageUsage,
@@ -24,6 +20,11 @@ import {
   promoteAndLinkLocalMessages,
   renameMessageValueReferencePatches,
 } from '@/project/localization-message-operations';
+import {
+  nativeProjectDiagnosticsReady,
+  useNativeProjectDiagnostics,
+} from '@/project/native-project-diagnostics';
+import { useProjectStore } from '@/project/project-store';
 import { recordSaveUnitId, SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { SaveUnitId } from '@/project/save-unit-types';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -31,24 +32,17 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   findAuthoringDependencyUsages,
   localizationMessageNodeKey,
-} from '../../../shared/authoring-dependency-graph';
+} from '../../../shared/authoring-graph-queries';
 import {
-  hasSubstantiveLocalizationWork,
-  namedMessageKeySchema,
-  type AuthoringMessage,
-  type LocalizationAssetTarget,
-  type LocalizationTranslation,
-} from '../../../shared/project-schema/authoring-localization';
-import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  useNativeProjectDiagnostics,
-  nativeProjectDiagnosticsReady,
-} from '@/project/native-project-diagnostics';
-import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
+  applyLocalizationReconciliation,
+  planLocalizationReconciliation,
+} from '../../../shared/authoring-localization-reconcile';
 import {
   createLocalizationTranslation,
   createUseSourceLocalizationTarget,
@@ -62,10 +56,15 @@ import {
   isLocalizableAssetKind,
   localizationAssetWorkflowView,
 } from '../../../shared/authoring-localized-assets';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
-  applyLocalizationReconciliation,
-  planLocalizationReconciliation,
-} from '../../../shared/authoring-localization-reconcile';
+  hasSubstantiveLocalizationWork,
+  namedMessageKeySchema,
+  type AuthoringMessage,
+  type LocalizationAssetTarget,
+  type LocalizationTranslation,
+} from '../../../shared/project-schema/authoring-localization';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { PSEUDO_PREVIEW_LOCALE } from '../../../shared/pseudo-localization';
 
 type Surface = 'overview' | 'translations' | 'assets' | 'languages' | 'messages' | 'reconciliation';
@@ -172,11 +171,10 @@ interface MessageView extends LocalizationMessageWorkflowView {
 export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
-  const nativeSession = useProjectStore((state) => state.nativeSession);
   const nativeDiagnostics = useNativeProjectDiagnostics();
   const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const [surface, setSurface] = useState<Surface>('overview');
   const [newLocale, setNewLocale] = useState('');
   const [localeError, setLocaleError] = useState<string | null>(null);
@@ -299,9 +297,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const sourceChangeBlocked =
     localization.sourceLocaleLock !== null || hasSubstantiveLocalizationWork(localization);
   const reconciliationPlan = planLocalizationReconciliation(project);
-  const localizationValidationDiagnostics = nativeSession
-    ? nativeDiagnostics
-    : validateAuthoringProject(project);
+  const localizationValidationDiagnostics = nativeDiagnostics;
 
   async function run(
     label: string,
@@ -788,7 +784,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   ) {
     const path = translationRecordPath(locale, view.id);
     return (
-      (!nativeSession || nativeProjectDiagnosticsReady()) &&
+      nativeProjectDiagnosticsReady() &&
       !translation.useSource &&
       translation.sourceFingerprint === view.sourceFingerprint &&
       dialogueCuesReviewable(view, translation) &&

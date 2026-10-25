@@ -28,7 +28,7 @@ import type {
   PreviewToEditorMessage,
 } from '../../shared/preview-protocol';
 import type { ShaderVariant } from '../../shared/shader-variants';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
 import { authoredPreviewEnvironment, effectivePreviewDisplay } from '../../shared/preview-display';
 
@@ -91,7 +91,9 @@ export function EnginePreview({
   const projectDocument = useProjectStore((s) => s.document);
   const projectSettings = useMemo(
     () =>
-      isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument) : undefined,
+      isAuthoringProjectView(projectDocument)
+        ? projectSettingsFromProject(projectDocument)
+        : undefined,
     [projectDocument],
   );
   const effectiveDisplay = useMemo(

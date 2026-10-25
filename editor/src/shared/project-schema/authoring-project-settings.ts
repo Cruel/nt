@@ -408,18 +408,9 @@ function normalizeProjectAppInput(value: Record<string, unknown>): Record<string
 }
 
 export function projectSettingsFromProject(project: AuthoringProject): TypedProjectSettings {
-  const raw = project.settings as Record<string, unknown>;
-  const rawApp: Record<string, unknown> =
-    typeof raw.app === 'object' && raw.app !== null && !Array.isArray(raw.app)
-      ? (raw.app as Record<string, unknown>)
-      : {};
-  const settings = parseTypedProjectSettings({
-    ...raw,
-    app: { ...defaultProjectAppIdentity(project), ...normalizeProjectAppInput(rawApp) },
-  });
   return {
-    ...settings,
-    app: projectAppSettingsSchema.parse(settings.app ?? defaultProjectAppIdentity(project)),
+    ...project.settings,
+    app: project.settings.app ?? defaultProjectAppIdentity(project),
   } as TypedProjectSettings;
 }
 

@@ -13,7 +13,7 @@ import {
   resolveArchetypeConfiguration,
   type InheritableConfiguration,
 } from '../../../shared/project-schema/authoring-archetypes';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 
 function sameJson(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -38,7 +38,7 @@ function mergeDefaultProperties(
 
 export function ArchetypeEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const archetypeId = tab.resource?.entityId ?? null;
   const record = project && archetypeId ? project.archetypes[archetypeId] : null;
   const data = parseArchetypeData(record?.data);

@@ -31,27 +31,10 @@ describe('room commands', () => {
     });
   });
 
-  it('patches valid room data and rejects error diagnostics', () => {
+  it('produces undoable Room patch intents; native admission checks references', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     let state = createInitialCommandBusState(toJsonValue(project));
-
-    const invalidData = defaultRoomData('Foyer');
-    invalidData.exits = [
-      {
-        id: 'north',
-        label: 'North',
-        direction: 'north',
-        target: roomRoomRef('missing'),
-        condition: { kind: 'always' },
-        onRejected: [],
-      },
-    ];
-    const invalid = executeCommand(state, {
-      type: 'room.replaceData',
-      payload: { roomId: 'foyer', data: invalidData },
-    });
-    expect(invalid.ok).toBe(false);
 
     const next = defaultRoomData('Foyer');
     next.description.source = { kind: 'inline', text: 'Welcome to the foyer.' };

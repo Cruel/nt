@@ -6,7 +6,7 @@ import { useProjectSourceStore } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { buildProjectSourceTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 
 export function EngineShaderSourceEditor({ tab }: WorkbenchEditorProps) {
@@ -14,7 +14,7 @@ export function EngineShaderSourceEditor({ tab }: WorkbenchEditorProps) {
   const sourceId = tab.resource?.sourceId ?? null;
   const materialId = tab.resource?.collection === 'materials' ? tab.resource.entityId : undefined;
   const document = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const mutate = useProjectSourceStore((state) => state.mutate);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const [busy, setBusy] = useState(false);

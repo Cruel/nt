@@ -23,7 +23,7 @@ export interface OpenProjectResponse {
   contentProject?: unknown;
   savedContentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
-  repairs?: import('./project-schema/decode-authoring-project').AuthoringEnumRepair[];
+  repairs?: never[];
   recoveryFileRevisions?: Record<string, `sha256:${string}` | 'absent'>;
   scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
@@ -197,7 +197,7 @@ export interface ShaderCompileResponse {
 }
 
 export interface SaveProjectResponse {
-  commentImpacts?: readonly import('./project-workspace/project-workspace-service').ProjectWorkspaceCommentImpact[];
+  commentImpacts?: readonly import('./project-workspace/project-workspace-contracts').ProjectWorkspaceCommentImpact[];
   deletedSourceTexts?: Readonly<Record<string, string>>;
   ok: boolean;
   success: boolean;
@@ -237,7 +237,7 @@ export interface ProjectContentSaveRequest {
 export interface ProjectContentSaveResponse {
   commentConfirmationRequired?: boolean;
   commentConfirmationToken?: string;
-  commentImpacts?: readonly import('./project-workspace/project-workspace-service').ProjectWorkspaceCommentImpact[];
+  commentImpacts?: readonly import('./project-workspace/project-workspace-contracts').ProjectWorkspaceCommentImpact[];
   deletedSourceTexts?: Readonly<Record<string, string>>;
   ok: boolean;
   success: boolean;

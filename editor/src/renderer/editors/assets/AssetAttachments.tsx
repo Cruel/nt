@@ -21,10 +21,8 @@ import {
   type AssetAttachment,
   type AssetAttachmentPurpose,
 } from '../../../shared/project-schema/authoring-assets';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import type {
   ProjectAttachmentFileInfo,
   ProjectAttachmentInspection,
@@ -198,7 +196,10 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   ): Promise<boolean> {
     try {
       const current = useProjectStore.getState();
-      if (current.projectSessionId !== projectSessionId || !isAuthoringProject(current.document)) {
+      if (
+        current.projectSessionId !== projectSessionId ||
+        !isAuthoringProjectView(current.document)
+      ) {
         setStatus(t('assetAttachments.sessionChanged'));
         return false;
       }
@@ -293,7 +294,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       if (
         latest.projectSessionId !== projectSessionId ||
         latest.projectInstanceId !== initialProjectInstanceId ||
-        !isAuthoringProject(latest.document)
+        !isAuthoringProjectView(latest.document)
       ) {
         setStatus(t('assetAttachments.sessionChanged'));
         return;
@@ -417,8 +418,8 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       return;
     }
     if (
-      !isAuthoringProject(saved) ||
-      !isAuthoringProject(store.document) ||
+      !isAuthoringProjectView(saved) ||
+      !isAuthoringProjectView(store.document) ||
       Object.entries(store.document.assets).some(([id, asset]) => {
         const current = parseAssetData(asset.data);
         const baseline = parseAssetData(saved.assets[id]?.data);
@@ -494,7 +495,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       return;
     }
     const liveProject = useProjectStore.getState().document;
-    if (!isAuthoringProject(liveProject)) return;
+    if (!isAuthoringProjectView(liveProject)) return;
     const assetRevisionsById = Object.fromEntries(
       (
         await Promise.all(

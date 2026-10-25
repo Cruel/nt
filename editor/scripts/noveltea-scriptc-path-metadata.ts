@@ -1,7 +1,5 @@
-import type {
-  ProjectWorkspacePathMetadata,
-  ProjectWorkspacePathMetadataReader,
-} from '../src/shared/project-workspace';
+import type { ProjectWorkspacePathMetadata } from '../src/shared/project-workspace/project-workspace-file-system';
+import type { ProjectWorkspacePathMetadataReader } from '../src/shared/project-workspace/node-project-workspace-file-system';
 
 export type ScriptcHostInvoke = (operation: string, requestText: string) => string;
 

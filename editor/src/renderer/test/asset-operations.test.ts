@@ -10,6 +10,7 @@ import {
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { nativeViewRecordGraphSnapshotFixture } from '../test-support/native-renderer-graph-fixture';
 
 function importProject() {
   const project = createAuthoringProject();
@@ -291,7 +292,26 @@ describe('asset operations', () => {
         hotspots: [],
       },
     };
-    const state = createInitialCommandBusState(toJsonValue(project));
+    const state = {
+      ...createInitialCommandBusState(toJsonValue(project)),
+      graphSnapshot: nativeViewRecordGraphSnapshotFixture(project, {
+        edges: [
+          {
+            id: 'native-room-background',
+            source: { kind: 'record', collection: 'rooms', id: 'foyer' },
+            target: { kind: 'record', collection: 'assets', id: 'click' },
+            sourcePath: '/rooms/foyer/data/background/asset',
+            targetPath: '/assets/click',
+            role: 'room-background',
+            facets: ['reference-integrity', 'tooling-reference'],
+            targetImpactPaths: ['/assets/click'],
+            repair: { kind: 'set-null', path: '/rooms/foyer/data/background/asset' },
+          },
+        ],
+      }),
+      projectInstanceId: 'project-instance',
+      projectRevision: 1,
+    };
     const repaired = executeCommand(state, {
       type: 'asset.deleteAsset',
       payload: { assetId: 'click' },

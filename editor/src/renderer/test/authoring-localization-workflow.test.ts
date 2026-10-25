@@ -6,18 +6,14 @@ import {
   localizationMessageWorkflowView,
   localizationMessageWorkflowViews,
   localizationMessageSourceViews,
-  updateLocalizationMessageSourceViews,
   localizationTargetWorkflowView,
 } from '../../shared/authoring-localization-workflow';
 import { synchronizeLocalizationMessageTracking } from '../../shared/authoring-localization-sync';
-import { collectAuthoringLuaSources } from '../../shared/authoring-source-analysis';
 import { structuredMessageForPath } from '../../shared/authoring-structured-messages';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { validateAdmittedAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   defaultDialogueBlock,
   defaultDialogueData,
@@ -25,60 +21,6 @@ import {
 } from '../../shared/project-schema/authoring-dialogues';
 
 describe('localization workflow state', () => {
-  it('shares the exact raw Lua source inventory without changing localization source views', () => {
-    const project = createAuthoringProject();
-    const ordinary = localizationMessageSourceViews(project);
-    const descriptors = collectAuthoringLuaSources(project);
-    expect(localizationMessageSourceViews(project, descriptors)).toEqual(ordinary);
-  });
-  it('matches full localization source extraction and translation diagnostics after a named Message edit', () => {
-    const project = createAuthoringProject();
-    const id = '11111111-1111-4111-8111-111111111111';
-    project.localization.messages[id] = {
-      kind: 'named',
-      key: 'dialogue.hello',
-      source: 'Hello, {name}!',
-      arguments: { name: 'string' },
-    };
-    project.localization.locales.fr = {
-      supported: true,
-      parentLocale: null,
-      fontStack: null,
-    };
-    project.localization.translations.fr = {
-      [id]: createLocalizationTranslation(
-        localizationMessageWorkflowView(project, id)!,
-        'Bonjour, {other}!',
-      ),
-    };
-    const original = localizationMessageSourceViews(project);
-    const changed = structuredClone(project);
-    changed.localization.messages[id] = {
-      kind: 'named',
-      key: 'dialogue.hello',
-      source: 'Welcome back, {name}!',
-      arguments: { name: 'string' },
-    };
-    const updated = updateLocalizationMessageSourceViews(project, changed, original);
-    expect(updated).not.toBeNull();
-    expect(updated).toEqual(localizationMessageSourceViews(changed));
-    const cold = validateAdmittedAuthoringProject(changed).diagnostics;
-    expect(cold.some((item) => item.code === 'localization.translation.placeholder-missing')).toBe(
-      true,
-    );
-    const reused = validateAdmittedAuthoringProject(changed, {
-      contributions: [],
-      resolveInputs: () => null,
-      localizationSourceViews: updated!,
-    }).diagnostics;
-    expect(reused).toEqual(cold);
-    const added = structuredClone(changed);
-    added.localization.messages['22222222-2222-4222-8222-222222222222'] = {
-      kind: 'local',
-      source: 'New message',
-    };
-    expect(updateLocalizationMessageSourceViews(project, added, original)).toBeNull();
-  });
   it('derives linguistic freshness separately from guidance attention', () => {
     const project = createAuthoringProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f031';
@@ -303,53 +245,6 @@ describe('localization workflow state', () => {
     expect(target.translation?.dialogueCues).toEqual([
       { id: 'camera', position: { offset: 2, order: 0 } },
     ]);
-  });
-
-  it('projects Dialogue Cue contracts onto named Messages and rejects incompatible reuse', () => {
-    const project = createAuthoringProject();
-    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f039';
-    project.localization.messages[messageId] = {
-      kind: 'named',
-      key: 'dialogue.shared.line',
-      source: 'ABCDE',
-    };
-    const dialogue = defaultDialogueData('Named cues');
-    const first = defaultDialogueSegment('line', 'first');
-    first.text = {
-      source: { kind: 'localized', key: 'dialogue.shared.line' },
-      markup: 'active-text',
-    };
-    first.cues = [
-      {
-        id: 'camera',
-        kind: 'camera',
-        position: { offset: 2, order: 0 },
-        emphasis: {
-          kind: 'flash',
-          color: '#ffffff',
-          opacity: 1,
-          durationMs: 100,
-          skippable: true,
-          waitForCompletion: false,
-        },
-      },
-    ];
-    const second = structuredClone(first);
-    second.id = 'second';
-    second.cues[0]!.position.offset = 3;
-    dialogue.blocks = [{ ...defaultDialogueBlock('sequence', 'start'), segments: [first, second] }];
-    project.dialogues.intro = { id: 'intro', label: 'Intro', data: dialogue };
-
-    const view = localizationMessageWorkflowView(project, messageId)!;
-    expect(view.dialogueCues).toEqual([{ id: 'camera', position: { offset: 2, order: 0 } }]);
-    expect(createLocalizationTranslation(view, 'Traduit').dialogueCues).toEqual([
-      { id: 'camera', position: { offset: 2, order: 0 } },
-    ]);
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ code: 'localization.dialogue-message.cue-contract-conflict' }),
-      ]),
-    );
   });
 
   it('treats selector-branch visual markup edits as presentation attention, not linguistic staleness', () => {

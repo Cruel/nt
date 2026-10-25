@@ -1,0 +1,19 @@
+chapters: {}
+tags: {}
+recordMetadata:
+  assets:
+    app-icon:
+      tags:
+        - export-fixture
+    backdrop:
+      tags:
+        - export-fixture
+    body-font:
+      tags:
+        - export-fixture
+    startup-lua:
+      tags:
+        - export-fixture
+    theme-music:
+      tags:
+        - export-fixture

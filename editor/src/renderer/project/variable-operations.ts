@@ -7,7 +7,7 @@ import {
   type VariableData,
   type VariableType,
 } from '../../shared/project-schema/authoring-variables';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type { JsonPatchOperation } from './json-patch';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 
@@ -44,7 +44,8 @@ function validateVariableTarget(
   document: unknown,
   variableId: string,
 ): EntityOperationDiagnostic | null {
-  if (!isAuthoringProject(document)) return error('Current document is not a NovelTea project.');
+  if (!isAuthoringProjectView(document))
+    return error('Current document is not a NovelTea project.');
   if (!document.variables[variableId])
     return error('Variable record does not exist.', pathForVariable(variableId));
   return null;
@@ -138,7 +139,7 @@ export function setVariableTypePatches(
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const current = parseVariableData(document.variables[payload.variableId].data);
   if (!current)
@@ -175,7 +176,7 @@ export function setVariableDefaultValuePatches(
 ): EntityOperationResult {
   const targetError = validateVariableTarget(document, payload.variableId);
   if (targetError) return { patches: [], diagnostics: [targetError] };
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const current = parseVariableData(document.variables[payload.variableId].data);
   if (!current)

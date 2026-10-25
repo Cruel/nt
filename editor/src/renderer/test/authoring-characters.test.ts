@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   characterAssetRef,
@@ -170,57 +169,6 @@ describe('authoring characters schema', () => {
       { id: 'body', role: 'body', visible: true },
       { id: 'face', role: 'face', visible: true },
     ]);
-  });
-
-  it('validates duplicate subrecord IDs and missing defaults', () => {
-    const project = createAuthoringProject();
-    project.characters.iris = {
-      id: 'iris',
-      label: 'Iris',
-      data: {
-        ...defaultCharacterData('Iris'),
-        defaults: {
-          profileId: 'missing-profile',
-          expressionId: 'missing-expression',
-          appearanceId: null,
-          idleId: null,
-        },
-        profiles: [
-          {
-            ...defaultCharacterData('Iris').profiles[0]!,
-            poses: [
-              defaultCharacterData('Iris').profiles[0]!.poses[0]!,
-              { ...defaultCharacterData('Iris').profiles[0]!.poses[0]!, label: 'Duplicate' },
-            ],
-          },
-        ],
-        expressions: [
-          { id: 'neutral', label: 'Neutral', profiles: [] },
-          { id: 'neutral', label: 'Duplicate', profiles: [] },
-        ],
-      },
-    };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/characters/iris/data/profiles/0/poses/1/id',
-          category: 'Characters',
-        }),
-        expect.objectContaining({
-          path: '/characters/iris/data/expressions/1/id',
-          category: 'Characters',
-        }),
-        expect.objectContaining({
-          path: '/characters/iris/data/defaults/profileId',
-          category: 'Characters',
-        }),
-        expect.objectContaining({
-          path: '/characters/iris/data/defaults/expressionId',
-          category: 'Characters',
-        }),
-      ]),
-    );
   });
 
   it('validates sprite and material references', () => {

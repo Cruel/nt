@@ -6,7 +6,7 @@ import {
   type PrepareRuntimeArtifactResult,
   type RuntimeArtifactAssessment,
   type RuntimeArtifactPathAdapter,
-} from '../../shared/legacy-runtime-artifact-preparation';
+} from '../../shared/runtime-artifact-preparation';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
 
 export interface RuntimeArtifactTestOptions {
@@ -24,6 +24,10 @@ export async function prepareRuntimeArtifactForTest(
   const shaderOutputs = [...(options.shaderOutputs ?? [])];
   return prepareRuntimeArtifact({
     project,
+    // Test-only proof fixture: supply an intentionally conservative admitted
+    // Asset set rather than reimplementing native graph discovery in TS.
+    admittedRuntimeAssetReferences: Object.keys(project.assets),
+    admittedAuthoringDiagnostics: [],
     projectRoot: options.projectRoot ?? null,
     profile: options.profile,
     recoveryFingerprint: options.recoveryFingerprint,

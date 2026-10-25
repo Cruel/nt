@@ -8,7 +8,7 @@ import {
   type NovelTeaCliCommandResult,
   type NovelTeaCliExitCode,
 } from './contracts';
-import type { RunNovelTeaCliOptions } from './application';
+import type { RunNovelTeaCliOptions } from './cli-options';
 import { dispatchNativeProjectCommand } from './native-project-command-dispatch';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import { unavailablePlatformTools } from './platform-tool-service';

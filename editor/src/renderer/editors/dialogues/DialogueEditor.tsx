@@ -1,21 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCommandStore } from '@/commands/command-store';
+import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
+import { GameplayCommandListEditor } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
-import { GameplayCommandListEditor } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import type { AuthoringEditorProject } from '@/editors/interactions/InteractionProgramEditor';
 import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import type { AuthoringEditorProject } from '@/editors/interactions/InteractionProgramEditor';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
-import { useProjectStore } from '@/project/project-store';
 import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { useProjectStore } from '@/project/project-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
@@ -33,6 +32,9 @@ import {
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
+import { isValidEntityId } from '../../../shared/project-schema/authoring-common';
 import {
   defaultDialogueBlock,
   defaultDialogueData,
@@ -43,37 +45,34 @@ import {
   dialoguePreviewBackgroundValues,
   dialogueSegmentTypeValues,
   parseDialogueData,
-  validateDialogueData,
   type DialogueBlockData,
   type DialogueChoiceEdgeData,
   type DialogueConditionData,
   type DialogueData,
   type DialogueEdgeData,
   type DialogueLineCue,
-  type DialoguePreviewBackground,
   type DialogueMediaContent,
   type DialogueMediaMutation,
   type DialogueMediaSlotData,
+  type DialoguePreviewBackground,
   type DialogueSegmentData,
+  type DialogueSequenceBlockData,
   type DialogueStageMutation,
   type DialogueStageSlotData,
   type DialogueStageSlotState,
-  type DialogueSequenceBlockData,
 } from '../../../shared/project-schema/authoring-dialogues';
-import {
-  parseDialogueCueMarkup,
-  serializeDialogueCueMarkup,
-} from '../../../shared/project-schema/dialogue-cue-markup';
-import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
-import { parseSceneData } from '../../../shared/project-schema/authoring-scenes';
 import {
   inlineTextContent,
   type FlowTarget,
   type GameplayCommand,
   type TextContent,
 } from '../../../shared/project-schema/authoring-flow';
-import { isValidEntityId } from '../../../shared/project-schema/authoring-common';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
+import { parseSceneData } from '../../../shared/project-schema/authoring-scenes';
+import {
+  parseDialogueCueMarkup,
+  serializeDialogueCueMarkup,
+} from '../../../shared/project-schema/dialogue-cue-markup';
 import {
   buildDialoguePreviewDocumentData,
   dialoguePreviewRevision,
@@ -409,7 +408,7 @@ function EffectsEditor({
 export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const dialogueId = tab.resource?.entityId;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = dialogueId && project ? project.dialogues[dialogueId] : null;
   const parsedData = parseDialogueData(record?.data);
   const data = parsedData ?? defaultDialogueData(record?.label ?? dialogueId ?? 'Dialogue');
@@ -433,16 +432,7 @@ export function DialogueEditor({ tab }: WorkbenchEditorProps) {
   const sourceEditors = useSourceEditorViewStateRefs<'segmentText' | 'segmentLua'>();
 
   const nativeDiagnostics = useNativeProjectDiagnostics(`/dialogues/${dialogueId}`);
-  const nativeSession = useProjectStore((state) => state.nativeSession);
-  const diagnostics = useMemo(
-    () =>
-      nativeSession
-        ? nativeDiagnostics
-        : project && record && dialogueId
-          ? validateDialogueData(project, dialogueId, record)
-          : [],
-    [project, record, dialogueId, nativeSession, nativeDiagnostics],
-  );
+  const diagnostics = nativeDiagnostics;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((item) => ({

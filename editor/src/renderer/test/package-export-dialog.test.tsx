@@ -1,3 +1,9 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import { prepareRuntimeAssessmentForTest } from './runtime-artifact-test-helpers';
+import {
+  defaultExportProfile,
+  runtimeExportProfileForPlatform,
+} from '../../shared/project-schema/authoring-export';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { PackageExportDialog } from '@/export/PackageExportDialog';
@@ -88,6 +94,7 @@ function renderExport(
   project = exportableProject(),
   initialMode: 'runtime' | 'platform' = 'runtime',
 ) {
+  if (!useProjectStore.getState().document) admitNativeRendererCommandFixture(project);
   return render(
     <PackageExportDialog
       embedded
@@ -107,6 +114,35 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   useCommandStore.getState().resetCommandHistory();
+  Object.defineProperty(window.noveltea, 'nativeProjectPrepareExport', {
+    configurable: true,
+    value: vi.fn(
+      async (
+        _session: string,
+        _revision: number,
+        mode: 'runtime' | 'platform',
+        profileId?: string,
+      ) => {
+        const project = useProjectStore.getState().document as ReturnType<typeof exportableProject>;
+        const profile =
+          mode === 'platform' && profileId
+            ? runtimeExportProfileForPlatform(
+                project,
+                project.export.profiles.find((item) => item.id === profileId)?.target ?? 'linux',
+              )
+            : defaultExportProfile(project);
+        const assessment = await prepareRuntimeAssessmentForTest(project, {
+          profile,
+          projectRoot: '/project',
+        });
+        return {
+          status: assessment.ready ? 'prepared' : 'blocked',
+          assessment,
+          diagnostics: assessment.diagnostics,
+        };
+      },
+    ),
+  });
   usePreferencesStore.getState().resetToDefaults();
   useTemplateRegistryStore.setState({
     templates: [],
@@ -147,11 +183,37 @@ describe('PackageExportDialog', () => {
     });
     await editorI18n.changeLanguage('pt-BR');
 
+    // The native preflight is authoritative; it sends the diagnostic code
+    // rather than relying on an independent renderer-side validation pass.
+    const nativePrepare = window.noveltea.nativeProjectPrepareExport;
+    Object.defineProperty(window.noveltea, 'nativeProjectPrepareExport', {
+      configurable: true,
+      value: vi.fn(async (...args: Parameters<typeof nativePrepare>) => {
+        const result = await nativePrepare(...args);
+        if (result.status === 'cancelled') return result;
+        const diagnostic = {
+          code: 'hotspot.authoring.target.none',
+          severity: 'info' as const,
+          path: '/rooms/foyer/data/hotspots/0/target',
+          message: 'Hotspot has no target and will not be interactive.',
+          category: 'Rooms',
+        };
+        return {
+          ...result,
+          assessment: {
+            ...result.assessment,
+            diagnostics: [...result.assessment.diagnostics, diagnostic],
+            runtimeDiagnostics: [...result.assessment.runtimeDiagnostics, diagnostic],
+          },
+        };
+      }),
+    });
+
     renderExport(project, 'runtime');
 
     expect(
       await screen.findAllByText('O hotspot não tem alvo e não será interativo.'),
-    ).toHaveLength(2);
+    ).not.toHaveLength(0);
     expect(
       screen.queryByText('Hotspot has no target and will not be interactive.'),
     ).not.toBeInTheDocument();
@@ -206,11 +268,7 @@ describe('PackageExportDialog', () => {
 
   it('creates a profile as Name + Platform followed by the shared profile editor', async () => {
     const project = exportableProject(false);
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     renderExport(project, 'platform');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add profile' }));
@@ -238,11 +296,7 @@ describe('PackageExportDialog', () => {
 
   it('edits an existing profile in-place and disables sidebar management until Done or Cancel', async () => {
     const project = exportableProject();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     renderExport(project, 'platform');
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Profile' }));
@@ -264,11 +318,7 @@ describe('PackageExportDialog', () => {
 
   it('derives output from the current profile name until the user chooses a custom path', async () => {
     const project = exportableProject();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     renderExport(project, 'platform');
 
     expect(screen.getByLabelText('Output directory')).toHaveValue('/project/dist/linux');
@@ -290,15 +340,11 @@ describe('PackageExportDialog', () => {
     );
   });
 
-  it('keeps Web base-path text editable but refuses Done until it is valid', () => {
+  it('keeps Web base-path text editable but refuses Done until it is valid', async () => {
     const project = exportableProject();
     const web = defaultPlatformExportProfile('web');
     project.export.profiles = [web];
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     renderExport(project, 'platform');
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Profile' }));
@@ -313,10 +359,12 @@ describe('PackageExportDialog', () => {
     fireEvent.change(input, { target: { value: '/game/' } });
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(
-      (useProjectStore.getState().document as ReturnType<typeof exportableProject>).export
-        .profiles[0],
-    ).toMatchObject({ web: { basePath: '/game/' } });
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof exportableProject>).export
+          .profiles[0],
+      ).toMatchObject({ web: { basePath: '/game/' } }),
+    );
   });
 
   it('requires interactive acknowledgement before exporting localization warnings', async () => {
@@ -328,18 +376,52 @@ describe('PackageExportDialog', () => {
       quality: 'release',
     };
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const nativePrepare = window.noveltea.nativeProjectPrepareExport;
+    Object.defineProperty(window.noveltea, 'nativeProjectPrepareExport', {
+      configurable: true,
+      value: vi.fn(async (...args: Parameters<typeof nativePrepare>) => {
+        const result = await nativePrepare(...args);
+        if (result.status === 'cancelled') return result;
+        const warning = {
+          code: 'localization.export.message_missing',
+          severity: 'warning' as const,
+          path: '/localization/translations/fr/missing',
+          message: 'French fallback retains source text.',
+        };
+        return {
+          ...result,
+          assessment: {
+            ...result.assessment,
+            diagnostics: [...result.assessment.diagnostics, warning],
+            runtimeDiagnostics: [...result.assessment.runtimeDiagnostics, warning],
+          },
+        };
+      }),
+    });
+    vi.mocked(window.noveltea.nativeProjectExportPackage).mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      byteCount: 256,
+      manifest: { format: 'noveltea.runtime-package', entries: [] },
+    });
     renderExport(project, 'runtime');
 
     expect(await screen.findByText(/Source fallback retained:/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining('localization quality warning(s)'),
+    await waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith(
+        expect.stringContaining('localization quality warning(s)'),
+      ),
     );
     expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
 
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
-    await waitFor(() => expect(window.noveltea.exportPackage).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(window.noveltea.nativeProjectExportPackage).toHaveBeenCalledTimes(1),
+    );
+    expect(window.noveltea.exportPackage).not.toHaveBeenCalled();
     confirm.mockRestore();
   });
 

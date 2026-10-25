@@ -12,6 +12,7 @@ import {
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
 import { roomDestroyInteractableInstanceCommand } from '@/commands/builtin-commands';
+import { nativeViewRecordGraphSnapshotFixture } from '../test-support/native-renderer-graph-fixture';
 import {
   allocateRoomPresentationOrders,
   ROOM_PRESENTATION_ORDER_MAX,
@@ -508,7 +509,12 @@ describe('Room placement commands', () => {
       kind: 'room',
       room: { $ref: { collection: 'rooms', id: 'foyer' } },
     });
-    const initial = createInitialCommandBusState(toJsonValue(project));
+    const initial = {
+      ...createInitialCommandBusState(toJsonValue(project)),
+      graphSnapshot: nativeViewRecordGraphSnapshotFixture(project),
+      projectInstanceId: 'project-instance',
+      projectRevision: 1,
+    };
 
     const occurrenceOnly = executeCommand(initial, {
       type: 'room.removeInteractableOccurrence',
@@ -553,7 +559,37 @@ describe('Room placement commands', () => {
       },
       location: { kind: 'unplaced' },
     });
-    const initial = createInitialCommandBusState(toJsonValue(project));
+    const target = { kind: 'project-field' as const, path: '/interactableInstances/key' };
+    const source = { kind: 'project-field' as const, path: '/undefinedInteractionProgram' };
+    const initial = {
+      ...createInitialCommandBusState(toJsonValue(project)),
+      graphSnapshot: nativeViewRecordGraphSnapshotFixture(project, {
+        nodes: [
+          { key: target, keyText: JSON.stringify(target), owningPath: target.path, label: 'Key' },
+          {
+            key: source,
+            keyText: JSON.stringify(source),
+            owningPath: source.path,
+            label: 'Program',
+          },
+        ],
+        edges: [
+          {
+            id: 'native-instance-program-reference',
+            source,
+            target,
+            sourcePath: '/undefinedInteractionProgram/instructions/0/subject/interactable/$ref',
+            targetPath: target.path,
+            role: 'explicit-ref',
+            facets: ['reference-integrity', 'tooling-reference'],
+            targetImpactPaths: [target.path],
+            repair: { kind: 'blocked', reason: 'Instance remains referenced.' },
+          },
+        ],
+      }),
+      projectInstanceId: 'project-instance',
+      projectRevision: 1,
+    };
 
     const destroyed = executeCommand(initial, {
       type: 'room.destroyInteractableInstance',
@@ -565,7 +601,8 @@ describe('Room placement commands', () => {
     expect(destroyed.diagnostics).toEqual([
       expect.objectContaining({
         severity: 'error',
-        path: '/undefinedInteractionProgram/instructions/0/subject/interactable/$ref',
+        path: '/interactableInstances/key',
+        message: expect.stringContaining('confirmed native dependencies'),
       }),
     ]);
   });

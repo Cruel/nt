@@ -1,8 +1,13 @@
-import { useMemo, useRef } from 'react';
+import { useCommandStore } from '@/commands/command-store';
+import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
+import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
+import {
+  OwnerLocalPropertiesEditor,
+  type OwnerPropertyTraitState,
+} from '@/components/properties/OwnerLocalPropertiesEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -12,54 +17,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
-import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
-import { useCommandStore } from '@/commands/command-store';
-import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
-import {
-  OwnerLocalPropertiesEditor,
-  type OwnerPropertyTraitState,
-} from '@/components/properties/OwnerLocalPropertiesEditor';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import {
   ownerLocalPropertyReferences,
   renameOwnerLocalPropertyReferencePatches,
 } from '@/project/owner-local-property-references';
-import { useEntityUsagesStore } from '@/project/entity-usages-store';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
-import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
-import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import type { Visual } from '../../../shared/project-schema/authoring-animations';
-import {
-  resolveArchetypeConfiguration,
-  resolveGameplayInstanceRecord,
-} from '../../../shared/project-schema/authoring-archetypes';
-import {
-  characterAssetRef,
-  characterIdleKindValues,
-  defaultCharacterData,
-  parseCharacterData,
-  presentationClockValues,
-  validateCharacterData,
-  type CharacterData,
-  type CharacterAppearanceData,
-  type CharacterExpressionData,
-  type CharacterGestureData,
-  type CharacterIdleData,
-  type CharacterLayerCompositionData,
-  type CharacterLayerOverrideData,
-  type CharacterPoseData,
-  type CharacterPresentationProfileData,
-} from '../../../shared/project-schema/authoring-characters';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
-import {
-  buildCharacterPreviewDocumentData,
-  characterPreviewRevision,
-  resolveCharacterPresentationLayers,
-} from '../../../shared/project-schema/character-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   captureScrollViewState,
@@ -68,6 +37,36 @@ import {
   type ScrollViewState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { useMemo, useRef } from 'react';
+import type { Visual } from '../../../shared/project-schema/authoring-animations';
+import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from '../../../shared/project-schema/authoring-archetypes';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import {
+  characterAssetRef,
+  characterIdleKindValues,
+  defaultCharacterData,
+  parseCharacterData,
+  presentationClockValues,
+  type CharacterAppearanceData,
+  type CharacterData,
+  type CharacterExpressionData,
+  type CharacterGestureData,
+  type CharacterIdleData,
+  type CharacterLayerCompositionData,
+  type CharacterLayerOverrideData,
+  type CharacterPoseData,
+  type CharacterPresentationProfileData,
+} from '../../../shared/project-schema/authoring-characters';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
+import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
+import {
+  buildCharacterPreviewDocumentData,
+  characterPreviewRevision,
+  resolveCharacterPresentationLayers,
+} from '../../../shared/project-schema/character-project';
 
 const CHARACTER_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.character';
 
@@ -184,7 +183,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const characterId = tab.resource?.entityId;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = characterId && project ? project.characters[characterId] : null;
   const effectiveRecord =
     project && record ? resolveGameplayInstanceRecord(project, 'character', record) : record;
@@ -195,16 +194,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
   const parsedData = parseCharacterData(effectiveRecord?.data);
   const data = parsedData ?? defaultCharacterData(record?.label ?? characterId ?? 'Character');
   const nativeDiagnostics = useNativeProjectDiagnostics(`/characters/${characterId}`);
-  const nativeSession = useProjectStore((state) => state.nativeSession);
-  const diagnostics = useMemo(
-    () =>
-      nativeSession
-        ? nativeDiagnostics
-        : project && effectiveRecord && characterId
-          ? validateCharacterData(project, characterId, effectiveRecord)
-          : [],
-    [project, effectiveRecord, characterId, nativeSession, nativeDiagnostics],
-  );
+  const diagnostics = nativeDiagnostics;
   const diagnosticItems = useMemo(
     () =>
       diagnostics.map((item) => ({

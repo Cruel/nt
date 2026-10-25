@@ -144,6 +144,13 @@ const api: NovelTeaElectronApi = {
       expectedRevision,
       shaderVariant,
     ),
+  nativeProjectTestReadiness: (projectSessionId, expectedRevision, testId) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_TEST_READINESS,
+      projectSessionId,
+      expectedRevision,
+      testId,
+    ),
   nativeProjectRunTest: (projectSessionId, expectedRevision, testId) =>
     invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST, projectSessionId, expectedRevision, testId),
   nativeProjectRunSuite: (projectSessionId, expectedRevision) =>

@@ -16,6 +16,7 @@ import type {
   ProjectSearchResult,
 } from './project-search-types';
 import type { AuthoringProject } from '../project-schema/authoring-project';
+import type { ReferenceIndex } from '../project-schema/authoring-references';
 
 interface FuseSearchItem {
   document: ProjectSearchDocument;
@@ -360,6 +361,7 @@ export function searchProjectIndex(
 export function searchProject(
   project: AuthoringProject,
   query: ProjectSearchQuery,
+  referenceIndex?: ReferenceIndex,
 ): ProjectSearchResponse {
-  return searchProjectIndex(buildProjectSearchIndex(project), query);
+  return searchProjectIndex(buildProjectSearchIndex(project, { referenceIndex }), query);
 }

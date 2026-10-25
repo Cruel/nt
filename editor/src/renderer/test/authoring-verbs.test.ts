@@ -3,7 +3,6 @@ import {
   createAuthoringProject,
   isAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { defaultVerbData, verbDataSchema } from '../../shared/project-schema/authoring-verbs';
 
 describe('authoring verbs', () => {
@@ -86,61 +85,6 @@ describe('authoring verbs', () => {
       markup: 'plain',
     };
     expect(verbDataSchema.safeParse(verb).success).toBe(false);
-  });
-
-  it('validates named placeholders in every authored localized completed-command template', () => {
-    const project = createAuthoringProject();
-    const verb = defaultVerbData('Use');
-    verb.slots = [
-      {
-        id: 'target',
-        label: { source: { kind: 'localized', key: 'verb.target.label' }, markup: 'plain' },
-        prompt: { source: { kind: 'localized', key: 'verb.target.prompt' }, markup: 'plain' },
-        selectors: [{ kind: 'any-subject' }],
-      },
-    ];
-    verb.bindingOrder = ['target'];
-    verb.completedCommandText = {
-      source: { kind: 'localized', key: 'verb.use.command' },
-      markup: 'plain',
-    };
-    project.verbs.use = { id: 'use', label: 'Use', data: verb };
-    project.localization.messages = {
-      '018f4f8c-9b5d-7ae2-9b36-4c8af613f031': {
-        kind: 'named',
-        key: 'verb.target.label',
-        source: 'Target {missing}',
-        arguments: { missing: 'printable' },
-      },
-      '018f4f8c-9b5d-7ae2-9b36-4c8af613f032': {
-        kind: 'named',
-        key: 'verb.target.prompt',
-        source: 'Choose {0}',
-      },
-      '018f4f8c-9b5d-7ae2-9b36-4c8af613f033': {
-        kind: 'named',
-        key: 'verb.use.command',
-        source: 'Use {missing}',
-        arguments: { missing: 'printable' },
-      },
-    };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/localization/messages/018f4f8c-9b5d-7ae2-9b36-4c8af613f031/source',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/localization/messages/018f4f8c-9b5d-7ae2-9b36-4c8af613f032/source',
-          severity: 'error',
-        }),
-        expect.objectContaining({
-          path: '/localization/messages/018f4f8c-9b5d-7ae2-9b36-4c8af613f033/source',
-          severity: 'error',
-        }),
-      ]),
-    );
   });
 
   it('represents handled and unhandled default-program outcomes explicitly', () => {

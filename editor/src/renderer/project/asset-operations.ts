@@ -13,10 +13,8 @@ import {
   findAssetRecordByAlias,
 } from '../../shared/project-schema/authoring-asset-references';
 import { findUsages, type ReferenceIndex } from '../../shared/project-schema/authoring-references';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type { JsonPatchOperation } from './json-patch';
 
 export interface AssetOperationDiagnostic {
@@ -64,7 +62,7 @@ function error(message: string, path?: string): AssetOperationDiagnostic {
 }
 
 function validateProject(document: unknown): AuthoringProject | AssetOperationDiagnostic {
-  if (isAuthoringProject(document)) return document;
+  if (isAuthoringProjectView(document)) return document;
   return error('Current document is not a NovelTea project.');
 }
 
@@ -103,7 +101,7 @@ export function importAssetRecordsPatches(
   payload: AssetImportPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   if (!payload.assets.length)
     return { patches: [], diagnostics: [error('No imported assets were provided.')] };
   const patches: JsonPatchOperation[] = [];
@@ -190,7 +188,7 @@ export function assignAssetAliasPatches(
   payload: AssetAliasPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const record = project.assets[payload.assetId];
   if (!record)
     return {
@@ -230,7 +228,7 @@ export function removeAssetAliasPatches(
   payload: AssetAliasPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const record = project.assets[payload.assetId];
   if (!record)
     return {
@@ -273,7 +271,7 @@ export function renameAssetAliasPatches(
   payload: AssetRenameAliasPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const aliasError = validateAssetAlias(payload.toAlias);
   if (aliasError) return { patches: [], diagnostics: [error(aliasError)] };
   if (payload.fromAlias === payload.toAlias)
@@ -310,7 +308,7 @@ export function reimportAssetPatches(
   payload: AssetReimportPayload,
 ): AssetOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const record = project.assets[payload.assetId];
   if (!record)
     return {
@@ -349,7 +347,7 @@ export function deleteAssetPatches(
   referenceIndex: ReferenceIndex,
 ): AssetOperationResult {
   const project = validateProject(document);
-  if (!isAuthoringProject(project)) return { patches: [], diagnostics: [project] };
+  if (!isAuthoringProjectView(project)) return { patches: [], diagnostics: [project] };
   const record = project.assets[payload.assetId];
   if (!record)
     return {

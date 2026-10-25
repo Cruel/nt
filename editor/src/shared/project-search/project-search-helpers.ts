@@ -1,5 +1,6 @@
 import type { AuthoringCollectionKey } from '../project-schema/authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from '../project-schema/authoring-project';
+import type { ReferenceIndex } from '../project-schema/authoring-references';
 import { searchProject } from './project-search';
 import type {
   ProjectSearchQuery,
@@ -28,6 +29,8 @@ export interface SearchReferencesOptions {
   aliases?: string[];
   text?: string;
   limit?: number;
+  /** Revision-pinned reference evidence supplied by native graph projection. */
+  referenceIndex?: ReferenceIndex;
 }
 
 export function searchAssets(
@@ -94,5 +97,5 @@ export function searchReferences(
     sort: { kind: 'label' },
     limit: options.limit,
   };
-  return searchProject(project, query);
+  return searchProject(project, query, options.referenceIndex);
 }

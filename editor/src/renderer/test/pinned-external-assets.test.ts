@@ -3,7 +3,7 @@ import { verifyPinnedExternalAssets } from '../../cli/pinned-external-assets';
 import type {
   ProjectWorkspaceFileSystem,
   ProjectWorkspacePathMetadata,
-} from '../../shared/project-workspace';
+} from '../../shared/project-workspace/project-workspace-file-system';
 
 function fileSystem(metadata: ProjectWorkspacePathMetadata): ProjectWorkspaceFileSystem {
   return {

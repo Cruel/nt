@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -39,11 +40,7 @@ describe('CharacterEditor', () => {
   it('renders typed character defaults', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<CharacterEditor tab={tab} />);
 
@@ -56,11 +53,7 @@ describe('CharacterEditor', () => {
   it('dispatches command-backed dialogue and pose updates', async () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<CharacterEditor tab={tab} />);
 
@@ -161,11 +154,7 @@ describe('CharacterEditor', () => {
       },
     ];
     project.characters.iris = { id: 'iris', label: 'Iris', data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     render(<CharacterEditor tab={tab} />);
     const user = userEvent.setup();
     await user.click(
@@ -229,11 +218,7 @@ describe('CharacterEditor', () => {
   it('captures scroll tab state for the inspector', () => {
     const project = createAuthoringProject();
     project.characters.iris = { id: 'iris', label: 'Iris', data: defaultCharacterData('Iris') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     const view = render(<CharacterEditor tab={tab} />);
     const scrollContainer = view.container.querySelector<HTMLElement>(

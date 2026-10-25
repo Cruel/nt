@@ -1,5 +1,5 @@
 import { synchronizeLocalizationMessageTracking } from './authoring-localization-sync';
-import type { AuthoringLuaSourceDescriptor } from './authoring-source-analysis';
+import type { AuthoringLuaSourceDescriptor } from './authoring-source-contracts';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
 import {

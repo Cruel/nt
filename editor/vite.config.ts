@@ -25,9 +25,6 @@ const electronRuntimeExternals = [
   /^sharp\//,
 ];
 const productionBuild = process.env.NODE_ENV === 'production';
-// #533: build a separate, fail-closed native ScriptC candidate without changing
-// the shipped mixed-authority bundle before the coordinated #521 cutover.
-const nativeCliCandidateBuild = process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE === '1';
 const editorCheckInputs = [
   'src/**/*',
   'scripts/**/*',
@@ -50,9 +47,6 @@ const commonNodePack = {
   define: {
     __NOVELTEA_VERSION__: JSON.stringify(productVersion),
     __NOVELTEA_BUILD_IDENTITY__: JSON.stringify(buildIdentity),
-    'process.env.NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE': JSON.stringify(
-      nativeCliCandidateBuild ? '1' : '0',
-    ),
   },
   sourcemap: !productionBuild,
   hash: false,
@@ -395,22 +389,9 @@ export default defineConfig({
       name: 'node-tools',
       plugins: [
         cliStartupPolicy(
-          nativeCliCandidateBuild ? 'Native Node CLI candidate' : 'Node CLI',
-          path.join(
-            editorRoot,
-            nativeCliCandidateBuild
-              ? 'scripts/noveltea-native-candidate.ts'
-              : 'scripts/noveltea.ts',
-          ),
+          'Native Node CLI candidate',
+          path.join(editorRoot, 'scripts/noveltea-native.ts'),
         ),
-        ...(nativeCliCandidateBuild
-          ? []
-          : [
-              cliLazyModulePolicy(
-                'Node application',
-                path.join(editorRoot, 'src/cli/application.ts'),
-              ),
-            ]),
         nativeProductionProvenance(editorRoot),
       ],
       deps: {
@@ -418,34 +399,10 @@ export default defineConfig({
         onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],
       },
       entry: {
-        noveltea: nativeCliCandidateBuild
-          ? 'scripts/noveltea-native-candidate.ts'
-          : 'scripts/noveltea.ts',
+        noveltea: 'scripts/noveltea-native.ts',
       },
       format: 'esm',
       outDir: 'dist-electron/tools',
-      fixedExtension: true,
-      clean: true,
-      outputOptions: { codeSplitting: true },
-    },
-    {
-      ...commonNodePack,
-      // These are build/test producers, not installable CLI commands. Keeping
-      // them in a separate output graph prevents their legacy fixture readers
-      // from silently entering the distributed Node tools closure.
-      name: 'node-fixture-generators',
-      plugins: [nativeProductionProvenance(editorRoot)],
-      deps: {
-        ...commonNodePack.deps,
-        onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],
-      },
-      entry: {
-        'project-compile': 'scripts/compile-project.ts',
-        'materialize-platform-export-fixture': 'scripts/materialize-platform-export-fixture.ts',
-        'generate-compiled-project-goldens': 'scripts/generate-compiled-project-goldens.ts',
-      },
-      format: 'esm',
-      outDir: 'dist-build-tools',
       fixedExtension: true,
       clean: true,
       outputOptions: { codeSplitting: true },
@@ -459,11 +416,8 @@ export default defineConfig({
           path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
         ),
         cliLazyModulePolicy(
-          nativeCliCandidateBuild ? 'Native ScriptC application' : 'ScriptC application',
-          path.join(
-            editorRoot,
-            nativeCliCandidateBuild ? 'src/cli/native-application.ts' : 'src/cli/application.ts',
-          ),
+          'Native ScriptC application',
+          path.join(editorRoot, 'src/cli/native-application.ts'),
         ),
         nativeProductionProvenance(editorRoot),
       ],
@@ -478,7 +432,7 @@ export default defineConfig({
       },
       entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
       format: 'esm',
-      outDir: nativeCliCandidateBuild ? 'dist-scriptc-native-island' : 'dist-scriptc-island',
+      outDir: 'dist-scriptc-island',
       fixedExtension: true,
       clean: true,
       checks: { legacyCjs: false },

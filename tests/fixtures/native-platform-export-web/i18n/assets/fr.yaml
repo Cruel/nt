@@ -1,0 +1,8 @@
+backdrop:
+  asset:
+    $ref:
+      collection: assets
+      id: backdrop-fr
+  sourceFingerprint: fnv1a:e3af755cce2570486bae0a96fbc7118c
+  origin: human
+  review: needs-review

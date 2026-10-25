@@ -1,6 +1,6 @@
 import type { NovelTeaCliDiagnostic } from './contracts';
 import { cliDiagnostic } from './contracts';
-import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 
 export interface PinnedExternalAssetExpectation {
   readonly path: string;

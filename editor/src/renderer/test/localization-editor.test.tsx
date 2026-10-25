@@ -1,7 +1,6 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
-import * as legacyValidation from '../../shared/project-schema/authoring-validation';
-import * as legacyDecoder from '../../shared/project-schema/decode-authoring-project';
 import userEvent from '@testing-library/user-event';
 import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -36,17 +35,17 @@ const tab = {
 };
 
 beforeEach(() => {
-  useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
+  Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+    configurable: true,
+    value: vi.fn(async () => ({ ok: true, success: true, diagnostics: [] })),
+  });
 });
 
 function loadProject() {
   const project = createAuthoringProject();
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock',
-    projectFilePath: '/mock/project.yaml',
-  });
+  admitNativeRendererCommandFixture(project);
   return project;
 }
 
@@ -58,9 +57,14 @@ describe('LocalizationEditor', () => {
 
     await user.click(screen.getByRole('combobox', { name: 'Preview locale' }));
     await user.click(await screen.findByRole('option', { name: /Pseudo-localized/u }));
+    await waitFor(() => expect(window.noveltea.nativeProjectPatch).toHaveBeenCalledOnce());
 
+    await waitFor(() =>
+      expect((useProjectStore.getState().document as AuthoringProject).editor.previewLocale).toBe(
+        PSEUDO_PREVIEW_LOCALE,
+      ),
+    );
     const project = useProjectStore.getState().document as AuthoringProject;
-    expect(project.editor.previewLocale).toBe(PSEUDO_PREVIEW_LOCALE);
     expect(project.localization.defaultLocale).toBe('en');
     expect(Object.keys(project.localization.locales)).toEqual(['en']);
     expect(project.localization.translations).toEqual({});
@@ -136,11 +140,7 @@ describe('LocalizationEditor', () => {
         imageMetadata: { width: 640, height: 360, hasAlpha: true, orientation: 1 },
       },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     render(<LocalizationEditor tab={tab} />);
 
     await user.click(screen.getByRole('button', { name: 'Assets' }));
@@ -264,11 +264,7 @@ describe('LocalizationEditor', () => {
         review: 'reviewed',
       }),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -330,11 +326,7 @@ describe('LocalizationEditor', () => {
         review: 'reviewed',
       }),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -369,11 +361,7 @@ describe('LocalizationEditor', () => {
     project.rooms.first = { id: 'first', label: 'First', data: first };
     project.rooms.second = { id: 'second', label: 'Second', data: second };
     project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -422,11 +410,7 @@ describe('LocalizationEditor', () => {
       source: { kind: 'localized', key: 'ui.old.confirm' },
     };
     project.rooms.room = { id: 'room', label: 'Room', data: room };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Messages' }));
@@ -475,11 +459,7 @@ describe('LocalizationEditor', () => {
     project.localization.translations.fr = {
       [messageId]: createLocalizationTranslation(view, 'Bonjour', 'human', { review: 'reviewed' }),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Messages' }));
@@ -529,11 +509,7 @@ describe('LocalizationEditor', () => {
         review: 'reviewed',
       }),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -573,11 +549,7 @@ describe('LocalizationEditor', () => {
     room.description = inlineTextContent('A quiet foyer.');
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -621,11 +593,7 @@ describe('LocalizationEditor', () => {
         '',
       ].join('\n'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: tracked,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(tracked);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Reconciliation' }));
@@ -647,6 +615,17 @@ describe('LocalizationEditor', () => {
     await user.click(await screen.findByRole('option', { name: 'Create a new Message identity' }));
     await user.click(screen.getByRole('button', { name: 'Apply reconciliation' }));
 
+    await waitFor(() =>
+      expect(
+        Object.values(
+          (useProjectStore.getState().document as AuthoringProject).localization
+            .sourceMessageTracking,
+        ).flatMap((entry) => entry.occurrences.map((occurrence) => occurrence.messageId)),
+        JSON.stringify(useCommandStore.getState().lastDiagnostics) +
+          ' / ' +
+          String(useCommandStore.getState().nativeMutationFailure),
+      ).toHaveLength(2),
+    );
     const document = useProjectStore.getState().document as AuthoringProject;
     const ids = Object.values(document.localization.sourceMessageTracking).flatMap((entry) =>
       entry.occurrences.map((occurrence) => occurrence.messageId),
@@ -693,11 +672,7 @@ describe('LocalizationEditor', () => {
         dialogueCues: [{ id: 'camera', position: { offset: 99, order: 0 } }],
       },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -709,7 +684,14 @@ describe('LocalizationEditor', () => {
     await user.clear(offset);
     await user.type(offset, '2');
     await user.tab();
-    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Mark reviewed' }),
+        JSON.stringify(useCommandStore.getState().lastDiagnostics) +
+          ' / ' +
+          String(useCommandStore.getState().nativeMutationFailure),
+      ).toBeEnabled(),
+    );
   });
 
   it('filters translation work queues and bulk-reviews only current valid filtered targets', async () => {
@@ -728,11 +710,7 @@ describe('LocalizationEditor', () => {
     project.localization.translations.fr = {
       [aiId]: createLocalizationTranslation(aiView, 'Texte IA', 'ai'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
@@ -743,6 +721,16 @@ describe('LocalizationEditor', () => {
     expect(screen.queryByText('Missing source')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Mark filtered current as reviewed' }));
 
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).localization.translations.fr?.[
+          aiId
+        ]?.review,
+        JSON.stringify(useCommandStore.getState().lastDiagnostics) +
+          ' / ' +
+          String(useCommandStore.getState().nativeMutationFailure),
+      ).toBe('reviewed'),
+    );
     const current = useProjectStore.getState().document as AuthoringProject;
     expect(current.localization.translations.fr?.[aiId]?.review).toBe('reviewed');
     expect(current.localization.translations.fr?.[missingId]).toBeUndefined();
@@ -765,20 +753,8 @@ describe('LocalizationEditor', () => {
         'Bonjour',
       ),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-      projectSessionId: 'native-localization',
-    });
+    admitNativeRendererCommandFixture(project, 'native-localization');
     useCommandStore.getState().enableNativeCommandMode(0);
-    const poison = () => {
-      throw new Error('Legacy authority invoked');
-    };
-    const validate = vi
-      .spyOn(legacyValidation, 'validateAuthoringProject')
-      .mockImplementation(poison);
-    const decode = vi.spyOn(legacyDecoder, 'decodeAuthoringProject').mockImplementation(poison);
     const native = vi.fn().mockResolvedValue({
       diagnostics: [
         {
@@ -803,10 +779,6 @@ describe('LocalizationEditor', () => {
       expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeEnabled(),
     );
     expect(native).toHaveBeenLastCalledWith('native-localization', 1);
-    expect(validate).not.toHaveBeenCalled();
-    expect(decode).not.toHaveBeenCalled();
-    decode.mockRestore();
-    validate.mockRestore();
     Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
   });
 
@@ -825,15 +797,26 @@ describe('LocalizationEditor', () => {
     project.localization.translations.fr = {
       [messageId]: createLocalizationTranslation(view, 'Bonjour {missing}'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
+    admitNativeRendererCommandFixture(project);
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: vi.fn(async () => ({
+        diagnostics: [
+          {
+            code: 'localization.translation.arguments',
+            severity: 'error',
+            path: `/localization/translations/fr/${messageId}`,
+            message: 'Translation contains an undeclared argument.',
+          },
+        ],
+      })),
     });
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Translations' }));
-    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeDisabled(),
+    );
     await user.click(screen.getByRole('button', { name: 'Mark filtered current as reviewed' }));
 
     const current = useProjectStore.getState().document as AuthoringProject;
@@ -852,11 +835,7 @@ describe('LocalizationEditor', () => {
     project.localization.translations.fr = {
       '018f4f8c-9b5d-7ae2-9b36-4c8af613f001': testTranslation('Bonjour'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(<LocalizationEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'Languages' }));
@@ -898,11 +877,7 @@ describe('LocalizationEditor content preservation', () => {
           : {}),
       },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     render(<LocalizationEditor tab={tab} />);
     return { project, messageId };
   }

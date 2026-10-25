@@ -1,0 +1,36 @@
+id: foyer
+label: Foyer
+traits: []
+data:
+  displayName: Foyer
+  background:
+    asset: backdrop
+    materialApplication:
+      material: fixture-material
+      parameters: {}
+      textures: {}
+  description:
+    source:
+      kind: inline
+      text: A fixture with [b]rich text[/b].
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  overlays:
+    - id: hud
+      layout: fixture-hud
+  scriptHooks:
+    - hook: after-enter
+      handler:
+        module: bootstrap
+        export: fixture_after_enter
+  exits:
+    - id: continue
+      label: Continue
+      direction: east
+      target: gallery

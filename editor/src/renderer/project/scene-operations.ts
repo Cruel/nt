@@ -1,10 +1,9 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
-import { parseSceneData, validateSceneData } from '../../shared/project-schema/authoring-scenes';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonPatchOperation } from './json-patch';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
+import { parseSceneData } from '../../shared/project-schema/authoring-scenes';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import type { JsonPatchOperation } from './json-patch';
 import {
   preserveStructuredMessageIdentityPatches,
   type StructuredMessageOwnerMove,
@@ -32,7 +31,7 @@ export function replaceSceneDataPatches(
   document: unknown,
   payload: ReplaceSceneDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.scenes[payload.sceneId];
   if (!record)
@@ -46,11 +45,6 @@ export function replaceSceneDataPatches(
       patches: [],
       diagnostics: [error('Scene data is invalid.', pathForSceneData(payload.sceneId))],
     };
-  const diagnostics = legacyCommandDiagnostics(() =>
-    validateSceneData(document, payload.sceneId, { ...record, data }),
-  );
-  const failure = diagnostics.find((item) => item.severity === 'error');
-  if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const messageIdentity = preserveStructuredMessageIdentityPatches(
     document,
     payload.semanticOwnerMoves ?? [],

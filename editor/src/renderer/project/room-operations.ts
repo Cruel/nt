@@ -1,16 +1,11 @@
 import { buildJsonPointer } from '@/project/json-pointer';
-import { legacyCommandDiagnostics } from './legacy-command-validation';
 import { toJsonValue } from '@/project/json-value';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
-import {
-  parseRoomData,
-  validateRoomData,
-  type RoomData,
-} from '../../shared/project-schema/authoring-rooms';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonPatchOperation } from './json-patch';
-import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
+import { parseRoomData, type RoomData } from '../../shared/project-schema/authoring-rooms';
 import { overridesForGameplayInstanceEdit } from './archetype-operations';
+import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import type { JsonPatchOperation } from './json-patch';
 import { preserveStructuredMessageIdentityPatches } from './structured-message-operations';
 
 export interface ReplaceRoomDataPayload {
@@ -94,7 +89,7 @@ export function replaceRoomDataPatches(
   document: unknown,
   payload: ReplaceRoomDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.rooms[payload.roomId];
   if (!record)
@@ -112,11 +107,6 @@ export function replaceRoomDataPatches(
   const previous = parseRoomData(previousRecord.data);
   const changes = previous ? placementChanges(previous, incoming) : null;
   const data = changes ? repairLocalPlacementReferences(incoming, changes) : incoming;
-  const diagnostics = legacyCommandDiagnostics(() =>
-    validateRoomData(document, payload.roomId, { ...record, data }),
-  );
-  const failure = diagnostics.find((item) => item.severity === 'error');
-  if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const overrides = overridesForGameplayInstanceEdit(document, 'rooms', payload.roomId, {
     ...record,
     data,
