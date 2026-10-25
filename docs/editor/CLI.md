@@ -10,6 +10,64 @@ NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built
 
 ## Direct C++ executable candidate (#542, #543)
 
+### Cold compiled Project parity oracle (#552)
+
+The unshipped C++ compiler is intentionally **partial**. Its standalone Linux
+verification target compares native-admitted Project generations against a
+separately executed TypeScript compiled-Project reference, rather than reading
+`artifact.json` or other warmed ScriptC runtime-cache output:
+
+```sh
+cmake --build --preset linux-debug --target noveltea-runtime-cache-publish-certify
+ctest --test-dir build/linux-debug -R '^native_compiled_project_parity$' --output-on-failure
+# Or run the comparison directly (including per-family reports):
+python3 tests/native_compiled_project_parity.py \
+  build/linux-debug/tools/editor_tool/noveltea-runtime-cache-publish-certify .
+```
+
+The harness copies Feature Lab **without** `.noveltea` artifacts and creates
+focused small Project fixtures through the existing native Project/Entity
+commands. It exercises native admission and native source-generation/revision
+capture, including physical Asset source authority, Unicode labels, sorted
+global Variables, missing entrypoints, and invalid Asset records. The reference
+process accepts *only* the admitted normalized Project JSON over stdin and invokes
+`compileAuthoringProjectValue`; it cannot reopen Project files or inspect
+runtime cache. The C++ executable similarly uses the existing native Project
+owner (`shader-preparation`) and the candidate lowering functions, without a
+TypeScript process or fallback. Project source revisions include external
+Asset source authority as captured by the native portable collector. Mismatch
+reports contain a JSON pointer and owning family, including ordered-array
+positions. Canonical Save Contract parity is certified independently by the
+C++ hash projector against the reference compiler's computed value.
+
+**Mandatory parity now:** Project identity, bootstrap, entrypoint, static
+Assets/Animations/Scripts, ordinary global Variables, and an explicitly
+unlowered inventory of global Message Variables. **Reported as not yet
+implemented:** gameplay definitions, Layout/material resources, localization,
+Message lowering, Traits, Archetypes, Inventories, Interactable Instances,
+Flow Prediction, and native assembly of the final Save Contract. Reference
+Message and Save Contract identities are observed without claiming that the
+partial C++ compiler can materialize them. The cold suite is a Linux-native
+verification target, independent of whether the production ScriptC cache is
+present, and future compiler tickets must promote new families from the
+unimplemented list into mandatory comparison. This test changes neither the
+shipped ScriptC CLI nor the separate #545 platform export.
+
+Linux verification on 2026-10-25: three cold supported-family cases passed
+(Feature Lab, Unicode label, sorted Variable ordering); the missing-entrypoint
+and invalid-Asset cases were rejected with owning-path diagnostics. The Feature
+Lab reference retained its unresolved global Message identity, and all three
+native Save Contract hash projections matched the separately compiled reference.
+The registered `native_runtime_cache_publish` and `native_compiled_project_parity`
+CTest targets both passed (2/2). The full `linux-debug` target rebuild was
+interrupted during unrelated engine prerequisites; for these focused results,
+the helper was compiled and linked against the existing native build's CMake
+link closure. A fresh complete Linux build remains a separate verification step.
+`pnpm -C editor run check` passed; `pnpm -C editor run test` passed with
+2,221 tests passing and 133 pre-existing skips.
+
+### Candidate executable status
+
 `noveltea-native-cli` is an **unshipped** CMake target producing
 `tools/editor_tool/native-cli/noveltea` under the build directory. Testing builds
 include it by default; otherwise it requires an explicit target build. It does not
