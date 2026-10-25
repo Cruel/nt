@@ -45,6 +45,100 @@ Json invoke(std::uint64_t (*operation)(const std::uint8_t*, std::uint64_t, std::
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--hash-compiled-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            const auto project = Json::parse(input);
+            std::cout << Json{{"saveContract",
+                               noveltea::cli::compiled_project_save_contract(project)}}
+                             .dump()
+                      << '\n';
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[2]) == "--create-small") {
+            const auto root = std::filesystem::absolute(argv[1]).string();
+            const auto create = invoke(noveltea_tooling_native_project_commands_json,
+                                       Json{{"action", "project-create"},
+                                            {"projectRoot", root},
+                                            {"name", "Small Parity"}});
+            require(create.value("ok", false), "Could not create native Project fixture.");
+            for (const auto& [collection, id] :
+                 {std::pair{"rooms", "starting-room"}, std::pair{"variables", "zeta"},
+                  std::pair{"variables", "alpha"}}) {
+                const auto added = invoke(noveltea_tooling_native_project_commands_json,
+                                          Json{{"action", "entity-create"},
+                                               {"projectRoot", root},
+                                               {"collection", collection},
+                                               {"id", id},
+                                               {"dryRun", false}});
+                require(added.value("ok", false), "Could not add native Project fixture record.");
+            }
+            std::cout << Json{{"created", true}}.dump() << '\n';
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[2]) == "--emit-parity") {
+            const auto fixture = std::filesystem::absolute(argv[1]);
+            const auto prepared =
+                invoke(noveltea_tooling_native_project_commands_json,
+                       Json{{"action", "shader-preparation"}, {"projectRoot", fixture.string()}});
+            if (!prepared.value("ok", false)) {
+                Json diagnostics = prepared.value("projectDiagnostics", Json::array());
+                if (diagnostics.empty())
+                    diagnostics.push_back(
+                        {{"code", "native.project.admission"},
+                         {"severity", "error"},
+                         {"path", "/"},
+                         {"message", prepared.value("error", "Admission failed")}});
+                std::cout << Json{{"ok", false}, {"diagnostics", std::move(diagnostics)}}.dump()
+                          << '\n';
+                return 0;
+            }
+            try {
+                const auto& project = prepared.at("project");
+                const auto resources = noveltea::cli::lower_static_authoring_resources(project);
+                Json identity = noveltea::cli::lower_static_authoring_identity(project);
+                identity["resources"] = resources;
+                // Deliberately distinguish compiler omissions from supported-family
+                // agreement: this is not a publishable Compiled Project.
+                static const Json unsupported = Json::array(
+                    {"definitions", "resources.layouts", "resources.materialInterfaces",
+                     "localization", "traits", "archetypes", "inventories", "interactableInstances",
+                     "properties.message", "flowPrediction", "saveContract-production"});
+                std::cout << Json{{"ok", true},
+                                  {"project", project},
+                                  {"sourceGeneration", prepared.at("sourceGeneration")},
+                                  {"sourceRevisions", prepared.at("sourceRevisions")},
+                                  {"referencedAssetIds", prepared.at("referencedAssetIds")},
+                                  {"cliDiagnostics",
+                                   prepared.value("cliDiagnostics", Json::array())},
+                                  {"loweringDiagnostics", Json::array()},
+                                  {"native", std::move(identity)},
+                                  {"unsupportedFamilies", unsupported}}
+                                 .dump()
+                          << '\n';
+            } catch (const std::exception& error) {
+                const bool missing_entrypoint =
+                    (!prepared.at("project").contains("entrypoint") ||
+                     prepared.at("project").at("entrypoint").is_null()) &&
+                    std::string_view(error.what()) == "Native Project entrypoint kind is invalid.";
+                std::cout
+                    << Json{{"ok", false},
+                            {"project", prepared.at("project")},
+                            {"diagnostics",
+                             Json::array(
+                                 {{{"code", missing_entrypoint ? "COMPILER_ENTRYPOINT_REQUIRED"
+                                                               : "native.lowering"},
+                                   {"severity", "error"},
+                                   {"path", missing_entrypoint ? "/entrypoint" : "/compiler"},
+                                   {"message", missing_entrypoint
+                                                   ? "A Room, Scene, or Dialogue entrypoint is "
+                                                     "required for compiled gameplay."
+                                                   : error.what()}}})}}
+                           .dump()
+                    << '\n';
+            }
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[2]) == "--emit-normalized-project") {
             const auto prepared =
                 invoke(noveltea_tooling_native_project_commands_json,
