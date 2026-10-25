@@ -1,10 +1,12 @@
 #include "native_cli_contract.hpp"
 #include "tooling_native_c.h"
+#include "../project_authoring/material_semantics.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <filesystem>
 #include <iterator>
 #include <iostream>
@@ -15,6 +17,13 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#if defined(_WIN32)
+#include <io.h>
+#include <fcntl.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace noveltea::cli {
 namespace {
@@ -211,6 +220,102 @@ Json native_font_coverage(const std::string& project_root, const Json& locales)
     if (size > buffer.size())
         throw std::runtime_error("Native font coverage response exceeds the CLI response limit.");
     return Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
+}
+
+Json native_material_compile(const std::string& root, const Json& programs)
+{
+    // bgfx's embedded shaderc writes annotated failure excerpts to process
+    // stdout. They are not JSON and must never corrupt the public CLI stream.
+    // The standalone CLI invokes the compiler synchronously on one thread.
+    struct StdoutSilencer {
+        int saved = -1;
+        StdoutSilencer()
+        {
+            std::fflush(stdout);
+#if defined(_WIN32)
+            saved = _dup(_fileno(stdout));
+            const int sink = _open("NUL", _O_WRONLY);
+            const int redirected = saved >= 0 && sink >= 0 ? _dup2(sink, _fileno(stdout)) : -1;
+            if (sink >= 0)
+                _close(sink);
+#else
+            saved = dup(fileno(stdout));
+            const int sink = open("/dev/null", O_WRONLY);
+            const int redirected = saved >= 0 && sink >= 0 ? dup2(sink, fileno(stdout)) : -1;
+            if (sink >= 0)
+                close(sink);
+#endif
+            if (redirected < 0) {
+#if defined(_WIN32)
+                if (saved >= 0)
+                    _close(saved);
+#else
+                if (saved >= 0)
+                    close(saved);
+#endif
+                throw std::runtime_error("Could not isolate native shader compiler output.");
+            }
+        }
+        ~StdoutSilencer()
+        {
+            std::fflush(stdout);
+#if defined(_WIN32)
+            _dup2(saved, _fileno(stdout));
+            _close(saved);
+#else
+            dup2(saved, fileno(stdout));
+            close(saved);
+#endif
+        }
+    };
+    Json combined = Json::object();
+    std::map<std::string, std::string> canonical_programs;
+    std::map<std::string, std::string> material_program_aliases;
+    for (const auto& [material_id, collection] : programs.items()) {
+        for (const auto& [id, program] : collection.items()) {
+            const auto identity = program.dump();
+            const auto [found, unique] = canonical_programs.emplace(identity, id);
+            if (unique)
+                combined[id] = program;
+            material_program_aliases[material_id] = found->second;
+        }
+    }
+    const auto serialized =
+        Json{{"shaderProject",
+              {{"schema", "noveltea.shader-source-programs"}, {"programs", combined}}},
+             {"options",
+              {{"projectRoot", root},
+               {"outputRoot", root + "/.noveltea/build"},
+               {"cacheRoot", root + "/.noveltea/cache"},
+               {"shaderVariants", Json::array({"glsl-330", "essl-300", "metal"})}}}}
+            .dump();
+    std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
+    std::uint64_t size;
+    {
+        StdoutSilencer silence;
+        size = noveltea_tooling_compile_shaders_json(
+            reinterpret_cast<const std::uint8_t*>(serialized.data()), serialized.size(),
+            buffer.data(), buffer.size());
+    }
+    if (size > buffer.size())
+        throw std::runtime_error("Native shader compiler response exceeds CLI limit.");
+    auto result = Json::parse(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(size));
+    if (result.contains("outputs") && result.at("outputs").is_array()) {
+        Json aliases = Json::array();
+        for (const auto& output : result.at("outputs")) {
+            const auto program = output.value("program", std::string{});
+            for (const auto& [material_id, representative] : material_program_aliases) {
+                if (representative != program || material_id == representative)
+                    continue;
+                auto output_alias = output;
+                output_alias["program"] = material_id;
+                aliases.push_back(std::move(output_alias));
+            }
+        }
+        for (auto& output_alias : aliases)
+            result["outputs"].push_back(std::move(output_alias));
+    }
+    return result;
 }
 
 Json native_failure_diagnostics(const Json& response, std::string code, std::string path,
@@ -526,32 +631,122 @@ int project_read(const Arguments& args, std::string action)
             }
         }
         if (response.at("valid").get<bool>()) {
-            if (!response.contains("fontCoverageInputs") ||
-                !response.at("fontCoverageInputs").is_array())
-                return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
-                               "Native validation omitted its localization coverage inputs.",
-                               "Native validation omitted its localization coverage inputs.");
-            const auto coverage =
-                native_font_coverage(root_text, response.at("fontCoverageInputs"));
-            for (const auto& item : coverage.value("diagnostics", Json::array())) {
-                std::string stack;
-                for (const auto& font : item.value("fontStack", Json::array())) {
-                    if (!stack.empty())
-                        stack += ", ";
-                    stack += font.get<std::string>();
-                }
-                Json projected = diagnostic(item.value("code", "localization.font_coverage"),
-                                            item.value("path", "/localization"),
-                                            item.value("message", std::string{}) + " Message: " +
-                                                item.value("messageId", std::string{}) +
-                                                ". Effective stack: " + stack + ".");
-                projected["severity"] = item.value("severity", "error");
-                diagnostics.push_back(std::move(projected));
-            }
-            if (!coverage.value("ok", false) || !coverage.value("success", false)) {
+            if (response.contains("noticeValidationFailure") &&
+                response.at("noticeValidationFailure").is_string()) {
                 diagnostics.push_back(diagnostic(
-                    "native.localization.font_coverage", "/localization",
-                    coverage.value("error", std::string("Font coverage validation failed."))));
+                    "authoring.distribution-notice.invalid", "/settings/distributionNotices",
+                    response.at("noticeValidationFailure").get<std::string>()));
+                valid = false;
+            }
+            if (valid) {
+                if (!response.contains("fontCoverageInputs") ||
+                    !response.at("fontCoverageInputs").is_array())
+                    return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
+                                   "Native validation omitted its localization coverage inputs.",
+                                   "Native validation omitted its localization coverage inputs.");
+                const auto coverage =
+                    native_font_coverage(root_text, response.at("fontCoverageInputs"));
+                for (const auto& item : coverage.value("diagnostics", Json::array())) {
+                    std::string stack;
+                    for (const auto& font : item.value("fontStack", Json::array())) {
+                        if (!stack.empty())
+                            stack += ", ";
+                        stack += font.get<std::string>();
+                    }
+                    Json projected =
+                        diagnostic(item.value("code", "localization.font_coverage"),
+                                   item.value("path", "/localization"),
+                                   item.value("message", std::string{}) +
+                                       " Message: " + item.value("messageId", std::string{}) +
+                                       ". Effective stack: " + stack + ".");
+                    projected["severity"] = item.value("severity", "error");
+                    diagnostics.push_back(std::move(projected));
+                }
+                if (!coverage.value("ok", false) || !coverage.value("success", false)) {
+                    diagnostics.push_back(diagnostic(
+                        "native.localization.font_coverage", "/localization",
+                        coverage.value("error", std::string("Font coverage validation failed."))));
+                }
+                if (std::none_of(diagnostics.begin(), diagnostics.end(),
+                                 [](const Json& item) {
+                                     return item.value("severity", "error") == "error";
+                                 }) &&
+                    response.contains("materialCompilerPrograms") &&
+                    response.at("materialCompilerPrograms").is_object() &&
+                    !response.at("materialCompilerPrograms").empty()) {
+                    if (std::getenv("NOVELTEA_CLI_TRACE"))
+                        std::cerr << "[native-cli] materials with compiler requests: "
+                                  << response.at("materialCompilerPrograms").size() << '\n';
+                    const auto compiled =
+                        native_material_compile(root_text, response.at("materialCompilerPrograms"));
+                    if (std::getenv("NOVELTEA_CLI_TRACE"))
+                        std::cerr << "[native-cli] shader compile success: "
+                                  << compiled.value("success", false) << " diagnostics: "
+                                  << compiled.value("diagnostics", Json::array()).size() << '\n';
+                    for (const auto& item : compiled.value("diagnostics", Json::array())) {
+                        const auto path =
+                            item.value("path", item.value("sourcePath", std::string("/materials")));
+                        Json projected = diagnostic("native.shader." +
+                                                        item.value("code", std::string("compile")),
+                                                    path, item.value("message", std::string{}));
+                        projected["severity"] = item.value("severity", std::string("error"));
+                        diagnostics.push_back(std::move(projected));
+                    }
+                    if ((!compiled.value("ok", false) || !compiled.value("success", false)) &&
+                        std::none_of(diagnostics.begin(), diagnostics.end(), [](const Json& item) {
+                            return item.value("severity", "error") == "error";
+                        }))
+                        diagnostics.push_back(diagnostic(
+                            "native.shader.compile", "/shaders",
+                            compiled.value("error", std::string("Shader compilation failed."))));
+                    if (compiled.value("ok", false) && compiled.value("success", false) &&
+                        response.contains("materialEffectiveInputs") &&
+                        response.at("materialEffectiveInputs").is_object()) {
+                        for (const auto& [material_id, effective] :
+                             response.at("materialEffectiveInputs").items()) {
+                            if (!effective.value("custom", false))
+                                continue;
+                            Json material_outputs = Json::array();
+                            for (const auto& output : compiled.value("outputs", Json::array()))
+                                if (output.value("program", std::string{}) == material_id)
+                                    material_outputs.push_back(output);
+                            const auto reflected =
+                                noveltea::authoring::validate_material_shader_compiler_result(
+                                    Json{{"ok", true},
+                                         {"success", true},
+                                         {"diagnostics", Json::array()},
+                                         {"outputs", std::move(material_outputs)}}
+                                        .dump(),
+                                    material_id, effective.dump());
+                            for (const auto& finding : reflected.diagnostics) {
+                                auto message = finding.message;
+                                if (finding.code == "material.shader.orphan") {
+                                    const auto name =
+                                        finding.path.substr(finding.path.find_last_of('/') + 1);
+                                    std::string unescaped;
+                                    for (std::size_t i = 0; i < name.size(); ++i) {
+                                        if (name[i] == '~' && i + 1 < name.size() &&
+                                            (name[i + 1] == '0' || name[i + 1] == '1'))
+                                            unescaped += name[++i] == '0' ? '~' : '/';
+                                        else
+                                            unescaped += name[i];
+                                    }
+                                    const bool texture =
+                                        finding.path.find("/textures/") != std::string::npos;
+                                    message = "Material " +
+                                              std::string(texture ? "texture" : "parameter") +
+                                              " '" + unescaped +
+                                              "' is not present in the reflected shader interface "
+                                              "and remains orphaned.";
+                                }
+                                Json mapped =
+                                    diagnostic("shader.material_project", finding.path, message);
+                                mapped["severity"] = finding.severity;
+                                diagnostics.push_back(std::move(mapped));
+                            }
+                        }
+                    }
+                }
             }
             const auto proof =
                 native_request({{"action", "source-generation-proof"},

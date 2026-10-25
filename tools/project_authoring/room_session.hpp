@@ -269,6 +269,12 @@ public:
                                                        std::string_view material_id,
                                                        std::string_view native_tool_result_json);
     std::optional<std::string> material_compiler_request(std::string_view material_id) const;
+    // Effective native Material inputs for disk-authoritative compiler/reflection
+    // certification. Call only after inspecting the Material owner.
+    std::optional<std::string> material_compiler_effective(std::string_view material_id) const
+    {
+        return resolved_material(material_id);
+    }
     const std::map<std::string, std::string>& shader_source_overlays() const
     {
         return shader_overlays_;
