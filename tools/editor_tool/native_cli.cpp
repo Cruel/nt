@@ -499,6 +499,7 @@ int tests_from_native_runtime(const Arguments& args)
                                 cached.at("catalog").at("entries").is_array();
     Json catalog = cached_catalog ? cached.at("catalog") : Json::object();
     std::string catalog_source_generation;
+    Json prepared_test_inputs = Json::array();
     if (needs_catalog && !cached_catalog) {
         // Tests do not enter the compiled gameplay fingerprint. Rebuild their
         // authored playback catalog from the current native-admitted generation
@@ -512,6 +513,32 @@ int tests_from_native_runtime(const Arguments& args)
                                  "Native Test catalog source admission failed.", fields);
         catalog_source_generation = source.at("sourceGeneration").get<std::string>();
         catalog = lower_test_catalog(source.at("project"), project_diagnostics(source));
+        // Snapshot test-file revisions against this admitted source generation.
+        // A later cache publisher must never invent a new revision baseline.
+        for (const auto& relative : cached.value("testInputPaths", Json::array())) {
+            if (!relative.is_string())
+                return command_error(5, "WORKSPACE_REVISION_CONFLICT", "/tests",
+                                     "Test source inventory was not available.", fields);
+            const auto metadata = invoke_native_json(
+                noveltea_tooling_path_metadata_json,
+                {{"path", path_text(root / std::filesystem::path(relative.get<std::string>()))}});
+            if (!metadata.value("ok", false) || metadata.value("kind", "") != "file" ||
+                !metadata.contains("byteSize") || !metadata.at("byteSize").is_number_unsigned() ||
+                !metadata.contains("mtimeNanoseconds") ||
+                !metadata.at("mtimeNanoseconds").is_string())
+                return command_error(5, "WORKSPACE_REVISION_CONFLICT", "/tests",
+                                     "Test source changed during catalog preparation.", fields);
+            prepared_test_inputs.push_back({{"path", relative},
+                                            {"byteSize", metadata.at("byteSize")},
+                                            {"mtimeNanoseconds", metadata.at("mtimeNanoseconds")}});
+        }
+        const auto proof =
+            native_request({{"action", "source-generation-proof"},
+                            {"projectRoot", root_text},
+                            {"expectedSourceGeneration", catalog_source_generation}});
+        if (!proof.value("ok", false))
+            return command_error(5, "WORKSPACE_REVISION_CONFLICT", "/tests",
+                                 "Project changed during Test catalog preparation.", fields);
     }
     const auto& artifact = cached.at("artifact");
     const auto& options = artifact.at("packageOptions");
@@ -700,7 +727,9 @@ int tests_from_native_runtime(const Arguments& args)
              {"artifact", artifact},
              {"catalog", catalog},
              {"runtimeInputPaths", cached.value("runtimeInputPaths", Json::array())},
+             {"expectedRuntimeInputs", cached.value("runtimeInputs", Json::array())},
              {"testInputPaths", cached.value("testInputPaths", Json::array())},
+             {"expectedTestInputs", prepared_test_inputs},
              {"authoringDiagnostics", cached.value("diagnostics", Json::array())}});
         fields["runtimeCache"]["published"] = published.value("published", false);
         if (!published.value("published", false))

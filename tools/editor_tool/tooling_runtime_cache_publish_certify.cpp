@@ -349,6 +349,22 @@ int main(int argc, char** argv)
                      {"runtimeInputPaths", runtime_path_names},
                      {"testInputPaths", Json::array({"records/tests/example.yaml"})},
                      {"authoringDiagnostics", Json::array()}};
+        const auto snapshot = [&](const Json& paths) {
+            Json revisions = Json::array();
+            for (const auto& path : paths) {
+                const auto metadata =
+                    invoke(noveltea_tooling_path_metadata_json,
+                           Json{{"path", (root / path.get<std::string>()).string()}});
+                require(metadata.value("ok", false) && metadata.value("kind", "") == "file",
+                        "Prepared source must have valid physical metadata.");
+                revisions.push_back({{"path", path},
+                                     {"byteSize", metadata.at("byteSize")},
+                                     {"mtimeNanoseconds", metadata.at("mtimeNanoseconds")}});
+            }
+            return revisions;
+        };
+        request["expectedRuntimeInputs"] = snapshot(request["runtimeInputPaths"]);
+        request["expectedTestInputs"] = snapshot(request["testInputPaths"]);
         const auto publish = [&](const Json& input) {
             return invoke(noveltea_tooling_publish_runtime_cache_json, input);
         };
@@ -367,6 +383,24 @@ int main(int argc, char** argv)
         invalid = request;
         invalid["runtimeInputPaths"] = Json::array({"project.yaml"});
         require(publish(invalid).at("published") == false, "Missing discovered source must fail.");
+        invalid = request;
+        invalid.erase("expectedRuntimeInputs");
+        require(publish(invalid).at("reason") == "publication-request-invalid",
+                "Publisher must reject a revision-unpinned request.");
+        // Regress the race where old artifact bytes were republished using
+        // new metadata captured only after a source changed.
+        const auto old_scene = read(root / "records/scenes/example.yaml");
+        write(root / "records/scenes/example.yaml", "id: newer\n");
+        require(publish(request).at("reason") == "prepared-inputs-changed",
+                "Changed existing runtime source must reject stale artifact publication.");
+        write(root / "records/scenes/example.yaml", old_scene);
+        request["expectedRuntimeInputs"] = snapshot(request["runtimeInputPaths"]);
+        const auto old_test = read(root / "records/tests/example.yaml");
+        write(root / "records/tests/example.yaml", "id: newer-test\n");
+        require(publish(request).at("reason") == "prepared-inputs-changed",
+                "Changed Test source must reject stale catalog publication.");
+        write(root / "records/tests/example.yaml", old_test);
+        request["expectedTestInputs"] = snapshot(request["testInputPaths"]);
         require(probe().at("status") == "miss", "Failed publication must not install pointer.");
         const auto first_publish = publish(request);
         if (!first_publish.value("published", false))

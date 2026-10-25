@@ -84,7 +84,10 @@ sources before assigning deterministic package-local Message IDs. Settings Messa
 other Messages; system Messages retain their reserved IDs. A single mapping lowers both
 `$message` Property defaults and gameplay text references. Locale catalogs honor source
 messages, translated values, parent-locale inheritance, typed arguments, nested selector
-patterns and dialogue cue contracts. Inline managed `Text.tr`, `Text.msg`, `Text.plural`,
+patterns and dialogue cue contracts. RML-local source placeholders carry the same compiled
+argument contracts as structured text. Selector case ordering is canonical Unicode
+scalar-value order (UTF-8 byte order) in both native and TypeScript lowering, not
+environment-dependent locale collation. Inline managed `Text.tr`, `Text.msg`, `Text.plural`,
 and `Text.select` Lua calls use the native lexical source analyzer and tracked source
 identity, then lower to numeric `Text.__message` calls without executing or transpiling Lua.
 Unrelated sources and the authoring Project on disk are not modified.
@@ -98,6 +101,14 @@ Lua, translated catalogs and the global `story-message` default. The partial can
 **not** a complete Compiled Project and must not publish a runtime cache based on this
 projection alone. Later tickets implement the missing gameplay definitions, runtime
 locale metadata and complete native assembly.
+
+The native runtime-cache publisher requires preparation-time runtime and Test input
+metadata snapshots. It refuses to certify previously compiled gameplay or a previously
+lowered Test catalog against files that changed before publication began; its final
+recheck still rejects changes during publication. The native CLI's catalog refresh uses
+the cache probe's verified gameplay snapshot and obtains Test source metadata from its
+admitted source generation. Publication failure is a reported cache-maintenance failure,
+not a falsified Test execution verdict.
 
 ### Candidate executable status
 
