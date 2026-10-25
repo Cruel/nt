@@ -85,10 +85,12 @@ def main():
         root = Path(temporary)
         cases = {}
         for name in ("feature-lab", "unicode-label", "ordering", "duplicate-text",
-                     "source-drift", "lua-spacing", "missing-entrypoint", "invalid-asset",
-                     "invalid-message", "invalid-locale", "invalid-lua-arguments"):
+                     "source-drift", "lua-spacing", "rml-arguments", "selector-order",
+                     "missing-entrypoint", "invalid-asset", "invalid-message",
+                     "invalid-locale", "invalid-lua-arguments"):
             target = root / name
-            if name in ("feature-lab", "source-drift", "lua-spacing", "invalid-lua-arguments"):
+            if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
+                        "selector-order", "invalid-lua-arguments"):
                 copy_project(target)
             else:
                 create_small(target, with_entrypoint=name != "missing-entrypoint")
@@ -115,6 +117,16 @@ def main():
                 edit(target / "records/scenes/localized-story.yaml",
                      "Text.tr('Managed letter for {name}'",
                      "Text . tr('Managed letter for {name}'")
+            if name == "rml-arguments":
+                rml = target / "records/layouts/language-board/layout.rml"
+                edit(rml, "</section></body></rml>",
+                     '<p><nt-tr arg-name="Ada">New message {name}</nt-tr></p>'
+                     "</section></body></rml>")
+            if name == "selector-order":
+                edit(target / "records/scenes/localized-story.yaml",
+                     "Text.select('sealed'",
+                     "Text.select('a', {A='Upper', a='Lower', other='Open'})); "
+                     "noveltea.notify(Text.select('sealed'")
             if name == "invalid-lua-arguments":
                 edit(target / "records/scenes/localized-story.yaml",
                      "Text.msg('lab.greeting', {name='Ada'})",
@@ -201,7 +213,8 @@ def main():
                     native_messages["sourceEntries"])
             compare(name, "messages.catalogs", reference_catalogs,
                     native_messages["catalogs"])
-            if name in ("feature-lab", "source-drift", "lua-spacing"):
+            if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
+                        "selector-order"):
                 # The global Message Variable is now a numeric runtime value,
                 # not an unresolved authored key or a warmed runtime-cache ref.
                 property = next(item for item in wire["properties"]
@@ -243,6 +256,14 @@ def main():
                 if name == "source-drift":
                     assert any("Révisé 😀 letter for {name}" == entry["value"]
                                for entry in native_messages["sourceEntries"]), name
+            if name == "rml-arguments":
+                assert any(entry["value"] == "New message {name}" and
+                           entry.get("arguments") == [{"name": "name", "type": "printable"}]
+                           for entry in native_messages["sourceEntries"]), name
+            if name == "selector-order":
+                assert any(entry.get("pattern", {}).get("nodes", [{}])[0].get("cases", [])[:2] ==
+                           [{"key": "A", "node": 1}, {"key": "a", "node": 2}]
+                           for entry in native_messages["sourceEntries"]), name
             if name == "duplicate-text":
                 source_text = [entry for entry in native_messages["sourceEntries"]
                                if entry["value"] == "Room starting-room"]

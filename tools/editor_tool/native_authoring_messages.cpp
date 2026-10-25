@@ -468,8 +468,14 @@ void add_managed_sources(const Json& original, const Json& localization,
                                          "'.");
             const auto& occurrence = tracking.occurrences.at(ordinal++);
             const auto stable_id = tracked_id(localization, tracking, occurrence);
-            const auto inserted =
-                messages.emplace(stable_id, Message{stable_id, occurrence.source_snapshot, "", {}});
+            Json arguments = Json::object();
+            for (const auto& item : placeholder_arguments(occurrence.source_snapshot))
+                arguments[item.at("name").get<std::string>()] = item.at("type");
+            Json authored = Json::object();
+            if (!arguments.empty())
+                authored["arguments"] = std::move(arguments);
+            const auto inserted = messages.emplace(
+                stable_id, Message{stable_id, occurrence.source_snapshot, "", std::move(authored)});
             if (!inserted.second)
                 throw std::runtime_error("RML localized Message identity collision at '" + path +
                                          "'.");

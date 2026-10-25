@@ -5,8 +5,15 @@ import {
   withPackageMessageIds,
 } from '../../shared/authoring-message-lowering';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { compareMessagePatternCaseKeys } from '../../shared/project-schema/authoring-localization';
 
 describe('authoring message lowering', () => {
+  it('sorts selector cases by Unicode scalar value, independent of host locale', () => {
+    const keys = ['a', 'other', 'A', '😀', '\uE000', 'Å', 'å'];
+    expect(keys.sort(compareMessagePatternCaseKeys)).toEqual([
+      'A', 'a', 'other', 'Å', 'å', '\uE000', '😀',
+    ]);
+  });
   it('uses one message-id inventory per lowering pass and invalidates it after the pass', () => {
     const project = createAuthoringProject({ id: 'message-cache', name: 'Message Cache' });
     const first = '018f4f8c-9b5d-7ae2-9b36-4c8af613f031';
