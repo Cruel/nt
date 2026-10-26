@@ -1,5 +1,6 @@
 #include <noveltea/core/package_export.hpp>
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/shader_binary_integrity.hpp>
 
 #include <algorithm>
 #include <array>
@@ -415,6 +416,11 @@ void collect_shaders(const PackageExportOptions& options, std::vector<PendingEnt
                     relative_package_path(options.shader_asset_root, file, "", result);
                 if (!package_path)
                     continue;
+                // A runtime shader inventory is explicit. Never carry stray
+                // binaries from older disposable builds into the package.
+                if (options.shader_material_metadata &&
+                    !options.required_shader_binary_paths.contains(*package_path))
+                    continue;
                 auto bytes = read_file_bytes(file, result, *package_path);
                 if (bytes) {
                     add_entry(entries, result, std::move(*package_path), std::move(*bytes),
@@ -451,7 +457,17 @@ void verify_required_shader_binaries(const PackageExportOptions& options,
                                      const std::vector<PendingEntry>& entries,
                                      PackageExportResult& result)
 {
-    if (options.required_shader_binary_paths.empty()) {
+    if (options.required_shader_binary_paths.empty() && !options.shader_material_metadata) {
+        return;
+    }
+
+    const auto revisions =
+        shader_binary_revisions(options.shader_material_metadata.value_or(nlohmann::json(nullptr)),
+                                options.required_shader_binary_paths);
+    if (!revisions) {
+        add_diagnostic(
+            result, PackageExportSeverity::Error, "shader", "shader-materials.json",
+            "Required shader binaries have missing or inconsistent compilation digests.");
         return;
     }
 
@@ -470,7 +486,16 @@ void verify_required_shader_binaries(const PackageExportOptions& options,
         if (!available.contains(required)) {
             add_diagnostic(result, PackageExportSeverity::Error, "shader", required,
                            "Required material shader package entry is missing.");
+            continue;
         }
+        const auto pinned = revisions->find(required);
+        const auto staged = std::find_if(entries.begin(), entries.end(),
+                                         [&](const auto& entry) { return entry.path == required; });
+        if (pinned == revisions->end() || staged == entries.end() ||
+            staged->bytes.size() != pinned->second.byte_size ||
+            "sha256:" + sha256_hex(staged->bytes) != pinned->second.sha256)
+            add_diagnostic(result, PackageExportSeverity::Error, "shader", required,
+                           "Compiled shader binary differs from its recorded byteHash.");
     }
 }
 

@@ -541,6 +541,11 @@ int main(int argc, char** argv)
         if (package_options.contains("shaderAssetRoot"))
             package_options["shaderAssetRoot"] =
                 rebase_path(package_options["shaderAssetRoot"].get<std::string>());
+        if (package_options.contains("shaderAssetRoot")) {
+            const auto source_root = fixture / ".noveltea/build";
+            for (const auto& path : package_options.at("requiredShaderBinaryPaths"))
+                (void)rebase_path((source_root / path.get<std::string>()).string());
+        }
         for (auto& entry : package_options.value("assetRoots", Json::array()))
             entry["root"] = rebase_path(entry.at("root").get<std::string>());
         std::set<std::string> runtime_path_names{"project.yaml"};
@@ -675,6 +680,20 @@ int main(int argc, char** argv)
                 "Native reader must accept native-produced generation.");
         require(hit.at("artifact") == artifact && hit.at("catalog") == catalog,
                 "Published data must match compiler-provided content.");
+        if (!package_options.at("requiredShaderBinaryPaths").empty()) {
+            const auto binary_name =
+                package_options.at("requiredShaderBinaryPaths")[0].get<std::string>();
+            const auto shader_path = root / ".noveltea/build" / binary_name;
+            const auto original_binary = read(shader_path);
+            write(shader_path, std::string(original_binary.size(), '\x5a'));
+            require(probe().at("status") == "stale",
+                    "A corrupted generated shader must invalidate the warm runtime cache.");
+            require(publish(request).at("published") == false,
+                    "Corrupted generated shaders must not be published in a new cache.");
+            write(shader_path, original_binary);
+            require(probe().at("status") == "hit",
+                    "Restoring the pinned shader must restore the previous warm generation.");
+        }
         const auto pointer = root / ".noveltea/cache/runtime/current";
         const auto old_pointer = read(pointer);
         invalid = request;
