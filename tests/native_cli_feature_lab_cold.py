@@ -150,6 +150,17 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-feature-lab-cold-") as 
     assert "succeeded" in run("test", "run", "sound-desk-flow", json_mode=False)
     missing = run("test", "run", "nonexistent", exit_code=6)
     assert missing["diagnostics"][0]["code"] == "native.test.spec"
+    # A valid, runnable authored spec whose expected state is wrong must be
+    # reported as a failed Test (not a native error or successful dispatch).
+    wrong = json.loads(json.dumps(entries["active-text-flow"]["spec"]))
+    expected_flow = next(expectation for step in wrong["steps"]
+                         for expectation in step["expectations"]
+                         if expectation["type"] == "active-flow")
+    expected_flow["flowId"] = "never-the-active-flow"
+    failed = run("test", "run-spec", stdin=json.dumps(wrong), exit_code=6)
+    assert failed["native"]["report"]["passed"] is False, failed["native"]["report"]
+    assert any(d["code"] == "native.test.failed" for d in failed["diagnostics"])
+    assert failed["runtimeCache"]["status"] == "hit"
     print("Authored named, UI, stdin and human Test entrypoints passed.", flush=True)
 
     package = root / "game.ntpkg"
@@ -191,11 +202,17 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-feature-lab-cold-") as 
                for item in warnings["diagnostics"])
     assert hashlib.sha256(package.read_bytes()).hexdigest() == old_hash
     symlink = root / "output-link.ntpkg"
-    symlink.symlink_to(package)
-    blocked = run("package", "export", "--output", str(symlink),
-                  "--allow-localization-warnings", exit_code=4)
-    assert blocked["diagnostics"][0]["code"] == "export.output_invalid"
-    assert hashlib.sha256(package.read_bytes()).hexdigest() == old_hash
+    try:
+        symlink.symlink_to(package)
+    except (OSError, NotImplementedError):
+        # Windows without Developer Mode/symlink privilege cannot establish
+        # this precondition. Record an explicit skipped *subcase*.
+        print("SKIP symlink-output case: host does not permit symlinks.", flush=True)
+    else:
+        blocked = run("package", "export", "--output", str(symlink),
+                      "--allow-localization-warnings", exit_code=4)
+        assert blocked["diagnostics"][0]["code"] == "export.output_invalid"
+        assert hashlib.sha256(package.read_bytes()).hexdigest() == old_hash
 
     custom = root / "custom.ntpkg"
     custom_result = run("package", "export", "--output", str(custom),

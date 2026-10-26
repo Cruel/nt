@@ -33,7 +33,8 @@ identity must always be derived from its own exact build.
 
 The test asserts the complete **43/43** Feature Lab semantic/UI suite, a warm
 catalog hit, named Test execution (including an audio-dependent Test), direct
-semantic and UI stdin specs, and human/JSON verdicts. JSON output must be a
+semantic and UI stdin specs, a deliberately failed runnable assertion, and
+human/JSON verdicts. JSON output must be a
 single parseable line with empty stderr even during cold shader compilation.
 It independently opens a default `.ntpkg` ZIP and checks compiled gameplay,
 manifest, shader/material metadata, required shader binaries, private prepared
@@ -78,3 +79,30 @@ These checks supplement rather than replace the broader Linux/Web/Android
 qualification gates. Platform-specific export orchestration belongs to #545;
 installing the native CLI as the production replacement and removing ScriptC
 belong to #551.
+
+## Host verification status (26 October 2026)
+
+- **Linux (verified):** Debug C++ CLI rebuilt; relocated Feature Lab Tests
+  43/43, independent cold package export, warm/default and override ZIP
+  inspection, failure preservation, runtime artifact reference parity,
+  physical preparation, public CLI contract and cold cache lifecycle pass.
+  The same exported Feature Lab package was booted in the Linux player with
+  staged system fonts/shaders and Xvfb, reaching `NOVELTEA_PLAYER_READY` and
+  completing its five-frame run. The media prerequisite was pinned FFmpeg r3.
+- **Windows (not verified by #561):** No Windows native CLI build or relocated
+  playback/export certification was run. The Python certification skips the
+  symlink-attack subcase explicitly if the host cannot create a symlink.
+  Windows packaging, host subprocess/FFmpeg behavior and player startup remain
+  a separate host CI/release gate; Linux success is not Windows evidence.
+- **macOS (not verified by #561):** No native CLI build, FFmpeg-r3 media prep,
+  Test playback, package export or player startup was performed on macOS.
+  These remain host release/portability gates, not a claimed pass.
+
+Canonical Test/compiled wire and artifact differential checks against the
+current TypeScript reference are owned by
+`native_compiled_project_parity` and `native_runtime_artifact_parity`. The
+historical ScriptC Feature Lab baseline is 43/43 in
+`docs/runtime/certifications/FEATURE_LAB_BASELINE.md`. No claim is made that
+every Test execution trace is byte-identical between the unshipped native CLI
+and the production ScriptC executable; acceptance compares deterministic
+compiled outputs and the full authored suite verdict.
