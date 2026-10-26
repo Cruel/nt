@@ -458,6 +458,30 @@ Temporary phase probes attributed approximately 205 ms of opening to manifest ad
 165 ms to source-authority initialization, 74 ms to text-source digesting and indexing, and 102 ms
 to localization admission. Within validation, about 500 ms was source-record admission, 222 ms
 semantic snapshot computation, 70 ms spatial graph validation, and 38 ms diagnostics/final source
-observation. Instrumentation was removed. The spatial validator still independently checks Room
-and Map structures after individual source admission. Removing this or source-freshness checks
-requires separate semantic and race proofs; this optimization does not relax them.
+observation. Instrumentation was removed.
+
+The follow-up deep profile measured **1,557** libfyaml decodes on 307 YAML files (about 567 ms
+inside decoding): 307 inventory, 354 source authority, 346 localization, 157 initial text-owner
+indexing, 360 record opens, and 33 other. The native Project session now owns a bounded **16 MiB
+exact-byte YAML decode cache** shared by these synchronous operations. It caches physical source
+locations and failed parses as well as accepted sparse JSON; equal bytes may share a decode across
+paths, but a different byte sequence cannot. The cache never supplies filesystem authority:
+`SourceAuthority` still independently reads/hashes source files, checks source membership, catches
+watcher overflow, and performs its final generation check before publishing validation results.
+Standalone YAML reads remain uncached, and nested Project decode scopes restore the previous cache.
+
+`index_text_owner` tracks last indexed source content so an unchanged reindex no longer evicts the
+localization validation cache. Referenced Asset normalization is keyed by a fresh disk YAML hash,
+with dirty editor records preferred. Asset snapshots are cached only while their physical source
+and attachment **membership/containment** proofs stay identical; Layout snapshots include the
+exact current companion RML, RCSS, and Lua contents. Physical media changes propagate from
+`SourceAuthority`'s reverse Asset-reference map to resident validation contributors even if Asset
+YAML remains unchanged. The complete-Project spatial validator consumes already-normalized Room
+and Map data without validating their structural schema again; its independent public entrypoint
+retains full malformed-input checks.
+
+Three fresh-process Release runs after the initial integrated changes measured **808–814 ms**
+combined opening and validation (approximately 301–306 ms opening, 504–509 ms validation), with
+the original 27 diagnostics and 306 rechecked owners. These figures are not a substitute for a
+Debug end-to-end shader preparation benchmark or for a post-merge reprofile on the final build.
+The cache also intentionally does not persist normalized JSON or depend on mtime-only identities.

@@ -65,6 +65,10 @@ public:
     std::vector<std::string> invalid_source_paths() const;
     // Only usable after a successful full observation; never a watcher-only proof.
     std::optional<std::map<std::string, std::string>> verified_revisions() const;
+    // Physical Asset media changes do not change the Asset's YAML revision.
+    // Return the owning YAML records whose local membership checks must be
+    // repeated after a proven physical observation.
+    std::set<std::string> affected_asset_records(const SourceDelta& delta) const;
 
 private:
     struct NativeWatch;

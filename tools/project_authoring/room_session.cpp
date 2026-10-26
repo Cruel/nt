@@ -9,6 +9,7 @@
 #include "test_semantics.hpp"
 #include "localization_semantics.hpp"
 #include "localization_operations.hpp"
+#include "room_map_semantics_internal.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -1283,6 +1284,8 @@ ProjectSession::validate_cold_project(const std::filesystem::path& root, std::st
 std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem::path& root,
                                                           std::string& error, bool validation_only)
 {
+    auto decoded = std::make_shared<YamlDecodeCache>();
+    ScopedYamlDecodeCache decoding(*decoded);
     auto source = RoomSession::open_project_source(root, error, validation_only);
     if (!source)
         return nullptr;
@@ -1301,6 +1304,7 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
         auto project = std::unique_ptr<ProjectSession>(
             new ProjectSession(std::move(source), std::move(authority), root,
                                traits ? traits->snapshot().normalized_json : std::string{}));
+        project->yaml_decode_cache_ = std::move(decoded);
         for (const auto& file : project->file_inventory()) {
             if (!analyzable_text_path(file.path) ||
                 (file.kind != ProjectFileKind::ProjectSource &&
@@ -1353,6 +1357,7 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
 
 RoomSessionSnapshot ProjectSession::validate_project()
 {
+    ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
     // A malformed on-disk manifest can revoke SourceAuthority before the
     // watcher can emit a usable project.yaml revision. Inspect this one
     // immutable owner first so cold and resident diagnostic readers report
@@ -1522,6 +1527,7 @@ RoomSessionSnapshot ProjectSession::validate_project()
         const bool physically_changed =
             saved == validation_source_revisions_.end() ||
             revision != validation_pending_source_revisions_.end() ||
+            validation_pending_asset_owners_.contains(owner) ||
             (!observation.authoritative && !observation.scoped_authority);
         // A clean editor owner whose physical baseline was superseded must
         // not keep invalidating an already validated disk contributor. Dirty
@@ -1776,7 +1782,7 @@ RoomSessionSnapshot ProjectSession::validate_project()
                     complete[family] = Json::object();
                 complete[family].insert_or_assign(owner.substr(slash + 1), Json::parse(normalized));
             }
-            validation_room_map_cache_ = validate_room_map_project(complete.to_string());
+            validation_room_map_cache_ = validate_normalized_room_map_project(complete);
         }
         for (const auto& issue : validation_room_map_cache_->diagnostics) {
             const bool duplicate = std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
@@ -1871,6 +1877,7 @@ RoomSessionSnapshot ProjectSession::validate_project()
     validation_snapshot_ = result;
     validation_shader_overlays_ = shader_overlays_;
     validation_pending_source_revisions_.clear();
+    validation_pending_asset_owners_.clear();
     validation_pending_uncertain_ = false;
     return result;
 }
@@ -2785,7 +2792,11 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
 void ProjectSession::index_text_owner(std::string_view owner, std::string_view raw_json)
 {
     const auto key = std::string(owner);
-    localization_cache_.reset();
+    const auto previous = indexed_text_sources_.find(key);
+    if (previous == indexed_text_sources_.end() || previous->second != raw_json) {
+        indexed_text_sources_.insert_or_assign(key, std::string(raw_json));
+        localization_cache_.reset();
+    }
     layout_declared_scripts_.erase(key);
     for (auto it = asset_text_consumers_.begin(); it != asset_text_consumers_.end();) {
         it->second.erase(key);
@@ -2832,19 +2843,43 @@ void ProjectSession::index_text_owner(std::string_view owner, std::string_view r
     const auto track_asset = [&](std::string_view asset_id) {
         if (!is_id(asset_id))
             return;
-        asset_text_consumers_[std::string(asset_id)].insert(key);
+        const auto id = std::string(asset_id);
+        asset_text_consumers_[id].insert(key);
         const auto asset = [&]() -> std::optional<std::string> {
-            if (const auto edited = records_.find("assets/" + std::string(asset_id));
-                edited != records_.end()) {
+            if (const auto edited = records_.find("assets/" + id); edited != records_.end()) {
                 const auto state = edited->second->snapshot();
                 if (state.valid)
                     return state.normalized_json;
             }
+            const auto path = root_ / "records/assets" / (id + ".yaml");
+            // Filesystem reads are cheap but cannot be skipped here: unlike an
+            // already observed Project generation, this resolver may run on an
+            // independent editor action before the next source observation.
+            std::optional<std::string> revision;
+            try {
+                revision = source_revision_or_absent(path);
+            } catch (const std::exception&) {
+                // Preserve the ordinary scoped RoomSession read diagnostic.
+            }
+            if (revision) {
+                if (const auto hit = indexed_asset_sources_.find(id);
+                    hit != indexed_asset_sources_.end() && hit->second.revision == *revision &&
+                    hit->second.normalized &&
+                    validate_asset_local(*hit->second.normalized, root_).accepted)
+                    return hit->second.normalized;
+            }
             std::string error;
-            auto saved = RoomSession::open_record(root_, "assets", std::string(asset_id), error);
-            if (saved && saved->snapshot().valid)
-                return saved->snapshot().normalized_json;
-            return std::nullopt;
+            auto saved = RoomSession::open_record(root_, "assets", id, error);
+            const auto value = saved && saved->snapshot().valid
+                                   ? std::optional<std::string>(saved->snapshot().normalized_json)
+                                   : std::nullopt;
+            // The pre-read revision must actually be the one admitted by the
+            // session. Never publish a stale key after a concurrent rewrite.
+            if (revision && value && saved->snapshot().disk_source_revision == *revision)
+                indexed_asset_sources_.insert_or_assign(id, IndexedAsset{*revision, value});
+            else
+                indexed_asset_sources_.erase(id);
+            return value;
         }();
         if (!asset)
             return;
@@ -2921,6 +2956,12 @@ void ProjectSession::reindex_asset_consumers(std::string_view asset_id)
 SourceObservation ProjectSession::observe_sources()
 {
     auto observed = source_authority_->observe();
+    for (const auto& path : source_authority_->affected_asset_records(observed.delta)) {
+        constexpr std::string_view prefix = "records/";
+        if (path.starts_with(prefix) && path.ends_with(".yaml"))
+            validation_pending_asset_owners_.insert(
+                path.substr(prefix.size(), path.size() - prefix.size() - 5));
+    }
     for (const auto& [path, revision] : observed.delta_revisions)
         validation_pending_source_revisions_.insert_or_assign(path, revision);
     // A separate watcher poll may consume the coverage-loss event before the
@@ -4970,16 +5011,54 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
 
 RoomSessionSnapshot RoomSession::snapshot() const
 {
-    // Layout normalization incorporates companion RML/RCSS/Lua files; Asset
-    // validation checks source and attachment membership. They are not pure
-    // functions of the YAML revision, so never reuse their local snapshot on
-    // that evidence alone.
-    if (record_family_ != "layouts" && record_family_ != "assets" && snapshot_cache_ &&
-        snapshot_cache_->working_revision == working_revision_ &&
+    std::map<std::string, std::string> companions;
+    if (record_family_ == "layouts") {
+        companions = layout_companion_sources_;
+        for (const auto* channel : {"rml", "rcss", "lua"}) {
+            const auto path = path_.parent_path() / (std::string("layout.") + channel);
+            if (!companions.contains(channel) && std::filesystem::exists(path) &&
+                std::filesystem::is_regular_file(path))
+                companions.emplace(channel, read_bytes(path));
+        }
+    }
+    // Asset-local diagnostics inspect physical membership, not media bytes.
+    // Reobserve those exact file/directory and containment identities before
+    // reusing the structural and local result of a prior snapshot.
+    std::map<std::string, bool> asset_membership;
+    if (record_family_ == "assets") {
+        if (!asset_structural_cache_ || asset_structural_cache_->first != working_json_)
+            asset_structural_cache_ = {working_json_, validate_asset_source(working_json_)};
+        const auto& structural = asset_structural_cache_->second;
+        if (structural.accepted) {
+            const auto data = Json::parse(structural.effective_json).at("data");
+            const auto root = path_.parent_path().parent_path().parent_path();
+            const auto canonical_root = std::filesystem::canonical(root);
+            const auto observe = [&](const std::string& relative) {
+                std::error_code error;
+                const auto path = std::filesystem::weakly_canonical(root / relative, error);
+                if (error) {
+                    asset_membership.emplace(relative, false);
+                    return;
+                }
+                const auto part = path.lexically_relative(canonical_root);
+                const bool inside =
+                    !part.empty() && part != "." && part != ".." && *part.begin() != "..";
+                asset_membership.emplace(relative,
+                                         inside && std::filesystem::is_regular_file(path, error));
+            };
+            observe(data.at("source").at("path").as<std::string>());
+            if (data.contains("attachments"))
+                for (const auto& attachment : data.at("attachments").array_range())
+                    observe(attachment.at("path").as<std::string>());
+        }
+    }
+    if (snapshot_cache_ && snapshot_cache_->working_revision == working_revision_ &&
         snapshot_cache_->disk_source_revision == disk_revision_ &&
         snapshot_cache_->source_json == working_json_ &&
         snapshot_cache_->baseline_json == disk_json_ &&
-        snapshot_cache_->conflicting_paths == conflicting_paths_)
+        snapshot_cache_->conflicting_paths == conflicting_paths_ &&
+        (record_family_ != "layouts" || snapshot_layout_companions_ == companions) &&
+        (record_family_ != "assets" || snapshot_asset_membership_ == asset_membership))
         return *snapshot_cache_;
     RoomSessionSnapshot state;
     state.working_revision = working_revision_;
@@ -4991,7 +5070,10 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.dirty =
         disk_revision_ == "absent" || Json::parse(disk_json_) != Json::parse(working_json_);
     state.conflicting_paths = conflicting_paths_;
-    const auto result = validate_source(working_json_);
+    const auto result =
+        record_family_ == "assets"
+            ? asset_structural_cache_->second
+            : validate_source(working_json_, record_family_ == "layouts" ? &companions : nullptr);
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
@@ -5074,10 +5156,16 @@ RoomSessionSnapshot RoomSession::snapshot() const
                                              : "Room ID must match its source filename."});
     }
     snapshot_cache_ = state;
+    if (record_family_ == "layouts")
+        snapshot_layout_companions_ = std::move(companions);
+    if (record_family_ == "assets")
+        snapshot_asset_membership_ = std::move(asset_membership);
     return state;
 }
 
-ValidationResult RoomSession::validate_source(std::string_view source_json) const
+ValidationResult
+RoomSession::validate_source(std::string_view source_json,
+                             const std::map<std::string, std::string>* layout_companions) const
 {
     if (is_project_)
         return validate_record("WorkspaceManifest", source_json);
@@ -5115,6 +5203,8 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_record(validation_contract_, projected.to_string());
     }
     if (record_family_ == "layouts") {
+        if (layout_companions)
+            return validate_layout_source(source_json, *layout_companions);
         auto companions = layout_companion_sources_;
         for (const auto* channel : {"rml", "rcss", "lua"}) {
             const auto path = path_.parent_path() / (std::string("layout.") + channel);

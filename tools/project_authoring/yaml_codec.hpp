@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,6 +26,27 @@ struct YamlSourceResult {
     std::vector<YamlSourceLocation> locations;
     std::string error;
     std::optional<std::size_t> error_offset;
+};
+
+// Per-Project exact-byte parse cache. A hit is only a parse reuse: filesystem
+// identity is still verified by SourceAuthority on every physical observation.
+class YamlDecodeCache {
+public:
+    std::map<std::string, YamlSourceResult, std::less<>> results;
+    std::size_t input_bytes = 0;
+};
+
+// Reentrant, thread-local routing to a Project-owned parse cache. Standalone
+// codec calls retain their uncached semantics.
+class ScopedYamlDecodeCache {
+public:
+    explicit ScopedYamlDecodeCache(YamlDecodeCache& cache) noexcept;
+    ~ScopedYamlDecodeCache();
+    ScopedYamlDecodeCache(const ScopedYamlDecodeCache&) = delete;
+    ScopedYamlDecodeCache& operator=(const ScopedYamlDecodeCache&) = delete;
+
+private:
+    YamlDecodeCache* previous_;
 };
 
 enum class YamlCommentDisposition {

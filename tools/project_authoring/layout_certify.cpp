@@ -76,6 +76,17 @@ void certify(const std::filesystem::path& source)
         for (const auto& issue : snapshot.diagnostics)
             std::cerr << issue.path << ": " << issue.code << ": " << issue.message << '\n';
     require(snapshot.valid, "Sparse Layout YAML and file-backed companions must normalize");
+    require(layout->snapshot().normalized_json == snapshot.normalized_json,
+            "Unchanged Layout companion sources reuse normalized data");
+    const auto initial_markup = read(markup);
+    std::filesystem::remove(markup);
+    require(!layout->snapshot().valid &&
+                has(layout->snapshot().diagnostics, "/data/rml/sourceMode"),
+            "Removing a Layout companion invalidates the same resident snapshot");
+    write(markup, initial_markup);
+    require(layout->snapshot().valid &&
+                layout->snapshot().normalized_json == snapshot.normalized_json,
+            "Restoring the Layout companion returns the original normalized record");
     const auto normalized = Json::parse(snapshot.normalized_json);
     const auto optional_layout = fixture.root / "records/layouts/counter-fragment/layout.yaml";
     auto optional_record =
