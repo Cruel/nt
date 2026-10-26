@@ -263,6 +263,26 @@ std::string escape_pointer(std::string value)
 }
 } // namespace
 
+std::string native_authoring_message_semantic_fingerprint(const nlohmann::json& message)
+{
+    return message_fingerprint(message);
+}
+
+std::string native_authoring_rml_semantic_fingerprint(std::string_view source)
+{
+    const auto arguments = placeholder_contract(source);
+    std::string contract;
+    for (const auto& [key, value] : arguments.items()) {
+        if (!contract.empty())
+            contract += '|';
+        contract += key + ":" + value.get<std::string>();
+    }
+    return fnv1a(
+        std::string("semantic\0", 9) +
+        normalized_text(std::regex_replace(std::string(source), std::regex("<[^>]*>"), "")) + '\0' +
+        contract);
+}
+
 Json native_project_localization(const Json& request, ProjectSession& session,
                                  const std::filesystem::path& root)
 {

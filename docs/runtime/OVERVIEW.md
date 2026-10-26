@@ -13,6 +13,9 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 - [Native Compiled Project certification](certifications/NATIVE_COMPILED_PROJECT.md) describes
   C++ compiler and Flow Prediction ownership, the cold Project-to-wire
   certification command, and the boundary before native runtime preparation.
+- [Native Prepared Runtime Artifact certification](certifications/NATIVE_PREPARED_RUNTIME_ARTIFACT.md)
+  describes C++ artifact assembly, independent Feature Lab parity, quality and
+  blocked-path tests, and the remaining physical export/invalidation boundary.
 
 - `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` defines the target runtime-session,
   transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and

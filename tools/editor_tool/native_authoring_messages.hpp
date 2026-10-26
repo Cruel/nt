@@ -17,6 +17,10 @@ struct NativeMessageProjection {
     nlohmann::json lowered_project;
     nlohmann::json rewritten_sources;
     nlohmann::json rewritten_rml;
+    // Lua-local identities participate in compiler lowering but not in the
+    // raw authoring packageMessageIds() workflow projection.
+    nlohmann::json managed_lua_local_ids = nlohmann::json::array();
+    nlohmann::json rml_workflow_fingerprints = nlohmann::json::object();
 };
 
 [[nodiscard]] NativeMessageProjection lower_authoring_messages(const nlohmann::json& project);
