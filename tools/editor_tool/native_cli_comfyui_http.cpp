@@ -81,11 +81,11 @@ ComfyUiHttpResult parse_json_response(const std::string& text, bool timed_out = 
 {
     if (text.empty() || text.size() > max_response)
         return {.timed_out = timed_out};
-    try {
-        return {.ok = true, .body = Json::parse(text)};
-    } catch (...) {
+    // JSON_NOEXCEPTION=1 makes throwing JSON::parse abort the entire CLI.
+    auto parsed = Json::parse(text, nullptr, false);
+    if (parsed.is_discarded())
         return {};
-    }
+    return {.ok = true, .body = std::move(parsed)};
 }
 
 #if defined(_WIN32)
@@ -347,5 +347,18 @@ ComfyUiHttpResult comfyui_get_json(const std::string& server, const std::string&
 {
     const auto url = parse_url(server);
     return fetch(url, endpoint, std::clamp(timeout_ms, 1, 300000));
+}
+
+std::string comfyui_server_identity(const std::string& server)
+{
+    auto url = parse_url(server);
+    std::transform(url.host.begin(), url.host.end(), url.host.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const auto host = url.host.find(':') == std::string::npos ? url.host : "[" + url.host + "]";
+    const bool default_port =
+        (url.scheme == "http" && url.port == "80") || (url.scheme == "https" && url.port == "443");
+    while (!url.path.empty() && url.path.back() == '/')
+        url.path.pop_back();
+    return url.scheme + "://" + host + (default_port ? "" : ":" + url.port) + url.path;
 }
 } // namespace noveltea::cli
