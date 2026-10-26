@@ -393,6 +393,31 @@ for daemon heavy jobs; authored Test, Runtime Package and platform-export stagin
 and all-family parity; full cross-platform certification. Production cutover and removal of the old
 TypeScript authoring dependency remain coordinated with #506.
 
+## Native CLI Agent Kit and Projectless Tools (#546)
+
+The unshipped `noveltea-native-cli` now owns `agent sync [--fix]`, raw `shaderc` /
+`texturec`, `media-tool check`, and `daemon status|stop` without invoking ScriptC or
+JavaScript at runtime. `agent sync` first uses native Project workspace preflight, then
+installs a complete, hashed Agent Kit from its embedded build-time payload. The payload is generated
+by the authoritative TypeScript/Zod `createNovelTeaAgentKitPayload()` as part of the **native
+CLI build**; no runtime source-tree lookup, generated-file re-derivation, or TS schema traversal is
+required. The embedded manifest retains schema references, compact references with IDs/defaults,
+system Layout assets, and authoring provenance. Synchronization detects missing, changed, or extra
+files and replaces the directory through staging and a rollback backup. `--fix` manages only the
+AGENTS.md bootstrap block and preserves other user instructions.
+
+The native FFmpeg check resolves an installed pinned binary relative to the relocated executable,
+or uses an absolute `NOVELTEA_FFMPEG` override, and verifies identity, configuration, encoders,
+and protocols before returning the existing public tool envelope. Native daemon status/stop use
+the existing daemon broker protocol and its build identity, never a second daemon implementation.
+Raw shaderc/texturec continue forwarding arguments and process exit status to the embedded tools.
+
+Run `cmake --build --preset linux-debug --target noveltea-native-cli` and
+`ctest --test-dir build/linux-debug -R 'native_cli_(agent_tools|public_contract)' --output-on-failure`
+to certify the relocated candidate, including hash/provenance parity, bootstrap repair,
+idempotence, and Projectless command errors. This does not ship the candidate as the production
+CLI or close the remaining #506 coordination gates.
+
 ## Verification
 
 A standalone host build avoids the renderer and all runtime dependencies:
