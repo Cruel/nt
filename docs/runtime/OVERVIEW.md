@@ -18,7 +18,10 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
   blocked-path tests, and the remaining physical export/invalidation boundary.
 - [Native Runtime physical preparation](certifications/NATIVE_RUNTIME_PHYSICAL_PREPARATION.md)
   documents pinned source verification, native shader and video preparation,
-  notices, cold package evidence, and the remaining cache-publication boundary.
+  notices and cold package evidence.
+- [Native Runtime cache lifecycle](certifications/NATIVE_RUNTIME_CACHE_LIFECYCLE.md)
+  documents CLI cold-to-warm builds, safe native cache publication, regeneration
+  and failure recovery for Test and Runtime Package commands.
 
 - `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` defines the target runtime-session,
   transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and

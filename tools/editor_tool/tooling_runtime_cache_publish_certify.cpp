@@ -18,6 +18,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -658,6 +659,18 @@ int main(int argc, char** argv)
                 "Published data must match compiler-provided content.");
         const auto pointer = root / ".noveltea/cache/runtime/current";
         const auto old_pointer = read(pointer);
+        invalid = request;
+        invalid["cancelled"] = true;
+        require(publish(invalid).at("reason") == "publication-cancelled",
+                "Cancelled publication must be rejected without a pointer change.");
+        require(read(pointer) == old_pointer,
+                "Cancelled publication must preserve the complete incumbent generation.");
+        invalid = request;
+        invalid["expectedSourceGeneration"] = "not-the-current-native-generation";
+        require(publish(invalid).at("reason") == "source-generation-changed",
+                "Publisher must reject an invalid native source-generation proof.");
+        require(read(pointer) == old_pointer,
+                "Rejected native-generation proof must preserve the incumbent pointer.");
         write(root / "records/scenes/another.yaml", "id: another\n");
         require(publish(request).at("published") == false, "New source should block publication.");
         require(read(pointer) == old_pointer, "Failure must preserve existing pointer.");
@@ -665,6 +678,17 @@ int main(int argc, char** argv)
         std::filesystem::remove(root / "records/scenes/another.yaml");
         require(publish(request).at("published") == true, "Fresh generation should publish.");
         require(read(pointer) != old_pointer, "Republish must update generation pointer.");
+        // Concurrent publishers must serialize their pointer revisions. No
+        // caller may observe a half-written generation, or erase another
+        // writer's installed generation directory during cleanup.
+        std::vector<std::future<Json>> writers;
+        for (int index = 0; index < 4; ++index)
+            writers.push_back(std::async(std::launch::async, publish, request));
+        for (auto& writer : writers)
+            require(writer.get().value("published", false),
+                    "Concurrent identical source publications must succeed safely.");
+        require(probe().at("status") == "hit" && probe().at("artifact") == artifact,
+                "Concurrent publication must leave a complete, readable generation.");
         std::filesystem::remove(pointer);
         try {
             std::filesystem::create_symlink(root / "project.yaml", pointer);
