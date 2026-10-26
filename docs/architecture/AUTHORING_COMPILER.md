@@ -38,8 +38,9 @@ no error diagnostic exists.
 ## Staged native compiler parity
 
 As part of the native authoring/CLI cutover, `tools/editor_tool/native_authoring_resources.cpp`,
-`native_authoring_messages.cpp`, `native_authoring_shared.cpp`, and
-`native_authoring_programs.cpp` now lower a **cold**, natively
+`native_authoring_messages.cpp`, `native_authoring_shared.cpp`,
+`native_authoring_programs.cpp`, and `native_authoring_dialogue_interaction.cpp`
+now lower a **cold**, natively
 admitted Project into nonpublishable compiler projections. The shared projection covers declared
 Characters, Rooms, Interactable Definitions and Instances, Verbs, Interactions, Scenes and Dialogue
 metadata, Maps, Archetype effective configurations, Traits, Properties, Inventories, Layouts,
@@ -51,17 +52,23 @@ Gameplay Commands (including effective Room Archetypes), ordered Scene Event ins
 Scene terminal continuations and nested Gameplay Commands. It reuses the same normalized
 Project and Message/Lua lowering, and resolves Material parameter types from the
 already-lowered shared Material interfaces rather than independently interpreting presets.
-The Gameplay Command conversion is shared with the pending Dialogue/Interaction lowerer.
+The same Gameplay Command and Condition conversion is used by Dialogue/Interaction
+programs. Dialogue lowering includes stage/media slots, cue ordering, branching
+segments and edges, speaker identity, completion targets and numeric Message
+references. Interaction lowering includes selectors, rules, nullable offers,
+guards, Verb defaults and Project undefined behavior.
 
 `tests/native_compiled_project_parity.py` compares these projections against the independent
 TypeScript reference compiler on cold native-admitted generations, including stable array ordering,
 nested declarations, inherited defaults, typed references, and malformed-input rejection.
-Room/Scene parity covers the representative Feature Lab gameplay flows and cold small fixtures.
-The test also substitutes the native Room/Scene slices into an otherwise reference-compiled
+Room/Scene/Dialogue/Interaction parity covers the representative Feature Lab gameplay
+flows and cold small fixtures. The test also substitutes every native gameplay program into an otherwise reference-compiled
 document and independently decodes that mixed candidate through the native runtime decoder.
+The Feature Lab witness also exercises native-lowered Dialogue and Interaction
+through the real runtime executor, including a global Property mutation.
 The parity runner deliberately returns the staged structures under `native.shared`, **not** a
-complete `CompiledProjectWire`. Dialogue/Interaction programs, locale runtime metadata, prediction,
-production Save Contract, assembly, and publication are separate stages. A
+complete `CompiledProjectWire`. Locale runtime metadata, prediction, production
+Save Contract, assembly and publication are separate stages. A
 passing staged projection does not authorize a runtime-cache publication or package/export path,
 and the TypeScript compiler remains the production compiler until the final native cutover.
 

@@ -1,4 +1,4 @@
-"""Cold C++/TypeScript differential certification for #552–#555 (not a production compiler).
+"""Cold C++/TypeScript differential certification for #552–#556 (not a production compiler).
 
 An authoritative C++ Project reader admits every case. A separately run TS
 reference compiles only those admitted JSON generations; neither process reads
@@ -94,13 +94,15 @@ def main():
                      "scene-control-flow",
                      "missing-entrypoint", "invalid-asset", "invalid-message",
                      "invalid-locale", "invalid-lua-arguments",
-                     "invalid-scene-instruction", "invalid-scene-target"):
+                     "invalid-scene-instruction", "invalid-scene-target",
+                     "invalid-dialogue-target", "invalid-interaction-verb"):
             if os.environ.get("NOVELTEA_PARITY_CASES") and name not in os.environ["NOVELTEA_PARITY_CASES"].split(","):
                 continue
             target = root / name
             if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
                         "selector-order", "scene-control-flow", "invalid-lua-arguments",
-                        "invalid-scene-instruction", "invalid-scene-target"):
+                        "invalid-scene-instruction", "invalid-scene-target",
+                        "invalid-dialogue-target", "invalid-interaction-verb"):
                 copy_project(target)
             else:
                 create_small(target, with_entrypoint=name != "missing-entrypoint")
@@ -192,6 +194,12 @@ def main():
             if name == "invalid-scene-target":
                 edit(target / "records/scenes/localized-story.yaml",
                      "targetStepId: end", "targetStepId: missing-instruction")
+            if name == "invalid-dialogue-target":
+                edit(target / "records/dialogues/conversation-paths.yaml",
+                     "toBlockId: menu", "toBlockId: missing-dialogue-block")
+            if name == "invalid-interaction-verb":
+                edit(target / "records/interactions/use-gate-lever.yaml",
+                     "verb: use", "verb: missing-verb")
             if name == "scene-control-flow":
                 # Exercise authoring-only set-variable lowering, branch targets,
                 # disabled-step elision and timeline/event order independently of
@@ -257,7 +265,8 @@ def main():
             if not data["ok"]:
                 assert name in {"missing-entrypoint", "invalid-asset", "invalid-message",
                                 "invalid-locale", "invalid-lua-arguments",
-                                "invalid-scene-instruction", "invalid-scene-target"}, (name, data)
+                                "invalid-scene-instruction", "invalid-scene-target",
+                                "invalid-dialogue-target", "invalid-interaction-verb"}, (name, data)
                 assert data["diagnostics"], (name, data)
                 if name == "missing-entrypoint":
                     assert not references[name]["ok"], name
@@ -283,6 +292,12 @@ def main():
                                for item in data["diagnostics"]), data["diagnostics"]
                 elif name == "invalid-scene-target":
                     assert any("/scenes/localized-story/data/events/" in item.get("path", "")
+                               for item in data["diagnostics"]), data["diagnostics"]
+                elif name == "invalid-dialogue-target":
+                    assert any("/dialogues/conversation-paths/" in item.get("path", "")
+                               for item in data["diagnostics"]), data["diagnostics"]
+                elif name == "invalid-interaction-verb":
+                    assert any("/interactions/use-gate-lever/" in item.get("path", "")
                                for item in data["diagnostics"]), data["diagnostics"]
                 else:
                     assert any("localization" in item.get("path", "")
@@ -335,33 +350,32 @@ def main():
                 rows = []
                 for source in wire["definitions"][family]:
                     value = dict(source)
-                    for key in {"verbs": ("availability", "defaultProgram"),
-                                "interactions": ("rules",),
-                                "dialogues": ("program", "completion")}.get(family, ()):
-                        value.pop(key, None)
                     if family == "rooms":
                         value["lifecycle"] = dict(value["lifecycle"])
                         value["lifecycle"].pop("hooks", None)
-                    if family == "verbs":
-                        value["offers"] = [{key: field for key, field in offer.items()
-                                            if key != "condition"} for offer in value["offers"]]
-                    if family == "dialogues":
-                        value["stageSlots"] = []
-                        value["mediaSlots"] = []
                     rows.append(value)
                 compare(name, "definitions." + family, rows, shared["definitions"][family])
             # A reference-compiled wire decoding successfully cannot certify
-            # native programs. Replace only the supported Room/Scene slices,
-            # including Room Archetypes, and execute the native decoder on them.
+            # native programs. Replace every native-lowered gameplay definition
+            # and run the native runtime decoder on the composed wire.
             native_program_wire = copy.deepcopy(wire)
-            native_program_wire["definitions"]["rooms"] = shared["definitions"]["rooms"]
-            native_program_wire["definitions"]["scenes"] = shared["definitions"]["scenes"]
+            for family in ("rooms", "scenes", "dialogues", "verbs", "interactions"):
+                native_program_wire["definitions"][family] = shared["definitions"][family]
             native_program_wire["archetypes"] = shared["archetypes"]
+            if "undefinedInteractionProgram" in shared:
+                native_program_wire["undefinedInteractionProgram"] = shared["undefinedInteractionProgram"]
+            compare(name, "undefinedInteractionProgram",
+                    wire.get("undefinedInteractionProgram"),
+                    shared.get("undefinedInteractionProgram"))
             native_verified = invoke(binary, "--verify-compiled-stdin",
                                      stdin=json.dumps(native_program_wire))
             assert native_verified["verified"], (
-                name, "Native Room/Scene programs failed runtime decoding",
+                name, "Native Room/Scene/Dialogue/Interaction programs failed runtime decoding",
                 native_verified.get("diagnostics"))
+            if name == "feature-lab":
+                executed = invoke(binary, "--exercise-compiled-stdin",
+                                  stdin=json.dumps(native_program_wire))
+                assert executed == {"dialogueExecuted": True, "interactionExecuted": True}, executed
             compare(name, "properties", wire["properties"], shared["properties"])
             native_messages = partial["messages"]
             source = wire["localization"]["sourceLocale"]
@@ -441,13 +455,20 @@ def main():
                 assert rejected["verified"] is False and rejected["diagnostics"], rejected
                 assert rejected["diagnostics"][0]["path"] == "/schemaVersion", rejected
             missing = data["unsupportedFamilies"]
-            assert "programs.room-scene" not in missing and "programs.dialogue-interaction" in missing
+            assert "programs.room-scene" not in missing and "programs.dialogue-interaction" not in missing
             assert "properties.message" not in missing
-            print(f"{name}: PASS shared gameplay/resource/Message and Room/Scene parity; "
+            print(f"{name}: PASS shared gameplay/resource/Message and all gameplay program parity; "
                   f"UNIMPLEMENTED {', '.join(missing)}; "
                   f"reference messages={len(reference_catalogs[source])}, save={wire['saveContract']}")
             checked += 1
-        assert checked >= (1 if os.environ.get("NOVELTEA_PARITY_CASES") else 5)
+        # A focused selection can intentionally contain only rejected inputs;
+        # still exercise all their diagnostic assertions without requiring a
+        # successful compilation that was not requested.
+        expected_successes = (
+            1 if any(case.get("ok") for case in cases.values())
+            else 0
+        ) if os.environ.get("NOVELTEA_PARITY_CASES") else 5
+        assert checked >= expected_successes
         # An edited Lua literal may change its source text, but tracked source
         # identity must not silently receive a new package-local ID.
         if "source-drift" in cases and "feature-lab" in cases:

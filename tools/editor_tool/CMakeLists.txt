@@ -205,7 +205,8 @@ endif()
 configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp native_cli_test_catalog.cpp
     native_compiled_project_save_contract.cpp native_authoring_resources.cpp
-    native_authoring_messages.cpp native_authoring_shared.cpp native_authoring_programs.cpp)
+    native_authoring_messages.cpp native_authoring_shared.cpp native_authoring_programs.cpp
+    native_authoring_dialogue_interaction.cpp)
 set_target_properties(noveltea-native-cli PROPERTIES
     OUTPUT_NAME noveltea
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
@@ -240,11 +241,12 @@ if(BUILD_TESTING)
     add_executable(noveltea-runtime-cache-publish-certify
         tooling_runtime_cache_publish_certify.cpp native_compiled_project_save_contract.cpp
         native_authoring_resources.cpp native_authoring_messages.cpp native_authoring_shared.cpp
-        native_authoring_programs.cpp)
+        native_authoring_programs.cpp native_authoring_dialogue_interaction.cpp)
     target_link_libraries(noveltea-runtime-cache-publish-certify PRIVATE
-        noveltea_tooling_native nlohmann_json::nlohmann_json)
+        noveltea_tooling_native noveltea_script_lua noveltea_presentation nlohmann_json::nlohmann_json)
     target_include_directories(noveltea-runtime-cache-publish-certify PRIVATE
         "${CMAKE_SOURCE_DIR}/tools/project_authoring"
+        "${CMAKE_SOURCE_DIR}/tests"
         "${CMAKE_BINARY_DIR}/tools/project_authoring")
     add_test(NAME native_runtime_cache_publish
         COMMAND "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
