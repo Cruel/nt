@@ -2,6 +2,7 @@
 #include "tooling_native_project_sync.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/shader_binary_integrity.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
 
 #include <nlohmann/json.hpp>
@@ -979,7 +980,30 @@ bool pinned_package_inputs_current(const std::filesystem::path& root, const Json
         }
         return true;
     };
-    return check(artifact["fileEntries"]) && check(artifact["packageOptions"]["fileEntries"]);
+    if (!check(artifact["fileEntries"]) || !check(artifact["packageOptions"]["fileEntries"]))
+        return false;
+    const auto& options = artifact["packageOptions"];
+    std::set<std::string> required;
+    if (!options.contains("requiredShaderBinaryPaths") ||
+        !options["requiredShaderBinaryPaths"].is_array())
+        return false;
+    for (const auto& item : options["requiredShaderBinaryPaths"]) {
+        if (!item.is_string())
+            return false;
+        required.insert(item.get<std::string>());
+    }
+    if (required.empty())
+        return noveltea::core::shader_binary_revisions(
+                   options.value("shaderMaterialMetadata", Json(nullptr)), required)
+            .has_value();
+    if (!options.contains("shaderAssetRoot") || !options["shaderAssetRoot"].is_string())
+        return false;
+    const auto shader_root =
+        filesystem_path_from_utf8(options["shaderAssetRoot"].get<std::string>());
+    if (!shader_root.is_absolute() || !contained_by_root(root, shader_root))
+        return false;
+    return noveltea::core::shader_binary_files_current(
+        options.value("shaderMaterialMetadata", Json(nullptr)), required, shader_root);
 }
 
 std::string new_generation_id()

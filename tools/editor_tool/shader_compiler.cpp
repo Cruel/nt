@@ -1468,13 +1468,40 @@ void write_cache_manifest(const std::filesystem::path& path, const nlohmann::jso
                                        const std::filesystem::path& output_path)
 {
     const auto entry = manifest.find(runtime_path);
-    std::error_code exists_error;
-    const bool exists = std::filesystem::exists(output_path, exists_error);
-    std::error_code regular_error;
-    const bool regular = std::filesystem::is_regular_file(output_path, regular_error);
-    return entry != manifest.end() && entry->is_object() &&
-           entry->value("cacheKey", std::string{}) == cache_key && exists && !exists_error &&
-           regular && !regular_error;
+    if (entry == manifest.end() || !entry->is_object() ||
+        entry->value("cacheKey", std::string{}) != cache_key)
+        return false;
+    std::error_code error;
+    const auto status = std::filesystem::symlink_status(output_path, error);
+    if (error || std::filesystem::is_symlink(status) || !std::filesystem::is_regular_file(status))
+        return false;
+    const auto current = compiled_binary_metadata(output_path);
+    return current && entry->value("byteHash", std::string{}) == current->byte_hash &&
+           entry->value("byteSize", std::uint64_t{0}) == current->byte_size;
+}
+
+[[nodiscard]] bool safe_compiler_output_path(const std::filesystem::path& root,
+                                             const std::filesystem::path& output)
+{
+    const auto relative = output.lexically_relative(root);
+    if (relative.empty() || relative.is_absolute())
+        return false;
+    for (const auto& part : relative)
+        if (part == "." || part == "..")
+            return false;
+    auto cursor = root;
+    std::error_code error;
+    if (std::filesystem::is_symlink(std::filesystem::symlink_status(cursor, error)))
+        return false;
+    for (const auto& part : relative) {
+        cursor /= part;
+        error.clear();
+        if (std::filesystem::is_symlink(std::filesystem::symlink_status(cursor, error)))
+            return false;
+        if (error && error != std::errc::no_such_file_or_directory)
+            return false;
+    }
+    return true;
 }
 
 void upsert_compiled_ref(ShaderStageDefinition& stage, std::string variant, std::string path,
@@ -1848,6 +1875,13 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                                       ".bin";
             const auto runtime_path = "project:/" + package_path;
             const auto output_path = effective_options.output_root / package_path;
+            if (!safe_compiler_output_path(effective_options.output_root, output_path)) {
+                add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::SourceWriteFailed, ShaderId{},
+                               stage.stage, variant.name, stage.source.path, output_path, {}, 0,
+                               "Compiled shader output traverses an unsafe symlink.");
+                continue;
+            }
 
             std::vector<std::string> args = {
                 "shaderc", "-f", path_utf8(stage.compiled_source), "-o", path_utf8(output_path),
@@ -2123,6 +2157,13 @@ ShaderCompilerService::compile_shader_project(const ShaderMaterialProject& proje
                 const auto runtime_path = runtime_binary_path(shader.id, stage.stage, variant.name);
                 const auto package_path = package_binary_path(shader.id, stage.stage, variant.name);
                 const auto output_path = options.output_root / package_path;
+                if (!safe_compiler_output_path(options.output_root, output_path)) {
+                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                   ShaderCompileDiagnosticCode::SourceWriteFailed, shader.id,
+                                   stage.stage, variant.name, *source_path, output_path, {}, 0,
+                                   "Compiled shader output traverses an unsafe symlink.");
+                    continue;
+                }
                 const auto cache_key =
                     compile_cache_key(shader, stage, variant, options, *source_text);
 

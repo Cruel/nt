@@ -35,6 +35,20 @@ file; unsafe symlinks fail workspace preflight and are not overwritten. Warm
 reads reject invalid compiled wire even if the forged runtime bytes were
 rehashed to match their manifest.
 
+The compiled Material `byteHash`/`byteSize` inventory is also authoritative for
+required generated shader binaries, which live beneath `shaderAssetRoot` rather
+than ordinary package `fileEntries`. Warm cache admission and both publication
+boundaries verify the exact required path set and digest; missing, corrupt, or
+unrecorded binaries cannot be packaged. Shader compiler cache hits likewise
+require matching recorded bytes, so damaged disposable binaries are regenerated.
+Unsafe symlinked compiler destinations block the rebuild without replacing the
+incumbent package. `native_cli_shader_integrity` independently exercises the
+warm repair, missing-file regeneration, direct writer rejection and blocked
+publication cases without repeating the full Feature Lab suite.
+For a focused shader repair gate, run `ctest --test-dir build/linux-debug
+--output-on-failure -R '^native_cli_shader_integrity$'` after rebuilding
+`noveltea-native-cli` and `noveltea-runtime-cache-publish-certify`.
+
 Authored Test-only changes do not invalidate compiled gameplay. The CLI lowers
 the new catalog from a fresh native source admission, retains the validated
 runtime inputs from the cached manifest, and republishes a complete generation

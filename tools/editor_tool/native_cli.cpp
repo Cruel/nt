@@ -10,6 +10,7 @@
 #include "../project_authoring/material_semantics.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/shader_binary_integrity.hpp>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -555,7 +556,24 @@ bool package_physical_pins_current(const Json& options)
         if (stream.bad() || actual != entry.at("expectedSha256").get<std::string>())
             return false;
     }
-    return true;
+    std::set<std::string> required;
+    if (!options.contains("requiredShaderBinaryPaths") ||
+        !options.at("requiredShaderBinaryPaths").is_array())
+        return false;
+    for (const auto& path : options.at("requiredShaderBinaryPaths")) {
+        if (!path.is_string())
+            return false;
+        required.insert(path.get<std::string>());
+    }
+    if (required.empty())
+        return noveltea::core::shader_binary_revisions(
+                   options.value("shaderMaterialMetadata", Json(nullptr)), required)
+            .has_value();
+    if (!options.contains("shaderAssetRoot") || !options.at("shaderAssetRoot").is_string())
+        return false;
+    return noveltea::core::shader_binary_files_current(
+        options.value("shaderMaterialMetadata", Json(nullptr)), required,
+        std::filesystem::u8path(options.at("shaderAssetRoot").get<std::string>()));
 }
 
 RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,

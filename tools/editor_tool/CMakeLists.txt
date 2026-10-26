@@ -348,6 +348,13 @@ if(BUILD_TESTING)
         COMMAND "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
             "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
     set_tests_properties(native_runtime_cache_publish PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME native_cli_shader_integrity
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_shader_integrity.py"
+            "$<TARGET_FILE:noveltea-native-cli>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}")
+    set_tests_properties(native_cli_shader_integrity PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     add_test(NAME native_compiled_project_parity
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_compiled_project_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")
