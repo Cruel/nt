@@ -57,6 +57,14 @@ the Project boundary is admitted through the existing native Project authority.
 The installed native contract is exercised with a deterministic fake HTTP server
 by `tests/native_cli_comfyui.py` (`ctest -R native_cli_comfyui`). The Linux/macOS
 HTTPS client currently requires the system `curl` executable; Windows uses WinHTTP.
+The candidate reads shared `~/.noveltea/config.json` using the editor's strict
+whole-document fallback rule: any invalid field discards the configuration rather
+than retaining a partially valid ComfyUI server setting. Verification cache
+`serverIdentity` values use the same canonical HTTP(S) origin, hostname, port,
+and path normalization as `comfyUiServerIdentity()` in the editor. Network JSON,
+cache files, and workflow packages use non-throwing parsers because native builds
+compile with `JSON_NOEXCEPTION=1`; malformed data must yield diagnostics, never
+abort the CLI process.
 
 `noveltea comfyui workflows` lists the effective catalog in deterministic logical-ID order. It works outside a Project
 and adds project-local workflows when a Project is explicitly selected or discovered from the current directory.

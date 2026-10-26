@@ -146,25 +146,152 @@ struct Config {
     int timeout = 15000;
 };
 
+bool only_keys(const Json& object, std::initializer_list<std::string_view> keys)
+{
+    if (!object.is_object())
+        return false;
+    for (const auto& [key, value] : object.items()) {
+        (void)value;
+        if (std::find(keys.begin(), keys.end(), key) == keys.end())
+            return false;
+    }
+    return true;
+}
+
+bool valid_user_export_config(const Json& value)
+{
+    if (!only_keys(value, {"toolchains", "signingProfiles"}))
+        return false;
+    if (value.contains("toolchains")) {
+        const auto& toolchains = value.at("toolchains");
+        if (!only_keys(toolchains, {"androidSdk", "androidNdk", "javaHome", "cmake"}))
+            return false;
+        for (const auto& entry : toolchains)
+            if (!entry.is_string())
+                return false;
+    }
+    if (!value.contains("signingProfiles"))
+        return true;
+    const auto& profiles = value.at("signingProfiles");
+    if (!profiles.is_array())
+        return false;
+    static const std::regex secret(R"(^env:[A-Za-z_][A-Za-z0-9_]*$)");
+    std::set<std::string> ids;
+    for (const auto& profile : profiles) {
+        if (!profile.is_object() || !profile.contains("target") ||
+            !profile.at("target").is_string())
+            return false;
+        const auto target = profile.at("target").get<std::string>();
+        const bool windows = target == "windows", macos = target == "macos";
+        if ((!windows && !macos && target != "android") ||
+            !only_keys(
+                profile,
+                windows
+                    ? std::initializer_list<std::string_view>{"id", "label", "target", "command",
+                                                              "args", "verifyCommand", "verifyArgs"}
+                : macos ? std::initializer_list<std::string_view>{"id", "label", "target",
+                                                                  "identity", "entitlementsPath",
+                                                                  "notarizationCommand",
+                                                                  "notarizationArgs"}
+                        : std::initializer_list<std::string_view>{
+                              "id", "label", "target", "keystorePath", "keyAlias",
+                              "storePasswordReference", "keyPasswordReference"}))
+            return false;
+        for (const auto* field : {"id", "label"})
+            if (!profile.contains(field) || !profile.at(field).is_string() ||
+                profile.at(field).get<std::string>().find_first_not_of(" \t\r\n") ==
+                    std::string::npos)
+                return false;
+        if (!ids.insert(profile.at("id").get<std::string>()).second)
+            return false;
+        const auto check_string = [&](const char* field, bool required, bool nonempty) {
+            if (!profile.contains(field))
+                return !required;
+            return profile.at(field).is_string() &&
+                   (!nonempty || !profile.at(field).get<std::string>().empty());
+        };
+        const auto check_array = [&](const char* field, bool required) {
+            if (!profile.contains(field))
+                return !required;
+            if (!profile.at(field).is_array())
+                return false;
+            return std::all_of(profile.at(field).begin(), profile.at(field).end(),
+                               [](const Json& item) { return item.is_string(); });
+        };
+        if (windows &&
+            (!check_string("command", true, true) || !check_string("verifyCommand", true, true) ||
+             !check_array("args", true) || !check_array("verifyArgs", true)))
+            return false;
+        if (macos && (!check_string("identity", true, true) ||
+                      !check_string("entitlementsPath", false, false) ||
+                      !check_string("notarizationCommand", false, false) ||
+                      !check_array("notarizationArgs", false)))
+            return false;
+        if (!windows && !macos) {
+            if (!check_string("keystorePath", true, true) ||
+                !check_string("keyAlias", true, true) ||
+                !check_string("storePasswordReference", true, true) ||
+                !check_string("keyPasswordReference", true, true))
+                return false;
+            if (!std::regex_match(profile.at("storePasswordReference").get<std::string>(),
+                                  secret) ||
+                !std::regex_match(profile.at("keyPasswordReference").get<std::string>(), secret))
+                return false;
+        }
+    }
+    return true;
+}
+
+// The TypeScript reader rejects the *entire* shared user configuration when
+// any strict Zod field is invalid. Do not retain a partially valid server URL.
+bool valid_user_config(const Json& source)
+{
+    if (!only_keys(source, {"format", "formatVersion", "preferences", "comfyui", "export"}) ||
+        !source.contains("format") || !source.at("format").is_string() ||
+        source.at("format") != "noveltea.user-config" || !source.contains("formatVersion") ||
+        !source.at("formatVersion").is_number_integer() || source.at("formatVersion") != 1 ||
+        (source.contains("preferences") && !source.at("preferences").is_object()) ||
+        (source.contains("export") && !valid_user_export_config(source.at("export"))))
+        return false;
+    if (!source.contains("comfyui"))
+        return true;
+    const auto& shared = source.at("comfyui");
+    if (!only_keys(shared, {"serverUrl", "requestTimeoutMs", "defaultWorkflows"}) ||
+        !shared.contains("serverUrl") || !shared.at("serverUrl").is_string() ||
+        !shared.contains("requestTimeoutMs") ||
+        !shared.at("requestTimeoutMs").is_number_integer() ||
+        !shared.contains("defaultWorkflows") || !shared.at("defaultWorkflows").is_object())
+        return false;
+    const auto timeout = shared.at("requestTimeoutMs").get<std::int64_t>();
+    if (timeout < 1 || timeout > 300000 || shared.at("serverUrl").get<std::string>().size() > 2048)
+        return false;
+    try {
+        (void)comfyui_server_identity(shared.at("serverUrl").get<std::string>());
+    } catch (...) {
+        return false;
+    }
+    const auto& defaults = shared.at("defaultWorkflows");
+    if (defaults.size() > 16)
+        return false;
+    static const std::regex classification(R"(^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$)");
+    for (const auto& [key, value] : defaults.items()) {
+        if (!std::regex_match(key, classification) || !value.is_string() ||
+            value.get<std::string>().empty() || value.get<std::string>().size() > 256)
+            return false;
+    }
+    return true;
+}
+
 Config config(const std::optional<std::string>& server_override)
 {
     Config settings;
     if (const auto text = read_file(user_root() / "config.json", 1024 * 1024)) {
         try {
-            const auto source = Json::parse(*text);
-            if (source.is_object() && source.value("format", "") == "noveltea.user-config" &&
-                source.value("formatVersion", 0) == 1 && source.contains("comfyui") &&
-                source.at("comfyui").is_object()) {
+            const auto source = Json::parse(*text, nullptr, false);
+            if (!source.is_discarded() && valid_user_config(source) && source.contains("comfyui")) {
                 const auto& shared = source.at("comfyui");
-                if (shared.contains("serverUrl") && shared.at("serverUrl").is_string() &&
-                    shared.contains("requestTimeoutMs") &&
-                    shared.at("requestTimeoutMs").is_number_integer()) {
-                    const auto configured_timeout = shared.at("requestTimeoutMs").get<int>();
-                    if (configured_timeout > 0 && configured_timeout <= 300000) {
-                        settings.server = shared.at("serverUrl").get<std::string>();
-                        settings.timeout = configured_timeout;
-                    }
-                }
+                settings.server = shared.at("serverUrl").get<std::string>();
+                settings.timeout = shared.at("requestTimeoutMs").get<int>();
             }
         } catch (...) {
             // Invalid shared user config has the same default behavior as the editor reader.
@@ -179,9 +306,9 @@ Config config(const std::optional<std::string>& server_override)
     while (!settings.server.empty() && settings.server.back() == '/')
         settings.server.pop_back();
     // Validate before any request, including the projectless/offline paths.
-    static const std::regex url(R"(^https?://[^\s/#?]+(?:/[a-zA-Z0-9._~!$&'()*+,;=:@%/-]*)?$)",
-                                std::regex::icase);
-    if (!std::regex_match(settings.server, url)) {
+    try {
+        (void)comfyui_server_identity(settings.server);
+    } catch (...) {
         if (server_override)
             throw std::invalid_argument("ComfyUI server must be a valid HTTP(S) URL.");
         settings.server = Config{}.server;
@@ -217,7 +344,10 @@ std::string node_title(const Json& node)
 {
     if (!node.is_object() || !node.contains("_meta") || !node.at("_meta").is_object())
         return {};
-    return node.at("_meta").value("title", "");
+    const auto& meta = node.at("_meta");
+    return meta.contains("title") && meta.at("title").is_string()
+               ? meta.at("title").get<std::string>()
+               : std::string{};
 }
 
 // Resolve current graph IDs first, then the same class/title fallback ordering as the editor.
@@ -245,7 +375,8 @@ std::string resolve_binding(const Json& graph, const Json& binding, bool output)
         std::string found;
         for (const auto& [id, node] : graph.items()) {
             if (!valid(node) || (by_title && node_title(node) != title) ||
-                (by_class && node.value("class_type", std::string{}) != cls))
+                (by_class && (!node.contains("class_type") || !node.at("class_type").is_string() ||
+                              node.at("class_type").get<std::string>() != cls)))
                 continue;
             if (!found.empty())
                 return std::string{};
@@ -508,7 +639,9 @@ Workflow load_workflow(const std::string& source, const std::string& filename,
     entry.manifest_file = filename;
     entry.key = source + ":" + filename;
     try {
-        entry.manifest = Json::parse(manifest_text);
+        entry.manifest = Json::parse(manifest_text, nullptr, false);
+        if (entry.manifest.is_discarded())
+            throw std::runtime_error("ComfyUI workflow manifest is not valid JSON.");
         if (!entry.manifest.is_object() || !entry.manifest.contains("workflowFile") ||
             !entry.manifest.at("workflowFile").is_string() ||
             !safe_name(entry.manifest.at("workflowFile").get<std::string>()))
@@ -516,11 +649,17 @@ Workflow load_workflow(const std::string& source, const std::string& filename,
         if (!workflow_text)
             throw std::runtime_error(
                 "ComfyUI workflow JSON is missing or exceeds the parsing limit.");
-        entry.graph = Json::parse(*workflow_text);
+        entry.graph = Json::parse(*workflow_text, nullptr, false);
+        if (entry.graph.is_discarded())
+            throw std::runtime_error("ComfyUI workflow graph is not valid JSON.");
         validate_workflow(entry);
         entry.hash = package_hash(entry.manifest, entry.graph);
     } catch (const std::exception& error) {
         entry.offline = "invalid";
+        // Diagnostic rows are still rendered in `workflows --all`. Keep a
+        // discarded or scalar manifest out of subsequent object-only access.
+        if (!entry.manifest.is_object())
+            entry.manifest = Json::object();
         entry.diagnostics.push_back(workflow_diagnostic("/workflows/" + filename, error.what()));
     }
     return entry;
@@ -529,6 +668,7 @@ Workflow load_workflow(const std::string& source, const std::string& filename,
 std::vector<Workflow> catalog(const fs::path& project, const Config& settings)
 {
     std::vector<Workflow> entries;
+    const auto server_identity = comfyui_server_identity(settings.server);
     std::map<std::string, std::string> embedded;
     for (const auto& file : embedded_comfyui::files)
         embedded.emplace(file.name, file.text);
@@ -537,7 +677,7 @@ std::vector<Workflow> catalog(const fs::path& project, const Config& settings)
             continue;
         std::optional<std::string> workflow;
         try {
-            const auto manifest = Json::parse(text);
+            const auto manifest = Json::parse(text, nullptr, false);
             if (manifest.is_object() && manifest.contains("workflowFile") &&
                 manifest.at("workflowFile").is_string()) {
                 const auto it = embedded.find(manifest.at("workflowFile").get<std::string>());
@@ -576,7 +716,7 @@ std::vector<Workflow> catalog(const fs::path& project, const Config& settings)
             }
             std::optional<std::string> workflow;
             try {
-                const auto data = Json::parse(*manifest);
+                const auto data = Json::parse(*manifest, nullptr, false);
                 if (data.is_object() && data.contains("workflowFile") &&
                     data.at("workflowFile").is_string()) {
                     const auto name = data.at("workflowFile").get<std::string>();
@@ -608,24 +748,27 @@ std::vector<Workflow> catalog(const fs::path& project, const Config& settings)
         read_file(user_root() / "comfyui" / "verification-cache.json", 8 * 1024 * 1024);
     if (cache) {
         try {
-            const auto doc = Json::parse(*cache);
-            if (doc.is_object() &&
-                doc.value("schema", "") == "noveltea.comfyui-workflow-verification-cache" &&
+            const auto doc = Json::parse(*cache, nullptr, false);
+            if (doc.is_object() && doc.contains("schema") &&
+                doc.at("schema") == "noveltea.comfyui-workflow-verification-cache" &&
                 doc.contains("records") && doc.at("records").is_array()) {
                 for (auto& entry : entries) {
                     std::string latest;
                     for (const auto& record : doc.at("records")) {
-                        if (!record.is_object() ||
-                            record.value("serverIdentity", "") != settings.server ||
-                            record.value("packageHash", "") != entry.hash ||
+                        if (!record.is_object() || !record.contains("serverIdentity") ||
+                            record.at("serverIdentity") != server_identity ||
+                            !record.contains("packageHash") ||
+                            record.at("packageHash") != entry.hash ||
                             !record.contains("diagnostics") ||
-                            !record.at("diagnostics").is_array() ||
-                            record.value("checkedAt", "") < latest)
+                            !record.at("diagnostics").is_array() || !record.contains("checkedAt") ||
+                            !record.at("checkedAt").is_string() ||
+                            record.at("checkedAt").get<std::string>() < latest ||
+                            !record.contains("status") ||
+                            (record.at("status") != "verified" && record.at("status") != "failed"))
                             continue;
-                        latest = record.value("checkedAt", "");
-                        entry.online = record.value("status", "") == "verified"
-                                           ? "previously-verified"
-                                           : "failed";
+                        latest = record.at("checkedAt").get<std::string>();
+                        entry.online =
+                            record.at("status") == "verified" ? "previously-verified" : "failed";
                         entry.verification_diagnostics = record.at("diagnostics");
                     }
                 }
@@ -890,7 +1033,11 @@ Json compatibility(const Workflow& entry, const Json& object_info)
         for (const auto& binding : bindings) {
             const auto node_id = resolve_binding(entry.graph, binding, false);
             if (!node_id.empty()) {
-                const auto cls = entry.graph.at(node_id).value("class_type", std::string{});
+                const auto& node = entry.graph.at(node_id);
+                const auto cls = node.is_object() && node.contains("class_type") &&
+                                         node.at("class_type").is_string()
+                                     ? node.at("class_type").get<std::string>()
+                                     : std::string{};
                 if (object_info.contains(cls) && object_info.at(cls).is_object()) {
                     const auto& info = object_info.at(cls);
                     const auto& input = binding.at("inputName").get_ref<const std::string&>();
@@ -922,6 +1069,7 @@ ComfyUiResult verify(const Parsed& command, const fs::path& project, const Confi
                      const std::vector<Workflow>& entries)
 {
     const auto checked = now_iso();
+    const auto server_identity = comfyui_server_identity(settings.server);
     Json fields = project_field(project);
     fields["serverUrl"] = settings.server;
     fields["checkedAt"] = checked;
@@ -956,7 +1104,7 @@ ComfyUiResult verify(const Parsed& command, const fs::path& project, const Confi
         const bool passed = problems.empty();
         Json record{{"workflowKey", entry.key},
                     {"id", entry.id},
-                    {"serverIdentity", settings.server},
+                    {"serverIdentity", server_identity},
                     {"packageHash", entry.hash},
                     {"comfyUiVersion", server_version},
                     {"status", passed ? "verified" : "failed"},
@@ -976,8 +1124,9 @@ ComfyUiResult verify(const Parsed& command, const fs::path& project, const Confi
         Json old = Json::array();
         if (const auto text = read_file(destination, 8 * 1024 * 1024)) {
             try {
-                const auto parsed = Json::parse(*text);
-                if (parsed.value("schema", "") == "noveltea.comfyui-workflow-verification-cache" &&
+                const auto parsed = Json::parse(*text, nullptr, false);
+                if (parsed.is_object() && parsed.contains("schema") &&
+                    parsed.at("schema") == "noveltea.comfyui-workflow-verification-cache" &&
                     parsed.contains("records") && parsed.at("records").is_array())
                     old = parsed.at("records");
             } catch (...) {
@@ -986,9 +1135,12 @@ ComfyUiResult verify(const Parsed& command, const fs::path& project, const Confi
         for (const auto& record : new_records) {
             Json merged = Json::array();
             for (const auto& item : old)
-                if (!(item.is_object() && item.value("serverIdentity", "") == settings.server &&
-                      item.value("packageHash", "") == record.at("packageHash") &&
-                      item.value("comfyUiVersion", "") == server_version))
+                if (!(item.is_object() && item.contains("serverIdentity") &&
+                      item.at("serverIdentity") == server_identity &&
+                      item.contains("packageHash") &&
+                      item.at("packageHash") == record.at("packageHash") &&
+                      item.contains("comfyUiVersion") &&
+                      item.at("comfyUiVersion") == server_version))
                     merged.push_back(item);
             merged.push_back(record);
             old = std::move(merged);
