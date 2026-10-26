@@ -1,4 +1,6 @@
 #include "native_cli_contract.hpp"
+#include "native_cli_agent.hpp"
+#include "native_cli_media.hpp"
 #include "native_cli_test_catalog.hpp"
 #include "native_compiled_project.hpp"
 #include "native_runtime_artifact.hpp"
@@ -2421,6 +2423,159 @@ int run(const std::vector<std::string>& argv)
     try {
         const auto& family = args.command[0];
         const auto operation = args.command.size() > 1 ? args.command[1] : "";
+        if (family == "agent" && operation == "sync") {
+            if (args.command.size() != 2 &&
+                !(args.command.size() == 3 && args.command[2] == "--fix"))
+                return usage(args.json, "'agent sync' accepts only the optional '--fix' flag.");
+            const auto root = project_root(args.project);
+            if (root.empty())
+                return failure(
+                    args.json, 3, "WORKSPACE_NOT_FOUND", "/project.yaml",
+                    "No NovelTea project.yaml was found from the current directory upward.",
+                    "No NovelTea project.yaml was found from the current directory upward.");
+            const auto root_text = path_text(root);
+            const auto admitted =
+                native_request({{"action", "workspace-preflight"}, {"projectRoot", root_text}});
+            if (!admitted.value("ok", false))
+                return native_failure(args, admitted, "WORKSPACE_MANIFEST_READ", "/project.yaml", 3,
+                                      "Native workspace preflight failed.", root_text);
+            const bool fix = args.command.size() == 3;
+            try {
+                const auto synced = sync_native_agent_kit(root, fix);
+                Json diagnostics = Json::array();
+                if (!fix && synced.bootstrap_status != "current") {
+                    const std::string code = synced.bootstrap_status == "missing"
+                                                 ? "AGENT_BOOTSTRAP_MISSING"
+                                             : synced.bootstrap_status == "outdated"
+                                                 ? "AGENT_BOOTSTRAP_OUTDATED"
+                                                 : "AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED";
+                    const std::string message =
+                        synced.bootstrap_status == "missing"
+                            ? "NovelTea managed instructions are missing. Run `noveltea agent sync "
+                              "--fix` to add them."
+                        : synced.bootstrap_status == "outdated"
+                            ? "NovelTea managed instructions are outdated. Run `noveltea agent "
+                              "sync --fix` to update them."
+                            : "NovelTea managed AGENTS.md markers are malformed and require manual "
+                              "repair.";
+                    auto warning = diagnostic(code, "/AGENTS.md", message);
+                    warning["severity"] = "warning";
+                    diagnostics.push_back(warning);
+                }
+                if (synced.gitignore_status == "missing-rule") {
+                    auto warning = diagnostic("AGENT_LOCAL_STATE_NOT_IGNORED", "/.gitignore",
+                                              "Add the missing `/.noveltea/` and/or `/dist/` "
+                                              "ignore rules to the existing .gitignore file.");
+                    warning["severity"] = "warning";
+                    diagnostics.push_back(warning);
+                }
+                return emit({{"success", true},
+                             {"exitCode", 0},
+                             {"diagnostics", diagnostics},
+                             {"projectRoot", root_text},
+                             {"agentKitChanged", synced.changed},
+                             {"agentBootstrapStatus", fix ? "current" : synced.bootstrap_status},
+                             {"agentBootstrapChanged", synced.bootstrap_changed},
+                             {"agentGitignoreStatus", synced.gitignore_status},
+                             {"agentGitignoreCreated", synced.gitignore_status == "created"},
+                             {"agentGuidePath", path_text(synced.guide)},
+                             {"agentManifestPath", path_text(synced.manifest)}},
+                            args.json,
+                            synced.bootstrap_changed
+                                ? "NovelTea agent sync succeeded and repaired AGENTS.md."
+                                : "NovelTea agent sync succeeded.");
+            } catch (const std::exception& error) {
+                if (fix && std::string_view(error.what())
+                               .starts_with("NovelTea managed AGENTS.md markers are malformed")) {
+                    auto warning =
+                        diagnostic("AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED", "/AGENTS.md",
+                                   "NovelTea managed AGENTS.md markers are malformed and require "
+                                   "manual repair.");
+                    warning["severity"] = "warning";
+                    return emit({{"success", false},
+                                 {"exitCode", 5},
+                                 {"diagnostics", Json::array({warning})},
+                                 {"projectRoot", root_text},
+                                 {"agentBootstrapStatus", "malformed"},
+                                 {"agentBootstrapChanged", false}},
+                                args.json,
+                                warning.at("message").get<std::string>() +
+                                    " Remove or repair the markers, then retry.");
+                }
+                return emit({{"success", false},
+                             {"exitCode", 5},
+                             {"diagnostics", Json::array({diagnostic("AGENT_SYNC_MUTATION_FAILED",
+                                                                     "/", error.what())})},
+                             {"projectRoot", root_text},
+                             {"agentKitChanged", false},
+                             {"agentBootstrapChanged", false}},
+                            args.json, error.what());
+            }
+        }
+        if (family == "daemon") {
+            if (!args.project.empty())
+                return usage(args.json, "The 'daemon' command does not accept --project.");
+            if (args.command.size() != 2 || (operation != "status" && operation != "stop"))
+                return usage(args.json, "Usage: noveltea daemon <status|stop>");
+            const auto build =
+                build_identity.empty() ? "native-cli-dev" : std::string(build_identity);
+            const auto response =
+                invoke_native_json(noveltea_tooling_daemon_json,
+                                   {{"action", operation}, {"build", build}, {"protocol", 1}});
+            Json daemon{{"running", response.value("running", false)},
+                        {"state", response.value("state", std::string("stopped"))},
+                        {"build", response.value("build", build)},
+                        {"protocol", response.value("protocol", 1)},
+                        {"pid", response.value("pid", Json(nullptr))},
+                        {"projectSessions", response.value("projectSessions", 0)},
+                        {"disposableWorkers", response.value("disposableWorkers", 0)},
+                        {"disposableQueuedJobs", response.value("disposableQueuedJobs", 0)},
+                        {"disposableStandbyWorkers", response.value("disposableStandbyWorkers", 0)},
+                        {"disposableBusyWorkers", response.value("disposableBusyWorkers", 0)}};
+            if (!response.value("ok", false))
+                return emit(
+                    {{"success", false},
+                     {"exitCode", 70},
+                     {"diagnostics",
+                      Json::array({diagnostic(
+                          "DAEMON_BROKER", "/",
+                          response.value(
+                              "error", std::string("NovelTea daemon broker operation failed.")))})},
+                     {"daemon", daemon}},
+                    args.json);
+            const std::string human =
+                operation == "stop" ? response.value("stopped", false)
+                                          ? "NovelTea daemon stopped."
+                                          : "NovelTea daemon is not running."
+                : daemon.at("running").get<bool>()
+                    ? "NovelTea daemon: " + daemon.at("state").get<std::string>() + " (pid " +
+                          daemon.at("pid").dump() + ", build " +
+                          daemon.at("build").get<std::string>() + ", protocol " +
+                          daemon.at("protocol").dump() + ")."
+                    : "NovelTea daemon: stopped (build " + daemon.at("build").get<std::string>() +
+                          ", protocol " + daemon.at("protocol").dump() + ").";
+            return emit({{"success", true},
+                         {"exitCode", 0},
+                         {"diagnostics", Json::array()},
+                         {"daemon", daemon}},
+                        args.json, human);
+        }
+        if (family == "media-tool" && operation == "check") {
+            if (args.command.size() != 2)
+                return usage(args.json, "Expected media-tool check with no arguments.");
+            try {
+                const auto tool = inspect_native_media_tool();
+                return emit({{"success", true},
+                             {"exitCode", 0},
+                             {"diagnostics", Json::array()},
+                             {"tool", tool}},
+                            args.json,
+                            "FFmpeg " + tool.at("version").get<std::string>() + ": " +
+                                tool.at("executable").get<std::string>());
+            } catch (const std::exception& error) {
+                return failure(args.json, 6, "media.tool", "/", error.what(), error.what());
+            }
+        }
         if (family == "validate")
             return project_read(args, "project-validate");
         if (family == "shaders" && operation == "compile")

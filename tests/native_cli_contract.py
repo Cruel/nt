@@ -73,6 +73,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         'localization view', 'localization reconcile', 'localization accept',
         'localization review', 'shaders compile', 'shaderc', 'texturec',
         'test run', 'test run-spec', 'test run-ui-spec', 'package export',
+        'agent sync', 'media-tool check', 'daemon status', 'daemon stop',
     }
     assert project_commands <= public_paths
     for command in public_paths - project_commands:

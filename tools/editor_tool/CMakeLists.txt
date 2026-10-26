@@ -205,7 +205,41 @@ else()
     set(NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY "")
 endif()
 configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
-add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp native_cli_test_catalog.cpp
+file(READ "${CMAKE_SOURCE_DIR}/editor/src/shared/media-tool-pin.json" _native_ffmpeg_pin_json)
+string(JSON NOVELTEA_NATIVE_FFMPEG_VERSION GET "${_native_ffmpeg_pin_json}" version)
+string(JSON NOVELTEA_NATIVE_FFMPEG_RELEASE GET "${_native_ffmpeg_pin_json}" release)
+configure_file(native_cli_media_pin.hpp.in native_cli_media_pin.hpp @ONLY)
+find_program(NOVELTEA_NATIVE_NODE_EXECUTABLE NAMES node REQUIRED)
+file(GLOB_RECURSE _native_agent_kit_sources CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/editor/agent-kit/*"
+    "${CMAKE_SOURCE_DIR}/docs/public/concepts/*"
+    "${CMAKE_SOURCE_DIR}/engine/assets/system/ui/*"
+    "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/*.ts"
+    "${CMAKE_SOURCE_DIR}/editor/src/shared/project-workspace/*.ts")
+set(_native_agent_kit_header "${CMAKE_CURRENT_BINARY_DIR}/native_agent_kit_generated.hpp")
+add_custom_command(OUTPUT "${_native_agent_kit_header}"
+    COMMAND "${NOVELTEA_NATIVE_NODE_EXECUTABLE}" --disable-warning=ExperimentalWarning
+        --experimental-transform-types
+        "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-agent-kit.mjs"
+        "${_native_agent_kit_header}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-agent-kit.mjs"
+        "${CMAKE_SOURCE_DIR}/editor/scripts/native-agent-kit-loader.mjs"
+        "${CMAKE_SOURCE_DIR}/editor/src/cli/agent-kit.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/cli/agent-kit/source.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/product-version.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/schema-static-contracts.ts"
+        "${CMAKE_SOURCE_DIR}/editor/agent-kit-provenance.json"
+        "${CMAKE_SOURCE_DIR}/engine/material-contracts/material-contract-registry.json"
+        "${CMAKE_SOURCE_DIR}/VERSION"
+        ${_native_agent_kit_sources}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/editor"
+    COMMENT "Embedding generated Agent Kit documentation in native CLI"
+    VERBATIM)
+add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
+    native_cli.cpp native_cli_agent.cpp native_cli_media.cpp
+    "${_native_agent_kit_header}" native_cli_test_catalog.cpp
     native_compiled_project_save_contract.cpp native_compiled_project.cpp
     native_runtime_artifact.cpp native_runtime_physical.cpp native_runtime_media.cpp
     native_runtime_materials.cpp
@@ -218,7 +252,8 @@ set_target_properties(noveltea-native-cli PROPERTIES
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tools/project_authoring")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
-target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
+target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
+    nlohmann_json::nlohmann_json miniz::miniz)
 target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 noveltea_apply_policy_warnings(noveltea-native-cli)
 # Native font coverage resolves the same trusted system fonts as the installed
@@ -237,6 +272,9 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_contract.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_agent_tools
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_agent_tools.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_runtime_cache
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_runtime_cache.py"

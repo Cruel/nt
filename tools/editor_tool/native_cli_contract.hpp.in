@@ -7,5 +7,7 @@ inline constexpr std::string_view help = R"nt_cli(@NOVELTEA_NATIVE_CLI_HELP@)nt_
 inline constexpr std::string_view version = "@NOVELTEA_VERSION@";
 // Empty unless the complete compiler build identity was sealed at configure time.
 inline constexpr std::string_view compiler_identity = "@NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY@";
+// Daemon transport identity is the build identity, not the compiler's version-qualified key.
+inline constexpr std::string_view build_identity = "@NOVELTEA_NATIVE_CLI_BUILD_IDENTITY@";
 inline constexpr std::string_view collections[] = {@NOVELTEA_NATIVE_CLI_COLLECTIONS@};
 } // namespace noveltea::cli
