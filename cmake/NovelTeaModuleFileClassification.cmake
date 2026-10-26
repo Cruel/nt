@@ -83,6 +83,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/include/noveltea/core/editor_protocol.hpp
     engine/include/noveltea/core/json_access.hpp
     engine/include/noveltea/core/package_export.hpp
+    engine/include/noveltea/core/shader_binary_integrity.hpp
     engine/include/noveltea/core/player_bootstrap.hpp
     engine/include/noveltea/core/rich_text_codec.hpp
     engine/include/noveltea/core/runtime_user_settings_codec.hpp

@@ -25,6 +25,16 @@ list(APPEND approved_header_paths
     "engine/src/core/json_decoder.hpp"
     "engine/src/core/motion_policy_codec.hpp"
     "engine/src/core/save_state_codec/internal.hpp")
+# Exact host-only CLI protocol boundaries. Their JSON values terminate in
+# native_cli.cpp command transport or the external ComfyUI HTTP protocol;
+# neither these declarations nor their dependencies are shipped in the player.
+# Deliberately do not authorize native compiler/preparation headers here: those
+# now belong to the separate Project authoring codec ownership root.
+list(APPEND approved_header_paths
+    "tools/editor_tool/native_cli_comfyui.hpp"
+    "tools/editor_tool/native_cli_comfyui_http.hpp"
+    "tools/editor_tool/native_cli_media.hpp"
+    "tools/editor_tool/native_cli_test_catalog.hpp")
 set(approved_source_paths
     "apps/editor_preview/editor_preview_app.cpp"
     "engine/src/assets/resource_aliases.cpp"
@@ -56,6 +66,14 @@ set(approved_source_paths
     "engine/src/runtime_preview_controller.cpp"
     "tools/benchmark/main.cpp"
     "tools/editor_tool/native_cli.cpp"
+    # Host-only external process, CLI command and HTTP JSON protocol adapters.
+    "tools/editor_tool/native_cli_agent.cpp"
+    "tools/editor_tool/native_cli_comfyui.cpp"
+    "tools/editor_tool/native_cli_comfyui_http.cpp"
+    "tools/editor_tool/native_cli_media.cpp"
+    "tools/editor_tool/native_cli_test_catalog.cpp"
+    # Test-only JSON command transport for compiled Project/package acceptance.
+    "tools/editor_tool/tooling_runtime_cache_publish_certify.cpp"
     "tools/editor_tool/font_coverage_tool.cpp"
     "tools/editor_tool/shader_compiler.cpp"
     # The native alpha encoder owns a JSON-only tooling request/response ABI;

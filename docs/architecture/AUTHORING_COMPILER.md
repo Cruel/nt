@@ -37,7 +37,7 @@ no error diagnostic exists.
 
 ## Staged native compiler parity
 
-As part of the native authoring/CLI cutover, `tools/editor_tool/native_authoring_resources.cpp`,
+As part of the native authoring/CLI cutover, `tools/project_authoring/native_authoring_resources.cpp`,
 `native_authoring_messages.cpp`, `native_authoring_shared.cpp`,
 `native_authoring_programs.cpp`, and `native_authoring_dialogue_interaction.cpp`
 now lower a **cold**, natively

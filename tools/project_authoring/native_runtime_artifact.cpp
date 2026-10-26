@@ -3,7 +3,7 @@
 #include "native_authoring_messages.hpp"
 #include "native_runtime_materials.hpp"
 #include "tooling_native_project_localization.hpp"
-#include "../project_authoring/localization_semantics.hpp"
+#include "localization_semantics.hpp"
 
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/message_realization.hpp>

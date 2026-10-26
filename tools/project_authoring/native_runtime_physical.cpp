@@ -2,7 +2,7 @@
 #include "native_runtime_media.hpp"
 #include "embedded_material_registry.hpp"
 
-#include "../project_authoring/source_authority.hpp"
+#include "source_authority.hpp"
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/render/shader_compiler.hpp>
 
