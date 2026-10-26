@@ -2648,8 +2648,8 @@ int run(const std::vector<std::string>& argv)
                 return failure(args.json, 6, "media.tool", "/", error.what(), error.what());
             }
         }
-        if (family == "comfyui" &&
-            (operation == "status" || operation == "workflows" || operation == "verify")) {
+        if (family == "comfyui" && (operation == "status" || operation == "workflows" ||
+                                    operation == "verify" || operation == "run")) {
             if (operation == "status" && !args.project.empty())
                 return usage(args.json,
                              "Global option '--project' is not supported by project-independent "
@@ -2668,7 +2668,8 @@ int run(const std::vector<std::string>& argv)
                                           "/project.yaml", 3, "Native Project admission failed.",
                                           path_text(root));
             }
-            const auto result = run_native_comfyui_catalog(args.command, root);
+            const auto result =
+                run_native_comfyui_catalog(args.command, root, native_request, args.json);
             return emit(result.envelope, args.json, result.human);
         }
         if (family == "validate")
