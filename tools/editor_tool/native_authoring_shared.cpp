@@ -1578,4 +1578,13 @@ Json lower_shared_authoring_project(const Json& admitted_project,
              {{"layouts", layouts(admitted_project, messages)},
               {"materialInterfaces", material_interfaces(project)}}}};
 }
+
+Json effective_room_authoring_data(const Json& project, const std::string& id, bool archetype)
+{
+    if (archetype) {
+        std::set<std::string> active;
+        return archetype_configuration(project, id, active).at("data");
+    }
+    return effective_record(project, "room", object(project.at("rooms"), id)).at("data");
+}
 } // namespace noveltea::cli
