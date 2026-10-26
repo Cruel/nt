@@ -112,7 +112,9 @@ struct WinHttpHandle {
     explicit operator bool() const { return handle != nullptr; }
 };
 
-ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout)
+ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout,
+                        const std::string& method, const std::string& payload,
+                        const std::string& content_type, std::size_t maximum)
 {
     WinHttpHandle session(WinHttpOpen(L"NovelTea/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                                       WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
@@ -123,13 +125,16 @@ ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout
                                             static_cast<INTERNET_PORT>(std::stoi(url.port)), 0));
     if (!connection)
         return {};
-    WinHttpHandle request(WinHttpOpenRequest(connection.handle, L"GET",
+    WinHttpHandle request(WinHttpOpenRequest(connection.handle, wide(method).c_str(),
                                              wide(endpoint_path(url, endpoint)).c_str(), nullptr,
                                              WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                              url.scheme == "https" ? WINHTTP_FLAG_SECURE : 0));
+    const auto header = wide("Content-Type: " + content_type + "\r\n");
     if (!request ||
-        !WinHttpSendRequest(request.handle, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
+        !WinHttpSendRequest(
+            request.handle, header.c_str(), static_cast<DWORD>(-1),
+            payload.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(payload.data()),
+            static_cast<DWORD>(payload.size()), static_cast<DWORD>(payload.size()), 0) ||
         !WinHttpReceiveResponse(request.handle, nullptr))
         return {.timed_out = GetLastError() == ERROR_WINHTTP_TIMEOUT};
     DWORD status = 0, status_size = sizeof(status);
@@ -146,7 +151,7 @@ ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout
             return {};
         if (available == 0)
             break;
-        if (bytes.size() + available > max_response)
+        if (bytes.size() + available > maximum)
             return {};
         while (available) {
             const auto requested =
@@ -157,7 +162,7 @@ ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout
             available -= read;
         }
     }
-    return parse_json_response(bytes);
+    return {.ok = true, .bytes = std::move(bytes)};
 }
 #else
 struct Socket {
@@ -170,7 +175,7 @@ struct Socket {
     }
 };
 
-std::string decoded_body(std::string_view bytes)
+std::string decoded_body(std::string_view bytes, std::size_t maximum)
 {
     const auto header_end = bytes.find("\r\n\r\n");
     if (header_end == std::string_view::npos)
@@ -199,7 +204,7 @@ std::string decoded_body(std::string_view bytes)
         bytes.remove_prefix(delimiter + 2);
         if (size == 0)
             return output;
-        if (size > max_response - output.size() || size > bytes.size() || bytes.size() - size < 2 ||
+        if (size > maximum - output.size() || size > bytes.size() || bytes.size() - size < 2 ||
             bytes.substr(size, 2) != "\r\n")
             return {};
         output.append(bytes.substr(0, size));
@@ -207,7 +212,9 @@ std::string decoded_body(std::string_view bytes)
     }
 }
 
-ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, int timeout)
+ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, int timeout,
+                                   const std::string& method, const std::string& payload,
+                                   const std::string& content_type, std::size_t maximum)
 {
     struct addrinfo hints {};
     hints.ai_family = AF_UNSPEC;
@@ -249,9 +256,11 @@ ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, 
         if (fcntl(sock.fd, F_SETFL, flags) < 0)
             continue;
         const auto host = url.host.find(':') != std::string::npos ? "[" + url.host + "]" : url.host;
-        const std::string request = "GET " + endpoint_path(url, endpoint) +
+        const std::string request = method + " " + endpoint_path(url, endpoint) +
                                     " HTTP/1.1\r\nHost: " + host + ":" + url.port +
-                                    "\r\nAccept: application/json\r\nConnection: close\r\n\r\n";
+                                    "\r\nAccept: */*\r\nContent-Type: " + content_type +
+                                    "\r\nContent-Length: " + std::to_string(payload.size()) +
+                                    "\r\nConnection: close\r\n\r\n" + payload;
         std::size_t offset = 0;
         while (offset < request.size()) {
 #if defined(MSG_NOSIGNAL)
@@ -260,6 +269,8 @@ ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, 
 #else
             const auto count = send(sock.fd, request.data() + offset, request.size() - offset, 0);
 #endif
+            if (count < 0 && errno == EINTR)
+                continue;
             if (count <= 0)
                 break;
             offset += static_cast<std::size_t>(count);
@@ -267,13 +278,15 @@ ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, 
         if (offset != request.size())
             continue;
         std::array<char, 8192> block{};
-        while (bytes.size() <= max_response + 8192) {
+        while (bytes.size() <= maximum + 8192) {
             const auto count = recv(sock.fd, block.data(), block.size(), 0);
             if (count == 0) {
                 received = true;
                 break;
             }
             if (count < 0) {
+                if (errno == EINTR)
+                    continue;
                 timeout_hit = errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT;
                 break;
             }
@@ -282,18 +295,28 @@ ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, 
         break;
     }
     freeaddrinfo(addresses);
-    if (!received || bytes.size() > max_response + 8192)
+    if (!received || bytes.size() > maximum + 8192)
         return {.timed_out = timeout_hit};
-    return parse_json_response(decoded_body(bytes));
+    auto body = decoded_body(bytes, maximum);
+    if (body.empty() || body.size() > maximum)
+        return {};
+    return {.ok = true, .bytes = std::move(body)};
 }
 
 // On POSIX, the OS curl client supplies certificate validation for remote HTTPS.
 // HTTP remains self-contained and never depends on the availability of curl.
-ComfyUiHttpResult fetch_https(const Url& url, const std::string& endpoint, int timeout)
+ComfyUiHttpResult fetch_https(const Url& url, const std::string& endpoint, int timeout,
+                              const std::string& method, const std::string& payload,
+                              const std::string& content_type, std::size_t maximum)
 {
-    int pipefd[2];
+    int pipefd[2], inputfd[2];
     if (pipe(pipefd) != 0)
         return {};
+    if (pipe(inputfd) != 0) {
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return {};
+    }
     const auto url_text =
         "https://" + (url.host.find(':') != std::string::npos ? "[" + url.host + "]" : url.host) +
         ":" + url.port + endpoint_path(url, endpoint);
@@ -302,42 +325,70 @@ ComfyUiHttpResult fetch_https(const Url& url, const std::string& endpoint, int t
     if (pid < 0) {
         close(pipefd[0]);
         close(pipefd[1]);
+        close(inputfd[0]);
+        close(inputfd[1]);
         return {};
     }
     if (pid == 0) {
         close(pipefd[0]);
+        close(inputfd[1]);
         dup2(pipefd[1], STDOUT_FILENO);
+        dup2(inputfd[0], STDIN_FILENO);
+        close(inputfd[0]);
         close(pipefd[1]);
         const auto sink = open("/dev/null", O_WRONLY);
         if (sink >= 0) {
             dup2(sink, STDERR_FILENO);
             close(sink);
         }
-        execlp("curl", "curl", "--silent", "--show-error", "--fail", "--location", "--max-time",
-               seconds.c_str(), "--max-filesize", "1048576", "--proto", "=https", "--proto-redir",
-               "=https", "--", url_text.c_str(), static_cast<char*>(nullptr));
+        const auto limit = std::to_string(maximum);
+        if (method == "GET")
+            execlp("curl", "curl", "--silent", "--show-error", "--fail", "--max-time",
+                   seconds.c_str(), "--max-filesize", limit.c_str(), "--proto", "=https",
+                   "--request", method.c_str(), "--", url_text.c_str(),
+                   static_cast<char*>(nullptr));
+        else
+            execlp("curl", "curl", "--silent", "--show-error", "--fail", "--max-time",
+                   seconds.c_str(), "--max-filesize", limit.c_str(), "--proto", "=https",
+                   "--request", method.c_str(), "--header",
+                   ("Content-Type: " + content_type).c_str(), "--data-binary", "@-", "--",
+                   url_text.c_str(), static_cast<char*>(nullptr));
         _exit(127);
     }
     close(pipefd[1]);
+    close(inputfd[0]);
+    // Requests are bounded to small JSON or an image upload. Do not keep a
+    // writable pipe open after the payload: curl must observe EOF.
+    std::size_t sent = 0;
+    while (sent < payload.size()) {
+        const auto n = write(inputfd[1], payload.data() + sent, payload.size() - sent);
+        if (n <= 0)
+            break;
+        sent += static_cast<std::size_t>(n);
+    }
+    close(inputfd[1]);
     std::string bytes;
     std::array<char, 8192> block{};
     ssize_t n;
-    while ((n = read(pipefd[0], block.data(), block.size())) > 0 && bytes.size() <= max_response)
+    while ((n = read(pipefd[0], block.data(), block.size())) > 0 && bytes.size() <= maximum)
         bytes.append(block.data(), static_cast<std::size_t>(n));
     close(pipefd[0]);
-    if (bytes.size() > max_response)
+    if (bytes.size() > maximum)
         kill(pid, SIGKILL);
     int status = 0;
     waitpid(pid, &status, 0);
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
         return {.timed_out = WIFEXITED(status) && WEXITSTATUS(status) == 28};
-    return parse_json_response(bytes);
+    return {.ok = true, .bytes = std::move(bytes)};
 }
 
-ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout)
+ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout,
+                        const std::string& method, const std::string& payload,
+                        const std::string& content_type, std::size_t maximum)
 {
-    return url.scheme == "https" ? fetch_https(url, endpoint, timeout)
-                                 : fetch_plain_http(url, endpoint, timeout);
+    return url.scheme == "https"
+               ? fetch_https(url, endpoint, timeout, method, payload, content_type, maximum)
+               : fetch_plain_http(url, endpoint, timeout, method, payload, content_type, maximum);
 }
 #endif
 } // namespace
@@ -345,8 +396,27 @@ ComfyUiHttpResult fetch(const Url& url, const std::string& endpoint, int timeout
 ComfyUiHttpResult comfyui_get_json(const std::string& server, const std::string& endpoint,
                                    int timeout_ms)
 {
+    auto response = comfyui_request(server, endpoint, timeout_ms);
+    if (!response.ok)
+        return response;
+    auto parsed = parse_json_response(response.bytes);
+    parsed.timed_out = response.timed_out;
+    return parsed;
+}
+
+ComfyUiHttpResult comfyui_request(const std::string& server, const std::string& endpoint,
+                                  int timeout_ms, const std::string& method,
+                                  const std::string& payload, const std::string& content_type,
+                                  std::size_t maximum)
+{
+    if (endpoint.empty() || endpoint.front() != '/' ||
+        endpoint.find_first_of("\r\n") != std::string::npos ||
+        (method != "GET" && method != "POST") || payload.size() > 32 * 1024 * 1024 ||
+        maximum > 32 * 1024 * 1024)
+        return {};
     const auto url = parse_url(server);
-    return fetch(url, endpoint, std::clamp(timeout_ms, 1, 300000));
+    return fetch(url, endpoint, std::clamp(timeout_ms, 1, 300000), method, payload, content_type,
+                 maximum);
 }
 
 std::string comfyui_server_identity(const std::string& server)

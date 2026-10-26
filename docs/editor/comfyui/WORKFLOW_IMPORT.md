@@ -48,14 +48,15 @@ image generation.
 
 ## Headless Catalog Commands
 
-The standalone C++ CLI candidate implements `status`, `workflows`, and `verify` in
+The standalone C++ CLI candidate implements `status`, `workflows`, `verify`, and `run` in
 `tools/editor_tool/native_cli_comfyui.cpp`. Built-in manifest and graph JSON are
 embedded by `editor/scripts/generate-native-comfyui-workflows.mjs` at build time;
 installed commands do not need the editor source checkout or a JavaScript runtime.
 User configuration and workflow packages retain the same on-disk locations and
 the Project boundary is admitted through the existing native Project authority.
 The installed native contract is exercised with a deterministic fake HTTP server
-by `tests/native_cli_comfyui.py` (`ctest -R native_cli_comfyui`). The Linux/macOS
+by `tests/native_cli_comfyui.py` and `tests/native_cli_comfyui_run.py`
+(`ctest -R native_cli_comfyui`). The Linux/macOS
 HTTPS client currently requires the system `curl` executable; Windows uses WinHTTP.
 The candidate reads shared `~/.noveltea/config.json` using the editor's strict
 whole-document fallback rule: any invalid field discards the configuration rather
@@ -65,6 +66,25 @@ and path normalization as `comfyUiServerIdentity()` in the editor. Network JSON,
 cache files, and workflow packages use non-throwing parsers because native builds
 compile with `JSON_NOEXCEPTION=1`; malformed data must yield diagnostics, never
 abort the CLI process.
+
+The native `run` path resolves explicit IDs or configured dotted classification defaults,
+binds scalar and local image inputs, verifies the remote node contract, uploads local images
+only to literal loopback HTTP endpoints, submits and polls prompts, downloads bounded image
+outputs, and validates declared output cardinality before publication. Projectless invocations
+require filesystem output routing; Project runs publish unspecified routes through the native
+`comfyui-assets` Project transaction with an expected native source generation. Direct
+invocations retain reversible staged filesystem files while the Project owner accepts the
+generated Assets. The installed tests cover submission, file and Asset publication, source
+revision conflict, image upload, malformed media, server execution errors, and SIGINT
+prompt-specific queue cancellation.
+
+This candidate currently runs directly in the native CLI process. It has **not** yet
+integrated the daemon broker's disposable-worker staged-output registration, durable
+file-output journal, or worker-loss recovery. Direct-process rollback handles ordinary
+publication errors, but a hard process exit between filesystem installation and Asset
+commit is not yet covered by the broker recovery guarantee described below for the
+current production runner. This is the remaining #548 delivery/qualification gap;
+the ScriptC production CLI is retained until the coordinated native CLI cutover.
 
 `noveltea comfyui workflows` lists the effective catalog in deterministic logical-ID order. It works outside a Project
 and adds project-local workflows when a Project is explicitly selected or discovered from the current directory.
