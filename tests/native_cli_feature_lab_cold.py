@@ -8,11 +8,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
-from zipfile import ZipFile
+import time
+from zipfile import BadZipFile, ZipFile
 
 
 candidate = Path(sys.argv[1]).resolve()
@@ -56,8 +58,8 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-feature-lab-cold-") as 
         args += ["--no-daemon", "--project", str(project_override or project), *command]
         outcome = subprocess.run(args, input=stdin, cwd=root, env=environment,
                                  text=True, capture_output=True, timeout=timeout)
-        assert outcome.returncode == exit_code, (command, outcome.stdout[-4000:],
-                                                 outcome.stderr[-1000:])
+        assert exit_code is None or outcome.returncode == exit_code, (
+            command, outcome.stdout[-4000:], outcome.stderr[-1000:])
         if not json_mode:
             # Human mode intentionally emits nonblocking authoring findings
             # to stderr instead of embedding them in a JSON envelope.
@@ -68,7 +70,7 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-feature-lab-cold-") as 
         assert len(lines) == 1, (command, lines[:3], lines[-3:])
         response = json.loads(lines[0])
         assert response["protocolVersion"] == 1
-        assert response["exitCode"] == exit_code
+        assert response["exitCode"] == (outcome.returncode if exit_code is None else exit_code)
         return response
 
     def current():
@@ -139,6 +141,135 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-feature-lab-cold-") as 
     assert cold_export["runtimeCache"]["published"]
     assert_package(cold_package)
     print("Independent cold Runtime Package export and ZIP readback passed.", flush=True)
+    # Exact physical byte revisions, not merely authored record revisions,
+    # must invalidate warm packages and their prepared video representations.
+    video = package_cold_project / "assets/video/opaque-colors.mp4"
+    inverted = root / "inverted.mp4"
+    transform = subprocess.run([
+        str(media_tool), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(video), "-an", "-vf", "negate", "-c:v", "mpeg4", "-q:v", "4",
+        str(inverted),
+    ], capture_output=True, text=True, timeout=120)
+    assert transform.returncode == 0, transform.stderr[-2000:]
+    with ZipFile(cold_package) as archive:
+        old_motion = json.loads(archive.read("assets/.prepared-media/manifest.json"))["motions"][0]
+        old_video = archive.read(old_motion["browserVideo"]["path"])
+    old_generation = (package_cold_project / ".noveltea/cache/runtime/current").read_text()
+    os.replace(inverted, video)
+    changed = run("package", "export", "--output", str(cold_package),
+                  "--allow-localization-warnings", timeout=300,
+                  project_override=package_cold_project)
+    assert changed["success"] and changed["runtimeCache"]["status"] == "stale", changed
+    assert (package_cold_project / ".noveltea/cache/runtime/current").read_text() != old_generation
+    with ZipFile(cold_package) as archive:
+        new_motion = json.loads(archive.read("assets/.prepared-media/manifest.json"))["motions"][0]
+        assert new_motion["contentHash"] != old_motion["contentHash"]
+        assert archive.read(new_motion["browserVideo"]["path"]) != old_video
+        assert archive.read("assets/video/opaque-colors.mp4") == video.read_bytes()
+
+    def corrupt_prepared_media():
+        cache_root = package_cold_project / ".noveltea/cache/runtime"
+        generation = (cache_root / "current").read_text().strip()
+        artifact = json.loads((cache_root / "generations" / generation / "artifact.json").read_text())
+        media_file = next(Path(entry["source"]) for entry in artifact["fileEntries"]
+                          if entry["kind"] == "prepared-media" and
+                          entry["packagePath"].endswith("/opaque.webm"))
+        media_file.write_bytes(b"corrupt disposable prepared media")
+        return media_file
+
+    corrupted = corrupt_prepared_media()
+    repaired = run("package", "export", "--output", str(cold_package),
+                   "--allow-localization-warnings", timeout=300,
+                   project_override=package_cold_project)
+    assert repaired["success"] and repaired["runtimeCache"]["status"] == "stale", repaired
+    assert corrupted.read_bytes().startswith(b"\x1a\x45\xdf\xa3"), "WebM was not repaired"
+    corrupt_prepared_media()
+    forced = run("package", "export", "--force-rebuild", "--output", str(cold_package),
+                 "--allow-localization-warnings", timeout=300,
+                 project_override=package_cold_project)
+    assert forced["success"] and corrupted.read_bytes().startswith(b"\x1a\x45\xdf\xa3")
+    incumbent = hashlib.sha256(cold_package.read_bytes()).hexdigest()
+    cache_root = package_cold_project / ".noveltea/cache/runtime"
+
+    def interrupt_at(step, watch, *, force=False):
+        options = ["--force-rebuild"] if force else []
+        child_env = {**environment, step: "1"} if step else environment
+        process = subprocess.Popen([
+            str(binary), "--json", "--no-daemon", "--project", str(package_cold_project),
+            "package", "export", *options, "--output", str(cold_package),
+            "--allow-localization-warnings",
+        ], cwd=root, env=child_env, text=True, stdout=subprocess.PIPE,
+           stderr=subprocess.PIPE, start_new_session=(os.name != "nt"))
+        seen = False
+        try:
+            until = time.monotonic() + 240
+            while time.monotonic() < until and process.poll() is None:
+                if watch():
+                    seen = True
+                    break
+                time.sleep(0.02)
+            assert seen and process.poll() is None, (
+                "Could not interrupt an in-flight operation", step, process.poll())
+        finally:
+            if process.poll() is None:
+                if os.name == "nt":
+                    process.kill()
+                else:
+                    os.killpg(process.pid, signal.SIGKILL)
+            process.communicate(timeout=15)
+        assert process.returncode != 0
+        assert hashlib.sha256(cold_package.read_bytes()).hexdigest() == incumbent
+
+    # Kill real CLI processes during costly preparation, after generation
+    # staging, and after ZIP staging. Neither output may be half-published.
+    old_pointer = (cache_root / "current").read_text()
+    partials = package_cold_project / ".noveltea/build/prepared-media"
+    interrupt_at(None, lambda: any(partials.glob("*.partial-*")), force=True)
+    assert (cache_root / "current").read_text() == old_pointer
+    existing_manifests = set((cache_root / "generations").glob("*/manifest.json"))
+
+    def complete_new_generation():
+        for manifest in (cache_root / "generations").glob("*/manifest.json"):
+            if manifest in existing_manifests:
+                continue
+            try:
+                return json.loads(manifest.read_text())["schema"] == "noveltea.runtime-build-cache"
+            except (OSError, ValueError, KeyError):
+                # The child may still be constructing a durable generation.
+                pass
+        return False
+
+    interrupt_at("NOVELTEA_TEST_PAUSE_CACHE_COMMIT", complete_new_generation, force=True)
+    assert (cache_root / "current").read_text() == old_pointer
+    def complete_staged_zip():
+        for staged in cold_package.parent.glob(cold_package.name + ".tmp-*"):
+            try:
+                with ZipFile(staged) as archive:
+                    archive.getinfo("manifest.json")
+                    archive.getinfo("assets/.prepared-media/manifest.json")
+                    return True
+            except (OSError, KeyError, BadZipFile):
+                # A staged writer can still be populating its ZIP directory.
+                pass
+        return False
+
+    interrupt_at("NOVELTEA_TEST_PAUSE_PACKAGE_COMMIT", complete_staged_zip)
+    assert (cache_root / "current").read_text() == old_pointer
+    resumed = run("package", "export", "--output", str(cold_package),
+                  "--allow-localization-warnings", timeout=300,
+                  project_override=package_cold_project)
+    assert resumed["success"] and "runtimeCache" not in resumed, resumed
+    assert (cache_root / "current").read_text() == old_pointer
+    assert_package(cold_package)
+    incumbent = hashlib.sha256(cold_package.read_bytes()).hexdigest()
+    video.write_bytes(b"invalid original video")
+    failed_physical = run("package", "export", "--output", str(cold_package),
+                          "--allow-localization-warnings", exit_code=None, timeout=300,
+                          project_override=package_cold_project)
+    assert not failed_physical["success"] and failed_physical["exitCode"] != 0
+    assert hashlib.sha256(cold_package.read_bytes()).hexdigest() == incumbent
+    print("Warm physical source drift, prepared-media repair and incumbent ZIP preservation passed.",
+          flush=True)
     selected = run("test", "run", "sound-desk-flow")
     assert selected["runtimeCache"]["status"] == "hit"
     assert selected["native"]["report"]["passed"]
@@ -228,10 +359,8 @@ with tempfile.TemporaryDirectory(prefix="noveltea-native-feature-lab-cold-") as 
     source = project / "assets/audio/music_loop.mp3"
     source.unlink()
     failure = run("package", "export", "--output", str(package),
-                  "--allow-localization-warnings", exit_code=70, timeout=220)
-    assert not failure["success"] and any(
-        item["code"] == "CLI_NATIVE_RUNTIME_CACHE_INVALID"
-        for item in failure["diagnostics"])
+                  "--allow-localization-warnings", exit_code=None, timeout=220)
+    assert not failure["success"] and failure["exitCode"] != 0 and failure["diagnostics"]
     assert hashlib.sha256(package.read_bytes()).hexdigest() == old_hash
     print("Cold relocated native Feature Lab: 43/43, all Test forms, ZIP readback, "
           "profile overrides and failed-output preservation passed.")

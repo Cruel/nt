@@ -16,17 +16,21 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <iostream>
 #include <map>
 #include <random>
 #include <regex>
 #include <set>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -453,11 +457,25 @@ bool runtime_source_current(const std::string& root, const std::string& generati
 // The cache producer's discovery contract excludes editor state, shader
 // compiler sources and authored Tests from the gameplay fingerprint. Preserve
 // all discovered files, including unreferenced scripts and records.
-Json cache_input_paths(const std::filesystem::path& root, bool tests)
+Json cache_input_paths(const std::filesystem::path& root, bool tests,
+                       const Json& physical_paths = Json::array())
 {
     std::set<std::string> paths;
-    if (!tests)
+    if (!tests) {
         paths.insert("project.yaml");
+        for (const auto& path : physical_paths) {
+            const auto relative = path.get<std::string>();
+            if (relative == "editor.yaml" || relative == "editor.json" ||
+                relative.starts_with("records/tests/"))
+                continue;
+            const auto source = root / std::filesystem::u8path(relative);
+            std::error_code error;
+            // Native admission also carries virtual/optional source revisions.
+            // Only real Project files may enter the filesystem cache inventory.
+            if (std::filesystem::is_regular_file(source, error) && !error)
+                paths.insert(relative);
+        }
+    }
     for (const auto& directory : {"records", "scripts", "i18n"}) {
         const auto base = root / directory;
         std::error_code error;
@@ -504,12 +522,40 @@ Json cache_input_metadata(const std::filesystem::path& root, const Json& paths)
         if (!metadata.value("ok", false) || metadata.value("kind", "") != "file" ||
             !metadata.contains("byteSize") || !metadata.at("byteSize").is_number_unsigned() ||
             !metadata.contains("mtimeNanoseconds") || !metadata.at("mtimeNanoseconds").is_string())
-            throw std::runtime_error("Runtime source metadata changed during preparation.");
+            throw std::runtime_error("Runtime source metadata changed during preparation: " +
+                                     path.get<std::string>());
         entries.push_back({{"path", path},
                            {"byteSize", metadata.at("byteSize")},
                            {"mtimeNanoseconds", metadata.at("mtimeNanoseconds")}});
     }
     return entries;
+}
+
+bool package_physical_pins_current(const Json& options)
+{
+    if (!options.contains("fileEntries") || !options.at("fileEntries").is_array())
+        return false;
+    for (const auto& entry : options.at("fileEntries")) {
+        if (!entry.is_object() || !entry.contains("source") || !entry.at("source").is_string() ||
+            !entry.contains("expectedSha256") || !entry.at("expectedSha256").is_string())
+            return false;
+        const auto path = std::filesystem::u8path(entry.at("source").get<std::string>());
+        std::error_code error;
+        if (std::filesystem::is_symlink(std::filesystem::symlink_status(path, error)) || error ||
+            !std::filesystem::is_regular_file(path, error) || error ||
+            std::filesystem::file_size(path, error) > 512ull * 1024 * 1024 || error)
+            return false;
+        std::ifstream stream(path, std::ios::binary);
+        if (!stream)
+            return false;
+        const std::string bytes{std::istreambuf_iterator<char>(stream),
+                                std::istreambuf_iterator<char>()};
+        const auto actual = "sha256:" + noveltea::core::sha256_hex(
+                                            std::as_bytes(std::span(bytes.data(), bytes.size())));
+        if (stream.bad() || actual != entry.at("expectedSha256").get<std::string>())
+            return false;
+    }
+    return true;
 }
 
 RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
@@ -581,7 +627,7 @@ RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
         }
         result.artifact = prepared.at("artifact");
         result.catalog = lower_test_catalog(admitted.at("project"), result.diagnostics);
-        const auto runtime_paths = cache_input_paths(root, false);
+        const auto runtime_paths = cache_input_paths(root, false, admitted.at("sourcePaths"));
         const auto test_paths = cache_input_paths(root, true);
         const auto runtime_inputs = cache_input_metadata(root, runtime_paths);
         const auto test_inputs = cache_input_metadata(root, test_paths);
@@ -1192,6 +1238,8 @@ int package_from_native_runtime(const Arguments& args)
                     cache_fields);
 
     const auto unchanged = [&]() {
+        if (!package_physical_pins_current(options))
+            return false;
         const auto proof = native_request({{"action", "source-generation-proof"},
                                            {"projectRoot", root_text},
                                            {"expectedSourceGeneration", generation}});
@@ -1228,6 +1276,11 @@ int package_from_native_runtime(const Arguments& args)
         response.update(cache_fields);
         return emit(std::move(response), args.json, "Runtime Package export failed.");
     }
+    // Acceptance-only crash window: staged ZIP exists, but publication has
+    // not yet replaced the incumbent package.
+    if (const char* injected = std::getenv("NOVELTEA_TEST_PAUSE_PACKAGE_COMMIT");
+        injected && std::string_view(injected) == "1")
+        std::this_thread::sleep_for(std::chrono::seconds(3));
     if (!unchanged())
         return fail(5, "WORKSPACE_REVISION_CONFLICT",
                     "Runtime inputs changed before package publication.", cache_fields);

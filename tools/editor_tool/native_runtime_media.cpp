@@ -698,20 +698,45 @@ struct ColorConversion {
         throw VideoError("Video preparation was cancelled.");
     if ("sha256:" + digest(read(input, 512ull * 1024 * 1024)) != revisions.at(relative))
         throw VideoError("Video source changed while preparing media.");
-    if (fs::exists(destination)) {
-        if (fs::is_symlink(fs::symlink_status(destination)))
-            throw VideoError("Existing prepared media directory is an unsafe symlink.");
-        if (read(destination / "opaque.webm", 128ull * 1024 * 1024) != browser_bytes)
-            throw VideoError(
-                "An existing prepared media revision differs from the new native output.");
-        if (encoded_alpha && read(destination / "alpha.webp", 128ull * 1024 * 1024) !=
-                                 read(stage_alpha, 128ull * 1024 * 1024))
-            throw VideoError("An existing prepared alpha revision differs from the native output.");
-    } else {
+    const auto alpha_digest =
+        encoded_alpha ? "sha256:" + digest(read(stage_alpha, 128ull * 1024 * 1024)) : std::string{};
+    const auto existing_status = fs::symlink_status(destination);
+    if (fs::exists(existing_status) &&
+        (fs::is_symlink(existing_status) || !fs::is_directory(existing_status)))
+        throw VideoError("Existing prepared media destination is not a safe directory.");
+    const auto matches = [&](const fs::path& file, const std::string& expected) {
+        std::error_code error;
+        const auto status = fs::symlink_status(destination / file, error);
+        return !error && fs::is_regular_file(status) && !fs::is_symlink(status) &&
+               read(destination / file, 128ull * 1024 * 1024) == expected;
+    };
+    const bool reusable =
+        fs::exists(existing_status) && matches("opaque.webm", browser_bytes) &&
+        (!encoded_alpha || matches("alpha.webp", read(stage_alpha, 128ull * 1024 * 1024)));
+    if (!reusable) {
         fs::remove(snapshot);
         fs::remove(stage / "ffmpeg.stdout");
         fs::remove(stage / "ffmpeg.stderr");
-        fs::rename(stage, destination);
+        // Do not overwrite potentially open media files. Quarantine a damaged
+        // generated revision, then install a complete staged directory.
+        fs::path displaced;
+        if (fs::exists(existing_status)) {
+            displaced = parent / (key + ".damaged-" + std::to_string(nonce));
+            fs::rename(destination, displaced);
+        }
+        try {
+            fs::rename(stage, destination);
+        } catch (...) {
+            if (!displaced.empty() && !fs::exists(destination)) {
+                std::error_code ignored;
+                fs::rename(displaced, destination, ignored);
+            }
+            throw;
+        }
+        if (!displaced.empty()) {
+            std::error_code ignored;
+            fs::remove_all(displaced, ignored);
+        }
     }
     const auto package_path = "assets/.prepared-media/" +
                               segment(request.at("animationId").get<std::string>()) + "/" +
@@ -723,11 +748,13 @@ struct ColorConversion {
          {"storage", "stored"},
          {"assetId", "prepared-media:" + request.at("animationId").get<std::string>() + ":" +
                          request.at("motionId").get<std::string>() + ":browser"},
-         {"kind", "prepared-media"}});
+         {"kind", "prepared-media"},
+         {"expectedSha256", "sha256:" + digest(browser_bytes)}});
     artifact["packageOptions"]["fileEntries"].push_back(
         {{"source", (destination / "opaque.webm").generic_string()},
          {"packagePath", package_path},
-         {"storage", "stored"}});
+         {"storage", "stored"},
+         {"expectedSha256", "sha256:" + digest(browser_bytes)}});
     const auto append_warning = [&](std::string code, std::string message) {
         const auto path =
             "/animations/" + request.at("animationId").get<std::string>() + "/data/motions";
@@ -766,11 +793,13 @@ struct ColorConversion {
              {"storage", "stored"},
              {"assetId", "prepared-media:" + request.at("animationId").get<std::string>() + ":" +
                              request.at("motionId").get<std::string>() + ":alpha"},
-             {"kind", "prepared-media"}});
+             {"kind", "prepared-media"},
+             {"expectedSha256", alpha_digest}});
         artifact["packageOptions"]["fileEntries"].push_back(
             {{"source", (destination / "alpha.webp").generic_string()},
              {"packagePath", alpha_path},
-             {"storage", "stored"}});
+             {"storage", "stored"},
+             {"expectedSha256", alpha_digest}});
     }
     return result;
 }

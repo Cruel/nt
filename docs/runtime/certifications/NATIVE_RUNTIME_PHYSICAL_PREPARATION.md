@@ -25,6 +25,11 @@ appropriate VPx decoder and, when present, uses the existing native animated
 WebP alpha encoder and decoder proof to produce the private sidecar. Media is
 first written to a disposable staging directory and only exposed under a
 content-addressed build directory after source revisions are rechecked.
+Native preparation pins the exact digest of every emitted media file in the
+artifact and package writer options. If an existing content-addressed output
+is damaged or incomplete, the builder stages a fresh copy and quarantines the
+old disposable directory before installing the complete replacement. Symlinked
+destination directories remain unsafe and are never repaired in place.
 
 Explicit and included-Asset distribution notices are collected into the
 canonical `licenses/index.json` plus SHA-pinned, stored `.md`/`.txt` package
@@ -46,9 +51,10 @@ ctest --test-dir build/linux-debug --output-on-failure \
 `NOVELTEA_FFMPEG` or a staged CLI tool under `build/cli/linux/tools/ffmpeg`.
 When neither exists it reports a skipped media-tool prerequisite, not a false
 pass. It cold-admits Feature Lab and checks the private media manifest,
-content-addressed source key, source-revision failures, cancellation, unsafe
-paths, native shader bin inventories, and distribution notice freshness. It
-then exports an actual `.ntpkg` using the C++ package writer and inspects the
+content-addressed source key, source-revision failures, cancellation (including
+after preparation begins), unsafe paths, native shader bin inventories, and
+distribution notice freshness. It then exports an actual `.ntpkg` using the
+C++ package writer and inspects the
 runtime payload and private media entries. The separate #558 differential test
 continues to check pure assembled artifact parity against the reference.
 

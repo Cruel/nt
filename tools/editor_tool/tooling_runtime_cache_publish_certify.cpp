@@ -9,6 +9,7 @@
 #include "native_runtime_physical.hpp"
 #include "native_runtime_media.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/runtime/runtime_executor.hpp>
 #include <noveltea/presentation/runtime_presentation_model.hpp>
 #include <noveltea/script/script_runtime.hpp>
@@ -21,6 +22,7 @@
 #include <future>
 #include <iostream>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -73,9 +75,15 @@ int main(int argc, char** argv)
             const std::string input{std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>()};
             const auto request = Json::parse(input);
+            const auto started = std::chrono::steady_clock::now();
+            const auto cancel_after = request.value("cancelAfterMs", -1);
             const auto result = noveltea::cli::prepare_native_runtime_physical(
                 request.at("artifact"), request, request.at("projectRoot").get<std::string>(),
-                [&]() { return request.value("cancelled", false); });
+                [&]() {
+                    return request.value("cancelled", false) ||
+                           (cancel_after >= 0 && std::chrono::steady_clock::now() - started >=
+                                                     std::chrono::milliseconds(cancel_after));
+                });
             std::cout << result.dump() << '\n';
             return 0;
         }
@@ -520,8 +528,12 @@ int main(int argc, char** argv)
             return destination.string();
         };
         const auto rebase_entries = [&](Json& entries) {
-            for (auto& entry : entries)
+            for (auto& entry : entries) {
                 entry["source"] = rebase_path(entry.at("source").get<std::string>());
+                const auto bytes = read(entry.at("source").get<std::string>());
+                entry["expectedSha256"] = "sha256:" + noveltea::core::sha256_hex(std::as_bytes(
+                                                          std::span(bytes.data(), bytes.size())));
+            }
         };
         rebase_entries(artifact["fileEntries"]);
         auto& package_options = artifact["packageOptions"];
@@ -532,6 +544,12 @@ int main(int argc, char** argv)
         for (auto& entry : package_options.value("assetRoots", Json::array()))
             entry["root"] = rebase_path(entry.at("root").get<std::string>());
         std::set<std::string> runtime_path_names{"project.yaml"};
+        for (const auto& entry : artifact.at("fileEntries")) {
+            const auto source = std::filesystem::path(entry.at("source").get<std::string>());
+            const auto relative = std::filesystem::relative(source, root).generic_string();
+            if (!relative.starts_with(".noveltea/"))
+                runtime_path_names.insert(relative);
+        }
         for (const auto* name : {"records", "scripts", "i18n"}) {
             const auto folder = root / name;
             if (!std::filesystem::is_directory(folder))

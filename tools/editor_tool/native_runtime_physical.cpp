@@ -574,19 +574,34 @@ Json prepare_native_runtime_physical(const Json& assembled, const Json& admitted
         prepare_native_runtime_media(artifact, admitted.at("project"), revisions, root, cancelled);
         if (stopped())
             return cancelled_result();
-        for (const auto& entry : artifact.at("fileEntries")) {
+        for (auto& entry : artifact.at("fileEntries")) {
             if (entry.at("kind") == "prepared-media")
                 continue;
             const auto relative = relative_source(root, entry.at("source").get<std::string>());
-            (void)check_revision(root, revisions, relative,
-                                 entry.at("kind") == "video" ? 512ull * 1024 * 1024
-                                                             : 256ull * 1024 * 1024);
+            entry["expectedSha256"] = check_revision(
+                root, revisions, relative,
+                entry.at("kind") == "video" ? 512ull * 1024 * 1024 : 256ull * 1024 * 1024);
         }
-        for (const auto& notice : artifact.at("packageOptions").at("fileEntries"))
-            if (notice.contains("expectedSha256")) {
-                const auto relative = relative_source(root, notice.at("source").get<std::string>());
-                (void)check_revision(root, revisions, relative);
+        for (auto& entry : artifact.at("packageOptions").at("fileEntries")) {
+            if (entry.at("packagePath").get<std::string>().starts_with("assets/.prepared-media/")) {
+                const auto source = fs::path(entry.at("source").get<std::string>());
+                if (fs::is_symlink(fs::symlink_status(source)) ||
+                    sha256(read_bytes(source, 128ull * 1024 * 1024)) !=
+                        entry.value("expectedSha256", std::string{}))
+                    throw PreparationError("runtime-artifact.prepared-media.stale",
+                                           "/artifact/fileEntries",
+                                           "Generated media changed during preparation.");
+            } else {
+                const auto relative = relative_source(root, entry.at("source").get<std::string>());
+                const auto revision =
+                    check_revision(root, revisions, relative, 512ull * 1024 * 1024);
+                if (entry.contains("expectedSha256") && entry.at("expectedSha256") != revision)
+                    throw PreparationError("runtime-artifact.physical-source.stale",
+                                           "/artifact/fileEntries",
+                                           "Package source has a conflicting pinned revision.");
+                entry["expectedSha256"] = revision;
             }
+        }
         if (stopped())
             return cancelled_result();
         return {{"status", "prepared"}, {"artifact", std::move(artifact)}};

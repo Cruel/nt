@@ -11,6 +11,7 @@
 #include <cerrno>
 #include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -21,6 +22,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -110,6 +112,8 @@ std::string sha256_prefixed(std::string_view text)
     return "sha256:" +
            noveltea::core::sha256_hex(std::as_bytes(std::span(text.data(), text.size())));
 }
+
+bool pinned_package_inputs_current(const std::filesystem::path& root, const Json& artifact);
 
 bool contained_by_root(const std::filesystem::path& root, const std::filesystem::path& path)
 {
@@ -585,6 +589,8 @@ Json probe(const Json& request)
         *parsed_artifact_schema != kPreparedArtifactSchema ||
         !artifact.contains("compiledProject") || !artifact["compiledProject"].is_object())
         return response("unusable", "artifact-invalid");
+    if (!pinned_package_inputs_current(root, artifact))
+        return response("stale", "physical-inputs-changed-or-unpinned");
     // A valid digest only proves the cache file is intact. The compiled wire
     // must still be engine-decodable and identical to the package's gameplay
     // text, including when a damaged generation was deliberately rehashed.
@@ -930,6 +936,52 @@ bool contained_physical_inputs(const std::filesystem::path& root, const Json& ar
     return true;
 }
 
+// A cache manifest digest proves only the JSON artifact. Physical files are
+// mutable independently of authored records and must be re-proven on every hit.
+bool pinned_package_inputs_current(const std::filesystem::path& root, const Json& artifact)
+{
+    if (!artifact.contains("packageOptions") || !artifact["packageOptions"].is_object() ||
+        !artifact["packageOptions"].contains("fileEntries") || !artifact.contains("fileEntries"))
+        return false;
+    const auto check = [&](const Json& entries) {
+        if (!entries.is_array())
+            return false;
+        for (const auto& entry : entries) {
+            if (!entry.is_object() || !entry.contains("source") || !entry["source"].is_string() ||
+                !entry.contains("expectedSha256") || !entry["expectedSha256"].is_string())
+                return false;
+            const auto expected = entry["expectedSha256"].get<std::string>();
+            if (expected.size() != 71 || !expected.starts_with("sha256:") ||
+                !std::all_of(expected.begin() + 7, expected.end(), [](char ch) {
+                    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+                }))
+                return false;
+            const auto path = filesystem_path_from_utf8(entry["source"].get<std::string>());
+            if (!path.is_absolute() || !contained_by_root(root, path))
+                return false;
+            const auto relative = path.lexically_relative(root);
+            if (!safe_relative(filesystem_path_to_utf8(relative)))
+                return false;
+            auto cursor = root;
+            std::error_code error;
+            for (const auto& component : relative) {
+                cursor /= component;
+                if (std::filesystem::is_symlink(std::filesystem::symlink_status(cursor, error)) ||
+                    error)
+                    return false;
+            }
+            if (!std::filesystem::is_regular_file(path, error) || error ||
+                std::filesystem::file_size(path, error) > 512ull * 1024 * 1024 || error)
+                return false;
+            const auto bytes = read_text(path);
+            if (!bytes || sha256_prefixed(*bytes) != expected)
+                return false;
+        }
+        return true;
+    };
+    return check(artifact["fileEntries"]) && check(artifact["packageOptions"]["fileEntries"]);
+}
+
 std::string new_generation_id()
 {
     std::array<unsigned char, 16> bytes{};
@@ -1120,6 +1172,8 @@ Json publish_runtime(const Json& request)
         return fail("source-generation-changed");
     if (!contained_physical_inputs(root, artifact))
         return fail("compiled-artifact-physical-inputs-invalid");
+    if (!pinned_package_inputs_current(root, artifact))
+        return fail("physical-inputs-changed-or-unpinned");
     auto runtime_inputs = collect_cache_inputs(root, request["runtimeInputPaths"]);
     auto test_inputs = collect_cache_inputs(root, request["testInputPaths"]);
     if (!runtime_inputs || !test_inputs)
@@ -1217,10 +1271,16 @@ Json publish_runtime(const Json& request)
         cleanup();
         return fail("cache-publication-failed");
     }
+    // Acceptance-only crash window: a child process can be killed after all
+    // generation files are durable but before the incumbent pointer changes.
+    if (const char* injected = std::getenv("NOVELTEA_TEST_PAUSE_CACHE_COMMIT");
+        injected && std::string_view(injected) == "1")
+        std::this_thread::sleep_for(std::chrono::seconds(3));
     // One last input and pointer revision check after constructing the
     // generation. A failed check leaves only disposable orphan files.
     const auto latest_pointer = read_text(current_path);
-    if (!generation_proof() || !unchanged_cache_inputs(root, *runtime_inputs) ||
+    if (!generation_proof() || !pinned_package_inputs_current(root, artifact) ||
+        !unchanged_cache_inputs(root, *runtime_inputs) ||
         !unchanged_cache_inputs(root, *test_inputs) || !authoring_workspace_settled(root) ||
         !discovery_matches(root, scopes, runtime_paths) || test_files(root) != test_paths ||
         latest_pointer.value_or("") != old_pointer) {
