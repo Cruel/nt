@@ -145,6 +145,10 @@ function(noveltea_configure_embedded_shaderc)
         message(FATAL_ERROR "Pinned bgfx shaderc target did not expose its source/link closure")
     endif()
 
+    # Embedded shaderc is also called from the native CLI's machine-readable
+    # commands. Upstream debug BX_TRACE writes directly to stdout, corrupting
+    # the CLI's single-JSON-envelope contract during cold shader preparation.
+
     add_library(noveltea_bgfx_shaderc_embedded STATIC ${_shaderc_sources})
     set_target_properties(noveltea_bgfx_shaderc_embedded PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if(_shaderc_includes)
@@ -165,6 +169,15 @@ function(noveltea_configure_embedded_shaderc)
     endif()
     target_compile_definitions(noveltea_bgfx_shaderc_embedded PRIVATE
         main=noveltea_bgfx_shaderc_embedded_cli_main)
+    # The imported bx closure exports BX_CONFIG_DEBUG=1 transitively. Override
+    # it at the command-line-options stage, after inherited -D definitions.
+    if(MSVC)
+        target_compile_options(noveltea_bgfx_shaderc_embedded PRIVATE
+            /UBX_CONFIG_DEBUG /DBX_CONFIG_DEBUG=0)
+    else()
+        target_compile_options(noveltea_bgfx_shaderc_embedded PRIVATE
+            -UBX_CONFIG_DEBUG -DBX_CONFIG_DEBUG=0)
+    endif()
     # The runtime bx target is intentionally built without RTTI. Build the embedded shaderc
     # translation units with matching RTTI settings so subclasses of bx stream types do not emit
     # references to RTTI symbols that the runtime bx archive does not provide. Exceptions remain

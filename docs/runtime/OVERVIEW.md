@@ -22,6 +22,9 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 - [Native Runtime cache lifecycle](certifications/NATIVE_RUNTIME_CACHE_LIFECYCLE.md)
   documents CLI cold-to-warm builds, safe native cache publication, regeneration
   and failure recovery for Test and Runtime Package commands.
+- [Native CLI cold Feature Lab acceptance](certifications/NATIVE_FEATURE_LAB_COLD_ACCEPTANCE.md)
+  certifies relocated, ScriptC-free 43-Test playback and real Runtime Package
+  ZIP/export behavior from a cold native build.
 
 - `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` defines the target runtime-session,
   transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and

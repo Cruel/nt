@@ -16,7 +16,9 @@ target_include_directories(noveltea_shader_tooling PRIVATE
 target_compile_definitions(noveltea_shader_tooling PRIVATE
     NOVELTEA_HAS_EMBEDDED_SHADERC=1
     NOVELTEA_BGFX_VERSION_STRING="${NOVELTEA_BGFX_VERSION}"
-    BX_CONFIG_DEBUG=$<CONFIG:Debug>
+    # A Debug shaderc build emits BX_TRACE to stdout even for successful
+    # compiles, breaking the standalone CLI JSON protocol.
+    BX_CONFIG_DEBUG=0
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(MSVC)
     # bx requires the standards-conforming C++ language-version macro under MSVC.
@@ -247,6 +249,32 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
             "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
     set_tests_properties(native_cli_cold_runtime PROPERTIES SKIP_RETURN_CODE 77)
+    set(NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG "" CACHE FILEPATH
+        "Pinned NovelTea ffmpeg-r3 executable used to certify cold Feature Lab media")
+    if(NOT NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG)
+        if(WIN32)
+            set(_native_ffmpeg_name ffmpeg.exe)
+        else()
+            set(_native_ffmpeg_name ffmpeg)
+        endif()
+        set(_native_ffmpeg_candidate
+            "${CMAKE_SOURCE_DIR}/build/cli/linux/tools/ffmpeg/bin/${_native_ffmpeg_name}")
+        if(EXISTS "${_native_ffmpeg_candidate}")
+            set(NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG "${_native_ffmpeg_candidate}")
+        endif()
+    endif()
+    set(_native_cli_cold_player "")
+    if(NOVELTEA_BUILD_PLAYER)
+        set(_native_cli_cold_player "$<TARGET_FILE:noveltea-player>")
+    endif()
+    add_test(NAME native_cli_feature_lab_cold
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_feature_lab_cold.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
+            "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}"
+            "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}"
+            "${_native_cli_cold_player}")
+    set_tests_properties(native_cli_feature_lab_cold PROPERTIES
+        SKIP_RETURN_CODE 77 TIMEOUT 900)
     add_executable(noveltea-runtime-cache-publish-certify
         tooling_runtime_cache_publish_certify.cpp native_compiled_project_save_contract.cpp
         native_compiled_project.cpp native_runtime_artifact.cpp native_runtime_physical.cpp native_runtime_media.cpp native_runtime_materials.cpp
