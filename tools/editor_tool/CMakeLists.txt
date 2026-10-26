@@ -237,8 +237,21 @@ add_custom_command(OUTPUT "${_native_agent_kit_header}"
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/editor"
     COMMENT "Embedding generated Agent Kit documentation in native CLI"
     VERBATIM)
+file(GLOB _native_comfyui_workflows CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/editor/assets/comfyui/workflows/*.json")
+set(_native_comfyui_header "${CMAKE_CURRENT_BINARY_DIR}/native_comfyui_workflows_generated.hpp")
+add_custom_command(OUTPUT "${_native_comfyui_header}"
+    COMMAND "${NOVELTEA_NATIVE_NODE_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-comfyui-workflows.mjs"
+        "${CMAKE_SOURCE_DIR}/editor/assets/comfyui/workflows"
+        "${_native_comfyui_header}"
+    DEPENDS "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-comfyui-workflows.mjs"
+        ${_native_comfyui_workflows}
+    VERBATIM)
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
-    native_cli.cpp native_cli_agent.cpp native_cli_media.cpp
+    native_cli.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
+    native_cli_comfyui_http.cpp
+    "${_native_comfyui_header}"
     "${_native_agent_kit_header}" native_cli_test_catalog.cpp
     native_compiled_project_save_contract.cpp native_compiled_project.cpp
     native_runtime_artifact.cpp native_runtime_physical.cpp native_runtime_media.cpp
@@ -254,6 +267,9 @@ target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tool
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
 target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
     nlohmann_json::nlohmann_json miniz::miniz)
+if(WIN32)
+    target_link_libraries(noveltea-native-cli PRIVATE winhttp)
+endif()
 target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 noveltea_apply_policy_warnings(noveltea-native-cli)
 # Native font coverage resolves the same trusted system fonts as the installed
@@ -275,6 +291,9 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_agent_tools
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_agent_tools.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_comfyui
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_comfyui.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_runtime_cache
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_runtime_cache.py"

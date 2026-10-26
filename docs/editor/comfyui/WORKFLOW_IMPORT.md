@@ -48,6 +48,16 @@ image generation.
 
 ## Headless Catalog Commands
 
+The standalone C++ CLI candidate implements `status`, `workflows`, and `verify` in
+`tools/editor_tool/native_cli_comfyui.cpp`. Built-in manifest and graph JSON are
+embedded by `editor/scripts/generate-native-comfyui-workflows.mjs` at build time;
+installed commands do not need the editor source checkout or a JavaScript runtime.
+User configuration and workflow packages retain the same on-disk locations and
+the Project boundary is admitted through the existing native Project authority.
+The installed native contract is exercised with a deterministic fake HTTP server
+by `tests/native_cli_comfyui.py` (`ctest -R native_cli_comfyui`). The Linux/macOS
+HTTPS client currently requires the system `curl` executable; Windows uses WinHTTP.
+
 `noveltea comfyui workflows` lists the effective catalog in deterministic logical-ID order. It works outside a Project
 and adds project-local workflows when a Project is explicitly selected or discovered from the current directory.
 `noveltea comfyui workflows <id>` inspects the effective workflow selected by normal source precedence and reports its

@@ -1,5 +1,6 @@
 #include "native_cli_contract.hpp"
 #include "native_cli_agent.hpp"
+#include "native_cli_comfyui.hpp"
 #include "native_cli_media.hpp"
 #include "native_cli_test_catalog.hpp"
 #include "native_compiled_project.hpp"
@@ -2575,6 +2576,29 @@ int run(const std::vector<std::string>& argv)
             } catch (const std::exception& error) {
                 return failure(args.json, 6, "media.tool", "/", error.what(), error.what());
             }
+        }
+        if (family == "comfyui" &&
+            (operation == "status" || operation == "workflows" || operation == "verify")) {
+            if (operation == "status" && !args.project.empty())
+                return usage(args.json,
+                             "Global option '--project' is not supported by project-independent "
+                             "'comfyui status'.");
+            const auto root =
+                operation == "status" ? std::filesystem::path{} : project_root(args.project);
+            if (operation != "status" && !args.project.empty() && root.empty())
+                return failure(args.json, 3, "WORKSPACE_NOT_FOUND", "/project.yaml",
+                               "No NovelTea project.yaml was found at the selected Project root.",
+                               "No NovelTea project.yaml was found at the selected Project root.");
+            if (!root.empty()) {
+                const auto admitted = native_request(
+                    {{"action", "workspace-preflight"}, {"projectRoot", path_text(root)}});
+                if (!admitted.value("ok", false))
+                    return native_failure(args, admitted, "WORKSPACE_MANIFEST_INVALID",
+                                          "/project.yaml", 3, "Native Project admission failed.",
+                                          path_text(root));
+            }
+            const auto result = run_native_comfyui_catalog(args.command, root);
+            return emit(result.envelope, args.json, result.human);
         }
         if (family == "validate")
             return project_read(args, "project-validate");
