@@ -141,6 +141,10 @@ def main():
     cancelled = invoke(["--prepare-physical-stdin"], attempted)
     assert cancelled["status"] == "cancelled" and "artifact" not in cancelled
     attempted["cancelled"] = False
+    attempted["cancelAfterMs"] = 500
+    in_flight = invoke(["--prepare-physical-stdin"], attempted)
+    assert in_flight["status"] == "cancelled" and "artifact" not in in_flight, in_flight
+    del attempted["cancelAfterMs"]
     attempted["sourceRevisions"] = dict(attempted["sourceRevisions"])
     asset_source = next(entry["source"] for entry in artifact["fileEntries"]
                         if entry["kind"] in ("image", "audio", "video"))

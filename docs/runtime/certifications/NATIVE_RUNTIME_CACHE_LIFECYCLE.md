@@ -17,7 +17,14 @@ after durable generation files are installed. Native calls additionally pass
 the exact admitted source-generation proof; publication checks it both before
 preparation and before replacing `current`, alongside its physical input
 metadata/discovery proofs and incumbent-pointer check. Source drift returns a
-revision conflict to the CLI. A cross-process OS file lock (`.publish.lock`)
+revision conflict to the CLI. The runtime inventory also tracks admitted
+existing physical inputs (but not virtual/optional or editor-state sources).
+Each package file entry pins its exact `expectedSha256`, including generated
+WebM/WebP media. Warm admission verifies those bytes, invalidates old unpinned
+caches, and rebuilds on physical mutation. The package writer rechecks each
+pin while staging its ZIP; the CLI and cache publisher also re-prove the pinned
+bytes immediately before their final atomic publication checks. A cross-process
+OS file lock (`.publish.lock`)
 serializes concurrent native publishers through the atomic pointer replacement;
 the lock file remains in place so that later writers cannot acquire a different
 inode, and an interrupted process automatically releases its lock. A cancelled
@@ -56,6 +63,13 @@ malformed inventories, cancellation, concurrent publication, source-generation
 proofs, and atomic pointer behavior.
 If the candidate binary has no exact compiler identity, this integration test
 is explicitly skipped rather than forging a production cache identity.
+The cold Feature Lab acceptance now also tests video-source mutation, damaged
+prepared-media repair, incumbent ZIP preservation on failed exports, and real
+child-process interruption during media preparation, cache staging, and ZIP
+staging. Acceptance-only fault-injection knobs
+`NOVELTEA_TEST_PAUSE_CACHE_COMMIT=1` and
+`NOVELTEA_TEST_PAUSE_PACKAGE_COMMIT=1` provide a three-second kill window
+before their respective atomic pointer/ZIP replacements.
 
 The Feature Lab remains covered by the independent native compiled-project,
 artifact and physical-preparation certifications; this ticket does not change
