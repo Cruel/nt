@@ -561,6 +561,18 @@ Json operate(const Json& request)
                     {"error", "Project sources changed during portable capture."}};
         std::set<std::string> referenced_assets;
         collect_runtime_asset_references(prepared_project, "", referenced_assets);
+        // Lua audio APIs select Music, Ambience and one-shot Assets by string ID.
+        // Those IDs are not typed $refs, so static reachability alone would
+        // prune playable audio and break a cold Runtime Package/Test run.
+        // Conservatively retain audio while still pruning unused static media.
+        if (prepared_project.contains("assets") && prepared_project.at("assets").is_object()) {
+            for (const auto& [id, record] : prepared_project.at("assets").items()) {
+                if (record.is_object() && record.contains("data") &&
+                    record.at("data").is_object() &&
+                    record.at("data").value("kind", std::string{}) == "audio")
+                    referenced_assets.insert(id);
+            }
+        }
         Json result{{"ok", true},
                     {"project", prepared_project},
                     {"sourceGeneration", preparation_generation},
