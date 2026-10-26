@@ -4,6 +4,7 @@
 #include "native_authoring_shared.hpp"
 #include "native_authoring_programs.hpp"
 #include "native_compiled_project_save_contract.hpp"
+#include "native_compiled_project.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/runtime/runtime_executor.hpp>
 #include <noveltea/presentation/runtime_presentation_model.hpp>
@@ -53,6 +54,14 @@ Json invoke(std::uint64_t (*operation)(const std::uint8_t*, std::uint64_t, std::
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--compile-admitted-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            const auto compiled =
+                noveltea::cli::compile_native_compiled_project(Json::parse(input));
+            std::cout << compiled.dump() << '\n';
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--exercise-compiled-stdin") {
             const std::string input{std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>()};
@@ -172,6 +181,58 @@ int main(int argc, char** argv)
             std::cout << Json{{"created", true}}.dump() << '\n';
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[2]) == "--emit-native-compiled") {
+            const auto fixture = std::filesystem::absolute(argv[1]);
+            const auto prepare = [&]() {
+                return invoke(
+                    noveltea_tooling_native_project_commands_json,
+                    Json{{"action", "shader-preparation"}, {"projectRoot", fixture.string()}});
+            };
+            const auto source = prepare();
+            if (!source.value("ok", false)) {
+                std::cout << Json{{"ok", false},
+                                  {"diagnostics",
+                                   source.value("projectDiagnostics", Json::array())}}
+                                 .dump()
+                          << '\n';
+                return 0;
+            }
+            try {
+                const auto wire =
+                    noveltea::cli::compile_native_compiled_project(source.at("project"));
+                const auto current = prepare();
+                if (!current.value("ok", false) ||
+                    current.at("sourceGeneration") != source.at("sourceGeneration") ||
+                    current.at("sourceRevisions") != source.at("sourceRevisions") ||
+                    current.at("project") != source.at("project"))
+                    throw std::runtime_error("at /sourceGeneration: Native Project generation "
+                                             "changed during compilation.");
+                std::cout << Json{{"ok", true},
+                                  {"compiledProject", wire},
+                                  {"canonicalJson", wire.dump()},
+                                  {"sourceGeneration", source.at("sourceGeneration")},
+                                  {"sourceRevisions", source.at("sourceRevisions")}}
+                                 .dump()
+                          << '\n';
+            } catch (const std::exception& error) {
+                std::string message = error.what();
+                std::string path = "/compiler";
+                if (message.starts_with("at /")) {
+                    if (const auto delimiter = message.find(": "); delimiter != std::string::npos) {
+                        path = message.substr(3, delimiter - 3);
+                        message.erase(0, delimiter + 2);
+                    }
+                }
+                std::cout << Json{{"ok", false},
+                                  {"diagnostics", Json::array({{{"code", "native.compiler"},
+                                                                {"severity", "error"},
+                                                                {"path", path},
+                                                                {"message", message}}})}}
+                                 .dump()
+                          << '\n';
+            }
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[2]) == "--emit-parity") {
             const auto fixture = std::filesystem::absolute(argv[1]);
             const auto prepared =
@@ -212,9 +273,8 @@ int main(int argc, char** argv)
                         noveltea::cli::lower_shared_authoring_project(project, messages)));
                 // Deliberately distinguish compiler omissions from supported-family
                 // agreement: this is not a publishable Compiled Project.
-                static const Json unsupported =
-                    Json::array({"localization.metadata", "flowPrediction",
-                                 "saveContract-production"});
+                static const Json unsupported = Json::array(
+                    {"localization.metadata", "flowPrediction", "saveContract-production"});
                 std::cout << Json{{"ok", true},
                                   {"project", project},
                                   {"sourceGeneration", prepared.at("sourceGeneration")},

@@ -1,9 +1,9 @@
-"""Cold C++/TypeScript differential certification for #552–#556 (not a production compiler).
+"""Cold C++/TypeScript differential certification for #552–#557.
 
 An authoritative C++ Project reader admits every case. A separately run TS
 reference compiles only those admitted JSON generations; neither process reads
-cached compiled runtime artifacts. Missing gameplay families are reported, never
-silently counted as passing parity.
+cached compiled runtime artifacts. #557 requires exact *complete* native wire
+parity, in addition to staged family parity from previous migration tickets.
 """
 
 import json
@@ -83,12 +83,46 @@ def edit(path, before, after):
     assert before in text, f"Missing fixture edit anchor in {path}"
     path.write_text(text.replace(before, after, 1), encoding="utf-8")
 
+def make_prediction_hints():
+    """Synthetic *normalized* Project metadata; not valid project.yaml source yet."""
+    def ref(collection, identity):
+        return {"$ref": {"collection": collection, "id": identity}}
+
+    return {
+        "hint-scene": {
+            "id": "hint-scene",
+            "target": {"kind": "asset", "asset": ref("assets", "pilot-button-sprite")},
+            "attachment": {"kind": "point", "point": {
+                "kind": "scene-step", "scene": ref("scenes", "localized-story"),
+                "stepId": "realize"}},
+        },
+        "hint-room-path": {
+            "id": "hint-room-path",
+            "target": {"kind": "scene", "scene": ref("scenes", "background-broken-clock")},
+            "attachment": {"kind": "room", "room": ref("rooms", "active-text"),
+                           "scope": "entry-path"},
+        },
+        "hint-room-resident": {
+            "id": "hint-room-resident",
+            "target": {"kind": "layout", "layout": ref("layouts", "lab-pause")},
+            "attachment": {"kind": "room", "room": ref("rooms", "active-text"),
+                           "scope": "resident"},
+        },
+        "hint-mounted-layout": {
+            "id": "hint-mounted-layout",
+            "target": {"kind": "dialogue", "dialogue": ref("dialogues", "active-text")},
+            "attachment": {"kind": "point", "point": {
+                "kind": "resident-layout", "layout": ref("layouts", "feature-lab-hud")}},
+        },
+    }
+
 
 def main():
     with tempfile.TemporaryDirectory(prefix="noveltea-compiled-parity-") as temporary:
         root = Path(temporary)
         cases = {}
-        for name in ("feature-lab", "unicode-label", "ordering", "duplicate-text",
+        for name in ("feature-lab", "prediction-hints", "extended-locales",
+                     "unicode-label", "ordering", "duplicate-text",
                      "metadata-edge",
                      "source-drift", "lua-spacing", "rml-arguments", "selector-order",
                      "scene-control-flow",
@@ -99,7 +133,8 @@ def main():
             if os.environ.get("NOVELTEA_PARITY_CASES") and name not in os.environ["NOVELTEA_PARITY_CASES"].split(","):
                 continue
             target = root / name
-            if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
+            if name in ("feature-lab", "prediction-hints", "extended-locales",
+                        "source-drift", "lua-spacing", "rml-arguments",
                         "selector-order", "scene-control-flow", "invalid-lua-arguments",
                         "invalid-scene-instruction", "invalid-scene-target",
                         "invalid-dialogue-target", "invalid-interaction-verb"):
@@ -111,6 +146,8 @@ def main():
                 edit(variable, "label: Variable alpha", 'label: "Unicode ☕ 漢字 😀"')
                 edit(target / "records/rooms/starting-room.yaml", "displayName: Room starting-room",
                      'displayName: "ユニコード ☕ 😀"')
+            # Normalized-Project prediction-hint coverage is injected only after
+            # source admission: current project.yaml does not permit that field.
             if name == "ordering":
                 # Creation order is zeta then alpha; compilation sorts by id.
                 assert (target / "records/variables/zeta.yaml").is_file()
@@ -242,6 +279,21 @@ def main():
                                      .replace("kind: image", "kind: invalid-kind"))
 
             admitted = invoke(binary, str(target), "--emit-parity")
+            if name == "prediction-hints" and admitted["ok"]:
+                # Project YAML does not currently serialize this normalized
+                # compiler field; compare both compilers using the same typed
+                # in-memory projection rather than silently extending the
+                # owner schema under the runtime compiler ticket.
+                admitted["project"]["prefetchHints"] = make_prediction_hints()
+            if name == "extended-locales" and admitted["ok"]:
+                # Compiler-only locale projections cover pinned CLDR cardinal,
+                # BCP 47 region/script fallback, RTL and non-Latin digits.
+                # Do not change source locale or require translations from disk.
+                for locale in ("bn", "en-IN", "hi", "mr", "ru", "pl", "pt-PT",
+                               "fa", "sd", "zh-Hant", "ar-EG", "es-MX", "de-CH",
+                               "sr-Latn", "uk"):
+                    admitted["project"]["localization"]["locales"][locale] = {
+                        "fontStack": None, "parentLocale": None, "supported": True}
             cases[name] = admitted
             assert not (target / ".noveltea/cache/runtime").exists(), (
                 f"{name}: cold parity may not create or consume runtime cache")
@@ -262,6 +314,7 @@ def main():
                 encoding="utf-8")
         checked = 0
         for name, data in cases.items():
+            target = root / name
             if not data["ok"]:
                 assert name in {"missing-entrypoint", "invalid-asset", "invalid-message",
                                 "invalid-locale", "invalid-lua-arguments",
@@ -276,11 +329,19 @@ def main():
                         for item in references[name]["diagnostics"]]
                     compare(name, "diagnostics.entrypoint", reference_diagnostics,
                             data["diagnostics"])
+                    rejected = invoke(binary, target, "--emit-native-compiled")
+                    assert rejected["ok"] is False and any(
+                        item["path"] == "/entrypoint"
+                        for item in rejected["diagnostics"]), rejected
+                    assert not (target / ".noveltea/cache/runtime").exists(), name
                 elif name == "invalid-asset":
                     invalid_asset_paths = [diagnostic["path"] for diagnostic in data["diagnostics"]
                                            if diagnostic.get("code") == "schema.enum"]
                     assert invalid_asset_paths == ["/assets/aa-bad/data/kind",
                                                    "/assets/zz-bad/data/kind"], data["diagnostics"]
+                    cold = invoke(binary, target, "--emit-native-compiled")
+                    assert not cold["ok"] and cold["diagnostics"] == data["diagnostics"], (
+                        name, cold)
                 elif name == "invalid-message":
                     assert any("/variables/alpha" in item.get("path", "")
                                for item in data["diagnostics"]), data["diagnostics"]
@@ -316,6 +377,34 @@ def main():
             expected = references[name]
             assert expected["ok"], (name, expected["diagnostics"])
             wire, partial = expected["project"], data["native"]
+            # Independently admitted native source, compiled without a warm cache
+            # or reference-provided gameplay families, must match the complete
+            # canonical wire including prediction graphs and Save Contract.
+            compiled = invoke(binary, "--compile-admitted-stdin",
+                              stdin=json.dumps(data["project"], ensure_ascii=False))
+            compare(name, "compiledProject", wire, compiled)
+            if name == "prediction-hints":
+                assert len(compiled["flowPrediction"]["supplementalHints"]) == 4
+                assert any(hint["potentialExpansionSlices"]
+                           for hint in compiled["flowPrediction"]["supplementalHints"]), name
+            if name == "extended-locales":
+                assert len(compiled["localization"]["locales"]) == 20, name
+            if name == "feature-lab":
+                cold = invoke(binary, target, "--emit-native-compiled")
+                assert cold["ok"], cold
+                compare(name, "cold.compiledProject", wire, cold["compiledProject"])
+                assert cold["sourceGeneration"] == data["sourceGeneration"], name
+                assert cold["sourceRevisions"] == data["sourceRevisions"], name
+                assert cold["canonicalJson"] == json.dumps(cold["compiledProject"],
+                        ensure_ascii=False, sort_keys=True, separators=(",", ":")), name
+                assert not (target / ".noveltea/cache/runtime").exists(), name
+                invalid = copy.deepcopy(data["project"])
+                invalid["bootstrapModule"]["$ref"]["id"] = "never-existent-script"
+                failure = subprocess.run([str(binary), "--compile-admitted-stdin"],
+                                         input=json.dumps(invalid), text=True,
+                                         capture_output=True, timeout=90)
+                assert failure.returncode != 0 and "/resources/scripts" in failure.stderr, (
+                    name, failure.stderr)
             for family in ("project", "bootstrapModule", "entrypoint"):
                 compare(name, family, wire[family], partial[family])
             for family in ("assets", "animations", "scripts"):
@@ -376,6 +465,9 @@ def main():
                 executed = invoke(binary, "--exercise-compiled-stdin",
                                   stdin=json.dumps(native_program_wire))
                 assert executed == {"dialogueExecuted": True, "interactionExecuted": True}, executed
+                full_executed = invoke(binary, "--exercise-compiled-stdin",
+                                       stdin=json.dumps(compiled))
+                assert full_executed == executed, full_executed
             compare(name, "properties", wire["properties"], shared["properties"])
             native_messages = partial["messages"]
             source = wire["localization"]["sourceLocale"]
@@ -383,7 +475,13 @@ def main():
                                   for catalog in wire["localization"]["catalogs"]}
             compare(name, "messages.source", reference_catalogs[source],
                     native_messages["sourceEntries"])
-            compare(name, "messages.catalogs", reference_catalogs,
+            # Synthetic locale coverage is injected into the in-memory
+            # admitted project only; the earlier disk-backed staged lowering
+            # has no reason to contain those additional catalogs.
+            staged_catalogs = (dict((locale, reference_catalogs[locale])
+                                    for locale in native_messages["catalogs"])
+                               if name == "extended-locales" else reference_catalogs)
+            compare(name, "messages.catalogs", staged_catalogs,
                     native_messages["catalogs"])
             if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
                         "selector-order"):
@@ -457,8 +555,9 @@ def main():
             missing = data["unsupportedFamilies"]
             assert "programs.room-scene" not in missing and "programs.dialogue-interaction" not in missing
             assert "properties.message" not in missing
-            print(f"{name}: PASS shared gameplay/resource/Message and all gameplay program parity; "
-                  f"UNIMPLEMENTED {', '.join(missing)}; "
+            print(f"{name}: PASS full native Compiled Project, Flow Prediction, localization, "
+                  f"Save Contract, and staged gameplay family parity; "
+                  f"staged-draft omissions {', '.join(missing)}; "
                   f"reference messages={len(reference_catalogs[source])}, save={wire['saveContract']}")
             checked += 1
         # A focused selection can intentionally contain only rejected inputs;
@@ -477,8 +576,8 @@ def main():
                    cases["source-drift"]["native"]["messages"]["ids"][stable]
         # Verify mismatch reporting pinpoints the actual family and ordered index.
         assert difference(["a", "b"], ["b", "a"], "/resources/assets")[0] == "/resources/assets/0"
-        print(f"Native compiled Project cold parity PASSED: {checked} supported-family cases; "
-              "missing families explicitly excluded.")
+        print(f"Native complete Compiled Project cold parity PASSED: {checked} complete-wire cases; "
+              "staged-draft omissions never publish.")
 
 
 if __name__ == "__main__":

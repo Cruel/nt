@@ -10,6 +10,10 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 
 ## Current Documents
 
+- [Native Compiled Project certification](certifications/NATIVE_COMPILED_PROJECT.md) describes
+  C++ compiler and Flow Prediction ownership, the cold Project-to-wire
+  certification command, and the boundary before native runtime preparation.
+
 - `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` defines the target runtime-session,
   transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and
   coherent-publication architecture that runtime implementation work must follow.
