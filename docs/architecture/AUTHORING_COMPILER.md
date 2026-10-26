@@ -38,21 +38,31 @@ no error diagnostic exists.
 ## Staged native compiler parity
 
 As part of the native authoring/CLI cutover, `tools/editor_tool/native_authoring_resources.cpp`,
-`native_authoring_messages.cpp`, and `native_authoring_shared.cpp` now lower a **cold**, natively
+`native_authoring_messages.cpp`, `native_authoring_shared.cpp`, and
+`native_authoring_programs.cpp` now lower a **cold**, natively
 admitted Project into nonpublishable compiler projections. The shared projection covers declared
 Characters, Rooms, Interactable Definitions and Instances, Verbs, Interactions, Scenes and Dialogue
 metadata, Maps, Archetype effective configurations, Traits, Properties, Inventories, Layouts,
 Material interfaces, and runtime settings. It uses the same compiled Message-ID mapping as the
 resource and localized-text lowering. Material interface resolution reads the build-embedded native
 shader registry, not an independent runtime JSON catalog.
+The subsequent native program projection attaches Room lifecycle and exit-rejection
+Gameplay Commands (including effective Room Archetypes), ordered Scene Event instructions,
+Scene terminal continuations and nested Gameplay Commands. It reuses the same normalized
+Project and Message/Lua lowering, and resolves Material parameter types from the
+already-lowered shared Material interfaces rather than independently interpreting presets.
+The Gameplay Command conversion is shared with the pending Dialogue/Interaction lowerer.
 
 `tests/native_compiled_project_parity.py` compares these projections against the independent
 TypeScript reference compiler on cold native-admitted generations, including stable array ordering,
-nested declarations, inherited defaults, typed references, and malformed-input rejection. The
-native parity runner deliberately returns the shared structures under `native.shared`, **not** a
-complete `CompiledProjectWire`. Room/Scene programs, Dialogue/Interaction programs, locale runtime
-metadata, prediction, production Save Contract, assembly, and publication are separate stages. A
-passing shared projection does not authorize a runtime-cache publication or package/export path,
+nested declarations, inherited defaults, typed references, and malformed-input rejection.
+Room/Scene parity covers the representative Feature Lab gameplay flows and cold small fixtures.
+The test also substitutes the native Room/Scene slices into an otherwise reference-compiled
+document and independently decodes that mixed candidate through the native runtime decoder.
+The parity runner deliberately returns the staged structures under `native.shared`, **not** a
+complete `CompiledProjectWire`. Dialogue/Interaction programs, locale runtime metadata, prediction,
+production Save Contract, assembly, and publication are separate stages. A
+passing staged projection does not authorize a runtime-cache publication or package/export path,
 and the TypeScript compiler remains the production compiler until the final native cutover.
 
 The compiler builds complete collection and nested-ID symbol tables and runs a semantic link pass over

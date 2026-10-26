@@ -1,4 +1,4 @@
-"""Cold C++/TypeScript differential certification for #552–#554 (not a production compiler).
+"""Cold C++/TypeScript differential certification for #552–#555 (not a production compiler).
 
 An authoritative C++ Project reader admits every case. A separately run TS
 reference compiles only those admitted JSON generations; neither process reads
@@ -7,6 +7,7 @@ silently counted as passing parity.
 """
 
 import json
+import copy
 import os
 from pathlib import Path
 import shutil
@@ -90,13 +91,16 @@ def main():
         for name in ("feature-lab", "unicode-label", "ordering", "duplicate-text",
                      "metadata-edge",
                      "source-drift", "lua-spacing", "rml-arguments", "selector-order",
+                     "scene-control-flow",
                      "missing-entrypoint", "invalid-asset", "invalid-message",
-                     "invalid-locale", "invalid-lua-arguments"):
+                     "invalid-locale", "invalid-lua-arguments",
+                     "invalid-scene-instruction", "invalid-scene-target"):
             if os.environ.get("NOVELTEA_PARITY_CASES") and name not in os.environ["NOVELTEA_PARITY_CASES"].split(","):
                 continue
             target = root / name
             if name in ("feature-lab", "source-drift", "lua-spacing", "rml-arguments",
-                        "selector-order", "invalid-lua-arguments"):
+                        "selector-order", "scene-control-flow", "invalid-lua-arguments",
+                        "invalid-scene-instruction", "invalid-scene-target"):
                 copy_project(target)
             else:
                 create_small(target, with_entrypoint=name != "missing-entrypoint")
@@ -182,6 +186,40 @@ def main():
                 edit(target / "records/scenes/localized-story.yaml",
                      "Text.msg('lab.greeting', {name='Ada'})",
                      "Text.msg('lab.greeting', {wrong='Ada'})")
+            if name == "invalid-scene-instruction":
+                edit(target / "records/scenes/localized-story.yaml",
+                     "type: show-text", "type: unrecognized-scene-instruction")
+            if name == "invalid-scene-target":
+                edit(target / "records/scenes/localized-story.yaml",
+                     "targetStepId: end", "targetStepId: missing-instruction")
+            if name == "scene-control-flow":
+                # Exercise authoring-only set-variable lowering, branch targets,
+                # disabled-step elision and timeline/event order independently of
+                # the base Feature Lab compilation corpus.
+                edit(target / "records/scenes/localized-story.yaml", "    - id: end\n",
+                     "    - id: branch-to-end\n"
+                     "      label: Branch to final text\n"
+                     "      timeline:\n"
+                     "        trackId: main\n        startMs: 0\n        durationMs: 0\n"
+                     "      type: conditional-branch\n"
+                     "      branches:\n"
+                     "        - id: permitted\n          condition: always\n"
+                     "          targetStepId: end\n"
+                     "      fallbackStepId: end\n"
+                     "    - id: skipped-assignment\n"
+                     "      label: Disabled mutation\n"
+                     "      enabled: false\n"
+                     "      timeline:\n"
+                     "        trackId: main\n        startMs: 0\n        durationMs: 0\n"
+                     "      type: set-variable\n"
+                     "      variable: story-count\n      value: 5\n"
+                     "    - id: active-assignment\n"
+                     "      label: Assign global property\n"
+                     "      timeline:\n"
+                     "        trackId: main\n        startMs: 0\n        durationMs: 0\n"
+                     "      type: set-variable\n"
+                     "      variable: story-count\n      value: 3\n"
+                     "    - id: end\n")
             if name == "invalid-message":
                 edit(target / "records/variables/alpha.yaml", "type: boolean\n  value: false",
                      "type: message\n  value:\n    $message: missing.key")
@@ -218,7 +256,8 @@ def main():
         for name, data in cases.items():
             if not data["ok"]:
                 assert name in {"missing-entrypoint", "invalid-asset", "invalid-message",
-                                "invalid-locale", "invalid-lua-arguments"}, (name, data)
+                                "invalid-locale", "invalid-lua-arguments",
+                                "invalid-scene-instruction", "invalid-scene-target"}, (name, data)
                 assert data["diagnostics"], (name, data)
                 if name == "missing-entrypoint":
                     assert not references[name]["ok"], name
@@ -239,10 +278,18 @@ def main():
                 elif name == "invalid-lua-arguments":
                     assert any("/scenes/localized-story" in item.get("path", "")
                                for item in data["diagnostics"]), data["diagnostics"]
+                elif name == "invalid-scene-instruction":
+                    assert any("/scenes/localized-story/data/events/" in item.get("path", "")
+                               for item in data["diagnostics"]), data["diagnostics"]
+                elif name == "invalid-scene-target":
+                    assert any("/scenes/localized-story/data/events/" in item.get("path", "")
+                               for item in data["diagnostics"]), data["diagnostics"]
                 else:
                     assert any("localization" in item.get("path", "")
                                for item in data["diagnostics"]), data["diagnostics"]
-                print(f"{name}: native admission/lowering rejected with {data['diagnostics'][0]}")
+                first_error = next((item for item in data["diagnostics"]
+                                    if item.get("severity") == "error"), data["diagnostics"][0])
+                print(f"{name}: native admission/lowering rejected with {first_error}")
                 continue
             assert data["sourceGeneration"] and data["sourceRevisions"], name
             assert "project.yaml" in data["sourceRevisions"], name
@@ -290,16 +337,11 @@ def main():
                     value = dict(source)
                     for key in {"verbs": ("availability", "defaultProgram"),
                                 "interactions": ("rules",),
-                                "scenes": ("program", "terminal"),
                                 "dialogues": ("program", "completion")}.get(family, ()):
                         value.pop(key, None)
                     if family == "rooms":
                         value["lifecycle"] = dict(value["lifecycle"])
                         value["lifecycle"].pop("hooks", None)
-                        for program in ("beforeEnter", "afterEnter", "beforeLeave", "afterLeave",
-                                        "onEnterRejected", "onLeaveRejected"):
-                            value["lifecycle"][program] = []
-                        value["exits"] = [{**exit, "onRejected": []} for exit in value["exits"]]
                     if family == "verbs":
                         value["offers"] = [{key: field for key, field in offer.items()
                                             if key != "condition"} for offer in value["offers"]]
@@ -308,6 +350,18 @@ def main():
                         value["mediaSlots"] = []
                     rows.append(value)
                 compare(name, "definitions." + family, rows, shared["definitions"][family])
+            # A reference-compiled wire decoding successfully cannot certify
+            # native programs. Replace only the supported Room/Scene slices,
+            # including Room Archetypes, and execute the native decoder on them.
+            native_program_wire = copy.deepcopy(wire)
+            native_program_wire["definitions"]["rooms"] = shared["definitions"]["rooms"]
+            native_program_wire["definitions"]["scenes"] = shared["definitions"]["scenes"]
+            native_program_wire["archetypes"] = shared["archetypes"]
+            native_verified = invoke(binary, "--verify-compiled-stdin",
+                                     stdin=json.dumps(native_program_wire))
+            assert native_verified["verified"], (
+                name, "Native Room/Scene programs failed runtime decoding",
+                native_verified.get("diagnostics"))
             compare(name, "properties", wire["properties"], shared["properties"])
             native_messages = partial["messages"]
             source = wire["localization"]["sourceLocale"]
@@ -387,9 +441,9 @@ def main():
                 assert rejected["verified"] is False and rejected["diagnostics"], rejected
                 assert rejected["diagnostics"][0]["path"] == "/schemaVersion", rejected
             missing = data["unsupportedFamilies"]
-            assert "programs.room-scene" in missing and "programs.dialogue-interaction" in missing
+            assert "programs.room-scene" not in missing and "programs.dialogue-interaction" in missing
             assert "properties.message" not in missing
-            print(f"{name}: PASS supported shared gameplay/resource/Message parity; "
+            print(f"{name}: PASS shared gameplay/resource/Message and Room/Scene parity; "
                   f"UNIMPLEMENTED {', '.join(missing)}; "
                   f"reference messages={len(reference_catalogs[source])}, save={wire['saveContract']}")
             checked += 1

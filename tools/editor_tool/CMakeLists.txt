@@ -205,7 +205,7 @@ endif()
 configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL native_cli.cpp native_cli_test_catalog.cpp
     native_compiled_project_save_contract.cpp native_authoring_resources.cpp
-    native_authoring_messages.cpp native_authoring_shared.cpp)
+    native_authoring_messages.cpp native_authoring_shared.cpp native_authoring_programs.cpp)
 set_target_properties(noveltea-native-cli PROPERTIES
     OUTPUT_NAME noveltea
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
@@ -239,7 +239,8 @@ if(BUILD_TESTING)
     set_tests_properties(native_cli_runtime_cache PROPERTIES SKIP_RETURN_CODE 77)
     add_executable(noveltea-runtime-cache-publish-certify
         tooling_runtime_cache_publish_certify.cpp native_compiled_project_save_contract.cpp
-        native_authoring_resources.cpp native_authoring_messages.cpp native_authoring_shared.cpp)
+        native_authoring_resources.cpp native_authoring_messages.cpp native_authoring_shared.cpp
+        native_authoring_programs.cpp)
     target_link_libraries(noveltea-runtime-cache-publish-certify PRIVATE
         noveltea_tooling_native nlohmann_json::nlohmann_json)
     target_include_directories(noveltea-runtime-cache-publish-certify PRIVATE
