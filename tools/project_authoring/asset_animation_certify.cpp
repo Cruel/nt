@@ -65,6 +65,18 @@ void certify(const std::filesystem::path& source)
             "Image Asset default aliases and explicit kind are preserved");
     const auto physical = fixture.root / "assets/images/girl_normal.webp";
     const auto physical_before = bytes(physical);
+    require(asset->snapshot().normalized_json == initial.normalized_json,
+            "Unchanged Asset inputs reuse a valid snapshot");
+    std::filesystem::remove(physical);
+    require(!asset->snapshot().valid && has(asset->snapshot().diagnostics, "/data/source/path"),
+            "Deleting referenced physical media revokes an otherwise cached Asset snapshot");
+    {
+        std::ofstream restored(physical, std::ios::binary);
+        restored.write(physical_before.data(),
+                       static_cast<std::streamsize>(physical_before.size()));
+    }
+    require(asset->snapshot().valid && asset->snapshot().normalized_json == initial.normalized_json,
+            "Restoring physical media restores a cached Asset record without YAML changes");
     const auto record_path = fixture.root / "records/assets/pilot-character-neutral.yaml";
     const auto before = bytes(record_path);
     const auto patched =

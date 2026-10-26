@@ -91,6 +91,35 @@ int main(int argc, char** argv)
                              "    views: []\n";
     const auto opened = open_yaml_source(room);
     require(opened.accepted, "nested Room YAML opens");
+    // Cache ownership is scoped. Exact bytes (not a file name, timestamp, or
+    // semantic JSON equivalence) identify parsed source and YAML locations.
+    noveltea::authoring::YamlDecodeCache decoded;
+    {
+        noveltea::authoring::ScopedYamlDecodeCache scope(decoded);
+        const auto cached = open_yaml_source(room);
+        require(cached.accepted && cached.source_json == opened.source_json &&
+                    cached.locations.size() == opened.locations.size() &&
+                    decoded.results.size() == 1,
+                "Project cache retains the complete exact-byte YAML decode");
+        require(open_yaml_source(room).source_json == cached.source_json &&
+                    decoded.results.size() == 1,
+                "Repeated parsing of identical source reuses the cached result");
+        const auto changed = open_yaml_source(room + "# changed source\n");
+        require(changed.accepted && decoded.results.size() == 2 && changed.source != cached.source,
+                "Changed physical bytes cannot alias a prior cache entry");
+        const auto invalid = open_yaml_source("id: [\n");
+        require(!invalid.accepted && !open_yaml_source("id: [\n").accepted &&
+                    decoded.results.size() == 3,
+                "Invalid source diagnostics are cached without admitting the source");
+        noveltea::authoring::YamlDecodeCache nested;
+        {
+            noveltea::authoring::ScopedYamlDecodeCache nested_scope(nested);
+            require(open_yaml_source(room).accepted && nested.results.size() == 1,
+                    "Nested Project session keeps an independent decode cache");
+        }
+        require(open_yaml_source(room).accepted && decoded.results.size() == 3,
+                "Nested decode scope restores the enclosing Project cache");
+    }
     require(opened.source == room, "open/validate leaves physical source unchanged");
     require(opened.source_json.find("\"destination\":\"corridor\"") != std::string::npos,
             "nested list entry is decoded");

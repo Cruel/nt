@@ -1,4 +1,5 @@
 #include "contracts.hpp"
+#include "room_map_semantics_internal.hpp"
 
 #include <jsoncons/json.hpp>
 
@@ -56,7 +57,10 @@ std::string path_token(std::string_view token)
 
 class SemanticValidation {
 public:
-    explicit SemanticValidation(const Json& project) : project_(project) {}
+    explicit SemanticValidation(const Json& project, bool normalized = false)
+        : project_(project), normalized_(normalized)
+    {
+    }
 
     ValidationResult run()
     {
@@ -68,6 +72,18 @@ public:
                 const auto owner = std::string(record.key());
                 const auto base = "/" + std::string(collection) + "/" + path_token(owner);
                 const auto& value = record.value();
+                if (normalized_) {
+                    // The session already certified the structural contract.
+                    // The untrusted standalone validator still checks it below.
+                    if (value.is_object() && value.contains("data") &&
+                        value.at("data").is_object()) {
+                        if (std::string_view(collection) == "rooms")
+                            room(owner, value.at("data"), base + "/data");
+                        else
+                            map(owner, value.at("data"), base + "/data");
+                    }
+                    continue;
+                }
                 const auto structural = validate_record(
                     std::string(collection) == "rooms" ? "RoomsRecord" : "MapsRecord",
                     value.to_string());
@@ -105,6 +121,7 @@ public:
 
 private:
     const Json& project_;
+    bool normalized_ = false;
     std::vector<Diagnostic> diagnostics_;
 
     const Json* record(std::string_view collection, std::string_view id) const
@@ -885,6 +902,19 @@ ValidationResult validate_room_map_project(std::string_view effective_project_js
         if (!project.is_object())
             throw std::runtime_error("Effective Project must be an object.");
         return SemanticValidation(project).run();
+    } catch (const std::exception& error) {
+        ValidationResult invalid;
+        invalid.diagnostics.push_back({"", "project.failure", error.what()});
+        return invalid;
+    }
+}
+
+ValidationResult validate_normalized_room_map_project(const Json& project)
+{
+    try {
+        if (!project.is_object())
+            throw std::runtime_error("Normalized Project must be an object.");
+        return SemanticValidation(project, true).run();
     } catch (const std::exception& error) {
         ValidationResult invalid;
         invalid.diagnostics.push_back({"", "project.failure", error.what()});

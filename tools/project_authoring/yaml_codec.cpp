@@ -849,20 +849,47 @@ YamlSourceResult failure(std::string_view input, std::string message,
 }
 } // namespace
 
+namespace {
+thread_local YamlDecodeCache* active_decode_cache = nullptr;
+constexpr std::size_t max_cached_yaml_bytes = 16 * 1024 * 1024;
+} // namespace
+
+ScopedYamlDecodeCache::ScopedYamlDecodeCache(YamlDecodeCache& cache) noexcept
+    : previous_(std::exchange(active_decode_cache, &cache))
+{
+}
+
+ScopedYamlDecodeCache::~ScopedYamlDecodeCache() { active_decode_cache = previous_; }
+
 YamlSourceResult open_yaml_source(std::string_view source)
 {
+    if (active_decode_cache) {
+        const auto found = active_decode_cache->results.find(source);
+        if (found != active_decode_cache->results.end())
+            return found->second;
+    }
+    YamlSourceResult result;
     try {
         Parsed parsed(source);
-        YamlSourceResult result;
         result.source = source;
         result.source_json = visit(parsed.root(), "", result.locations).to_string();
         result.accepted = true;
-        return result;
     } catch (const SourceFailure& e) {
-        return failure(source, e.what(), e.offset);
+        result = failure(source, e.what(), e.offset);
     } catch (const std::exception& e) {
-        return failure(source, e.what());
+        result = failure(source, e.what());
     }
+    if (active_decode_cache && source.size() <= max_cached_yaml_bytes) {
+        auto& cache = *active_decode_cache;
+        if (cache.input_bytes + source.size() > max_cached_yaml_bytes) {
+            cache.results.clear();
+            cache.input_bytes = 0;
+        }
+        auto [it, inserted] = cache.results.try_emplace(std::string(source), result);
+        if (inserted)
+            cache.input_bytes += source.size();
+    }
+    return result;
 }
 
 YamlSourceResult edit_yaml_source(std::string_view source, const std::vector<YamlValueEdit>& edits)

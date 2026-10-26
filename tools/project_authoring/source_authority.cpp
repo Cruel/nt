@@ -541,6 +541,22 @@ std::optional<std::map<std::string, std::string>> SourceAuthority::verified_revi
     return baseline_;
 }
 
+std::set<std::string> SourceAuthority::affected_asset_records(const SourceDelta& delta) const
+{
+    std::set<std::string> changed;
+    changed.insert(delta.added.begin(), delta.added.end());
+    changed.insert(delta.changed.begin(), delta.changed.end());
+    changed.insert(delta.removed.begin(), delta.removed.end());
+    std::set<std::string> records;
+    for (const auto& [owner, references] : asset_references_)
+        for (const auto& source : references)
+            if (changed.contains(source)) {
+                records.insert(owner);
+                break;
+            }
+    return records;
+}
+
 SourceObservation SourceAuthority::observe()
 {
     SourceObservation observation;

@@ -147,7 +147,9 @@ private:
     RoomSession(std::filesystem::path path, std::string room_id, std::string source,
                 std::string source_json);
     RoomSessionResult result(bool accepted, std::string error = {}, bool changed = false) const;
-    ValidationResult validate_source(std::string_view source_json) const;
+    ValidationResult
+    validate_source(std::string_view source_json,
+                    const std::map<std::string, std::string>* layout_companions = nullptr) const;
 
     std::filesystem::path path_;
     std::string room_id_;
@@ -171,6 +173,11 @@ private:
     std::vector<std::string> conflicting_paths_;
     std::vector<ProjectFile> file_inventory_;
     mutable std::optional<RoomSessionSnapshot> snapshot_cache_;
+    // Companion contents and physical Asset membership are the external inputs
+    // missing from a YAML-only snapshot revision. Never cache solely by YAML.
+    mutable std::map<std::string, std::string> snapshot_layout_companions_;
+    mutable std::map<std::string, bool> snapshot_asset_membership_;
+    mutable std::optional<std::pair<std::string, ValidationResult>> asset_structural_cache_;
 };
 
 // Certification-only resident working model: manifest and touched Room/Map owners
@@ -352,6 +359,9 @@ private:
     ValidationResult validate_working_localization() const;
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
+    // Immutable parsed source values shared by admission, observation and
+    // validation within this Project session; never a source freshness proof.
+    std::shared_ptr<YamlDecodeCache> yaml_decode_cache_;
     std::filesystem::path root_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
@@ -363,6 +373,9 @@ private:
     // Source changes observed outside validation remain pending until the next
     // diagnostic generation consumes their exact physical evidence.
     std::map<std::string, std::string> validation_pending_source_revisions_;
+    // Binary Asset changes invalidate their owners even if the YAML revision
+    // stays constant. Carry the evidence across separate watcher polls.
+    std::set<std::string> validation_pending_asset_owners_;
     bool validation_pending_uncertain_ = false;
     std::map<std::string, std::string> validation_shader_overlays_;
     std::map<std::string, Diagnostic> validation_source_errors_;
@@ -394,6 +407,16 @@ private:
     std::map<std::string, std::string> text_disk_revisions_;
     std::map<std::string, std::set<std::string>> text_source_owners_;
     std::map<std::string, std::set<std::string>> asset_text_consumers_;
+    // Last indexed semantic source per owner. Reindexing an unchanged owner
+    // must not revoke a validated localization generation.
+    std::map<std::string, std::string> indexed_text_sources_;
+    // Referenced Asset normalization is reusable while its exact on-disk YAML
+    // revision remains unchanged. A working Asset always takes precedence.
+    struct IndexedAsset {
+        std::string revision;
+        std::optional<std::string> normalized;
+    };
+    std::map<std::string, IndexedAsset> indexed_asset_sources_;
     std::map<std::string, std::set<std::string>> layout_declared_scripts_;
     mutable std::map<std::string, SourceAnalysis> text_analysis_cache_;
     std::map<std::string, ValidationResult> material_compiler_results_;

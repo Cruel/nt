@@ -1524,6 +1524,24 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                           (issue.column ? std::to_string(*issue.column) : ""));
         return result;
     };
+    const auto media = temp.root / "assets/images/girl_normal.webp";
+    const auto original_media = read(media);
+    std::filesystem::remove(media);
+    const auto missing_media = project->validate_project();
+    require(
+        !missing_media.valid &&
+            std::any_of(
+                missing_media.diagnostics.begin(), missing_media.diagnostics.end(),
+                [](const Diagnostic& issue) { return issue.code == "asset.source.missing"; }) &&
+            project->validation_work().rechecked_records > 0,
+        "A physical Asset deletion invalidates a resident full-Project proof without a YAML edit");
+    write(media, original_media);
+    const auto restored_media = project->validate_project();
+    require(restored_media.valid && signature(restored_media) == signature(cold) &&
+                project->validation_work().rechecked_records > 0,
+            "Restoring physical Asset membership refreshes the dependent full-Project contributor");
+    require(project->validate_project().valid && project->validation_work().rechecked_records == 0,
+            "Restored physical Asset proof is reusable after revalidation");
     // CLI-owned native validation and the opt-in editor addon use this same
     // disk-only cache boundary. A dirty editor view must never overwrite it.
     const auto cached_path = temp.root / ".noveltea/cache/authoring/native-clean-current.json";
