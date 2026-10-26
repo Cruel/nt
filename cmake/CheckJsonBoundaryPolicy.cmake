@@ -34,6 +34,7 @@ list(APPEND approved_header_paths
     "tools/editor_tool/native_cli_comfyui.hpp"
     "tools/editor_tool/native_cli_comfyui_http.hpp"
     "tools/editor_tool/native_cli_media.hpp"
+    "tools/editor_tool/native_cli_platform.hpp"
     "tools/editor_tool/native_cli_test_catalog.hpp")
 set(approved_source_paths
     "apps/editor_preview/editor_preview_app.cpp"
@@ -71,6 +72,7 @@ set(approved_source_paths
     "tools/editor_tool/native_cli_comfyui.cpp"
     "tools/editor_tool/native_cli_comfyui_http.cpp"
     "tools/editor_tool/native_cli_media.cpp"
+    "tools/editor_tool/native_cli_platform.cpp"
     "tools/editor_tool/native_cli_test_catalog.cpp"
     # Test-only JSON command transport for compiled Project/package acceptance.
     "tools/editor_tool/tooling_runtime_cache_publish_certify.cpp"

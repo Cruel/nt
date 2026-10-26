@@ -2,6 +2,7 @@
 #include "native_cli_agent.hpp"
 #include "native_cli_comfyui.hpp"
 #include "native_cli_media.hpp"
+#include "native_cli_platform.hpp"
 #include "native_cli_test_catalog.hpp"
 #include "tooling_native_project_asset.hpp"
 #include "native_compiled_project.hpp"
@@ -2690,6 +2691,12 @@ int run(const std::vector<std::string>& argv)
             return tests_from_native_runtime(args);
         if (family == "package" && operation == "export")
             return package_from_native_runtime(args);
+        if (family == "platform") {
+            const auto selected = project_root(args.project);
+            const auto outcome = run_native_platform_cli(args.command, selected,
+                                                         !args.project.empty(), native_request);
+            return emit(outcome.envelope, args.json, outcome.human);
+        }
         if (family == "shaderc" || family == "texturec") {
             if (args.json)
                 return usage(true, "Raw '" + family + "' does not support NovelTea --json mode.");

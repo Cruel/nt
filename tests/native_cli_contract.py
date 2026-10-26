@@ -77,7 +77,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         'comfyui status', 'comfyui workflows', 'comfyui verify',
     }
     assert project_commands <= public_paths
-    for command in public_paths - project_commands:
+    claimed_platform = {'comfyui run', 'platform profiles', 'platform template list', 'platform template inspect',
+                        'platform template install', 'platform template remove',
+                        'platform config init'}
+    for command in public_paths - project_commands - claimed_platform:
         assert envelope(*command.split(), code=70)['diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
 
     # One realistic authored fixture, then a small native-created Project for
