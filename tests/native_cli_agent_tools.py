@@ -83,6 +83,28 @@ with tempfile.TemporaryDirectory(prefix='noveltea-agent-native-') as temporary:
     fixed = json_cli('--project', str(project), 'agent', 'sync', '--fix')
     assert fixed['agentBootstrapChanged'] is True
     assert instructions.read_text().endswith('custom notes\n')
+    instructions.write_bytes(b'\xef\xbb\xbf\r\n# Team Project\r\n\r\nTeam rules.\r\n')
+    json_cli('--project', str(project), 'agent', 'sync', '--fix')
+    repaired_text = instructions.read_bytes()
+    assert repaired_text.startswith(b'\xef\xbb\xbf\r\n# Team Project\r\n\r\n')
+    assert repaired_text.endswith(b'\r\nTeam rules.\r\n')
+    assert b'<!-- DO NOT EDIT THIS BLOCK. -->\r\n' in repaired_text
+    if os.name != 'nt' and os.geteuid() != 0:
+        # An unwritable directory must not permit an in-place truncation of
+        # the otherwise writable user-owned AGENTS.md on an attempted repair.
+        original = instructions.read_bytes()
+        instructions.write_text(
+            '<!-- noveltea:managed-agent-bootstrap:start -->\noutdated\n'
+            '<!-- noveltea:managed-agent-bootstrap:end -->\ncustom notes\n')
+        expected = instructions.read_bytes()
+        project.chmod(0o555)
+        try:
+            blocked = json_cli('--project', str(project), 'agent', 'sync', '--fix', expected=5)
+            assert blocked['diagnostics'][0]['code'] == 'AGENT_SYNC_MUTATION_FAILED'
+            assert instructions.read_bytes() == expected
+        finally:
+            project.chmod(0o755)
+        instructions.write_bytes(original)
     instructions.write_text('<!-- noveltea:managed-agent-bootstrap:start -->\nmalformed')
     failure = json_cli('--project', str(project), 'agent', 'sync', '--fix', expected=5)
     assert failure['diagnostics'][0]['code'] == 'AGENT_BOOTSTRAP_MANUAL_REPAIR_REQUIRED'
@@ -109,6 +131,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-agent-native-') as temporary:
     assert json_cli('media-tool', 'check', expected=6, environment={
         **env, 'NOVELTEA_FFMPEG': 'relative/path'
     })['diagnostics'][0]['message'].startswith('NOVELTEA_FFMPEG must name an absolute')
+    for name in ['shaderc', 'texturec']:
+        raw = run(name, '--help')
+        assert raw.returncode == 1 and raw.stderr == '', (name, raw)
+        assert f'Usage: {name}' in raw.stdout
     if os.name != 'nt':
         mock = root / 'ffmpeg'
         mock.write_text('#!/bin/sh\ncase "$1" in\n-version) echo "ffmpeg version 15.1 test" ;;\n'
@@ -130,4 +156,22 @@ with tempfile.TemporaryDirectory(prefix='noveltea-agent-native-') as temporary:
         assert 'missing encoder' in json_cli('media-tool', 'check', expected=6, environment={
             **env, 'NOVELTEA_FFMPEG': str(mock)
         })['diagnostics'][0]['message']
+        # The default path comes from the relocated executable, not cwd or source checkout.
+        bundled = root / 'tools/ffmpeg/bin/ffmpeg'
+        bundled.parent.mkdir(parents=True)
+        bundled.write_text(
+            '#!/bin/sh\ncase "$1" in\n'
+            '-version) printf "ffmpeg version 9.0.1\\n'
+            '--disable-gpl --disable-nonfree --disable-version3 --disable-network\\n'
+            '--enable-libaom --enable-libvpx --enable-libwebp --enable-libzimg\\n" ;;\n'
+            '-hide_banner) case "$2" in\n'
+            '-encoders) printf "libaom-av1 libvpx-vp9 libwebp_anim\\n" ;;\n'
+            '-protocols) printf "file pipe\\n" ;;\nesac ;;\nesac\n'
+        )
+        bundled.chmod(0o755)
+        tool = json_cli('media-tool', 'check')['tool']
+        assert tool == {
+            'bundled': True, 'executable': str(bundled),
+            'release': 'ffmpeg-r3', 'version': '9.0.1'
+        }
     print('Relocated native daemon and FFmpeg projectless contracts passed.')

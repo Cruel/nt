@@ -15,6 +15,12 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
+#endif
 
 namespace noveltea::cli {
 namespace {
@@ -52,6 +58,38 @@ void write_file(const fs::path& path, const std::string& contents)
     stream.close();
     if (!stream)
         throw std::runtime_error("Cannot close " + path.string());
+}
+
+void write_file_atomic(const fs::path& path, const std::string& contents)
+{
+    fs::create_directories(path.parent_path());
+    std::random_device random;
+    fs::path staged;
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        const auto candidate = fs::path(path.string() + "." + std::to_string(random()) + "-" +
+                                        std::to_string(random()) + ".tmp");
+        std::error_code error;
+        if (!fs::exists(candidate, error) && !error) {
+            staged = candidate;
+            break;
+        }
+    }
+    if (staged.empty())
+        throw std::runtime_error("Cannot reserve staged Agent Kit bootstrap file.");
+    try {
+        write_file(staged, contents);
+#if defined(_WIN32)
+        if (!MoveFileExW(staged.c_str(), path.c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            throw std::runtime_error("Cannot atomically replace Agent Kit bootstrap file.");
+#else
+        fs::rename(staged, path);
+#endif
+    } catch (...) {
+        std::error_code ignored;
+        fs::remove(staged, ignored);
+        throw;
+    }
 }
 
 fs::file_status safe_status(const fs::path& path)
@@ -259,7 +297,7 @@ AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
     if (fix) {
         const auto revised = repair_bootstrap(agents ? &*agents : nullptr, result.bootstrap_status);
         if (!agents || *agents != revised) {
-            write_file(agents_path, revised);
+            write_file_atomic(agents_path, revised);
             result.bootstrap_changed = true;
         }
     }
@@ -279,7 +317,7 @@ AgentSyncResult sync_native_agent_kit(const fs::path& root, bool fix)
     if (fs::is_symlink(safe_status(ignore)) || fs::is_directory(safe_status(ignore)))
         throw std::runtime_error(".gitignore must be a regular file.");
     if (!is_file(ignore)) {
-        write_file(ignore, "/.noveltea/\n/dist/\n");
+        write_file_atomic(ignore, "/.noveltea/\n/dist/\n");
         result.gitignore_status = "created";
     } else {
         const auto text = read_file(ignore);

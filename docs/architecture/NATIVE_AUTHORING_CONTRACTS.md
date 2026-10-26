@@ -404,7 +404,8 @@ CLI build**; no runtime source-tree lookup, generated-file re-derivation, or TS 
 required. The embedded manifest retains schema references, compact references with IDs/defaults,
 system Layout assets, and authoring provenance. Synchronization detects missing, changed, or extra
 files and replaces the directory through staging and a rollback backup. `--fix` manages only the
-AGENTS.md bootstrap block and preserves other user instructions.
+AGENTS.md bootstrap block using atomic file replacement, preserving other user instructions;
+creation of the Project's missing `.gitignore` also uses atomic replacement.
 
 The native FFmpeg check resolves an installed pinned binary relative to the relocated executable,
 or uses an absolute `NOVELTEA_FFMPEG` override, and verifies identity, configuration, encoders,
