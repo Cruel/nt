@@ -47,6 +47,23 @@ std::string read_bytes(const std::filesystem::path& path)
     return result;
 }
 
+// Only admission/semantic readers consume a verified generation. Persistence,
+// mutation and transaction precondition checks continue to read disk directly.
+std::string admitted_bytes(const std::filesystem::path& path)
+{
+    if (const auto* observed = observed_project_source(path))
+        return observed->bytes;
+    return read_bytes(path);
+}
+
+YamlSourceResult admitted_yaml(const std::filesystem::path& path, std::string_view bytes)
+{
+    if (const auto* observed = observed_project_source(path);
+        observed && observed->yaml && observed->bytes == bytes)
+        return *observed->yaml;
+    return open_yaml_source(bytes);
+}
+
 std::string review_comment(const std::string& source, std::string_view path)
 {
     const auto first_comment = [&]() -> std::string {
@@ -129,6 +146,20 @@ bool references_any(const Json& value, const std::set<std::string>& ids)
             if (ids.contains(std::string(field.key())) || references_any(field.value(), ids))
                 return true;
     return false;
+}
+
+void collect_reference_tokens(const Json& value, std::set<std::string>& tokens)
+{
+    if (value.is_string())
+        tokens.insert(value.as<std::string>());
+    else if (value.is_array())
+        for (const auto& entry : value.array_range())
+            collect_reference_tokens(entry, tokens);
+    else if (value.is_object())
+        for (const auto& entry : value.object_range()) {
+            tokens.insert(std::string(entry.key()));
+            collect_reference_tokens(entry.value(), tokens);
+        }
 }
 
 std::optional<Json> decoded_record(const std::filesystem::path& path)
@@ -945,8 +976,8 @@ std::unique_ptr<RoomSession> RoomSession::open(const std::filesystem::path& proj
                 std::string::npos)
             return (error = "Invalid Room ID.", nullptr);
         const auto path = project_root / "records" / "rooms" / (room_id + ".yaml");
-        auto source = read_bytes(path);
-        const auto opened = open_yaml_source(source);
+        auto source = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, source);
         if (!opened.accepted)
             return (error = "Invalid Room YAML: " + opened.error, nullptr);
         const auto value = Json::parse(opened.source_json);
@@ -969,8 +1000,8 @@ std::unique_ptr<RoomSession> RoomSession::open_map(const std::filesystem::path& 
         if (!is_id(map_id))
             throw std::runtime_error("Invalid Map ID.");
         const auto path = project_root / "records" / "maps" / (map_id + ".yaml");
-        auto source = read_bytes(path);
-        const auto opened = open_yaml_source(source);
+        auto source = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, source);
         if (!opened.accepted)
             throw std::runtime_error("Invalid Map YAML: " + opened.error);
         const auto value = Json::parse(opened.source_json);
@@ -1003,8 +1034,8 @@ std::unique_ptr<RoomSession> RoomSession::open_record(const std::filesystem::pat
         const auto path = family == "layouts"
                               ? project_root / "records" / family / id / "layout.yaml"
                               : project_root / "records" / family / (id + ".yaml");
-        auto source = read_bytes(path);
-        const auto opened = open_yaml_source(source);
+        auto source = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, source);
         if (!opened.accepted)
             throw std::runtime_error("Invalid record YAML: " + opened.error);
         const auto value = Json::parse(opened.source_json);
@@ -1079,8 +1110,8 @@ RoomSession::open_project_source(const std::filesystem::path& project_root, std:
 {
     try {
         auto path = project_root / "project.yaml";
-        auto source = read_bytes(path);
-        const auto opened = open_yaml_source(source);
+        auto source = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, source);
         // A malformed source is an expected admission rejection, not an
         // exceptional runtime condition. In particular, macOS CLI builds
         // must not unwind a C++ exception across the native ScriptC boundary.
@@ -1117,8 +1148,8 @@ RoomSession::open_editor_source(const std::filesystem::path& project_root, std::
 {
     try {
         const auto path = project_root / "editor.yaml";
-        auto source = read_bytes(path);
-        const auto opened = open_yaml_source(source);
+        auto source = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, source);
         if (!opened.accepted)
             throw std::runtime_error("Invalid tracked editor YAML: " + opened.error);
         if (!validate_record("WorkspaceTrackedEditor", opened.source_json).accepted)
@@ -1139,8 +1170,8 @@ RoomSession::open_traits_source(const std::filesystem::path& project_root, std::
 {
     try {
         const auto path = project_root / "traits.yaml";
-        auto source = read_bytes(path);
-        const auto opened = open_yaml_source(source);
+        auto source = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, source);
         if (!opened.accepted)
             throw std::runtime_error("Invalid Traits YAML: " + opened.error);
         const auto validation = validate_record("WorkspaceTraitDeclarations", opened.source_json);
@@ -1182,8 +1213,8 @@ RoomSession::open_localization_source(const std::filesystem::path& project_root,
                               : name.starts_with("i18n/locales/") ? "WorkspaceLocalizationLocale"
                                                                   : "WorkspaceLocalizationAssets";
         const auto path = project_root / name;
-        auto bytes = read_bytes(path);
-        const auto opened = open_yaml_source(bytes);
+        auto bytes = admitted_bytes(path);
+        const auto opened = admitted_yaml(path, bytes);
         if (!opened.accepted)
             throw std::runtime_error("Invalid localization YAML: " + opened.error);
         auto result = std::unique_ptr<RoomSession>(
@@ -1293,6 +1324,7 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
         auto authority = std::make_unique<SourceAuthority>(root);
         if (!authority->initialize(error, validation_only))
             return nullptr;
+        ScopedVerifiedProjectSources observed(*authority);
         auto traits = RoomSession::open_traits_source(root, error);
         if (!traits && !validation_only)
             return nullptr;
@@ -1312,8 +1344,11 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
                    file.path.starts_with("records/layouts/"))))
                 continue;
             project->text_source_paths_.insert(file.path);
-            project->text_disk_revisions_.emplace(
-                file.path, exact_source_revision(read_bytes(root / file.path)));
+            if (const auto* source = project->source_authority_->verified_source(file.path))
+                project->text_disk_revisions_.emplace(file.path, source->revision);
+            else
+                project->text_disk_revisions_.emplace(
+                    file.path, exact_source_revision(read_bytes(root / file.path)));
         }
         for (const auto& file : project->file_inventory()) {
             if (file.kind != ProjectFileKind::TrackedSource || !file.path.ends_with(".yaml") ||
@@ -1326,7 +1361,10 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
                  !file.path.starts_with("records/interactions/") &&
                  !file.path.starts_with("records/maps/")))
                 continue;
-            const auto parsed = open_yaml_source(read_bytes(root / file.path));
+            const auto* observed_source = project->source_authority_->verified_source(file.path);
+            const auto parsed = observed_source && observed_source->yaml
+                                    ? *observed_source->yaml
+                                    : open_yaml_source(read_bytes(root / file.path));
             if (!parsed.accepted)
                 continue;
             const auto source = Json::parse(parsed.source_json);
@@ -1358,6 +1396,7 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
 RoomSessionSnapshot ProjectSession::validate_project()
 {
     ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
+    ScopedVerifiedProjectSources observed(*source_authority_);
     // A malformed on-disk manifest can revoke SourceAuthority before the
     // watcher can emit a usable project.yaml revision. Inspect this one
     // immutable owner first so cold and resident diagnostic readers report
@@ -1660,10 +1699,49 @@ RoomSessionSnapshot ProjectSession::validate_project()
         if (!shader_overlays_.contains(path))
             changed_physical(path);
 
-    // A record can refer to another record without itself being edited.
-    // Follow references transitively, retaining unrelated local contributions.
-    // This is conservative for ordinary string IDs, but never promotes stale
-    // cross-record validation after a referenced definition changes.
+    // Each owner contributes its normalized references once per content change.
+    // Reverse edges preserve conservative matching of nested keys and scalars.
+    for (auto it = validation_normalized_records_.begin();
+         it != validation_normalized_records_.end();) {
+        if (validation_records_.contains(it->first)) {
+            ++it;
+            continue;
+        }
+        for (const auto& token : it->second.referenced_ids) {
+            if (auto consumers = validation_reference_consumers_.find(token);
+                consumers != validation_reference_consumers_.end()) {
+                consumers->second.erase(it->first);
+                if (consumers->second.empty())
+                    validation_reference_consumers_.erase(consumers);
+            }
+        }
+        it = validation_normalized_records_.erase(it);
+    }
+    for (const auto& [owner, record] : validation_records_) {
+        const auto normalized = record->snapshot().normalized_json;
+        if (const auto existing = validation_normalized_records_.find(owner);
+            existing != validation_normalized_records_.end() &&
+            existing->second.normalized_json == normalized)
+            continue;
+        if (const auto previous = validation_normalized_records_.find(owner);
+            previous != validation_normalized_records_.end())
+            for (const auto& token : previous->second.referenced_ids) {
+                if (auto consumers = validation_reference_consumers_.find(token);
+                    consumers != validation_reference_consumers_.end()) {
+                    consumers->second.erase(owner);
+                    if (consumers->second.empty())
+                        validation_reference_consumers_.erase(consumers);
+                }
+            }
+        IndexedNormalizedRecord indexed;
+        indexed.normalized_json = normalized;
+        if (!normalized.empty())
+            collect_reference_tokens(Json::parse(normalized), indexed.referenced_ids);
+        for (const auto& token : indexed.referenced_ids)
+            validation_reference_consumers_[token].insert(owner);
+        validation_normalized_records_.insert_or_assign(owner, std::move(indexed));
+    }
+
     if (validation_invalidated_owners_.contains("project") ||
         validation_invalidated_owners_.contains("traits")) {
         for (const auto& [owner, record] : validation_records_)
@@ -1677,20 +1755,22 @@ RoomSessionSnapshot ProjectSession::validate_project()
             if (slash != std::string::npos && !owner.starts_with("i18n/"))
                 affected_ids.insert(owner.substr(slash + 1));
         }
-        bool discovered = true;
-        while (discovered) {
-            discovered = false;
-            for (const auto& [owner, record] : validation_records_) {
-                if (validation_invalidated_owners_.contains(owner))
+        std::vector<std::string> pending(affected_ids.begin(), affected_ids.end());
+        while (!pending.empty()) {
+            auto token = std::move(pending.back());
+            pending.pop_back();
+            const auto consumers = validation_reference_consumers_.find(token);
+            if (consumers == validation_reference_consumers_.end())
+                continue;
+            for (const auto& owner : consumers->second) {
+                if (!validation_invalidated_owners_.insert(owner).second)
                     continue;
-                const auto normalized = record->snapshot().normalized_json;
-                if (normalized.empty() || !references_any(Json::parse(normalized), affected_ids))
-                    continue;
-                validation_invalidated_owners_.insert(owner);
                 const auto slash = owner.find('/');
-                if (slash != std::string::npos && !owner.starts_with("i18n/"))
-                    affected_ids.insert(owner.substr(slash + 1));
-                discovered = true;
+                if (slash != std::string::npos && !owner.starts_with("i18n/")) {
+                    auto id = owner.substr(slash + 1);
+                    if (affected_ids.insert(id).second)
+                        pending.push_back(std::move(id));
+                }
             }
         }
     }
@@ -1909,6 +1989,10 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         std::optional<std::string> value;
         if (deleted_records_.contains("variables/" + key)) {
             // A working deletion must not resolve the still-present disk source.
+        } else if (validation_view_active_ &&
+                   validation_normalized_records_.contains("variables/" + key) &&
+                   !validation_normalized_records_.at("variables/" + key).normalized_json.empty()) {
+            value = validation_normalized_records_.at("variables/" + key).normalized_json;
         } else if (const auto edited = records_.find("variables/" + key);
                    edited != records_.end()) {
             const auto record = edited->second->snapshot();
@@ -1935,6 +2019,9 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         std::optional<std::string> value;
         if (deleted_records_.contains(owner)) {
             // Only the saved baseline still contains this record.
+        } else if (validation_view_active_ && validation_normalized_records_.contains(owner) &&
+                   !validation_normalized_records_.at(owner).normalized_json.empty()) {
+            value = validation_normalized_records_.at(owner).normalized_json;
         } else if (const auto edited = records_.find(owner); edited != records_.end()) {
             const auto record = edited->second->snapshot();
             if (record.valid)
@@ -2975,6 +3062,8 @@ SourceObservation ProjectSession::observe_sources()
         validation_source_revisions_.clear();
         validation_contributions_.clear();
         validation_room_map_cache_.reset();
+        validation_normalized_records_.clear();
+        validation_reference_consumers_.clear();
     }
     if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority))
         validation_pending_uncertain_ = true;
