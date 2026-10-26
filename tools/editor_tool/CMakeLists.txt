@@ -239,6 +239,21 @@ add_custom_command(OUTPUT "${_native_agent_kit_header}"
     VERBATIM)
 file(GLOB _native_comfyui_workflows CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/editor/assets/comfyui/workflows/*.json")
+# Host-only authoring compilation / artifact serialization boundary; no JSON
+# DOM is linked into the shipped runtime.
+set(_native_project_compiler_codec_sources
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_compiled_project_save_contract.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_compiled_project.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_artifact.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_physical.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_media.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_materials.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_flow_prediction.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_resources.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_messages.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_shared.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_programs.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_dialogue_interaction.cpp")
 set(_native_comfyui_header "${CMAKE_CURRENT_BINARY_DIR}/native_comfyui_workflows_generated.hpp")
 add_custom_command(OUTPUT "${_native_comfyui_header}"
     COMMAND "${NOVELTEA_NATIVE_NODE_EXECUTABLE}"
@@ -253,16 +268,12 @@ add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
     native_cli_comfyui_http.cpp
     "${_native_comfyui_header}"
     "${_native_agent_kit_header}" native_cli_test_catalog.cpp
-    native_compiled_project_save_contract.cpp native_compiled_project.cpp
-    native_runtime_artifact.cpp native_runtime_physical.cpp native_runtime_media.cpp
-    native_runtime_materials.cpp
-    native_flow_prediction.cpp native_authoring_resources.cpp
-    native_authoring_messages.cpp native_authoring_shared.cpp native_authoring_programs.cpp
-    native_authoring_dialogue_interaction.cpp)
+    ${_native_project_compiler_codec_sources})
 set_target_properties(noveltea-native-cli PROPERTIES
     OUTPUT_NAME noveltea
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tools/project_authoring")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
 target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
@@ -333,14 +344,12 @@ if(BUILD_TESTING)
     set_tests_properties(native_cli_feature_lab_cold PROPERTIES
         SKIP_RETURN_CODE 77 TIMEOUT 900)
     add_executable(noveltea-runtime-cache-publish-certify
-        tooling_runtime_cache_publish_certify.cpp native_compiled_project_save_contract.cpp
-        native_compiled_project.cpp native_runtime_artifact.cpp native_runtime_physical.cpp native_runtime_media.cpp native_runtime_materials.cpp
-        native_flow_prediction.cpp
-        native_authoring_resources.cpp native_authoring_messages.cpp native_authoring_shared.cpp
-        native_authoring_programs.cpp native_authoring_dialogue_interaction.cpp)
+        tooling_runtime_cache_publish_certify.cpp
+        ${_native_project_compiler_codec_sources})
     target_link_libraries(noveltea-runtime-cache-publish-certify PRIVATE
         noveltea_tooling_native noveltea_script_lua noveltea_presentation nlohmann_json::nlohmann_json)
     target_include_directories(noveltea-runtime-cache-publish-certify PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_SOURCE_DIR}/tools/project_authoring"
         "${CMAKE_SOURCE_DIR}/tests"
         "${CMAKE_BINARY_DIR}/tools/project_authoring")

@@ -2,7 +2,7 @@
 
 ## Ownership and scope
 
-`tools/editor_tool/native_runtime_artifact.cpp::prepare_native_runtime_artifact`
+`tools/project_authoring/native_runtime_artifact.cpp::prepare_native_runtime_artifact`
 assembles the **current Prepared Runtime Artifact** from one already-admitted,
 normalized Project, a freshly native-compiled Project, its referenced Asset
 closure, an explicit export profile, and native owner-resolved Material inputs.

@@ -31,6 +31,16 @@ and typed engine/runtime interfaces do not retain a JSON DOM. A new implementati
 using the library merely because its containing module already links it; the new codec/adapter seam
 must be admitted explicitly (or represented by a fully documented temporary allowlist entry).
 
+The standalone CLI has further **exact-path host protocol adapters**, audited in
+`CheckJsonBoundaryPolicy.cmake`: `native_cli_agent.cpp` (generated Agent Kit response),
+`native_cli_comfyui.cpp`/`native_cli_comfyui_http.cpp` (external ComfyUI HTTP request/response),
+`native_cli_media.cpp` (native CLI media command), and `native_cli_test_catalog.cpp`
+(serialized authored Test catalog). Their matching JSON-visible headers are admitted individually.
+`tooling_runtime_cache_publish_certify.cpp` is the independent, unshipped JSON command-line
+certification adapter. These exceptions are *owned protocol entry points*, not permission for
+arbitrary native editor-tool translation units to adopt a JSON DOM. The checker explicitly rejects
+unlisted `native_cli_*` and `native_runtime_*` headers and sources.
+
 The native Project authoring implementation has a distinct, **host-only** JSON boundary. Unlike
 typed gameplay/runtime state, authoring stores a schema-checked, mutable JSON Project tree while
 performing validation, normalization, source-aware mutations and transactions. The checker scopes
@@ -43,6 +53,19 @@ linkage. Its positive/negative tests cover the native roots, unrelated tools, ne
 forbidden declarations. The checker covers jsoncons and jsoncons_ext includes (quoted or bracketed)
 and type names in addition to nlohmann. See [Native Project schema contracts](NATIVE_AUTHORING_CONTRACTS.md)
 for the native schema adapter and its failure policy.
+
+Native **Project compilation and runtime-artifact construction** also belong to this host-only
+authoring codec ownership, so their `native_authoring_*`, `native_compiled_project*`,
+`native_flow_prediction*`, and `native_runtime_*` implementation/header pairs live directly under
+`tools/project_authoring/`. They consume the validated mutable Project tree and emit the current
+serialized Compiled Project, Prepared Runtime Artifact, and physical export contract. Their JSON
+data is never embedded into engine domain/runtime state; `native_cli.cpp` and the independent
+certification adapter terminate that wire and call typed engine package/runtime APIs. These codec
+sources are compiled only into the native CLI and its acceptance harness via the explicitly named
+`_native_project_compiler_codec_sources` CMake inventory; they are not dependencies of the player.
+The directory is a deliberate host-only authoring boundary, **not** a blanket license for JSON in
+arbitrary editor or engine code. Nested authoring paths remain unapproved and the fixed checker
+fixtures reject relocating unowned native tooling beside the CLI.
 
 JSON decoding mechanics are concentrated in the content-owned `engine/src/core/json_decoder.hpp`.
 That module owns checked member lookup, scalar conversion, object/array validation, JSON-pointer

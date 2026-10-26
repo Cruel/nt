@@ -127,6 +127,18 @@ expect_tool_boundary(native-authoring-adl "tools/project_authoring/session.hpp"
     "#include <jsoncons/json.hpp>\nvoid to_json();\n" FALSE)
 expect_tool_boundary(native-cli-wrapper "tools/editor_tool/tooling_native_project_contract.hpp"
     "#include <nlohmann/json.hpp>\nstruct JsonPayload {};\n" FALSE)
+expect_tool_boundary(project-compiler-codec "tools/project_authoring/native_compiled_project.hpp"
+    "#include <nlohmann/json.hpp>\nvoid compile(nlohmann::json project);\n" TRUE)
+expect_tool_boundary(project-compiler-old-header "tools/editor_tool/native_compiled_project.hpp"
+    "#include <nlohmann/json.hpp>\nvoid compile(nlohmann::json project);\n" FALSE)
+expect_tool_boundary(unapproved-native-preparer "tools/editor_tool/native_runtime_experimental.cpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
+expect_tool_boundary(external-comfyui-adapter "tools/editor_tool/native_cli_comfyui_http.hpp"
+    "#include <nlohmann/json.hpp>\n" TRUE)
+expect_tool_boundary(other-native-cli-header "tools/editor_tool/native_cli_unapproved.hpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
+expect_tool_boundary(project-compiler-nested "tools/project_authoring/experimental/codec.hpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
 expect_rejected(public-link "" "" "target_link_libraries(domain PUBLIC nlohmann_json::nlohmann_json)\n")
 expect_rejected(public-link-after-other-dependency "" ""
     "target_link_libraries(domain PUBLIC other::dependency nlohmann_json::nlohmann_json)\n")

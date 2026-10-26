@@ -30,24 +30,22 @@ shader_binary_revisions(const Json& metadata, const std::set<std::string>& requi
     std::map<std::string, ShaderBinaryRevision> revisions;
     if (required.empty() && metadata.is_null())
         return revisions;
-    if (!metadata.is_object() || !metadata.contains("shaders") ||
-        !metadata.at("shaders").is_object())
+    if (!metadata.is_object() || !metadata.contains("shaders") || !metadata["shaders"].is_object())
         return std::nullopt;
-    for (const auto& [id, shader] : metadata.at("shaders").items()) {
+    for (const auto& [id, shader] : metadata["shaders"].items()) {
         (void)id;
-        if (!shader.is_object() || !shader.contains("stages") || !shader.at("stages").is_object())
+        if (!shader.is_object() || !shader.contains("stages") || !shader["stages"].is_object())
             return std::nullopt;
-        for (const auto& [stage, value] : shader.at("stages").items()) {
+        for (const auto& [stage, value] : shader["stages"].items()) {
             (void)stage;
-            if (!value.is_object() || !value.contains("compiled") ||
-                !value.at("compiled").is_object())
+            if (!value.is_object() || !value.contains("compiled") || !value["compiled"].is_object())
                 return std::nullopt;
-            for (const auto& [variant, compiled] : value.at("compiled").items()) {
+            for (const auto& [variant, compiled] : value["compiled"].items()) {
                 (void)variant;
                 if (!compiled.is_object() || !compiled.contains("runtimePath") ||
-                    !compiled.at("runtimePath").is_string())
+                    !compiled["runtimePath"].is_string())
                     return std::nullopt;
-                const auto runtime_path = compiled.at("runtimePath").template get<std::string>();
+                const auto runtime_path = compiled["runtimePath"].template get<std::string>();
                 if (!runtime_path.starts_with("project:/")) {
                     if (!runtime_path.starts_with("system:/"))
                         return std::nullopt;
@@ -62,11 +60,11 @@ shader_binary_revisions(const Json& metadata, const std::set<std::string>& requi
                 for (const auto& segment : path)
                     if (segment.empty() || segment == "." || segment == "..")
                         return std::nullopt;
-                if (!compiled.contains("byteHash") || !compiled.at("byteHash").is_string() ||
-                    !compiled.contains("byteSize") || !compiled.at("byteSize").is_number_unsigned())
+                if (!compiled.contains("byteHash") || !compiled["byteHash"].is_string() ||
+                    !compiled.contains("byteSize") || !compiled["byteSize"].is_number_unsigned())
                     return std::nullopt;
-                const auto hash = compiled.at("byteHash").template get<std::string>();
-                const auto size = compiled.at("byteSize").template get<std::uint64_t>();
+                const auto hash = compiled["byteHash"].template get<std::string>();
+                const auto size = compiled["byteSize"].template get<std::uint64_t>();
                 if (hash.size() != 71 || !hash.starts_with("sha256:") ||
                     !std::all_of(hash.begin() + 7, hash.end(),
                                  [](char ch) {

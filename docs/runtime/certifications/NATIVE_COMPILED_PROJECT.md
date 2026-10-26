@@ -3,7 +3,7 @@
 ## Ownership and boundary
 
 The native C++ compiler entrypoint is
-`tools/editor_tool/native_compiled_project.cpp::compile_native_compiled_project`.
+`tools/project_authoring/native_compiled_project.cpp::compile_native_compiled_project`.
 It consumes **one already-admitted, normalized Project value**. Its shared,
 Room/Scene, and Dialogue/Interaction lowerers all use the same native Message
 projection; the compiler assembles the current `noveltea.compiled.project`
@@ -14,7 +14,7 @@ the actual engine Compiled Project decoder. An error produces **no** compiled
 value.
 
 The native flow prediction implementation is
-`tools/editor_tool/native_flow_prediction.cpp`. Its slice/dependency graph
+`tools/project_authoring/native_flow_prediction.cpp`. Its slice/dependency graph
 is derived from the compiled definitions, not from TypeScript data or an
 existing runtime cache. Save Contract hashing is owned by
 `native_compiled_project_save_contract.cpp`. The authoritative reference
