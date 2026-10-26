@@ -5,6 +5,10 @@
 #include "native_authoring_programs.hpp"
 #include "native_compiled_project_save_contract.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
+#include <noveltea/runtime/runtime_executor.hpp>
+#include <noveltea/presentation/runtime_presentation_model.hpp>
+#include <noveltea/script/script_runtime.hpp>
+#include "fake_script_source.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <chrono>
@@ -49,6 +53,82 @@ Json invoke(std::uint64_t (*operation)(const std::uint8_t*, std::uint64_t, std::
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--exercise-compiled-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            const auto candidate = Json::parse(input);
+            const auto decoded = noveltea::core::decode_compiled_project(
+                candidate, "native-gameplay-execution-parity");
+            require(static_cast<bool>(decoded), "Native gameplay candidate could not decode.");
+            const auto& project = decoded.value();
+            noveltea::test_support::MemoryScriptSource sources;
+            noveltea::script::ScriptRuntime scripts;
+            require(static_cast<bool>(scripts.initialize({&sources})),
+                    "Runtime Script port could not initialize.");
+            noveltea::presentation::RuntimePresentationModel presentation;
+            auto created =
+                noveltea::runtime::RuntimeExecutor::create(project, scripts, presentation);
+            require(static_cast<bool>(created), "Runtime Executor could not initialize.");
+            auto& executor = *created.value();
+            for (const auto stage : {noveltea::core::RoomTransitionStage::BeforeEnter,
+                                     noveltea::core::RoomTransitionStage::CommitRoomSwitch,
+                                     noveltea::core::RoomTransitionStage::AfterEnter,
+                                     noveltea::core::RoomTransitionStage::Complete})
+                require(static_cast<bool>(executor.flow().advance_room_transition(stage)),
+                        "Could not advance the initial Room transition.");
+            require(static_cast<bool>(executor.flow().complete_room_transition()),
+                    "Could not complete the initial Room transition.");
+            const auto room_id = candidate.at("entrypoint").at("room").at("id").get<std::string>();
+            const auto room = noveltea::core::RoomId::create(room_id);
+            const auto verb = noveltea::core::VerbId::create("probe");
+            const auto slot = noveltea::core::VerbSlotId::create("subject");
+            const auto subject =
+                noveltea::core::InteractableInstanceId::create("offer-rule-derived");
+            const auto interaction = noveltea::core::InteractionId::create("commands-discovery");
+            const auto rule = noveltea::core::InteractionRuleId::create("rule-derived-probe");
+            require(room && verb && slot && subject && interaction && rule,
+                    "Invalid Feature Lab runtime execution witness identities.");
+            noveltea::core::InteractionInvocationContext invocation{
+                verb.value(),
+                room.value(),
+                {{slot.value(),
+                  noveltea::core::compiled::InteractableInteractionSubject{subject.value()}}}};
+            noveltea::core::InteractionProgramRef interaction_program =
+                noveltea::core::InteractionRuleProgramRef{interaction.value(), rule.value()};
+            require(static_cast<bool>(executor.flow().start_interaction(
+                        std::move(invocation), std::move(interaction_program))),
+                    "Could not start native-lowered Interaction program.");
+            const auto interaction_result = executor.run_until_blocked(32, "en");
+            require(!std::holds_alternative<noveltea::core::FlowFaultOutcome>(interaction_result),
+                    "Native Interaction execution faulted.");
+            const auto property = noveltea::core::PropertyId::create("commands-result");
+            require(static_cast<bool>(property), "Missing Feature Lab property identity.");
+            const auto value = executor.gateway().global_property(property.value());
+            require(value &&
+                        value.value() == noveltea::core::RuntimeValue{std::string("rule-derived")},
+                    "Native Interaction did not execute set-global-property.");
+
+            Json dialogue_wire = candidate;
+            dialogue_wire["entrypoint"] = {
+                {"kind", "dialogue"}, {"dialogue", {{"kind", "dialogue"}, {"id", "active-text"}}}};
+            const auto dialogue_decoded = noveltea::core::decode_compiled_project(
+                dialogue_wire, "native-dialogue-execution-parity");
+            require(static_cast<bool>(dialogue_decoded), "Native Dialogue wire could not decode.");
+            auto dialogue_created = noveltea::runtime::RuntimeExecutor::create(
+                dialogue_decoded.value(), scripts, presentation);
+            require(static_cast<bool>(dialogue_created), "Dialogue Executor could not initialize.");
+            auto& dialogue_executor = *dialogue_created.value();
+            const auto dialogue_result = dialogue_executor.run_until_blocked(32, "en");
+            require(!std::holds_alternative<noveltea::core::FlowFaultOutcome>(dialogue_result),
+                    "Native Dialogue runtime execution faulted.");
+            require(!dialogue_executor.state().flow_stack().empty() &&
+                        std::holds_alternative<noveltea::core::DialogueFrame>(
+                            dialogue_executor.state().flow_stack().back()),
+                    "Native Dialogue did not enter the authored Dialogue graph.");
+            std::cout << Json{{"dialogueExecuted", true}, {"interactionExecuted", true}}.dump()
+                      << '\n';
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--verify-compiled-stdin") {
             const std::string input{std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>()};
@@ -125,14 +205,16 @@ int main(int argc, char** argv)
                                         {"managedSources", messages.rewritten_sources},
                                         {"rmlSources", messages.rewritten_rml}};
                 identity["resources"] = resources;
-                identity["shared"] = noveltea::cli::lower_room_scene_programs(
+                identity["shared"] = noveltea::cli::lower_dialogue_interaction_programs(
                     project, messages,
-                    noveltea::cli::lower_shared_authoring_project(project, messages));
+                    noveltea::cli::lower_room_scene_programs(
+                        project, messages,
+                        noveltea::cli::lower_shared_authoring_project(project, messages)));
                 // Deliberately distinguish compiler omissions from supported-family
                 // agreement: this is not a publishable Compiled Project.
                 static const Json unsupported =
-                    Json::array({"programs.dialogue-interaction", "localization.metadata",
-                                 "flowPrediction", "saveContract-production"});
+                    Json::array({"localization.metadata", "flowPrediction",
+                                 "saveContract-production"});
                 std::cout << Json{{"ok", true},
                                   {"project", project},
                                   {"sourceGeneration", prepared.at("sourceGeneration")},

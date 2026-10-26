@@ -99,8 +99,14 @@ an owning JSON pointer. It is never invoked by production native CLI code. The F
 witness includes named Messages, plural/select patterns, RML-local text, inline managed
 Lua, translated catalogs and the global `story-message` default. The partial candidate is
 **not** a complete Compiled Project and must not publish a runtime cache based on this
-projection alone. Later tickets implement the missing gameplay definitions, runtime
-locale metadata and complete native assembly.
+projection alone. Subsequent shared and program lowerers (#554–#556) now cover
+Room, Scene, Dialogue, Interaction and Verb programs, including their canonical
+Command, Condition and Message references. The cold parity suite substitutes
+these native gameplay families into a reference-compiled runtime document,
+checks exact wire parity and executes representative Dialogue and Interaction
+flows with the real runtime executor. Runtime locale metadata, Flow Prediction,
+native assembly, and complete runtime cache/package preparation remain
+separate work (#557 onward).
 
 The native runtime-cache publisher requires preparation-time runtime and Test input
 metadata snapshots. It refuses to certify previously compiled gameplay or a previously

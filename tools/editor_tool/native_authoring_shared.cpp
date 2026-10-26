@@ -1587,4 +1587,6 @@ Json effective_room_authoring_data(const Json& project, const std::string& id, b
     }
     return effective_record(project, "room", object(project.at("rooms"), id)).at("data");
 }
+
+Json lower_subject_selector(const Json& source) { return selector(source); }
 } // namespace noveltea::cli

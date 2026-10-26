@@ -613,8 +613,10 @@ Json lower_gameplay_command(const Json& project, const NativeMessageProjection& 
                 result["sourceInventory"] = inventory_operand(command.at("sourceInventory"));
         }
     }
-    if (kind == "present-inventory")
+    if (kind == "present-inventory") {
         result["inventory"] = inventory_operand(command.at("inventory"));
+        result["layout"] = ref(optional(command, "layout"), "layout");
+    }
     if (kind == "notify")
         result["message"] =
             compiled_text(project, messages, command.at("message"), semantic_path + "/message");
@@ -627,6 +629,8 @@ Json lower_gameplay_command(const Json& project, const NativeMessageProjection& 
     }
     return result;
 }
+
+Json lower_gameplay_condition(const Json& source) { return condition(source); }
 
 Json lower_room_scene_programs(const Json& project, const NativeMessageProjection& messages,
                                Json shared)

@@ -17,4 +17,5 @@ lower_shared_authoring_project(const nlohmann::json& admitted_project,
 // Program compilation must not independently interpret inherited Room records.
 [[nodiscard]] nlohmann::json effective_room_authoring_data(const nlohmann::json& project,
                                                            const std::string& id, bool archetype);
+[[nodiscard]] nlohmann::json lower_subject_selector(const nlohmann::json& selector);
 } // namespace noveltea::cli
