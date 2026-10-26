@@ -263,6 +263,43 @@ add_custom_command(OUTPUT "${_native_comfyui_header}"
     DEPENDS "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-comfyui-workflows.mjs"
         ${_native_comfyui_workflows}
     VERBATIM)
+# PE resource editing must run on Linux/macOS as well as Windows. Prefer a
+# preinstalled LIEF package; otherwise use the pinned, PE-only upstream build.
+# This dependency belongs exclusively to the native host CLI, not the player.
+find_package(LIEF 0.17.3 CONFIG QUIET)
+if(NOT TARGET LIEF::LIEF)
+    include(FetchContent)
+    set(LIEF_TESTS OFF CACHE BOOL "" FORCE)
+    set(LIEF_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LIEF_PYTHON_API OFF CACHE BOOL "" FORCE)
+    set(LIEF_C_API OFF CACHE BOOL "" FORCE)
+    set(LIEF_ELF OFF CACHE BOOL "" FORCE)
+    set(LIEF_MACHO OFF CACHE BOOL "" FORCE)
+    set(LIEF_DEX OFF CACHE BOOL "" FORCE)
+    set(LIEF_ART OFF CACHE BOOL "" FORCE)
+    set(LIEF_OAT OFF CACHE BOOL "" FORCE)
+    set(LIEF_VDEX OFF CACHE BOOL "" FORCE)
+    set(LIEF_PE ON CACHE BOOL "" FORCE)
+    set(LIEF_COFF ON CACHE BOOL "" FORCE)
+    set(LIEF_ENABLE_JSON OFF CACHE BOOL "" FORCE)
+    set(LIEF_LOGGING OFF CACHE BOOL "" FORCE)
+    set(LIEF_ASM OFF CACHE BOOL "" FORCE)
+    set(LIEF_DEBUG_INFO OFF CACHE BOOL "" FORCE)
+    set(LIEF_USE_CCACHE OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(noveltea_lief
+        URL https://codeload.github.com/lief-project/LIEF/tar.gz/03aca30b53db2f336b36f90843061bb3f840ff5a
+        URL_HASH SHA256=0bc8a8b25324c52146bc1671193cc43cfcf192366803faae8f3e4236d5246dc0
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(noveltea_lief)
+endif()
+
+# A separate target keeps the PE exporter testable without any Project broker,
+# editor, or host CLI routing. The player never links this library.
+add_library(noveltea_cli_windows_pe STATIC native_cli_windows_pe.cpp)
+target_include_directories(noveltea_cli_windows_pe PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(noveltea_cli_windows_pe PUBLIC LIEF::LIEF)
+noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
+
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
     native_cli.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
     native_cli_platform.cpp
@@ -278,7 +315,7 @@ target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_SOURCE_D
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tools/project_authoring")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
 target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
-    nlohmann_json::nlohmann_json miniz::miniz)
+    nlohmann_json::nlohmann_json miniz::miniz noveltea_cli_windows_pe)
 if(WIN32)
     target_link_libraries(noveltea-native-cli PRIVATE winhttp)
 endif()
@@ -298,6 +335,13 @@ add_custom_command(TARGET noveltea-native-cli POST_BUILD
 if(BUILD_TESTING)
     set_target_properties(noveltea-native-cli PROPERTIES EXCLUDE_FROM_ALL FALSE)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_executable(noveltea-cli-windows-pe-certify
+        "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_windows_pe_tests.cpp")
+    target_link_libraries(noveltea-cli-windows-pe-certify PRIVATE
+        noveltea_cli_windows_pe)
+    noveltea_apply_policy_warnings(noveltea-cli-windows-pe-certify)
+    add_test(NAME native_cli_windows_pe_resources
+        COMMAND noveltea-cli-windows-pe-certify)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
