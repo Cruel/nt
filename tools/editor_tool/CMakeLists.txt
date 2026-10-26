@@ -265,6 +265,7 @@ add_custom_command(OUTPUT "${_native_comfyui_header}"
     VERBATIM)
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
     native_cli.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
+    native_cli_platform.cpp
     native_cli_comfyui_http.cpp
     "${_native_comfyui_header}"
     "${_native_agent_kit_header}" native_cli_test_catalog.cpp
@@ -299,6 +300,9 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_contract.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_platform_commands
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_platform.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_agent_tools
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_agent_tools.py"

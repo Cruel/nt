@@ -1,0 +1,1113 @@
+#include "native_cli_platform.hpp"
+
+#include <noveltea/core/player_bootstrap.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cerrno>
+#include <chrono>
+#include <cctype>
+#include <ctime>
+#include <cstdlib>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <map>
+#include <optional>
+#include <random>
+#include <set>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#if defined(_WIN32)
+#include <Windows.h>
+#else
+#include <fcntl.h>
+#include <pwd.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
+namespace noveltea::cli {
+namespace {
+namespace fs = std::filesystem;
+using Json = nlohmann::ordered_json;
+
+std::string text(const fs::path& path)
+{
+    const auto value = path.u8string();
+    return {value.begin(), value.end()};
+}
+
+PlatformCliResult result(bool success, Json fields = Json::object(),
+                         Json diagnostics = Json::array(), std::string human = {}, int exit = 4)
+{
+    Json envelope{{"success", success},
+                  {"exitCode", success ? 0 : exit},
+                  {"diagnostics", std::move(diagnostics)}};
+    envelope.update(fields);
+    return {std::move(envelope), std::move(human)};
+}
+
+PlatformCliResult fail(std::string code, std::string path, std::string message, int exit = 4)
+{
+    return result(false, Json::object(),
+                  Json::array({{{"code", std::move(code)},
+                                {"severity", "error"},
+                                {"path", std::move(path)},
+                                {"message", message}}}),
+                  message, exit);
+}
+
+// A usage exception is emitted by the CLI's existing common CLI_USAGE handler.
+void require_count(const std::vector<std::string>& command, std::size_t expected,
+                   std::string_view help)
+{
+    if (command.size() != expected)
+        throw std::invalid_argument(std::string(help));
+}
+
+bool force_only(const std::vector<std::string>& command, std::size_t offset, std::string_view help)
+{
+    if (command.size() == offset)
+        return false;
+    if (command.size() != offset + 1 || command[offset] != "--force")
+        throw std::invalid_argument(std::string(help));
+    return true;
+}
+
+bool valid_component(std::string_view value)
+{
+    if (value.empty() || value == "." || value == "..")
+        return false;
+    return std::all_of(value.begin(), value.end(), [](unsigned char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+               c == '_' || c == '.' || c == '-';
+    });
+}
+
+std::pair<std::string, std::string> parse_token(const std::string& token)
+{
+    const auto split = token.find('@');
+    if (split == std::string::npos || token.find('@', split + 1) != std::string::npos ||
+        !valid_component(std::string_view(token).substr(0, split)) ||
+        !valid_component(std::string_view(token).substr(split + 1)))
+        throw std::invalid_argument("Invalid template identity '" + token +
+                                    "'; expected <id>@<build>.");
+    return {token.substr(0, split), token.substr(split + 1)};
+}
+
+fs::path user_home()
+{
+#if defined(_WIN32)
+    const char* home = std::getenv("USERPROFILE");
+    if (!home || !*home)
+        throw std::runtime_error("User home is unavailable.");
+#else
+    const char* home = std::getenv("HOME");
+    if (!home || !*home) {
+        const auto* account = getpwuid(getuid());
+        home = account ? account->pw_dir : nullptr;
+    }
+    if (!home || !*home)
+        throw std::runtime_error("User home is unavailable.");
+#endif
+    return fs::u8path(home);
+}
+
+fs::path registry_root()
+{
+    const char* configured = std::getenv("NOVELTEA_TEMPLATE_REGISTRY_ROOT");
+    return fs::absolute(configured && *configured ? fs::u8path(configured)
+                                                  : user_home() / ".noveltea/templates")
+        .lexically_normal();
+}
+
+fs::path template_root(const std::string& token)
+{
+    const auto [id, build] = parse_token(token);
+    const auto registry = registry_root();
+    if (fs::is_symlink(fs::symlink_status(registry)) ||
+        fs::is_symlink(fs::symlink_status(registry / fs::u8path(id))))
+        throw std::runtime_error("Refusing symbolic-link template registry paths.");
+    return registry / fs::u8path(id) / fs::u8path(build);
+}
+
+std::string read_file(const fs::path& path)
+{
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        throw std::runtime_error("Cannot read '" + text(path) + "'.");
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+void write_exclusive_file(const fs::path& path, std::string_view bytes)
+{
+#if defined(_WIN32)
+    const HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                      FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("Cannot reserve exclusive output '" + text(path) + "'.");
+    DWORD written = 0;
+    const auto accepted =
+        WriteFile(handle, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) != 0 &&
+        written == bytes.size() && FlushFileBuffers(handle) != 0;
+    CloseHandle(handle);
+    if (!accepted) {
+        std::error_code ignored;
+        fs::remove(path, ignored);
+        throw std::runtime_error("Cannot finish staged output '" + text(path) + "'.");
+    }
+#else
+    const int handle = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (handle < 0)
+        throw std::runtime_error("Cannot reserve exclusive output '" + text(path) + "'.");
+    bool accepted = true;
+    std::size_t position = 0;
+    while (position < bytes.size()) {
+        const auto count = write(handle, bytes.data() + position, bytes.size() - position);
+        if (count < 0 && errno == EINTR)
+            continue;
+        if (count <= 0) {
+            accepted = false;
+            break;
+        }
+        position += static_cast<std::size_t>(count);
+    }
+    if (accepted && fsync(handle) != 0)
+        accepted = false;
+    if (close(handle) != 0)
+        accepted = false;
+    if (!accepted) {
+        std::error_code ignored;
+        fs::remove(path, ignored);
+        throw std::runtime_error("Cannot finish staged output '" + text(path) + "'.");
+    }
+#endif
+}
+
+std::string hash_bytes(std::string_view bytes)
+{
+    return core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size())));
+}
+
+struct ProcessResult {
+    int code = -1;
+    std::string output;
+};
+
+#if defined(_WIN32)
+std::wstring quote(const std::wstring& arg)
+{
+    std::wstring quoted = L"\"";
+    std::size_t slashes = 0;
+    for (const wchar_t ch : arg) {
+        if (ch == L'\\') {
+            ++slashes;
+        } else if (ch == L'"') {
+            quoted.append(slashes * 2 + 1, L'\\');
+            quoted.push_back(ch);
+            slashes = 0;
+        } else {
+            quoted.append(slashes, L'\\');
+            quoted.push_back(ch);
+            slashes = 0;
+        }
+    }
+    quoted.append(slashes * 2, L'\\');
+    return quoted + L'"';
+}
+#endif
+
+// Invoke only the existing host archive tools. Never interpolate archive names
+// into a shell; the input is an arbitrary user-controlled filesystem path.
+ProcessResult run_archive_tool(const std::string& program, const std::vector<std::string>& args)
+{
+#if defined(_WIN32)
+    SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    HANDLE read_pipe = nullptr, write_pipe = nullptr;
+    if (!CreatePipe(&read_pipe, &write_pipe, &attributes, 0))
+        throw std::runtime_error("Could not create archive-tool output pipe.");
+    SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdOutput = write_pipe;
+    startup.hStdError = write_pipe;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    const auto program_path = fs::u8path(program);
+    std::wstring command = quote(program_path.wstring());
+    for (const auto& arg : args)
+        command += L" " + quote(fs::u8path(arg).wstring());
+    PROCESS_INFORMATION process{};
+    const auto launched = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
+                                         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+    CloseHandle(write_pipe);
+    if (!launched) {
+        CloseHandle(read_pipe);
+        throw std::runtime_error("Could not launch archive tool '" + program + "'.");
+    }
+    ProcessResult output;
+    std::array<char, 8192> buffer{};
+    DWORD length = 0;
+    while (
+        ReadFile(read_pipe, buffer.data(), static_cast<DWORD>(buffer.size()), &length, nullptr) &&
+        length) {
+        if (output.output.size() < 32 * 1024 * 1024)
+            output.output.append(buffer.data(), length);
+    }
+    CloseHandle(read_pipe);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD status = 0;
+    GetExitCodeProcess(process.hProcess, &status);
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    output.code = static_cast<int>(status);
+    return output;
+#else
+    int pipe_fd[2];
+    if (pipe(pipe_fd) != 0)
+        throw std::runtime_error("Could not create archive-tool output pipe.");
+    const auto pid = fork();
+    if (pid < 0) {
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
+        throw std::runtime_error("Could not launch archive tool.");
+    }
+    if (pid == 0) {
+        close(pipe_fd[0]);
+        dup2(pipe_fd[1], STDOUT_FILENO);
+        dup2(pipe_fd[1], STDERR_FILENO);
+        close(pipe_fd[1]);
+        std::vector<std::string> stored{program};
+        stored.insert(stored.end(), args.begin(), args.end());
+        std::vector<char*> argv;
+        for (auto& arg : stored)
+            argv.push_back(arg.data());
+        argv.push_back(nullptr);
+        execvp(program.c_str(), argv.data());
+        _exit(127);
+    }
+    close(pipe_fd[1]);
+    ProcessResult output;
+    std::array<char, 8192> buffer{};
+    ssize_t length = 0;
+    while ((length = read(pipe_fd[0], buffer.data(), buffer.size())) > 0)
+        if (output.output.size() < 32 * 1024 * 1024)
+            output.output.append(buffer.data(), static_cast<std::size_t>(length));
+    close(pipe_fd[0]);
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0)
+        throw std::runtime_error("Could not reap archive tool.");
+    output.code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    return output;
+#endif
+}
+
+std::string checked_archive_tool(const std::string& program, const std::vector<std::string>& args)
+{
+    const auto output = run_archive_tool(program, args);
+    if (output.code != 0)
+        throw std::runtime_error("Archive tool '" + program +
+                                 "' failed: " + output.output.substr(0, 500));
+    if (output.output.size() >= 32 * 1024 * 1024)
+        throw std::runtime_error("Archive listing exceeds the output limit.");
+    return output.output;
+}
+
+std::string configured_tool(const char* variable, std::string fallback)
+{
+    const char* value = std::getenv(variable);
+    return value && *value ? value : fallback;
+}
+
+std::vector<std::string> archive_entries(const fs::path& archive, bool zip)
+{
+#if defined(_WIN32)
+    const bool use_zip_tools = false;
+#else
+    const bool use_zip_tools = zip;
+#endif
+    const auto tar = configured_tool("NOVELTEA_TAR", "tar");
+    const auto unzip = configured_tool("NOVELTEA_UNZIP", "unzip");
+    const auto zipinfo = configured_tool("NOVELTEA_ZIPINFO", "zipinfo");
+    const auto archive_name = text(archive);
+    const auto verbose = use_zip_tools ? checked_archive_tool(zipinfo, {"-l", archive_name})
+                                       : checked_archive_tool(tar, {"-tvf", archive_name});
+    std::size_t start = 0;
+    while (start < verbose.size()) {
+        const auto end = verbose.find('\n', start);
+        auto line = verbose.substr(start, end == std::string::npos ? end : end - start);
+        const auto lead = line.find_first_not_of(" \t\r");
+        if (lead != std::string::npos && (line[lead] == 'l' || line[lead] == 'h') &&
+            // zipinfo header lines do not encode a Unix entry mode.
+            (line.size() >= lead + 10 && line[lead + 1] == 'r'))
+            throw std::runtime_error("Template archive contains a symbolic or hard link.");
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    const auto listing = use_zip_tools ? checked_archive_tool(unzip, {"-Z1", archive_name})
+                                       : checked_archive_tool(tar, {"-tf", archive_name});
+    std::vector<std::string> entries;
+    std::set<std::string> folded;
+    start = 0;
+    while (start < listing.size()) {
+        const auto end = listing.find('\n', start);
+        auto name = listing.substr(start, end == std::string::npos ? end : end - start);
+        if (!name.empty() && name.back() == '\r')
+            name.pop_back();
+        if (!name.empty() && name != "." && name != "./") {
+            if (name.starts_with("./"))
+                name.erase(0, 2);
+            if (!name.empty() && name.back() == '/')
+                name.pop_back();
+            // Check every component before an external extractor sees any entry.
+            if (name.empty() || name.starts_with('/') || name.find('\\') != std::string::npos ||
+                name.find(':') != std::string::npos || name.find('\r') != std::string::npos ||
+                name.find('\n') != std::string::npos)
+                throw std::runtime_error("Unsafe template archive path '" + name + "'.");
+            std::size_t part_start = 0;
+            while (part_start < name.size()) {
+                const auto end_part = name.find('/', part_start);
+                const auto part = name.substr(
+                    part_start, end_part == std::string::npos ? end_part : end_part - part_start);
+                if (part.empty() || part == "." || part == "..")
+                    throw std::runtime_error("Unsafe template archive path '" + name + "'.");
+                if (end_part == std::string::npos)
+                    break;
+                part_start = end_part + 1;
+            }
+            auto folded_name = name;
+            std::transform(folded_name.begin(), folded_name.end(), folded_name.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (!folded.insert(folded_name).second)
+                throw std::runtime_error(
+                    "Template archive contains a duplicate or case-colliding path.");
+            entries.push_back(name);
+            if (entries.size() > 20'000)
+                throw std::runtime_error("Template archive contains too many entries.");
+        }
+        if (end == std::string::npos)
+            break;
+        start = end + 1;
+    }
+    return entries;
+}
+
+void extract_archive(const fs::path& archive, const fs::path& destination, bool zip)
+{
+#if defined(_WIN32)
+    const bool use_zip_tools = false;
+#else
+    const bool use_zip_tools = zip;
+#endif
+    if (use_zip_tools)
+        checked_archive_tool(configured_tool("NOVELTEA_UNZIP", "unzip"),
+                             {"-qq", text(archive), "-d", text(destination)});
+    else
+        checked_archive_tool(configured_tool("NOVELTEA_TAR", "tar"),
+                             {"-xf", text(archive), "-C", text(destination)});
+}
+
+std::string utc_now()
+{
+    const auto now = std::chrono::system_clock::now();
+    const auto seconds = std::chrono::system_clock::to_time_t(now);
+    std::tm fields{};
+#if defined(_WIN32)
+    gmtime_s(&fields, &seconds);
+#else
+    gmtime_r(&seconds, &fields);
+#endif
+    char result[32]{};
+    if (std::strftime(result, sizeof(result), "%Y-%m-%dT%H:%M:%SZ", &fields) == 0)
+        throw std::runtime_error("Could not construct template installation timestamp.");
+    return result;
+}
+
+void write_json(const fs::path& path, const Json& value)
+{
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    if (!stream || !(stream << value.dump(2) << '\n'))
+        throw std::runtime_error("Could not stage template registry entry.");
+}
+
+Json read_json(const fs::path& path) { return Json::parse(read_file(path)); }
+
+std::string notice_slug(const std::string& name)
+{
+    std::string slug;
+    for (const unsigned char c : name) {
+        const bool letter = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+        const bool digit = c >= '0' && c <= '9';
+        if (letter || digit) {
+            slug.push_back(static_cast<char>(std::tolower(c)));
+        } else if (!slug.empty() && slug.back() != '-') {
+            slug.push_back('-');
+        }
+    }
+    if (!slug.empty() && slug.back() == '-')
+        slug.pop_back();
+    return slug;
+}
+
+bool valid_notice_text(std::string_view value)
+{
+    if (value.empty() || value.size() > 1024 * 1024)
+        return false;
+    if (value.find("No dependency notice file was found") != std::string_view::npos ||
+        value.find("Resolved dependency license texts are collected") != std::string_view::npos ||
+        value.find("PLACEHOLDER LICENSE") != std::string_view::npos)
+        return false;
+    bool printable = false;
+    for (std::size_t i = 0; i < value.size();) {
+        const auto lead = static_cast<unsigned char>(value[i]);
+        std::size_t count = 1;
+        char32_t cp = lead;
+        if (lead >= 0xf0 && lead <= 0xf4) {
+            cp = lead & 0x07;
+            count = 4;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            cp = lead & 0x0f;
+            count = 3;
+        } else if (lead >= 0xc2 && lead <= 0xdf) {
+            cp = lead & 0x1f;
+            count = 2;
+        } else if (lead >= 0x80) {
+            return false;
+        }
+        if (i + count > value.size())
+            return false;
+        for (std::size_t j = 1; j < count; ++j) {
+            const auto next = static_cast<unsigned char>(value[i + j]);
+            if ((next & 0xc0) != 0x80)
+                return false;
+            cp = (cp << 6) | (next & 0x3f);
+        }
+        if ((count == 2 && cp < 0x80) || (count == 3 && cp < 0x800) ||
+            (count == 4 && cp < 0x10000) || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff) ||
+            (cp < 32 && cp != '\n' && cp != '\r' && cp != '\t' && cp != '\f') ||
+            (cp >= 127 && cp <= 159))
+            return false;
+        if (cp > 32)
+            printable = true;
+        i += count;
+    }
+    return printable;
+}
+
+// Inventory paths must be portable relative paths; never follow directory
+// symlinks when inspecting a registry assembled by another process.
+fs::path inventory_path(const fs::path& root, const std::string& relative)
+{
+    if (relative.empty() || relative.starts_with('/') || relative.find('\\') != std::string::npos ||
+        relative.find(':') != std::string::npos)
+        throw std::runtime_error("Unsafe template inventory path '" + relative + "'.");
+    fs::path selected = root;
+    std::size_t index = 0;
+    while (index < relative.size()) {
+        const auto next = relative.find('/', index);
+        const auto part = relative.substr(index, next == std::string::npos ? next : next - index);
+        if (part.empty() || part == "." || part == "..")
+            throw std::runtime_error("Unsafe template inventory path '" + relative + "'.");
+        selected /= fs::u8path(part);
+        const auto status = fs::symlink_status(selected);
+        if (fs::is_symlink(status))
+            throw std::runtime_error("Symbolic link in template inventory '" + relative + "'.");
+        if (next == std::string::npos)
+            break;
+        index = next + 1;
+    }
+    return selected;
+}
+
+struct Template {
+    Json entry;
+    Json descriptor;
+    std::string status;
+};
+
+std::optional<Template> inspect(const std::string& token)
+{
+    try {
+        const auto root = template_root(token);
+        if (!fs::exists(fs::symlink_status(root)))
+            return std::nullopt;
+        if (!fs::is_directory(fs::symlink_status(root)))
+            return std::nullopt;
+        const auto entry = read_json(root / ".noveltea-template.json");
+        const auto descriptor = read_json(root / "template.json");
+        const auto [id, build] = parse_token(token);
+        if (entry.value("format", "") != "noveltea.template-registry" ||
+            entry.value("templateId", "") != id || entry.value("buildId", "") != build ||
+            descriptor.value("format", "") != "noveltea.player-template" ||
+            descriptor.value("formatVersion", 0) != 1 || descriptor.value("templateId", "") != id ||
+            descriptor.value("buildId", "") != build)
+            return std::nullopt;
+        std::string status = "corrupted";
+        try {
+            if (hash_bytes(read_file(root / "template.json")) !=
+                entry.at("descriptorSha256").get<std::string>())
+                throw std::runtime_error("Descriptor checksum mismatch.");
+            std::set<std::string> declared;
+            std::map<std::string, Json> inventory;
+            for (const auto& item : descriptor.at("files")) {
+                const auto name = item.at("path").get<std::string>();
+                if (!declared.insert(name).second)
+                    throw std::runtime_error("Duplicate inventory path.");
+                inventory.emplace(name, item);
+                const auto bytes = read_file(inventory_path(root, name));
+                if (bytes.size() != item.at("size").get<std::size_t>() ||
+                    hash_bytes(bytes) != item.at("sha256").get<std::string>())
+                    throw std::runtime_error("Inventory digest mismatch.");
+            }
+            std::set<std::string> actual;
+            for (fs::recursive_directory_iterator cursor(root);
+                 cursor != fs::recursive_directory_iterator(); ++cursor) {
+                if (fs::is_symlink(cursor->symlink_status()) ||
+                    (!cursor->is_regular_file() && !cursor->is_directory()))
+                    throw std::runtime_error("Unsafe installed entry.");
+                if (cursor->is_regular_file()) {
+                    const auto name = cursor->path().lexically_relative(root).generic_string();
+                    if (name != ".noveltea-template.json" && name != "template.json")
+                        actual.insert(name);
+                }
+            }
+            if (actual != declared)
+                throw std::runtime_error("Unexpected installed file.");
+            if (!inventory.contains("licenses/index.json"))
+                throw std::runtime_error("Missing license index.");
+            const auto index = read_json(root / "licenses/index.json");
+            if (index.value("format", "") != "noveltea.engine-licenses")
+                throw std::runtime_error("License index format mismatch.");
+            if (index.at("components").empty())
+                throw std::runtime_error("Empty license index.");
+            std::set<std::string> notices{"licenses/index.json"};
+            std::set<std::string> notice_components;
+            std::string previous_component;
+            for (const auto& component : index.at("components")) {
+                const auto name = component.at("component").get<std::string>();
+                const auto version = component.at("version").get<std::string>();
+                if (name.empty() || version.empty() ||
+                    (!previous_component.empty() && name <= previous_component) ||
+                    component.at("files").empty())
+                    throw std::runtime_error("Invalid license component ordering.");
+                previous_component = name;
+                notice_components.insert(name + std::string(1, '\0') + version);
+                for (const auto& file : component.at("files")) {
+                    const auto name = file.at("path").get<std::string>();
+                    if (!name.starts_with("licenses/" + notice_slug(previous_component) + "--") ||
+                        !name.ends_with(".txt") || !notices.insert(name).second ||
+                        !inventory.contains(name) ||
+                        inventory.at(name).at("sha256") != file.at("sha256") ||
+                        inventory.at(name).at("size") != file.at("size") ||
+                        (inventory.at(name).contains("role") &&
+                         inventory.at(name).at("role") != "notice") ||
+                        !valid_notice_text(read_file(inventory_path(root, name))))
+                        throw std::runtime_error("License index inventory mismatch.");
+                }
+            }
+            if (notices.size() - 1 > 512 ||
+                fs::file_size(root / "licenses/index.json") > 1024 * 1024)
+                throw std::runtime_error("License index is too large.");
+            for (const auto& [name, item] : inventory)
+                if (name.starts_with("licenses/") && !notices.contains(name))
+                    throw std::runtime_error("Undeclared license file.");
+            std::set<std::string> dependencies;
+            for (const auto& dependency : descriptor.at("runtimeDependencies"))
+                if (dependency.value("kind", "") == "notice")
+                    dependencies.insert(dependency.at("path").get<std::string>());
+            if (notices != dependencies)
+                throw std::runtime_error("License dependency inventory mismatch.");
+            const auto sbom =
+                read_json(inventory_path(root, descriptor.at("artifacts").at("sbom")));
+            if (sbom.value("bomFormat", "") != "CycloneDX")
+                throw std::runtime_error("Template SBOM format mismatch.");
+            std::set<std::string> sbom_components;
+            for (const auto& component : sbom.at("components"))
+                sbom_components.insert(component.at("name").get<std::string>() +
+                                       std::string(1, '\0') +
+                                       component.at("version").get<std::string>());
+            if (sbom_components != notice_components)
+                throw std::runtime_error("Template SBOM does not match engine licenses.");
+            status = entry.value("trust", "") == "official" ? "installed" : "untrusted";
+        } catch (const std::exception&) {
+            // Keep readable but corrupt registry records inspectable, like
+            // the editor registry. They can never satisfy export resolution.
+        }
+        return Template{entry, descriptor, status};
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+std::vector<Template> templates()
+{
+    std::vector<Template> found;
+    const auto root = registry_root();
+    if (!fs::exists(fs::symlink_status(root)))
+        return found;
+    if (!fs::is_directory(fs::symlink_status(root)))
+        throw std::runtime_error("Template registry root is not a directory.");
+    for (const auto& parent : fs::directory_iterator(root)) {
+        if (!parent.is_directory() || fs::is_symlink(parent.symlink_status()))
+            continue;
+        const auto id = parent.path().filename().string();
+        if (!valid_component(id))
+            continue;
+        for (const auto& build : fs::directory_iterator(parent.path())) {
+            if (!build.is_directory() || fs::is_symlink(build.symlink_status()))
+                continue;
+            const auto name = build.path().filename().string();
+            if (!valid_component(name))
+                continue;
+            if (auto candidate = inspect(id + "@" + name))
+                found.push_back(std::move(*candidate));
+        }
+    }
+    std::sort(found.begin(), found.end(), [](const Template& a, const Template& b) {
+        return a.descriptor.at("templateId").get<std::string>() + "@" +
+                   a.descriptor.at("buildId").get<std::string>() <
+               b.descriptor.at("templateId").get<std::string>() + "@" +
+                   b.descriptor.at("buildId").get<std::string>();
+    });
+    return found;
+}
+
+Json fields(const Template& item)
+{
+    const auto& descriptor = item.descriptor;
+    return {{"id", descriptor.at("templateId").get<std::string>() + "@" +
+                       descriptor.at("buildId").get<std::string>()},
+            {"templateId", descriptor.at("templateId")},
+            {"buildId", descriptor.at("buildId")},
+            {"target", descriptor.at("platform")},
+            {"architecture", descriptor.at("architecture")},
+            {"buildFlavor", descriptor.at("buildFlavor")},
+            {"trust", item.entry.at("trust")},
+            {"status", item.status}};
+}
+
+std::string artifact(const Json& profile)
+{
+    const auto target = profile.value("target", std::string{});
+    if (target == "web")
+        return profile.at("web").at("artifact").get<std::string>();
+    if (target == "android")
+        return profile.at("android").at("artifact").get<std::string>();
+    return profile.at("desktop").at("artifact").get<std::string>();
+}
+
+bool includes(const Json& array, const std::string& value)
+{
+    return array.is_array() && std::find(array.begin(), array.end(), value) != array.end();
+}
+
+// Match the zero-toolchain host projection used for public profile listings.
+// These rows are read-only presentation, not authorization for publication.
+bool host_compatible(const Json& profile, const std::vector<Template>& installed)
+{
+#if defined(_WIN32)
+    constexpr std::string_view host = "windows";
+#elif defined(__APPLE__)
+    constexpr std::string_view host = "macos";
+#else
+    constexpr std::string_view host = "linux";
+#endif
+    for (const auto& item : installed) {
+        const auto& descriptor = item.descriptor;
+        const auto target = profile.value("target", std::string{});
+        if (item.status == "corrupted" || descriptor.value("platform", "") != target ||
+            descriptor.value("architecture", "") != profile.value("architecture", "") ||
+            descriptor.value("buildFlavor", "") != profile.value("buildFlavor", ""))
+            continue;
+        const auto assembly = descriptor.at("host").value("assembly", "");
+        if (assembly != "any" && assembly != host)
+            continue;
+        if (descriptor.at("host").value("requiresToolchain", false) &&
+            !descriptor.at("host").at("tools").empty())
+            continue;
+        if (descriptor.value("compiledProjectFormatVersion", 0) != 1 ||
+            descriptor.value("playerRuntimeApiVersion", 0) != 1)
+            continue;
+        if (!includes(descriptor.at("packageAccessModes"),
+                      profile.at("packageAccess").get<std::string>()))
+            continue;
+        const auto variant = target == "android" || target == "web" ? "essl-300"
+                             : target == "macos"                    ? "metal"
+                                                                    : "glsl-330";
+        if (!includes(descriptor.at("shaderVariants"), variant) ||
+            !includes(descriptor.at("capabilities"), "external-url") ||
+            (target == "android" && !includes(descriptor.at("capabilities"), "vibration")))
+            continue;
+        if (target == "web" &&
+            !includes(descriptor.at("compiledFeatures"), profile.at("web").value("threaded", false)
+                                                             ? "web-threads"
+                                                             : "web-single-threaded"))
+            continue;
+        if (target == "android") {
+            if (!descriptor.contains("android") || !descriptor.at("android").is_object())
+                continue;
+            const auto& android = descriptor.at("android");
+            const auto& selected = profile.at("android");
+            const auto selected_artifact = selected.at("artifact").get<std::string>();
+            if (!includes(android.at("supportedAbis"), selected.at("abi").get<std::string>()) ||
+                !includes(android.at("packageAccessModes"),
+                          profile.at("packageAccess").get<std::string>()) ||
+                !includes(android.at("artifactKinds"),
+                          selected_artifact == "both" ? "apk" : selected_artifact) ||
+                (selected_artifact == "both" && !includes(android.at("artifactKinds"), "aab")) ||
+                selected.at("minSdk").get<int>() <
+                    android.at("minimumSdk").at("minimum").get<int>() ||
+                selected.at("minSdk").get<int>() >
+                    android.at("minimumSdk").at("maximum").get<int>())
+                continue;
+        }
+        return true;
+    }
+    return false;
+}
+
+PlatformCliResult platform_profiles(const fs::path& root,
+                                    const std::function<Json(const Json&)>& project_request)
+{
+    if (root.empty())
+        return fail("WORKSPACE_NOT_FOUND", "/project.yaml",
+                    "No NovelTea project.yaml was found from the current directory upward.", 3);
+    const auto manifest = root / "project.yaml";
+    const auto before = hash_bytes(read_file(manifest));
+    const auto prepared =
+        project_request({{"action", "platform-profiles-preparation"}, {"projectRoot", text(root)}});
+    if (!prepared.value("ok", false)) {
+        const auto diagnostics = prepared.value("diagnostics", Json::array());
+        if (!diagnostics.empty())
+            return result(false, {{"projectRoot", text(root)}}, diagnostics, {},
+                          prepared.value("exitCode", 3));
+        return fail("WORKSPACE_SOURCE_READ", "/project.yaml",
+                    prepared.value("error", "Native platform profile preparation failed."), 3);
+    }
+    if (!prepared.contains("exportSettings"))
+        return fail("WORKSPACE_SOURCE_READ", "/export",
+                    "Native Project preparation omitted export settings.", 3);
+    const auto installed = templates();
+    Json rows = Json::array();
+    std::string human;
+    for (const auto& profile : prepared.at("exportSettings").at("profiles")) {
+        const auto row = Json{{"id", profile.at("id")},
+                              {"label", profile.at("label")},
+                              {"target", profile.at("target")},
+                              {"architecture", profile.at("architecture")},
+                              {"buildFlavor", profile.at("buildFlavor")},
+                              {"artifact", artifact(profile)},
+                              {"hostCompatible", host_compatible(profile, installed)}};
+        if (!human.empty())
+            human += '\n';
+        human += row.at("id").get<std::string>() + "  " + row.at("label").get<std::string>() +
+                 "  " + row.at("target").get<std::string>() + "/" +
+                 row.at("architecture").get<std::string>() + "  " +
+                 row.at("artifact").get<std::string>();
+        rows.push_back(row);
+    }
+    if (hash_bytes(read_file(manifest)) != before)
+        return fail("WORKSPACE_REVISION_CONFLICT", "/",
+                    "Project authority changed during native profile enumeration.", 3);
+    if (rows.empty())
+        human = "No platform export profiles are configured. Create one in the editor.";
+    return result(true, {{"projectRoot", text(root)}, {"profiles", rows}},
+                  prepared.value("diagnostics", Json::array()), human);
+}
+
+PlatformCliResult config_init(const std::vector<std::string>& command)
+{
+    if (command.size() < 4 || command.size() > 5)
+        throw std::invalid_argument("Usage: noveltea platform config init <path> [--force].");
+    const bool force =
+        force_only(command, 4, "Usage: noveltea platform config init <path> [--force].");
+    const auto destination = fs::absolute(fs::u8path(command[3])).lexically_normal();
+    const auto status = fs::symlink_status(destination);
+    if (fs::is_symlink(status))
+        return fail("CLI_COMMAND", "/", "Refusing to replace a symbolic-link config path.", 4);
+    if (fs::exists(status) && !force)
+        return fail("CLI_COMMAND", "/",
+                    "Config destination '" + text(destination) +
+                        "' already exists; use --force to replace it.",
+                    4);
+    if (fs::exists(status) && !fs::is_regular_file(status))
+        return fail("CLI_COMMAND", "/", "Config destination is not a regular file.", 4);
+    Json config{{"format", "noveltea.editor-export-local-state"},
+                {"templateRoots", Json::array()},
+                {"toolchains", Json::object()},
+                {"signing", Json::object()}};
+    fs::create_directories(destination.parent_path());
+    std::random_device random;
+    auto staged = destination;
+    staged += ".tmp-" + std::to_string(random());
+    if (fs::exists(fs::symlink_status(staged)))
+        return fail("CLI_COMMAND", "/", "Could not reserve temporary config destination.", 4);
+    try {
+        write_exclusive_file(staged, config.dump(2) + '\n');
+    } catch (const std::exception& error) {
+        return fail("CLI_COMMAND", "/", error.what());
+    }
+    try {
+        fs::path backup = destination;
+        backup += ".previous-" + std::to_string(random());
+        const bool previous = fs::exists(status);
+        if (previous)
+            fs::rename(destination, backup);
+        try {
+            fs::rename(staged, destination);
+        } catch (...) {
+            if (previous)
+                fs::rename(backup, destination);
+            throw;
+        }
+        if (previous)
+            fs::remove(backup);
+    } catch (...) {
+        fs::remove(staged);
+        throw;
+    }
+    return result(true, {{"path", text(destination)}, {"config", config}}, Json::array(),
+                  "Created " + text(destination) + ".");
+}
+
+PlatformCliResult template_install(const fs::path& archive, bool force)
+{
+    auto install_failure = [](std::string message) {
+        return fail("template-install-failed", "/archive", std::move(message));
+    };
+    const auto archive_path = fs::absolute(archive).lexically_normal();
+    const auto archive_status = fs::symlink_status(archive_path);
+    if (!fs::is_regular_file(archive_status) ||
+        fs::file_size(archive_path) > 2ULL * 1024 * 1024 * 1024)
+        return install_failure("Template archive is missing, invalid, or exceeds the 2 GiB limit.");
+    const auto registry = registry_root();
+    if (fs::is_symlink(fs::symlink_status(registry)))
+        return install_failure("Refusing symbolic-link template registry root.");
+    fs::create_directories(registry);
+    std::random_device random;
+    const auto temporary = registry / (".install-" + std::to_string(random()));
+    if (fs::exists(fs::symlink_status(temporary)))
+        return install_failure("Could not reserve template staging directory.");
+    fs::create_directory(temporary);
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup()
+        {
+            if (!path.empty()) {
+                std::error_code ignored;
+                fs::remove_all(path, ignored);
+            }
+        }
+    } cleanup{temporary};
+    try {
+        const auto zip = archive_path.extension() == ".zip";
+        // The original archive is untrusted and can be changed by another
+        // process. List, extract and hash exactly one private pinned copy so
+        // it cannot turn unsafe between the listing and extraction passes.
+        const auto pinned = temporary / (zip ? "archive.zip" : "archive.tar.gz");
+        fs::copy_file(archive_path, pinned, fs::copy_options::none);
+        if (fs::file_size(pinned) > 2ULL * 1024 * 1024 * 1024)
+            throw std::runtime_error("Template archive exceeds the 2 GiB limit.");
+        const auto expanded = temporary / "expanded";
+        fs::create_directory(expanded);
+        const auto listing = archive_entries(pinned, zip);
+        extract_archive(pinned, expanded, zip);
+        auto staged_root = expanded;
+        if (!fs::is_regular_file(fs::symlink_status(staged_root / "template.json"))) {
+            std::set<std::string> top;
+            for (const auto& name : listing)
+                top.insert(name.substr(0, name.find('/')));
+            if (top.size() != 1)
+                throw std::runtime_error(
+                    "Template archive must contain template.json at its root.");
+            staged_root /= fs::u8path(*top.begin());
+            if (!fs::is_regular_file(fs::symlink_status(staged_root / "template.json")))
+                throw std::runtime_error(
+                    "Template archive must contain template.json at its root.");
+        }
+        const auto descriptor_bytes = read_file(staged_root / "template.json");
+        const auto descriptor = Json::parse(descriptor_bytes);
+        if (descriptor.value("format", "") != "noveltea.player-template" ||
+            descriptor.value("formatVersion", 0) != 1)
+            throw std::runtime_error("Template descriptor format is not supported.");
+        const auto id = descriptor.at("templateId").get<std::string>();
+        const auto build = descriptor.at("buildId").get<std::string>();
+        if (!valid_component(id) || !valid_component(build))
+            throw std::runtime_error("Template descriptor has an unsafe identity.");
+        const auto destination = template_root(id + "@" + build);
+        std::set<std::string> declared;
+        std::uint64_t total = descriptor_bytes.size();
+        for (const auto& item : descriptor.at("files")) {
+            const auto name = item.at("path").get<std::string>();
+            if (!declared.insert(name).second)
+                throw std::runtime_error("Template descriptor contains duplicate paths.");
+            const auto file = inventory_path(staged_root, name);
+            if (!fs::is_regular_file(fs::symlink_status(file)))
+                throw std::runtime_error("Template file is not a regular file: '" + name + "'.");
+            const auto size = fs::file_size(file);
+            total += size;
+            if (total > 4ULL * 1024 * 1024 * 1024)
+                throw std::runtime_error("Expanded template exceeds the 4 GiB limit.");
+            if (size != item.at("size").get<std::uint64_t>() ||
+                hash_bytes(read_file(file)) != item.at("sha256").get<std::string>())
+                throw std::runtime_error("Archive file '" + name +
+                                         "' failed descriptor verification.");
+        }
+        std::set<std::string> actual;
+        for (fs::recursive_directory_iterator current(staged_root);
+             current != fs::recursive_directory_iterator(); ++current) {
+            if (fs::is_symlink(current->symlink_status()) ||
+                (!current->is_directory() && !current->is_regular_file()))
+                throw std::runtime_error("Template archive contains unsafe filesystem entries.");
+            if (current->is_regular_file()) {
+                const auto name = current->path().lexically_relative(staged_root).generic_string();
+                if (name != "template.json")
+                    actual.insert(name);
+            }
+        }
+        if (declared != actual)
+            throw std::runtime_error(
+                "Archive contents do not exactly match the descriptor inventory.");
+        if (fs::is_symlink(fs::symlink_status(destination)))
+            throw std::runtime_error("Template destination is a symbolic link.");
+        if (fs::exists(fs::symlink_status(destination)) && !force)
+            throw std::runtime_error("Template '" + id + "@" + build +
+                                     "' is already installed; use --force to replace it.");
+        const auto archive_bytes = read_file(pinned);
+        Json entry{{"format", "noveltea.template-registry"},
+                   {"templateId", id},
+                   {"buildId", build},
+                   {"descriptorSha256", hash_bytes(descriptor_bytes)},
+                   {"archiveSha256", hash_bytes(archive_bytes)},
+                   {"installedAt", utc_now()},
+                   {"origin", "noveltea-cli"},
+                   {"trust", "local-untrusted"},
+                   {"verified", true}};
+        write_json(staged_root / ".noveltea-template.json", entry);
+        // Verify the staged license and file contracts before making the new
+        // template available. Then atomically replace the old directory.
+        // inspect() revalidates post-publication as a final readback.
+        fs::create_directories(destination.parent_path());
+        auto backup = destination;
+        backup += ".previous-" + std::to_string(random());
+        const bool previous = fs::exists(fs::symlink_status(destination));
+        if (previous)
+            fs::rename(destination, backup);
+        try {
+            fs::rename(staged_root, destination);
+            const auto accepted = inspect(id + "@" + build);
+            if (!accepted || accepted->status == "corrupted")
+                throw std::runtime_error(
+                    "Installed template failed license or inventory verification.");
+        } catch (...) {
+            std::error_code ignored;
+            fs::remove_all(destination, ignored);
+            if (previous)
+                fs::rename(backup, destination);
+            throw;
+        }
+        if (previous)
+            fs::remove_all(backup);
+        return result(true, {{"id", id + "@" + build}, {"entry", entry}}, Json::array(),
+                      "Installed " + id + "@" + build + ".");
+    } catch (const std::exception& error) {
+        return install_failure(error.what());
+    }
+}
+
+} // namespace
+
+PlatformCliResult run_native_platform_cli(const std::vector<std::string>& command,
+                                          const fs::path& root, bool explicit_project,
+                                          const std::function<Json(const Json&)>& project_request)
+{
+    if (command.size() < 2)
+        throw std::invalid_argument("Unknown platform command.");
+    if (command[1] == "profiles") {
+        require_count(command, 2, "platform profiles does not accept arguments.");
+        return platform_profiles(root, project_request);
+    }
+    if (command[1] != "template" && command[1] != "config")
+        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/",
+                    "Command is not implemented by the direct C++ CLI candidate.", 70);
+    if (explicit_project)
+        throw std::invalid_argument("Global option '--project' is not supported by "
+                                    "project-independent platform commands.");
+    if (command[1] == "config") {
+        if (command.size() < 3 || command[2] != "init")
+            throw std::invalid_argument("Unknown platform config command '" +
+                                        (command.size() < 3 ? "" : command[2]) + "'.");
+        return config_init(command);
+    }
+    if (command.size() < 3)
+        throw std::invalid_argument("Unknown platform template command ''.");
+    const auto& operation = command[2];
+    if (operation == "list") {
+        require_count(command, 3, "platform template list does not accept arguments.");
+        Json rows = Json::array();
+        std::string human;
+        for (const auto& item : templates()) {
+            auto row = fields(item);
+            if (!human.empty())
+                human += '\n';
+            human += row.at("id").get<std::string>() + "  " + row.at("target").get<std::string>() +
+                     "/" + row.at("architecture").get<std::string>() + "  " +
+                     row.at("buildFlavor").get<std::string>() + "  " +
+                     row.at("status").get<std::string>();
+            rows.push_back(std::move(row));
+        }
+        if (rows.empty())
+            human = "No player templates are installed.";
+        return result(true, {{"templates", rows}}, Json::array(), human);
+    }
+    if (operation == "inspect") {
+        require_count(command, 4, "Usage: noveltea platform template inspect <id>@<build>.");
+        parse_token(command[3]);
+        const auto found = inspect(command[3]);
+        if (!found)
+            return fail("platform.template_missing", "/template",
+                        "Template '" + command[3] + "' is not installed.");
+        const auto row = fields(*found);
+        return result(true, {{"template", row}}, Json::array(),
+                      row.at("id").get<std::string>() + "  " + row.at("status").get<std::string>());
+    }
+    if (operation == "remove") {
+        require_count(command, 5, "Usage: noveltea platform template remove <id>@<build> --force.");
+        if (command[4] != "--force")
+            throw std::invalid_argument(
+                "Usage: noveltea platform template remove <id>@<build> --force.");
+        fs::path root_path;
+        try {
+            root_path = template_root(command[3]);
+        } catch (const std::runtime_error& error) {
+            return fail("platform.template_invalid", "/template", error.what());
+        }
+        if (!fs::exists(fs::symlink_status(root_path)))
+            return fail("platform.template_missing", "/template",
+                        "Template '" + command[3] + "' is not installed.");
+        if (fs::is_symlink(fs::symlink_status(root_path)))
+            return fail("platform.template_invalid", "/template",
+                        "Refusing to remove a symbolic-link template installation.");
+        fs::remove_all(root_path);
+        return result(true, {{"id", command[3]}, {"removed", true}}, Json::array(),
+                      "Removed " + command[3] + ".");
+    }
+    if (operation == "install") {
+        if (command.size() < 4 || command.size() > 5)
+            throw std::invalid_argument(
+                "Usage: noveltea platform template install <archive> [--force].");
+        const bool force = force_only(
+            command, 4, "Usage: noveltea platform template install <archive> [--force].");
+        return template_install(fs::u8path(command[3]), force);
+    }
+    throw std::invalid_argument("Unknown platform template command '" + operation + "'.");
+}
+} // namespace noveltea::cli

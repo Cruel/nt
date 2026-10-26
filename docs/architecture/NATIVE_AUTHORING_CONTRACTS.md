@@ -419,6 +419,31 @@ to certify the relocated candidate, including hash/provenance parity, bootstrap 
 idempotence, and Projectless command errors. This does not ship the candidate as the production
 CLI or close the remaining #506 coordination gates.
 
+## Native CLI Platform Commands (#545, partial)
+
+The unshipped C++ CLI candidate now handles `platform profiles` through the
+native scoped Project export preflight. It does not use a second YAML reader or
+invoke the TypeScript CLI. The candidate also handles the machine-local
+`platform template list|inspect|install|remove` and `platform config init` commands.
+Template installation verifies archive entry paths and links, descriptor
+inventory and SHA-256 bytes, named engine license index and SBOM, and publishes
+using a staged directory with previous-installation rollback on ordinary errors.
+Installed templates are reverified on inspection and corrupt entries are not
+considered compatible. The template registry remains compatible with the editor's
+existing `~/.noveltea/templates` layout and its test-only registry-root override.
+
+This is **not completion of #545**. Direct C++ `platform export` still needs the
+full target-specific preparation and staging, signing/configuration semantics,
+generation-pinned package compilation, cancellation and recoverable multi-artifact
+publication. Editor/CLI parity and Windows/macOS/Android/Web output witnesses
+remain mandatory before closure; the native template/config commands alone
+are not sufficient for production CLI cutover.
+
+Run `cmake --build --preset linux-debug --target noveltea-native-cli` and
+`ctest --test-dir build/linux-debug -R 'native_cli_(platform_commands|public_contract)' --output-on-failure`
+to exercise the currently migrated public command surface. The platform command
+test uses a relocated native executable and isolated registry/config roots.
+
 ## Verification
 
 A standalone host build avoids the renderer and all runtime dependencies:
