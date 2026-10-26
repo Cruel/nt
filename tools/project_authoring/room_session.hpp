@@ -394,6 +394,14 @@ private:
         std::vector<Diagnostic> diagnostics;
     };
     mutable std::map<std::string, ValidationContribution> validation_contributions_;
+    // Normalized records and their reverse reference edges are reused across
+    // validation generations, and invalidated by exact normalized content.
+    struct IndexedNormalizedRecord {
+        std::string normalized_json;
+        std::set<std::string> referenced_ids;
+    };
+    std::map<std::string, IndexedNormalizedRecord> validation_normalized_records_;
+    std::map<std::string, std::set<std::string>> validation_reference_consumers_;
     std::set<std::string> validation_invalidated_owners_;
     std::optional<ValidationResult> validation_room_map_cache_;
     std::map<std::string, std::string> shader_overlays_;

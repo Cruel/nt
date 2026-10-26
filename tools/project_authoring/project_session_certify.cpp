@@ -1499,6 +1499,32 @@ void working_preparation_roundtrip(const std::filesystem::path& fixture)
 void project_validation_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
+    // SourceAuthority's semantic registry must pin exact bytes to each
+    // observed revision and replace the entry after physical changes.
+    {
+        SourceAuthority authority(temp.root);
+        std::string source_error;
+        require(authority.initialize(source_error),
+                "Physical Project source registry initializes: " + source_error);
+        const std::string owner = "records/rooms/room-lifecycle-roundtrip.yaml";
+        const auto before = read(temp.root / owner);
+        const auto* first = authority.verified_source(owner);
+        require(first && first->yaml && first->yaml->accepted && first->bytes == before &&
+                    first->revision == exact_source_revision(before),
+                "Verified source entry pins exact bytes, revision and YAML locations");
+        const auto original_revision = first->revision;
+        write(temp.root / owner, before + "\n# physical generation change\n");
+        const auto observed = authority.observe();
+        const auto* changed = authority.verified_source(owner);
+        require(observed.authoritative && changed && changed->yaml && changed->yaml->accepted &&
+                    changed->revision != original_revision &&
+                    changed->bytes == before + "\n# physical generation change\n",
+                "Physical edit replaces source evidence even when normalized YAML is unchanged");
+        write(temp.root / owner, before);
+        require(authority.observe().authoritative && authority.verified_source(owner) &&
+                    authority.verified_source(owner)->revision == original_revision,
+                "Restoring exact source bytes restores their verified identity");
+    }
     std::string error;
     auto project = ProjectSession::open(temp.root, error);
     require(project != nullptr, "Cannot admit full native validation: " + error);

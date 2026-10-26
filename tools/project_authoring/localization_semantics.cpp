@@ -4,6 +4,7 @@
 #include "character_archetype_semantics.hpp"
 #include "room_session.hpp"
 #include "yaml_codec.hpp"
+#include "source_authority.hpp"
 
 #include <jsoncons/json.hpp>
 
@@ -153,6 +154,9 @@ std::optional<Json> working_record(const std::filesystem::path& root,
                       (family == "layouts" ? "/layout.yaml" : ".yaml");
     if (const auto it = overlays.find(name); it != overlays.end())
         return Json::parse(it->second);
+    if (const auto* source = observed_project_source(root / name); source && source->yaml)
+        return source->yaml->accepted ? std::optional<Json>(Json::parse(source->yaml->source_json))
+                                      : std::nullopt;
     const auto file = root / name;
     if (!std::filesystem::is_regular_file(file))
         return std::nullopt;
@@ -412,20 +416,23 @@ structured_sources(const std::filesystem::path& root,
     std::map<std::string, std::string> messages;
     for (const auto* family : {"characters", "rooms", "interactables", "dialogues", "scenes",
                                "verbs", "interactions", "maps"}) {
-        const auto dir = root / "records" / family;
-        if (!std::filesystem::is_directory(dir))
-            continue;
-        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-            if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+        const auto normalized_path = std::string("records/") + family;
+        std::set<std::string> ids;
+        if (has_observed_project_sources()) {
+            for (const auto& file : observed_project_yaml_paths(normalized_path))
+                ids.insert(std::filesystem::path(file).stem().string());
+        } else {
+            const auto dir = root / "records" / family;
+            if (std::filesystem::is_directory(dir))
+                for (const auto& entry : std::filesystem::directory_iterator(dir))
+                    if (entry.is_regular_file() && entry.path().extension() == ".yaml")
+                        ids.insert(entry.path().stem().string());
+        }
+        for (const auto& id : ids) {
+            const auto record = working_record(root, record_overlays, family, id);
+            if (!record || !record->contains("data") || !record->at("data").is_object())
                 continue;
-            const auto record =
-                working_record(root, record_overlays, family, entry.path().stem().string());
-            if (!record)
-                continue;
-            if (!record->contains("data") || !record->at("data").is_object())
-                continue;
-            const auto base =
-                "/" + std::string(family) + "/" + escape(entry.path().stem().string()) + "/data";
+            const auto base = "/" + std::string(family) + "/" + escape(id) + "/data";
             collect_top_level_strings(record->at("data"), base, messages);
             collect_structured_sources(record->at("data"), base, messages);
         }
@@ -634,17 +641,14 @@ dialogue_cue_contracts(const std::filesystem::path& root, const Json& localizati
                    ? "@" + escape(value.at("id").as<std::string>())
                    : std::to_string(index);
     };
-    for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-        if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
-            continue;
-        const auto record =
-            working_record(root, record_overlays, "dialogues", entry.path().stem().string());
+    const auto process = [&](const std::string& id) {
+        const auto record = working_record(root, record_overlays, "dialogues", id);
         if (!record || !record->contains("data"))
-            continue;
+            return;
         const auto& data = record->at("data");
         if (!data.contains("blocks") || !data.at("blocks").is_array())
-            continue;
-        const auto base = "/dialogues/" + escape(entry.path().stem().string()) + "/data";
+            return;
+        const auto base = "/dialogues/" + escape(id) + "/data";
         std::size_t block_index = 0;
         for (const auto& block : data.at("blocks").array_range()) {
             const auto block_path = base + "/blocks/" + token(block, block_index++);
@@ -663,24 +667,25 @@ dialogue_cue_contracts(const std::filesystem::path& root, const Json& localizati
                 if (!text.contains("source") || !text.at("source").is_object())
                     continue;
                 const auto& source = text.at("source");
-                std::string id;
+                std::string message_id;
                 if (source.at("kind") == "inline")
-                    id = localization.at("structuredMessageIds").contains(path)
-                             ? localization.at("structuredMessageIds").at(path).as<std::string>()
-                             : derived_message_id(path);
+                    message_id =
+                        localization.at("structuredMessageIds").contains(path)
+                            ? localization.at("structuredMessageIds").at(path).as<std::string>()
+                            : derived_message_id(path);
                 else if (source.at("kind") == "localized" && source.contains("key")) {
                     const auto found = named_ids.find(source.at("key").as<std::string>());
                     if (found != named_ids.end())
-                        id = found->second;
+                        message_id = found->second;
                 }
-                if (id.empty() || !segment.contains("cues") || !segment.at("cues").is_array())
+                if (message_id.empty() || !segment.contains("cues") ||
+                    !segment.at("cues").is_array())
                     continue;
                 std::vector<Json> placements;
                 for (const auto& cue : segment.at("cues").array_range()) {
                     if (!cue.is_object() || !cue.contains("kind") ||
-                        cue.at("kind") == "active-text" || cue.at("kind") == "invalid-markup")
-                        continue;
-                    if (!cue.contains("id") || !cue.contains("position"))
+                        cue.at("kind") == "active-text" || cue.at("kind") == "invalid-markup" ||
+                        !cue.contains("id") || !cue.contains("position"))
                         continue;
                     Json placement = Json::object();
                     placement["id"] = cue.at("id");
@@ -701,10 +706,19 @@ dialogue_cue_contracts(const std::filesystem::path& root, const Json& localizati
                 Json ordered = Json::array();
                 for (const auto& placement : placements)
                     ordered.push_back(placement);
-                usages.emplace_back(path, std::make_pair(id, std::move(ordered)));
+                usages.emplace_back(path, std::make_pair(message_id, std::move(ordered)));
             }
         }
-    }
+    };
+    if (has_observed_project_sources()) {
+        for (const auto& file : observed_project_yaml_paths("records/dialogues"))
+            process(std::filesystem::path(file).stem().string());
+    } else
+        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".yaml")
+                continue;
+            process(entry.path().stem().string());
+        }
     std::sort(usages.begin(), usages.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     std::map<std::string, Json> contracts;
@@ -784,20 +798,30 @@ bool fragment(ValidationResult& result, const std::filesystem::path& root,
     if (const auto found = overlays.find(name); found != overlays.end()) {
         value = found->second;
     } else {
-        std::ifstream input(root / name, std::ios::binary);
-        if (!input) {
-            add(result, std::string(logical), "localization.source.missing",
-                "Required localization source is missing or unreadable: " + name, name);
-            return false;
+        if (const auto* observed = observed_project_source(root / name);
+            observed && observed->yaml) {
+            if (!observed->yaml->accepted) {
+                add(result, std::string(logical), "localization.source.yaml", observed->yaml->error,
+                    name);
+                return false;
+            }
+            value = observed->yaml->source_json;
+        } else {
+            std::ifstream input(root / name, std::ios::binary);
+            if (!input) {
+                add(result, std::string(logical), "localization.source.missing",
+                    "Required localization source is missing or unreadable: " + name, name);
+                return false;
+            }
+            const std::string bytes{std::istreambuf_iterator<char>{input},
+                                    std::istreambuf_iterator<char>{}};
+            const auto opened = open_yaml_source(bytes);
+            if (!opened.accepted) {
+                add(result, std::string(logical), "localization.source.yaml", opened.error, name);
+                return false;
+            }
+            value = opened.source_json;
         }
-        const std::string bytes{std::istreambuf_iterator<char>{input},
-                                std::istreambuf_iterator<char>{}};
-        const auto opened = open_yaml_source(bytes);
-        if (!opened.accepted) {
-            add(result, std::string(logical), "localization.source.yaml", opened.error, name);
-            return false;
-        }
-        value = opened.source_json;
     }
     const auto valid = validate_record(contract, value);
     if (!valid.accepted) {

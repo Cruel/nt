@@ -22,6 +22,42 @@
 
 namespace noveltea::authoring {
 namespace {
+thread_local const SourceAuthority* current_project_sources = nullptr;
+}
+
+ScopedVerifiedProjectSources::ScopedVerifiedProjectSources(
+    const SourceAuthority& authority) noexcept
+    : previous_(std::exchange(current_project_sources, &authority))
+{
+}
+ScopedVerifiedProjectSources::~ScopedVerifiedProjectSources()
+{
+    current_project_sources = previous_;
+}
+
+const VerifiedProjectSource* observed_project_source(const std::filesystem::path& path)
+{
+    if (!current_project_sources)
+        return nullptr;
+    const auto relative = std::filesystem::absolute(path).lexically_normal().lexically_relative(
+        current_project_sources->root());
+    if (relative.empty() || *relative.begin() == ".." || relative.is_absolute())
+        return nullptr;
+    return current_project_sources->verified_source(relative.generic_string());
+}
+
+std::vector<std::string> observed_project_yaml_paths(std::string_view directory)
+{
+    return current_project_sources ? current_project_sources->verified_yaml_paths(directory)
+                                   : std::vector<std::string>{};
+}
+
+bool has_observed_project_sources() noexcept
+{
+    return current_project_sources != nullptr && !current_project_sources->uncertain();
+}
+
+namespace {
 using Json = jsoncons::ojson;
 
 constexpr std::array fixed_sources{
@@ -187,16 +223,10 @@ SourceAuthority::Capture SourceAuthority::capture() const
             throw std::runtime_error("Project source path escapes root: " + std::string(path));
         return root_ / relative;
     };
-    const auto read = [&](const std::string& relative) -> std::string {
-        const auto absolute = secure(relative);
-        std::error_code ec;
-        const auto status = std::filesystem::status(absolute, ec);
-        if (status.type() == std::filesystem::file_type::not_found ||
-            ec == std::errc::no_such_file_or_directory)
-            return {};
-        if (ec || !std::filesystem::is_regular_file(status))
-            throw std::runtime_error("Cannot observe Project source: " + relative);
-        return read_exact_bytes(absolute);
+    const auto read = [&](const std::string& relative) -> const std::string& {
+        static const std::string empty;
+        const auto found = result.sources.find(relative);
+        return found == result.sources.end() ? empty : found->second->bytes;
     };
     const auto add = [&](const std::string& relative, bool physical_asset = false) {
         const auto absolute = secure(relative);
@@ -225,7 +255,20 @@ SourceAuthority::Capture SourceAuthority::capture() const
             result.revisions.emplace(relative, "physical:" + std::to_string(size) + ":" +
                                                    std::to_string(modified_ns));
         } else {
-            result.revisions.emplace(relative, exact_source_revision(read_exact_bytes(absolute)));
+            auto bytes = read_exact_bytes(absolute);
+            auto revision = exact_source_revision(bytes);
+            result.revisions.emplace(relative, revision);
+            if (const auto prior = sources_.find(relative);
+                prior != sources_.end() && prior->second->revision == revision) {
+                result.sources.emplace(relative, prior->second);
+            } else {
+                auto source = std::make_shared<VerifiedProjectSource>();
+                source->revision = std::move(revision);
+                source->bytes = std::move(bytes);
+                if (relative.ends_with(".yaml"))
+                    source->yaml = open_yaml_source(source->bytes);
+                result.sources.emplace(relative, std::move(source));
+            }
         }
     };
     const auto scan = [&](const std::string& directory, auto&& accept) {
@@ -460,6 +503,7 @@ bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
     try {
         auto captured = capture();
         baseline_ = std::move(captured.revisions);
+        sources_ = std::move(captured.sources);
         asset_references_ = std::move(captured.asset_references);
         invalid_sources_ = std::move(captured.invalid_sources);
         if (!allow_invalid_sources && !invalid_sources_.empty()) {
@@ -541,6 +585,31 @@ std::optional<std::map<std::string, std::string>> SourceAuthority::verified_revi
     return baseline_;
 }
 
+const VerifiedProjectSource* SourceAuthority::verified_source(std::string_view relative) const
+{
+    if (!initialized_ || uncertain_)
+        return nullptr;
+    const auto found = sources_.find(relative);
+    if (found == sources_.end())
+        return nullptr;
+    const auto revision = baseline_.find(std::string(relative));
+    return revision != baseline_.end() && revision->second == found->second->revision
+               ? found->second.get()
+               : nullptr;
+}
+
+std::vector<std::string> SourceAuthority::verified_yaml_paths(std::string_view directory) const
+{
+    std::vector<std::string> result;
+    if (!initialized_ || uncertain_)
+        return result;
+    const auto prefix = std::string(directory) + "/";
+    for (const auto& [path, source] : sources_)
+        if (path.starts_with(prefix) && path.ends_with(".yaml") && verified_source(path))
+            result.push_back(path);
+    return result;
+}
+
 std::set<std::string> SourceAuthority::affected_asset_records(const SourceDelta& delta) const
 {
     std::set<std::string> changed;
@@ -616,6 +685,7 @@ SourceObservation SourceAuthority::observe()
                                 observation.delta.changed.empty() &&
                                 observation.delta.removed.empty();
         baseline_ = std::move(captured.revisions);
+        sources_ = std::move(captured.sources);
         asset_references_ = std::move(captured.asset_references);
         invalid_sources_ = observation.invalid_sources;
         if (uncertain_ && !native_->reset())

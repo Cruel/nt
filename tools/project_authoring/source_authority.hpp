@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include "yaml_codec.hpp"
 
 namespace noveltea::authoring {
 
@@ -41,6 +42,15 @@ struct SourceObservation {
     std::vector<std::string> watch_paths;
 };
 
+// Physical evidence from one SourceAuthority capture. The bytes, parsed
+// source, and exact revision always describe the same read. Binary media is
+// excluded; its physical change identity stays in SourceAuthority revisions.
+struct VerifiedProjectSource {
+    std::string revision;
+    std::string bytes;
+    std::optional<YamlSourceResult> yaml;
+};
+
 // Each editor/daemon Project session owns an independent instance. OS events are
 // scheduling hints, never evidence of a physical source revision. A successful
 // observation re-discovers canonical source membership and hashes exact bytes.
@@ -69,6 +79,9 @@ public:
     // Return the owning YAML records whose local membership checks must be
     // repeated after a proven physical observation.
     std::set<std::string> affected_asset_records(const SourceDelta& delta) const;
+    const VerifiedProjectSource* verified_source(std::string_view relative_path) const;
+    std::vector<std::string> verified_yaml_paths(std::string_view directory) const;
+    const std::filesystem::path& root() const { return root_; }
 
 private:
     struct NativeWatch;
@@ -77,6 +90,7 @@ private:
         std::set<std::string> directories;
         std::map<std::string, std::set<std::string>> asset_references;
         std::vector<InvalidSource> invalid_sources;
+        std::map<std::string, std::shared_ptr<const VerifiedProjectSource>, std::less<>> sources;
     };
     Capture capture() const;
     void arm(const std::set<std::string>& directories);
@@ -86,10 +100,29 @@ private:
     std::map<std::string, std::string> baseline_;
     std::map<std::string, std::set<std::string>> asset_references_;
     std::vector<InvalidSource> invalid_sources_;
+    std::map<std::string, std::shared_ptr<const VerifiedProjectSource>, std::less<>> sources_;
     std::set<std::string> hinted_paths_;
     std::unique_ptr<NativeWatch> native_;
     bool initialized_ = false;
     bool uncertain_ = true;
 };
+
+// Temporarily makes the current verified generation available to native
+// Project admission and localization. Never changes filesystem authority.
+// Nesting restores the previous context, including across independent Projects.
+class ScopedVerifiedProjectSources {
+public:
+    explicit ScopedVerifiedProjectSources(const SourceAuthority& authority) noexcept;
+    ~ScopedVerifiedProjectSources();
+    ScopedVerifiedProjectSources(const ScopedVerifiedProjectSources&) = delete;
+    ScopedVerifiedProjectSources& operator=(const ScopedVerifiedProjectSources&) = delete;
+
+private:
+    const SourceAuthority* previous_;
+};
+
+const VerifiedProjectSource* observed_project_source(const std::filesystem::path& path);
+std::vector<std::string> observed_project_yaml_paths(std::string_view directory);
+bool has_observed_project_sources() noexcept;
 
 } // namespace noveltea::authoring

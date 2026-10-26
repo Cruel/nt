@@ -485,3 +485,32 @@ combined opening and validation (approximately 301–306 ms opening, 504–509 m
 the original 27 diagnostics and 306 rechecked owners. These figures are not a substitute for a
 Debug end-to-end shader preparation benchmark or for a post-merge reprofile on the final build.
 The cache also intentionally does not persist normalized JSON or depend on mtime-only identities.
+
+### Project generation source registry and normalized dependency index
+
+The subsequent consolidation makes `SourceAuthority` own immutable
+`VerifiedProjectSource` entries: exact observed bytes, their SHA-256 revision,
+and the YAML decode (including invalid-source errors and locations). On each
+physical observation it **re-reads and rehashes** every relevant text source,
+reusing a prior decoded entry only when the exact revision matches. Binary Asset
+sources still use their separate physical membership/change identity and are
+never read into this registry. New or changed source entries replace their
+predecessors; `acknowledge_own_write` never makes stale source evidence current.
+
+Scoped admission uses this registry for tracked records, source text indexing,
+localization fragments, structured messages, and Dialogue Cue scans. Outside a
+Project's verified generation, standalone/editor paths retain their regular
+disk reads. Scoped reads cannot establish currentness on their own: the native
+Project always reobserves physical authority **after** semantic validation and
+rejects publication if sources changed. Invalid YAML remains attributable to
+its precise physical owner; working overlays always take precedence.
+
+`ProjectSession` also retains each validated owner's normalized result and
+its conservative scalar/property-key reference tokens. Updating or removing a
+record withdraws its old reverse edges; transitive invalidation follows the
+reverse index rather than parsing and searching every normalized record on
+each change. The internal working Project resolver uses these accepted values
+only while the validation view is active. Missing, invalid, and unsaved records
+continue through the existing scoped resolution/conflict rules. The Explorer's
+independent inventory walk remains necessary to include **untracked files**;
+the source registry is deliberately limited to physical authoring inputs.
