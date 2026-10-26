@@ -16,6 +16,9 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 - [Native Prepared Runtime Artifact certification](certifications/NATIVE_PREPARED_RUNTIME_ARTIFACT.md)
   describes C++ artifact assembly, independent Feature Lab parity, quality and
   blocked-path tests, and the remaining physical export/invalidation boundary.
+- [Native Runtime physical preparation](certifications/NATIVE_RUNTIME_PHYSICAL_PREPARATION.md)
+  documents pinned source verification, native shader and video preparation,
+  notices, cold package evidence, and the remaining cache-publication boundary.
 
 - `docs/architecture/RUNTIME_EXECUTION_AND_CAPABILITY_SPEC.md` defines the target runtime-session,
   transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and

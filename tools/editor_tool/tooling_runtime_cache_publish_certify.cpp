@@ -6,6 +6,8 @@
 #include "native_compiled_project_save_contract.hpp"
 #include "native_compiled_project.hpp"
 #include "native_runtime_artifact.hpp"
+#include "native_runtime_physical.hpp"
+#include "native_runtime_media.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/runtime/runtime_executor.hpp>
 #include <noveltea/presentation/runtime_presentation_model.hpp>
@@ -64,6 +66,37 @@ int main(int argc, char** argv)
                 request.at("referencedAssetIds"), request.at("profile"),
                 request.at("materialEffectiveInputs"), request.value("projectRoot", std::string{}));
             std::cout << result.dump() << '\n';
+            return 0;
+        }
+        if (argc == 2 && std::string_view(argv[1]) == "--prepare-physical-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            const auto request = Json::parse(input);
+            const auto result = noveltea::cli::prepare_native_runtime_physical(
+                request.at("artifact"), request, request.at("projectRoot").get<std::string>(),
+                [&]() { return request.value("cancelled", false); });
+            std::cout << result.dump() << '\n';
+            return 0;
+        }
+        if (argc == 2 && std::string_view(argv[1]) == "--prepare-native-media-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            const auto request = Json::parse(input);
+            Json artifact{{"fileEntries", Json::array()},
+                          {"packageOptions",
+                           {{"fileEntries", Json::array()}, {"textEntries", Json::array()}}},
+                          {"manifestPreview", {{"entryCount", 0}, {"assetCount", 0}}}};
+            noveltea::cli::prepare_native_runtime_media(
+                artifact, request.at("project"), request.at("sourceRevisions"),
+                std::filesystem::path(request.at("projectRoot").get<std::string>()), {});
+            std::cout << artifact.dump() << '\n';
+            return 0;
+        }
+        if (argc == 2 && std::string_view(argv[1]) == "--write-native-package-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            std::cout << invoke(noveltea_tooling_export_package_json, Json::parse(input)).dump()
+                      << '\n';
             return 0;
         }
         if (argc == 2 && std::string_view(argv[1]) == "--compile-admitted-stdin") {
@@ -245,7 +278,9 @@ int main(int argc, char** argv)
             }
             return 0;
         }
-        if (argc == 3 && std::string_view(argv[2]) == "--emit-native-prepared") {
+        if (argc == 3 && (std::string_view(argv[2]) == "--emit-native-prepared" ||
+                          std::string_view(argv[2]) == "--emit-native-physical")) {
+            const bool physical = std::string_view(argv[2]) == "--emit-native-physical";
             const auto fixture = std::filesystem::absolute(argv[1]);
             const auto prepare = [&]() {
                 return invoke(noveltea_tooling_native_project_commands_json,
@@ -267,7 +302,12 @@ int main(int argc, char** argv)
                     noveltea::cli::compile_native_compiled_project(source.at("project"));
                 auto result = noveltea::cli::prepare_native_runtime_artifact(
                     source.at("project"), compiled, source.at("referencedAssetIds"),
-                    source.at("profile"), source.at("materialEffectiveInputs"));
+                    source.at("profile"), source.at("materialEffectiveInputs"),
+                    physical ? fixture.string() : std::string{});
+                if (physical && result.value("status", "") == "prepared") {
+                    result = noveltea::cli::prepare_native_runtime_physical(
+                        result.at("artifact"), source, fixture.string());
+                }
                 const auto current = prepare();
                 if (!current.value("ok", false) ||
                     current.at("sourceGeneration") != source.at("sourceGeneration") ||
@@ -278,6 +318,8 @@ int main(int argc, char** argv)
                 result["project"] = source.at("project");
                 result["referencedAssetIds"] = source.at("referencedAssetIds");
                 result["materialEffectiveInputs"] = source.at("materialEffectiveInputs");
+                if (physical)
+                    result["admitted"] = source;
                 std::cout << result.dump() << '\n';
             } catch (const std::exception& error) {
                 std::cout << Json{{"status", "blocked"},
