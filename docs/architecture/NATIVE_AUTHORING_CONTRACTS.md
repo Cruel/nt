@@ -432,6 +432,20 @@ Installed templates are reverified on inspection and corrupt entries are not
 considered compatible. The template registry remains compatible with the editor's
 existing `~/.noveltea/templates` layout and its test-only registry-root override.
 
+Windows player resource customization has begun as a dedicated, host-portable
+C++ component (`native_cli_windows_pe.*`) built into the unshipped candidate.
+It uses Apache-2.0-licensed LIEF (minimum 0.17.3, with a SHA-256-pinned source
+fallback) rather than `resedit` or Win32 `UpdateResource`. The component
+replaces `RT_ICON` / `RT_GROUP_ICON`, creates a complete `VS_VERSIONINFO`
+resource with UTF-16 localized strings and numeric versions, and writes the
+Windows application manifest. It preserves other PE sections and imported
+DLLs; the public platform export command does not invoke it yet. Its initial
+cross-host validation used a real Windows player executable only in a local
+temporary workspace, not a committed fixture or permanent test.
+The permanent `native_cli_windows_pe_resources` regression instead builds a
+small synthetic PE and ICO at test runtime, then independently reads back the
+resulting icon, version and manifest resources.
+
 This is **not completion of #545**. Direct C++ `platform export` still needs the
 full target-specific preparation and staging, signing/configuration semantics,
 generation-pinned package compilation, cancellation and recoverable multi-artifact
@@ -443,6 +457,8 @@ Run `cmake --build --preset linux-debug --target noveltea-native-cli` and
 `ctest --test-dir build/linux-debug -R 'native_cli_(platform_commands|public_contract)' --output-on-failure`
 to exercise the currently migrated public command surface. The platform command
 test uses a relocated native executable and isolated registry/config roots.
+The PE resource test additionally runs with
+`ctest --test-dir build/linux-debug -R native_cli_windows_pe_resources --output-on-failure`.
 
 ## Verification
 
