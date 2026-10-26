@@ -72,19 +72,24 @@ binds scalar and local image inputs, verifies the remote node contract, uploads 
 only to literal loopback HTTP endpoints, submits and polls prompts, downloads bounded image
 outputs, and validates declared output cardinality before publication. Projectless invocations
 require filesystem output routing; Project runs publish unspecified routes through the native
-`comfyui-assets` Project transaction with an expected native source generation. Direct
-invocations retain reversible staged filesystem files while the Project owner accepts the
-generated Assets. The installed tests cover submission, file and Asset publication, source
-revision conflict, image upload, malformed media, server execution errors, and SIGINT
-prompt-specific queue cancellation.
+`comfyui-assets` Project transaction with an expected native source generation. For mixed
+filesystem and Project Asset outputs, the native Asset owner installs both under one existing
+Asset-import recovery journal. Exact committed YAML revisions determine whether to retain or
+roll back filesystem outputs after interruption. Installed tests exercise hard exits before
+file installation, after file installation but before YAML acceptance, and after YAML
+acceptance; ordinary exception rollback, source revision conflicts, image upload, malformed
+media, server execution errors, and SIGINT cancellation are also covered.
 
-This candidate currently runs directly in the native CLI process. It has **not** yet
-integrated the daemon broker's disposable-worker staged-output registration, durable
-file-output journal, or worker-loss recovery. Direct-process rollback handles ordinary
-publication errors, but a hard process exit between filesystem installation and Asset
-commit is not yet covered by the broker recovery guarantee described below for the
-current production runner. This is the remaining #548 delivery/qualification gap;
-the ScriptC production CLI is retained until the coordinated native CLI cutover.
+This candidate currently runs directly in the native CLI process. Its Project Asset owner
+journal now recovers mixed filesystem/Asset publication across hard process exits. It has
+an optional C++ `ComfyUiExecutionHooks` adapter for disposable-worker integration: it registers
+never-created output paths before writing, delegates Asset publication to a pinned native
+Project owner, observes cancellation, and emits progress milestones. The native CLI does
+**not yet run as a broker-spawned disposable worker**: converting heavy native execution to
+the existing broker lifecycle and hydrating pinned immutable snapshots is explicitly #550
+(blocked by #548). Until #550 is implemented, direct standalone invocations can leave staged
+temporary files after hard exits *before* the owner journal is created; this is not equivalent
+to broker-owned cleanup. The ScriptC production CLI remains intact until the cutover.
 
 `noveltea comfyui workflows` lists the effective catalog in deterministic logical-ID order. It works outside a Project
 and adds project-local workflows when a Project is explicitly selected or discovered from the current directory.

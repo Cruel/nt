@@ -1466,7 +1466,7 @@ ImageInfo image_info(std::string_view bytes)
                    "ComfyUI returned an invalid or unsupported image.");
 }
 
-void check_interruption(const std::string& prompt);
+void check_interruption(const std::string& prompt, const ComfyUiExecutionHooks& hooks);
 volatile std::sig_atomic_t interruption_requested = 0;
 void signal_interruption(int) { interruption_requested = 1; }
 
@@ -1477,9 +1477,9 @@ struct InterruptScope {
     ~InterruptScope() { std::signal(SIGINT, previous); }
 };
 
-void check_interruption(const std::string& prompt)
+void check_interruption(const std::string& prompt, const ComfyUiExecutionHooks& hooks)
 {
-    if (interruption_requested)
+    if (interruption_requested || (hooks.cancelled && hooks.cancelled()))
         throw RunError("COMFYUI_INTERRUPTED", "/prompt",
                        "ComfyUI prompt '" + prompt + "' was interrupted.", true);
 }
@@ -1545,6 +1545,7 @@ struct StagedFile {
 
 struct Publication {
     std::vector<StagedFile> files;
+    std::vector<fs::path> extra_staged;
     fs::path staging;
     bool finalized = false;
     ~Publication()
@@ -1567,6 +1568,8 @@ struct Publication {
         std::error_code error;
         if (!staging.empty())
             fs::remove_all(staging, error);
+        for (const auto& path : extra_staged)
+            fs::remove(path, error);
     }
     void commit_files(bool force)
     {
@@ -1620,7 +1623,7 @@ std::map<std::string, fs::path> resolve_routes(const RunArgs& args, const Workfl
 }
 
 void stage_file(Publication& transaction, const fs::path& destination, const std::string& bytes,
-                bool force)
+                bool force, const ComfyUiExecutionHooks& hooks)
 {
     auto parent = destination.parent_path();
     if (destination.empty() || !fs::is_directory(parent) || fs::is_symlink(parent))
@@ -1640,6 +1643,8 @@ void stage_file(Publication& transaction, const fs::path& destination, const std
         parent / ("." + path_text(destination.filename()) + "." + nonce() + ".noveltea-stage");
     auto backup =
         parent / ("." + path_text(destination.filename()) + "." + nonce() + ".noveltea-backup");
+    if (hooks.register_staged_output)
+        hooks.register_staged_output(temporary);
     transaction.files.push_back({destination, temporary, backup});
     {
         std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
@@ -1651,7 +1656,8 @@ void stage_file(Publication& transaction, const fs::path& destination, const std
 
 ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                            const fs::path& project, const std::vector<Workflow>& entries,
-                           const std::function<Json(const Json&)>& project_request, bool json_mode)
+                           const std::function<Json(const Json&)>& project_request, bool json_mode,
+                           const ComfyUiExecutionHooks& hooks)
 {
     Json fields = project_field(project);
     fields["serverUrl"] = settings.server;
@@ -1685,6 +1691,10 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                                 "Configured workflow has a different classification.", fields);
 
     try {
+        if ((hooks.commit_staged_project_assets || hooks.publish_staged_files) &&
+            !hooks.register_staged_output)
+            throw RunError("COMFYUI_PUBLICATION_FAILED", "/outputs",
+                           "Broker publication requires staged-output registration.");
         InterruptScope interruption;
         const auto& inputs = entry.manifest.at("contract").at("inputs");
         const auto& outputs = entry.manifest.at("contract").at("outputs");
@@ -1785,7 +1795,7 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
             bind_input(workflow, entry.manifest.at("bindings").at(input.id),
                        upload_image(settings, input));
         proof();
-        check_interruption("unsubmitted");
+        check_interruption("unsubmitted", hooks);
 
         const auto client_id = nonce(), requested_prompt = nonce();
         Json submitted;
@@ -1796,10 +1806,10 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                                                {"client_id", client_id}}
                                               .dump());
         } catch (const RunError&) {
-            if (interruption_requested) {
+            if (interruption_requested || (hooks.cancelled && hooks.cancelled())) {
                 (void)comfyui_request(settings.server, "/queue", settings.timeout, "POST",
                                       Json{{"delete", Json::array({requested_prompt})}}.dump());
-                check_interruption(requested_prompt);
+                check_interruption(requested_prompt, hooks);
             }
             throw;
         }
@@ -1811,12 +1821,14 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
         const auto prompt = submitted.at("prompt_id").get<std::string>();
         fields["promptId"] = prompt;
         fields["clientId"] = client_id;
+        if (hooks.progress)
+            hooks.progress("queued", prompt);
         if (!json_mode)
             std::cerr << "Queued ComfyUI prompt " << prompt << ".\n";
         try {
             Json history;
             for (;;) {
-                check_interruption(prompt);
+                check_interruption(prompt, hooks);
                 history = required_response(settings, "/history/" + percent_encode(prompt));
                 if (history.is_object() && history.contains(prompt) &&
                     history.at(prompt).is_object()) {
@@ -1834,6 +1846,8 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
             }
             if (!json_mode)
                 std::cerr << "ComfyUI prompt " << prompt << " completed; downloading outputs.\n";
+            if (hooks.progress)
+                hooks.progress("downloading", prompt);
             std::map<std::string, std::vector<Generated>> generated;
             for (const auto& [output_id, contract] : outputs.items()) {
                 std::vector<Generated> items;
@@ -1860,7 +1874,7 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                         const auto endpoint = "/view?filename=" + percent_encode(filename) +
                                               "&subfolder=" + percent_encode(folder) +
                                               "&type=" + percent_encode(type);
-                        check_interruption(prompt);
+                        check_interruption(prompt, hooks);
                         const auto download =
                             comfyui_request(settings.server, endpoint, settings.timeout, "GET", {},
                                             "application/json", 32 * 1024 * 1024);
@@ -1904,10 +1918,12 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                                "Workflow package changed during execution.");
 
             Publication publication;
-            publication.staging = fs::temp_directory_path() / ("noveltea-comfyui-" + nonce());
-            if (!fs::create_directory(publication.staging))
-                throw RunError("COMFYUI_PUBLICATION_FAILED", "/outputs",
-                               "Could not allocate private output staging.");
+            if (!hooks.register_staged_output) {
+                publication.staging = fs::temp_directory_path() / ("noveltea-comfyui-" + nonce());
+                if (!fs::create_directory(publication.staging))
+                    throw RunError("COMFYUI_PUBLICATION_FAILED", "/outputs",
+                                   "Could not allocate private output staging.");
+            }
             Json assets = Json::array(), published = Json::object();
             for (const auto& [output_id, items] : generated) {
                 Json list = Json::array();
@@ -1930,13 +1946,20 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                             throw RunError(
                                 "COMFYUI_OUTPUT_EXTENSION", "/outputs/" + output_id,
                                 "Returned image format does not match output extension.");
-                        stage_file(publication, target, item.bytes, arguments.force);
+                        stage_file(publication, target, item.bytes, arguments.force, hooks);
                         metadata["target"] = "filesystem";
                         metadata["path"] = path_text(target);
                     } else {
                         const auto path =
-                            publication.staging /
-                            (output_id + "-" + std::to_string(i) + extension(metadata));
+                            hooks.register_staged_output
+                                ? fs::temp_directory_path() /
+                                      ("noveltea-comfyui-" + nonce() + extension(metadata))
+                                : publication.staging /
+                                      (output_id + "-" + std::to_string(i) + extension(metadata));
+                        if (hooks.register_staged_output) {
+                            hooks.register_staged_output(path);
+                            publication.extra_staged.push_back(path);
+                        }
                         std::ofstream stream(path, std::ios::binary | std::ios::trunc);
                         if (!stream ||
                             !stream.write(item.bytes.data(),
@@ -1955,7 +1978,28 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                                            : list;
             }
             proof();
-            publication.commit_files(arguments.force);
+            check_interruption(prompt, hooks);
+            if (hooks.progress)
+                hooks.progress("publishing", prompt);
+            // For mixed filesystem + Project Asset outputs, the native Project
+            // owner installs both under its existing Asset/YAML recovery
+            // journal. Installing files here first would expose a gap after
+            // a hard worker exit with Assets already committed.
+            if (assets.empty()) {
+                if (hooks.register_staged_output && !hooks.publish_staged_files)
+                    throw RunError("COMFYUI_PUBLICATION_FAILED", "/outputs",
+                                   "Disposable filesystem publication requires the broker "
+                                   "transaction callback.");
+                if (hooks.publish_staged_files) {
+                    std::vector<ComfyUiStagedFilesystemOutput> staged;
+                    for (const auto& file : publication.files)
+                        staged.push_back(
+                            {file.temporary, file.target, file.backup, arguments.force});
+                    hooks.publish_staged_files(staged);
+                } else {
+                    publication.commit_files(arguments.force);
+                }
+            }
             if (!assets.empty()) {
                 Json request{{"action", "comfyui-assets"},
                              {"projectRoot", path_text(project)},
@@ -1964,7 +2008,24 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                              {"expectedSourceGeneration", generation},
                              {"dryRun", false},
                              {"generated", assets}};
-                const auto committed = project_request(request);
+                if (!publication.files.empty()) {
+                    request["filesystemOutputs"] = Json::array();
+                    for (const auto& file : publication.files) {
+                        const auto contents = read_file(file.temporary, 32 * 1024 * 1024);
+                        if (!contents)
+                            throw RunError("COMFYUI_PUBLICATION_FAILED", "/outputs",
+                                           "Staged filesystem output is no longer readable.");
+                        request["filesystemOutputs"].push_back(
+                            {{"stagedPath", path_text(file.temporary)},
+                             {"finalPath", path_text(file.target)},
+                             {"contentHash",
+                              "sha256:" + core::sha256_hex(std::as_bytes(std::span(*contents)))},
+                             {"force", arguments.force}});
+                    }
+                }
+                const auto committed = hooks.commit_staged_project_assets
+                                           ? hooks.commit_staged_project_assets(request)
+                                           : project_request(request);
                 if (!committed.value("ok", false) || !committed.contains("fields") ||
                     !committed.at("fields").contains("assets") ||
                     !committed.at("fields").at("assets").is_array() ||
@@ -2017,13 +2078,13 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
 ComfyUiResult run_native_comfyui_catalog(const std::vector<std::string>& command,
                                          const fs::path& project,
                                          const std::function<Json(const Json&)>& project_request,
-                                         bool json_mode)
+                                         bool json_mode, const ComfyUiExecutionHooks& hooks)
 {
     if (command.at(1) == "run") {
         const auto run = parse_run(command);
         const auto settings = config(run.server);
         return run_workflow(run, settings, project, catalog(project, settings), project_request,
-                            json_mode);
+                            json_mode, hooks);
     }
     const auto parsed = parse_command(command);
     const auto& operation = command.at(1);

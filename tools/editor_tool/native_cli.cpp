@@ -3,6 +3,7 @@
 #include "native_cli_comfyui.hpp"
 #include "native_cli_media.hpp"
 #include "native_cli_test_catalog.hpp"
+#include "tooling_native_project_asset.hpp"
 #include "native_compiled_project.hpp"
 #include "native_runtime_artifact.hpp"
 #include "native_runtime_physical.hpp"
@@ -2661,6 +2662,15 @@ int run(const std::vector<std::string>& argv)
                                "No NovelTea project.yaml was found at the selected Project root.",
                                "No NovelTea project.yaml was found at the selected Project root.");
             if (!root.empty()) {
+                // ComfyUI generation is a mutation. Reconcile an abandoned
+                // native mixed-publication journal before the read-only
+                // workspace preflight rejects its in-flight lock. Inspection
+                // commands must never perform that recovery implicitly.
+                if (operation == "run") {
+                    if (const auto recovery = native_project_asset_recover(root))
+                        return failure(args.json, 5, "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT",
+                                       "/.noveltea/asset-import-staging", *recovery, *recovery);
+                }
                 const auto admitted = native_request(
                     {{"action", "workspace-preflight"}, {"projectRoot", path_text(root)}});
                 if (!admitted.value("ok", false))

@@ -16,6 +16,7 @@
 #include <fstream>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <iterator>
 #include <map>
@@ -306,7 +307,7 @@ void make_safe_project_directory(const fs::path& root, std::string_view relative
 // Resolve a dead Asset-import owner without ever guessing whether a published
 // binary belongs to some newer writer. A complete YAML transaction wins; an
 // absent YAML transaction rolls back only exact, native-installed bytes.
-void recover_abandoned_import(const fs::path& root)
+void recover_abandoned_import(const fs::path& root, bool reclaim_current_owner = false)
 {
     const auto meta = root / ".noveltea";
     if (fs::is_symlink(fs::symlink_status(meta)))
@@ -328,7 +329,8 @@ void recover_abandoned_import(const fs::path& root)
     const auto owner = Json::parse(bytes_at(owner_path));
     if (!owner.is_object() || !owner.contains("pid") || !owner.at("pid").is_number_integer())
         throw std::runtime_error("Asset import owner metadata is invalid.");
-    if (process_alive(owner.at("pid").get<int>()))
+    const auto owner_pid = owner.at("pid").get<int>();
+    if (process_alive(owner_pid) && !(reclaim_current_owner && owner_pid == current_process_id()))
         throw std::runtime_error("Another native Asset importer still owns this Project.");
     YamlTransactionService writer(root);
     const auto yaml = writer.recover();
@@ -367,6 +369,82 @@ void recover_abandoned_import(const fs::path& root)
                 }
                 if (!committed && !absent)
                     throw std::runtime_error("Asset import has mixed YAML recovery revisions.");
+                // Mixed ComfyUI publications are owned by the same durable
+                // native transaction as their Asset YAML records. The YAML
+                // revisions decide whether filesystem outputs roll forward or
+                // back, including when the owner died after YAML acceptance
+                // but before acknowledging its disposable caller.
+                std::vector<fs::path> remove_files;
+                std::vector<std::pair<fs::path, fs::path>> restore_files;
+                if (journal.contains("filesystemOutputs")) {
+                    if (!journal["filesystemOutputs"].is_array())
+                        throw std::runtime_error("Invalid mixed publication recovery journal.");
+                    for (const auto& item : journal["filesystemOutputs"]) {
+                        if (!item.is_object() || !item.contains("finalPath") ||
+                            !item["finalPath"].is_string() || !item.contains("backupPath") ||
+                            !item["backupPath"].is_string() || !item.contains("stagedPath") ||
+                            !item["stagedPath"].is_string() || !item.contains("revision") ||
+                            !item["revision"].is_string() || !item.contains("previousRevision") ||
+                            !item["previousRevision"].is_string())
+                            throw std::runtime_error("Malformed mixed output recovery entry.");
+                        const auto target = from_utf8(item["finalPath"].get<std::string>());
+                        const auto backup = from_utf8(item["backupPath"].get<std::string>());
+                        const auto staged = from_utf8(item["stagedPath"].get<std::string>());
+                        if (!target.is_absolute() || !backup.is_absolute() ||
+                            !staged.is_absolute() || backup.parent_path() != target.parent_path() ||
+                            staged.parent_path() != target.parent_path() || backup == target ||
+                            staged == target || staged == backup ||
+                            !backup.filename().string().ends_with(".noveltea-backup") ||
+                            !staged.filename().string().ends_with(".noveltea-stage") ||
+                            !fs::is_directory(target.parent_path()) ||
+                            fs::is_symlink(fs::symlink_status(target.parent_path())))
+                            throw std::runtime_error("Unsafe mixed output recovery path.");
+                        const auto revision = item["revision"].get<std::string>();
+                        const auto previous = item["previousRevision"].get<std::string>();
+                        const auto witness = [](const fs::path& path) -> std::string {
+                            const auto status = fs::symlink_status(path);
+                            if (status.type() == fs::file_type::not_found)
+                                return "absent";
+                            if (!fs::is_regular_file(status) || fs::is_symlink(status))
+                                throw std::runtime_error(
+                                    "Mixed output recovery found unsafe file.");
+                            return exact_source_revision(bytes_at(path));
+                        };
+                        const auto current = witness(target);
+                        const auto saved = witness(backup);
+                        if (saved != "absent" && saved != previous)
+                            throw std::runtime_error(
+                                "Mixed output backup changed during recovery.");
+                        if (committed) {
+                            if (current != revision)
+                                throw std::runtime_error(
+                                    "Committed mixed output changed or is missing.");
+                            if (saved != "absent")
+                                remove_files.push_back(backup);
+                        } else {
+                            if (current != "absent" && current != revision &&
+                                !(saved == "absent" && current == previous))
+                                throw std::runtime_error(
+                                    "Mixed output changed; rollback is unsafe.");
+                            if (saved != "absent") {
+                                if (current != "absent")
+                                    remove_files.push_back(target);
+                                restore_files.emplace_back(backup, target);
+                            } else if (previous == "absent" && current == revision) {
+                                remove_files.push_back(target);
+                            } else if (previous != "absent" && current != previous) {
+                                throw std::runtime_error("Mixed output lost its prior version.");
+                            }
+                        }
+                        const auto pending = witness(staged);
+                        if (pending != "absent") {
+                            if (pending != revision)
+                                throw std::runtime_error(
+                                    "Mixed staged output changed during recovery.");
+                            remove_files.push_back(staged);
+                        }
+                    }
+                }
                 if (committed) {
                     // A completed YAML journal is not enough to declare the
                     // multi-file import recovered: its referenced Asset bytes
@@ -417,6 +495,10 @@ void recover_abandoned_import(const fs::path& root)
                     for (const auto& file : safe_removals)
                         fs::remove(file);
                 }
+                for (const auto& file : remove_files)
+                    fs::remove(file);
+                for (const auto& [backup, target] : restore_files)
+                    fs::rename(backup, target);
             }
             // No manifest means publication never started; an empty directory
             // or incomplete staged blobs have no visible tracked outputs.
@@ -921,6 +1003,60 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
         if (!fs::create_directory(stage_path))
             return fail("Cannot allocate exclusive native Asset staging directory.");
         staging.path = stage_path;
+        struct FilesystemOutput {
+            fs::path staged;
+            fs::path target;
+            fs::path backup;
+            std::string revision;
+            std::string previous_revision;
+        };
+        std::vector<FilesystemOutput> filesystem_outputs;
+        if (generated && request.contains("filesystemOutputs")) {
+            const auto& files = request.at("filesystemOutputs");
+            if (!files.is_array() || files.size() > 128)
+                return fail("Mixed ComfyUI filesystem output list is malformed.");
+            std::set<fs::path> destinations;
+            for (const auto& item : files) {
+                if (!item.is_object() || !item.contains("stagedPath") ||
+                    !item["stagedPath"].is_string() || !item.contains("finalPath") ||
+                    !item["finalPath"].is_string() || !item.contains("contentHash") ||
+                    !item["contentHash"].is_string() || !item.contains("force") ||
+                    !item["force"].is_boolean())
+                    return fail("Mixed ComfyUI filesystem output is malformed.");
+                const auto source = from_utf8(item["stagedPath"].get<std::string>());
+                const auto destination = from_utf8(item["finalPath"].get<std::string>());
+                if (!source.is_absolute() || !destination.is_absolute() ||
+                    source.parent_path() != destination.parent_path() || source == destination ||
+                    !source.filename().string().ends_with(".noveltea-stage") ||
+                    !destinations.insert(destination).second ||
+                    !fs::is_directory(destination.parent_path()) ||
+                    fs::is_symlink(fs::symlink_status(destination.parent_path())) ||
+                    !fs::is_regular_file(source) || fs::is_symlink(fs::symlink_status(source)))
+                    return fail("Mixed ComfyUI filesystem staging is unsafe.");
+                const auto bytes = read_reliable(source);
+                if (!bytes ||
+                    exact_source_revision(*bytes) != item["contentHash"].get<std::string>())
+                    return fail("Mixed ComfyUI staged bytes changed before publication.");
+                const auto state = fs::symlink_status(destination);
+                if (state.type() != fs::file_type::not_found &&
+                    (!fs::is_regular_file(state) || fs::is_symlink(state) ||
+                     !item["force"].get<bool>()))
+                    return fail("Mixed ComfyUI destination already exists or is unsafe.");
+                const bool exists = state.type() != fs::file_type::not_found;
+                const auto prior =
+                    exists ? read_reliable(destination) : std::optional<std::string>{};
+                if (exists && !prior)
+                    return fail("Mixed ComfyUI destination changed during inspection.");
+                const auto backup =
+                    destination.parent_path() /
+                    ("." + utf8(destination.filename()) + "." + unique + ".noveltea-backup");
+                if (fs::exists(backup) || fs::is_symlink(fs::symlink_status(backup)))
+                    return fail("Mixed ComfyUI backup destination already exists.");
+                filesystem_outputs.push_back({source, destination, backup,
+                                              exact_source_revision(*bytes),
+                                              prior ? exact_source_revision(*prior) : "absent"});
+            }
+        }
         std::vector<YamlTransactionTarget> targets;
         for (std::size_t i = 0; i < planned.size(); ++i) {
             const auto& item = planned[i];
@@ -952,6 +1088,16 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                  {"assetPath", item.asset_path},
                  {"assetRevision", exact_source_revision(item.original_bytes)},
                  {"external", item.external}});
+        if (!filesystem_outputs.empty()) {
+            journal["filesystemOutputs"] = Json::array();
+            for (const auto& item : filesystem_outputs)
+                journal["filesystemOutputs"].push_back(
+                    {{"stagedPath", utf8(item.staged)},
+                     {"finalPath", utf8(item.target)},
+                     {"backupPath", utf8(item.backup)},
+                     {"revision", item.revision},
+                     {"previousRevision", item.previous_revision}});
+        }
         {
             std::ofstream output(staging.path / "manifest.json",
                                  std::ios::binary | std::ios::trunc);
@@ -966,6 +1112,18 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
         std::vector<fs::path> installed;
         bool recovery_uncertain = false;
         try {
+            const auto fault = std::getenv("NOVELTEA_TEST_MIXED_PUBLICATION_EXIT_AT");
+            const auto enabled = std::getenv("NOVELTEA_TEST_ONLY");
+            const auto fault_at = [&](std::string_view step) {
+                if (!filesystem_outputs.empty() && enabled && std::string_view(enabled) == "1" &&
+                    fault) {
+                    if (std::string_view(fault) == step)
+                        std::_Exit(92);
+                    if (step == "after-output" && std::string_view(fault) == "throw-after-output")
+                        throw std::runtime_error("injected mixed publication failure");
+                }
+            };
+            fault_at("before-output");
             for (std::size_t i = 0; i < planned.size(); ++i) {
                 if (!planned[i].external)
                     continue;
@@ -987,6 +1145,18 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                     exact_source_revision(planned[i].original_bytes))
                     throw std::runtime_error("Asset output changed before YAML publication.");
             }
+            for (const auto& item : filesystem_outputs) {
+                const auto previous = fs::exists(item.target)
+                                          ? exact_source_revision(bytes_at(item.target))
+                                          : std::string("absent");
+                if (previous != item.previous_revision ||
+                    exact_source_revision(bytes_at(item.staged)) != item.revision)
+                    throw std::runtime_error("Mixed output changed before YAML publication.");
+                if (previous != "absent")
+                    fs::rename(item.target, item.backup);
+                fs::rename(item.staged, item.target);
+            }
+            fault_at("after-output");
             // The remote job's admitted Project must still be authoritative at the
             // point of YAML acceptance, not merely when the owner began staging.
             // A concurrent edit to an unrelated source must not attach a new Asset
@@ -1008,8 +1178,27 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                         "Native import YAML recovery could not prove rollback: " + committed.error);
                 throw std::runtime_error(committed.error);
             }
+            fault_at("after-commit");
+            for (const auto& item : filesystem_outputs) {
+                std::error_code ignored;
+                fs::remove(item.backup, ignored);
+            }
             return success;
         } catch (const std::exception& error) {
+            // Recover through the same YAML-revision-based journal even on
+            // an ordinary exception. Retaining a lock owned by this *live*
+            // process would otherwise poison a long-lived Project owner.
+            if (!filesystem_outputs.empty()) {
+                staging.path.clear();
+                lock.path.clear();
+                try {
+                    recover_abandoned_import(real_root, true);
+                } catch (const std::exception& recovery_error) {
+                    return fail(std::string(error.what()) +
+                                "; recovery blocked: " + recovery_error.what());
+                }
+                return fail(error.what());
+            }
             for (std::size_t i = 0; i < planned.size(); ++i) {
                 if (!planned[i].external)
                     continue;
