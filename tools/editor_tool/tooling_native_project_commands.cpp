@@ -587,6 +587,18 @@ Json operate(const Json& request)
                 source_paths.push_back(relative);
             result["sourcePaths"] = std::move(source_paths);
             result["profile"] = profile;
+            Json effective_materials = Json::object();
+            for (const auto& [id, _] : prepared_project.at("materials").items()) {
+                const auto inspected = session->inspect_record("materials/" + id);
+                if (!inspected.accepted)
+                    return failure("Cannot inspect native Material for runtime: " + id + ": " +
+                                   inspected.error);
+                const auto resolved = session->material_compiler_effective(id);
+                if (!resolved)
+                    return failure("Cannot resolve native Material for runtime: " + id);
+                effective_materials[id] = Json::parse(*resolved);
+            }
+            result["materialEffectiveInputs"] = std::move(effective_materials);
             result["projectIdentity"] = prepared_project.at("project");
             result["runtimeIntent"] = action == "platform-export-preparation"
                                           ? "platform-export"

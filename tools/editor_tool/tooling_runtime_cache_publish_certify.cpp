@@ -5,6 +5,7 @@
 #include "native_authoring_programs.hpp"
 #include "native_compiled_project_save_contract.hpp"
 #include "native_compiled_project.hpp"
+#include "native_runtime_artifact.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/runtime/runtime_executor.hpp>
 #include <noveltea/presentation/runtime_presentation_model.hpp>
@@ -54,6 +55,17 @@ Json invoke(std::uint64_t (*operation)(const std::uint8_t*, std::uint64_t, std::
 int main(int argc, char** argv)
 {
     try {
+        if (argc == 2 && std::string_view(argv[1]) == "--assemble-admitted-stdin") {
+            const std::string input{std::istreambuf_iterator<char>(std::cin),
+                                    std::istreambuf_iterator<char>()};
+            const auto request = Json::parse(input);
+            const auto result = noveltea::cli::prepare_native_runtime_artifact(
+                request.at("project"), request.at("compiledProject"),
+                request.at("referencedAssetIds"), request.at("profile"),
+                request.at("materialEffectiveInputs"), request.value("projectRoot", std::string{}));
+            std::cout << result.dump() << '\n';
+            return 0;
+        }
         if (argc == 2 && std::string_view(argv[1]) == "--compile-admitted-stdin") {
             const std::string input{std::istreambuf_iterator<char>(std::cin),
                                     std::istreambuf_iterator<char>()};
@@ -228,6 +240,51 @@ int main(int argc, char** argv)
                                                                 {"severity", "error"},
                                                                 {"path", path},
                                                                 {"message", message}}})}}
+                                 .dump()
+                          << '\n';
+            }
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[2]) == "--emit-native-prepared") {
+            const auto fixture = std::filesystem::absolute(argv[1]);
+            const auto prepare = [&]() {
+                return invoke(noveltea_tooling_native_project_commands_json,
+                              Json{{"action", "runtime-package-preparation"},
+                                   {"projectRoot", fixture.string()}});
+            };
+            const auto source = prepare();
+            if (!source.value("ok", false)) {
+                std::cout << Json{{"status", "blocked"},
+                                  {"diagnostics",
+                                   source.value("projectDiagnostics", Json::array())},
+                                  {"error", source.value("error", "Native admission failed")}}
+                                 .dump()
+                          << '\n';
+                return 0;
+            }
+            try {
+                const auto compiled =
+                    noveltea::cli::compile_native_compiled_project(source.at("project"));
+                auto result = noveltea::cli::prepare_native_runtime_artifact(
+                    source.at("project"), compiled, source.at("referencedAssetIds"),
+                    source.at("profile"), source.at("materialEffectiveInputs"));
+                const auto current = prepare();
+                if (!current.value("ok", false) ||
+                    current.at("sourceGeneration") != source.at("sourceGeneration") ||
+                    current.at("sourceRevisions") != source.at("sourceRevisions") ||
+                    current.at("project") != source.at("project"))
+                    throw std::runtime_error("at /sourceGeneration: Native Project generation "
+                                             "changed during preparation.");
+                result["project"] = source.at("project");
+                result["referencedAssetIds"] = source.at("referencedAssetIds");
+                result["materialEffectiveInputs"] = source.at("materialEffectiveInputs");
+                std::cout << result.dump() << '\n';
+            } catch (const std::exception& error) {
+                std::cout << Json{{"status", "blocked"},
+                                  {"diagnostics", Json::array({{{"code", "native.artifact"},
+                                                                {"severity", "error"},
+                                                                {"path", "/artifact"},
+                                                                {"message", error.what()}}})}}
                                  .dump()
                           << '\n';
             }

@@ -1,4 +1,5 @@
 #include "native_authoring_messages.hpp"
+#include "tooling_native_project_localization.hpp"
 #include "character_archetype_semantics.hpp"
 #include "localization_semantics.hpp"
 
@@ -734,6 +735,22 @@ NativeMessageProjection lower_authoring_messages(const Json& project)
     ordered.insert(ordered.end(), settings_ids.begin(), settings_ids.end());
     NativeMessageProjection output{Json::object(), Json::array(),  Json::object(), Json::object(),
                                    project,        Json::object(), Json::object()};
+    for (const auto& source : rml_sources) {
+        std::size_t ordinal = 0;
+        for (const auto& occurrence : source.analyzed.messages) {
+            if (occurrence.lua_call)
+                continue;
+            const auto& id = source.stable_ids.at(ordinal++);
+            if (occurrence.kind == "named")
+                continue;
+            output.rml_workflow_fingerprints[id] =
+                native_authoring_rml_semantic_fingerprint(occurrence.source);
+        }
+    }
+    for (const auto& source : lua_sources)
+        for (const auto& id : source.stable_ids)
+            if (!object(localization, "messages").contains(id))
+                output.managed_lua_local_ids.push_back(id);
     std::uint32_t next_id = 0;
     for (const auto& id : ordered) {
         const auto& message = messages.at(id);
