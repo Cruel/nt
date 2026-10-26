@@ -1,5 +1,8 @@
 #include "native_cli_contract.hpp"
 #include "native_cli_test_catalog.hpp"
+#include "native_compiled_project.hpp"
+#include "native_runtime_artifact.hpp"
+#include "native_runtime_physical.hpp"
 #include "tooling_native_c.h"
 #include "../project_authoring/material_semantics.hpp"
 
@@ -421,6 +424,197 @@ int missing_project(const Arguments& args, bool formatter = false)
                    "/project.yaml", message, message);
 }
 
+// Runtime cache admission is an optimization, never the Project compiler. A
+// cold generation is assembled exclusively from one pinned native disk owner.
+struct RuntimeBuild {
+    Json cache;
+    Json artifact;
+    Json catalog;
+    Json diagnostics = Json::array();
+    std::string source_generation;
+    bool cached = false;
+    bool published = false;
+    std::string error;
+    std::string error_code;
+    int exit_code = 70;
+};
+
+bool runtime_source_current(const std::string& root, const std::string& generation)
+{
+    return !generation.empty() && native_request({{"action", "source-generation-proof"},
+                                                  {"projectRoot", root},
+                                                  {"expectedSourceGeneration", generation}})
+                                      .value("ok", false);
+}
+
+// The cache producer's discovery contract excludes editor state, shader
+// compiler sources and authored Tests from the gameplay fingerprint. Preserve
+// all discovered files, including unreferenced scripts and records.
+Json cache_input_paths(const std::filesystem::path& root, bool tests)
+{
+    std::set<std::string> paths;
+    if (!tests)
+        paths.insert("project.yaml");
+    for (const auto& directory : {"records", "scripts", "i18n"}) {
+        const auto base = root / directory;
+        std::error_code error;
+        const auto status = std::filesystem::symlink_status(base, error);
+        if (error == std::errc::no_such_file_or_directory)
+            continue;
+        if (error || !std::filesystem::is_directory(status) || std::filesystem::is_symlink(status))
+            throw std::runtime_error("Unsafe runtime source discovery directory: " +
+                                     path_text(base));
+        for (std::filesystem::recursive_directory_iterator it(base, {}, error), end;
+             !error && it != end; it.increment(error)) {
+            const auto entry_status = it->symlink_status(error);
+            if (error || std::filesystem::is_symlink(entry_status))
+                throw std::runtime_error("Unsafe runtime source discovery entry: " +
+                                         path_text(it->path()));
+            if (!std::filesystem::is_regular_file(entry_status))
+                continue;
+            const auto relative = path_text(std::filesystem::relative(it->path(), root));
+            const auto extension = it->path().extension().string();
+            const bool authored_test = relative.starts_with("records/tests/");
+            if (tests ? (authored_test && (extension == ".yaml" || extension == ".json"))
+                      : (!authored_test &&
+                         ((std::string_view(directory) == "records" &&
+                           (extension == ".yaml" || extension == ".json" || extension == ".lua" ||
+                            extension == ".rcss" || extension == ".rml")) ||
+                          (std::string_view(directory) == "scripts" && extension == ".lua") ||
+                          (std::string_view(directory) == "i18n" &&
+                           (extension == ".yaml" || extension == ".json")))))
+                paths.insert(relative);
+        }
+        if (error)
+            throw std::runtime_error("Runtime source discovery failed: " + path_text(base));
+    }
+    return Json(paths);
+}
+
+Json cache_input_metadata(const std::filesystem::path& root, const Json& paths)
+{
+    Json entries = Json::array();
+    for (const auto& path : paths) {
+        const auto metadata =
+            invoke_native_json(noveltea_tooling_path_metadata_json,
+                               {{"path", path_text(root / path.get<std::string>())}});
+        if (!metadata.value("ok", false) || metadata.value("kind", "") != "file" ||
+            !metadata.contains("byteSize") || !metadata.at("byteSize").is_number_unsigned() ||
+            !metadata.contains("mtimeNanoseconds") || !metadata.at("mtimeNanoseconds").is_string())
+            throw std::runtime_error("Runtime source metadata changed during preparation.");
+        entries.push_back({{"path", path},
+                           {"byteSize", metadata.at("byteSize")},
+                           {"mtimeNanoseconds", metadata.at("mtimeNanoseconds")}});
+    }
+    return entries;
+}
+
+RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
+                          bool include_unused = false, bool include_shader_sources = false)
+{
+    RuntimeBuild result;
+    const auto root_text = path_text(root);
+    const auto probe = [&]() {
+        return invoke_native_json(
+            noveltea_tooling_probe_runtime_cache_json,
+            {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
+    };
+    result.cache = probe();
+    if (!force && !include_unused && !include_shader_sources && result.cache.value("ok", false) &&
+        result.cache.value("status", "") == "hit" && result.cache.contains("artifact") &&
+        result.cache.at("artifact").is_object()) {
+        result.artifact = result.cache.at("artifact");
+        result.cached = true;
+        result.diagnostics = result.cache.value("diagnostics", Json::array());
+        return result;
+    }
+    const auto fail = [&](std::string code, std::string message, int exit_code) {
+        result.error_code = std::move(code);
+        result.error = std::move(message);
+        result.exit_code = exit_code;
+        return result;
+    };
+    try {
+        const auto admitted =
+            native_request({{"action", "runtime-package-preparation"}, {"projectRoot", root_text}});
+        if (!admitted.value("ok", false)) {
+            result.diagnostics = project_diagnostics(admitted);
+            for (const auto& finding : admitted.value("projectDiagnostics", Json::array()))
+                result.diagnostics.push_back(finding);
+            return fail(admitted.value("kind", "") == "conflict" ? "WORKSPACE_REVISION_CONFLICT"
+                                                                 : "WORKSPACE_SOURCE_READ",
+                        admitted.value("error", "Native runtime admission failed."),
+                        admitted.value("kind", "") == "conflict" ? 5 : 4);
+        }
+        result.diagnostics = project_diagnostics(admitted);
+        result.source_generation = admitted.at("sourceGeneration").get<std::string>();
+        if (!runtime_source_current(root_text, result.source_generation))
+            return fail("WORKSPACE_REVISION_CONFLICT", "Runtime sources changed after admission.",
+                        5);
+
+        auto profile = admitted.at("profile");
+        if (include_unused)
+            profile["excludeUnusedAssets"] = false;
+        if (include_shader_sources) {
+            profile["includeShaderSources"] = true;
+            profile["stripShaderSources"] = false;
+        }
+        const auto compiled = compile_native_compiled_project(admitted.at("project"));
+        auto prepared = prepare_native_runtime_artifact(
+            admitted.at("project"), compiled, admitted.at("referencedAssetIds"), profile,
+            admitted.at("materialEffectiveInputs"), root_text);
+        if (prepared.value("status", "") != "prepared") {
+            result.diagnostics = prepared.value("diagnostics", Json::array());
+            return fail("native.runtime.artifact", "Native runtime artifact assembly failed.", 4);
+        }
+        if (!runtime_source_current(root_text, result.source_generation))
+            return fail("WORKSPACE_REVISION_CONFLICT",
+                        "Runtime sources changed during compilation.", 5);
+        prepared = prepare_native_runtime_physical(prepared.at("artifact"), admitted, root_text);
+        if (prepared.value("status", "") != "prepared") {
+            result.diagnostics = prepared.value("diagnostics", Json::array());
+            return fail("native.runtime.physical", "Native runtime physical preparation failed.",
+                        4);
+        }
+        result.artifact = prepared.at("artifact");
+        result.catalog = lower_test_catalog(admitted.at("project"), result.diagnostics);
+        const auto runtime_paths = cache_input_paths(root, false);
+        const auto test_paths = cache_input_paths(root, true);
+        const auto runtime_inputs = cache_input_metadata(root, runtime_paths);
+        const auto test_inputs = cache_input_metadata(root, test_paths);
+        if (!runtime_source_current(root_text, result.source_generation))
+            return fail("WORKSPACE_REVISION_CONFLICT",
+                        "Runtime sources changed before publication.", 5);
+        // Overrides are specific to one export and must never replace the
+        // canonical default-profile runtime generation.
+        if (!include_unused && !include_shader_sources) {
+            const auto published =
+                invoke_native_json(noveltea_tooling_publish_runtime_cache_json,
+                                   {{"projectRoot", root_text},
+                                    {"compilerIdentity", compiler_identity},
+                                    {"artifact", result.artifact},
+                                    {"catalog", result.catalog},
+                                    {"runtimeInputPaths", runtime_paths},
+                                    {"expectedRuntimeInputs", runtime_inputs},
+                                    {"testInputPaths", test_paths},
+                                    {"expectedTestInputs", test_inputs},
+                                    {"expectedSourceGeneration", result.source_generation},
+                                    {"authoringDiagnostics", result.diagnostics}});
+            result.published = published.value("published", false);
+            result.cache["published"] = result.published;
+            if (!result.published)
+                result.cache["publicationReason"] =
+                    published.value("reason", "native-publication-failed");
+        }
+        if (!runtime_source_current(root_text, result.source_generation))
+            return fail("WORKSPACE_REVISION_CONFLICT", "Runtime sources changed after publication.",
+                        5);
+    } catch (const std::exception& error) {
+        return fail("native.runtime.preparation", error.what(), 4);
+    }
+    return result;
+}
+
 int tests_from_native_runtime(const Arguments& args)
 {
     const auto operation = args.command.size() > 1 ? args.command[1] : std::string{};
@@ -473,7 +667,8 @@ int tests_from_native_runtime(const Arguments& args)
             noveltea_tooling_probe_runtime_cache_json,
             {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
     };
-    const auto cached = probe();
+    const auto runtime = load_runtime(root);
+    const auto& cached = runtime.cache;
     const auto cache_observation = [&](const Json& value) {
         Json observation{{"status", value.value("status", "unusable")},
                          {"reason", value.value("reason", "native-probe-failed")}};
@@ -483,13 +678,21 @@ int tests_from_native_runtime(const Arguments& args)
         return Json{{"runtimeCache", std::move(observation)}};
     };
     auto fields = cache_observation(cached);
-    if (!cached.value("ok", false) || cached.value("status", "") != "hit")
-        return command_error(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED", "/tests",
-                             "No current compiled runtime artifact is available; native cold "
-                             "runtime preparation is not yet implemented.",
-                             fields);
-    if (!cached.contains("artifact") || !cached.at("artifact").is_object() ||
-        !cached.at("artifact").contains("compiledProject"))
+    if (!runtime.cached) {
+        fields["runtimeCache"]["published"] = runtime.published;
+        if (cached.contains("publicationReason"))
+            fields["runtimeCache"]["publicationReason"] = cached.at("publicationReason");
+    }
+    if (!runtime.error.empty()) {
+        auto envelope = Json{{"success", false},
+                             {"exitCode", runtime.exit_code},
+                             {"diagnostics", runtime.diagnostics},
+                             {"projectRoot", root_text}};
+        envelope["diagnostics"].push_back(diagnostic(runtime.error_code, "/tests", runtime.error));
+        envelope.update(fields);
+        return emit(std::move(envelope), args.json, runtime.error);
+    }
+    if (!runtime.artifact.is_object() || !runtime.artifact.contains("compiledProject"))
         return command_error(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID", "/tests",
                              "Verified runtime cache omitted compiled Project data.", fields);
     const bool needs_catalog = authored;
@@ -497,10 +700,10 @@ int tests_from_native_runtime(const Arguments& args)
                                 cached.contains("catalog") && cached.at("catalog").is_object() &&
                                 cached.at("catalog").contains("entries") &&
                                 cached.at("catalog").at("entries").is_array();
-    Json catalog = cached_catalog ? cached.at("catalog") : Json::object();
+    Json catalog = cached_catalog ? cached.at("catalog") : runtime.catalog;
     std::string catalog_source_generation;
     Json prepared_test_inputs = Json::array();
-    if (needs_catalog && !cached_catalog) {
+    if (runtime.cached && needs_catalog && !cached_catalog) {
         // Tests do not enter the compiled gameplay fingerprint. Rebuild their
         // authored playback catalog from the current native-admitted generation
         // without reusing a damaged or stale published Test catalog.
@@ -540,7 +743,7 @@ int tests_from_native_runtime(const Arguments& args)
             return command_error(5, "WORKSPACE_REVISION_CONFLICT", "/tests",
                                  "Project changed during Test catalog preparation.", fields);
     }
-    const auto& artifact = cached.at("artifact");
+    const auto& artifact = runtime.artifact;
     const auto& options = artifact.at("packageOptions");
     Json request{{"project", artifact.at("compiledProject")},
                  {"projectRoot", root_text},
@@ -554,7 +757,7 @@ int tests_from_native_runtime(const Arguments& args)
     }
     NativeJsonOperation native_operation = noveltea_tooling_run_headless_test_json;
     std::string success_message;
-    Json diagnostics = cached.value("diagnostics", Json::array());
+    Json diagnostics = runtime.diagnostics;
     if (!diagnostics.is_array())
         return command_error(70, "CLI_NATIVE_RUNTIME_CACHE_INVALID", "/tests",
                              "Native runtime cache returned malformed diagnostics.", fields);
@@ -601,9 +804,11 @@ int tests_from_native_runtime(const Arguments& args)
     // Recheck the current artifact before and after using the same native
     // verifier. Never return a result against a replaced or stale generation.
     const auto current = [&]() {
+        if (!runtime.source_generation.empty())
+            return runtime_source_current(root_text, runtime.source_generation);
         const auto verified = probe();
         if (!verified.value("ok", false) || verified.value("status", "") != "hit" ||
-            verified.value("artifact", Json()) != cached.at("artifact"))
+            verified.value("artifact", Json()) != artifact)
             return false;
         if (!needs_catalog)
             return true;
@@ -715,7 +920,7 @@ int tests_from_native_runtime(const Arguments& args)
         diagnostics.push_back(diagnostic("native.test.invalid_report", "/tests",
                                          "Native Test runner returned no valid execution report."));
     }
-    if (needs_catalog && !cached_catalog) {
+    if (runtime.cached && needs_catalog && !cached_catalog) {
         // A stale Test catalog does not invalidate compiled gameplay. After
         // native execution and the final source proof, publish a fresh
         // generation through the native cache writer. This is best-effort
@@ -730,6 +935,7 @@ int tests_from_native_runtime(const Arguments& args)
              {"expectedRuntimeInputs", cached.value("runtimeInputs", Json::array())},
              {"testInputPaths", cached.value("testInputPaths", Json::array())},
              {"expectedTestInputs", prepared_test_inputs},
+             {"expectedSourceGeneration", catalog_source_generation},
              {"authoringDiagnostics", cached.value("diagnostics", Json::array())}});
         fields["runtimeCache"]["published"] = published.value("published", false);
         if (!published.value("published", false))
@@ -751,6 +957,7 @@ int package_from_native_runtime(const Arguments& args)
     const auto& command = args.command;
     std::string output, requested_profile;
     bool unused_assets = false, shader_sources = false, allow_localization_warnings = false;
+    bool force_rebuild = false;
     if (command.size() < 2 || command[1] != "export")
         return usage(args.json, "Unknown package command.");
     for (std::size_t i = 2; i < command.size(); ++i) {
@@ -767,6 +974,8 @@ int package_from_native_runtime(const Arguments& args)
             shader_sources = true;
         } else if (option == "--allow-localization-warnings") {
             allow_localization_warnings = true;
+        } else if (option == "--force-rebuild") {
+            force_rebuild = true;
         } else {
             return usage(args.json, "Unknown command option '" + option + "'.");
         }
@@ -799,16 +1008,27 @@ int package_from_native_runtime(const Arguments& args)
             noveltea_tooling_probe_runtime_cache_json,
             {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
     };
-    const auto cached = probe();
-    const Json cache_fields{{"runtimeCache",
-                             {{"status", cached.value("status", "unusable")},
-                              {"reason", cached.value("reason", "native-probe-failed")}}}};
-    if (!cached.value("ok", false) || cached.value("status", "") != "hit")
-        return fail(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED",
-                    "No verified current runtime artifact is available for native Runtime "
-                    "Package export. Cold preparation is not yet implemented.",
-                    cache_fields);
-    const auto& artifact = cached.at("artifact");
+    const auto runtime = load_runtime(root, force_rebuild, unused_assets, shader_sources);
+    const auto& cached = runtime.cache;
+    Json cache_fields{{"runtimeCache",
+                       {{"status", cached.value("status", "unusable")},
+                        {"reason", cached.value("reason", "native-probe-failed")}}}};
+    if (!runtime.cached) {
+        cache_fields["runtimeCache"]["published"] = runtime.published;
+        if (cached.contains("publicationReason"))
+            cache_fields["runtimeCache"]["publicationReason"] = cached.at("publicationReason");
+    }
+    if (!runtime.error.empty()) {
+        auto diagnostics = runtime.diagnostics;
+        diagnostics.push_back(diagnostic(runtime.error_code, "/export/runtime", runtime.error));
+        Json response{{"success", false},
+                      {"exitCode", runtime.exit_code},
+                      {"diagnostics", diagnostics},
+                      {"projectRoot", root_text}};
+        response.update(cache_fields);
+        return emit(std::move(response), args.json, runtime.error);
+    }
+    const auto& artifact = runtime.artifact;
     if (!artifact.is_object() || !artifact.contains("profile") ||
         !artifact.at("profile").is_object() || !artifact.contains("packageOptions") ||
         !artifact.at("packageOptions").is_object() || !artifact.contains("compiledProject"))
@@ -818,12 +1038,6 @@ int package_from_native_runtime(const Arguments& args)
     if (!requested_profile.empty() && requested_profile != profile.value("id", ""))
         return fail(4, "export.profile_missing",
                     "Export profile '" + requested_profile + "' does not exist.", cache_fields);
-    if ((unused_assets && profile.value("excludeUnusedAssets", true)) ||
-        (shader_sources && !profile.value("includeShaderSources", false)))
-        return fail(70, "CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED",
-                    "Requested export overrides require a new native runtime build; "
-                    "the cached artifact cannot be repurposed.",
-                    cache_fields);
 
     Json localization_warnings = Json::array();
     for (const auto& item : artifact.value("diagnostics", Json::array())) {
@@ -980,6 +1194,8 @@ int package_from_native_runtime(const Arguments& args)
                                            {"expectedSourceGeneration", generation}});
         if (!proof.value("ok", false))
             return false;
+        if (!runtime.source_generation.empty())
+            return runtime_source_current(root_text, runtime.source_generation);
         const auto verified = probe();
         return verified.value("ok", false) && verified.value("status", "") == "hit" &&
                verified.value("artifact", Json()) == artifact;
@@ -1045,6 +1261,8 @@ int package_from_native_runtime(const Arguments& args)
                   {"diagnostics", std::move(result_diagnostics)},
                   {"projectRoot", root_text},
                   {"native", written}};
+    if (!runtime.cached)
+        response.update(cache_fields);
     return emit(std::move(response), args.json, "NovelTea package export succeeded.");
 }
 

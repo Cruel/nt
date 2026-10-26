@@ -588,7 +588,8 @@ Json operate(const Json& request)
             result["sourcePaths"] = std::move(source_paths);
             result["profile"] = profile;
             Json effective_materials = Json::object();
-            for (const auto& [id, _] : prepared_project.at("materials").items()) {
+            const auto materials = prepared_project.value("materials", Json::object());
+            for (const auto& [id, _] : materials.items()) {
                 const auto inspected = session->inspect_record("materials/" + id);
                 if (!inspected.accepted)
                     return failure("Cannot inspect native Material for runtime: " + id + ": " +

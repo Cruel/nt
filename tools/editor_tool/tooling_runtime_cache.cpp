@@ -1,4 +1,5 @@
 #include "tooling_native_c.h"
+#include "tooling_native_project_sync.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/core/compiled_project_codec.hpp>
@@ -7,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -28,6 +30,8 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -581,6 +585,15 @@ Json probe(const Json& request)
         *parsed_artifact_schema != kPreparedArtifactSchema ||
         !artifact.contains("compiledProject") || !artifact["compiledProject"].is_object())
         return response("unusable", "artifact-invalid");
+    // A valid digest only proves the cache file is intact. The compiled wire
+    // must still be engine-decodable and identical to the package's gameplay
+    // text, including when a damaged generation was deliberately rehashed.
+    if (!artifact.contains("gameplayJson") || !artifact["gameplayJson"].is_string())
+        return response("unusable", "compiled-project-invalid");
+    const auto wire = Json::parse(artifact["gameplayJson"].get<std::string>(), nullptr, false);
+    if (wire.is_discarded() || wire != artifact["compiledProject"] ||
+        !noveltea::core::decode_compiled_project(wire, "native-runtime-cache-probe"))
+        return response("unusable", "compiled-project-invalid");
 
     auto result = response("hit", "current-runtime-generation-valid");
     result["artifact"] = artifact;
@@ -992,6 +1005,73 @@ bool flush_directory(const std::filesystem::path& path)
 #endif
 }
 
+// A process-scoped OS lock serializes writers across CLI processes. The lock
+// inode is intentionally permanent: unlinking it on release would allow two
+// writers to hold different locks for the same cache. The OS releases a held
+// lock on process termination, including after a crash or cancellation.
+class RuntimePublicationLock {
+public:
+    RuntimePublicationLock() = default;
+    RuntimePublicationLock(const RuntimePublicationLock&) = delete;
+    RuntimePublicationLock& operator=(const RuntimePublicationLock&) = delete;
+
+    bool acquire(const std::filesystem::path& path)
+    {
+#if defined(_WIN32)
+        handle_ =
+            CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE)
+            return false;
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (!GetFileInformationByHandle(handle_, &info) ||
+            (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+            GetFileType(handle_) != FILE_TYPE_DISK)
+            return false;
+        acquired_ = LockFileEx(handle_, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlapped_) != 0;
+        return acquired_;
+#else
+        descriptor_ = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (descriptor_ < 0)
+            return false;
+        struct stat status {};
+        if (fstat(descriptor_, &status) != 0 || !S_ISREG(status.st_mode))
+            return false;
+        int result;
+        do {
+            result = flock(descriptor_, LOCK_EX);
+        } while (result != 0 && errno == EINTR);
+        return result == 0;
+#endif
+    }
+
+    ~RuntimePublicationLock()
+    {
+#if defined(_WIN32)
+        if (handle_ != INVALID_HANDLE_VALUE) {
+            if (acquired_)
+                UnlockFileEx(handle_, 0, 1, 0, &overlapped_);
+            CloseHandle(handle_);
+        }
+#else
+        if (descriptor_ >= 0) {
+            flock(descriptor_, LOCK_UN);
+            close(descriptor_);
+        }
+#endif
+    }
+
+private:
+#if defined(_WIN32)
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    OVERLAPPED overlapped_{};
+    bool acquired_ = false;
+#else
+    int descriptor_ = -1;
+#endif
+};
+
 Json publish_runtime(const Json& request)
 {
     const auto fail = [](std::string reason) {
@@ -1004,6 +1084,10 @@ Json publish_runtime(const Json& request)
         !request.contains("testInputPaths") || !request.contains("authoringDiagnostics") ||
         !request.contains("expectedRuntimeInputs") || !request.contains("expectedTestInputs"))
         return fail("publication-request-invalid");
+    if (request.contains("cancelled") && !request["cancelled"].is_boolean())
+        return fail("publication-request-invalid");
+    if (request.value("cancelled", false))
+        return fail("publication-cancelled");
     const auto& artifact = request["artifact"];
     const auto& catalog = request["catalog"];
     const auto& diagnostics = request["authoringDiagnostics"];
@@ -1027,6 +1111,13 @@ Json publish_runtime(const Json& request)
     if (error || std::filesystem::is_symlink(root_status) ||
         !std::filesystem::is_directory(root_status) || !authoring_workspace_settled(root))
         return fail("workspace-unsettled");
+    const auto generation_proof = [&]() {
+        const auto expected = string_field(request, "expectedSourceGeneration");
+        return !request.contains("expectedSourceGeneration") ||
+               (expected && native_project_source_generation_is_current(root, *expected));
+    };
+    if (!generation_proof())
+        return fail("source-generation-changed");
     if (!contained_physical_inputs(root, artifact))
         return fail("compiled-artifact-physical-inputs-invalid");
     auto runtime_inputs = collect_cache_inputs(root, request["runtimeInputPaths"]);
@@ -1072,6 +1163,9 @@ Json publish_runtime(const Json& request)
         if (error || std::filesystem::is_symlink(status) || !std::filesystem::is_directory(status))
             return fail("cache-directory-unsafe");
     }
+    RuntimePublicationLock lock;
+    if (!lock.acquire(cache_root / ".publish.lock"))
+        return fail("cache-publication-lock-unavailable");
     const auto current_path = cache_root / "current";
     std::string old_pointer;
     const auto old_status = std::filesystem::symlink_status(current_path, error);
@@ -1126,7 +1220,7 @@ Json publish_runtime(const Json& request)
     // One last input and pointer revision check after constructing the
     // generation. A failed check leaves only disposable orphan files.
     const auto latest_pointer = read_text(current_path);
-    if (!unchanged_cache_inputs(root, *runtime_inputs) ||
+    if (!generation_proof() || !unchanged_cache_inputs(root, *runtime_inputs) ||
         !unchanged_cache_inputs(root, *test_inputs) || !authoring_workspace_settled(root) ||
         !discovery_matches(root, scopes, runtime_paths) || test_files(root) != test_paths ||
         latest_pointer.value_or("") != old_pointer) {

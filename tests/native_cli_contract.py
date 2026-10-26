@@ -117,18 +117,26 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
                           input_text='{broken')
     assert malformed_input.returncode == 2
     assert json.loads(malformed_input.stdout)['diagnostics'][0]['code'] == 'CLI_USAGE'
-    unprepared = envelope('--project', str(created), 'test', 'run', code=70)
-    assert unprepared['diagnostics'][0]['code'] in {
-        'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND', 'CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED'}
-    assert envelope('--project', str(created), 'test', 'run', 'unknown', code=70)[
-        'diagnostics'][0]['code'] in {
-            'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND', 'CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED'}
+    # With a sealed compiler identity the native CLI now admits a cold Project
+    # and reports its genuine missing-entrypoint compiler failure. Unsealed
+    # candidates still reject runtime commands before Project admission.
+    for command in [('test', 'run'), ('test', 'run', 'unknown')]:
+        raw = run('--json', '--project', str(created), *command)
+        assert raw.stderr == '', raw.stderr
+        unprepared = json.loads(raw.stdout)
+        assert raw.returncode == unprepared['exitCode'] in (4, 70), unprepared
+        assert any(d['code'] in ('CLI_NATIVE_RUNTIME_COMPILER_UNBOUND',
+                                 'native.runtime.preparation')
+                   for d in unprepared['diagnostics']), unprepared
     assert envelope('--project', str(created), 'package', 'export', code=2)[
         'diagnostics'][0]['message'] == "package export requires '--output <path>'."
-    assert envelope('--project', str(created), 'package', 'export',
-                    '--output', str(root / 'no-package.ntpkg'), code=70)[
-        'diagnostics'][0]['code'] in {
-            'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND', 'CLI_NATIVE_RUNTIME_PREPARATION_REQUIRED'}
+    missing_package = run('--json', '--project', str(created), 'package', 'export',
+                          '--output', str(root / 'no-package.ntpkg'))
+    assert missing_package.stderr == '', missing_package.stderr
+    missing_result = json.loads(missing_package.stdout)
+    assert missing_package.returncode == missing_result['exitCode'] in (4, 70)
+    assert any(d['code'] in ('CLI_NATIVE_RUNTIME_COMPILER_UNBOUND',
+                             'native.runtime.preparation') for d in missing_result['diagnostics'])
     envelope('--project', str(created), 'entity', 'create', 'rooms', 'witness-room')
     project = created
     inspect = ['entity', 'inspect', 'rooms', 'witness-room']

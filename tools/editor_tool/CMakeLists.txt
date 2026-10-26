@@ -241,6 +241,12 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
             "--compiler-identity=${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
     set_tests_properties(native_cli_runtime_cache PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME native_cli_cold_runtime
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_cold_runtime.py"
+            "$<TARGET_FILE:noveltea-native-cli>"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
+    set_tests_properties(native_cli_cold_runtime PROPERTIES SKIP_RETURN_CODE 77)
     add_executable(noveltea-runtime-cache-publish-certify
         tooling_runtime_cache_publish_certify.cpp native_compiled_project_save_contract.cpp
         native_compiled_project.cpp native_runtime_artifact.cpp native_runtime_physical.cpp native_runtime_media.cpp native_runtime_materials.cpp

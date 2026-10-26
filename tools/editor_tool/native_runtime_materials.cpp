@@ -183,7 +183,8 @@ Json native_runtime_material_metadata(const Json& project, const Json& effective
         throw std::runtime_error("Native Material authority is missing from artifact preparation.");
     const auto registry = Json::parse(noveltea::authoring::material_registry_json);
     Json shaders = Json::object(), materials = Json::object();
-    for (const auto& [id, record] : project.at("materials").items()) {
+    const auto project_materials = project.value("materials", Json::object());
+    for (const auto& [id, record] : project_materials.items()) {
         if (!effective_materials.contains(id))
             throw std::runtime_error("Missing native resolved Material '" + id + "'.");
         const auto& effective = effective_materials.at(id);

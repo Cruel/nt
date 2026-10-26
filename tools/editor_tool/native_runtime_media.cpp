@@ -782,7 +782,8 @@ void prepare_native_runtime_media(Json& artifact, const Json& project, const Jso
 {
     Json manifest{
         {"schema", "noveltea.private.prepared-media"}, {"version", 1}, {"motions", Json::array()}};
-    for (const auto& [id, record] : project.at("animations").items()) {
+    const auto animations = project.value("animations", Json::object());
+    for (const auto& [id, record] : animations.items()) {
         const auto& data = record.at("data");
         for (const auto& motion : data.at("motions")) {
             if (motion.value("kind", "") != "video")
