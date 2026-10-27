@@ -504,10 +504,10 @@ jobs:
       - name: Certify native CLI platform preflight and publication parity
         run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
 
-      - name: Certify cross-host native macOS bundle assembly and publication recovery
+      - name: Certify cross-host native macOS and Android export and publication recovery
         run: |
-          cmake --build --preset linux-authoring-release --target noveltea-cli-macos-export-certify noveltea-cli-platform-publication-certify
-          ctest --test-dir build/linux-authoring-release --output-on-failure -R '^native_cli_(macos_export|platform_publication)$'
+          cmake --build --preset linux-authoring-release --target noveltea-cli-macos-export-certify noveltea-cli-android-export-certify noveltea-cli-platform-publication-certify
+          ctest --test-dir build/linux-authoring-release --output-on-failure -R '^native_cli_(macos_export|android_export|platform_publication)$'
 
       - name: Certify native CLI Test and Runtime Package candidates
         run: |

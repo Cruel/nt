@@ -116,6 +116,25 @@ template, checks direct executable and LaunchServices launch, and exercises
 ad-hoc codesign/verification. Production notarization and trusted-identity
 signing still require private credentials and are not claimed by this smoke.
 
+The native C++ Android exporter (#568) now assembles APK/AAB distributions from an
+installed, verified Android player template. It copies the immutable Gradle
+project, prebuilt native libraries, engine shaders, runtime assets and notices;
+generates the game bootstrap, manifest, portrait/landscape configuration,
+launcher icons and SDK/version/resource metadata; and invokes the pinned Gradle
+wrapper using a separately configured local JDK/SDK. A signed release requires
+an explicit local keystore/alias and `env:`-referenced signing secrets (never
+project-authored credentials). The exporter checks APK manifest identity,
+toolchain versions, native ABI closure, license bytes, signatures, alignment,
+runtime package hashes and AAB-to-universal-APK derivation before installing the
+complete artifact set with the same recoverable publication journal as other
+native exporters. Android tooling is mandatory for APK/AAB production, but no
+new Android runtime or build dependency is introduced by the C++ exporter.
+`native_cli_android_export` exercises cross-host staged Gradle behavior with
+hermetic fixtures and negative failure/rollback paths. The arm64 certification
+workflow independently inspects the real artifacts and boots two AAB-derived
+package revisions in the emulator. Publicly trusted release signing remains
+dependent on external private keystore credentials and is not claimed by CI.
+
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,
 NDK 28.2.13676358 (r28c), CMake 3.31.6, and bundletool 1.18.1. Those are template build inputs,

@@ -397,6 +397,7 @@ export async function exportAndroidPlatform(
         `novelteaVersionCode=${built.model.android!.versionCode}`,
         `novelteaVersionName=${property(built.model.android!.versionName)}`,
         `novelteaAbi=${built.model.android!.abi}`,
+        `novelteaMinSdk=${built.model.android!.minSdk}`,
         `novelteaOrientation=${built.model.android!.orientation}`,
       ].join('\n') + '\n',
     );
