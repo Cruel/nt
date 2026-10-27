@@ -1528,6 +1528,34 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     std::string error;
     auto project = ProjectSession::open(temp.root, error);
     require(project != nullptr, "Cannot admit full native validation: " + error);
+    // Native worker diagnostics must consume the same immutable physical
+    // capture as SourceAuthority. A subsequent edit cannot mutate its bytes
+    // or revision; the next observation must discover the newer generation.
+    {
+        const std::string owner = "records/rooms/room-lifecycle-roundtrip.yaml";
+        const auto original = read(temp.root / owner);
+        const auto first_edit = original + "\n# native observer capture A\n";
+        const auto second_edit = original + "\n# native observer capture B\n";
+        write(temp.root / owner, first_edit);
+        const auto first_observation = project->observe_sources();
+        const auto* captured = project->verified_observed_source(owner);
+        require(first_observation.authoritative && captured && captured->yaml &&
+                    captured->yaml->accepted && captured->bytes == first_edit &&
+                    first_observation.delta_revisions.at(owner) == captured->revision,
+                "Project diagnostic capture uses exact observed bytes and revision");
+        write(temp.root / owner, second_edit);
+        require(captured->bytes == first_edit &&
+                    captured->revision == exact_source_revision(first_edit),
+                "Previously verified diagnostic bytes remain immutable after an external edit");
+        const auto later = project->observe_sources();
+        const auto* updated = project->verified_observed_source(owner);
+        require(later.authoritative && updated && updated->bytes == second_edit &&
+                    later.delta_revisions.at(owner) == updated->revision,
+                "Next observer poll verifies the later external generation");
+        write(temp.root / owner, original);
+        require(project->observe_sources().authoritative,
+                "Restored native Project source is verified before subsequent certification");
+    }
     const auto cold = project->validate_project();
     if (!cold.valid)
         for (const auto& issue : cold.diagnostics)

@@ -900,41 +900,6 @@ Json reconciliation_plan(const Json& original,
 
 } // namespace
 
-// Include all tracked native authoring sources, rather than only the YAML owner
-// selected for a write. This prevents publishing identities derived from a
-// changed Lua/RML buffer after the editor's read generation has gone stale.
-std::string native_project_source_generation(const ProjectSession& session,
-                                             const std::filesystem::path& root)
-{
-    std::string identity = "native-project-source-generation-v1";
-    identity.push_back('\0');
-    // Use the physical authority's scoped membership, not the Project inventory's
-    // unrelated/unregistered Asset neighbors, which may change without a semantic delta.
-    const auto revisions = session.verified_source_revisions();
-    if (!revisions)
-        throw std::runtime_error("Cannot verify an uncertain native source generation.");
-    for (const auto& [relative, revision] : *revisions) {
-        const auto path = root / std::filesystem::path(relative);
-        identity.append(relative).push_back('\0');
-        if (revision == "absent")
-            identity.append("absent").push_back('\0');
-        else {
-            if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
-                throw std::runtime_error("Cannot verify native source generation: " + relative);
-            identity.append(exact_source_revision(bytes_at(path))).push_back('\0');
-        }
-    }
-    return exact_source_revision(identity);
-}
-
-bool native_project_source_generation_is_current(const std::filesystem::path& root,
-                                                 std::string_view expected)
-{
-    std::string error;
-    auto fresh = ProjectSession::open(root, error);
-    return fresh && native_project_source_generation(*fresh, root) == expected;
-}
-
 std::vector<NativeLocalizationTrackingSource>
 native_project_localization_sources(ProjectSession& session)
 {

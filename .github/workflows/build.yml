@@ -154,7 +154,22 @@ jobs:
       - name: Certify native worker session / external watcher / revision / recovery
         env:
           NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
-        run: pnpm -C editor exec vp test run src/renderer/test/native-authoring-worker.test.ts src/renderer/test/native-authoring-reconciliation.test.ts
+        run: |
+          # Keep addon-backed suites in separate Vitest invocations: a native
+          # worker crash must identify the failing suite instead of taking down
+          # a second test-file worker without attribution.
+          pnpm -C editor exec vp test run src/renderer/test/native-authoring-worker.test.ts
+          pnpm -C editor exec vp test run src/renderer/test/native-authoring-reconciliation.test.ts --reporter=verbose
+      - name: Diagnose Windows native authoring worker failure
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Native addon crashes may terminate a Vitest fork before it can
+          # emit a JS exception. Capture recent Windows crash records.
+          Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddMinutes(-20)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.ProviderName -in @('Application Error', 'Windows Error Reporting') } |
+            Select-Object -First 12 TimeCreated, Id, ProviderName, Message |
+            Format-List | Out-String -Width 240 | Write-Host
       - name: Certify addon inside Electron's worker runtime
         env:
           NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
@@ -511,6 +526,7 @@ jobs:
 
       - name: Certify cross-host native macOS and Android export and publication recovery
         run: |
+          cmake --preset linux-authoring-release -DNOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY=ON
           cmake --build --preset linux-authoring-release --target noveltea-cli-macos-export-certify noveltea-cli-android-export-certify noveltea-cli-platform-publication-certify
           ctest --test-dir build/linux-authoring-release --output-on-failure -R '^native_cli_(macos_export|android_export|platform_publication)$'
 

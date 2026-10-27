@@ -1,4 +1,5 @@
 #include "native_cli_contract.hpp"
+#include "native_cli_paths.hpp"
 #include "native_cli_daemon.hpp"
 #include "native_cli_agent.hpp"
 #include "native_cli_comfyui.hpp"
@@ -195,7 +196,7 @@ std::string path_text(const std::filesystem::path& path)
 std::filesystem::path project_root(const std::string& selected)
 {
     auto current =
-        std::filesystem::absolute(std::filesystem::u8path(selected.empty() ? "." : selected))
+        std::filesystem::absolute(native_path_from_utf8(selected.empty() ? "." : selected))
             .lexically_normal();
     if (current.filename().empty() && current != current.root_path())
         current = current.parent_path();
@@ -497,7 +498,7 @@ Json cache_input_paths(const std::filesystem::path& root, bool tests,
             if (relative == "editor.yaml" || relative == "editor.json" ||
                 relative.starts_with("records/tests/"))
                 continue;
-            const auto source = root / std::filesystem::u8path(relative);
+            const auto source = root / native_path_from_utf8(relative);
             std::error_code error;
             // Native admission also carries virtual/optional source revisions.
             // Only real Project files may enter the filesystem cache inventory.
@@ -568,7 +569,7 @@ bool package_physical_pins_current(const Json& options)
         if (!entry.is_object() || !entry.contains("source") || !entry.at("source").is_string() ||
             !entry.contains("expectedSha256") || !entry.at("expectedSha256").is_string())
             return false;
-        const auto path = std::filesystem::u8path(entry.at("source").get<std::string>());
+        const auto path = native_path_from_utf8(entry.at("source").get<std::string>());
         std::error_code error;
         if (std::filesystem::is_symlink(std::filesystem::symlink_status(path, error)) || error ||
             !std::filesystem::is_regular_file(path, error) || error ||
@@ -601,7 +602,7 @@ bool package_physical_pins_current(const Json& options)
         return false;
     return noveltea::core::shader_binary_files_current(
         options.value("shaderMaterialMetadata", Json(nullptr)), required,
-        std::filesystem::u8path(options.at("shaderAssetRoot").get<std::string>()));
+        native_path_from_utf8(options.at("shaderAssetRoot").get<std::string>()));
 }
 
 RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
@@ -1168,7 +1169,7 @@ int package_from_native_runtime(const Arguments& args)
                     "Runtime Package options omitted physical source entries.", cache_fields);
     const auto canonical_root = std::filesystem::canonical(root);
     const auto confined = [&](const std::string& path) {
-        const auto selected = std::filesystem::u8path(path);
+        const auto selected = native_path_from_utf8(path);
         if (!selected.is_absolute())
             return false;
         std::error_code error;
@@ -1194,7 +1195,7 @@ int package_from_native_runtime(const Arguments& args)
     // All paths consumed by the native writer must remain under the current
     // Project root. A cached package copied between checkouts is not portable.
     const auto confined_root = [&](const std::string& path) {
-        const auto selected = std::filesystem::u8path(path);
+        const auto selected = native_path_from_utf8(path);
         if (!selected.is_absolute())
             return false;
         std::error_code error;
@@ -1222,8 +1223,7 @@ int package_from_native_runtime(const Arguments& args)
                         cache_fields);
     }
 
-    const auto target =
-        std::filesystem::absolute(std::filesystem::u8path(output)).lexically_normal();
+    const auto target = std::filesystem::absolute(native_path_from_utf8(output)).lexically_normal();
     if (target.filename().empty())
         return fail(4, "export.output_invalid", "Runtime Package output path is invalid.",
                     cache_fields);
@@ -1259,7 +1259,7 @@ int package_from_native_runtime(const Arguments& args)
     } staged;
     std::random_device random;
     for (int retry = 0; retry < 8; ++retry) {
-        const auto candidate = std::filesystem::u8path(
+        const auto candidate = native_path_from_utf8(
             path_text(target) + ".tmp-" + std::to_string(random()) + "-" +
             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 #if defined(_WIN32)
@@ -1591,7 +1591,7 @@ void require_collection(const std::string& collection)
 
 std::string absolute_path(const std::string& value)
 {
-    return path_text(std::filesystem::absolute(std::filesystem::u8path(value)).lexically_normal());
+    return path_text(std::filesystem::absolute(native_path_from_utf8(value)).lexically_normal());
 }
 
 int inspect(const Arguments& args)

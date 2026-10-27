@@ -1,4 +1,5 @@
 #include "native_cli_comfyui.hpp"
+#include "native_cli_paths.hpp"
 #include "native_cli_comfyui_http.hpp"
 #include "native_comfyui_workflows_generated.hpp"
 
@@ -120,13 +121,13 @@ std::string package_hash(const Json& manifest, const Json& workflow)
 fs::path user_root()
 {
     if (const char* override = std::getenv("NOVELTEA_USER_CONFIG_ROOT"); override && *override)
-        return fs::u8path(override);
+        return native_path_from_utf8(override);
 #if defined(_WIN32)
     if (const char* home = std::getenv("USERPROFILE"); home && *home)
-        return fs::u8path(home) / ".noveltea";
+        return native_path_from_utf8(home) / ".noveltea";
 #endif
     if (const char* home = std::getenv("HOME"); home && *home)
-        return fs::u8path(home) / ".noveltea";
+        return native_path_from_utf8(home) / ".noveltea";
     return fs::current_path() / ".noveltea";
 }
 
@@ -720,7 +721,8 @@ std::vector<Workflow> catalog(const fs::path& project, const Config& settings)
         if (filenames.size() > 256)
             filenames.resize(256);
         for (const auto& filename : filenames) {
-            const auto manifest = read_file(directory / fs::u8path(filename), 1024 * 1024);
+            const auto manifest =
+                read_file(directory / native_path_from_utf8(filename), 1024 * 1024);
             if (!manifest) {
                 entries.push_back(load_workflow(source, filename, "{}", std::nullopt));
                 continue;
@@ -732,7 +734,8 @@ std::vector<Workflow> catalog(const fs::path& project, const Config& settings)
                     data.at("workflowFile").is_string()) {
                     const auto name = data.at("workflowFile").get<std::string>();
                     if (safe_name(name))
-                        workflow = read_file(directory / fs::u8path(name), 32 * 1024 * 1024);
+                        workflow =
+                            read_file(directory / native_path_from_utf8(name), 32 * 1024 * 1024);
                 }
             } catch (...) {
             }
@@ -1616,7 +1619,8 @@ std::map<std::string, fs::path> resolve_routes(const RunArgs& args, const Workfl
         }
         if (path.empty() || !outputs.contains(id))
             throw std::invalid_argument("Unknown or empty ComfyUI filesystem output route.");
-        if (!routes.emplace(id, fs::absolute(fs::u8path(path)).lexically_normal()).second)
+        if (!routes.emplace(id, fs::absolute(native_path_from_utf8(path)).lexically_normal())
+                 .second)
             throw std::invalid_argument("ComfyUI output was routed more than once.");
     }
     return routes;
@@ -1746,7 +1750,7 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
                                                       : coerce_input(id, type, supplied->second))
                                    : input.at("defaultValue");
             if (type == "image") {
-                const auto source = fs::absolute(fs::u8path(value.get<std::string>()));
+                const auto source = fs::absolute(native_path_from_utf8(value.get<std::string>()));
                 const auto bytes = read_file(source, 32 * 1024 * 1024);
                 if (!bytes || bytes->empty())
                     throw RunError("COMFYUI_INPUT_IMAGE_INVALID", "/inputs/" + id,

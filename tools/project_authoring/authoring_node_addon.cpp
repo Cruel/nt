@@ -198,18 +198,13 @@ Json observation_json(Session& session, const SourceObservation& observed)
         const auto id = relative.substr(slash + 1, relative.size() - slash - 6);
         if (revision == "absent")
             continue;
-        const auto file = std::filesystem::weakly_canonical(session.root / relative);
-        const auto contained = file.lexically_relative(session.root);
-        if (contained.empty() || contained == ".." || *contained.begin() == "..")
-            throw std::runtime_error("Native Project record escaped its admitted root.");
-        std::ifstream input(file, std::ios::binary);
-        if (!input)
-            throw std::runtime_error("Cannot reopen changed native Project record.");
-        const std::string bytes{std::istreambuf_iterator<char>(input),
-                                std::istreambuf_iterator<char>()};
-        if (noveltea::authoring::exact_source_revision(bytes) != revision)
-            throw std::runtime_error("Changed Project source revision raced with validation.");
-        const auto decoded = noveltea::authoring::open_yaml_source(bytes);
+        // SourceAuthority already pinned exact bytes, digest, and YAML in one
+        // secure capture. Reopening the path here races legitimate external
+        // edits and can kill the worker even though the capture was verified.
+        const auto* captured = session.project->verified_observed_source(relative);
+        if (!captured || captured->revision != revision || !captured->yaml)
+            throw std::runtime_error("Missing verified native Project record capture.");
+        const auto& decoded = *captured->yaml;
         const auto base = "/" + family + "/" + id;
         auto& diagnostics = session.record_diagnostics[relative];
         diagnostics.clear();

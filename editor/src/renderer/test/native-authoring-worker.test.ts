@@ -38,6 +38,15 @@ class FakeWorker extends EventEmitter {
   terminated = false;
   postMessage(message: unknown) {
     this.sent.push(message);
+    if (
+      typeof message === 'object' &&
+      message !== null &&
+      'type' in message &&
+      message.type === 'shutdown'
+    ) {
+      this.terminated = true;
+      queueMicrotask(() => this.emit('exit', 0));
+    }
   }
   terminate() {
     this.terminated = true;
@@ -46,6 +55,44 @@ class FakeWorker extends EventEmitter {
 }
 
 describe('native worker session bridge (main-owned authority)', () => {
+  it('requests cooperative shutdown and waits for worker exit before cleanup', async () => {
+    const worker = new FakeWorker();
+    let forced = false;
+    worker.terminate = () => {
+      forced = true;
+      return Promise.resolve(0);
+    };
+    worker.postMessage = (message) => {
+      worker.sent.push(message);
+    };
+    const bridge = new NativeAuthoringSessionBridge(
+      { requireActiveProjectRoot: () => '/trusted/project', isCurrent: () => true },
+      { addonPath: '/trusted/addon.node', createWorker: () => worker },
+    );
+    const opening = bridge.open('A');
+    worker.emit('message', {
+      type: 'snapshot',
+      sessionId: 'A',
+      generation: 1,
+      sequence: 0,
+      snapshot: initial,
+    });
+    await opening;
+    bridge.close();
+    let completed = false;
+    const cleanup = bridge.closeAndWait().then(() => {
+      completed = true;
+    });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    expect(worker.sent.at(-1)).toEqual({ type: 'shutdown' });
+    expect(forced).toBe(false);
+    worker.emit('exit', 0);
+    await cleanup;
+    expect(completed).toBe(true);
+    expect(forced).toBe(false);
+  });
+
   it('rejects a graph DTO with an inner Project identity differing from the response envelope', async () => {
     const worker = new FakeWorker();
     const bridge = new NativeAuthoringSessionBridge(
@@ -327,7 +374,7 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       );
       bridge = new NativeAuthoringSessionBridge(
         { requireActiveProjectRoot: () => root, isCurrent: () => true },
-        { addonPath: path.resolve(addon!), workerScript: compiledWorker, pollIntervalMs: 100 },
+        { addonPath: path.resolve(addon!), workerScript: compiledWorker, pollIntervalMs: 0 },
       );
       const working = new NativeAuthoringWorkingProject(bridge);
       const initial = await working.open('working-certification');
@@ -531,13 +578,64 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       expect(working.snapshot()).toBeNull();
       expect(await readFile(roomPath, 'utf8')).toContain('another process modified');
     } finally {
-      bridge?.close();
+      await bridge?.closeAndWait();
       await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
 
-  it('opens Project snapshot, emits verified external deltas and restarts safely', async () => {
+  it('publishes a verified external change through automatic watcher polling', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'noveltea-watcher-'));
+    const fixture = path.resolve(process.cwd(), '../tests/projects/feature-lab');
+    const relative = 'records/rooms/room-lifecycle-roundtrip.yaml';
+    const roomPath = path.join(root, relative);
+    let bridge: NativeAuthoringSessionBridge | undefined;
+    try {
+      for (const file of [
+        'project.yaml',
+        'traits.yaml',
+        'editor.yaml',
+        'i18n/project.yaml',
+        'i18n/messages.yaml',
+        'i18n/usage-notes.yaml',
+        'i18n/tracking.yaml',
+        'i18n/orphans.yaml',
+        relative,
+      ]) {
+        await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+        await copyFile(path.join(fixture, file), path.join(root, file));
+      }
+      await mkdir(path.join(root, 'i18n/locales'), { recursive: true });
+      await mkdir(path.join(root, 'i18n/assets'), { recursive: true });
+      bridge = new NativeAuthoringSessionBridge(
+        { requireActiveProjectRoot: () => root, isCurrent: () => true },
+        { addonPath: path.resolve(addon!), workerScript: compiledWorker, pollIntervalMs: 100 },
+      );
+      await bridge.open('automatic-watcher');
+      // Wait for the actual matching event. The timeout is a liveness guard,
+      // not a sleep used to guess when the filesystem observation finished.
+      const observedRevision = new Promise<string>((resolve, reject) => {
+        const watchdog = setTimeout(() => {
+          unsubscribe();
+          reject(new Error('Native watcher did not publish the changed Room.'));
+        }, 15_000);
+        const unsubscribe = bridge!.subscribe((event) => {
+          if (!event.changedSourcePaths.includes(relative)) return;
+          clearTimeout(watchdog);
+          unsubscribe();
+          resolve(event.observation.revisions[relative] ?? '');
+        });
+      });
+      await writeFile(roomPath, (await readFile(roomPath, 'utf8')) + '\n# external source edit\n');
+      await expect(observedRevision).resolves.toMatch(/^sha256:[0-9a-f]{64}$/u);
+    } finally {
+      await bridge?.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('opens Project snapshot, explicitly observes external deltas and restarts safely', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-worker-'));
+    let bridge: NativeAuthoringSessionBridge | undefined;
     try {
       const fixture = path.resolve(process.cwd(), '../tests/projects/feature-lab');
       for (const file of [
@@ -559,7 +657,7 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       const roomPath = path.join(root, 'records/rooms/room-lifecycle-roundtrip.yaml');
       await copyFile(path.join(fixture, 'records/rooms/room-lifecycle-roundtrip.yaml'), roomPath);
       let active = 'certified-A';
-      const bridge = new NativeAuthoringSessionBridge(
+      bridge = new NativeAuthoringSessionBridge(
         {
           requireActiveProjectRoot: (id) => {
             if (id !== active) throw new Error('Stale test session.');
@@ -567,36 +665,25 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
           },
           isCurrent: (id) => id === active,
         },
-        { addonPath: path.resolve(addon!), workerScript: compiledWorker, pollIntervalMs: 100 },
+        { addonPath: path.resolve(addon!), workerScript: compiledWorker, pollIntervalMs: 0 },
       );
       const changes: string[][] = [];
       const verifiedRevisions: string[] = [];
       const sourceErrors: string[] = [];
-      let notify: ((records: string[]) => void) | undefined;
       bridge.subscribe((event) => {
         changes.push(event.changedRecords);
         verifiedRevisions.push(...Object.values(event.observation.revisions));
         if (event.observation.error) sourceErrors.push(event.observation.error);
         for (const entry of event.observation.recordDiagnostics) sourceErrors.push(entry.message);
-        notify?.(event.changedRecords);
       });
       const first = await bridge.open(active);
       expect(first.snapshot.source).toMatchObject({ schema: 'noveltea.project.workspace' });
       expect(first.snapshot.inventory).toContain('records/rooms/room-lifecycle-roundtrip.yaml');
-      const automaticChange = new Promise<string[]>((resolve) => {
-        notify = resolve;
-      });
       await writeFile(roomPath, (await readFile(roomPath, 'utf8')) + '\n# external source edit\n');
-      const reported = await Promise.race([
-        automaticChange,
-        new Promise<string[]>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Native worker did not publish an automatic change.')),
-            4000,
-          ),
-        ),
-      ]);
-      expect(reported).toEqual(['rooms/room-lifecycle-roundtrip']);
+      const reported = await bridge.request({ operation: 'observe' });
+      expect(reported).toMatchObject({
+        changed: ['records/rooms/room-lifecycle-roundtrip.yaml'],
+      });
       expect(changes).toContainEqual(['rooms/room-lifecycle-roundtrip']);
       expect(verifiedRevisions).toEqual([expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)]);
       const modified = bridge.request({
@@ -709,14 +796,15 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
         patches: [{ operation: 'replace', path: '/project/name', value: 'stale' }],
       });
       await expect(failed).resolves.toMatchObject({ accepted: false });
-      bridge.close();
+      await bridge.closeAndWait();
       await expect(bridge.request({ operation: 'observe' })).rejects.toThrow();
       await rm(path.join(root, 'project.yaml'));
       await expect(bridge.open(active)).rejects.toThrow('Native Project open failed');
       await copyFile(path.join(fixture, 'project.yaml'), path.join(root, 'project.yaml'));
       await expect(bridge.open(active)).resolves.toMatchObject({ sessionId: active });
-      bridge.close();
+      await bridge.closeAndWait();
     } finally {
+      await bridge?.closeAndWait();
       await rm(root, { recursive: true, force: true });
     }
   }, 30_000);

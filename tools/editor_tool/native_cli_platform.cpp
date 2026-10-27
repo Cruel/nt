@@ -1,4 +1,5 @@
 #include "native_cli_platform.hpp"
+#include "native_cli_paths.hpp"
 #include "native_cli_platform_stage.hpp"
 #include "native_cli_comfyui.hpp"
 
@@ -120,13 +121,13 @@ fs::path user_home()
     if (!home || !*home)
         throw std::runtime_error("User home is unavailable.");
 #endif
-    return fs::u8path(home);
+    return native_path_from_utf8(home);
 }
 
 fs::path registry_root()
 {
     const char* configured = std::getenv("NOVELTEA_TEMPLATE_REGISTRY_ROOT");
-    return fs::absolute(configured && *configured ? fs::u8path(configured)
+    return fs::absolute(configured && *configured ? native_path_from_utf8(configured)
                                                   : user_home() / ".noveltea/templates")
         .lexically_normal();
 }
@@ -136,9 +137,9 @@ fs::path template_root(const std::string& token)
     const auto [id, build] = parse_token(token);
     const auto registry = registry_root();
     if (fs::is_symlink(fs::symlink_status(registry)) ||
-        fs::is_symlink(fs::symlink_status(registry / fs::u8path(id))))
+        fs::is_symlink(fs::symlink_status(registry / native_path_from_utf8(id))))
         throw std::runtime_error("Refusing symbolic-link template registry paths.");
-    return registry / fs::u8path(id) / fs::u8path(build);
+    return registry / native_path_from_utf8(id) / native_path_from_utf8(build);
 }
 
 std::string read_file(const fs::path& path)
@@ -244,10 +245,10 @@ ProcessResult run_archive_tool(const std::string& program, const std::vector<std
     startup.hStdOutput = write_pipe;
     startup.hStdError = write_pipe;
     startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    const auto program_path = fs::u8path(program);
+    const auto program_path = native_path_from_utf8(program);
     std::wstring command = quote(program_path.wstring());
     for (const auto& arg : args)
-        command += L" " + quote(fs::u8path(arg).wstring());
+        command += L" " + quote(native_path_from_utf8(arg).wstring());
     PROCESS_INFORMATION process{};
     const auto cwd = directory.empty() ? std::wstring{} : directory.wstring();
     const auto launched =
@@ -542,7 +543,7 @@ fs::path inventory_path(const fs::path& root, const std::string& relative)
         const auto part = relative.substr(index, next == std::string::npos ? next : next - index);
         if (part.empty() || part == "." || part == "..")
             throw std::runtime_error("Unsafe template inventory path '" + relative + "'.");
-        selected /= fs::u8path(part);
+        selected /= native_path_from_utf8(part);
         const auto status = fs::symlink_status(selected);
         if (fs::is_symlink(status))
             throw std::runtime_error("Symbolic link in template inventory '" + relative + "'.");
@@ -855,7 +856,7 @@ PlatformCliResult config_init(const std::vector<std::string>& command)
         throw std::invalid_argument("Usage: noveltea platform config init <path> [--force].");
     const bool force =
         force_only(command, 4, "Usage: noveltea platform config init <path> [--force].");
-    const auto destination = fs::absolute(fs::u8path(command[3])).lexically_normal();
+    const auto destination = fs::absolute(native_path_from_utf8(command[3])).lexically_normal();
     const auto status = fs::symlink_status(destination);
     if (fs::is_symlink(status))
         return fail("CLI_COMMAND", "/", "Refusing to replace a symbolic-link config path.", 4);
@@ -987,8 +988,8 @@ bool record_export_identity(const fs::path& root, const EditorIdentitySnapshot& 
                  {"saveNamespace", save_namespace},
                  {"completedAt", export_identity_timestamp()}};
     fs::create_directories(original.identity_path.parent_path());
-    const auto staged =
-        fs::u8path(text(original.identity_path) + ".tmp-" + std::to_string(std::random_device{}()));
+    const auto staged = native_path_from_utf8(text(original.identity_path) + ".tmp-" +
+                                              std::to_string(std::random_device{}()));
     write_exclusive_file(staged, updated.dump(2) + '\n');
     try {
         if (read_export_identity(root).bytes != original.bytes) {
@@ -1064,7 +1065,7 @@ PlatformCliResult template_install(const fs::path& archive, bool force)
             if (top.size() != 1)
                 throw std::runtime_error(
                     "Template archive must contain template.json at its root.");
-            staged_root /= fs::u8path(*top.begin());
+            staged_root /= native_path_from_utf8(*top.begin());
             if (!fs::is_regular_file(fs::symlink_status(staged_root / "template.json")))
                 throw std::runtime_error(
                     "Template archive must contain template.json at its root.");
@@ -1321,7 +1322,7 @@ fs::path checked_project_source(const fs::path& project_root, std::string_view r
 {
     if (relative.empty())
         throw std::runtime_error("Project icon source path is empty.");
-    const auto source = fs::u8path(relative);
+    const auto source = native_path_from_utf8(relative);
     if (source.is_absolute())
         throw std::runtime_error("Project icon source path must be relative.");
     std::error_code error;
@@ -1347,25 +1348,25 @@ std::vector<fs::path> export_artifacts(const fs::path& output, const Json& profi
     const auto target = profile.at("target").get<std::string>();
     std::vector<fs::path> artifacts{output};
     if (target == "web" || target == "windows")
-        artifacts.push_back(fs::u8path(text(output) + ".zip"));
+        artifacts.push_back(native_path_from_utf8(text(output) + ".zip"));
     if (target == "linux") {
-        artifacts.push_back(
-            fs::u8path(text(output) + (artifact(profile) == "zip" ? ".zip" : ".tar.gz")));
+        artifacts.push_back(native_path_from_utf8(
+            text(output) + (artifact(profile) == "zip" ? ".zip" : ".tar.gz")));
         if (artifact(profile) == "appimage")
-            artifacts.push_back(fs::u8path(text(output) + ".AppImage"));
+            artifacts.push_back(native_path_from_utf8(text(output) + ".AppImage"));
     }
     if (target == "macos") {
         auto base = text(output);
         if (base.size() >= 4 && base.substr(base.size() - 4) == ".app")
             base.resize(base.size() - 4);
-        artifacts.push_back(fs::u8path(base + ".zip"));
-        artifacts.push_back(fs::u8path(base + ".dmg"));
-        artifacts.push_back(fs::u8path(base + "-signing-report.json"));
-        artifacts.push_back(fs::u8path(base + "-export-manifest.json"));
+        artifacts.push_back(native_path_from_utf8(base + ".zip"));
+        artifacts.push_back(native_path_from_utf8(base + ".dmg"));
+        artifacts.push_back(native_path_from_utf8(base + "-signing-report.json"));
+        artifacts.push_back(native_path_from_utf8(base + "-export-manifest.json"));
     }
     if (target == "windows" ||
         (profile.value("includeDebugSymbols", false) && (target == "linux" || target == "macos")))
-        artifacts.push_back(fs::u8path(
+        artifacts.push_back(native_path_from_utf8(
             (target == "macos" ? text(output).substr(0, text(output).size() - 4) : text(output)) +
             (target == "linux" ? "-symbols.tar.gz" : "-symbols.zip")));
     return artifacts;
@@ -1413,7 +1414,7 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                         ? "No platform export profiles are configured."
                         : "Multiple platform export profiles are configured; pass "
                           "'--profile <id>'.");
-    const auto output = fs::absolute(fs::u8path(options.output)).lexically_normal();
+    const auto output = fs::absolute(native_path_from_utf8(options.output)).lexically_normal();
     if (output.filename().empty())
         return fail("export.output_invalid", "/output", "Platform export output is invalid.");
 
@@ -1503,7 +1504,7 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
         return fail("platform-artifact-invalid", "/output", "--dmg requires a macOS profile.");
     if (!options.config.empty()) {
         try {
-            config = read_json(fs::absolute(fs::u8path(options.config)));
+            config = read_json(fs::absolute(native_path_from_utf8(options.config)));
             if (!valid_export_config(config))
                 return fail("platform.config_invalid", "/config",
                             "Export config violates the strict local export configuration schema.");
@@ -1717,7 +1718,7 @@ PlatformCliResult run_native_platform_cli(const std::vector<std::string>& comman
         const auto launched = run_archive_tool(program, arguments, directory);
         if (launched.code != 0)
             return false;
-        auto name = fs::u8path(program).filename().string();
+        auto name = native_path_from_utf8(program).filename().string();
         std::transform(name.begin(), name.end(), name.begin(),
                        [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
         // SignTool /tw emits a warning, sometimes with exit status 0, if the
@@ -1826,7 +1827,7 @@ PlatformCliResult run_native_platform_cli(const std::vector<std::string>& comman
                 "Usage: noveltea platform template install <archive> [--force].");
         const bool force = force_only(
             command, 4, "Usage: noveltea platform template install <archive> [--force].");
-        return template_install(fs::u8path(command[3]), force);
+        return template_install(native_path_from_utf8(command[3]), force);
     }
     throw std::invalid_argument("Unknown platform template command '" + operation + "'.");
 }

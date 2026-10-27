@@ -1,4 +1,5 @@
 #include "native_cli_platform_stage.hpp"
+#include "native_cli_paths.hpp"
 
 #include "native_cli_macho.hpp"
 #include "native_cli_web_shell.hpp"
@@ -106,7 +107,8 @@ void sync_directory(const fs::path& directory)
 void publish_atomic_file(const fs::path& destination, const std::string& data,
                          std::string_view nonce)
 {
-    const auto temporary = fs::u8path(path_text(destination) + ".new-" + std::string(nonce));
+    const auto temporary =
+        native_path_from_utf8(path_text(destination) + ".new-" + std::string(nonce));
     // With the destination lock held, an ordinary same-nonce temporary file
     // is debris left by a previous interrupted journal update. Discard it
     // before retrying, but reject unsafe filesystem types.
@@ -179,7 +181,7 @@ fs::path safe_child(const fs::path& root, const std::string& relative)
         const auto part = relative.substr(offset, end == std::string::npos ? end : end - offset);
         if (part.empty() || part == "." || part == "..")
             throw std::runtime_error("Invalid platform relative path: " + relative);
-        result /= fs::u8path(part);
+        result /= native_path_from_utf8(part);
         if (fs::is_symlink(fs::symlink_status(result)))
             throw std::runtime_error("Symbolic-link platform path: " + relative);
         if (end == std::string::npos)
@@ -206,7 +208,7 @@ struct PublicationEntry {
 
 fs::path journal_path(const fs::path& destination)
 {
-    return fs::u8path(path_text(destination) + ".noveltea-publication-transaction.json");
+    return native_path_from_utf8(path_text(destination) + ".noveltea-publication-transaction.json");
 }
 
 void validate_parents(const fs::path& destination)
@@ -252,24 +254,25 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
             throw std::runtime_error("Invalid platform publication journal output kind.");
         const auto base = path_text(destination);
         const auto mac_base = base.ends_with(".app") ? base.substr(0, base.size() - 4) : base;
-        const auto final = (kind == "directory" || kind == "android-directory") ? destination
-                           : kind == "archive"     ? fs::u8path(base + ".zip")
-                           : kind == "archive-tar" ? fs::u8path(base + ".tar.gz")
-                           : kind == "symbols-tar" ? fs::u8path(base + "-symbols.tar.gz")
-                           : kind == "appimage"    ? fs::u8path(base + ".AppImage")
-                           : kind == "mac-archive" ? fs::u8path(mac_base + ".zip")
-                           : kind == "mac-symbols" ? fs::u8path(mac_base + "-symbols.zip")
-                           : kind == "mac-dmg"     ? fs::u8path(mac_base + ".dmg")
-                           : kind == "mac-signing-report"
-                               ? fs::u8path(mac_base + "-signing-report.json")
-                           : kind == "mac-manifest" ? fs::u8path(mac_base + "-export-manifest.json")
-                                                    : fs::u8path(base + "-symbols.zip");
+        const auto final =
+            (kind == "directory" || kind == "android-directory") ? destination
+            : kind == "archive"     ? native_path_from_utf8(base + ".zip")
+            : kind == "archive-tar" ? native_path_from_utf8(base + ".tar.gz")
+            : kind == "symbols-tar" ? native_path_from_utf8(base + "-symbols.tar.gz")
+            : kind == "appimage"    ? native_path_from_utf8(base + ".AppImage")
+            : kind == "mac-archive" ? native_path_from_utf8(mac_base + ".zip")
+            : kind == "mac-symbols" ? native_path_from_utf8(mac_base + "-symbols.zip")
+            : kind == "mac-dmg"     ? native_path_from_utf8(mac_base + ".dmg")
+            : kind == "mac-signing-report"
+                ? native_path_from_utf8(mac_base + "-signing-report.json")
+            : kind == "mac-manifest" ? native_path_from_utf8(mac_base + "-export-manifest.json")
+                                     : native_path_from_utf8(base + "-symbols.zip");
         if (kind != "symbols" && kind != "symbols-tar" && kind != "appimage" &&
             kind != "mac-symbols" && kind != "mac-dmg" && kind != "mac-signing-report" &&
             kind != "mac-manifest" && item.at("removeOnly").get<bool>())
             throw std::runtime_error("Cannot retire required platform artifact.");
-        entries.push_back({final, fs::u8path(path_text(final) + ".stage-" + nonce),
-                           fs::u8path(path_text(final) + ".previous-" + nonce),
+        entries.push_back({final, native_path_from_utf8(path_text(final) + ".stage-" + nonce),
+                           native_path_from_utf8(path_text(final) + ".previous-" + nonce),
                            item.at("hadPrevious").get<bool>(), item.at("removeOnly").get<bool>()});
     }
     if (kinds.size() == 1 && kinds.contains("android-directory"))
@@ -356,8 +359,8 @@ void recover_publication(const fs::path& destination)
     // An interrupted journal rewrite leaves a sibling .new-<nonce> file.
     // The destination lease excludes its former writer; clear only regular
     // orphan bytes after validating the full recovery state.
-    const auto orphan =
-        fs::u8path(path_text(journal_file) + ".new-" + journal.at("nonce").get<std::string>());
+    const auto orphan = native_path_from_utf8(path_text(journal_file) + ".new-" +
+                                              journal.at("nonce").get<std::string>());
     const auto orphan_status = fs::symlink_status(orphan);
     if (fs::exists(orphan_status)) {
         if (!fs::is_regular_file(orphan_status) || fs::is_symlink(orphan_status))
@@ -833,9 +836,9 @@ void verify_linux_dependencies(const Json& descriptor, const fs::path& player,
                 for (const auto& search_path : binary.rpaths) {
                     const auto candidate =
                         (owner.parent_path() /
-                         fs::u8path(search_path.size() > 7 ? search_path.substr(8)
-                                                           : std::string{}) /
-                         fs::u8path(needed))
+                         native_path_from_utf8(search_path.size() > 7 ? search_path.substr(8)
+                                                                      : std::string{}) /
+                         native_path_from_utf8(needed))
                             .lexically_normal();
                     if (candidate == bundled->second.lexically_normal()) {
                         reachable = true;
@@ -927,13 +930,13 @@ PlatformCliResult stage_web_export(const Json& admission, const Json& profile,
             return failure("platform-template-changed", "Web template changed after preflight.", 5);
 
         const auto nonce = random_nonce();
-        const auto archive_path = fs::u8path(path_text(destination) + ".zip");
+        const auto archive_path = native_path_from_utf8(path_text(destination) + ".zip");
         const std::vector<PublicationEntry> entries{
-            {destination, fs::u8path(path_text(destination) + ".stage-" + nonce),
-             fs::u8path(path_text(destination) + ".previous-" + nonce),
+            {destination, native_path_from_utf8(path_text(destination) + ".stage-" + nonce),
+             native_path_from_utf8(path_text(destination) + ".previous-" + nonce),
              fs::exists(fs::symlink_status(destination))},
-            {archive_path, fs::u8path(path_text(archive_path) + ".stage-" + nonce),
-             fs::u8path(path_text(archive_path) + ".previous-" + nonce),
+            {archive_path, native_path_from_utf8(path_text(archive_path) + ".stage-" + nonce),
+             native_path_from_utf8(path_text(archive_path) + ".previous-" + nonce),
              fs::exists(fs::symlink_status(archive_path))}};
         for (const auto& entry : entries)
             if (fs::exists(fs::symlink_status(entry.stage)) ||
@@ -1041,7 +1044,8 @@ PlatformCliResult stage_web_export(const Json& admission, const Json& profile,
         for (std::size_t index = 0; index < runtime_names.size(); ++index) {
             auto found = std::find_if(files.begin(), files.end(), [&](const FileEntry& file) {
                 return file.path == runtime_names[index] ||
-                       path_text(fs::u8path(file.path).filename()) == runtime_names[index];
+                       path_text(native_path_from_utf8(file.path).filename()) ==
+                           runtime_names[index];
             });
             if (found == files.end() || found->origin == "runtime-package")
                 return failure("platform-template-player",
@@ -1398,14 +1402,15 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
 
         const auto nonce = random_nonce();
         const auto archive_path =
-            fs::u8path(path_text(destination) +
-                       (archive_format == std::string_view{"zip"} ? ".zip" : ".tar.gz"));
-        const auto symbols_path = fs::u8path(path_text(destination) + "-symbols.tar.gz");
-        const auto appimage_path = fs::u8path(path_text(destination) + ".AppImage");
+            native_path_from_utf8(path_text(destination) +
+                                  (archive_format == std::string_view{"zip"} ? ".zip" : ".tar.gz"));
+        const auto symbols_path = native_path_from_utf8(path_text(destination) + "-symbols.tar.gz");
+        const auto appimage_path = native_path_from_utf8(path_text(destination) + ".AppImage");
         const bool with_symbols = profile.value("includeDebugSymbols", false);
         const auto make_entry = [&](const fs::path& final, bool retire = false) {
-            return PublicationEntry{final, fs::u8path(path_text(final) + ".stage-" + nonce),
-                                    fs::u8path(path_text(final) + ".previous-" + nonce),
+            return PublicationEntry{final,
+                                    native_path_from_utf8(path_text(final) + ".stage-" + nonce),
+                                    native_path_from_utf8(path_text(final) + ".previous-" + nonce),
                                     fs::exists(fs::symlink_status(final)), retire};
         };
         std::vector<PublicationEntry> entries{make_entry(destination), make_entry(archive_path),
@@ -1464,7 +1469,7 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
                             : category == "library" ? "native-dependency"
                                                     : "system-asset";
             if (category == "library" && name.find(".so") != std::string::npos) {
-                const auto basename = fs::u8path(name).filename().string();
+                const auto basename = native_path_from_utf8(name).filename().string();
                 if (!libraries.emplace(basename, safe_child(stage, name)).second)
                     return failure("platform-template-dependencies",
                                    "Ambiguous Linux shared library name: " + basename);
@@ -1519,7 +1524,8 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
         if (player_path.empty())
             return failure("platform-template-player", "Linux template has no player.");
         const auto binary_target =
-            (fs::u8path(player_path).parent_path() / fs::u8path(executable)).generic_string();
+            (native_path_from_utf8(player_path).parent_path() / native_path_from_utf8(executable))
+                .generic_string();
         if (binary_target == executable ||
             (binary_target != player_path && names.contains(binary_target)))
             return failure("platform-template-collision", "Linux launcher collides with player.");
@@ -1536,7 +1542,7 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
                                    player_entry->mode | 0111);
         fs::permissions(binary_path, static_cast<fs::perms>(player_entry->mode),
                         fs::perm_options::replace);
-        const auto config_dir = fs::u8path(binary_target).parent_path().generic_string();
+        const auto config_dir = native_path_from_utf8(binary_target).parent_path().generic_string();
         const auto package_relative =
             config_dir.empty() ? "game.ntpkg" : config_dir + "/game.ntpkg";
         if (names.contains(package_relative) && package_relative != "game.ntpkg")
@@ -1730,8 +1736,8 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
             Json symbols_entries = Json::array();
             for (const auto& file : symbols) {
                 check_cancellation(tools);
-                const auto name = fs::u8path(file.path).filename().string();
-                const auto target = symbol_stage / fs::u8path(name);
+                const auto name = native_path_from_utf8(file.path).filename().string();
+                const auto target = symbol_stage / native_path_from_utf8(name);
                 copy_verified_file(safe_child(template_directory, file.path), target);
                 symbols_entries.push_back({{"sourcePath", path_text(target)},
                                            {"archivePath", name},
@@ -1755,7 +1761,7 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
 #else
             if (!tools.run_signing_command)
                 return failure("CLI_INTERNAL", "External tool executor is missing.", 70);
-            const auto appdir = fs::u8path(path_text(destination) + ".AppDir-" + nonce);
+            const auto appdir = native_path_from_utf8(path_text(destination) + ".AppDir-" + nonce);
             if (fs::exists(fs::symlink_status(appdir)))
                 return failure("platform-output-exists", "Linux AppDir staging path is occupied.");
             struct CleanAppDir {
@@ -1779,9 +1785,9 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
             fs::permissions(appdir / "AppRun", static_cast<fs::perms>(0755),
                             fs::perm_options::replace);
             copy_verified_file(safe_child(stage, desktop_path),
-                               appdir / fs::u8path(desktop_id + ".desktop"));
+                               appdir / native_path_from_utf8(desktop_id + ".desktop"));
             copy_verified_file(safe_child(stage, icons.back().path),
-                               appdir / fs::u8path(desktop_id + ".png"));
+                               appdir / native_path_from_utf8(desktop_id + ".png"));
             const char* selected = std::getenv("NOVELTEA_LINUX_APPIMAGE_TOOL");
             const std::string tool = selected && *selected ? selected : "appimagetool";
             if (!tools.run_signing_command("env",
@@ -1806,7 +1812,7 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
         if (archive_format == std::string_view{"zip"})
             verify_archive(entries[1].stage, stage, files);
         else {
-            const auto comparison = fs::u8path(path_text(entries[1].stage) + ".verify");
+            const auto comparison = native_path_from_utf8(path_text(entries[1].stage) + ".verify");
             struct CleanArchive {
                 fs::path path;
                 ~CleanArchive()
@@ -2016,12 +2022,13 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
 #endif
         const bool symbols_requested = profile.value("includeDebugSymbols", false);
         const auto base = path_text(destination).substr(0, path_text(destination).size() - 4);
-        const std::array<fs::path, 6> outputs{destination,
-                                              fs::u8path(base + ".zip"),
-                                              fs::u8path(base + "-symbols.zip"),
-                                              fs::u8path(base + ".dmg"),
-                                              fs::u8path(base + "-signing-report.json"),
-                                              fs::u8path(base + "-export-manifest.json")};
+        const std::array<fs::path, 6> outputs{
+            destination,
+            native_path_from_utf8(base + ".zip"),
+            native_path_from_utf8(base + "-symbols.zip"),
+            native_path_from_utf8(base + ".dmg"),
+            native_path_from_utf8(base + "-signing-report.json"),
+            native_path_from_utf8(base + "-export-manifest.json")};
         const auto nonce = random_nonce();
         std::vector<PublicationEntry> entries;
         for (std::size_t i = 0; i < outputs.size(); ++i) {
@@ -2029,8 +2036,8 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
             const bool retire = (i == 2 && !symbols_requested) ||
                                 (i == 3 && !settings.dmg_requested) ||
                                 (i == 4 && !settings.signing_requested);
-            entries.push_back({output, fs::u8path(path_text(output) + ".stage-" + nonce),
-                               fs::u8path(path_text(output) + ".previous-" + nonce),
+            entries.push_back({output, native_path_from_utf8(path_text(output) + ".stage-" + nonce),
+                               native_path_from_utf8(path_text(output) + ".previous-" + nonce),
                                fs::exists(fs::symlink_status(output)), retire});
             if (fs::is_symlink(fs::symlink_status(output)) ||
                 fs::exists(fs::symlink_status(entries.back().stage)) ||
@@ -2110,12 +2117,15 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
                 const auto framework = original.find(".framework/");
                 target =
                     framework == std::string::npos
-                        ? "Contents/Frameworks/" + fs::u8path(original).filename().string()
+                        ? "Contents/Frameworks/" +
+                              native_path_from_utf8(original).filename().string()
                         : "Contents/Frameworks/" +
                               original.substr(original.rfind('/', framework) == std::string::npos
                                                   ? 0
                                                   : original.rfind('/', framework) + 1);
-                if (!library_names.emplace(fs::u8path(original).filename().string(), target).second)
+                if (!library_names
+                         .emplace(native_path_from_utf8(original).filename().string(), target)
+                         .second)
                     return failure("platform-template-dependencies",
                                    "Ambiguous macOS framework library name.");
             } else {
@@ -2369,7 +2379,8 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
                 sign_args.insert(sign_args.begin() + 1, "--timestamp");
             if (signer.contains("entitlementsPath") &&
                 !signer.at("entitlementsPath").get<std::string>().empty()) {
-                const auto path = fs::u8path(signer.at("entitlementsPath").get<std::string>());
+                const auto path =
+                    native_path_from_utf8(signer.at("entitlementsPath").get<std::string>());
                 if (!fs::is_regular_file(path))
                     return failure("platform.signing_configuration_invalid",
                                    "macOS entitlements file is missing.");
@@ -2384,7 +2395,8 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
                                "macOS bundle signature verification failed.");
             if (signer.contains("notarizationCommand") &&
                 !signer.at("notarizationCommand").get<std::string>().empty()) {
-                const auto notary_zip = fs::u8path(path_text(entries[1].stage) + ".notary.zip");
+                const auto notary_zip =
+                    native_path_from_utf8(path_text(entries[1].stage) + ".notary.zip");
                 struct RemoveNotary {
                     fs::path path;
                     ~RemoveNotary()
@@ -2528,7 +2540,7 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
 #if !defined(__APPLE__)
             return failure("platform-macos-host-required", "DMG creation requires macOS.");
 #else
-            const auto dmg_temp = fs::u8path(path_text(entries[3].stage) + ".dmg");
+            const auto dmg_temp = native_path_from_utf8(path_text(entries[3].stage) + ".dmg");
             struct RemoveDmg {
                 fs::path path;
                 ~RemoveDmg()
@@ -2579,7 +2591,8 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
                            "macOS inputs changed before publication.", 5);
         // Convert the ordinary .app working directory into the journal-owned
         // stage name only after codesign/stapler/hdiutil have finished.
-        const auto intermediate = fs::u8path(path_text(entries[0].stage) + ".bundle-" + nonce);
+        const auto intermediate =
+            native_path_from_utf8(path_text(entries[0].stage) + ".bundle-" + nonce);
         struct RemoveIntermediate {
             fs::path path;
             ~RemoveIntermediate()
@@ -2839,8 +2852,8 @@ PlatformCliResult stage_android_export(const Json& admission, const Json& profil
         };
         const auto build_tools_version =
             android.at("toolchain").at("buildTools").get<std::string>();
-        const auto sdk_root = fs::u8path(sdk);
-        const auto java_root = fs::u8path(java);
+        const auto sdk_root = native_path_from_utf8(sdk);
+        const auto java_root = native_path_from_utf8(java);
         const auto build_tools = sdk_root / "build-tools" / build_tools_version;
         const auto aapt2 = executable(build_tools / "aapt2");
         const auto zipalign = executable(build_tools / "zipalign");
@@ -2879,10 +2892,10 @@ PlatformCliResult stage_android_export(const Json& admission, const Json& profil
                            5);
 
         const auto nonce = random_nonce();
-        const PublicationEntry entry{destination,
-                                     fs::u8path(path_text(destination) + ".stage-" + nonce),
-                                     fs::u8path(path_text(destination) + ".previous-" + nonce),
-                                     fs::exists(fs::symlink_status(destination))};
+        const PublicationEntry entry{
+            destination, native_path_from_utf8(path_text(destination) + ".stage-" + nonce),
+            native_path_from_utf8(path_text(destination) + ".previous-" + nonce),
+            fs::exists(fs::symlink_status(destination))};
         if (fs::exists(fs::symlink_status(entry.stage)) ||
             fs::exists(fs::symlink_status(entry.previous)) ||
             fs::is_symlink(fs::symlink_status(destination)) || (entry.had_previous && !force))
@@ -2890,7 +2903,8 @@ PlatformCliResult stage_android_export(const Json& admission, const Json& profil
                            "Android export output is occupied or unsafe.");
         const std::vector<PublicationEntry> entries{entry};
         Staging cleanup(entries, journal_path(destination));
-        const auto scratch = fs::u8path(path_text(destination) + ".android-work-" + nonce);
+        const auto scratch =
+            native_path_from_utf8(path_text(destination) + ".android-work-" + nonce);
         if (fs::exists(fs::symlink_status(scratch)))
             return failure("platform-output-exists", "Android build work directory is occupied.");
         struct ScratchCleanup {
@@ -3169,7 +3183,8 @@ PlatformCliResult stage_android_export(const Json& admission, const Json& profil
         std::vector<std::string> extra;
         if (settings.signing_requested) {
             const auto& signer = settings.signing.at("android");
-            const auto keystore = fs::u8path(signer.at("keystorePath").get<std::string>());
+            const auto keystore =
+                native_path_from_utf8(signer.at("keystorePath").get<std::string>());
             if (!fs::is_regular_file(fs::symlink_status(keystore)))
                 return failure("android-signing-keystore-missing",
                                "Configured Android keystore is not a regular file.");
@@ -3650,7 +3665,8 @@ PlatformPublicationLock::PlatformPublicationLock(const fs::path& destination)
     validate_parents(destination_);
     fs::create_directories(destination_.parent_path());
     validate_parents(destination_);
-    const auto lock_file = fs::u8path(path_text(destination_) + ".noveltea-publication.lock");
+    const auto lock_file =
+        native_path_from_utf8(path_text(destination_) + ".noveltea-publication.lock");
     if (fs::is_symlink(fs::symlink_status(lock_file)))
         throw std::runtime_error("Symbolic-link platform publication lock is forbidden.");
 #if defined(_WIN32)
@@ -3788,20 +3804,20 @@ PlatformCliResult stage_native_platform_export(
                            "Selected player template descriptor changed after preflight.", 5);
 
         const auto nonce = random_nonce();
-        const auto archive_path = fs::u8path(path_text(destination) + ".zip");
+        const auto archive_path = native_path_from_utf8(path_text(destination) + ".zip");
         std::vector<PublicationEntry> entries{
-            {destination, fs::u8path(path_text(destination) + ".stage-" + nonce),
-             fs::u8path(path_text(destination) + ".previous-" + nonce),
+            {destination, native_path_from_utf8(path_text(destination) + ".stage-" + nonce),
+             native_path_from_utf8(path_text(destination) + ".previous-" + nonce),
              fs::exists(fs::symlink_status(destination))},
-            {archive_path, fs::u8path(path_text(archive_path) + ".stage-" + nonce),
-             fs::u8path(path_text(archive_path) + ".previous-" + nonce),
+            {archive_path, native_path_from_utf8(path_text(archive_path) + ".stage-" + nonce),
+             native_path_from_utf8(path_text(archive_path) + ".previous-" + nonce),
              fs::exists(fs::symlink_status(archive_path))},
         };
         const auto with_symbols = profile.value("includeDebugSymbols", false);
-        const auto symbols_output = fs::u8path(path_text(destination) + "-symbols.zip");
+        const auto symbols_output = native_path_from_utf8(path_text(destination) + "-symbols.zip");
         entries.push_back({symbols_output,
-                           fs::u8path(path_text(symbols_output) + ".stage-" + nonce),
-                           fs::u8path(path_text(symbols_output) + ".previous-" + nonce),
+                           native_path_from_utf8(path_text(symbols_output) + ".stage-" + nonce),
+                           native_path_from_utf8(path_text(symbols_output) + ".previous-" + nonce),
                            fs::exists(fs::symlink_status(symbols_output)), !with_symbols});
         for (const auto& item : entries) {
             if (fs::exists(fs::symlink_status(item.stage)) ||
@@ -3861,7 +3877,9 @@ PlatformCliResult stage_native_platform_export(
                                     : "system-asset";
             if (dependency.value("kind", "") == "library") {
                 const auto basename =
-                    fs::u8path(dependency.at("path").get<std::string>()).filename().string();
+                    native_path_from_utf8(dependency.at("path").get<std::string>())
+                        .filename()
+                        .string();
                 std::string lower = basename;
                 std::transform(lower.begin(), lower.end(), lower.begin(),
                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -3963,7 +3981,8 @@ PlatformCliResult stage_native_platform_export(
         if (player_target != original && fs::exists(fs::symlink_status(player_target)))
             return failure("platform-template-collision",
                            "Windows player target collides with a template file.");
-        const auto executable_staged = fs::u8path(path_text(player_target) + ".pe-" + nonce);
+        const auto executable_staged =
+            native_path_from_utf8(path_text(player_target) + ".pe-" + nonce);
         customize_windows_player(original, executable_staged, icon_path,
                                  {exe_name, app_name, version, app_id});
         fs::remove(original);
@@ -4021,7 +4040,9 @@ PlatformCliResult stage_native_platform_export(
             const auto executable = path_text(player_target);
             const auto stage_path = path_text(stage);
             const auto verifier_name =
-                fs::u8path(signer.at("verifyCommand").get<std::string>()).filename().string();
+                native_path_from_utf8(signer.at("verifyCommand").get<std::string>())
+                    .filename()
+                    .string();
             const auto is_signtool = verifier_name == "signtool" ||
                                      verifier_name == "signtool.exe" ||
                                      verifier_name == "SignTool.exe";
@@ -4215,8 +4236,8 @@ PlatformCliResult stage_native_platform_export(
             std::vector<FileEntry> symbol_files;
             for (const auto& file : symbols) {
                 check_cancellation(tools);
-                const auto name = fs::u8path(file.path).filename().string();
-                const auto copy = symbol_stage / fs::u8path(name);
+                const auto name = native_path_from_utf8(file.path).filename().string();
+                const auto copy = symbol_stage / native_path_from_utf8(name);
                 copy_verified_file(safe_child(template_directory, file.path), copy);
                 symbol_files.push_back(track_file(symbol_stage, name, "symbol", name, file.mode));
                 symbol_entries.push_back({{"sourcePath", path_text(copy)},
@@ -4307,7 +4328,8 @@ PlatformCliResult stage_native_platform_export(
                       {"artifacts", std::move(artifacts)},
                       {"deployment", deployment}};
         if (with_symbols) {
-            const auto symbols_path = fs::u8path(path_text(destination) + "-symbols.zip");
+            const auto symbols_path =
+                native_path_from_utf8(path_text(destination) + "-symbols.zip");
             envelope["symbolArchivePath"] = path_text(symbols_path);
         }
         return {std::move(envelope), "Native Windows platform export succeeded."};

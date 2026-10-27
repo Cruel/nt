@@ -1,4 +1,5 @@
 #include "native_cli_media.hpp"
+#include "native_cli_paths.hpp"
 #include "native_cli_media_pin.hpp"
 
 #include <algorithm>
@@ -198,7 +199,7 @@ nlohmann::json inspect_native_media_tool()
     const bool bundled = override == nullptr;
     fs::path executable;
     if (!bundled) {
-        executable = fs::u8path(override);
+        executable = native_path_from_utf8(override);
         if (!executable.is_absolute())
             throw std::runtime_error("NOVELTEA_FFMPEG must name an absolute executable path.");
     } else {

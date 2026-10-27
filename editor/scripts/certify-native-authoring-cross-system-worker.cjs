@@ -5,6 +5,7 @@ const { mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } = require('no
 const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { shutdownNativeWorker } = require('./native-worker-certification-shutdown.cjs');
 
 const [addon, cli] = process.argv.slice(2);
 const production = process.argv[4] === '--production';
@@ -143,7 +144,7 @@ function editorSession(root, name) {
     },
     delta: (file) =>
       until((event) => event.type === 'delta' && event.changedSourcePaths.includes(file)),
-    close: () => worker.terminate(),
+    close: () => shutdownNativeWorker(worker),
   };
 }
 
@@ -174,6 +175,7 @@ async function main() {
   );
   const project = path.join(scratch, 'project');
   const sessions = [];
+  let reportedFailure;
   try {
     runCli(scratch, null, ['project', 'create', project, '--name', 'Saved Project']);
     runCli(scratch, project, ['entity', 'create', 'rooms', 'intro']);
@@ -319,15 +321,26 @@ async function main() {
     console.log(
       'Native editor/CLI two-way exact-cache admission, isolated dirty state, CLI watcher, concurrent daemon/editor edits and editor Save passed.',
     );
+  } catch (error) {
+    reportedFailure = error;
   } finally {
-    await Promise.all(sessions.map((session) => session.close()));
+    // Every native session must exit before any Project source is removed,
+    // even when another session reports a shutdown error.
+    const closed = await Promise.allSettled(sessions.map((session) => session.close()));
     try {
       runCli(scratch, null, ['daemon', 'stop'], true);
     } catch {
       // Preserve the original certification failure, if any.
     }
-    await rm(scratch, { recursive: true, force: true });
+    try {
+      await rm(scratch, { recursive: true, force: true });
+    } catch (error) {
+      reportedFailure ??= error;
+    }
+    const failed = closed.find((result) => result.status === 'rejected');
+    if (failed) reportedFailure ??= failed.reason;
   }
+  if (reportedFailure) throw reportedFailure;
 }
 
 main().catch((error) => {
