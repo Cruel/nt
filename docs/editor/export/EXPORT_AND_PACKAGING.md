@@ -212,7 +212,7 @@ Runtime Package publication. Existing platform staging remains the publication b
 package/platform artifacts are prepared and verified but before any staged artifact replaces its
 final destination, the CLI re-verifies the pinned external Asset identities/metadata. The live
 Project owner may advance while this work runs. `platform export --check` remains a write-free
-owner-short preflight. The successful-export identity written under `.noveltea/editor/state.json` is
+owner-short preflight. The accepted-export identity stored under `.noveltea/editor/` is
 machine/editor-local execution metadata rather than authored Project state.
 
 The isolated native lifecycle candidate (#517, enabled only by the native CLI
@@ -226,9 +226,10 @@ signing, trust, collision, localization and identity decisions, without shader
 compilation, package writing, or artifact activation. A cold CLI invocation
 reproves the native source generation, while a disposable daemon worker uses
 its already-pinned native and physical Asset evidence, including immediately
-before activation. Successful identity metadata is merged only into the
-current ignored editor-local state after accepted publication; a concurrent
-editor-local change is preserved and reported instead of being overwritten.
+before activation. Accepted identity metadata is written to its dedicated
+ignored sidecar, without replacing editor-owned recovery/draft state. An
+editor-local change during publication can be detected and reported without
+overwriting the editor state document.
 Native Runtime Package reachability excludes platform-assembly-only App icon
 and launch-image references, which the platform exporter processes separately.
 This keeps the native package input inventory aligned with the existing
@@ -255,6 +256,24 @@ manual intervention instead of reporting recovery success. `platform export --ch
 journal without mutating output. These guarantees currently qualify the direct-native Windows
 candidate on Linux; target-specific Linux, Web, macOS, and Android native exporters and host-native
 Windows/macOS release testing remain separate certification work.
+
+The direct-native publisher reserves a persistent sibling `.noveltea-publication.lock` with an
+exclusive OS-level file lock across recovery, staging, and journal acceptance. Other exporters and
+recoverers must obtain the same lock; an active publisher cannot be mistaken for an abandoned
+transaction. Output ancestors are checked for symlinks before any recovery mutation. Rollback intent
+is journaled durably before a backup is consumed, making recovery restartable after interruption of
+rollback itself. The private transaction journal has a strict current-build shape but **no independent
+`formatVersion`**. Windows publication also transactionally retires an old `-symbols.zip` when symbols
+are no longer requested. The persistent lock inode must not be unlinked while an export may be live.
+
+Read-only `--check` performs in-memory native compilation/localization evaluation and requires explicit
+acknowledgement for release localization warnings without creating runtime or output artifacts. Local
+export configuration is strictly validated; unsupported native toolchain/template-root/signing
+execution is rejected rather than silently ignored. The native CLI stores successful-export identity
+in the ignored `.noveltea/editor/platform-export-identity.json` sidecar instead of replacing the
+editor-owned `state.json` (which contains live recovery and draft data). On editor Open, the latest
+completed export identity is overlaid onto editor-local state; this avoids a read/rename race that
+could otherwise overwrite concurrent editor recovery updates.
 
 `platform export` produces the normal packaged artifact by default. Reusable signing configurations
 are machine-level NovelTea user settings shared by the editor and CLI, not project-profile fields.

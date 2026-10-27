@@ -34,6 +34,7 @@
 #include <Windows.h>
 #else
 #include <fcntl.h>
+#include <sys/file.h>
 #include <unistd.h>
 #endif
 
@@ -103,8 +104,15 @@ void publish_atomic_file(const fs::path& destination, const std::string& data,
                          std::string_view nonce)
 {
     const auto temporary = fs::u8path(path_text(destination) + ".new-" + std::string(nonce));
-    if (fs::exists(fs::symlink_status(temporary)))
-        throw std::runtime_error("Publication journal temporary path already exists.");
+    // With the destination lock held, an ordinary same-nonce temporary file
+    // is debris left by a previous interrupted journal update. Discard it
+    // before retrying, but reject unsafe filesystem types.
+    const auto temporary_status = fs::symlink_status(temporary);
+    if (fs::exists(temporary_status)) {
+        if (!fs::is_regular_file(temporary_status) || fs::is_symlink(temporary_status))
+            throw std::runtime_error("Unsafe publication journal temporary path.");
+        fs::remove(temporary);
+    }
 #if defined(_WIN32)
     const HANDLE handle = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                                       FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -190,6 +198,7 @@ struct PublicationEntry {
     fs::path stage;
     fs::path previous;
     bool had_previous = false;
+    bool remove_only = false;
 };
 
 fs::path journal_path(const fs::path& destination)
@@ -197,13 +206,27 @@ fs::path journal_path(const fs::path& destination)
     return fs::u8path(path_text(destination) + ".noveltea-publication-transaction.json");
 }
 
+void validate_parents(const fs::path& destination)
+{
+    if (!destination.is_absolute() || destination.filename().empty())
+        throw std::runtime_error("Platform publication destination must be an absolute file path.");
+    for (auto parent = destination.parent_path(); !parent.empty(); parent = parent.parent_path()) {
+        const auto status = fs::symlink_status(parent);
+        if (fs::is_symlink(status) || (fs::exists(status) && !fs::is_directory(status)))
+            throw std::runtime_error("Unsafe platform output parent: " + path_text(parent));
+        if (parent == parent.root_path())
+            break;
+    }
+}
+
 std::vector<PublicationEntry> journal_entries(const fs::path& destination, const Json& journal)
 {
     if (journal.value("format", "") != "noveltea.native-platform-publication" ||
-        journal.value("formatVersion", 0) != 1 || !journal.contains("nonce") ||
+        journal.contains("formatVersion") || !journal.contains("nonce") ||
         !journal.at("nonce").is_string() || !journal.contains("accepted") ||
         !journal.at("accepted").is_boolean() || !journal.contains("outputs") ||
-        !journal.at("outputs").is_array())
+        !journal.at("outputs").is_array() || !journal.contains("rollingBack") ||
+        !journal.at("rollingBack").is_boolean())
         throw std::runtime_error("Platform publication journal has an unsupported schema.");
     const auto nonce = journal.at("nonce").get<std::string>();
     if (nonce.empty() || nonce.size() > 70 ||
@@ -214,7 +237,8 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
     std::set<std::string> kinds;
     for (const auto& item : journal.at("outputs")) {
         if (!item.is_object() || !item.contains("kind") || !item.at("kind").is_string() ||
-            !item.contains("hadPrevious") || !item.at("hadPrevious").is_boolean())
+            !item.contains("hadPrevious") || !item.at("hadPrevious").is_boolean() ||
+            !item.contains("removeOnly") || !item.at("removeOnly").is_boolean())
             throw std::runtime_error("Invalid platform publication journal entry.");
         const auto kind = item.at("kind").get<std::string>();
         if (!kinds.insert(kind).second ||
@@ -224,9 +248,11 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
         const auto final = kind == "directory" ? destination
                            : kind == "archive" ? fs::u8path(base + ".zip")
                                                : fs::u8path(base + "-symbols.zip");
+        if (kind != "symbols" && item.at("removeOnly").get<bool>())
+            throw std::runtime_error("Cannot retire required platform artifact.");
         entries.push_back({final, fs::u8path(path_text(final) + ".stage-" + nonce),
                            fs::u8path(path_text(final) + ".previous-" + nonce),
-                           item.at("hadPrevious").get<bool>()});
+                           item.at("hadPrevious").get<bool>(), item.at("removeOnly").get<bool>()});
     }
     if (kinds.size() < 2 || !kinds.contains("directory") || !kinds.contains("archive"))
         throw std::runtime_error("Platform publication journal omits required outputs.");
@@ -244,6 +270,7 @@ void remove_published_path(const fs::path& path)
 
 void recover_publication(const fs::path& destination)
 {
+    validate_parents(destination);
     const auto journal_file = journal_path(destination);
     const auto status = fs::symlink_status(journal_file);
     if (!fs::exists(status))
@@ -253,6 +280,7 @@ void recover_publication(const fs::path& destination)
     const auto journal = Json::parse(read_file(journal_file));
     const auto entries = journal_entries(destination, journal);
     const bool accepted = journal.at("accepted").get<bool>();
+    const bool rolling_back = journal.value("rollingBack", false);
     // Validate the entire transaction before touching any output. Otherwise
     // encountering an ambiguous backup after restoring another artifact can
     // leave the originally complete distribution partially rolled back.
@@ -270,12 +298,15 @@ void recover_publication(const fs::path& destination)
             throw std::runtime_error("Unsafe platform publication recovery member: " +
                                      path_text(item.final));
         if (accepted) {
-            if (!fs::exists(final_status))
+            if (!item.remove_only && !fs::exists(final_status))
                 throw std::runtime_error("Accepted platform publication output is missing: " +
+                                         path_text(item.final));
+            if (item.remove_only && fs::exists(final_status))
+                throw std::runtime_error("Accepted retired artifact is still present: " +
                                          path_text(item.final));
         } else if (item.had_previous) {
             if (!fs::exists(previous_status) &&
-                (!fs::exists(final_status) || !fs::exists(stage_status)))
+                (!fs::exists(final_status) || (!rolling_back && !fs::exists(stage_status))))
                 throw std::runtime_error("Platform publication previous output cannot be proven: " +
                                          path_text(item.final));
         } else if (fs::exists(stage_status) && fs::exists(final_status)) {
@@ -283,7 +314,27 @@ void recover_publication(const fs::path& destination)
                                      path_text(item.final));
         }
     }
+    // An interrupted journal rewrite leaves a sibling .new-<nonce> file.
+    // The destination lease excludes its former writer; clear only regular
+    // orphan bytes after validating the full recovery state.
+    const auto orphan =
+        fs::u8path(path_text(journal_file) + ".new-" + journal.at("nonce").get<std::string>());
+    const auto orphan_status = fs::symlink_status(orphan);
+    if (fs::exists(orphan_status)) {
+        if (!fs::is_regular_file(orphan_status) || fs::is_symlink(orphan_status))
+            throw std::runtime_error("Unsafe platform journal staging member.");
+        fs::remove(orphan);
+    }
     if (!accepted) {
+        if (!rolling_back) {
+            // Persist rollback intent BEFORE consuming the first backup. Once
+            // recorded, an absent backup with a final output means this member
+            // was restored by an earlier (possibly interrupted) rollback pass.
+            auto marked = journal;
+            marked["rollingBack"] = true;
+            publish_atomic_file(journal_file, marked.dump(2) + '\n',
+                                journal.at("nonce").get<std::string>());
+        }
         // Reverse order to restore the previous complete artifact set.
         for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
             const auto& item = *it;
@@ -335,6 +386,7 @@ private:
 void publish(const fs::path& destination, const std::vector<PublicationEntry>& entries,
              const std::string& nonce, const std::function<void()>& verify_activation)
 {
+    validate_parents(destination);
     const auto journal_file = journal_path(destination);
     if (fs::exists(fs::symlink_status(journal_file)))
         throw std::runtime_error("Unrecovered platform publication journal is present.");
@@ -343,16 +395,19 @@ void publish(const fs::path& destination, const std::vector<PublicationEntry>& e
         const std::string kind = entry.final == destination                         ? "directory"
                                  : path_text(entry.final).ends_with("-symbols.zip") ? "symbols"
                                                                                     : "archive";
-        items.push_back({{"kind", kind}, {"hadPrevious", entry.had_previous}});
+        items.push_back({{"kind", kind},
+                         {"hadPrevious", entry.had_previous},
+                         {"removeOnly", entry.remove_only}});
     }
     Json journal{{"format", "noveltea.native-platform-publication"},
-                 {"formatVersion", 1},
                  {"nonce", nonce},
                  {"accepted", false},
+                 {"rollingBack", false},
                  {"outputs", items}};
     publish_atomic_file(journal_file, journal.dump(2) + '\n', nonce);
     try {
         for (const auto& item : entries) {
+            validate_parents(destination);
             if (fs::is_symlink(fs::symlink_status(item.final)))
                 throw std::runtime_error("Publication target changed to a symbolic link.");
             if (item.had_previous) {
@@ -363,7 +418,8 @@ void publish(const fs::path& destination, const std::vector<PublicationEntry>& e
             } else if (fs::exists(fs::symlink_status(item.final))) {
                 throw std::runtime_error("Publication target appeared after preflight.");
             }
-            fs::rename(item.stage, item.final);
+            if (!item.remove_only)
+                fs::rename(item.stage, item.final);
             sync_directory(item.final.parent_path());
         }
         // An artifact set is not accepted merely because every rename worked.
@@ -589,14 +645,72 @@ PlatformCliResult failure(std::string code, std::string message, int exit = 4)
 
 } // namespace
 
+void validate_platform_publication_path(const fs::path& destination)
+{
+    validate_parents(destination);
+}
+
+PlatformPublicationLock::PlatformPublicationLock(const fs::path& destination)
+    : destination_(destination)
+{
+    validate_parents(destination_);
+    fs::create_directories(destination_.parent_path());
+    validate_parents(destination_);
+    const auto lock_file = fs::u8path(path_text(destination_) + ".noveltea-publication.lock");
+    if (fs::is_symlink(fs::symlink_status(lock_file)))
+        throw std::runtime_error("Symbolic-link platform publication lock is forbidden.");
+#if defined(_WIN32)
+    const HANDLE handle = CreateFileW(
+        lock_file.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("Cannot open exclusive platform publication lock.");
+    OVERLAPPED overlapped{};
+    if (!LockFileEx(handle, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0,
+                    &overlapped)) {
+        CloseHandle(handle);
+        throw std::runtime_error("Another publisher owns the platform output.");
+    }
+    handle_ = handle;
+#else
+    handle_ = open(lock_file.c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (handle_ < 0)
+        throw std::runtime_error("Cannot open exclusive platform publication lock.");
+    if (flock(handle_, LOCK_EX | LOCK_NB) != 0) {
+        close(handle_);
+        handle_ = -1;
+        throw std::runtime_error("Another publisher owns the platform output.");
+    }
+#endif
+}
+
+PlatformPublicationLock::~PlatformPublicationLock()
+{
+#if defined(_WIN32)
+    if (handle_) {
+        OVERLAPPED overlapped{};
+        UnlockFileEx(static_cast<HANDLE>(handle_), 0, 1, 0, &overlapped);
+        CloseHandle(static_cast<HANDLE>(handle_));
+    }
+#else
+    if (handle_ >= 0) {
+        flock(handle_, LOCK_UN);
+        close(handle_);
+    }
+#endif
+}
+
 bool has_native_platform_publication(const fs::path& destination)
 {
     return fs::exists(fs::symlink_status(journal_path(destination)));
 }
 
-bool recover_native_platform_publication(const fs::path& destination, std::string& error)
+bool recover_native_platform_publication(const fs::path& destination,
+                                         const PlatformPublicationLock& lock, std::string& error)
 {
     try {
+        if (lock.destination() != destination)
+            throw std::runtime_error("Publication recovery requires destination ownership.");
         recover_publication(destination);
         return true;
     } catch (const std::exception& exception) {
@@ -605,14 +719,16 @@ bool recover_native_platform_publication(const fs::path& destination, std::strin
     }
 }
 
-PlatformCliResult
-stage_native_platform_export(const Json& admission, const Json& profile, const Json& descriptor,
-                             const fs::path& template_directory, const fs::path& icon_source,
-                             const fs::path& destination, bool force,
-                             bool allow_localization_warnings, bool include_unused_assets,
-                             bool include_shader_sources, const PlatformExportTools& tools,
-                             const std::function<bool()>& source_current)
+PlatformCliResult stage_native_platform_export(
+    const Json& admission, const Json& profile, const Json& descriptor,
+    const fs::path& template_directory, const fs::path& icon_source, const fs::path& destination,
+    bool force, bool allow_localization_warnings, bool include_unused_assets,
+    bool include_shader_sources, const PlatformPublicationLock& lock,
+    const PlatformExportTools& tools, const std::function<bool()>& source_current)
 {
+    if (lock.destination() != destination)
+        return failure("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT",
+                       "Platform staging requires exclusive destination ownership.", 5);
     // Only enable a platform after its complete native assembly, signing,
     // readback and publication contracts are implemented. No fake successful
     // output for Web, Linux, macOS or Android.
@@ -662,12 +778,11 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
              fs::exists(fs::symlink_status(archive_path))},
         };
         const auto with_symbols = profile.value("includeDebugSymbols", false);
-        if (with_symbols) {
-            const auto symbols = fs::u8path(path_text(destination) + "-symbols.zip");
-            entries.push_back({symbols, fs::u8path(path_text(symbols) + ".stage-" + nonce),
-                               fs::u8path(path_text(symbols) + ".previous-" + nonce),
-                               fs::exists(fs::symlink_status(symbols))});
-        }
+        const auto symbols_output = fs::u8path(path_text(destination) + "-symbols.zip");
+        entries.push_back({symbols_output,
+                           fs::u8path(path_text(symbols_output) + ".stage-" + nonce),
+                           fs::u8path(path_text(symbols_output) + ".previous-" + nonce),
+                           fs::exists(fs::symlink_status(symbols_output)), !with_symbols});
         for (const auto& item : entries) {
             if (fs::exists(fs::symlink_status(item.stage)) ||
                 fs::exists(fs::symlink_status(item.previous)) ||

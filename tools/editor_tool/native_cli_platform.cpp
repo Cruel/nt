@@ -15,6 +15,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <set>
@@ -430,6 +431,24 @@ std::string utc_now()
     if (std::strftime(result, sizeof(result), "%Y-%m-%dT%H:%M:%SZ", &fields) == 0)
         throw std::runtime_error("Could not construct template installation timestamp.");
     return result;
+}
+
+std::string export_identity_timestamp()
+{
+    const auto now = std::chrono::system_clock::now();
+    const auto milliseconds =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() %
+        1000;
+    auto seconds = utc_now();
+    seconds.pop_back();
+    return seconds + "." + std::to_string(1000 + milliseconds).substr(1) + "Z";
+}
+
+std::string sortable_identity_timestamp(std::string value)
+{
+    if (value.ends_with('Z') && value.find('.') == std::string::npos)
+        value.insert(value.size() - 1, ".000");
+    return value;
 }
 
 void write_json(const fs::path& path, const Json& value)
@@ -881,6 +900,7 @@ PlatformCliResult config_init(const std::vector<std::string>& command)
 
 struct EditorIdentitySnapshot {
     fs::path path;
+    fs::path identity_path;
     std::optional<std::string> bytes;
     Json state = Json::object();
 };
@@ -894,7 +914,8 @@ EditorIdentitySnapshot read_export_identity(const fs::path& root)
     const auto editor = directory / "editor";
     EditorIdentitySnapshot snapshot;
     snapshot.path = editor / "state.json";
-    for (const auto& path : {directory, editor, snapshot.path}) {
+    snapshot.identity_path = editor / "platform-export-identity.json";
+    for (const auto& path : {directory, editor, snapshot.path, snapshot.identity_path}) {
         const auto status = fs::symlink_status(path);
         if (fs::is_symlink(status))
             throw std::runtime_error("Editor-local state path may not contain a symlink.");
@@ -904,12 +925,12 @@ EditorIdentitySnapshot read_export_identity(const fs::path& root)
         snapshot.state = {{"schema", "noveltea.editor.local-state"},
                           {"recovery", {{"sequence", 0}, {"saveUnitsById", Json::object()}}},
                           {"sourceRecoveryById", Json::object()}};
-        return snapshot;
+    } else {
+        if (!fs::is_regular_file(status) || fs::file_size(snapshot.path) > 32 * 1024 * 1024)
+            throw std::runtime_error("Editor-local state is not a valid regular file.");
+        snapshot.bytes = read_file(snapshot.path);
+        snapshot.state = Json::parse(*snapshot.bytes);
     }
-    if (!fs::is_regular_file(status) || fs::file_size(snapshot.path) > 32 * 1024 * 1024)
-        throw std::runtime_error("Editor-local state is not a valid regular file.");
-    snapshot.bytes = read_file(snapshot.path);
-    snapshot.state = Json::parse(*snapshot.bytes);
     if (!snapshot.state.is_object() ||
         snapshot.state.value("schema", "") != "noveltea.editor.local-state")
         throw std::runtime_error("Editor-local state uses an unsupported schema.");
@@ -920,6 +941,27 @@ EditorIdentitySnapshot read_export_identity(const fs::path& root)
             !identity.at("saveNamespace").is_string())
             throw std::runtime_error("Editor-local export identity is invalid.");
     }
+    const auto sidecar_status = fs::symlink_status(snapshot.identity_path);
+    if (fs::exists(sidecar_status)) {
+        if (!fs::is_regular_file(sidecar_status) || fs::file_size(snapshot.identity_path) > 4096)
+            throw std::runtime_error("Platform export identity record is invalid.");
+        const auto saved = Json::parse(read_file(snapshot.identity_path));
+        if (!saved.is_object() ||
+            saved.value("format", "") != "noveltea.platform-export-identity" ||
+            !saved.contains("applicationId") || !saved.at("applicationId").is_string() ||
+            !saved.contains("saveNamespace") || !saved.at("saveNamespace").is_string() ||
+            !saved.contains("completedAt") || !saved.at("completedAt").is_string())
+            throw std::runtime_error("Platform export identity record uses an invalid schema.");
+        const auto& previous =
+            snapshot.state.value("lastSuccessfulPlatformExportIdentity", Json::object());
+        if (sortable_identity_timestamp(saved.at("completedAt").get<std::string>()) >=
+            sortable_identity_timestamp(previous.value("completedAt", std::string{}))) {
+            snapshot.state["lastSuccessfulPlatformExportIdentity"] = {
+                {"applicationId", saved.at("applicationId")},
+                {"saveNamespace", saved.at("saveNamespace")},
+                {"completedAt", saved.at("completedAt")}};
+        }
+    }
     return snapshot;
 }
 
@@ -929,16 +971,19 @@ bool record_export_identity(const fs::path& root, const EditorIdentitySnapshot& 
     const auto now = read_export_identity(root);
     if (now.bytes != original.bytes)
         return false;
-    Json updated = original.state;
-    updated["lastSuccessfulPlatformExportIdentity"] = Json{{"applicationId", application_id},
-                                                           {"saveNamespace", save_namespace},
-                                                           {"completedAt", utc_now()}};
-    fs::create_directories(original.path.parent_path());
+    // The editor owns state.json and may rename it at any instant. Never
+    // replace that document from a CLI publisher: a read/compare/rename is not
+    // an atomic CAS and can discard an editor's newest drafts/recovery state.
+    // Export identity is a separate editor-local record, overlaid at editor
+    // Open; publication never modifies any byte of the editor-owned file.
+    Json updated{{"format", "noveltea.platform-export-identity"},
+                 {"applicationId", application_id},
+                 {"saveNamespace", save_namespace},
+                 {"completedAt", export_identity_timestamp()}};
+    fs::create_directories(original.identity_path.parent_path());
     const auto staged =
-        fs::u8path(text(original.path) + ".tmp-export-" + std::to_string(std::random_device{}()));
+        fs::u8path(text(original.identity_path) + ".tmp-" + std::to_string(std::random_device{}()));
     write_exclusive_file(staged, updated.dump(2) + '\n');
-    // Re-prove the original snapshot just before replacing editor state. A
-    // concurrent editor write is a nonfatal metadata conflict after export.
     try {
         if (read_export_identity(root).bytes != original.bytes) {
             fs::remove(staged);
@@ -946,11 +991,11 @@ bool record_export_identity(const fs::path& root, const EditorIdentitySnapshot& 
         }
         std::error_code error;
 #if defined(_WIN32)
-        if (!MoveFileExW(staged.c_str(), original.path.c_str(),
+        if (!MoveFileExW(staged.c_str(), original.identity_path.c_str(),
                          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
             error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
 #else
-        fs::rename(staged, original.path, error);
+        fs::rename(staged, original.identity_path, error);
 #endif
         if (error)
             throw std::runtime_error("Cannot atomically publish editor export identity: " +
@@ -1173,6 +1218,89 @@ ExportOptions parse_export_options(const std::vector<std::string>& command)
     return options;
 }
 
+// Match the strict editorExportLocalStateSchema boundary. A malformed file
+// must never be acknowledged as an operative signing/toolchain configuration.
+bool valid_config_object(const Json& value, std::initializer_list<std::string_view> names)
+{
+    if (!value.is_object())
+        return false;
+    for (auto it = value.begin(); it != value.end(); ++it)
+        if (std::find(names.begin(), names.end(), it.key()) == names.end())
+            return false;
+    return true;
+}
+
+bool valid_string_array(const Json& value)
+{
+    return value.is_array() && std::all_of(value.begin(), value.end(),
+                                           [](const auto& item) { return item.is_string(); });
+}
+
+bool valid_export_config(const Json& value)
+{
+    if (!valid_config_object(
+            value, {"format", "lastOutputDirectory", "templateRoots", "toolchains", "signing"}) ||
+        value.value("format", "") != "noveltea.editor-export-local-state")
+        return false;
+    if (value.contains("lastOutputDirectory") && !value.at("lastOutputDirectory").is_string())
+        return false;
+    if (value.contains("templateRoots") && !valid_string_array(value.at("templateRoots")))
+        return false;
+    const auto toolchains = value.value("toolchains", Json::object());
+    if (!valid_config_object(toolchains, {"androidSdk", "androidNdk", "javaHome", "cmake"}))
+        return false;
+    for (auto it = toolchains.begin(); it != toolchains.end(); ++it)
+        if (!it.value().is_string())
+            return false;
+    const auto signing = value.value("signing", Json::object());
+    if (!valid_config_object(signing, {"windows", "macos", "android"}))
+        return false;
+    if (signing.contains("windows")) {
+        const auto& windows = signing.at("windows");
+        if (!valid_config_object(windows, {"command", "args", "verifyCommand", "verifyArgs"}) ||
+            windows.size() != 4 || !windows.at("command").is_string() ||
+            windows.at("command").get<std::string>().empty() ||
+            !windows.at("verifyCommand").is_string() ||
+            windows.at("verifyCommand").get<std::string>().empty() ||
+            !valid_string_array(windows.at("args")) ||
+            !valid_string_array(windows.at("verifyArgs")))
+            return false;
+    }
+    if (signing.contains("macos")) {
+        const auto& mac = signing.at("macos");
+        if (!valid_config_object(
+                mac, {"identity", "entitlementsPath", "notarizationCommand", "notarizationArgs"}) ||
+            !mac.contains("identity") || !mac.at("identity").is_string() ||
+            mac.at("identity").get<std::string>().empty())
+            return false;
+        for (const auto* key : {"entitlementsPath", "notarizationCommand"})
+            if (mac.contains(key) && !mac.at(key).is_string())
+                return false;
+        if (mac.contains("notarizationArgs") && !valid_string_array(mac.at("notarizationArgs")))
+            return false;
+    }
+    if (signing.contains("android")) {
+        const auto& android = signing.at("android");
+        if (!valid_config_object(android, {"keystorePath", "keyAlias", "storePasswordReference",
+                                           "keyPasswordReference"}) ||
+            android.size() != 4)
+            return false;
+        for (const auto* key :
+             {"keystorePath", "keyAlias", "storePasswordReference", "keyPasswordReference"})
+            if (!android.at(key).is_string() || android.at(key).get<std::string>().empty())
+                return false;
+        for (const auto* key : {"storePasswordReference", "keyPasswordReference"}) {
+            const auto& token = android.at(key).get_ref<const std::string&>();
+            if (!token.starts_with("env:") || token.size() <= 4 ||
+                !(std::isalpha(static_cast<unsigned char>(token[4])) || token[4] == '_') ||
+                !std::all_of(token.begin() + 5, token.end(),
+                             [](unsigned char c) { return std::isalnum(c) || c == '_'; }))
+                return false;
+        }
+    }
+    return true;
+}
+
 bool export_compatible(const Json& profile, const Template& item)
 {
     if (item.status == "corrupted")
@@ -1225,8 +1353,8 @@ std::vector<fs::path> export_artifacts(const fs::path& output, const Json& profi
         artifacts.push_back(fs::u8path(base + ".dmg"));
         artifacts.push_back(fs::u8path(base + "-signing-report.json"));
     }
-    if (profile.value("includeDebugSymbols", false) &&
-        (target == "windows" || target == "linux" || target == "macos"))
+    if (target == "windows" ||
+        (profile.value("includeDebugSymbols", false) && (target == "linux" || target == "macos")))
         artifacts.push_back(
             fs::u8path(text(output) + (target == "linux" ? "-symbols.tar.gz" : "-symbols.zip")));
     return artifacts;
@@ -1352,26 +1480,56 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                     "Template '" + fields(*resolved).at("id").get<std::string>() +
                         "' is locally sourced; pass --allow-untrusted-template to use it.");
 
-    if (options.sign || !options.signing_profile.empty())
-        return fail("platform.signing_profile_required", "/signingProfile",
-                    "Native platform export signing is not yet configured.");
+    Json config = Json::object();
     if (!options.config.empty()) {
         try {
-            const auto parsed = read_json(fs::absolute(fs::u8path(options.config)));
-            if (parsed.value("format", "") != "noveltea.editor-export-local-state")
+            config = read_json(fs::absolute(fs::u8path(options.config)));
+            if (!valid_export_config(config))
                 return fail("platform.config_invalid", "/config",
-                            "Export config uses an unsupported format.");
+                            "Export config violates the strict local export configuration schema.");
         } catch (const std::exception& error) {
             return fail("platform.config_invalid", "/config", error.what());
         }
     }
+    if (config.contains("templateRoots") && !config.at("templateRoots").empty())
+        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/config/templateRoots",
+                    "Native export does not yet support alternate template registry roots.", 70);
+    if (config.contains("toolchains") && !config.at("toolchains").empty())
+        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/config/toolchains",
+                    "Native export does not yet apply explicitly configured toolchain paths.", 70);
+    if (!options.signing_profile.empty())
+        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/signingProfile",
+                    "Native export does not yet resolve named user signing profiles.", 70);
+    if (options.sign) {
+        const auto signing = config.value("signing", Json::object());
+        if (!signing.contains(profile->value("target", "")))
+            return fail("platform.signing_profile_required", "/signingProfile",
+                        "Selected target has no configured signing credentials.");
+        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/signingProfile",
+                    "Configured native platform signing is not yet implemented.", 70);
+    }
 
+    // Validate the whole output path BEFORE either acquiring ownership or
+    // attempting recovery. The reusable recovery entrypoint enforces this too.
+    try {
+        validate_platform_publication_path(output);
+    } catch (const std::exception& error) {
+        return fail("platform-output-symlink-forbidden", "/outputDirectory", error.what());
+    }
+    std::unique_ptr<PlatformPublicationLock> publication_lock;
+    if (!options.check) {
+        try {
+            publication_lock = std::make_unique<PlatformPublicationLock>(output);
+        } catch (const std::exception& error) {
+            return fail("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT", "/output", error.what(), 5);
+        }
+    }
     if (has_native_platform_publication(output)) {
         if (options.check)
             return fail("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT", "/output",
                         "A previous platform publication requires recovery.", 5);
         std::string recovery_error;
-        if (!recover_native_platform_publication(output, recovery_error))
+        if (!recover_native_platform_publication(output, *publication_lock, recovery_error))
             return fail("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT", "/output",
                         "Failed to recover previous platform publication: " + recovery_error, 5);
     }
@@ -1413,12 +1571,62 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
     if (!source_proof().value("ok", false))
         return fail("WORKSPACE_REVISION_CONFLICT", "/output",
                     "Project source generation changed during platform export.", 5);
+    if (options.check) {
+        if (!export_tools.check_runtime)
+            return fail("CLI_INTERNAL", "/", "Native preflight runtime validation unavailable.",
+                        70);
+        Json native_profile = admitted.at("profile");
+        native_profile["shaderVariants"] = Json::array(
+            {profile->value("target", "") == "web" || profile->value("target", "") == "android"
+                 ? "essl-300"
+             : profile->value("target", "") == "macos" ? "metal"
+                                                       : "glsl-330"});
+        native_profile["localization"] = profile->at("localization");
+        native_profile["excludeUnusedAssets"] =
+            options.include_unused_assets ? false : profile->value("excludeUnusedAssets", true);
+        native_profile["includeShaderSources"] =
+            options.include_shader_sources || profile->value("includeShaderSources", false);
+        native_profile["stripShaderSources"] =
+            !native_profile.at("includeShaderSources").get<bool>();
+        const auto checked = export_tools.check_runtime(admitted, native_profile);
+        if (!source_proof().value("ok", false))
+            return fail("WORKSPACE_REVISION_CONFLICT", "/output",
+                        "Project changed during read-only platform preflight.", 5);
+        if (!checked.value("ok", false)) {
+            const auto diagnostics = checked.value("diagnostics", Json::array());
+            if (!diagnostics.empty())
+                return result(false, Json::object(), diagnostics,
+                              "Native runtime preflight preparation failed.", 6);
+            return fail("native.runtime.artifact", "/export/runtime",
+                        checked.value("error", "Runtime preflight preparation failed."), 6);
+        }
+        Json warnings = Json::array();
+        for (const auto& diagnostic : checked.value("diagnostics", Json::array()))
+            if (diagnostic.value("severity", "") == "warning" &&
+                diagnostic.value("code", std::string{}).starts_with("localization.export."))
+                warnings.push_back(diagnostic);
+        if (!warnings.empty() && !options.allow_localization_warnings)
+            return fail("localization.export.warning_override_required",
+                        "/export/runtime/localization",
+                        "Localization warnings require --allow-localization-warnings.");
+        Json diagnostics = admitted.value("diagnostics", Json::array());
+        for (const auto& warning : warnings)
+            diagnostics.push_back(warning);
+        return result(true,
+                      {{"projectRoot", text(root)},
+                       {"outputDirectory", text(output)},
+                       {"templateToken", fields(*resolved).at("id")},
+                       {"signingRequested", false},
+                       {"signingApplied", false},
+                       {"cancelled", false}},
+                      diagnostics, "Platform export preflight succeeded.");
+    }
     if (!options.check) {
         auto published = stage_native_platform_export(
             admitted, *profile, resolved->descriptor,
             template_root(fields(*resolved).at("id").get<std::string>()), icon_source, output,
             options.force, options.allow_localization_warnings, options.include_unused_assets,
-            options.include_shader_sources, export_tools,
+            options.include_shader_sources, *publication_lock, export_tools,
             [&]() { return source_proof().value("ok", false); });
         if (published.envelope.value("success", false)) {
             try {
@@ -1441,15 +1649,7 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
         }
         return published;
     }
-    return result(true,
-                  {{"projectRoot", text(root)},
-                   {"outputDirectory", text(output)},
-                   {"templateToken", fields(*resolved).at("id")},
-                   {"signingRequested", false},
-                   {"signingApplied", false},
-                   {"cancelled", false}},
-                  admitted.value("diagnostics", Json::array()),
-                  "Platform export preflight succeeded.");
+    return fail("CLI_INTERNAL", "/", "Unreachable platform preflight state.", 70);
 }
 
 } // namespace

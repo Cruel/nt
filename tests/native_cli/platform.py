@@ -12,6 +12,9 @@ import tempfile
 import zipfile
 import zlib
 
+if os.name == 'posix':
+    import fcntl
+
 
 binary = Path(sys.argv[1]).resolve()
 source = Path(sys.argv[2]).resolve()
@@ -156,12 +159,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     manifest_file.write_text(original_manifest.replace('threaded: true', 'threaded: false'))
     requested = ('--project', platform_project, 'platform', 'export',
                  '--profile', 'canonical-web', '--output', root / 'web-export',
-                 '--template', 'sample@v1')
+                 '--template', 'sample@v1', '--allow-localization-warnings')
     assert run(*requested, '--check', code=4)['diagnostics'][0]['code'] == (
         'template-untrusted-acknowledgement-required')
     validated = run(*requested, '--check', '--allow-untrusted-template')
     assert validated['success'] and validated['signingApplied'] is False
     assert validated['templateToken'] == 'sample@v1'
+    assert not (root / 'web-export.noveltea-publication.lock').exists()
     human = subprocess.run([str(installed), *map(str, requested), '--check',
                             '--allow-untrusted-template'], cwd=root, env=environment,
                            capture_output=True, text=True, timeout=90)
@@ -169,6 +173,37 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     assert '[validating]' in human.stderr and '[resolving-template]' in human.stderr, human
     assert 'preflight succeeded' in human.stdout, human
     assert not (root / 'web-export').exists()
+    malformed_config = root / 'malformed-export-config.json'
+    malformed_config.write_text(json.dumps({
+        'format': 'noveltea.editor-export-local-state', 'toolchains': 42,
+        'signing': 'invalid'}))
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--config', malformed_config, code=4)['diagnostics'][0]['code'] == (
+                   'platform.config_invalid')
+    malformed_config.write_text(json.dumps({
+        'format': 'noveltea.editor-export-local-state', 'toolchains': {},
+        'signing': {'windows': {'command': 'codesign', 'args': [],
+                                'verifyCommand': 'verify', 'verifyArgs': []}}}))
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--config', malformed_config, '--sign', code=4)['diagnostics'][0]['code'] == (
+                   'platform.signing_profile_required')
+
+    # A reviewed-release French localization requiring review must be caught
+    # by the write-free preflight, before package assembly.
+    reviewed = manifest_file.read_text()
+    manifest_file.write_text(reviewed.replace('quality: development',
+                                               'quality: reviewed-release'))
+    unacknowledged = tuple(part for part in requested if part != '--allow-localization-warnings')
+    assert run(*unacknowledged, '--check', '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'localization.export.warning_override_required'
+    checked_reviewed = run(*requested, '--check', '--allow-untrusted-template')
+    assert any(item['code'].startswith('localization.export.')
+               for item in checked_reviewed['diagnostics'])
+    assert any(item['code'] == 'localization.export.asset_needs_review'
+               for item in checked_reviewed['diagnostics'])
+    assert not (root / 'web-export').exists()
+    assert not (platform_project / '.noveltea/build').exists()
+    manifest_file.write_text(reviewed)
     assert not (platform_project / '.noveltea/build').exists()
     local = platform_project / '.noveltea/editor/state.json'
     local.parent.mkdir(parents=True, exist_ok=True)
@@ -212,6 +247,34 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     assert run(*linked_request, '--check', '--allow-untrusted-template', code=4)[
         'diagnostics'][0]['code'] == 'platform-output-symlink-forbidden'
     assert not (root / 'web-export').exists()
+    # Even the recovery path must refuse a linked output parent before it
+    # touches a pending transaction or any of its rollback backups.
+    real_parent = root / 'real-parent'
+    real_parent.mkdir()
+    (root / 'recovery-link').symlink_to(real_parent, target_is_directory=True)
+    real_output = real_parent / 'export'
+    real_output.mkdir()
+    (real_output / 'marker').write_text('new-build')
+    pending_journal = real_parent / 'export.noveltea-publication-transaction.json'
+    pending_journal.write_text(json.dumps({
+        'format': 'noveltea.native-platform-publication', 'nonce': '123-456',
+        'accepted': False, 'rollingBack': False,
+        'outputs': [
+            {'kind': 'directory', 'hadPrevious': True, 'removeOnly': False},
+            {'kind': 'archive', 'hadPrevious': True, 'removeOnly': False},
+        ]}))
+    (real_parent / 'export.previous-123-456').mkdir()
+    (real_parent / 'export.previous-123-456/marker').write_text('old-build')
+    (real_parent / 'export.zip').write_bytes(b'new-archive')
+    (real_parent / 'export.zip.previous-123-456').write_bytes(b'old-archive')
+    linked_recovery = ('--project', platform_project, 'platform', 'export',
+                       '--profile', 'canonical-web',
+                       '--output', root / 'recovery-link/export', '--template', 'sample@v1',
+                       '--allow-untrusted-template', '--allow-localization-warnings')
+    assert run(*linked_recovery, '--force', code=4)['diagnostics'][0]['code'] == (
+        'platform-output-symlink-forbidden')
+    assert (real_output / 'marker').read_text() == 'new-build'
+    assert pending_journal.exists()
 
     # Simulate a killed native publisher between artifact renames. --check
     # remains entirely read-only; the next mutating command restores the
@@ -229,16 +292,27 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     (root / f'web-export.zip.stage-{nonce}').write_bytes(b'interrupted-archive')
     journal = root / 'web-export.noveltea-publication-transaction.json'
     journal.write_text(json.dumps({
-        'format': 'noveltea.native-platform-publication', 'formatVersion': 1,
-        'nonce': nonce, 'accepted': False, 'outputs': [
-            {'kind': 'directory', 'hadPrevious': True},
-            {'kind': 'archive', 'hadPrevious': True},
+        'format': 'noveltea.native-platform-publication',
+        'nonce': nonce, 'accepted': False, 'rollingBack': False, 'outputs': [
+            {'kind': 'directory', 'hadPrevious': True, 'removeOnly': False},
+            {'kind': 'archive', 'hadPrevious': True, 'removeOnly': False},
         ],
     }))
     assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=5)[
         'diagnostics'][0]['code'] == 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
     assert (old_output / 'marker').read_text() == 'interrupted-directory'
     assert journal.exists()
+    # A second independent CLI cannot recover an active publisher's journal.
+    if os.name == 'posix':
+        lock_file = root / 'web-export.noveltea-publication.lock'
+        with lock_file.open('a+b') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert run(*requested, '--allow-untrusted-template', '--force', code=5)[
+                'diagnostics'][0]['code'] == (
+                'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT')
+            assert journal.exists()
+            assert (old_output / 'marker').read_text() == 'interrupted-directory'
+            fcntl.flock(handle, fcntl.LOCK_UN)
     assert run(*requested, '--allow-untrusted-template', code=4)[
         'diagnostics'][0]['code'] == 'platform-output-exists'
     assert (old_output / 'marker').read_text() == 'incumbent-directory'
@@ -252,10 +326,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     old_archive.rename(root / f'web-export.zip.previous-{nonce}')
     shutil.rmtree(root / f'web-export.previous-{nonce}')
     journal.write_text(json.dumps({
-        'format': 'noveltea.native-platform-publication', 'formatVersion': 1,
-        'nonce': nonce, 'accepted': False, 'outputs': [
-            {'kind': 'directory', 'hadPrevious': True},
-            {'kind': 'archive', 'hadPrevious': True},
+        'format': 'noveltea.native-platform-publication',
+        'nonce': nonce, 'accepted': False, 'rollingBack': False, 'outputs': [
+            {'kind': 'directory', 'hadPrevious': True, 'removeOnly': False},
+            {'kind': 'archive', 'hadPrevious': True, 'removeOnly': False},
         ],
     }))
     assert run(*requested, '--allow-untrusted-template', '--force', code=5)[
