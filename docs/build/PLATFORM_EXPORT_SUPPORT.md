@@ -51,6 +51,18 @@ explicitly that private certificate credentials are not provided, so passing
 does not claim real signing, Android SDK packaging, or macOS notarization.
 Those remain certified only by the appropriate target-specific release jobs.
 
+For #569's *post-cutover direct-C++* certification, the Linux Build job also
+runs `native-platform-command-differential.test.ts` with
+`NOVELTEA_NATIVE_CLI_BINARY` pointing to its built, installed standalone CLI.
+This runs the retained TypeScript platform command service and the real C++ CLI
+against independent template registries, comparing template lifecycle,
+corruption detection, diagnostics, and configuration results. Unlike the #517
+candidate differential, no ScriptC authority flag is used. This is a focused
+project-independent differential, **not** evidence of full five-target staging
+or published artifact parity. See
+`docs/architecture/certifications/NATIVE_PLATFORM_EXPORT_FINAL_GATE.md` for
+the remaining final-gate requirements and host-specific evidence limits.
+
 The Windows native C++ exporter certification is integrated into the existing
 Windows jobs instead of a parallel Windows workflow: `build.yml` builds
 `noveltea-native-cli` with MSVC, runs the native PE, publication, platform
