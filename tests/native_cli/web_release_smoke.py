@@ -99,6 +99,14 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-web-release-') as tempo
     player = json.loads((output / 'player.json').read_text())
     assert player['package']['sha256'] == hashlib.sha256(
         (output / player['package']['path']).read_bytes()).hexdigest()
+    with zipfile.ZipFile(output / player['package']['path']) as package:
+        package_manifest = json.loads(package.read('manifest.json'))
+        compiled_game = json.loads(package.read('game'))
+        assert package_manifest['project'] == {
+            'name': compiled_game['project']['name'],
+            'version': compiled_game['project']['version'],
+        }
+        assert package_manifest['project']['version'] == '2026-10-09.1.1'
     web_manifest = json.loads((output / 'manifest.webmanifest').read_text())
     assert web_manifest['start_url'] == web_manifest['scope'] == base
     assert all((output / item['src'].removeprefix(base)).is_file()

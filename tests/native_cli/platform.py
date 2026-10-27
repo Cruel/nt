@@ -577,6 +577,14 @@ else:
     player = json.loads((verified_output / 'player.json').read_text())
     assert player['package']['path'].startswith('game.')
     assert player['package']['sha256'] == sha((verified_output / player['package']['path']).read_bytes())
+    with zipfile.ZipFile(verified_output / player['package']['path']) as package:
+        package_manifest = json.loads(package.read('manifest.json'))
+        compiled_game = json.loads(package.read('game'))
+        assert package_manifest['project'] == {
+            'name': compiled_game['project']['name'],
+            'version': compiled_game['project']['version'],
+        }
+        assert package_manifest['project']['version'] == '2026-10-09.1.1'
     html = (verified_output / 'index.html').read_text()
     for extension in ('.js', '.wasm', '.data'):
         name = next(path for path in files if path.startswith('player.')
