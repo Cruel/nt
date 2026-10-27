@@ -14,7 +14,6 @@
 #include <filesystem>
 #include <iomanip>
 #include <map>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -138,19 +137,6 @@ Json effective_target(const Json& project, std::string locale, const std::string
         locale = string(object(locales, locale), "parentLocale");
     }
     return nullptr;
-}
-
-std::string project_name(const Json& project)
-{
-    const auto name = string(object(project, "project"), "name");
-    return name.find_first_not_of(" \t\r\n") == std::string::npos ? "[Unnamed Project]" : name;
-}
-
-std::string project_version(const Json& project)
-{
-    const auto version = string(object(project, "project"), "version");
-    static const std::regex semver(R"(^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$)");
-    return std::regex_match(version, semver) ? version : "0.0.0";
 }
 
 std::string fingerprint(const Json& project, const Json& profile, const Json& recovery)
@@ -654,8 +640,12 @@ Json prepare_native_runtime_artifact(const Json& project, const Json& compiled_p
                                  "auto", "source:" + path, "shader-source");
         }
 
-        const auto name = project_name(project);
-        const auto version = project_version(project);
+        // Package metadata must identify exactly the same project as the
+        // compiled gameplay. Revalidating or normalizing the authoring version
+        // here can silently turn a valid version into "0.0.0" and produce a
+        // runtime package that the player rejects at startup.
+        const auto name = wire.at("project").at("name").get<std::string>();
+        const auto version = wire.at("project").at("version").get<std::string>();
         const auto display = presentation(wire);
         const auto access = accessibility(wire);
         const auto targets = platform(display);
