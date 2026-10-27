@@ -36,7 +36,7 @@ From the repository root:
 cmake --build --preset linux-debug --target noveltea-runtime-cache-publish-certify
 build/linux-debug/tools/editor_tool/noveltea-runtime-cache-publish-certify \
   tests/projects/feature-lab --emit-native-compiled > /tmp/noveltea-native-compiled.json
-python3 tests/native_compiled_project_parity.py \
+python3 tests/native_cli/compiled_project_parity.py \
   build/linux-debug/tools/editor_tool/noveltea-runtime-cache-publish-certify .
 ```
 
@@ -49,7 +49,7 @@ create a runtime cache or modify the Project. For a genuinely cold check,
 run it on a copy without `.noveltea/cache/runtime`; the differential suite
 creates precisely such isolated Project copies itself.
 
-`tests/native_compiled_project_parity.py` also supplies the admitted Project
+`tests/native_cli/compiled_project_parity.py` also supplies the admitted Project
 directly to the C++ compiler for full recursive JSON semantic comparison,
 including every ordered field, all Message IDs, locale metadata, prediction
 slices/edges/dependencies/hints, and the persistent Save Contract. It tests

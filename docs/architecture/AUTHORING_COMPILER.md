@@ -58,7 +58,7 @@ segments and edges, speaker identity, completion targets and numeric Message
 references. Interaction lowering includes selectors, rules, nullable offers,
 guards, Verb defaults and Project undefined behavior.
 
-`tests/native_compiled_project_parity.py` compares these projections against the independent
+`tests/native_cli/compiled_project_parity.py` compares these projections against the independent
 TypeScript reference compiler on cold native-admitted generations, including stable array ordering,
 nested declarations, inherited defaults, typed references, and malformed-input rejection.
 Room/Scene/Dialogue/Interaction parity covers the representative Feature Lab gameplay

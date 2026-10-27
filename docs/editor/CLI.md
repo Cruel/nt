@@ -21,7 +21,7 @@ separately executed TypeScript compiled-Project reference, rather than reading
 cmake --build --preset linux-debug --target noveltea-runtime-cache-publish-certify
 ctest --test-dir build/linux-debug -R '^native_compiled_project_parity$' --output-on-failure
 # Or run the comparison directly (including per-family reports):
-python3 tests/native_compiled_project_parity.py \
+python3 tests/native_cli/compiled_project_parity.py \
   build/linux-debug/tools/editor_tool/noveltea-runtime-cache-publish-certify .
 ```
 
@@ -200,7 +200,7 @@ cmake --preset linux-debug -DNOVELTEA_COMPILE_SHADERS=OFF \
 cmake --build --preset linux-debug --target noveltea-native-cli
 ctest --test-dir build/linux-debug -R '^native_cli_public_contract$' --output-on-failure
 # Optional independent comparison with the installed production CLI:
-python3 tests/native_cli_contract.py \
+python3 tests/native_cli/contract.py \
   build/linux-debug/tools/editor_tool/native-cli/noveltea . build/cli/linux/noveltea
 node editor/scripts/certify-native-cli-inventory.mjs
 ```

@@ -41,7 +41,7 @@ ctest --test-dir build/linux-debug --output-on-failure \
   -R '^native_runtime_artifact_parity$'
 ```
 
-`tests/native_runtime_artifact_parity.py` cold-admits Feature Lab via C++,
+`tests/native_cli/runtime_artifact_parity.py` cold-admits Feature Lab via C++,
 passes the *same admitted Project* to the independent TypeScript reference
 `editor/scripts/native-runtime-artifact-parity-reference.mjs`, and recursively
 compares every meaningful artifact field, including ordered diagnostics.

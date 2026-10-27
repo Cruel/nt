@@ -55,7 +55,7 @@ installed commands do not need the editor source checkout or a JavaScript runtim
 User configuration and workflow packages retain the same on-disk locations and
 the Project boundary is admitted through the existing native Project authority.
 The installed native contract is exercised with a deterministic fake HTTP server
-by `tests/native_cli_comfyui.py` and `tests/native_cli_comfyui_run.py`
+by `tests/native_cli/comfyui.py` and `tests/native_cli/comfyui_run.py`
 (`ctest -R native_cli_comfyui`). The Linux/macOS
 HTTPS client currently requires the system `curl` executable; Windows uses WinHTTP.
 The candidate reads shared `~/.noveltea/config.json` using the editor's strict
