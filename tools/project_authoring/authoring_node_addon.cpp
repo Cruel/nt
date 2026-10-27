@@ -398,7 +398,8 @@ napi_value call(napi_env env, napi_callback_info info)
         }
         if (name == "mutateSourceDirectory") {
             if (argc != 5)
-                throw std::runtime_error("Native source folder operation requires revision, kind and paths.");
+                throw std::runtime_error(
+                    "Native source folder operation requires revision, kind and paths.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
                 throw std::runtime_error("Invalid native source folder revision.");
@@ -499,18 +500,18 @@ napi_value call(napi_env env, napi_callback_info info)
                              file.at("stagedRelativePath").as<std::string>(),
                              file.at("sourceRevision").as<std::string>()});
                     }
-                } else if (kind == "source-files" && value.size() == 2 &&
-                           value.contains("files") && value.at("files").is_array() &&
-                           value.at("files").size() <= 256) {
+                } else if (kind == "source-files" && value.size() == 2 && value.contains("files") &&
+                           value.at("files").is_array() && value.at("files").size() <= 256) {
                     selected_assets.kind =
                         noveltea::authoring::ProjectAssetTransition::Kind::SourceFiles;
                     for (const auto& file : value.at("files").array_range()) {
-                        if (!file.is_object() || file.size() != 3 ||
-                            !file.contains("path") || !file.contains("expectedRevision") ||
-                            !file.contains("contents") || !file.at("path").is_string() ||
+                        if (!file.is_object() || file.size() != 3 || !file.contains("path") ||
+                            !file.contains("expectedRevision") || !file.contains("contents") ||
+                            !file.at("path").is_string() ||
                             !file.at("expectedRevision").is_string() ||
                             (!file.at("contents").is_null() && !file.at("contents").is_string()))
-                            throw std::runtime_error("Invalid native source file transaction entry.");
+                            throw std::runtime_error(
+                                "Invalid native source file transaction entry.");
                         std::optional<std::string> contents;
                         if (!file.at("contents").is_null())
                             contents = file.at("contents").as<std::string>();
@@ -661,7 +662,8 @@ napi_value call(napi_env env, napi_callback_info info)
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
                 throw std::runtime_error("Invalid native semantic graph revision.");
-            return js_string(env, session.project->semantic_graph(static_cast<std::uint64_t>(revision)));
+            return js_string(env,
+                             session.project->semantic_graph(static_cast<std::uint64_t>(revision)));
         }
         if (name == "prepareWorking" || name == "prepareCompleteWorking") {
             if (argc != 3)

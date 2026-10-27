@@ -422,8 +422,8 @@ fs::path safe_source_path(const fs::path& root, std::string_view relative)
     if (!path_safe(relative) ||
         (relative.starts_with(".noveltea/") && !relative.starts_with(".noveltea/trash/assets/") &&
          !layout_text && !staged_asset) ||
-        (!asset_bytes && !standalone_source && !relative.ends_with(".yaml") &&
-         !layout_text && !admitted_text_path))
+        (!asset_bytes && !standalone_source && !relative.ends_with(".yaml") && !layout_text &&
+         !admitted_text_path))
         throw std::runtime_error("Invalid tracked YAML transaction target: " +
                                  std::string(relative));
     const auto target = root / fs::path(relative);
@@ -703,7 +703,8 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                  target.replacement_source || target.semantic_compaction_family ||
                  (static_cast<int>(target.erase) +
                       static_cast<int>(target.create_source.has_value()) +
-                      static_cast<int>(target.raw_text_source.has_value()) != 1)))
+                      static_cast<int>(target.raw_text_source.has_value()) !=
+                  1)))
                 throw std::runtime_error("Invalid native binary Asset transaction target.");
             if (asset_bytes && !target.raw_asset_file &&
                 target.path.starts_with(".noveltea/trash/"))
@@ -725,10 +726,9 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 (!target.edits.empty() || (!target.create_source && !target.erase && !raw_text)))
                 throw std::runtime_error("Layout companion transaction only supports whole-file "
                                          "creation or deletion.");
-            if (raw_text &&
-                (target.erase || target.create_source || target.replacement_source ||
-                 target.semantic_compaction_family || !target.edits.empty() ||
-                 (!admitted_text_path && !target.raw_asset_file)))
+            if (raw_text && (target.erase || target.create_source || target.replacement_source ||
+                             target.semantic_compaction_family || !target.edits.empty() ||
+                             (!admitted_text_path && !target.raw_asset_file)))
                 throw std::runtime_error(
                     "Raw source replacement must be a tracked text-only edit.");
             const auto absolute = checked_path(target.path);
