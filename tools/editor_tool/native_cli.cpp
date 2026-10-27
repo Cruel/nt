@@ -2693,8 +2693,79 @@ int run(const std::vector<std::string>& argv)
             return package_from_native_runtime(args);
         if (family == "platform") {
             const auto selected = project_root(args.project);
-            const auto outcome = run_native_platform_cli(args.command, selected,
-                                                         !args.project.empty(), native_request);
+            PlatformExportTools platform_tools;
+            platform_tools.prepare_package = [&](const Json& admitted, const Json& runtime_profile,
+                                                 const std::filesystem::path& output) -> Json {
+                try {
+                    const auto root_text = path_text(selected);
+                    const auto generation = admitted.at("sourceGeneration").get<std::string>();
+                    if (!runtime_source_current(root_text, generation))
+                        return {
+                            {"ok", false},
+                            {"code", "WORKSPACE_REVISION_CONFLICT"},
+                            {"error", "Platform source generation changed before compilation."}};
+                    const auto compiled = compile_native_compiled_project(admitted.at("project"));
+                    auto prepared = prepare_native_runtime_artifact(
+                        admitted.at("project"), compiled, admitted.at("referencedAssetIds"),
+                        runtime_profile, admitted.at("materialEffectiveInputs"), root_text);
+                    if (prepared.value("status", "") != "prepared")
+                        return {{"ok", false},
+                                {"code", "native.runtime.artifact"},
+                                {"error", "Platform runtime preparation failed."},
+                                {"diagnostics", prepared.value("diagnostics", Json::array())}};
+                    if (!runtime_source_current(root_text, generation))
+                        return {{"ok", false},
+                                {"code", "WORKSPACE_REVISION_CONFLICT"},
+                                {"error", "Platform sources changed during compilation."}};
+                    prepared = prepare_native_runtime_physical(prepared.at("artifact"), admitted,
+                                                               root_text);
+                    if (prepared.value("status", "") != "prepared")
+                        return {{"ok", false},
+                                {"code", "native.runtime.physical"},
+                                {"error", "Platform physical runtime preparation failed."},
+                                {"diagnostics", prepared.value("diagnostics", Json::array())}};
+                    const auto& artifact = prepared.at("artifact");
+                    const auto& options = artifact.at("packageOptions");
+                    if (!package_physical_pins_current(options) ||
+                        !runtime_source_current(root_text, generation))
+                        return {{"ok", false},
+                                {"code", "WORKSPACE_REVISION_CONFLICT"},
+                                {"error", "Platform physical inputs changed before packaging."}};
+                    const auto written =
+                        invoke_native_json(noveltea_tooling_export_package_json,
+                                           {{"project", artifact.at("compiledProject")},
+                                            {"outputPath", path_text(output)},
+                                            {"options", options}});
+                    if (!written.value("ok", false) || !written.value("success", false))
+                        return {{"ok", false},
+                                {"code", "native.platform.package"},
+                                {"error", "Native platform package writer failed."},
+                                {"diagnostics", written.value("diagnostics", Json::array())}};
+                    if (!package_physical_pins_current(options) ||
+                        !runtime_source_current(root_text, generation))
+                        return {{"ok", false},
+                                {"code", "WORKSPACE_REVISION_CONFLICT"},
+                                {"error", "Platform physical inputs changed after packaging."}};
+                    return {{"ok", true},
+                            {"artifact", artifact},
+                            {"diagnostics", written.value("diagnostics", Json::array())}};
+                } catch (const std::exception& error) {
+                    return {{"ok", false},
+                            {"code", "native.platform.preparation"},
+                            {"error", error.what()}};
+                }
+            };
+            platform_tools.create_archive = [](const Json& request) {
+                return invoke_native_json(noveltea_tooling_create_archive_json, request);
+            };
+            platform_tools.resize_image = [](const Json& request) {
+                return invoke_native_json(noveltea_tooling_image_resize_png_json, request);
+            };
+            platform_tools.physical_sources_current = [](const Json& options) {
+                return package_physical_pins_current(options);
+            };
+            const auto outcome = run_native_platform_cli(
+                args.command, selected, !args.project.empty(), native_request, platform_tools);
             return emit(outcome.envelope, args.json, outcome.human);
         }
         if (family == "shaderc" || family == "texturec") {

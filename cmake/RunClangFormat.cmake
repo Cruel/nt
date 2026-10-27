@@ -43,6 +43,8 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_media.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform.cpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform.hpp"
+    "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform_stage.cpp"
+    "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform_stage.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_windows_pe.cpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_windows_pe.hpp"
     "${SOURCE_ROOT}/tools/benchmark/*.cpp"

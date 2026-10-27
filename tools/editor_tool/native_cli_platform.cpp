@@ -1,4 +1,5 @@
 #include "native_cli_platform.hpp"
+#include "native_cli_platform_stage.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 
@@ -878,6 +879,90 @@ PlatformCliResult config_init(const std::vector<std::string>& command)
                   "Created " + text(destination) + ".");
 }
 
+struct EditorIdentitySnapshot {
+    fs::path path;
+    std::optional<std::string> bytes;
+    Json state = Json::object();
+};
+
+// Ignored editor state is machine-local and may be concurrently updated for
+// recovery, drafts, or UI state. Preserve all fields rather than replacing it
+// with a second, CLI-specific state document.
+EditorIdentitySnapshot read_export_identity(const fs::path& root)
+{
+    const auto directory = root / ".noveltea";
+    const auto editor = directory / "editor";
+    EditorIdentitySnapshot snapshot;
+    snapshot.path = editor / "state.json";
+    for (const auto& path : {directory, editor, snapshot.path}) {
+        const auto status = fs::symlink_status(path);
+        if (fs::is_symlink(status))
+            throw std::runtime_error("Editor-local state path may not contain a symlink.");
+    }
+    const auto status = fs::symlink_status(snapshot.path);
+    if (!fs::exists(status)) {
+        snapshot.state = {{"schema", "noveltea.editor.local-state"},
+                          {"recovery", {{"sequence", 0}, {"saveUnitsById", Json::object()}}},
+                          {"sourceRecoveryById", Json::object()}};
+        return snapshot;
+    }
+    if (!fs::is_regular_file(status) || fs::file_size(snapshot.path) > 32 * 1024 * 1024)
+        throw std::runtime_error("Editor-local state is not a valid regular file.");
+    snapshot.bytes = read_file(snapshot.path);
+    snapshot.state = Json::parse(*snapshot.bytes);
+    if (!snapshot.state.is_object() ||
+        snapshot.state.value("schema", "") != "noveltea.editor.local-state")
+        throw std::runtime_error("Editor-local state uses an unsupported schema.");
+    if (snapshot.state.contains("lastSuccessfulPlatformExportIdentity")) {
+        const auto& identity = snapshot.state.at("lastSuccessfulPlatformExportIdentity");
+        if (!identity.is_object() || !identity.contains("applicationId") ||
+            !identity.at("applicationId").is_string() || !identity.contains("saveNamespace") ||
+            !identity.at("saveNamespace").is_string())
+            throw std::runtime_error("Editor-local export identity is invalid.");
+    }
+    return snapshot;
+}
+
+bool record_export_identity(const fs::path& root, const EditorIdentitySnapshot& original,
+                            const std::string& application_id, const std::string& save_namespace)
+{
+    const auto now = read_export_identity(root);
+    if (now.bytes != original.bytes)
+        return false;
+    Json updated = original.state;
+    updated["lastSuccessfulPlatformExportIdentity"] = Json{{"applicationId", application_id},
+                                                           {"saveNamespace", save_namespace},
+                                                           {"completedAt", utc_now()}};
+    fs::create_directories(original.path.parent_path());
+    const auto staged =
+        fs::u8path(text(original.path) + ".tmp-export-" + std::to_string(std::random_device{}()));
+    write_exclusive_file(staged, updated.dump(2) + '\n');
+    // Re-prove the original snapshot just before replacing editor state. A
+    // concurrent editor write is a nonfatal metadata conflict after export.
+    try {
+        if (read_export_identity(root).bytes != original.bytes) {
+            fs::remove(staged);
+            return false;
+        }
+        std::error_code error;
+#if defined(_WIN32)
+        if (!MoveFileExW(staged.c_str(), original.path.c_str(),
+                         MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+#else
+        fs::rename(staged, original.path, error);
+#endif
+        if (error)
+            throw std::runtime_error("Cannot atomically publish editor export identity: " +
+                                     error.message());
+    } catch (...) {
+        std::error_code ignored;
+        fs::remove(staged, ignored);
+        throw;
+    }
+    return true;
+}
+
 PlatformCliResult template_install(const fs::path& archive, bool force)
 {
     auto install_failure = [](std::string message) {
@@ -1023,11 +1108,337 @@ PlatformCliResult template_install(const fs::path& archive, bool force)
     }
 }
 
+struct ExportOptions {
+    std::string output;
+    std::string profile;
+    std::string template_token;
+    std::string config;
+    std::string signing_profile;
+    bool check = false;
+    bool force = false;
+    bool sign = false;
+    bool allow_untrusted = false;
+    bool allow_identity_change = false;
+    bool allow_localization_warnings = false;
+    bool include_unused_assets = false;
+    bool include_shader_sources = false;
+};
+
+ExportOptions parse_export_options(const std::vector<std::string>& command)
+{
+    ExportOptions options;
+    std::set<std::string> seen;
+    for (std::size_t i = 2; i < command.size(); ++i) {
+        const auto& option = command[i];
+        if (!seen.insert(option).second)
+            throw std::invalid_argument("Duplicate platform export option '" + option + "'.");
+        if (option == "--output" || option == "--profile" || option == "--template" ||
+            option == "--config" || option == "--signing-profile") {
+            if (++i >= command.size() || command[i].starts_with("--") || command[i].empty())
+                throw std::invalid_argument(option + " requires a value.");
+            auto& target = option == "--output"     ? options.output
+                           : option == "--profile"  ? options.profile
+                           : option == "--template" ? options.template_token
+                           : option == "--config"   ? options.config
+                                                    : options.signing_profile;
+            target = command[i];
+        } else if (option == "--check") {
+            options.check = true;
+        } else if (option == "--force") {
+            options.force = true;
+        } else if (option == "--sign") {
+            options.sign = true;
+        } else if (option == "--allow-untrusted-template") {
+            options.allow_untrusted = true;
+        } else if (option == "--allow-identity-change") {
+            options.allow_identity_change = true;
+        } else if (option == "--allow-localization-warnings") {
+            options.allow_localization_warnings = true;
+        } else if (option == "--include-unused-assets") {
+            options.include_unused_assets = true;
+        } else if (option == "--include-shader-sources") {
+            options.include_shader_sources = true;
+        } else {
+            throw std::invalid_argument("Unknown command option '" + option + "'.");
+        }
+    }
+    if (options.output.empty())
+        throw std::invalid_argument("platform export requires '--output <path>'.");
+    if (!options.template_token.empty())
+        parse_token(options.template_token);
+    if (!options.config.empty() && !options.signing_profile.empty())
+        throw std::invalid_argument(
+            "--signing-profile cannot be combined with --config; select signing inside the "
+            "explicit config instead.");
+    return options;
+}
+
+bool export_compatible(const Json& profile, const Template& item)
+{
+    if (item.status == "corrupted")
+        return false;
+    return host_compatible(profile, {item});
+}
+
+fs::path checked_project_source(const fs::path& project_root, std::string_view relative)
+{
+    if (relative.empty())
+        throw std::runtime_error("Project icon source path is empty.");
+    const auto source = fs::u8path(relative);
+    if (source.is_absolute())
+        throw std::runtime_error("Project icon source path must be relative.");
+    std::error_code error;
+    const auto canonical_root = fs::weakly_canonical(project_root, error);
+    if (error)
+        throw std::runtime_error("Cannot resolve Project root.");
+    const auto absolute = fs::weakly_canonical(project_root / source, error);
+    if (error)
+        throw std::runtime_error("Cannot resolve Project icon.");
+    const auto remainder = absolute.lexically_relative(canonical_root);
+    if (remainder.empty() || remainder.is_absolute())
+        throw std::runtime_error("Project icon must be inside the Project root.");
+    for (const auto& component : remainder)
+        if (component == "..")
+            throw std::runtime_error("Project icon must be inside the Project root.");
+    if (!fs::is_regular_file(fs::symlink_status(absolute)))
+        throw std::runtime_error("Project icon source is missing or invalid.");
+    return absolute;
+}
+
+std::vector<fs::path> export_artifacts(const fs::path& output, const Json& profile)
+{
+    const auto target = profile.at("target").get<std::string>();
+    std::vector<fs::path> artifacts{output};
+    if (target == "web" || target == "windows")
+        artifacts.push_back(fs::u8path(text(output) + ".zip"));
+    if (target == "linux") {
+        artifacts.push_back(
+            fs::u8path(text(output) + (artifact(profile) == "zip" ? ".zip" : ".tar.gz")));
+        if (artifact(profile) == "appimage")
+            artifacts.push_back(fs::u8path(text(output) + ".AppImage"));
+    }
+    if (target == "macos") {
+        auto base = text(output);
+        if (base.size() >= 4 && base.substr(base.size() - 4) == ".app")
+            base.resize(base.size() - 4);
+        artifacts.push_back(fs::u8path(base + ".zip"));
+        artifacts.push_back(fs::u8path(base + ".dmg"));
+        artifacts.push_back(fs::u8path(base + "-signing-report.json"));
+    }
+    if (profile.value("includeDebugSymbols", false) &&
+        (target == "windows" || target == "linux" || target == "macos"))
+        artifacts.push_back(
+            fs::u8path(text(output) + (target == "linux" ? "-symbols.tar.gz" : "-symbols.zip")));
+    return artifacts;
+}
+
+PlatformCliResult export_preflight(const std::vector<std::string>& command, const fs::path& root,
+                                   const std::function<Json(const Json&)>& project_request,
+                                   const PlatformExportTools& export_tools)
+{
+    const auto options = parse_export_options(command);
+    if (root.empty())
+        return fail("WORKSPACE_NOT_FOUND", "/project.yaml",
+                    "No NovelTea project.yaml was found from the current directory upward.", 3);
+    const auto admitted =
+        project_request({{"action", "platform-export-preparation"}, {"projectRoot", text(root)}});
+    if (!admitted.value("ok", false))
+        return fail(admitted.value("kind", "") == "conflict" ? "WORKSPACE_REVISION_CONFLICT"
+                                                             : "WORKSPACE_SOURCE_READ",
+                    "/project.yaml", admitted.value("error", "Native Project admission failed."),
+                    admitted.value("kind", "") == "conflict" ? 5 : 3);
+    if (!admitted.contains("sourceGeneration") || !admitted.at("sourceGeneration").is_string() ||
+        admitted.value("runtimeIntent", "") != "platform-export" || !admitted.contains("project"))
+        return fail("CLI_INTERNAL", "/", "Native platform admission omitted required authority.",
+                    70);
+    const auto& project = admitted.at("project");
+    const auto& available_profiles = project.at("export").at("profiles");
+    const Json* profile = nullptr;
+    if (options.profile.empty()) {
+        if (available_profiles.size() == 1)
+            profile = &available_profiles.front();
+    } else {
+        for (const auto& candidate : available_profiles)
+            if (candidate.value("id", "") == options.profile) {
+                profile = &candidate;
+                break;
+            }
+    }
+    if (!profile)
+        return fail("platform.profile_missing", "/export/profiles",
+                    !options.profile.empty()
+                        ? "Platform export profile '" + options.profile + "' does not exist."
+                    : available_profiles.empty()
+                        ? "No platform export profiles are configured."
+                        : "Multiple platform export profiles are configured; pass "
+                          "'--profile <id>'.");
+    const auto output = fs::absolute(fs::u8path(options.output)).lexically_normal();
+    if (output.filename().empty())
+        return fail("export.output_invalid", "/output", "Platform export output is invalid.");
+
+    const auto& app = project.at("settings").at("app");
+    EditorIdentitySnapshot local_identity;
+    try {
+        local_identity = read_export_identity(root);
+    } catch (const std::exception& error) {
+        return fail("platform.local_state_invalid", "/.noveltea/editor/state.json", error.what());
+    }
+    const auto application_id = app.at("applicationId").get<std::string>();
+    const auto save_namespace = app.at("saveNamespace").get<std::string>();
+    if (local_identity.state.contains("lastSuccessfulPlatformExportIdentity")) {
+        const auto& prior = local_identity.state.at("lastSuccessfulPlatformExportIdentity");
+        if ((prior.at("applicationId") != application_id ||
+             prior.at("saveNamespace") != save_namespace) &&
+            !options.allow_identity_change)
+            return fail("platform.identity_change_acknowledgement_required", "/settings/app",
+                        "Application identity changed from '" +
+                            prior.at("applicationId").get<std::string>() + "'/'" +
+                            prior.at("saveNamespace").get<std::string>() + "' to '" +
+                            application_id + "'/'" + save_namespace +
+                            "'; pass --allow-identity-change to continue.");
+    }
+    if (!app.contains("icon") || !app.at("icon").is_object() || !app.at("icon").contains("$ref") ||
+        !app.at("icon").at("$ref").is_object())
+        return fail("icon-missing", "/settings/app/icon",
+                    "A valid project icon is required for playable platform export.");
+    fs::path icon_source;
+    try {
+        const auto id = app.at("icon").at("$ref").at("id").get<std::string>();
+        const auto& icon = project.at("assets").at(id).at("data");
+        icon_source = checked_project_source(root, icon.at("source").at("path").get<std::string>());
+    } catch (const std::exception&) {
+        return fail("icon-missing", "/settings/app/icon",
+                    "A valid, local project icon is required for playable platform export.");
+    }
+
+    std::optional<Template> resolved;
+    const auto installed = templates();
+    if (!options.template_token.empty()) {
+        resolved = inspect(options.template_token);
+        if (!resolved || resolved->status == "corrupted")
+            return fail("invalid-installed-template", "/template",
+                        "Selected template '" + options.template_token + "' is not verified.");
+        if (!export_compatible(*profile, *resolved))
+            return fail("template-incompatible", "/template",
+                        "Selected template '" + options.template_token +
+                            "' is incompatible with the export profile.");
+    } else {
+        std::vector<Template> compatible;
+        for (const auto& item : installed)
+            if (export_compatible(*profile, item))
+                compatible.push_back(item);
+        if (compatible.empty())
+            return fail("template-missing", "/template",
+                        "No compatible installed player template was found.");
+        if (compatible.size() > 1) {
+            std::string choices;
+            for (const auto& item : compatible) {
+                if (!choices.empty())
+                    choices += ", ";
+                choices += fields(item).at("id").get<std::string>();
+            }
+            return fail("template-ambiguous", "/template",
+                        "Multiple compatible templates: " + choices +
+                            "; pass '--template <id>@<build>'.");
+        }
+        resolved = std::move(compatible.front());
+    }
+    if (resolved->entry.value("trust", "") != "official" && !options.allow_untrusted)
+        return fail("template-untrusted-acknowledgement-required", "/template",
+                    "Template '" + fields(*resolved).at("id").get<std::string>() +
+                        "' is locally sourced; pass --allow-untrusted-template to use it.");
+
+    if (options.sign || !options.signing_profile.empty())
+        return fail("platform.signing_profile_required", "/signingProfile",
+                    "Native platform export signing is not yet configured.");
+    if (!options.config.empty()) {
+        try {
+            const auto parsed = read_json(fs::absolute(fs::u8path(options.config)));
+            if (parsed.value("format", "") != "noveltea.editor-export-local-state")
+                return fail("platform.config_invalid", "/config",
+                            "Export config uses an unsupported format.");
+        } catch (const std::exception& error) {
+            return fail("platform.config_invalid", "/config", error.what());
+        }
+    }
+
+    if (has_native_platform_publication(output)) {
+        if (options.check)
+            return fail("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT", "/output",
+                        "A previous platform publication requires recovery.", 5);
+        std::string recovery_error;
+        if (!recover_native_platform_publication(output, recovery_error))
+            return fail("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT", "/output",
+                        "Failed to recover previous platform publication: " + recovery_error, 5);
+    }
+    std::vector<std::string> collisions, symlinks;
+    for (const auto& path : export_artifacts(output, *profile)) {
+        const auto status = fs::symlink_status(path);
+        if (fs::is_symlink(status))
+            symlinks.push_back(text(path));
+        if (fs::exists(status))
+            collisions.push_back(text(path));
+    }
+    if (!symlinks.empty())
+        return fail("platform-output-symlink-forbidden", "/outputDirectory",
+                    "Export refuses symbolic-link artifact paths: " + symlinks.front() + ".");
+    if (!collisions.empty() && !options.force)
+        return fail("platform-output-exists", "/outputDirectory",
+                    "Export would replace existing artifacts; pass --force to continue: " +
+                        collisions.front() + ".");
+    const auto source_proof = [&]() {
+        return project_request({{"action", "source-generation-proof"},
+                                {"projectRoot", text(root)},
+                                {"expectedSourceGeneration", admitted.at("sourceGeneration")}});
+    };
+    if (!source_proof().value("ok", false))
+        return fail("WORKSPACE_REVISION_CONFLICT", "/output",
+                    "Project source generation changed during platform export.", 5);
+    if (!options.check) {
+        auto published = stage_native_platform_export(
+            admitted, *profile, resolved->descriptor,
+            template_root(fields(*resolved).at("id").get<std::string>()), icon_source, output,
+            options.force, options.allow_localization_warnings, options.include_unused_assets,
+            options.include_shader_sources, export_tools,
+            [&]() { return source_proof().value("ok", false); });
+        if (published.envelope.value("success", false)) {
+            try {
+                if (!record_export_identity(root, local_identity, application_id, save_namespace))
+                    published.envelope["diagnostics"].push_back(
+                        {{"code", "platform.local_state_changed"},
+                         {"severity", "warning"},
+                         {"path", "/.noveltea/editor/state.json"},
+                         {"message", "Platform export succeeded, but editor-local state changed "
+                                     "concurrently; identity metadata was not replaced."}});
+            } catch (const std::exception& error) {
+                published.envelope["diagnostics"].push_back(
+                    {{"code", "platform.local_state_write_failed"},
+                     {"severity", "warning"},
+                     {"path", "/.noveltea/editor/state.json"},
+                     {"message", std::string("Platform export succeeded, but identity metadata "
+                                             "could not be persisted: ") +
+                                     error.what()}});
+            }
+        }
+        return published;
+    }
+    return result(true,
+                  {{"projectRoot", text(root)},
+                   {"outputDirectory", text(output)},
+                   {"templateToken", fields(*resolved).at("id")},
+                   {"signingRequested", false},
+                   {"signingApplied", false},
+                   {"cancelled", false}},
+                  admitted.value("diagnostics", Json::array()),
+                  "Platform export preflight succeeded.");
+}
+
 } // namespace
 
 PlatformCliResult run_native_platform_cli(const std::vector<std::string>& command,
                                           const fs::path& root, bool explicit_project,
-                                          const std::function<Json(const Json&)>& project_request)
+                                          const std::function<Json(const Json&)>& project_request,
+                                          const PlatformExportTools& export_tools)
 {
     if (command.size() < 2)
         throw std::invalid_argument("Unknown platform command.");
@@ -1035,6 +1446,8 @@ PlatformCliResult run_native_platform_cli(const std::vector<std::string>& comman
         require_count(command, 2, "platform profiles does not accept arguments.");
         return platform_profiles(root, project_request);
     }
+    if (command[1] == "export")
+        return export_preflight(command, root, project_request, export_tools);
     if (command[1] != "template" && command[1] != "config")
         return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/",
                     "Command is not implemented by the direct C++ CLI candidate.", 70);
