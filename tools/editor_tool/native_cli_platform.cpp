@@ -1237,6 +1237,8 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                                    const PlatformExportTools& export_tools)
 {
     const auto options = parse_export_options(command);
+    if (export_tools.progress)
+        export_tools.progress("validating", "Validating project and export profile");
     if (root.empty())
         return fail("WORKSPACE_NOT_FOUND", "/project.yaml",
                     "No NovelTea project.yaml was found from the current directory upward.", 3);
@@ -1311,6 +1313,8 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                     "A valid, local project icon is required for playable platform export.");
     }
 
+    if (export_tools.progress)
+        export_tools.progress("resolving-template", "Resolving and verifying the player template");
     std::optional<Template> resolved;
     const auto installed = templates();
     if (!options.template_token.empty()) {
@@ -1373,9 +1377,24 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
     }
     std::vector<std::string> collisions, symlinks;
     for (const auto& path : export_artifacts(output, *profile)) {
+        for (auto parent = path.parent_path(); !parent.empty(); parent = parent.parent_path()) {
+            const auto parent_status = fs::symlink_status(parent);
+            if (fs::is_symlink(parent_status))
+                return fail("platform-output-symlink-forbidden", "/outputDirectory",
+                            "Export refuses a symbolic-link output parent: " + text(parent) + ".");
+            if (fs::exists(parent_status) && !fs::is_directory(parent_status))
+                return fail("export.output_invalid", "/outputDirectory",
+                            "Platform output parent is not a directory: " + text(parent) + ".");
+            if (parent == parent.root_path())
+                break;
+        }
         const auto status = fs::symlink_status(path);
         if (fs::is_symlink(status))
             symlinks.push_back(text(path));
+        if (fs::exists(status) && !fs::is_symlink(status) &&
+            (path == output ? !fs::is_directory(status) : !fs::is_regular_file(status)))
+            return fail("export.output_invalid", "/outputDirectory",
+                        "Platform output has an unexpected filesystem type: " + text(path) + ".");
         if (fs::exists(status))
             collisions.push_back(text(path));
     }

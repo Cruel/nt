@@ -342,6 +342,17 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-cli-windows-pe-certify)
     add_test(NAME native_cli_windows_pe_resources
         COMMAND noveltea-cli-windows-pe-certify)
+    add_executable(noveltea-cli-platform-publication-certify
+        "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_platform_publication_tests.cpp"
+        native_cli_platform_stage.cpp)
+    target_link_libraries(noveltea-cli-platform-publication-certify PRIVATE
+        noveltea_tooling_native noveltea_cli_windows_pe nlohmann_json::nlohmann_json miniz::miniz)
+    target_include_directories(noveltea-cli-platform-publication-certify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions(noveltea-cli-platform-publication-certify PRIVATE
+        ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+    noveltea_apply_policy_warnings(noveltea-cli-platform-publication-certify)
+    add_test(NAME native_cli_platform_publication
+        COMMAND noveltea-cli-platform-publication-certify)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
