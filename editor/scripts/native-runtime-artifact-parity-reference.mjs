@@ -3,8 +3,12 @@
 import { readFileSync } from 'node:fs';
 import { createServer } from 'vite';
 
-const { project, referencedAssetIds, profile = project.export.runtime, nativeArtifact } =
-  JSON.parse(readFileSync(0, 'utf8'));
+const {
+  project,
+  referencedAssetIds,
+  profile = project.export.runtime,
+  nativeArtifact,
+} = JSON.parse(readFileSync(0, 'utf8'));
 const server = await createServer({
   configFile: false,
   root: new URL('../', import.meta.url).pathname,
@@ -41,15 +45,20 @@ try {
     admittedRuntimeAssetReferences: referencedAssetIds,
   });
   const artifact = prepared.status === 'prepared' ? prepared.artifact : undefined;
-  process.stdout.write(JSON.stringify({
-    status: prepared.status,
-    canonicalContent: canonicalProjectContentJson({ ...project, tests: {} }),
-    diagnostics: prepared.status === 'cancelled' ? prepared.diagnostics : prepared.assessment.diagnostics,
-    ...(artifact ? { artifact, schemaValid: preparedRuntimeArtifactSchema.safeParse(artifact).success } : {}),
-    ...(nativeArtifact
-      ? { nativeSchemaValid: preparedRuntimeArtifactSchema.safeParse(nativeArtifact).success }
-      : {}),
-  }) + '\n');
+  process.stdout.write(
+    JSON.stringify({
+      status: prepared.status,
+      canonicalContent: canonicalProjectContentJson({ ...project, tests: {} }),
+      diagnostics:
+        prepared.status === 'cancelled' ? prepared.diagnostics : prepared.assessment.diagnostics,
+      ...(artifact
+        ? { artifact, schemaValid: preparedRuntimeArtifactSchema.safeParse(artifact).success }
+        : {}),
+      ...(nativeArtifact
+        ? { nativeSchemaValid: preparedRuntimeArtifactSchema.safeParse(nativeArtifact).success }
+        : {}),
+    }) + '\n',
+  );
 } finally {
   await server.close();
 }
