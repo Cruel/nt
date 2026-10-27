@@ -526,10 +526,10 @@ void certify(const std::filesystem::path& source)
     // Reconciliation replaces the complete physical tracking map, not a
     // single occurrence. Production must route that operation to the native
     // i18n/tracking.yaml owner and keep the disk untouched until Save.
-    const auto replaced_tracking = project->patch(
-        project->snapshot().working_revision,
-        {{RoomPatch::Operation::Replace, "/localization/sourceMessageTracking",
-          model.at("sourceMessageTracking").to_string()}});
+    const auto replaced_tracking =
+        project->patch(project->snapshot().working_revision,
+                       {{RoomPatch::Operation::Replace, "/localization/sourceMessageTracking",
+                         model.at("sourceMessageTracking").to_string()}});
     require(replaced_tracking.accepted && replaced_tracking.snapshot.valid &&
                 contents(fixture.root / "i18n/tracking.yaml") == before_tracking,
             "Whole tracking-map reconciliation is admitted natively without early disk writes");

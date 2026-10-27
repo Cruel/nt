@@ -31,17 +31,15 @@ void collect_runtime_asset_references(const Json& value, const std::string& path
             reference.contains("id") && reference.at("id").is_string())
             ids.insert(reference.at("id").as<std::string>());
     }
-    if (value.contains("kind") && value.at("kind") == "record" &&
-        value.contains("collection") && value.at("collection") == "assets" &&
-        value.contains("id") && value.at("id").is_string())
+    if (value.contains("kind") && value.at("kind") == "record" && value.contains("collection") &&
+        value.at("collection") == "assets" && value.contains("id") && value.at("id").is_string())
         ids.insert(value.at("id").as<std::string>());
     for (const auto& child : value.object_range()) {
         const auto& key = child.key();
         const auto child_path = path + "/" + key;
         if ((path.empty() && (key == "tests" || key == "editor")) ||
             child_path.starts_with("/tests/") || child_path.starts_with("/editor/") ||
-            child_path == "/settings/app/icon" ||
-            child_path == "/settings/app/launchImage" ||
+            child_path == "/settings/app/icon" || child_path == "/settings/app/launchImage" ||
             child_path.starts_with("/localization/assets/") ||
             (child_path.starts_with("/localization/locales/") &&
              child_path.find("/fontStack") != std::string::npos))

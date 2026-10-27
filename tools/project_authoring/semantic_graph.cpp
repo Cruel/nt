@@ -303,8 +303,8 @@ struct Builder {
         const bool nullable_reference =
             selected_role == "room-background" || selected_role == "room-background-material" ||
             selected_role == "room-prop-asset" || selected_role == "room-prop-material" ||
-            selected_role == "room-environment-asset" ||
-            selected_role == "room-compose-script" || selected_role == "system-layout";
+            selected_role == "room-environment-asset" || selected_role == "room-compose-script" ||
+            selected_role == "system-layout";
         const auto repair_action = nullable_reference ? "set-null" : repair_kind;
         item["repair"]["kind"] = std::string(repair_action);
         if (repair_action == "blocked")

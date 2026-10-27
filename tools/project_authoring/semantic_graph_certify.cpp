@@ -104,8 +104,8 @@ int main(int argc, char** argv)
             if (edge.at("role") == "room-background" &&
                 edge.at("target").at("collection") == "assets") {
                 const auto source = edge.at("sourcePath").as<std::string>();
-                const auto expected = source.ends_with("/$ref") ? source.substr(0, source.size() - 5)
-                                                                : source;
+                const auto expected =
+                    source.ends_with("/$ref") ? source.substr(0, source.size() - 5) : source;
                 room_asset_repair |= edge.at("repair").at("kind") == "set-null" &&
                                      edge.at("repair").at("path") == expected;
             }
