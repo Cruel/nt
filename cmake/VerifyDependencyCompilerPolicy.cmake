@@ -63,7 +63,7 @@ foreach(index RANGE 0 ${last_command})
     # host-tool certifications are isolated from players and use the host
     # exception/RTTI model.
     if(source MATCHES "/tools/(editor_tool|project_authoring)/" OR
-       output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication)-certify\\.dir[/\\]")
+       output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication|macos-export)-certify\\.dir[/\\]")
         set(is_first_party FALSE)
     endif()
     if(is_first_party)

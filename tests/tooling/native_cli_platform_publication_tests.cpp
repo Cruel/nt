@@ -206,6 +206,43 @@ int main()
         require(!fs::exists(linux.string() + ".noveltea-publication-transaction.json"),
                 "Linux transaction journal was not removed.");
 
+        // A macOS app is a directory but its sidecars are named from the
+        // stem without .app. An interruption must restore *all* incumbents,
+        // including the optional signing and symbols retirements.
+        const auto mac = temp / "Tea.app";
+        fs::create_directory(mac);
+        write(mac / "marker", "new");
+        fs::create_directory(mac.string() + ".previous-123-456");
+        write(mac.string() + ".previous-123-456/marker", "old");
+        const auto mac_stem = (temp / "Tea").string();
+        write(mac_stem + ".zip", "new-zip");
+        write(mac_stem + ".zip.previous-123-456", "old-zip");
+        write(mac_stem + "-export-manifest.json", "new-manifest");
+        write(mac_stem + "-export-manifest.json.previous-123-456", "old-manifest");
+        write(mac_stem + "-symbols.zip", "old-symbols");
+        write(mac_stem + "-signing-report.json.previous-123-456", "old-signing");
+        write(mac.string() + ".noveltea-publication-transaction.json",
+              R"({"format":"noveltea.native-platform-publication","nonce":"123-456",)"
+              R"("accepted":false,"rollingBack":false,"outputs":[)"
+              R"({"kind":"directory","hadPrevious":true,"removeOnly":false},)"
+              R"({"kind":"mac-archive","hadPrevious":true,"removeOnly":false},)"
+              R"({"kind":"mac-symbols","hadPrevious":true,"removeOnly":true},)"
+              R"({"kind":"mac-dmg","hadPrevious":false,"removeOnly":true},)"
+              R"({"kind":"mac-signing-report","hadPrevious":true,"removeOnly":true},)"
+              R"({"kind":"mac-manifest","hadPrevious":true,"removeOnly":false}]})");
+        {
+            noveltea::cli::PlatformPublicationLock lock(mac);
+            require(noveltea::cli::recover_native_platform_publication(mac, lock, error), error);
+        }
+        require(read(mac / "marker") == "old", "macOS bundle rollback failed.");
+        require(read(mac_stem + ".zip") == "old-zip", "macOS ZIP rollback failed.");
+        require(read(mac_stem + "-symbols.zip") == "old-symbols",
+                "macOS symbols retirement rollback failed.");
+        require(read(mac_stem + "-signing-report.json") == "old-signing",
+                "macOS signing report rollback failed.");
+        require(read(mac_stem + "-export-manifest.json") == "old-manifest",
+                "macOS manifest rollback failed.");
+
         // The recovery API itself must never traverse a linked parent.
         const auto linked = temp / "linked";
         fs::create_directory(temp / "real");

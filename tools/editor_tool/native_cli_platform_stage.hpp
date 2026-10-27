@@ -39,6 +39,7 @@ struct PlatformResolvedExportSettings {
     PlatformJson toolchains = PlatformJson::object();
     PlatformJson signing = PlatformJson::object();
     bool signing_requested = false;
+    bool dmg_requested = false;
 };
 
 // Shared, read-only capability boundary. The CLI must call this before

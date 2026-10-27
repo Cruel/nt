@@ -88,6 +88,34 @@ CI emits `dist/noveltea-native-linux-release-certification.json` as separate
 native-export evidence. This does not replace the existing X11/Wayland release
 matrix or claim that AppImage building works without host tooling.
 
+The direct C++ macOS exporter (#567) assembles an arm64 `.app` from the verified
+template using `Contents/MacOS`, `Contents/Frameworks`, and `Contents/Resources`.
+It reads the actual arm64 Mach-O load commands, UUIDs, and portable dependency
+closure (including universal binaries), compares them with the template's
+certified metadata, and rejects missing/unsafe libraries and install names.
+The runtime package and `player.json` are in Resources, alongside a generated
+`AppIcon.icns`, bundle `Info.plist`, localization metadata, and mounted engine
+licenses. The distribution ZIP retains the `<Name>.app/` root, a separate
+`<Name>-symbols.zip` contains requested debug symbols, and
+`<Name>-export-manifest.json` records final bundle file hashes. The manifest
+is a *sidecar*, not a post-signing bundle resource, because changing any bundle
+resource after codesign invalidates the signature.
+
+Unsigned app/ZIP assembly and readback are cross-host. On macOS, `--sign`
+requires a locally configured macOS signing identity, uses the installed Apple
+`codesign` tool to sign nested dependencies before the hardened-runtime app,
+and verifies the sealed bundle. Configured notarization invokes the selected
+command and verifies ticket stapling with `xcrun stapler`. Opt-in `--dmg`
+uses macOS `hdiutil`; it is unavailable on other hosts. No third-party signer
+or DMG dependency is bundled. The signing report is a separate sidecar, and
+old symbols, DMG, and signing reports are retired transactionally when disabled
+in a later export. `native_cli_macos_export` runs real native staging/ZIP
+readback and Mach-O corruption tests on cross-host CI; the macOS release runner
+also executes `tests/native_cli/macos_release_smoke.py` with its real release
+template, checks direct executable and LaunchServices launch, and exercises
+ad-hoc codesign/verification. Production notarization and trusted-identity
+signing still require private credentials and are not claimed by this smoke.
+
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,
 NDK 28.2.13676358 (r28c), CMake 3.31.6, and bundletool 1.18.1. Those are template build inputs,

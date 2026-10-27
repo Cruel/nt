@@ -1,5 +1,6 @@
 #include "native_cli_platform_stage.hpp"
 
+#include "native_cli_macho.hpp"
 #include "native_cli_web_shell.hpp"
 #include "native_cli_windows_pe.hpp"
 
@@ -245,25 +246,39 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
         const auto kind = item.at("kind").get<std::string>();
         if (!kinds.insert(kind).second ||
             (kind != "directory" && kind != "archive" && kind != "symbols" &&
-             kind != "archive-tar" && kind != "symbols-tar" && kind != "appimage"))
+             kind != "archive-tar" && kind != "symbols-tar" && kind != "appimage" &&
+             kind != "mac-archive" && kind != "mac-symbols" && kind != "mac-dmg" &&
+             kind != "mac-signing-report" && kind != "mac-manifest"))
             throw std::runtime_error("Invalid platform publication journal output kind.");
         const auto base = path_text(destination);
+        const auto mac_base = base.ends_with(".app") ? base.substr(0, base.size() - 4) : base;
         const auto final = kind == "directory"     ? destination
                            : kind == "archive"     ? fs::u8path(base + ".zip")
                            : kind == "archive-tar" ? fs::u8path(base + ".tar.gz")
                            : kind == "symbols-tar" ? fs::u8path(base + "-symbols.tar.gz")
                            : kind == "appimage"    ? fs::u8path(base + ".AppImage")
-                                                   : fs::u8path(base + "-symbols.zip");
+                           : kind == "mac-archive" ? fs::u8path(mac_base + ".zip")
+                           : kind == "mac-symbols" ? fs::u8path(mac_base + "-symbols.zip")
+                           : kind == "mac-dmg"     ? fs::u8path(mac_base + ".dmg")
+                           : kind == "mac-signing-report"
+                               ? fs::u8path(mac_base + "-signing-report.json")
+                           : kind == "mac-manifest" ? fs::u8path(mac_base + "-export-manifest.json")
+                                                    : fs::u8path(base + "-symbols.zip");
         if (kind != "symbols" && kind != "symbols-tar" && kind != "appimage" &&
-            item.at("removeOnly").get<bool>())
+            kind != "mac-symbols" && kind != "mac-dmg" && kind != "mac-signing-report" &&
+            kind != "mac-manifest" && item.at("removeOnly").get<bool>())
             throw std::runtime_error("Cannot retire required platform artifact.");
         entries.push_back({final, fs::u8path(path_text(final) + ".stage-" + nonce),
                            fs::u8path(path_text(final) + ".previous-" + nonce),
                            item.at("hadPrevious").get<bool>(), item.at("removeOnly").get<bool>()});
     }
     if (kinds.size() < 2 || !kinds.contains("directory") ||
-        (!kinds.contains("archive") && !kinds.contains("archive-tar")) ||
+        (!kinds.contains("archive") && !kinds.contains("archive-tar") &&
+         !kinds.contains("mac-archive")) ||
         (kinds.contains("archive") && kinds.contains("archive-tar")) ||
+        (kinds.contains("mac-archive") &&
+         (kinds.contains("archive") || kinds.contains("archive-tar") ||
+          !path_text(destination).ends_with(".app"))) ||
         (kinds.contains("symbols") && kinds.contains("symbols-tar")))
         throw std::runtime_error("Platform publication journal omits required outputs.");
     return entries;
@@ -415,12 +430,19 @@ void publish(const fs::path& destination, const std::vector<PublicationEntry>& e
     Json items = Json::array();
     for (const auto& entry : entries) {
         const std::string name = path_text(entry.final);
-        const std::string kind = entry.final == destination          ? "directory"
-                                 : name.ends_with("-symbols.zip")    ? "symbols"
-                                 : name.ends_with("-symbols.tar.gz") ? "symbols-tar"
-                                 : name.ends_with(".AppImage")       ? "appimage"
-                                 : name.ends_with(".tar.gz")         ? "archive-tar"
-                                                                     : "archive";
+        const bool mac = path_text(destination).ends_with(".app");
+        const std::string kind = entry.final == destination              ? "directory"
+                                 : mac && name.ends_with("-symbols.zip") ? "mac-symbols"
+                                 : mac && name.ends_with("-signing-report.json")
+                                     ? "mac-signing-report"
+                                 : mac && name.ends_with("-export-manifest.json") ? "mac-manifest"
+                                 : mac && name.ends_with(".dmg")                  ? "mac-dmg"
+                                 : mac && name.ends_with(".zip")                  ? "mac-archive"
+                                 : name.ends_with("-symbols.zip")                 ? "symbols"
+                                 : name.ends_with("-symbols.tar.gz")              ? "symbols-tar"
+                                 : name.ends_with(".AppImage")                    ? "appimage"
+                                 : name.ends_with(".tar.gz")                      ? "archive-tar"
+                                                                                  : "archive";
         items.push_back({{"kind", kind},
                          {"hadPrevious", entry.had_previous},
                          {"removeOnly", entry.remove_only}});
@@ -493,7 +515,7 @@ FileEntry track_file(const fs::path& stage, std::string relative, std::string or
 }
 
 void verify_archive(const fs::path& path, const fs::path& directory,
-                    const std::vector<FileEntry>& files)
+                    const std::vector<FileEntry>& files, std::string_view archive_prefix = {})
 {
     struct ZipReader {
         std::ifstream file;
@@ -546,7 +568,8 @@ void verify_archive(const fs::path& path, const fs::path& directory,
             throw std::runtime_error("Published archive contains duplicate or invalid paths.");
     }
     for (const auto& file : files) {
-        if (!actual.contains(file.path) || actual.at(file.path).second != file.size)
+        const auto entry_name = std::string(archive_prefix) + file.path;
+        if (!actual.contains(entry_name) || actual.at(entry_name).second != file.size)
             throw std::runtime_error("Published archive entry does not match inventory: " +
                                      file.path);
         const auto original = safe_child(directory, file.path);
@@ -557,7 +580,7 @@ void verify_archive(const fs::path& path, const fs::path& directory,
         if (!source)
             throw std::runtime_error("Cannot open published archive entry: " + file.path);
         auto* iterator =
-            mz_zip_reader_extract_iter_new(&reader.archive, actual.at(file.path).first, 0);
+            mz_zip_reader_extract_iter_new(&reader.archive, actual.at(entry_name).first, 0);
         if (!iterator)
             throw std::runtime_error("Cannot decompress published archive entry: " + file.path);
         std::array<char, 65536> bytes{};
@@ -1878,6 +1901,762 @@ PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
     }
 }
 
+std::string mac_xml_escape(std::string_view value)
+{
+    std::string escaped;
+    for (const char ch : value) {
+        switch (ch) {
+        case '&':
+            escaped += "&amp;";
+            break;
+        case '<':
+            escaped += "&lt;";
+            break;
+        case '>':
+            escaped += "&gt;";
+            break;
+        case '"':
+            escaped += "&quot;";
+            break;
+        case '\'':
+            escaped += "&apos;";
+            break;
+        default:
+            escaped += ch;
+        }
+    }
+    return escaped;
+}
+
+void mac_put_be32(std::string& output, std::uint32_t value)
+{
+    for (int shift = 24; shift >= 0; shift -= 8)
+        output.push_back(static_cast<char>((value >> shift) & 255u));
+}
+
+std::string mac_icns(const fs::path& icon_source, const fs::path& stage,
+                     const PlatformExportTools& tools)
+{
+    std::string result = "icns";
+    mac_put_be32(result, 0);
+    const std::array<std::pair<unsigned, std::string_view>, 6> sizes{
+        {{16, "icp4"}, {32, "icp5"}, {128, "ic07"}, {256, "ic08"}, {512, "ic09"}, {1024, "ic10"}}};
+    for (const auto& [size, kind] : sizes) {
+        check_cancellation(tools);
+        const auto scratch = stage / (".mac-icon-" + std::to_string(size) + ".png");
+        const auto resized = tools.resize_image({{"sourcePath", path_text(icon_source)},
+                                                 {"outputPath", path_text(scratch)},
+                                                 {"size", size}});
+        if (!resized.value("ok", false))
+            throw std::runtime_error("macOS icon generation failed.");
+        const auto png = read_file(scratch);
+        fs::remove(scratch);
+        if (!png.starts_with("\x89PNG\r\n\x1a\n"))
+            throw std::runtime_error("macOS icon encoder returned invalid PNG bytes.");
+        result += kind;
+        mac_put_be32(result, static_cast<std::uint32_t>(png.size() + 8));
+        result += png;
+    }
+    const auto length = static_cast<std::uint32_t>(result.size());
+    for (unsigned i = 0; i < 4; ++i)
+        result[4 + i] = static_cast<char>((length >> (24 - i * 8)) & 255u);
+    return result;
+}
+
+PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
+                                     const Json& descriptor, const fs::path& template_directory,
+                                     const fs::path& icon_source, const fs::path& destination,
+                                     bool force, bool allow_localization_warnings,
+                                     bool include_unused_assets, bool include_shader_sources,
+                                     const PlatformResolvedExportSettings& settings,
+                                     const PlatformExportTools& tools,
+                                     const std::function<bool()>& source_current)
+{
+    if (!tools.prepare_package || !tools.create_archive || !tools.resize_image ||
+        !tools.physical_sources_current)
+        return failure("CLI_INTERNAL", "Native macOS export tools are unavailable.", 70);
+    try {
+        if (destination.extension() != ".app")
+            return failure("platform-output-invalid", "macOS destination must end in .app.");
+        if (profile.value("packageAccess", "") != "bundle-resource" ||
+            profile.at("desktop").value("artifact", "") != "app-bundle")
+            return failure("platform-artifact-invalid", "macOS requires an app-bundle profile.");
+        if (!descriptor.contains("macosMachO") || !descriptor.at("macosMachO").is_array() ||
+            !descriptor.contains("macosDependencies") || !descriptor.contains("macosRpaths"))
+            return failure("platform-template-macho", "macOS template has no Mach-O inventory.");
+        const auto& app = admission.at("project").at("settings").at("app");
+        const auto executable = profile.at("desktop").at("executableName").get<std::string>();
+        if (executable.empty() || executable == "." || executable == ".." ||
+            !std::all_of(executable.begin(), executable.end(), [](unsigned char c) {
+                return std::isalnum(c) || c == '.' || c == '_' || c == '+' || c == '-';
+            }))
+            return failure("platform-executable-name-invalid", "Invalid macOS executable name.");
+        const auto app_id = app.at("applicationId").get<std::string>();
+        if (app_id.find('.') == std::string::npos || app_id.front() == '.' ||
+            app_id.back() == '.' || app_id.find("..") != std::string::npos ||
+            !std::all_of(app_id.begin(), app_id.end(),
+                         [](unsigned char c) { return std::isalnum(c) || c == '.' || c == '-'; }))
+            return failure("platform-bundle-id-invalid", "Invalid macOS bundle identifier.");
+        const auto name = app.at("displayName").get<std::string>();
+        const auto version = app.at("versionName").get<std::string>();
+        const auto save_namespace = app.at("saveNamespace").get<std::string>();
+        const auto descriptor_sha = digest(read_file(template_directory / "template.json"));
+        const auto registry_sha = digest(read_file(template_directory / ".noveltea-template.json"));
+        const auto icon_sha = digest(read_file(icon_source));
+        if (Json::parse(read_file(template_directory / "template.json")) != descriptor)
+            return failure("platform-template-changed", "macOS template changed after preflight.",
+                           5);
+#if !defined(__APPLE__)
+        if (settings.signing_requested || settings.dmg_requested)
+            return failure("platform-macos-host-required",
+                           "macOS signing, notarization, and DMG creation require a macOS host.");
+#endif
+        const bool symbols_requested = profile.value("includeDebugSymbols", false);
+        const auto base = path_text(destination).substr(0, path_text(destination).size() - 4);
+        const std::array<fs::path, 6> outputs{destination,
+                                              fs::u8path(base + ".zip"),
+                                              fs::u8path(base + "-symbols.zip"),
+                                              fs::u8path(base + ".dmg"),
+                                              fs::u8path(base + "-signing-report.json"),
+                                              fs::u8path(base + "-export-manifest.json")};
+        const auto nonce = random_nonce();
+        std::vector<PublicationEntry> entries;
+        for (std::size_t i = 0; i < outputs.size(); ++i) {
+            const auto& output = outputs[i];
+            const bool retire = (i == 2 && !symbols_requested) ||
+                                (i == 3 && !settings.dmg_requested) ||
+                                (i == 4 && !settings.signing_requested);
+            entries.push_back({output, fs::u8path(path_text(output) + ".stage-" + nonce),
+                               fs::u8path(path_text(output) + ".previous-" + nonce),
+                               fs::exists(fs::symlink_status(output)), retire});
+            if (fs::is_symlink(fs::symlink_status(output)) ||
+                fs::exists(fs::symlink_status(entries.back().stage)) ||
+                fs::exists(fs::symlink_status(entries.back().previous)) ||
+                (entries.back().had_previous && !force))
+                return failure("platform-output-exists", "macOS output is occupied or unsafe.");
+        }
+        fs::create_directories(destination.parent_path());
+        Staging cleanup(entries, journal_path(destination));
+        fs::create_directory(entries.front().stage);
+        // macOS tools recognize the inner .app suffix, not the publisher's
+        // transaction suffix. Move into the journal-owned path only at commit.
+        const auto stage = entries.front().stage / destination.filename();
+        fs::create_directory(stage);
+        Json native_profile = admission.at("profile");
+        native_profile["shaderVariants"] = Json::array({"metal"});
+        native_profile["localization"] = profile.at("localization");
+        native_profile["excludeUnusedAssets"] =
+            include_unused_assets ? false : profile.value("excludeUnusedAssets", true);
+        native_profile["includeShaderSources"] =
+            include_shader_sources || profile.value("includeShaderSources", false);
+        native_profile["stripShaderSources"] =
+            !native_profile.at("includeShaderSources").get<bool>();
+        if (!source_current())
+            return failure("WORKSPACE_REVISION_CONFLICT", "macOS sources changed.", 5);
+        if (tools.progress)
+            tools.progress("writing-package", "Preparing macOS runtime package");
+        const std::string package_name = "Contents/Resources/game.ntpkg";
+        fs::create_directories((stage / package_name).parent_path());
+        const auto packaged =
+            tools.prepare_package(admission, native_profile, stage / package_name);
+        check_cancellation(tools);
+        if (!packaged.value("ok", false))
+            return failure(packaged.value("code", "native.platform.package"),
+                           packaged.value("error", "macOS runtime package failed."), 6);
+        const auto& artifact = packaged.at("artifact");
+        if (!artifact.contains("compiledProject") ||
+            artifact.at("packageOptions").value("kind", "") != "runtime")
+            return failure("native.runtime.artifact", "Invalid macOS package evidence.", 6);
+        const auto& options = artifact.at("packageOptions");
+        for (const auto& diagnostic : artifact.value("diagnostics", Json::array()))
+            if (diagnostic.value("severity", "") == "warning" &&
+                diagnostic.value("code", std::string{}).starts_with("localization.export.") &&
+                !allow_localization_warnings)
+                return failure("localization.export.warning_override_required",
+                               "Localization warnings require --allow-localization-warnings.");
+        const auto package_sha = digest(read_file(stage / package_name));
+        std::vector<FileEntry> files, symbols;
+        files.push_back(track_file(stage, package_name, "runtime-package", "game.ntpkg", 0644));
+        std::map<std::string, std::string> relocation;
+        std::map<std::string, std::string> library_names;
+        std::set<std::string> occupied{package_name};
+        bool found_player = false;
+        for (const auto& item : descriptor.at("files")) {
+            check_cancellation(tools);
+            const auto original = item.at("path").get<std::string>();
+            const auto mode = item.at("mode").get<std::uint32_t>();
+            const auto role = item.value("role", "");
+            const auto source = safe_child(template_directory, original);
+            if (!fs::is_regular_file(fs::symlink_status(source)) ||
+                fs::file_size(source) != item.at("size").get<std::uint64_t>() ||
+                digest(read_file(source)) != item.at("sha256").get<std::string>())
+                return failure("invalid-installed-template", "macOS template file changed.", 5);
+            if (role == "symbol" || original.starts_with("symbols/")) {
+                symbols.push_back({original, "symbol", original, mode,
+                                   item.at("size").get<std::uint64_t>(),
+                                   item.at("sha256").get<std::string>()});
+                continue;
+            }
+            std::string target;
+            if (role == "player") {
+                if (found_player || !(mode & 0111))
+                    return failure("platform-template-player", "Invalid macOS player declaration.");
+                found_player = true;
+                target = "Contents/MacOS/" + executable;
+            } else if (role == "native-dependency") {
+                const auto framework = original.find(".framework/");
+                target =
+                    framework == std::string::npos
+                        ? "Contents/Frameworks/" + fs::u8path(original).filename().string()
+                        : "Contents/Frameworks/" +
+                              original.substr(original.rfind('/', framework) == std::string::npos
+                                                  ? 0
+                                                  : original.rfind('/', framework) + 1);
+                if (!library_names.emplace(fs::u8path(original).filename().string(), target).second)
+                    return failure("platform-template-dependencies",
+                                   "Ambiguous macOS framework library name.");
+            } else {
+                target = "Contents/Resources/" + original;
+            }
+            if (!occupied.insert(target).second)
+                return failure("platform-template-collision",
+                               "macOS bundle contains colliding template paths.");
+            relocation.emplace(original, target);
+            const auto destination_path = safe_child(stage, target);
+            copy_verified_file(source, destination_path);
+            fs::permissions(destination_path, static_cast<fs::perms>(mode & 0777),
+                            fs::perm_options::replace);
+            files.push_back(track_file(stage, target,
+                                       role == "native-dependency" ? "native-dependency"
+                                       : role == "notice"          ? "notice"
+                                                                   : "template",
+                                       "template:" + original, mode));
+            if (original.starts_with("licenses/")) {
+                const auto mounted = "Contents/Resources/assets/system/" + original;
+                if (!occupied.insert(mounted).second)
+                    return failure("platform-template-collision", "macOS license path collision.");
+                copy_verified_file(destination_path, safe_child(stage, mounted));
+                files.push_back(track_file(stage, mounted, "system-asset", original, mode));
+            }
+        }
+        if (!found_player)
+            return failure("platform-template-player", "macOS template has no executable.");
+        std::set<std::string> declared_macho;
+        for (const auto& item : descriptor.at("macosMachO")) {
+            const auto original = item.at("path").get<std::string>();
+            if (!relocation.contains(original) || !declared_macho.insert(original).second)
+                return failure("platform-template-macho", "Invalid macOS Mach-O inventory.");
+            const auto actual =
+                inspect_macho_arm64(read_file(safe_child(stage, relocation.at(original))));
+            std::set<std::string> declared_deps(item.at("dependencies").begin(),
+                                                item.at("dependencies").end());
+            const std::set<std::string> declared_rpaths(item.at("rpaths").begin(),
+                                                        item.at("rpaths").end());
+            auto declared_uuid = item.value("uuid", "");
+            std::transform(declared_uuid.begin(), declared_uuid.end(), declared_uuid.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            // The release template uses otool -L: for dylibs its first row
+            // reports LC_ID_DYLIB, not an LC_LOAD_* dependency.
+            if (!actual.install_name.empty())
+                declared_deps.erase(actual.install_name);
+            if (actual.dependencies != declared_deps || actual.rpaths != declared_rpaths ||
+                (!declared_uuid.empty() && actual.uuid != declared_uuid))
+                return failure("platform-template-macho",
+                               "Mach-O bytes differ from the certified dependency/UUID inventory.");
+            if (item.value("role", "") == "native-dependency" &&
+                actual.install_name !=
+                    "@rpath/" + fs::path(relocation.at(original)).filename().string())
+                return failure("platform-template-install-name",
+                               "Nonportable Mach-O install name.");
+            for (const auto& rpath : actual.rpaths)
+                if (!rpath.starts_with("@executable_path/") &&
+                    !rpath.starts_with("@loader_path/") && !rpath.starts_with("@rpath/"))
+                    return failure("platform-template-rpath", "Nonportable Mach-O runtime path.");
+            for (const auto& dependency : actual.dependencies) {
+                if (dependency.starts_with("/usr/lib/") ||
+                    dependency.starts_with("/System/Library/"))
+                    continue;
+                const auto basename = fs::path(dependency).filename().string();
+                if (!(dependency == "@rpath/" + basename ||
+                      dependency == "@loader_path/" + basename) ||
+                    !library_names.contains(basename))
+                    return failure("platform-template-dependencies",
+                                   "Unresolved or nonportable Mach-O dependency: " + dependency);
+            }
+        }
+        for (const auto& item : descriptor.at("files"))
+            if ((item.value("role", "") == "player" ||
+                 item.value("role", "") == "native-dependency") &&
+                !declared_macho.contains(item.at("path").get<std::string>()))
+                return failure("platform-template-macho", "Undeclared macOS native binary.");
+        const std::set<std::string> global_deps(descriptor.at("macosDependencies").begin(),
+                                                descriptor.at("macosDependencies").end());
+        const std::set<std::string> global_rpaths(descriptor.at("macosRpaths").begin(),
+                                                  descriptor.at("macosRpaths").end());
+        const auto player_original =
+            std::find_if(descriptor.at("files").begin(), descriptor.at("files").end(),
+                         [](const Json& file) { return file.value("role", "") == "player"; });
+        if (player_original == descriptor.at("files").end())
+            return failure("platform-template-player", "macOS player declaration is missing.");
+        const auto player_macho = inspect_macho_arm64(read_file(
+            safe_child(stage, relocation.at(player_original->at("path").get<std::string>()))));
+        if (player_macho.dependencies != global_deps || player_macho.rpaths != global_rpaths)
+            return failure("platform-template-macho", "macOS player dependency inventory differs.");
+        const auto player_path = "Contents/MacOS/" + executable;
+        if (!library_names.empty() &&
+            !player_macho.rpaths.contains("@executable_path/../Frameworks"))
+            return failure("platform-template-rpath",
+                           "Player is missing the portable Frameworks search path.");
+        const auto locale = app.value("defaultLocale", "en");
+        const auto mac_info = app.value("desktop", Json::object());
+        const auto category = mac_info.value("macosCategory", "public.app-category.games");
+        const auto microphone = mac_info.value("macosMicrophoneUsageDescription", "");
+        const bool has_microphone =
+            std::find(descriptor.at("capabilities").begin(), descriptor.at("capabilities").end(),
+                      "microphone") != descriptor.at("capabilities").end();
+        if (has_microphone && microphone.empty())
+            return failure("platform-macos-privacy",
+                           "Microphone-enabled macOS template needs a usage description.");
+        const auto plist =
+            std::string{"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                        "<plist version=\"1.0\"><dict>\n"
+                        "<key>CFBundleDevelopmentRegion</key><string>"} +
+            mac_xml_escape(locale) + "</string>\n<key>CFBundleDisplayName</key><string>" +
+            mac_xml_escape(name) + "</string>\n<key>CFBundleExecutable</key><string>" +
+            mac_xml_escape(executable) +
+            "</string>\n<key>CFBundleIconFile</key><string>AppIcon</string>\n"
+            "<key>CFBundleIdentifier</key><string>" +
+            mac_xml_escape(app_id) +
+            "</string>\n<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>\n"
+            "<key>CFBundleName</key><string>" +
+            mac_xml_escape(name) +
+            "</string>\n<key>CFBundlePackageType</key><string>APPL</string>\n"
+            "<key>CFBundleShortVersionString</key><string>" +
+            mac_xml_escape(version) + "</string>\n<key>CFBundleVersion</key><string>" +
+            mac_xml_escape(version) + "</string>\n<key>LSApplicationCategoryType</key><string>" +
+            mac_xml_escape(category) +
+            "</string>\n<key>LSMinimumSystemVersion</key><string>11.0</string>\n"
+            "<key>NSHighResolutionCapable</key><true/>\n" +
+            (has_microphone ? "<key>NSMicrophoneUsageDescription</key><string>" +
+                                  mac_xml_escape(microphone) + "</string>\n"
+                            : "") +
+            "</dict></plist>\n";
+        const auto generated = [&](const std::string& path, std::string_view bytes,
+                                   const std::string& purpose) {
+            if (!occupied.insert(path).second)
+                throw std::runtime_error("macOS generated resource collides with template.");
+            write_file(safe_child(stage, path), bytes);
+            files.push_back(track_file(stage, path, "generated-metadata", purpose, 0644));
+        };
+        generated("Contents/Info.plist", plist, "macos-info-plist");
+        auto localized_name = name;
+        std::string escaped_name;
+        for (char c : localized_name) {
+            if (c == '"' || c == '\\')
+                escaped_name += '\\';
+            if (c == '\r' || c == '\n')
+                return failure("platform-bundle-id-invalid",
+                               "macOS localized display name contains a line break.");
+            escaped_name += c;
+        }
+        generated("Contents/Resources/" + locale + ".lproj/InfoPlist.strings",
+                  "CFBundleDisplayName = \"" + escaped_name + "\";\n", "macos-localized-info");
+        if (!occupied.insert("Contents/Resources/AppIcon.icns").second)
+            return failure("platform-template-collision", "macOS icon collision.");
+        write_file(stage / "Contents/Resources/AppIcon.icns", mac_icns(icon_source, stage, tools));
+        files.push_back(
+            track_file(stage, "Contents/Resources/AppIcon.icns", "icon", "macos-icns", 0644));
+        const auto& memory = profile.at("assetMemory");
+        if (memory.value("kind", "") != "builtin")
+            return failure("platform-asset-memory-policy",
+                           "Native macOS custom asset-memory policies are unavailable.", 70);
+        const auto preset = memory.at("preset").get<std::string>();
+        const std::map<std::string, std::array<std::uint64_t, 7>> baselines{
+            {"low", {67108864, 671088640, 33554432, 33554432, 13421772, 536870912, 6710886}},
+            {"balanced",
+             {134217728, 1342177280, 67108864, 67108864, 40265318, 1073741824, 20132659}},
+            {"high",
+             {268435456, 2684354560, 134217728, 134217728, 107374182, 2147483648, 53687091}}};
+        if (!baselines.contains(preset))
+            return failure("platform-asset-memory-policy", "Unknown asset-memory preset.");
+        const auto& b = baselines.at(preset);
+        const Json asset_memory{{"preset", preset},       {"preparedCpuBytes", b[0]},
+                                {"gpuBytes", b[1]},       {"audioBytes", b[2]},
+                                {"temporaryBytes", b[3]}, {"warmPreparedCpuBytes", b[4]},
+                                {"warmGpuBytes", b[5]},   {"warmAudioBytes", b[6]}};
+        const auto& raw_display = options.at("display");
+        const auto& raw_access = options.at("accessibility");
+        const Json display{{"referenceResolution", raw_display.at("reference_resolution")},
+                           {"worldRasterPolicy", raw_display.at("world_raster_policy")},
+                           {"barColor", raw_display.at("bar_color")}};
+        const Json accessibility{{"uiScale", raw_access.at("ui_scale")},
+                                 {"textScale", raw_access.at("text_scale")}};
+        Json player{{"format", "noveltea.player-config"},
+                    {"formatVersion", 1},
+                    {"displayName", name},
+                    {"applicationId", app_id},
+                    {"saveNamespace", save_namespace},
+                    {"versionName", version},
+                    {"package", {{"path", "game.ntpkg"}, {"sha256", package_sha}}},
+                    {"capabilities", Json::array({"external-url"})},
+                    {"display", display},
+                    {"accessibility", accessibility},
+                    {"assetMemory", asset_memory},
+                    {"defaultLocale", locale}};
+        generated("Contents/Resources/player.json", player.dump(2) + '\n', "player-config");
+        const auto& resolution = display.at("referenceResolution");
+        const auto width = resolution.at("width").get<int>();
+        const auto height = resolution.at("height").get<int>();
+        if (width <= 0 || height <= 0)
+            return failure("platform-runtime-display", "Invalid macOS reference resolution.");
+        const auto divisor = std::gcd(width, height);
+        const Json deployment{
+            {"target", "macos"},
+            {"architecture", profile.at("architecture")},
+            {"buildFlavor", profile.at("buildFlavor")},
+            {"applicationId", app_id},
+            {"displayName", name},
+            {"versionName", version},
+            {"saveNamespace", save_namespace},
+            {"capabilities", Json::array({"external-url"})},
+            {"capabilityMetadata",
+             {{"androidPermissions", Json::array()},
+              {"androidFeatures", Json::array()},
+              {"webRequirements", Json::array()},
+              {"desktopFeatures", Json::array()}}},
+            {"display",
+             {{"aspectRatio", {{"width", width / divisor}, {"height", height / divisor}}},
+              {"orientation", width >= height ? "landscape" : "portrait"},
+              {"barColor", display.at("barColor")}}},
+            {"packageAccess", profile.at("packageAccess")},
+            {"templateId", descriptor.at("templateId")},
+            {"buildId", descriptor.at("buildId")},
+            {"compiledProjectFormatVersion", 1},
+            {"playerRuntimeApiVersion", 1},
+            {"assetMemory", asset_memory}};
+        // Sign nested binaries first, then seal the complete bundle. Never
+        // write a resource after codesign: even a manifest would break the seal.
+        bool notarized = false;
+        if (settings.signing_requested) {
+#if !defined(__APPLE__)
+            return failure("platform-macos-host-required", "macOS signing requires macOS.");
+#else
+            const auto& signer = settings.signing.at("macos");
+            const auto identity = signer.at("identity").get<std::string>();
+            if (!tools.run_signing_command)
+                return failure("CLI_INTERNAL", "macOS signing executor is missing.", 70);
+            std::vector<std::string> frameworks;
+            for (const auto& [original, target] : relocation)
+                if (target.starts_with("Contents/Frameworks/"))
+                    frameworks.push_back(target);
+            std::sort(frameworks.begin(), frameworks.end());
+            for (const auto& framework : frameworks) {
+                check_cancellation(tools);
+                std::vector<std::string> args{"--force", "--options", "runtime", "--sign",
+                                              identity};
+                if (identity != "-")
+                    args.insert(args.begin() + 1, "--timestamp");
+                args.push_back(path_text(stage / framework));
+                if (!tools.run_signing_command("codesign", args, stage))
+                    return failure("platform.signing_failed", "macOS framework signing failed.");
+            }
+            std::vector<std::string> sign_args{"--force", "--options", "runtime", "--sign",
+                                               identity};
+            if (identity != "-")
+                sign_args.insert(sign_args.begin() + 1, "--timestamp");
+            if (signer.contains("entitlementsPath") &&
+                !signer.at("entitlementsPath").get<std::string>().empty()) {
+                const auto path = fs::u8path(signer.at("entitlementsPath").get<std::string>());
+                if (!fs::is_regular_file(path))
+                    return failure("platform.signing_configuration_invalid",
+                                   "macOS entitlements file is missing.");
+                sign_args.insert(sign_args.end(), {"--entitlements", path_text(path)});
+            }
+            sign_args.push_back(path_text(stage));
+            if (!tools.run_signing_command("codesign", sign_args, stage))
+                return failure("platform.signing_failed", "macOS bundle signing failed.");
+            if (!tools.run_signing_command(
+                    "codesign", {"--verify", "--deep", "--strict", path_text(stage)}, stage))
+                return failure("platform.signature_verification_failed",
+                               "macOS bundle signature verification failed.");
+            if (signer.contains("notarizationCommand") &&
+                !signer.at("notarizationCommand").get<std::string>().empty()) {
+                const auto notary_zip = fs::u8path(path_text(entries[1].stage) + ".notary.zip");
+                struct RemoveNotary {
+                    fs::path path;
+                    ~RemoveNotary()
+                    {
+                        std::error_code ignored;
+                        fs::remove(path, ignored);
+                    }
+                } remove_notary{notary_zip};
+                Json zip_entries = Json::array();
+                for (fs::recursive_directory_iterator it(stage), end; it != end; ++it)
+                    if (it->is_regular_file())
+                        zip_entries.push_back(
+                            {{"sourcePath", path_text(it->path())},
+                             {"archivePath",
+                              destination.filename().string() + "/" +
+                                  it->path().lexically_relative(stage).generic_string()},
+                             {"size", fs::file_size(it->path())},
+                             {"mode", 0644}});
+                const auto preflight = tools.create_archive({{"outputPath", path_text(notary_zip)},
+                                                             {"format", "zip"},
+                                                             {"compression", "default"},
+                                                             {"entries", zip_entries}});
+                if (!preflight.value("ok", false))
+                    return failure("platform-archive-failed",
+                                   "Cannot prepare notarization upload.");
+                std::vector<std::string> args;
+                for (const auto& arg : signer.value("notarizationArgs", Json::array()))
+                    args.push_back(arg.get<std::string>());
+                args.push_back(path_text(notary_zip));
+                if (!tools.run_signing_command(signer.at("notarizationCommand").get<std::string>(),
+                                               args, stage) ||
+                    !tools.run_signing_command("xcrun", {"stapler", "staple", path_text(stage)},
+                                               stage) ||
+                    !tools.run_signing_command("xcrun", {"stapler", "validate", path_text(stage)},
+                                               stage))
+                    return failure("platform.notarization_failed",
+                                   "macOS notarization or ticket stapling failed.");
+                notarized = true;
+            }
+#endif
+        }
+        // Inventory signed bytes (including Apple's _CodeSignature) after
+        // signing and stapling. The export manifest is a sidecar by design.
+        std::map<std::string, std::pair<std::string, std::string>> provenance;
+        for (const auto& file : files)
+            provenance.emplace(file.path, std::make_pair(file.origin, file.origin_id));
+        files.clear();
+        for (fs::recursive_directory_iterator it(stage), end; it != end; ++it) {
+            const auto status = it->symlink_status();
+            if (fs::is_symlink(status) ||
+                (!fs::is_regular_file(status) && !fs::is_directory(status)))
+                return failure("platform-bundle-invalid", "Unsafe macOS bundle member.");
+            if (!fs::is_regular_file(status))
+                continue;
+            const auto relative = it->path().lexically_relative(stage).generic_string();
+            const auto mode = static_cast<std::uint32_t>(status.permissions()) & 0777u;
+            const auto former = provenance.find(relative);
+            files.push_back(track_file(
+                stage, relative, former != provenance.end() ? former->second.first : "signature",
+                former != provenance.end() ? former->second.second : "macos-codesign", mode));
+        }
+        if (settings.signing_requested) {
+            const auto& signer = settings.signing.at("macos");
+            const auto report =
+                Json{{"format", "noveltea.signing-report"},
+                     {"platform", "macos"},
+                     {"templateBuildId", descriptor.at("buildId")},
+                     {"gamePackageSha256", package_sha},
+                     {"identitySha256", digest(signer.at("identity").get<std::string>())},
+                     {"signed", true},
+                     {"verified", true},
+                     {"hardenedRuntime", true},
+                     {"notarized", notarized},
+                     {"stapled", notarized}};
+            write_file(entries[4].stage, report.dump(2) + '\n');
+        }
+        Json inventory = Json::array();
+        Json zip_entries = Json::array();
+        std::sort(files.begin(), files.end(),
+                  [](const FileEntry& a, const FileEntry& b) { return a.path < b.path; });
+        for (const auto& file : files) {
+            inventory.push_back(file.json());
+            zip_entries.push_back(
+                {{"sourcePath", path_text(stage / file.path)},
+                 {"archivePath", destination.filename().string() + "/" + file.path},
+                 {"size", file.size},
+                 {"mode", file.mode}});
+        }
+        write_file(entries[5].stage, Json{{"format", "noveltea.platform-export-manifest"},
+                                          {"deployment", deployment},
+                                          {"files", inventory}}
+                                             .dump(2) +
+                                         '\n');
+        const auto archive =
+            tools.create_archive({{"outputPath", path_text(entries[1].stage)},
+                                  {"format", "zip"},
+                                  {"compression", profile.value("compression", "default")},
+                                  {"entries", zip_entries}});
+        check_cancellation(tools);
+        if (!archive.value("ok", false))
+            return failure("platform-archive-failed", "macOS bundle ZIP failed.");
+        verify_archive(entries[1].stage, stage, files, destination.filename().string() + "/");
+        if (symbols_requested) {
+            if (symbols.empty())
+                return failure("platform-template-symbols", "macOS template lacks debug symbols.");
+            const auto symbol_stage = stage.parent_path() / (".mac-symbols-" + nonce);
+            struct RemoveSymbols {
+                fs::path path;
+                ~RemoveSymbols()
+                {
+                    std::error_code ignored;
+                    fs::remove_all(path, ignored);
+                }
+            } remove_symbols{symbol_stage};
+            fs::create_directory(symbol_stage);
+            Json symbol_entries = Json::array();
+            for (const auto& item : symbols) {
+                const auto path = item.path.substr(std::string("symbols/").size());
+                const auto copy = safe_child(symbol_stage, path);
+                copy_verified_file(safe_child(template_directory, item.path), copy);
+                symbol_entries.push_back({{"sourcePath", path_text(copy)},
+                                          {"archivePath", path},
+                                          {"size", item.size},
+                                          {"mode", item.mode}});
+            }
+            write_file(symbol_stage / "BUILD_ID",
+                       descriptor.at("buildId").get<std::string>() + '\n');
+            symbol_entries.push_back({{"sourcePath", path_text(symbol_stage / "BUILD_ID")},
+                                      {"archivePath", "BUILD_ID"},
+                                      {"size", fs::file_size(symbol_stage / "BUILD_ID")},
+                                      {"mode", 0644}});
+            const auto result =
+                tools.create_archive({{"outputPath", path_text(entries[2].stage)},
+                                      {"format", "zip"},
+                                      {"compression", profile.value("compression", "default")},
+                                      {"entries", symbol_entries}});
+            if (!result.value("ok", false))
+                return failure("platform-archive-failed", "macOS symbols archive failed.");
+        }
+        if (settings.dmg_requested) {
+#if !defined(__APPLE__)
+            return failure("platform-macos-host-required", "DMG creation requires macOS.");
+#else
+            const auto dmg_temp = fs::u8path(path_text(entries[3].stage) + ".dmg");
+            struct RemoveDmg {
+                fs::path path;
+                ~RemoveDmg()
+                {
+                    std::error_code ignored;
+                    fs::remove(path, ignored);
+                }
+            } remove_dmg{dmg_temp};
+            if (!tools.run_signing_command ||
+                !tools.run_signing_command("hdiutil",
+                                           {"create", "-ov", "-format", "UDZO", "-volname", name,
+                                            "-srcfolder", path_text(entries[0].stage),
+                                            path_text(dmg_temp)},
+                                           destination.parent_path()))
+                return failure("platform-dmg-tool", "macOS hdiutil DMG creation failed.");
+            if (read_file(dmg_temp).size() < 512)
+                return failure("platform-dmg-tool", "macOS DMG output is incomplete.");
+            fs::rename(dmg_temp, entries[3].stage);
+#endif
+        }
+        const auto archive_sha = digest(read_file(entries[1].stage));
+        const auto manifest_sha = digest(read_file(entries[5].stage));
+        const auto symbols_sha =
+            symbols_requested ? std::optional<std::string>{digest(read_file(entries[2].stage))}
+                              : std::nullopt;
+        const auto dmg_sha = settings.dmg_requested
+                                 ? std::optional<std::string>{digest(read_file(entries[3].stage))}
+                                 : std::nullopt;
+        const auto report_sha =
+            settings.signing_requested
+                ? std::optional<std::string>{digest(read_file(entries[4].stage))}
+                : std::nullopt;
+        const auto sources_fresh = [&]() {
+            if (!source_current() || !tools.physical_sources_current(options) ||
+                digest(read_file(icon_source)) != icon_sha ||
+                digest(read_file(template_directory / "template.json")) != descriptor_sha ||
+                digest(read_file(template_directory / ".noveltea-template.json")) != registry_sha)
+                return false;
+            for (const auto& item : descriptor.at("files"))
+                if (digest(read_file(
+                        safe_child(template_directory, item.at("path").get<std::string>()))) !=
+                    item.at("sha256").get<std::string>())
+                    return false;
+            return true;
+        };
+        if (!sources_fresh())
+            return failure("WORKSPACE_REVISION_CONFLICT",
+                           "macOS inputs changed before publication.", 5);
+        // Convert the ordinary .app working directory into the journal-owned
+        // stage name only after codesign/stapler/hdiutil have finished.
+        const auto intermediate = fs::u8path(path_text(entries[0].stage) + ".bundle-" + nonce);
+        struct RemoveIntermediate {
+            fs::path path;
+            ~RemoveIntermediate()
+            {
+                std::error_code ignored;
+                fs::remove_all(path, ignored);
+            }
+        } remove_intermediate{intermediate};
+        fs::rename(stage, intermediate);
+        fs::remove(entries[0].stage);
+        fs::rename(intermediate, entries[0].stage);
+        publish(destination, entries, nonce, [&]() {
+            check_cancellation(tools);
+            std::set<std::string> found;
+            for (fs::recursive_directory_iterator it(destination), end; it != end; ++it) {
+                const auto status = it->symlink_status();
+                if (fs::is_symlink(status) ||
+                    (!fs::is_regular_file(status) && !fs::is_directory(status)))
+                    throw std::runtime_error("Unsafe published macOS bundle member.");
+                if (fs::is_regular_file(status))
+                    found.insert(it->path().lexically_relative(destination).generic_string());
+            }
+            std::set<std::string> expected;
+            for (const auto& file : files) {
+                expected.insert(file.path);
+                if (digest(read_file(safe_child(destination, file.path))) != file.sha256)
+                    throw std::runtime_error("Published macOS bundle bytes changed.");
+            }
+            if (found != expected || digest(read_file(entries[1].final)) != archive_sha ||
+                digest(read_file(entries[5].final)) != manifest_sha ||
+                (symbols_sha && digest(read_file(entries[2].final)) != *symbols_sha) ||
+                (dmg_sha && digest(read_file(entries[3].final)) != *dmg_sha) ||
+                (report_sha && digest(read_file(entries[4].final)) != *report_sha))
+                throw std::runtime_error("Published macOS artifact inventory changed.");
+            verify_archive(entries[1].final, destination, files,
+                           destination.filename().string() + "/");
+            if (!sources_fresh())
+                throw SourceChanged("macOS inputs changed during publication.");
+        });
+        Json artifacts = Json::array({{{"kind", "app-bundle"}, {"path", path_text(destination)}},
+                                      {{"kind", "archive"},
+                                       {"path", path_text(outputs[1])},
+                                       {"size", fs::file_size(outputs[1])}},
+                                      {{"kind", "manifest"}, {"path", path_text(outputs[5])}}});
+        Json response{{"success", true},
+                      {"exitCode", 0},
+                      {"diagnostics", Json::array()},
+                      {"outputDirectory", path_text(destination)},
+                      {"archivePath", path_text(outputs[1])},
+                      {"templateToken", descriptor.at("templateId").get<std::string>() + "@" +
+                                            descriptor.at("buildId").get<std::string>()},
+                      {"signingRequested", settings.signing_requested},
+                      {"signingApplied", settings.signing_requested},
+                      {"cancelled", false},
+                      {"deployment", deployment}};
+        if (symbols_requested) {
+            response["symbolArchivePath"] = path_text(outputs[2]);
+            artifacts.push_back({{"kind", "symbols"},
+                                 {"path", path_text(outputs[2])},
+                                 {"size", fs::file_size(outputs[2])}});
+        }
+        if (settings.dmg_requested)
+            artifacts.push_back({{"kind", "dmg"},
+                                 {"path", path_text(outputs[3])},
+                                 {"size", fs::file_size(outputs[3])}});
+        if (settings.signing_requested)
+            artifacts.push_back({{"kind", "signing-report"}, {"path", path_text(outputs[4])}});
+        response["artifacts"] = std::move(artifacts);
+        return {std::move(response), "Native macOS platform export succeeded."};
+    } catch (const ExportCancelled& error) {
+        auto cancelled = failure("export-cancelled", error.what(), 130);
+        cancelled.envelope["cancelled"] = true;
+        return cancelled;
+    } catch (const SourceChanged& error) {
+        return failure("WORKSPACE_REVISION_CONFLICT", error.what(), 5);
+    } catch (const std::exception& error) {
+        return failure("platform-staging-failed", error.what());
+    }
+}
+
 } // namespace
 
 std::optional<PlatformCliResult>
@@ -1926,9 +2705,28 @@ validate_native_platform_export_settings(const PlatformResolvedExportSettings& s
             }
             return std::nullopt;
         }
+        if (target == "macos" && settings.signing.contains("macos")) {
+            const auto& signer = settings.signing.at("macos");
+            if (!signer.is_object() || !signer.contains("identity") ||
+                !signer.at("identity").is_string() ||
+                signer.at("identity").get<std::string>().empty())
+                return failure("platform.signing_configuration_invalid",
+                               "macOS signing requires a non-empty signing identity.");
+#if !defined(__APPLE__)
+            return failure("platform-macos-host-required", "macOS signing requires a macOS host.");
+#else
+            return std::nullopt;
+#endif
+        }
         unavailable.envelope["diagnostics"][0]["path"] = "/signingProfile";
         return unavailable;
     }
+    if (settings.dmg_requested && profile.value("target", "") != "macos")
+        return failure("platform-artifact-invalid", "DMG is only available for macOS.");
+#if !defined(__APPLE__)
+    if (settings.dmg_requested)
+        return failure("platform-macos-host-required", "DMG creation requires a macOS host.");
+#endif
     return std::nullopt;
 }
 
@@ -2032,6 +2830,11 @@ PlatformCliResult stage_native_platform_export(
         return stage_linux_export(admission, profile, descriptor, template_directory, icon_source,
                                   destination, force, allow_localization_warnings,
                                   include_unused_assets, include_shader_sources, tools,
+                                  source_current);
+    if (profile.value("target", "") == "macos")
+        return stage_macos_export(admission, profile, descriptor, template_directory, icon_source,
+                                  destination, force, allow_localization_warnings,
+                                  include_unused_assets, include_shader_sources, settings, tools,
                                   source_current);
     // Only enable a platform after its complete native assembly, signing,
     // readback and publication contracts are implemented.
