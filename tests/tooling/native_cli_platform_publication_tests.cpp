@@ -6,6 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 
 namespace {
 namespace fs = std::filesystem;
@@ -39,6 +40,21 @@ void journal(const fs::path& output, bool accepted, bool prior_directory, bool p
               (prior_directory ? "true" : "false") +
               "},{\"kind\":\"archive\",\"removeOnly\":false,\"hadPrevious\":" +
               (prior_archive ? "true" : "false") + "}]}");
+}
+
+void retirement_journal(const fs::path& output, bool accepted = false, bool rolling_back = false,
+                        bool had_symbols = true)
+{
+    write(
+        output.string() + ".noveltea-publication-transaction.json",
+        std::string{"{\"format\":\"noveltea.native-platform-publication\",\"nonce\":\"123-456\","} +
+            "\"accepted\":" + (accepted ? "true" : "false") +
+            ",\"rollingBack\":" + (rolling_back ? "true" : "false") +
+            ",\"outputs\":["
+            "{\"kind\":\"directory\",\"hadPrevious\":true,\"removeOnly\":false},"
+            "{\"kind\":\"archive\",\"hadPrevious\":true,\"removeOnly\":false},"
+            "{\"kind\":\"symbols\",\"hadPrevious\":" +
+            (had_symbols ? "true" : "false") + ",\"removeOnly\":true}]}");
 }
 
 void expect_conflict(const fs::path& output)
@@ -209,6 +225,54 @@ int main()
         }
         require(!fs::exists(retired.string() + "-symbols.zip.previous-123-456"),
                 "Accepted symbols retirement must clear the obsolete backup.");
+
+        // The remove-only symbols member NEVER has a stage. A crash between
+        // replacing the directory/ZIP and backing up the obsolete symbols
+        // leaves the incumbent in its final location; recover the entire set.
+        // Also cover interruption after backing up the symbols, and after a
+        // restarted rollback restored the symbols but not the other members.
+        for (const auto& [suffix, backup_taken, rolling_back] :
+             {std::tuple{std::string{"before-symbols-backup"}, false, false},
+              std::tuple{std::string{"after-symbols-backup"}, true, false},
+              std::tuple{std::string{"resumed-symbols-rollback"}, false, true}}) {
+            const auto output = temp / suffix;
+            fs::create_directory(output);
+            write(output / "marker", "new-directory");
+            fs::create_directory(output.string() + ".previous-123-456");
+            write(output.string() + ".previous-123-456/marker", "old-directory");
+            write(output.string() + ".zip", "new-archive");
+            write(output.string() + ".zip.previous-123-456", "old-archive");
+            const auto symbols_path = output.string() + "-symbols.zip";
+            write(symbols_path + (backup_taken ? ".previous-123-456" : ""), "old-symbols");
+            retirement_journal(output, false, rolling_back);
+            {
+                noveltea::cli::PlatformPublicationLock lock(output);
+                error.clear();
+                require(noveltea::cli::recover_native_platform_publication(output, lock, error),
+                        suffix + ": " + error);
+            }
+            require(read(output / "marker") == "old-directory",
+                    suffix + ": previous directory not restored");
+            require(read(output.string() + ".zip") == "old-archive",
+                    suffix + ": previous archive not restored");
+            require(read(symbols_path) == "old-symbols",
+                    suffix + ": previous symbols not restored");
+            require(!fs::exists(output.string() + ".noveltea-publication-transaction.json"),
+                    suffix + ": rollback journal still exists");
+            require(!fs::exists(symbols_path + ".previous-123-456"),
+                    suffix + ": symbols backup not consumed");
+        }
+
+        // With no prior symbols archive, the journal cannot own a new file
+        // that appeared at the retirement path. Recovery must not delete it.
+        const auto foreign = temp / "foreign-symbols";
+        fs::create_directory(foreign);
+        write(foreign.string() + ".zip", "new-archive");
+        write(foreign.string() + "-symbols.zip", "other-publisher");
+        retirement_journal(foreign, false, false, false);
+        expect_conflict(foreign);
+        require(read(foreign.string() + "-symbols.zip") == "other-publisher",
+                "Recovery must not remove symbols never owned by this transaction.");
 
         noveltea::cli::PlatformExportTools tools;
         tools.cancelled = [] { return true; };
