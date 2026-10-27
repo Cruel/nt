@@ -876,6 +876,34 @@ jobs:
           ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(windows_pe_resources|platform_publication|platform_commands|public_contract)$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Set up Node.js for native release-template generation
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Generate current Windows player template and launch native C++ export
+        shell: pwsh
+        run: |
+          $tag = 'ci-${{ github.sha }}'
+          cmake -DNOVELTEA_TEMPLATE_PRESET=windows-release `
+            -DNOVELTEA_TEMPLATE_PLATFORM=windows -DNOVELTEA_TEMPLATE_ARCH=x64 `
+            "-DNOVELTEA_RELEASE_TAG=$tag" -P cmake/PackageNovelTeaPlayerTemplate.cmake
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/native_cli/windows_release_smoke.py `
+            "${{ github.workspace }}/build/windows-release/tools/editor_tool/native-cli/noveltea.exe" `
+            "${{ github.workspace }}/dist/noveltea-player-template-$tag-windows-x64-release.zip" `
+            "${{ github.workspace }}" `
+            "${{ github.workspace }}/dist/noveltea-native-windows-build-certification.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload native Windows export/launch qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-native-windows-export-ci-${{ github.sha }}
+          path: dist/noveltea-native-windows-build-certification.json
+          if-no-files-found: warn
+
       - name: Save Windows compiler outputs
         if: steps.windows-ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
