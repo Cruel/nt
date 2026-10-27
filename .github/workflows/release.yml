@@ -122,6 +122,16 @@ jobs:
       - name: Certify NovelTea host CLI
         run: pnpm -C editor run noveltea:certify
 
+      - name: Build direct C++ Linux platform-export CLI
+        run: cmake --build --preset linux-authoring-release --target noveltea-native-cli
+
+      - name: Upload direct C++ Linux platform-export CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/linux-authoring-release/tools/editor_tool/native-cli
+          if-no-files-found: error
+
       - name: Audit Linux authoring ABI floor
         run: |
           cmake \
@@ -443,6 +453,17 @@ jobs:
         if: matrix.platform == 'linux'
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
+      - name: Download direct C++ Linux platform-export CLI
+        if: matrix.platform == 'linux'
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/native-export-cli-linux
+
+      - name: Make direct C++ Linux platform-export CLI executable
+        if: matrix.platform == 'linux'
+        run: chmod +x build/native-export-cli-linux/noveltea build/native-export-cli-linux/noveltea-ui-test-runner
+
       - name: Cache ccache
         if: runner.os != 'Windows'
         uses: actions/cache@v5
@@ -598,6 +619,19 @@ jobs:
             -o "$RUNNER_TEMP/appimagetool.AppImage" \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x "$RUNNER_TEMP/appimagetool.AppImage"
+
+      - name: Export and launch real Linux portable and AppImage players with native C++ CLI
+        if: matrix.platform == 'linux'
+        env:
+          NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NOVELTEA_PLAYER_HEADLESS_ERRORS: '1'
+        run: |
+          xvfb-run -a python3 tests/native_cli/linux_release_smoke.py \
+            "$PWD/build/native-export-cli-linux/noveltea" \
+            "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-linux-x64-release.tar.gz" \
+            "$PWD" \
+            "$PWD/dist/noveltea-native-linux-release-certification.json"
 
       - name: Finalize and launch Windows portable export
         if: runner.os == 'Windows'

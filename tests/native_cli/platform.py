@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -373,6 +374,193 @@ else:
     assert run(*win_req, '--force', '--config', configured, '--sign')['success']
     user_config_file.unlink()
     assert run('platform', 'template', 'remove', 'test-win@v1', '--force')['removed']
+
+    # Linux portable export is exercised through the installed native CLI with
+    # freshly compiled ELF fixtures. Its NEEDED closure includes an actual
+    # bundled shared object, not just an unverified metadata declaration.
+    if sys.platform.startswith('linux') and shutil.which('cc') and shutil.which('readelf'):
+        linux_stage = root / 'linux-template'
+        (linux_stage / 'bin').mkdir(parents=True)
+        shared = linux_stage / 'bin/libntfixture.so'
+        compiled = subprocess.run(
+            ['cc', '-x', 'c', '-shared', '-fPIC', '-Wl,-soname,libntfixture.so',
+             '-o', str(shared), '-'], input='int nt_fixture(void) { return 0; }\n',
+            text=True, capture_output=True)
+        assert compiled.returncode == 0, compiled.stderr
+        binary = linux_stage / 'bin/noveltea-player'
+        compiled = subprocess.run(
+            ['cc', '-x', 'c', '-Wl,-rpath,$ORIGIN', '-L', str(shared.parent),
+             '-o', str(binary), '-', '-lntfixture'],
+            input='extern int nt_fixture(void); int main(void) { return nt_fixture(); }\n',
+            text=True, capture_output=True)
+        assert compiled.returncode == 0, compiled.stderr
+        dynamic = subprocess.check_output(['readelf', '-d', str(binary)], text=True)
+        needed = re.findall(r'Shared library: \[([^]]+)\]', dynamic)
+        rpaths = re.findall(r'Library (?:rpath|runpath): \[([^]]+)\]', dynamic)
+        assert 'libntfixture.so' in needed and '$ORIGIN' in rpaths
+        for name in ('licenses/fixture--mit.txt', 'licenses/index.json', 'SBOM.cdx.json'):
+            path = linux_stage / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(entries[name])
+        (linux_stage / 'symbols').mkdir()
+        (linux_stage / 'symbols/noveltea-player.debug').write_bytes(b'debug fixture\n')
+        linux_files = []
+        for file in linux_stage.rglob('*'):
+            if not file.is_file():
+                continue
+            path = file.relative_to(linux_stage).as_posix()
+            role = ('player' if path == 'bin/noveltea-player' else
+                    'symbol' if path.endswith('.debug') else
+                    'notice' if path.startswith('licenses/') else 'support')
+            linux_files.append({'path': path, 'size': file.stat().st_size,
+                                'mode': file.stat().st_mode & 0o777,
+                                'sha256': sha(file.read_bytes()), 'role': role})
+        linux_descriptor = {
+            **descriptor, 'templateId': 'test-linux', 'buildId': 'v1',
+            'platform': 'linux', 'architecture': 'x64',
+            'graphicsBackends': ['opengl'], 'shaderVariants': ['glsl-330'],
+            'packageAccessModes': ['sidecar'], 'linuxNeeded': needed,
+            'linuxRpaths': rpaths, 'files': linux_files,
+            'runtimeDependencies': [
+                {'path': 'bin/libntfixture.so', 'kind': 'library'},
+                {'path': 'bin/noveltea-player', 'kind': 'library'},
+                *[{'path': name, 'kind': 'notice'} for name in
+                  ('licenses/fixture--mit.txt', 'licenses/index.json')],
+            ],
+        }
+        (linux_stage / 'template.json').write_text(json.dumps(linux_descriptor))
+        linux_tar = root / 'test-linux.tar.gz'
+        with tarfile.open(linux_tar, 'w:gz') as writer:
+            for file in linux_stage.rglob('*'):
+                if file.is_file():
+                    writer.add(file, arcname=file.relative_to(linux_stage))
+        assert run('platform', 'template', 'install', linux_tar)['success']
+        linux_project = root / 'linux-project'
+        shutil.copytree(platform_project, linux_project)
+        linux_yaml = (linux_project / 'project.yaml').read_text()
+        linux_yaml = linux_yaml.replace('id: canonical-web', 'id: canonical-linux')
+        linux_yaml = linux_yaml.replace(
+            '      target: web\n      architecture: wasm32\n'
+            '      packageAccess: web-fetch\n      web:\n'
+            '        artifact: directory-zip\n        threaded: false\n'
+            '        pwa: true\n        display: standalone\n'
+            '        basePath: /\n        serviceWorker: offline',
+            '      target: linux\n      architecture: x64\n'
+            '      packageAccess: sidecar\n      desktop:\n'
+            '        artifact: tar\n        executableName: game')
+        assert 'target: linux' in linux_yaml and 'target: web' not in linux_yaml
+        (linux_project / 'project.yaml').write_text(linux_yaml)
+        linux_out = root / 'linux-output'
+        linux_req = ('--project', linux_project, 'platform', 'export',
+                     '--profile', 'canonical-linux', '--output', linux_out,
+                     '--template', 'test-linux@v1', '--allow-untrusted-template',
+                     '--allow-localization-warnings')
+        assert run(*linux_req, '--check')['success']
+        assert not linux_out.exists()
+        exported = run(*linux_req)
+        assert exported['success'] and exported['deployment']['target'] == 'linux'
+        assert (linux_out / 'game').stat().st_mode & 0o111
+        assert (linux_out / 'bin/game.ntpkg').is_file()
+        assert (linux_out / 'bin/player.json').is_file()
+        assert (linux_out / 'share/applications/org.example.noveltea.desktop').is_file() or list(
+            (linux_out / 'share/applications').glob('*.desktop'))
+        manifest = json.loads((linux_out / 'export-manifest.json').read_text())
+        archive_path = Path(str(linux_out) + '.tar.gz')
+        with tarfile.open(archive_path, 'r:gz') as archive_reader:
+            archive_files = set(archive_reader.getnames())
+            assert archive_files == {f['path'] for f in manifest['files']} | {
+                'export-manifest.json'}
+            for entry in manifest['files']:
+                assert sha((linux_out / entry['path']).read_bytes()) == entry['sha256']
+                assert archive_reader.extractfile(entry['path']).read() == (
+                    linux_out / entry['path']).read_bytes()
+        other_cwd = root / 'unrelated-linux-working-dir'
+        other_cwd.mkdir()
+        launched = subprocess.run([str(linux_out / 'game')], cwd=other_cwd,
+                                  env={**environment, 'LD_LIBRARY_PATH': ''},
+                                  capture_output=True, text=True, timeout=30)
+        assert launched.returncode == 0, launched.stderr
+        # Debug symbols are separately published, identified by the immutable
+        # template build ID, and retired on the next symbols-disabled export.
+        symbols_yaml = linux_yaml.replace('includeDebugSymbols: false',
+                                          'includeDebugSymbols: true')
+        (linux_project / 'project.yaml').write_text(symbols_yaml)
+        with_symbols = run(*linux_req, '--force')
+        symbols_path = Path(with_symbols['symbolArchivePath'])
+        with tarfile.open(symbols_path, 'r:gz') as archive_reader:
+            assert archive_reader.extractfile('BUILD_ID').read() == b'v1\n'
+            assert archive_reader.extractfile('noveltea-player.debug').read() == (
+                b'debug fixture\n')
+        (linux_project / 'project.yaml').write_text(linux_yaml)
+        assert run(*linux_req, '--force')['success']
+        assert not symbols_path.exists()
+        # ZIP is also a supported Linux artifact, independently of tar.gz.
+        zip_yaml = linux_yaml.replace('artifact: tar', 'artifact: zip')
+        (linux_project / 'project.yaml').write_text(zip_yaml)
+        zip_req = tuple(str(argument).replace('linux-output', 'linux-zip-output')
+                        for argument in linux_req)
+        assert run(*zip_req)['success']
+        with zipfile.ZipFile(root / 'linux-zip-output.zip') as archive_reader:
+            assert archive_reader.testzip() is None
+            assert archive_reader.read('bin/game.ntpkg') == (
+                root / 'linux-zip-output/bin/game.ntpkg').read_bytes()
+        (linux_project / 'project.yaml').write_text(linux_yaml)
+        # No output replacement without --force, and rejected AppImage
+        # creation must preserve the already published portable distribution.
+        assert run(*linux_req, code=4)['diagnostics'][0]['code'] == 'platform-output-exists'
+        available_appimage_tool = environment.get('NOVELTEA_LINUX_APPIMAGE_TOOL')
+        environment['NOVELTEA_LINUX_APPIMAGE_TOOL'] = str(root / 'missing-appimagetool')
+        image_yaml = linux_yaml.replace('artifact: tar', 'artifact: appimage')
+        (linux_project / 'project.yaml').write_text(image_yaml)
+        failed = run(*linux_req, '--force', code=4)
+        assert not failed['success']
+        assert archive_path.is_file() and (linux_out / 'game').is_file()
+        if available_appimage_tool:
+            environment['NOVELTEA_LINUX_APPIMAGE_TOOL'] = available_appimage_tool
+            image = run(*linux_req, '--force')
+            image_path = Path(str(linux_out) + '.AppImage')
+            assert any(item['kind'] == 'appimage' for item in image['artifacts'])
+            assert image_path.read_bytes()[:4] == b'\x7fELF'
+            assert image_path.stat().st_mode & 0o111
+            image_launch = subprocess.run([str(image_path)], cwd=other_cwd,
+                                          env={**environment,
+                                               'APPIMAGE_EXTRACT_AND_RUN': '1'},
+                                          capture_output=True, text=True, timeout=30)
+            assert image_launch.returncode == 0, image_launch.stderr
+            extracted = root / 'appimage-readback'
+            extracted.mkdir()
+            extraction = subprocess.run([str(image_path), '--appimage-extract'],
+                                        cwd=extracted, env=environment,
+                                        capture_output=True, text=True, timeout=60)
+            assert extraction.returncode == 0, extraction.stderr
+            for file in manifest['files']:
+                assert (extracted / 'squashfs-root' / file['path']).read_bytes() == (
+                    linux_out / file['path']).read_bytes()
+        else:
+            environment.pop('NOVELTEA_LINUX_APPIMAGE_TOOL')
+        (linux_project / 'project.yaml').write_text(linux_yaml)
+        assert run(*linux_req, '--force')['success']
+        assert not Path(str(linux_out) + '.AppImage').exists()
+        # A newly installed template that lies about its ELF architecture is
+        # rejected before it can replace a previously published distribution.
+        bad_elf = bytearray(binary.read_bytes())
+        bad_elf[18:20] = b'\xb7\x00'  # EM_AARCH64, invalid for x64 profile
+        binary.write_bytes(bad_elf)
+        for declared in linux_descriptor['files']:
+            if declared['path'] == 'bin/noveltea-player':
+                declared['sha256'] = sha(bad_elf)
+        (linux_stage / 'template.json').write_text(json.dumps(linux_descriptor))
+        bad_tar = root / 'wrong-architecture.tar.gz'
+        with tarfile.open(bad_tar, 'w:gz') as writer:
+            for file in linux_stage.rglob('*'):
+                if file.is_file():
+                    writer.add(file, arcname=file.relative_to(linux_stage))
+        assert run('platform', 'template', 'install', bad_tar, '--force')['success']
+        rejected = run(*linux_req, '--force', code=4)
+        assert rejected['diagnostics'][0]['code'] == 'platform-staging-failed'
+        assert 'x86_64 ELF' in rejected['diagnostics'][0]['message']
+        assert (linux_out / 'game').is_file() and archive_path.is_file()
+        assert run('platform', 'template', 'remove', 'test-linux@v1', '--force')['removed']
 
     # A reviewed-release French localization requiring review must be caught
     # by the write-free preflight, before package assembly.

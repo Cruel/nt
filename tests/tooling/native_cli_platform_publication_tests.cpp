@@ -174,6 +174,38 @@ int main()
             !fs::exists(resumed.string() + ".noveltea-publication-transaction.json.new-123-456"),
             "Interrupted journal update debris must be cleared when rollback resumes.");
 
+        // Linux uses a distinct, multi-artifact journal shape. Recover an
+        // interrupted AppImage replacement and removal-only debug-symbol
+        // retirement without losing either previously accepted output.
+        const auto linux = temp / "linux";
+        fs::create_directory(linux);
+        write(linux / "marker", "new");
+        fs::create_directory(linux.string() + ".previous-123-456");
+        write(linux.string() + ".previous-123-456/marker", "old");
+        write(linux.string() + ".tar.gz", "new-tar");
+        write(linux.string() + ".tar.gz.previous-123-456", "old-tar");
+        write(linux.string() + ".AppImage", "new-image");
+        write(linux.string() + ".AppImage.previous-123-456", "old-image");
+        write(linux.string() + "-symbols.tar.gz.previous-123-456", "old-symbols");
+        write(linux.string() + ".noveltea-publication-transaction.json",
+              R"({"format":"noveltea.native-platform-publication","nonce":"123-456",)"
+              R"("accepted":false,"rollingBack":false,"outputs":[)"
+              R"({"kind":"directory","hadPrevious":true,"removeOnly":false},)"
+              R"({"kind":"archive-tar","hadPrevious":true,"removeOnly":false},)"
+              R"({"kind":"symbols-tar","hadPrevious":true,"removeOnly":true},)"
+              R"({"kind":"appimage","hadPrevious":true,"removeOnly":false}]})");
+        {
+            noveltea::cli::PlatformPublicationLock lock(linux);
+            require(noveltea::cli::recover_native_platform_publication(linux, lock, error), error);
+        }
+        require(read(linux / "marker") == "old", "Linux directory was not recovered.");
+        require(read(linux.string() + ".tar.gz") == "old-tar", "Linux archive not recovered.");
+        require(read(linux.string() + ".AppImage") == "old-image", "AppImage not recovered.");
+        require(read(linux.string() + "-symbols.tar.gz") == "old-symbols",
+                "Retired Linux symbols were not recovered.");
+        require(!fs::exists(linux.string() + ".noveltea-publication-transaction.json"),
+                "Linux transaction journal was not removed.");
+
         // The recovery API itself must never traverse a linked parent.
         const auto linked = temp / "linked";
         fs::create_directory(temp / "real");
