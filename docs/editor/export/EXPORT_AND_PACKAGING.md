@@ -279,6 +279,11 @@ retained for target-specific exporters; an unrelated Android/JDK toolchain setti
 unsigned Windows/Web preflight. Actual signed publication and post-signing readback remain deliberately
 unsupported until the Windows, macOS and Android exporter tickets (#564/#567/#568) provide verified
 execution. Resolved signing requests currently fail explicitly rather than reporting signed success.
+The common native staging boundary now receives the entire validated
+`PlatformResolvedExportSettings` (toolchains, target-keyed signer configuration and signing intent),
+not just an implicit unsigned choice. It fails closed on requested signing before creating staged
+artifacts until target-specific signing and post-signing verification are implemented; target
+exporters can use the resolved options without rereading machine/user settings.
 The native CLI stores successful-export identity
 in the ignored `.noveltea/editor/platform-export-identity.json` sidecar instead of replacing the
 editor-owned `state.json` (which contains live recovery and draft data). On editor Open, the latest
