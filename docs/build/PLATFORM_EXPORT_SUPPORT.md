@@ -53,8 +53,9 @@ Those remain certified only by the appropriate target-specific release jobs.
 
 The Windows native C++ exporter certification is integrated into the existing
 Windows jobs instead of a parallel Windows workflow: `build.yml` builds
-`noveltea-native-cli` with MSVC and runs the native PE, publication, platform
-command and public-contract tests; `release.yml` builds the same C++ CLI alongside
+`noveltea-native-cli` with MSVC, runs the native PE, publication, platform
+command and public-contract tests, and generates a current Windows template for
+an independent exported-player launch smoke, retaining JSON evidence; `release.yml` also builds the same C++ CLI alongside
 the release player and runs `tests/native_cli/windows_release_smoke.py` using
 the actual release Windows template. That smoke checks manifest/archive byte
 identity and starts the resulting executable from an unrelated working
