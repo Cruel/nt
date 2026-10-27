@@ -72,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     entries = {
         'licenses/fixture--mit.txt': b'MIT License\nA fixture notice\n',
         'player.js': b'globalThis.Module = {};\n',
+        'player.wasm': b'\0asm\x01\0\0\0',
+        'player.data': b'fixture Emscripten assets\n',
     }
     index = {'format': 'noveltea.engine-licenses', 'components': [{
         'component': 'fixture', 'displayName': 'Fixture', 'version': '1.0', 'files': [{
@@ -94,7 +96,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
         'playerRuntimeApiVersion': 1, 'compiledFeatures': ['web-single-threaded'],
         'capabilities': ['external-url'], 'packageAccessModes': ['web-fetch'],
         'files': [{'path': name, 'size': len(data), 'mode': 0o644, 'sha256': sha(data),
-                   'role': 'notice' if name.startswith('licenses/') else 'player'}
+                   'role': 'notice' if name.startswith('licenses/') else
+                           'player' if name == 'player.js' else 'support'}
                   for name, data in entries.items()],
         'runtimeDependencies': [{'path': name, 'kind': 'notice'}
                                 for name in entries if name.startswith('licenses/')],
@@ -404,8 +407,7 @@ else:
                '--allow-identity-change')['success']
     assert json.loads(local.read_text()) == old_local
     local.unlink()
-    assert run(*requested, '--allow-untrusted-template', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert run(*requested, '--check', '--allow-untrusted-template')['success']
     assert not (root / 'web-export').exists()
     (root / 'web-export').mkdir()
     assert run(*requested, '--check', '--allow-untrusted-template', code=4)[
@@ -554,6 +556,49 @@ else:
     assert run(*requested, '--allow-untrusted-template', '--force', code=5)[
         'diagnostics'][0]['code'] == 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
     assert journal.exists()
+
+    # Native Web publication uses the existing transaction boundary; certify
+    # a complete immutable browser artifact set and the independent ZIP readback.
+    verified_output = root / 'verified-web'
+    verified_request = tuple(verified_output if part == root / 'web-export' else part
+                             for part in requested)
+    web_export = run(*verified_request, '--allow-untrusted-template')
+    assert web_export['success'] and not web_export['signingApplied']
+    files = {entry['path']: entry for entry in json.loads(
+        (verified_output / 'export-manifest.json').read_text())['files']}
+    assert all(sha((verified_output / path).read_bytes()) == entry['sha256']
+               for path, entry in files.items())
+    assert all((verified_output / p).is_file() for p in [
+        'index.html', 'manifest.webmanifest', 'player.json',
+        'service-worker.js', 'DEPLOYMENT.md'])
+    assert files['index.html']['origin'] == 'web-shell'
+    assert json.loads((verified_output / 'export-manifest.json').read_text())[
+        'deployment']['capabilityMetadata']['webRequirements'] == ['external-navigation']
+    player = json.loads((verified_output / 'player.json').read_text())
+    assert player['package']['path'].startswith('game.')
+    assert player['package']['sha256'] == sha((verified_output / player['package']['path']).read_bytes())
+    html = (verified_output / 'index.html').read_text()
+    for extension in ('.js', '.wasm', '.data'):
+        name = next(path for path in files if path.startswith('player.')
+                    and path.endswith(extension))
+        assert name in html, (extension, name)
+    assert 'NovelTeaPreviewBridge' in html and 'resolveWebPlayerSurfaceMetrics' in html
+    web_manifest = json.loads((verified_output / 'manifest.webmanifest').read_text())
+    assert web_manifest['start_url'] == '/' and len(web_manifest['icons']) == 2
+    assert all((verified_output / icon['src'].lstrip('/')).is_file()
+               for icon in web_manifest['icons'])
+    assert 'Cross-origin isolation: not required' in (
+        verified_output / 'DEPLOYMENT.md').read_text()
+    with zipfile.ZipFile(root / 'verified-web.zip') as packed:
+        assert set(packed.namelist()) == set(files) | {'export-manifest.json'}
+        for path in files:
+            assert packed.read(path) == (verified_output / path).read_bytes()
+    initial_archive_sha = sha((root / 'verified-web.zip').read_bytes())
+    assert run(*verified_request, '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'platform-output-exists'
+    assert run(*verified_request, '--allow-untrusted-template', '--force')['success']
+    assert sha((root / 'verified-web.zip').read_bytes()) == initial_archive_sha
+    assert not (root / 'verified-web.noveltea-publication-transaction.json').exists()
 
     # Failed replacement must retain the prior verified installation.
     malformed = root / 'invalid.zip'

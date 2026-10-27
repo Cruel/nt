@@ -876,6 +876,31 @@ jobs:
             --case single-nested:/nested/game/:dist/canonical-web-single-nested-export \
             --output dist/noveltea-web-browser-certification-single.json
 
+      - name: Certify native CLI Web publication with real release templates
+        run: |
+          threads_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-threads-release.zip' -print -quit)
+          single_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)
+          test -n "$threads_archive" && test -n "$single_archive"
+          python3 tests/native_cli/web_release_smoke.py \
+            build/cli/linux/noveltea "$threads_archive" "$PWD" "$PWD/dist/native-web-threads" threaded /
+          python3 tests/native_cli/web_release_smoke.py \
+            build/cli/linux/noveltea "$threads_archive" "$PWD" "$PWD/dist/native-web-threads-nested" threaded /nested/game/
+          python3 tests/native_cli/web_release_smoke.py \
+            build/cli/linux/noveltea "$single_archive" "$PWD" "$PWD/dist/native-web-single" single /
+          python3 tests/native_cli/web_release_smoke.py \
+            build/cli/linux/noveltea "$single_archive" "$PWD" "$PWD/dist/native-web-single-nested" single /nested/game/
+
+      - name: Boot and verify native CLI Web exports in Chromium
+        run: |
+          pnpm web:certify-export \
+            --case native-threads-root:/:dist/native-web-threads \
+            --case native-threads-nested:/nested/game/:dist/native-web-threads-nested \
+            --output dist/noveltea-native-web-browser-certification-threads.json
+          pnpm web:certify-export \
+            --case native-single-root:/:dist/native-web-single \
+            --case native-single-nested:/nested/game/:dist/native-web-single-nested \
+            --output dist/noveltea-native-web-browser-certification-single.json
+
       - name: Generate Web platform certification reports
         run: |
           threads_browser=dist/noveltea-web-browser-certification-threads.json

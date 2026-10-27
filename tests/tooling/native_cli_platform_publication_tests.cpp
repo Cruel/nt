@@ -1,4 +1,5 @@
 #include "native_cli_platform_stage.hpp"
+#include "native_cli_web_shell.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -294,6 +295,28 @@ int main()
                 "Native platform cancellation must preserve CLI exit and JSON contracts.");
         require(!fs::exists(temp / "not-published"),
                 "Cancelled export must not publish a distribution.");
+        const auto cancelled_web = noveltea::cli::stage_native_platform_export(
+            {{}}, {{"target", "web"}}, {{}}, temp, temp / "icon.png", temp / "not-published", false,
+            false, false, false, unsigned_settings, cancel_lock, tools, [] { return true; });
+        require(cancelled_web.envelope.value("exitCode", 0) == 130 &&
+                    cancelled_web.envelope.value("cancelled", false) &&
+                    cancelled_web.envelope.at("diagnostics").front().at("code") ==
+                        "export-cancelled",
+                "Native Web cancellation must fail before publication with exit 130.");
+        require(!fs::exists(temp / "not-published") && !fs::exists(temp / "not-published.zip"),
+                "Cancelled Web export must not leave published outputs.");
+        const auto encoded = noveltea::cli::web_shell_json("</script>\"\\\n");
+        require(encoded.find("</script>") == std::string::npos &&
+                    encoded.find("\\u003c/script>") != std::string::npos &&
+                    encoded.find("\\\"") != std::string::npos,
+                "Web shell script strings must not permit markup breakout.");
+        const auto shell = noveltea::cli::web_player_shell(
+            "__SW__ <script>", "en", "#123456", "#000000", "/nested/game/", "icon.ico",
+            "player.a.js", "player.b.wasm", "player.c.data", true);
+        require(shell.find("<h1>__SW__ &lt;script&gt;</h1>") != std::string::npos &&
+                    shell.find("/nested/game/player.b.wasm") != std::string::npos &&
+                    shell.find("/nested/game/service-worker.js") != std::string::npos,
+                "Web shell must escape authored names without recursively substituting tokens.");
         // Signed requests must reach the common stage with their resolved
         // credentials and still fail closed before preparing or publishing.
         const noveltea::cli::PlatformResolvedExportSettings signed_settings{
