@@ -1,4 +1,5 @@
 #include "native_cli_contract.hpp"
+#include "native_cli_daemon.hpp"
 #include "native_cli_agent.hpp"
 #include "native_cli_comfyui.hpp"
 #include "native_cli_media.hpp"
@@ -2517,6 +2518,37 @@ int run(const std::vector<std::string>& argv)
             command += (command.empty() ? "" : " ") + word;
         return usage(args.json, "Unknown command path '" + command + "'.");
     }
+    const char* disabled_daemon = std::getenv("NOVELTEA_NO_DAEMON");
+    if (!args.no_daemon && !(disabled_daemon && std::string_view(disabled_daemon) == "1")) {
+        const auto& family = args.command[0];
+        const auto operation = args.command.size() > 1 ? args.command[1] : "";
+        const bool mutation =
+            (family == "entity" && operation != "inspect") ||
+            (family == "asset" && operation == "import") ||
+            (family == "localization" && operation != "view") ||
+            (family == "fmt" && std::find(args.command.begin(), args.command.end(), "--check") ==
+                                    args.command.end()) ||
+            (family == "agent" &&
+             std::find(args.command.begin(), args.command.end(), "--fix") != args.command.end());
+        const bool owner_command =
+            family == "validate" || family == "usages" || family == "fmt" ||
+            (family == "entity" && (operation == "inspect" || operation == "create" ||
+                                    operation == "rename" || operation == "delete")) ||
+            (family == "asset" && (operation == "audit" || operation == "import")) ||
+            (family == "localization" &&
+             (operation == "view" || operation == "sync" || operation == "reconcile" ||
+              operation == "accept" || operation == "review")) ||
+            (family == "agent" && operation == "sync");
+        if (owner_command) {
+            const auto root = project_root(args.project);
+            if (!root.empty()) {
+                if (const auto routed =
+                        route_native_project_owner(argv, path_text(root), !args.project.empty(),
+                                                   mutation, args.json, family == "validate"))
+                    return *routed;
+            }
+        }
+    }
     if (args.command.size() >= 2 && args.command[0] == "entity" && args.command[1] == "inspect")
         return inspect(args);
     try {
@@ -2618,9 +2650,10 @@ int run(const std::vector<std::string>& argv)
                 return usage(args.json, "Usage: noveltea daemon <status|stop>");
             const auto build =
                 build_identity.empty() ? "native-cli-dev" : std::string(build_identity);
-            const auto response =
-                invoke_native_json(noveltea_tooling_daemon_json,
-                                   {{"action", operation}, {"build", build}, {"protocol", 1}});
+            Json daemon_request{{"action", operation}, {"build", build}, {"protocol", 1}};
+            if (const auto root = native_daemon_certification_runtime_root())
+                daemon_request["runtimeRoot"] = *root;
+            const auto response = invoke_native_json(noveltea_tooling_daemon_json, daemon_request);
             Json daemon{{"running", response.value("running", false)},
                         {"state", response.value("state", std::string("stopped"))},
                         {"build", response.value("build", build)},
@@ -2631,6 +2664,12 @@ int run(const std::vector<std::string>& argv)
                         {"disposableQueuedJobs", response.value("disposableQueuedJobs", 0)},
                         {"disposableStandbyWorkers", response.value("disposableStandbyWorkers", 0)},
                         {"disposableBusyWorkers", response.value("disposableBusyWorkers", 0)}};
+            if (const char* certification = std::getenv("NOVELTEA_CLI_CERTIFICATION");
+                certification && std::string_view(certification) == "1") {
+                for (const char* field : {"exactValidationResults", "engineeringCounters"})
+                    if (response.contains(field))
+                        daemon[field] = response.at(field);
+            }
             if (!response.value("ok", false))
                 return emit(
                     {{"success", false},
@@ -2867,6 +2906,11 @@ int main(int argc, char** argv)
 {
     const std::vector<std::string> args(argv + 1, argv + argc);
     try {
+        if (const auto daemon = noveltea::cli::run_native_daemon_process(
+                args, [](const std::vector<std::string>& local_args) {
+                    return noveltea::cli::run(local_args);
+                }))
+            return *daemon;
         return noveltea::cli::run(args);
     } catch (const std::exception& error) {
         return noveltea::cli::failure(std::find(args.begin(), args.end(), "--json") != args.end(),

@@ -301,7 +301,7 @@ target_link_libraries(noveltea_cli_windows_pe PUBLIC LIEF::LIEF)
 noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
 
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
-    native_cli.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
+    native_cli.cpp native_cli_daemon.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
     native_cli_platform.cpp native_cli_platform_stage.cpp
     native_cli_comfyui_http.cpp
     "${_native_comfyui_header}"
@@ -378,6 +378,10 @@ if(BUILD_TESTING)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_daemon_owner
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/daemon_owner.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(native_cli_daemon_owner PROPERTIES TIMEOUT 180)
     add_test(NAME native_cli_platform_commands
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/platform.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
