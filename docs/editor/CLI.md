@@ -804,9 +804,10 @@ execute against the already-native Project services without a ScriptC host or Qu
 Broker-authoritative physical observations bracket owner work and advance the broker's
 existing session-epoch/generation identity; Project source/Asset changes and watcher
 reconciliation do not depend on a JavaScript engine. The native candidate forwards the
-caller's cwd and scoped environment to the owner, retains only exactly proven successful
-validation results using the existing native cache, and does not replay mutations after
-an uncertain daemon failure. `--no-daemon` retains the same local C++ command execution.
+caller's cwd and scoped environment to the owner, retains exactly proven validation results
+(including deterministic semantic failures) using the existing native cache, and safely
+replays read-only requests locally after an uncertain daemon failure, but never mutations.
+`--no-daemon` retains the same local C++ command execution.
 The paragraphs below continue to describe the **currently shipped ScriptC host**;
 native heavy-job snapshot hydration/disposable execution remains #550, and replacing
 the shipped host remains #551. The C++ candidate is not installed as a partial

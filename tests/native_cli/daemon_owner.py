@@ -4,6 +4,7 @@ import concurrent.futures
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -145,6 +146,22 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
             recovered = project_command('entity', 'inspect', 'rooms', 'renamed')
             assert recovered == changed
             assert daemon_status()['projectSessions'] == 2
+
+        # Exact-result reuse includes deterministic semantic validation errors.
+        # It must also reject the prior successful generation after an edit.
+        config = project / 'project.yaml'
+        authored = config.read_text(encoding='utf-8')
+        invalid_source, replacements = re.subn(
+            r'(?m)^entrypoint:\n(?:[ \t]+[^\n]*\n)*', '', authored, count=1)
+        assert replacements == 1
+        config.write_text(invalid_source, encoding='utf-8')
+        invalid = project_command('validate', expected=4)
+        assert invalid == project_command('validate', local=True, expected=4)
+        hits_before = daemon_status()['engineeringCounters']['exactResultHits']
+        assert project_command('validate', expected=4) == invalid
+        assert daemon_status()['engineeringCounters']['exactResultHits'] > hits_before
+        config.write_text(authored, encoding='utf-8')
+        assert project_command('validate') == project_command('validate', local=True)
 
         stopped = invoke('daemon', 'stop')['daemon']
         assert not stopped['running']
