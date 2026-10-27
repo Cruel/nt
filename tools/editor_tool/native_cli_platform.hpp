@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <functional>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,12 @@ struct PlatformExportTools {
     std::function<bool(const std::string&, const std::vector<std::string>&,
                        const std::filesystem::path&)>
         run_signing_command;
+    // Read-only argv-based host inspection with captured output. Never use this
+    // for a command containing secrets, and never put captured output in user
+    // diagnostics without separately validating/redacting it.
+    std::function<std::optional<std::string>(const std::string&, const std::vector<std::string>&,
+                                             const std::filesystem::path&)>
+        inspect_command;
 };
 
 // Direct CLI adapter for Project-scoped profiles and the machine-local

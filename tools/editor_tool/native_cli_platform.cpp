@@ -1739,6 +1739,14 @@ PlatformCliResult run_native_platform_cli(const std::vector<std::string>& comman
         }
         return true;
     };
+    configured_tools.inspect_command = [](const std::string& program,
+                                          const std::vector<std::string>& args,
+                                          const fs::path& cwd) -> std::optional<std::string> {
+        const auto result = run_archive_tool(program, args, cwd);
+        if (result.code != 0)
+            return std::nullopt;
+        return result.output;
+    };
     if (command.size() < 2)
         throw std::invalid_argument("Unknown platform command.");
     if (command[1] == "profiles") {

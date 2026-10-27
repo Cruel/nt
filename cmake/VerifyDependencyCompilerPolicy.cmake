@@ -60,10 +60,11 @@ foreach(index RANGE 0 ${last_command})
     string(JSON output GET "${commands}" ${index} output)
 
     # Host compiler/schema tooling and the PE resource/platform-publication
-    # host-tool certifications are isolated from players and use the host
+    # host-tool certifications (including Android Gradle/APK fixtures) are
+    # isolated from players and use the host
     # exception/RTTI model.
     if(source MATCHES "/tools/(editor_tool|project_authoring)/" OR
-       output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication|macos-export)-certify\\.dir[/\\]")
+       output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication|macos-export|android-export)-certify\\.dir[/\\]")
         set(is_first_party FALSE)
     endif()
     if(is_first_party)

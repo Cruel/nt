@@ -1260,6 +1260,7 @@ export interface PlatformStageResult {
       | 'dmg'
       | 'symbols'
       | 'signing-report'
+      | 'export-report'
       | 'apk'
       | 'aab'
       | 'apk-set';

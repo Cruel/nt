@@ -92,6 +92,27 @@ jobs:
             "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "$template" --force
             "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export --profile canonical-android-release --output "$output" --config "$config" --allow-untrusted-template --allow-localization-warnings
           done
+      - name: Independently inspect native APK/AAB outputs before emulator testing
+        run: |
+          set -euo pipefail
+          for revision in arm64-v1 arm64-v2; do
+            output="${{ runner.temp }}/$revision"
+            apk=$(find "$output" -maxdepth 1 -name '*.apk' -print -quit)
+            aab=$(find "$output" -maxdepth 1 -name '*.aab' -print -quit)
+            report=$(find "$output" -maxdepth 1 -name '*-export-report.json' -print -quit)
+            test -s "$apk" && test -s "$aab" && test -s "$report"
+            "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/zipalign" -c -P 16 4 "$apk"
+            "$ANDROID_HOME/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/aapt2" dump badging "$apk" | grep -F "package: name='org.noveltea.platformexportacceptance'"
+            unzip -p "$apk" assets/noveltea/bootstrap/player.json | node -e '
+              let text=""; process.stdin.on("data", x => text+=x);
+              process.stdin.on("end", () => {
+                const player=JSON.parse(text);
+                if(player.applicationId!=="org.noveltea.platformexportacceptance" || !/^[0-9a-f]{64}$/.test(player.package.sha256)) process.exit(1);
+              });'
+            test "$(unzip -p "$apk" assets/noveltea/bootstrap/game.ntpkg | sha256sum | cut -d' ' -f1)" = "$(unzip -p "$aab" base/assets/noveltea/bootstrap/game.ntpkg | sha256sum | cut -d' ' -f1)"
+            unzip -p "$apk" assets/system/licenses/index.json >/dev/null
+            unzip -p "$aab" base/assets/system/licenses/index.json >/dev/null
+          done
       - name: Derive debug-signed APK sets from exported AABs
         run: |
           for revision in arm64-v1 arm64-v2; do

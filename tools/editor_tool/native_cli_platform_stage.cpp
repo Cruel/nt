@@ -245,14 +245,14 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
             throw std::runtime_error("Invalid platform publication journal entry.");
         const auto kind = item.at("kind").get<std::string>();
         if (!kinds.insert(kind).second ||
-            (kind != "directory" && kind != "archive" && kind != "symbols" &&
-             kind != "archive-tar" && kind != "symbols-tar" && kind != "appimage" &&
-             kind != "mac-archive" && kind != "mac-symbols" && kind != "mac-dmg" &&
-             kind != "mac-signing-report" && kind != "mac-manifest"))
+            (kind != "directory" && kind != "android-directory" && kind != "archive" &&
+             kind != "symbols" && kind != "archive-tar" && kind != "symbols-tar" &&
+             kind != "appimage" && kind != "mac-archive" && kind != "mac-symbols" &&
+             kind != "mac-dmg" && kind != "mac-signing-report" && kind != "mac-manifest"))
             throw std::runtime_error("Invalid platform publication journal output kind.");
         const auto base = path_text(destination);
         const auto mac_base = base.ends_with(".app") ? base.substr(0, base.size() - 4) : base;
-        const auto final = kind == "directory"     ? destination
+        const auto final = (kind == "directory" || kind == "android-directory") ? destination
                            : kind == "archive"     ? fs::u8path(base + ".zip")
                            : kind == "archive-tar" ? fs::u8path(base + ".tar.gz")
                            : kind == "symbols-tar" ? fs::u8path(base + "-symbols.tar.gz")
@@ -272,6 +272,8 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
                            fs::u8path(path_text(final) + ".previous-" + nonce),
                            item.at("hadPrevious").get<bool>(), item.at("removeOnly").get<bool>()});
     }
+    if (kinds.size() == 1 && kinds.contains("android-directory"))
+        return entries;
     if (kinds.size() < 2 || !kinds.contains("directory") ||
         (!kinds.contains("archive") && !kinds.contains("archive-tar") &&
          !kinds.contains("mac-archive")) ||
@@ -431,18 +433,19 @@ void publish(const fs::path& destination, const std::vector<PublicationEntry>& e
     for (const auto& entry : entries) {
         const std::string name = path_text(entry.final);
         const bool mac = path_text(destination).ends_with(".app");
-        const std::string kind = entry.final == destination              ? "directory"
-                                 : mac && name.ends_with("-symbols.zip") ? "mac-symbols"
-                                 : mac && name.ends_with("-signing-report.json")
-                                     ? "mac-signing-report"
-                                 : mac && name.ends_with("-export-manifest.json") ? "mac-manifest"
-                                 : mac && name.ends_with(".dmg")                  ? "mac-dmg"
-                                 : mac && name.ends_with(".zip")                  ? "mac-archive"
-                                 : name.ends_with("-symbols.zip")                 ? "symbols"
-                                 : name.ends_with("-symbols.tar.gz")              ? "symbols-tar"
-                                 : name.ends_with(".AppImage")                    ? "appimage"
-                                 : name.ends_with(".tar.gz")                      ? "archive-tar"
-                                                                                  : "archive";
+        const std::string kind =
+            entry.final == destination && entries.size() == 1 ? "android-directory"
+            : entry.final == destination                      ? "directory"
+            : mac && name.ends_with("-symbols.zip")           ? "mac-symbols"
+            : mac && name.ends_with("-signing-report.json")   ? "mac-signing-report"
+            : mac && name.ends_with("-export-manifest.json")  ? "mac-manifest"
+            : mac && name.ends_with(".dmg")                   ? "mac-dmg"
+            : mac && name.ends_with(".zip")                   ? "mac-archive"
+            : name.ends_with("-symbols.zip")                  ? "symbols"
+            : name.ends_with("-symbols.tar.gz")               ? "symbols-tar"
+            : name.ends_with(".AppImage")                     ? "appimage"
+            : name.ends_with(".tar.gz")                       ? "archive-tar"
+                                                              : "archive";
         items.push_back({{"kind", kind},
                          {"hadPrevious", entry.had_previous},
                          {"removeOnly", entry.remove_only}});
@@ -2657,6 +2660,891 @@ PlatformCliResult stage_macos_export(const Json& admission, const Json& profile,
     }
 }
 
+std::string android_xml_escape(std::string_view value)
+{
+    std::string output;
+    for (char c : value) {
+        switch (c) {
+        case '&':
+            output += "&amp;";
+            break;
+        case '<':
+            output += "&lt;";
+            break;
+        case '>':
+            output += "&gt;";
+            break;
+        case '"':
+            output += "&quot;";
+            break;
+        case '\'':
+            output += "&apos;";
+            break;
+        default:
+            if (static_cast<unsigned char>(c) < 32 && c != '\n' && c != '\t')
+                throw std::runtime_error("Invalid Android application label character.");
+            output += c;
+        }
+    }
+    return output;
+}
+
+std::string android_property(std::string_view value)
+{
+    std::string result;
+    for (char c : value) {
+        if (c == '\n')
+            result += "\\n";
+        else if (c == '\r')
+            result += "\\r";
+        else {
+            if (c == '\\' || c == '=' || c == ':')
+                result += '\\';
+            result += c;
+        }
+    }
+    return result;
+}
+
+std::string android_env(const char* name)
+{
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string{};
+}
+
+std::string android_secret(const Json& signer, std::string_view name)
+{
+    const auto reference = signer.at(std::string(name)).get<std::string>();
+    if (!reference.starts_with("env:") || reference.size() <= 4)
+        throw std::runtime_error("Android signing secrets must use env:VARIABLE references.");
+    const auto variable = reference.substr(4);
+    if (!std::all_of(variable.begin(), variable.end(),
+                     [](unsigned char c) { return std::isalnum(c) || c == '_'; }))
+        throw std::runtime_error("Android signing environment variable name is invalid.");
+    const auto secret = android_env(variable.c_str());
+    if (secret.empty() || secret.find_first_of("\r\n") != std::string::npos)
+        throw std::runtime_error("Android signing environment variable is unset or invalid: " +
+                                 variable);
+    return secret;
+}
+
+std::map<std::string, std::string> android_zip_entries(const fs::path& archive,
+                                                       std::string_view prefix = {})
+{
+    mz_zip_archive reader{};
+    const auto path = path_text(archive);
+    if (!mz_zip_reader_init_file(&reader, path.c_str(), 0))
+        throw std::runtime_error("Android APK/AAB/APK-set is not a valid ZIP archive.");
+    struct Close {
+        mz_zip_archive* reader;
+        ~Close() { mz_zip_reader_end(reader); }
+    } close{&reader};
+    std::map<std::string, std::string> result;
+    const auto count = mz_zip_reader_get_num_files(&reader);
+    if (count > 20000)
+        throw std::runtime_error("Android artifact contains too many ZIP entries.");
+    for (mz_uint i = 0; i < count; ++i) {
+        if (mz_zip_reader_is_file_a_directory(&reader, i))
+            continue;
+        mz_zip_archive_file_stat stat{};
+        if (!mz_zip_reader_file_stat(&reader, i, &stat))
+            throw std::runtime_error("Android artifact ZIP entry cannot be read.");
+        const auto name_length = mz_zip_reader_get_filename(&reader, i, nullptr, 0);
+        if (name_length == 0 || name_length > 4096)
+            throw std::runtime_error("Android ZIP member has an invalid filename.");
+        std::string name(name_length + 1, '\0');
+        if (!mz_zip_reader_get_filename(&reader, i, name.data(), static_cast<mz_uint>(name.size())))
+            throw std::runtime_error("Android ZIP member filename is unreadable.");
+        name.resize(std::strlen(name.c_str()));
+        if (name.empty() || name.front() == '/' || name.find("..") != std::string::npos ||
+            name.find('\\') != std::string::npos)
+            throw std::runtime_error("Android artifact contains an unsafe ZIP path.");
+        // Limit decompression. The package is verified independently against
+        // its freshly prepared bytes; other entries must not be ZIP bombs.
+        if (stat.m_uncomp_size > 1024ull * 1024ull * 1024ull)
+            throw std::runtime_error("Android artifact has an oversized ZIP entry.");
+        if (!prefix.empty() && !name.starts_with(prefix))
+            continue;
+        if (prefix.empty() && !name.starts_with("assets/noveltea/bootstrap/") &&
+            !name.starts_with("base/assets/noveltea/bootstrap/") &&
+            !name.starts_with("assets/system/") && !name.starts_with("base/assets/system/") &&
+            !name.starts_with("lib/") && !name.starts_with("base/lib/")) {
+            result.emplace(name, std::string{});
+            continue;
+        }
+        size_t size = 0;
+        void* buffer = mz_zip_reader_extract_to_heap(&reader, i, &size, 0);
+        if (!buffer)
+            throw std::runtime_error("Android artifact ZIP entry fails CRC/readback: " + name);
+        std::string bytes(static_cast<const char*>(buffer), size);
+        mz_free(buffer);
+        if (!result.emplace(name, std::move(bytes)).second)
+            throw std::runtime_error("Android artifact has duplicate ZIP entries.");
+    }
+    return result;
+}
+
+PlatformCliResult stage_android_export(const Json& admission, const Json& profile,
+                                       const Json& descriptor, const fs::path& template_directory,
+                                       const fs::path& icon_source, const fs::path& destination,
+                                       bool force, bool allow_localization_warnings,
+                                       bool include_unused_assets, bool include_shader_sources,
+                                       const PlatformResolvedExportSettings& settings,
+                                       const PlatformExportTools& tools,
+                                       const std::function<bool()>& source_current)
+{
+    if (!tools.prepare_package || !tools.resize_image || !tools.physical_sources_current ||
+        !tools.run_signing_command || !tools.inspect_command)
+        return failure("CLI_INTERNAL",
+                       "Android export requires native package, image and host-tool adapters.", 70);
+    try {
+        check_cancellation(tools);
+        if (!source_current())
+            return failure("WORKSPACE_REVISION_CONFLICT",
+                           "Android Project sources changed before export.", 5);
+        const auto& android = descriptor.at("android");
+        const auto& selection = profile.at("android");
+        const auto abi = selection.at("abi").get<std::string>();
+        const auto min_sdk = selection.at("minSdk").get<int>();
+        const auto artifact_kind = selection.at("artifact").get<std::string>();
+        const auto flavor = profile.at("buildFlavor").get<std::string>();
+        const auto module = android.at("applicationModule").get<std::string>();
+        if ((abi != "arm64-v8a" && abi != "x86_64") ||
+            (artifact_kind != "apk" && artifact_kind != "aab" && artifact_kind != "both") ||
+            (flavor != "debug" && flavor != "release") || module.empty() ||
+            !std::all_of(module.begin(), module.end(),
+                         [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '-'; }))
+            return failure("platform-artifact-invalid",
+                           "Unsupported Android ABI, flavor or artifact configuration.");
+        if (min_sdk < 24 || min_sdk > android.at("compileSdk").get<int>())
+            return failure("android-min-sdk-range",
+                           "Android minimum SDK is outside the template-supported range.");
+        if (settings.signing_requested && flavor != "release")
+            return failure("android-signing-debug-profile",
+                           "Android release signing requires a release profile.");
+        const auto sdk =
+            settings.toolchains.value("androidSdk", android_env("ANDROID_SDK_ROOT").empty()
+                                                        ? android_env("ANDROID_HOME")
+                                                        : android_env("ANDROID_SDK_ROOT"));
+        const auto java = settings.toolchains.value("javaHome", android_env("JAVA_HOME"));
+        if (sdk.empty() || java.empty())
+            return failure("android-toolchain-missing",
+                           "Configure toolchains.androidSdk and toolchains.javaHome (or "
+                           "ANDROID_SDK_ROOT and JAVA_HOME).");
+        const auto executable = [](fs::path path) {
+#if defined(_WIN32)
+            path += ".exe";
+#endif
+            return path;
+        };
+        const auto build_tools_version =
+            android.at("toolchain").at("buildTools").get<std::string>();
+        const auto sdk_root = fs::u8path(sdk);
+        const auto java_root = fs::u8path(java);
+        const auto build_tools = sdk_root / "build-tools" / build_tools_version;
+        const auto aapt2 = executable(build_tools / "aapt2");
+        const auto zipalign = executable(build_tools / "zipalign");
+#if defined(_WIN32)
+        const auto apksigner = build_tools / "lib/apksigner.jar";
+#else
+        const auto apksigner = build_tools / "apksigner";
+#endif
+        const auto javabin = executable(java_root / "bin" / "java");
+        const auto platform_jar =
+            sdk_root / "platforms" /
+            ("android-" + std::to_string(android.at("compileSdk").get<int>())) / "android.jar";
+        const auto required =
+            std::array{std::pair{"Java", javabin}, std::pair{"Android platform SDK", platform_jar},
+                       std::pair{"aapt2", aapt2}, std::pair{"zipalign", zipalign},
+                       std::pair{"apksigner", apksigner}};
+        for (const auto& [label, path] : required)
+            if (!fs::is_regular_file(fs::symlink_status(path)))
+                return failure("android-toolchain-missing",
+                               "Missing " + std::string(label) + ": " + path_text(path));
+        const auto java_release = java_root / "release";
+        if (!fs::is_regular_file(fs::symlink_status(java_release)) ||
+            read_file(java_release)
+                    .find("JAVA_VERSION=\"" +
+                          android.at("toolchain").at("java").get<std::string>() + ".") ==
+                std::string::npos)
+            return failure("android-toolchain-version",
+                           "Android template requires Java " +
+                               android.at("toolchain").at("java").get<std::string>() +
+                               " (JAVA_HOME/release mismatch).");
+        const auto descriptor_sha = digest(read_file(template_directory / "template.json"));
+        const auto registry_sha = digest(read_file(template_directory / ".noveltea-template.json"));
+        const auto icon_sha = digest(read_file(icon_source));
+        if (Json::parse(read_file(template_directory / "template.json")) != descriptor)
+            return failure("platform-template-changed", "Android template changed after preflight.",
+                           5);
+
+        const auto nonce = random_nonce();
+        const PublicationEntry entry{destination,
+                                     fs::u8path(path_text(destination) + ".stage-" + nonce),
+                                     fs::u8path(path_text(destination) + ".previous-" + nonce),
+                                     fs::exists(fs::symlink_status(destination))};
+        if (fs::exists(fs::symlink_status(entry.stage)) ||
+            fs::exists(fs::symlink_status(entry.previous)) ||
+            fs::is_symlink(fs::symlink_status(destination)) || (entry.had_previous && !force))
+            return failure("platform-output-exists",
+                           "Android export output is occupied or unsafe.");
+        const std::vector<PublicationEntry> entries{entry};
+        Staging cleanup(entries, journal_path(destination));
+        const auto scratch = fs::u8path(path_text(destination) + ".android-work-" + nonce);
+        if (fs::exists(fs::symlink_status(scratch)))
+            return failure("platform-output-exists", "Android build work directory is occupied.");
+        struct ScratchCleanup {
+            fs::path path;
+            ~ScratchCleanup()
+            {
+                std::error_code error;
+                fs::remove_all(path, error);
+            }
+        } clear_scratch{scratch};
+        const auto project = scratch / "template";
+        const auto generated = scratch / "generated";
+        fs::create_directories(project);
+        fs::create_directories(entry.stage);
+        for (const auto& file : descriptor.at("files")) {
+            check_cancellation(tools);
+            const auto relative = file.at("path").get<std::string>();
+            const auto source = safe_child(template_directory, relative);
+            if (!fs::is_regular_file(fs::symlink_status(source)) ||
+                fs::file_size(source) != file.at("size").get<std::uint64_t>() ||
+                digest(read_file(source)) != file.at("sha256").get<std::string>())
+                return failure("invalid-installed-template",
+                               "Android template bytes changed: " + relative, 5);
+            const auto target = safe_child(project, relative);
+            copy_verified_file(source, target);
+            fs::permissions(target,
+                            static_cast<fs::perms>(file.at("mode").get<std::uint32_t>() & 0777),
+                            fs::perm_options::replace);
+        }
+        const auto gradle_root =
+            safe_child(project, android.at("gradleProjectRoot").get<std::string>());
+        const auto gradlew =
+            safe_child(project, android.at("gradleWrapperPath").get<std::string>());
+        const auto gradle_wrapper = gradle_root / "gradle/wrapper/gradle-wrapper.jar";
+        const auto bundletool =
+            safe_child(project, android.at("bundletoolPath").get<std::string>());
+        if (!fs::is_regular_file(fs::symlink_status(gradlew)) ||
+            !fs::is_regular_file(fs::symlink_status(gradle_wrapper)) ||
+            !fs::is_regular_file(fs::symlink_status(bundletool)))
+            return failure("android-toolchain-missing",
+                           "Android Gradle wrapper or pinned bundletool is missing.");
+        const auto gradle_properties =
+            read_file(gradle_root / "gradle/wrapper/gradle-wrapper.properties");
+        if (gradle_properties.find("gradle-" +
+                                   android.at("toolchain").at("gradle").get<std::string>() + "-") ==
+            std::string::npos)
+            return failure("android-toolchain-version",
+                           "Android template Gradle wrapper does not match the pinned version.");
+        const std::vector<std::string> environment{"JAVA_HOME=" + java, "ANDROID_HOME=" + sdk,
+                                                   "ANDROID_SDK_ROOT=" + sdk};
+        const auto run = [&](std::string program, std::vector<std::string> args) {
+#if !defined(_WIN32)
+            args.insert(args.begin(), environment.begin(), environment.end());
+            args.insert(args.begin() + static_cast<std::ptrdiff_t>(environment.size()), program);
+            return tools.run_signing_command("env", args, gradle_root);
+#else
+            return tools.run_signing_command(program, args, gradle_root);
+#endif
+        };
+        const auto inspect = [&](std::string program, std::vector<std::string> args) {
+#if !defined(_WIN32)
+            args.insert(args.begin(), environment.begin(), environment.end());
+            args.insert(args.begin() + static_cast<std::ptrdiff_t>(environment.size()), program);
+            return tools.inspect_command("env", args, gradle_root);
+#else
+            return tools.inspect_command(program, args, gradle_root);
+#endif
+        };
+        // Launch the pinned wrapper JAR directly. This preserves argv boundaries
+        // on Windows too, where CreateProcessW cannot execute gradlew.bat
+        // without a shell (and its quoting/argument-injection hazards).
+        const auto gradle = [&](std::vector<std::string> args) {
+            args.insert(args.begin(),
+                        {"-cp", path_text(gradle_wrapper), "org.gradle.wrapper.GradleWrapperMain"});
+            return run(path_text(javabin), std::move(args));
+        };
+        const auto verify_apk_signature = [&](const fs::path& apk) {
+#if defined(_WIN32)
+            return run(path_text(javabin),
+                       {"-cp", path_text(apksigner), "com.android.apksigner.ApkSignerTool",
+                        "verify", "--verbose", path_text(apk)});
+#else
+            return run(path_text(apksigner), {"verify", "--verbose", path_text(apk)});
+#endif
+        };
+        if (!run(path_text(javabin), {"-version"}) || !gradle({"--version"}))
+            return failure(
+                "android-toolchain-version",
+                "Java or the pinned Gradle wrapper cannot execute; check JDK/SDK configuration.");
+
+        Json native_profile = admission.at("profile");
+        native_profile["shaderVariants"] = Json::array({"essl-300"});
+        native_profile["localization"] = profile.at("localization");
+        native_profile["excludeUnusedAssets"] =
+            include_unused_assets ? false : profile.value("excludeUnusedAssets", true);
+        native_profile["includeShaderSources"] =
+            include_shader_sources || profile.value("includeShaderSources", false);
+        native_profile["stripShaderSources"] =
+            !native_profile.at("includeShaderSources").get<bool>();
+        if (tools.progress)
+            tools.progress("writing-package", "Preparing Android essl-300 runtime package");
+        const auto bootstrap = generated / "assets/noveltea/bootstrap";
+        const auto package_file = bootstrap / "game.ntpkg";
+        const auto packaged = tools.prepare_package(admission, native_profile, package_file);
+        check_cancellation(tools);
+        if (!packaged.value("ok", false))
+            return failure(packaged.value("code", "native.platform.package"),
+                           packaged.value("error", "Android runtime package failed."), 6);
+        const auto& artifact = packaged.at("artifact");
+        if (!artifact.contains("compiledProject") ||
+            artifact.at("packageOptions").value("kind", "") != "runtime")
+            return failure("native.runtime.artifact",
+                           "Android runtime package evidence is invalid.", 6);
+        const auto& options = artifact.at("packageOptions");
+        for (const auto& finding : artifact.value("diagnostics", Json::array()))
+            if (finding.value("severity", "") == "warning" &&
+                finding.value("code", std::string{}).starts_with("localization.export.") &&
+                !allow_localization_warnings)
+                return failure("localization.export.warning_override_required",
+                               "Localization warnings require --allow-localization-warnings.");
+        const auto package_sha = digest(read_file(package_file));
+        const auto& app = admission.at("project").at("settings").at("app");
+        const auto& app_android = app.at("android");
+        const auto name = app.at("displayName").get<std::string>();
+        const auto app_id = app_android.value("applicationId", std::string{}).empty()
+                                ? app.at("applicationId").get<std::string>()
+                                : app_android.at("applicationId").get<std::string>();
+        const auto version = app.at("versionName").get<std::string>();
+        const auto version_code = app_android.value("versionCode", app.value("buildNumber", 1));
+        const auto backup = app_android.value("allowBackup", false);
+        const auto is_game = app_android.value("isGame", true);
+        if (version_code < 1)
+            return failure("android-version-code", "Android versionCode must be positive.");
+        const auto& resolution = options.at("display").at("reference_resolution");
+        const int width = resolution.at("width").get<int>();
+        const int height = resolution.at("height").get<int>();
+        if (width <= 0 || height <= 0)
+            return failure("platform-runtime-display", "Android reference resolution is invalid.");
+        const auto orientation = width >= height ? "landscape" : "portrait";
+        const auto divisor = std::gcd(width, height);
+        const Json display{{"referenceResolution", resolution},
+                           {"worldRasterPolicy", options.at("display").at("world_raster_policy")},
+                           {"barColor", options.at("display").at("bar_color")}};
+        const Json accessibility{{"uiScale", options.at("accessibility").at("ui_scale")},
+                                 {"textScale", options.at("accessibility").at("text_scale")}};
+        const auto& memory = profile.at("assetMemory");
+        if (memory.value("kind", "") != "builtin")
+            return failure("platform-asset-memory-policy",
+                           "Native Android custom memory policies are not yet supported.", 70);
+        const std::map<std::string, std::array<std::uint64_t, 7>> baselines{
+            {"low", {50331648, 369098752, 25165824, 25165824, 7549747, 268435456, 3774873}},
+            {"balanced", {100663296, 738197504, 50331648, 50331648, 25165824, 536870912, 12582912}},
+            {"high",
+             {201326592, 1476395008, 100663296, 100663296, 70464307, 1073741824, 35232153}}};
+        const auto preset = memory.at("preset").get<std::string>();
+        if (!baselines.contains(preset))
+            return failure("platform-asset-memory-policy", "Unknown Android asset memory preset.");
+        const auto& b = baselines.at(preset);
+        const Json asset_memory{{"preset", preset},       {"preparedCpuBytes", b[0]},
+                                {"gpuBytes", b[1]},       {"audioBytes", b[2]},
+                                {"temporaryBytes", b[3]}, {"warmPreparedCpuBytes", b[4]},
+                                {"warmGpuBytes", b[5]},   {"warmAudioBytes", b[6]}};
+        const Json capabilities = Json::array({"external-url", "vibration"});
+        const Json metadata{{"androidPermissions", Json::array({"android.permission.VIBRATE"})},
+                            {"androidFeatures", Json::array()},
+                            {"webRequirements", Json::array({"external-navigation", "vibration"})},
+                            {"desktopFeatures", Json::array()}};
+        Json player{{"format", "noveltea.player-config"},
+                    {"formatVersion", 1},
+                    {"displayName", name},
+                    {"applicationId", app_id},
+                    {"saveNamespace", app.at("saveNamespace")},
+                    {"versionName", version},
+                    {"package", {{"path", "game.ntpkg"}, {"sha256", package_sha}}},
+                    {"capabilities", capabilities},
+                    {"display", display},
+                    {"accessibility", accessibility},
+                    {"assetMemory", asset_memory}};
+        if (app.contains("defaultLocale"))
+            player["defaultLocale"] = app.at("defaultLocale");
+        write_file(bootstrap / "player.json", player.dump(2) + '\n');
+        const auto& res = generated / "res";
+        write_file(res / "values/strings.xml", "<resources><string name=\"noveltea_app_name\">" +
+                                                   android_xml_escape(name) +
+                                                   "</string></resources>\n");
+        write_file(
+            res / "values/colors.xml",
+            "<resources><color name=\"noveltea_launch_background\">" +
+                android_xml_escape(app.value("launchBackgroundColor", std::string("#000000"))) +
+                "</color></resources>\n");
+        write_file(res / "values/styles.xml",
+                   "<resources><style name=\"NovelTeaGeneratedTheme\" "
+                   "parent=\"android:Theme.NoTitleBar.Fullscreen\"><item "
+                   "name=\"android:windowFullscreen\">true</item><item "
+                   "name=\"android:windowBackground\">@color/noveltea_launch_background</item></"
+                   "style></resources>\n");
+        write_file(res / "values-v31/styles.xml",
+                   "<resources><style name=\"NovelTeaGeneratedTheme\" "
+                   "parent=\"android:Theme.NoTitleBar.Fullscreen\"><item "
+                   "name=\"android:windowSplashScreenBackground\">@color/"
+                   "noveltea_launch_background</item><item "
+                   "name=\"android:windowSplashScreenAnimatedIcon\">@mipmap/ic_launcher</item></"
+                   "style></resources>\n");
+        write_file(res / "xml/backup_rules.xml",
+                   backup ? "<full-backup-content />\n"
+                          : "<full-backup-content><exclude domain=\"root\" path=\".\" "
+                            "/></full-backup-content>\n");
+        write_file(res / "xml/data_extraction_rules.xml",
+                   backup ? "<data-extraction-rules><cloud-backup /><device-transfer "
+                            "/></data-extraction-rules>\n"
+                          : "<data-extraction-rules><cloud-backup><exclude domain=\"root\" "
+                            "path=\".\" /></cloud-backup><device-transfer><exclude domain=\"root\" "
+                            "path=\".\" /></device-transfer></data-extraction-rules>\n");
+        std::string manifest =
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest "
+            "xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+            "<uses-permission android:name=\"android.permission.VIBRATE\" />\n"
+            "<uses-feature android:glEsVersion=\"0x00030000\" android:required=\"true\" />\n"
+            "<application android:allowBackup=\"" +
+            std::string(backup ? "true" : "false") +
+            "\" android:dataExtractionRules=\"@xml/data_extraction_rules\" "
+            "android:fullBackupContent=\"@xml/backup_rules\" android:hasCode=\"true\" "
+            "android:icon=\"@mipmap/ic_launcher\" android:roundIcon=\"@mipmap/ic_launcher_round\" "
+            "android:label=\"@string/noveltea_app_name\" "
+            "android:theme=\"@style/NovelTeaGeneratedTheme\"" +
+            (is_game ? " android:appCategory=\"game\"" : "") +
+            ">\n"
+            "<activity android:name=\"" +
+            android_xml_escape(android.at("activityClass").get<std::string>()) +
+            "\" android:configChanges=\"orientation|screenSize|screenLayout|keyboardHidden\" "
+            "android:exported=\"true\" android:screenOrientation=\"sensor" +
+            std::string(orientation == "portrait" ? "Portrait" : "Landscape") +
+            "\" android:theme=\"@style/NovelTeaGeneratedTheme\"><meta-data "
+            "android:name=\"android.app.lib_name\" android:value=\"" +
+            android_xml_escape(android.at("nativeLibraryName").get<std::string>()) +
+            "\"/><intent-filter><action android:name=\"android.intent.action.MAIN\"/><category "
+            "android:name=\"android.intent.category.LAUNCHER\"/></intent-filter></activity></"
+            "application></manifest>\n";
+        write_file(generated / "AndroidManifest.xml", manifest);
+        for (const auto& [qualifier, size] : std::array<std::pair<const char*, int>, 5>{
+                 {{"mdpi", 48}, {"hdpi", 72}, {"xhdpi", 96}, {"xxhdpi", 144}, {"xxxhdpi", 192}}}) {
+            for (const auto& suffix :
+                 {"ic_launcher", "ic_launcher_round", "ic_launcher_foreground"}) {
+                const auto filename = "mipmap-" + std::string(qualifier) + "/" + suffix + ".png";
+                const auto generated_icon = res / filename;
+                fs::create_directories(generated_icon.parent_path());
+                const auto resized = tools.resize_image({{"sourcePath", path_text(icon_source)},
+                                                         {"outputPath", path_text(generated_icon)},
+                                                         {"size", size}});
+                if (!resized.value("ok", false))
+                    return failure("platform-icon-generation",
+                                   resized.value("error", "Android icon generation failed."));
+            }
+        }
+        const auto adaptive =
+            "<adaptive-icon "
+            "xmlns:android=\"http://schemas.android.com/apk/res/android\"><background "
+            "android:drawable=\"@color/noveltea_launch_background\"/><foreground "
+            "android:drawable=\"@mipmap/ic_launcher_foreground\"/></adaptive-icon>\n";
+        for (const auto& suffix : {"ic_launcher", "ic_launcher_round"})
+            write_file(res / (std::string("mipmap-anydpi-v26/") + suffix + ".xml"), adaptive);
+        for (const auto& file : descriptor.at("files")) {
+            const auto relative = file.at("path").get<std::string>();
+            if (relative.starts_with("licenses/"))
+                copy_verified_file(safe_child(project, relative),
+                                   safe_child(gradle_root / "prebuilt-system", relative));
+        }
+        const auto properties_path = generated / "noveltea.properties";
+        write_file(properties_path, "novelteaApplicationId=" + android_property(app_id) +
+                                        "\nnovelteaVersionCode=" + std::to_string(version_code) +
+                                        "\nnovelteaVersionName=" + android_property(version) +
+                                        "\nnovelteaAbi=" + abi +
+                                        "\nnovelteaMinSdk=" + std::to_string(min_sdk) +
+                                        "\nnovelteaOrientation=" + orientation + "\n");
+        write_file(gradle_root / "local.properties", "sdk.dir=" + android_property(sdk) + "\n");
+        std::vector<std::string> extra;
+        if (settings.signing_requested) {
+            const auto& signer = settings.signing.at("android");
+            const auto keystore = fs::u8path(signer.at("keystorePath").get<std::string>());
+            if (!fs::is_regular_file(fs::symlink_status(keystore)))
+                return failure("android-signing-keystore-missing",
+                               "Configured Android keystore is not a regular file.");
+            const auto signing_file = scratch / "signing.properties";
+            write_file(
+                signing_file,
+                "storeFile=" + android_property(path_text(fs::absolute(keystore))) +
+                    "\nstorePassword=" +
+                    android_property(android_secret(signer, "storePasswordReference")) +
+                    "\nkeyAlias=" + android_property(signer.at("keyAlias").get<std::string>()) +
+                    "\nkeyPassword=" +
+                    android_property(android_secret(signer, "keyPasswordReference")) + "\n");
+            fs::permissions(signing_file, static_cast<fs::perms>(0600), fs::perm_options::replace);
+            extra.push_back("-PnovelteaSigningProperties=" + path_text(signing_file));
+        }
+        const auto gradle_flavor = flavor == "release" ? "Release" : "Debug";
+        const auto gradle_args = [&]() {
+            std::vector<std::string> args{
+                "--no-daemon",
+                "-PnovelteaCompileShaders=OFF",
+                "-PnovelteaPrebuiltShaderAssetRoot=" + path_text(gradle_root / "prebuilt-shaders"),
+                "-PnovelteaPrebuiltNativeRoot=" + path_text(gradle_root / "prebuilt-native"),
+                "-PnovelteaSystemAssetRoot=" + path_text(gradle_root / "prebuilt-system"),
+                "-PnovelteaGeneratedRoot=" + path_text(generated),
+                "-PnovelteaGeneratedProperties=" + path_text(properties_path)};
+            args.insert(args.end(), extra.begin(), extra.end());
+            return args;
+        }();
+        const bool with_apk = artifact_kind != "aab";
+        const bool with_aab = artifact_kind != "apk";
+        for (const auto& task : {std::pair{with_apk, "assemble"}, std::pair{with_aab, "bundle"}}) {
+            if (!task.first)
+                continue;
+            check_cancellation(tools);
+            if (tools.progress)
+                tools.progress("packaging",
+                               "Building Android " + std::string(task.second) + " artifact");
+            auto args = gradle_args;
+            args.insert(args.begin(), ":" + module + ":" + task.second + gradle_flavor);
+            if (!gradle(std::move(args)))
+                return failure("android-gradle-failed",
+                               "Android Gradle " + std::string(task.second) +
+                                   " failed. Check SDK/JDK, template inputs and signing "
+                                   "configuration; credentials are not logged.");
+        }
+        const auto safe_name = [](std::string value) {
+            std::string output;
+            for (unsigned char c : value) {
+                if (std::isalnum(c) || c == '_' || c == '.' || c == '-')
+                    output += static_cast<char>(c);
+                else if (!output.empty() && output.back() != '-')
+                    output += '-';
+            }
+            while (!output.empty() && output.back() == '-')
+                output.pop_back();
+            while (!output.empty() && output.front() == '-')
+                output.erase(output.begin());
+            return output.empty() ? std::string("game") : output;
+        };
+        const auto stem =
+            safe_name(app.value("shortName", name)) + "-" + safe_name(version) + "-android-" + abi;
+        Json outputs = Json::array();
+        const auto append = [&](const std::string& kind, const fs::path& from) {
+            const auto target = entry.stage / (stem + "." + kind);
+            const auto size = fs::file_size(from);
+            if (size > (kind == "apk" ? 200ull : 1024ull) * 1024ull * 1024ull)
+                throw std::runtime_error("Android artifact exceeds the certified size limit.");
+            copy_verified_file(from, target);
+            outputs.push_back({{"kind", kind},
+                               {"file", path_text(target.filename())},
+                               {"size", fs::file_size(target)},
+                               {"sha256", digest(read_file(target))}});
+        };
+        if (with_apk)
+            append("apk",
+                   gradle_root / module / "build/outputs/apk" / flavor /
+                       (module + "-" + flavor +
+                        (flavor == "release" && !settings.signing_requested ? "-unsigned" : "") +
+                        ".apk"));
+        if (with_aab)
+            append("aab", gradle_root / module / "build/outputs/bundle" / flavor /
+                              (module + "-" + flavor + ".aab"));
+        const auto verify = [&](const fs::path& root) {
+            for (const auto& output : outputs) {
+                const auto kind = output.at("kind").get<std::string>();
+                const auto path = root / output.at("file").get<std::string>();
+                if (digest(read_file(path)) != output.at("sha256").get<std::string>())
+                    throw std::runtime_error("Android artifact bytes changed during publication.");
+                const std::string prefix = kind == "apk" ? "" : "base/";
+                const auto entries = android_zip_entries(path);
+                const auto game = prefix + "assets/noveltea/bootstrap/game.ntpkg";
+                const auto config = prefix + "assets/noveltea/bootstrap/player.json";
+                if (!entries.contains(game) || digest(entries.at(game)) != package_sha ||
+                    !entries.contains(config) || Json::parse(entries.at(config)) != player)
+                    throw std::runtime_error("Android bootstrap package or player config differs "
+                                             "from prepared runtime.");
+                const auto library_prefix = prefix + "lib/";
+                std::set<std::string> expected, actual;
+                const auto template_prefix = "source/android/prebuilt-native/" + abi + "/";
+                for (const auto& file : descriptor.at("files")) {
+                    const auto name = file.at("path").get<std::string>();
+                    if (name.starts_with(template_prefix) && name.ends_with(".so"))
+                        expected.insert(name.substr(template_prefix.size()));
+                }
+                for (const auto& [name, bytes] : entries) {
+                    (void)bytes;
+                    if (name.starts_with(library_prefix) && name.ends_with(".so")) {
+                        if (!name.starts_with(library_prefix + abi + "/"))
+                            throw std::runtime_error(
+                                "Android artifact includes an unexpected ABI.");
+                        actual.insert(name.substr((library_prefix + abi + "/").size()));
+                    }
+                }
+                if (actual.empty() || actual != expected)
+                    throw std::runtime_error(
+                        "Android artifact native-library closure disagrees with template.");
+                constexpr std::string_view system_prefix = "source/android/prebuilt-system/";
+                for (const auto& file : descriptor.at("files")) {
+                    const auto name = file.at("path").get<std::string>();
+                    if (!name.starts_with(system_prefix))
+                        continue;
+                    const auto mounted =
+                        prefix + "assets/system/" + name.substr(system_prefix.size());
+                    if (!entries.contains(mounted) ||
+                        digest(entries.at(mounted)) != file.at("sha256").get<std::string>())
+                        throw std::runtime_error(
+                            "Android system font or shader bytes differ from the template.");
+                }
+                std::set<std::string> notices;
+                for (const auto& file : descriptor.at("files")) {
+                    const auto name = file.at("path").get<std::string>();
+                    if (!name.starts_with("licenses/"))
+                        continue;
+                    const auto mounted = prefix + "assets/system/" + name;
+                    if (!entries.contains(mounted) ||
+                        digest(entries.at(mounted)) != file.at("sha256").get<std::string>())
+                        throw std::runtime_error(
+                            "Android artifact engine license bytes differ from template.");
+                    notices.insert(mounted);
+                }
+                for (const auto& [name, bytes] : entries) {
+                    (void)bytes;
+                    if (name.starts_with(prefix + "assets/system/licenses/") &&
+                        !notices.contains(name))
+                        throw std::runtime_error(
+                            "Android artifact contains an undeclared engine license.");
+                }
+                if (kind == "apk") {
+                    const auto badging =
+                        inspect(path_text(aapt2), {"dump", "badging", path_text(path)});
+                    const auto xmltree =
+                        inspect(path_text(aapt2), {"dump", "xmltree", "--file",
+                                                   "AndroidManifest.xml", path_text(path)});
+                    const auto declared_package = "package: name='" + app_id + "' versionCode='" +
+                                                  std::to_string(version_code) + "' versionName='" +
+                                                  version + "'";
+                    if (!badging || !badging->starts_with(declared_package) ||
+                        badging->find("minSdkVersion:'" +
+                                      std::to_string(selection.at("minSdk").get<int>()) + "'") ==
+                            std::string::npos ||
+                        badging->find("targetSdkVersion:'" +
+                                      std::to_string(android.at("targetSdk").get<int>()) + "'") ==
+                            std::string::npos ||
+                        !xmltree ||
+                        xmltree->find(":screenOrientation(0x0101001e)=" +
+                                      std::string(orientation == "portrait" ? "7" : "6")) ==
+                            std::string::npos ||
+                        xmltree->find(":allowBackup(0x01010280)=" +
+                                      std::string(backup ? "true" : "false")) ==
+                            std::string::npos ||
+                        xmltree->find(android.at("activityClass").get<std::string>()) ==
+                            std::string::npos ||
+                        xmltree->find(android.at("nativeLibraryName").get<std::string>()) ==
+                            std::string::npos)
+                        throw std::runtime_error(
+                            "Android APK manifest identity, SDK, launcher, orientation or backup "
+                            "policy differs from deployment.");
+                    std::set<std::string> declared_permissions;
+                    std::istringstream badges(*badging);
+                    std::string line;
+                    constexpr std::string_view permission_prefix = "uses-permission: name='";
+                    while (std::getline(badges, line)) {
+                        if (!line.starts_with(permission_prefix))
+                            continue;
+                        const auto ending = line.find('\'', permission_prefix.size());
+                        if (ending == std::string::npos)
+                            throw std::runtime_error(
+                                "Malformed Android APK permission declaration.");
+                        declared_permissions.insert(line.substr(permission_prefix.size(),
+                                                                ending - permission_prefix.size()));
+                    }
+                    if (declared_permissions != std::set<std::string>{"android.permission.VIBRATE"})
+                        throw std::runtime_error(
+                            "Android APK permissions differ from declared capabilities.");
+                    const auto category = xmltree->find(":appCategory(");
+                    const auto classified_as_game =
+                        category != std::string::npos &&
+                        xmltree->find(")=0", category) != std::string::npos &&
+                        xmltree->find(")=0", category) - category < 48;
+                    if (xmltree->find(":dataExtractionRules(") == std::string::npos ||
+                        xmltree->find(":fullBackupContent(") == std::string::npos ||
+                        (is_game && !classified_as_game))
+                        throw std::runtime_error(
+                            "Android APK backup and game classification differs from deployment.");
+                    std::size_t components = 0;
+                    for (const auto& element :
+                         {"E: activity ", "E: service ", "E: receiver ", "E: provider "}) {
+                        std::size_t cursor = 0;
+                        while ((cursor = xmltree->find(element, cursor)) != std::string::npos) {
+                            ++components;
+                            cursor += std::strlen(element);
+                        }
+                    }
+                    if (components != 1)
+                        throw std::runtime_error(
+                            "Android APK contains unexpected manifest components.");
+                    if (!run(path_text(zipalign), {"-c", "-P", "16", "4", path_text(path)}))
+                        throw std::runtime_error("Android APK fails ZIP alignment certification.");
+                    if ((settings.signing_requested || flavor == "debug") &&
+                        !verify_apk_signature(path))
+                        throw std::runtime_error("Android APK signature verification failed.");
+                }
+                if (kind == "aab") {
+                    const auto jarsigner = executable(java_root / "bin" / "jarsigner");
+                    if (!fs::is_regular_file(fs::symlink_status(jarsigner)))
+                        throw std::runtime_error(
+                            "Java jarsigner is required to inspect Android AAB signatures.");
+                    const auto signature = inspect(
+                        path_text(jarsigner), {"-verify", "-verbose", "-certs", path_text(path)});
+                    const bool signed_bundle =
+                        signature && signature->find("jar verified.") != std::string::npos &&
+                        signature->find("jar is unsigned") == std::string::npos;
+                    if (signed_bundle != settings.signing_requested)
+                        throw std::runtime_error("Android AAB signature does not match requested "
+                                                 "release signing policy.");
+                }
+            }
+        };
+        verify(entry.stage);
+        if (with_aab) {
+            const auto aab = entry.stage / (stem + ".aab");
+            const auto apks = scratch / "derived.apks";
+            if (!run(path_text(javabin),
+                     {"-jar", path_text(bundletool), "build-apks", "--bundle=" + path_text(aab),
+                      "--output=" + path_text(apks), "--mode=universal", "--overwrite"}))
+                return failure("android-bundletool-verification-failed",
+                               "Pinned bundletool could not build a universal APK from the AAB.");
+            const auto universal = android_zip_entries(apks, "universal.apk");
+            if (!universal.contains("universal.apk"))
+                return failure("android-bundletool-verification-failed",
+                               "Bundletool APK set omits universal.apk.");
+            const auto derived = scratch / "universal.apk";
+            write_file(derived, universal.at("universal.apk"));
+            const auto derived_entries = android_zip_entries(derived);
+            if (!derived_entries.contains("assets/noveltea/bootstrap/game.ntpkg") ||
+                digest(derived_entries.at("assets/noveltea/bootstrap/game.ntpkg")) != package_sha ||
+                !derived_entries.contains("assets/noveltea/bootstrap/player.json") ||
+                Json::parse(derived_entries.at("assets/noveltea/bootstrap/player.json")) != player)
+                return failure("android-bundletool-verification-failed",
+                               "Derived universal APK runtime package does not match the AAB.");
+            const auto derived_badging =
+                inspect(path_text(aapt2), {"dump", "badging", path_text(derived)});
+            if (!derived_badging ||
+                derived_badging->find("package: name='" + app_id + "' versionCode='" +
+                                      std::to_string(version_code) + "'") == std::string::npos ||
+                !verify_apk_signature(derived))
+                return failure("android-bundletool-verification-failed",
+                               "Derived universal APK has invalid identity or signature.");
+        }
+        Json deployment{
+            {"target", "android"},
+            {"architecture", profile.at("architecture")},
+            {"buildFlavor", flavor},
+            {"applicationId", app_id},
+            {"displayName", name},
+            {"versionName", version},
+            {"saveNamespace", app.at("saveNamespace")},
+            {"capabilities", capabilities},
+            {"capabilityMetadata", metadata},
+            {"display",
+             {{"aspectRatio", {{"width", width / divisor}, {"height", height / divisor}}},
+              {"orientation", orientation},
+              {"barColor", display.at("barColor")}}},
+            {"packageAccess", profile.at("packageAccess")},
+            {"templateId", descriptor.at("templateId")},
+            {"buildId", descriptor.at("buildId")},
+            {"compiledProjectFormatVersion", 1},
+            {"playerRuntimeApiVersion", 1},
+            {"assetMemory", asset_memory},
+            {"android",
+             {{"applicationId", app_id},
+              {"versionCode", version_code},
+              {"versionName", version},
+              {"allowBackup", backup},
+              {"isGame", is_game},
+              {"minSdk", selection.at("minSdk")},
+              {"targetSdk", android.at("targetSdk")},
+              {"compileSdk", android.at("compileSdk")},
+              {"abi", abi},
+              {"artifacts", artifact_kind == "both" ? Json::array({"apk", "aab"})
+                                                    : Json::array({artifact_kind})},
+              {"packageAccess", profile.at("packageAccess")},
+              {"orientation", orientation}}}};
+        const auto report_name = stem + "-export-report.json";
+        write_file(
+            entry.stage / report_name,
+            Json{{"format", "noveltea.android-export-report"},
+                 {"deployment", deployment.at("android")},
+                 {"template",
+                  {{"id", descriptor.at("templateId")}, {"buildId", descriptor.at("buildId")}}},
+                 {"package", {{"sha256", package_sha}}},
+                 {"signing",
+                  {{"requested", settings.signing_requested},
+                   {"mode", settings.signing_requested ? "release-keystore"
+                            : flavor == "debug"        ? "debug"
+                                                       : "unsigned"}}},
+                 {"artifacts", outputs},
+                 {"verification",
+                  {{"apkReadback", with_apk}, {"aabReadback", with_aab}, {"bundletool", with_aab}}}}
+                    .dump(2) +
+                '\n');
+        const auto sources_fresh = [&]() {
+            if (!source_current() || !tools.physical_sources_current(options) ||
+                digest(read_file(icon_source)) != icon_sha ||
+                digest(read_file(template_directory / "template.json")) != descriptor_sha ||
+                digest(read_file(template_directory / ".noveltea-template.json")) != registry_sha)
+                return false;
+            for (const auto& file : descriptor.at("files"))
+                if (digest(read_file(
+                        safe_child(template_directory, file.at("path").get<std::string>()))) !=
+                    file.at("sha256").get<std::string>())
+                    return false;
+            return true;
+        };
+        check_cancellation(tools);
+        if (!sources_fresh())
+            return failure("WORKSPACE_REVISION_CONFLICT",
+                           "Android source or template changed before publication.", 5);
+        publish(destination, entries, nonce, [&]() {
+            check_cancellation(tools);
+            verify(destination);
+            if (!sources_fresh())
+                throw SourceChanged("Android sources changed during publication.");
+        });
+        Json artifacts = Json::array();
+        for (const auto& item : outputs)
+            artifacts.push_back(
+                {{"kind", item.at("kind")},
+                 {"path", path_text(destination / item.at("file").get<std::string>())},
+                 {"size", item.at("size")}});
+        artifacts.push_back(
+            {{"kind", "export-report"}, {"path", path_text(destination / report_name)}});
+        return {{{"success", true},
+                 {"exitCode", 0},
+                 {"diagnostics", Json::array()},
+                 {"outputDirectory", path_text(destination)},
+                 {"templateToken", descriptor.at("templateId").get<std::string>() + "@" +
+                                       descriptor.at("buildId").get<std::string>()},
+                 {"signingRequested", settings.signing_requested},
+                 {"signingApplied", settings.signing_requested},
+                 {"cancelled", false},
+                 {"deployment", deployment},
+                 {"artifacts", artifacts}},
+                "Native Android APK/AAB export succeeded."};
+    } catch (const ExportCancelled& error) {
+        auto cancelled = failure("export-cancelled", error.what(), 130);
+        cancelled.envelope["cancelled"] = true;
+        return cancelled;
+    } catch (const SourceChanged& error) {
+        return failure("WORKSPACE_REVISION_CONFLICT", error.what(), 5);
+    } catch (const std::exception& error) {
+        return failure("android-export-failed", error.what());
+    }
+}
+
 } // namespace
 
 std::optional<PlatformCliResult>
@@ -2717,6 +3605,27 @@ validate_native_platform_export_settings(const PlatformResolvedExportSettings& s
 #else
             return std::nullopt;
 #endif
+        }
+        if (target == "android" && settings.signing.contains("android")) {
+            if (profile.value("buildFlavor", "") != "release")
+                return failure("android-signing-debug-profile",
+                               "Android release signing requires a release profile.");
+            const auto& signer = settings.signing.at("android");
+            if (!signer.is_object() || signer.size() != 4)
+                return failure(
+                    "platform.signing_configuration_invalid",
+                    "Android signing requires a keystore, alias and two env: secret references.");
+            for (const auto& name :
+                 {"keystorePath", "keyAlias", "storePasswordReference", "keyPasswordReference"})
+                if (!signer.contains(name) || !signer.at(name).is_string() ||
+                    signer.at(name).get<std::string>().empty())
+                    return failure("platform.signing_configuration_invalid",
+                                   "Android signing field is missing or invalid.");
+            for (const auto& name : {"storePasswordReference", "keyPasswordReference"})
+                if (!signer.at(name).get<std::string>().starts_with("env:"))
+                    return failure("platform.signing_configuration_invalid",
+                                   "Android signing secrets must be env: references.");
+            return std::nullopt;
         }
         unavailable.envelope["diagnostics"][0]["path"] = "/signingProfile";
         return unavailable;
@@ -2836,6 +3745,11 @@ PlatformCliResult stage_native_platform_export(
                                   destination, force, allow_localization_warnings,
                                   include_unused_assets, include_shader_sources, settings, tools,
                                   source_current);
+    if (profile.value("target", "") == "android")
+        return stage_android_export(admission, profile, descriptor, template_directory, icon_source,
+                                    destination, force, allow_localization_warnings,
+                                    include_unused_assets, include_shader_sources, settings, tools,
+                                    source_current);
     // Only enable a platform after its complete native assembly, signing,
     // readback and publication contracts are implemented.
     if (profile.value("target", "") != "windows")

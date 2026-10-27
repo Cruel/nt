@@ -243,6 +243,30 @@ int main()
         require(read(mac_stem + "-export-manifest.json") == "old-manifest",
                 "macOS manifest rollback failed.");
 
+        // Android publishes a single directory containing APK/AAB/report.
+        // Its one-member journal must still recover a partially activated
+        // replacement without assuming that a desktop ZIP sidecar exists.
+        const auto android = temp / "android-distribution";
+        fs::create_directory(android);
+        write(android / "game.apk", "new-apk");
+        const auto previous_android = fs::path(android.string() + ".previous-123-456");
+        fs::create_directory(previous_android);
+        write(previous_android / "game.apk", "old-apk");
+        write(android.string() + ".noveltea-publication-transaction.json",
+              R"({"format":"noveltea.native-platform-publication","nonce":"123-456",)"
+              R"("accepted":false,"rollingBack":false,"outputs":[)"
+              R"({"kind":"android-directory","hadPrevious":true,"removeOnly":false}]})");
+        {
+            noveltea::cli::PlatformPublicationLock lock(android);
+            require(noveltea::cli::recover_native_platform_publication(android, lock, error),
+                    "Android interrupted publication recovery failed: " + error);
+        }
+        require(read(android / "game.apk") == "old-apk",
+                "Android interrupted publication failed to restore prior APK.");
+        require(!fs::exists(previous_android) &&
+                    !fs::exists(android.string() + ".noveltea-publication-transaction.json"),
+                "Android interrupted publication retained transaction debris.");
+
         // The recovery API itself must never traverse a linked parent.
         const auto linked = temp / "linked";
         fs::create_directory(temp / "real");
