@@ -504,6 +504,11 @@ jobs:
       - name: Certify native CLI platform preflight and publication parity
         run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
 
+      - name: Differentially certify native platform template and config commands
+        env:
+          NOVELTEA_NATIVE_CLI_BINARY: ${{ github.workspace }}/build/cli/linux/noveltea
+        run: pnpm -C editor exec vp test src/renderer/test/native-platform-command-differential.test.ts
+
       - name: Certify cross-host native macOS and Android export and publication recovery
         run: |
           cmake --build --preset linux-authoring-release --target noveltea-cli-macos-export-certify noveltea-cli-android-export-certify noveltea-cli-platform-publication-certify
