@@ -188,6 +188,125 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
                '--config', malformed_config, '--sign', code=4)['diagnostics'][0]['code'] == (
                    'platform.signing_profile_required')
 
+    # Existing TypeScript CLI interprets --config signing/toolchains as an
+    # explicit local override, while templateRoots is an accepted editor-local
+    # field (not a template registry override). These keys cannot cause an
+    # unsigned Web preflight to fail with an arbitrary native exit 70.
+    configured = root / 'export-config.json'
+    configured.write_text(json.dumps({
+        'format': 'noveltea.editor-export-local-state',
+        'templateRoots': [str(root / 'unused-template-search-root')],
+        'toolchains': {'javaHome': str(root / 'toolchain-not-used-by-web')},
+        'signing': {'windows': {'command': 'signtool', 'args': [],
+                                'verifyCommand': 'verify', 'verifyArgs': []}},
+    }))
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--config', configured)['success']
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--config', configured, '--signing-profile', 'desktop', code=2)[
+                   'diagnostics'][0]['code'] == 'CLI_USAGE'
+
+    # Signed CLI options resolve the common ~/.noveltea/config.json profiles
+    # before target-specific signing execution. A missing or mismatched named
+    # profile is a semantic error, not a blanket unsupported-operation error.
+    user_config_file = root / 'user-config/config.json'
+    user_config_file.parent.mkdir(parents=True)
+    user_config_file.write_text(json.dumps({
+        'format': 'noveltea.user-config', 'formatVersion': 1,
+        'export': {'toolchains': {'javaHome': '/unused/jdk'},
+                   'signingProfiles': [{
+                       'id': 'desktop', 'label': 'Desktop signer', 'target': 'windows',
+                       'command': 'signtool', 'args': [],
+                       'verifyCommand': 'signtool', 'verifyArgs': [],
+                   }]},
+    }))
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--signing-profile', 'absent', code=4)['diagnostics'][0]['code'] == (
+                   'platform.signing_profile_required')
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--signing-profile', 'desktop', code=4)['diagnostics'][0]['code'] == (
+                   'platform.signing_profile_required')
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--sign', code=4)['diagnostics'][0]['code'] == (
+                   'platform.signing_profile_required')
+    assert run(*requested, '--check', '--allow-untrusted-template')['success']
+    # Malformed shared user config is treated as defaults, just like the
+    # editor's config loader; malformed signer entries cannot be partly used.
+    user_config_file.write_text('{invalid json')
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--signing-profile', 'desktop', code=4)['diagnostics'][0]['code'] == (
+                   'platform.signing_profile_required')
+    user_config_file.unlink()
+
+    # A verified synthetic Windows template allows checking the shared signer
+    # selection contract independently of the Windows PE/signing exporter.
+    # Never rely on the large user-supplied player archive for this fixture.
+    win_stage = root / 'win-template'
+    shutil.copytree(staging, win_stage)
+    win_descriptor = dict(descriptor)
+    win_descriptor.update(templateId='test-win', platform='windows', architecture='x64',
+                          shaderVariants=['glsl-330'], graphicsBackends=['d3d11'],
+                          packageAccessModes=['sidecar'])
+    (win_stage / 'template.json').write_text(json.dumps(win_descriptor))
+    win_zip = root / 'test-win-template.zip'
+    with zipfile.ZipFile(win_zip, 'w') as writer:
+        for file in win_stage.rglob('*'):
+            if file.is_file():
+                writer.write(file, arcname=file.relative_to(win_stage))
+    assert run('platform', 'template', 'install', win_zip)['success']
+    win_project = root / 'windows-project'
+    shutil.copytree(platform_project, win_project)
+    win_manifest = win_project / 'project.yaml'
+    win_yaml = win_manifest.read_text()
+    win_yaml = win_yaml.replace('id: canonical-web', 'id: canonical-windows')
+    win_yaml = win_yaml.replace('      target: web\n      architecture: wasm32\n'
+                                '      packageAccess: web-fetch\n      web:\n'
+                                '        artifact: directory-zip\n        threaded: false\n'
+                                '        pwa: true\n        display: standalone\n'
+                                '        basePath: /\n        serviceWorker: offline',
+                                '      target: windows\n      architecture: x64\n'
+                                '      packageAccess: sidecar\n      desktop:\n'
+                                '        artifact: zip\n        executableName: game')
+    win_manifest.write_text(win_yaml)
+    win_req = ('--project', win_project, 'platform', 'export',
+               '--profile', 'canonical-windows', '--output', root / 'win-output',
+               '--template', 'test-win@v1', '--allow-untrusted-template',
+               '--allow-localization-warnings', '--check')
+    user_config_file.write_text(json.dumps({
+        'format': 'noveltea.user-config', 'formatVersion': 1,
+        'export': {'toolchains': {}, 'signingProfiles': [{
+            'id': 'desktop', 'label': 'Windows signer', 'target': 'windows',
+            'command': 'signtool', 'args': [],
+            'verifyCommand': 'signtool', 'verifyArgs': []}]}}))
+    assert run(*win_req, '--signing-profile', 'unknown', code=4)[
+        'diagnostics'][0]['code'] == 'platform.signing_profile_required'
+    assert run(*win_req, '--signing-profile', 'desktop', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert run(*win_req, '--sign', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    stored = json.loads(user_config_file.read_text())
+    stored['export']['signingProfiles'].append({
+        'id': 'second', 'label': 'Second signer', 'target': 'windows',
+        'command': 'signtool', 'args': [],
+        'verifyCommand': 'signtool', 'verifyArgs': []})
+    user_config_file.write_text(json.dumps(stored))
+    assert run(*win_req, '--sign', code=4)['diagnostics'][0]['code'] == (
+        'platform.signing_profile_required')
+    assert run(*win_req, '--signing-profile', 'desktop', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    configured.write_text(json.dumps({
+        'format': 'noveltea.editor-export-local-state',
+        'toolchains': {'javaHome': '/unused/jdk'},
+        'signing': {'windows': {
+            'command': 'signtool', 'args': [],
+            'verifyCommand': 'signtool', 'verifyArgs': [],
+        }},
+    }))
+    assert run(*win_req, '--config', configured, '--sign', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    user_config_file.unlink()
+    assert run('platform', 'template', 'remove', 'test-win@v1', '--force')['removed']
+
     # A reviewed-release French localization requiring review must be caught
     # by the write-free preflight, before package assembly.
     reviewed = manifest_file.read_text()

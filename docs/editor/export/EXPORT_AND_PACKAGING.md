@@ -268,8 +268,18 @@ are no longer requested. The persistent lock inode must not be unlinked while an
 
 Read-only `--check` performs in-memory native compilation/localization evaluation and requires explicit
 acknowledgement for release localization warnings without creating runtime or output artifacts. Local
-export configuration is strictly validated; unsupported native toolchain/template-root/signing
-execution is rejected rather than silently ignored. The native CLI stores successful-export identity
+export configuration is strictly validated; the standalone native CLI now loads the same shared
+`~/.noveltea/config.json` signing profiles and toolchain settings as the editor/TypeScript CLI.
+An explicit `--config` overrides that user state; `--signing-profile <id>` resolves exactly one
+named matching-target signer, and bare `--sign` requires exactly one matching signer. Unknown,
+missing, and ambiguous signers have `platform.signing_profile_required` diagnostics rather than
+generic unsupported errors. The `templateRoots` field is parsed but does not override the installed
+template registry, matching the existing TypeScript headless CLI. Configured toolchain fields are
+retained for target-specific exporters; an unrelated Android/JDK toolchain setting must not prevent
+unsigned Windows/Web preflight. Actual signed publication and post-signing readback remain deliberately
+unsupported until the Windows, macOS and Android exporter tickets (#564/#567/#568) provide verified
+execution. Resolved signing requests currently fail explicitly rather than reporting signed success.
+The native CLI stores successful-export identity
 in the ignored `.noveltea/editor/platform-export-identity.json` sidecar instead of replacing the
 editor-owned `state.json` (which contains live recovery and draft data). On editor Open, the latest
 completed export identity is overlaid onto editor-local state; this avoids a read/rename race that

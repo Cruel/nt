@@ -2075,6 +2075,24 @@ ComfyUiResult run_workflow(const RunArgs& arguments, const Config& settings,
 }
 } // namespace
 
+Json load_native_user_export_config()
+{
+    Json defaults{{"toolchains", Json::object()}, {"signingProfiles", Json::array()}};
+    const auto source = read_file(user_root() / "config.json", 1024 * 1024);
+    if (!source)
+        return defaults;
+    try {
+        const auto parsed = Json::parse(*source, nullptr, false);
+        if (!parsed.is_discarded() && valid_user_config(parsed) && parsed.contains("export")) {
+            defaults.update(parsed.at("export"));
+        }
+    } catch (...) {
+        // The editor treats invalid shared user configuration as defaults,
+        // rather than trusting a partially parsed set of signing credentials.
+    }
+    return defaults;
+}
+
 ComfyUiResult run_native_comfyui_catalog(const std::vector<std::string>& command,
                                          const fs::path& project,
                                          const std::function<Json(const Json&)>& project_request,

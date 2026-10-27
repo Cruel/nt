@@ -13,6 +13,11 @@ struct ComfyUiResult {
     std::string human;
 };
 
+// Shared ~/.noveltea/config.json reader. Invalid documents have the same
+// default-config semantics as the editor's loadNovelTeaUserConfig(), and the
+// export subdocument is independently validated by the existing Zod mirror.
+nlohmann::ordered_json load_native_user_export_config();
+
 struct ComfyUiStagedFilesystemOutput {
     std::filesystem::path staged_path;
     std::filesystem::path final_path;

@@ -1,5 +1,6 @@
 #include "native_cli_platform.hpp"
 #include "native_cli_platform_stage.hpp"
+#include "native_cli_comfyui.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
 
@@ -1480,7 +1481,14 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                     "Template '" + fields(*resolved).at("id").get<std::string>() +
                         "' is locally sourced; pass --allow-untrusted-template to use it.");
 
+    // Explicit --config overrides the machine-wide user settings. Otherwise
+    // resolve exactly the same signing profile set as the TypeScript CLI.
+    // Both paths feed one target-specific signing state; execution belongs
+    // to the corresponding platform exporter (#564/#567/#568).
     Json config = Json::object();
+    Json toolchains = Json::object();
+    Json signing = Json::object();
+    const bool signing_requested = options.sign || !options.signing_profile.empty();
     if (!options.config.empty()) {
         try {
             config = read_json(fs::absolute(fs::u8path(options.config)));
@@ -1490,23 +1498,59 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
         } catch (const std::exception& error) {
             return fail("platform.config_invalid", "/config", error.what());
         }
+        toolchains = config.value("toolchains", Json::object());
+        signing = config.value("signing", Json::object());
+        // templateRoots and lastOutputDirectory are retained, validated
+        // editor-local fields, but do not override the installed template
+        // registry in the existing TypeScript headless CLI either.
+    } else {
+        const Json user = load_native_user_export_config();
+        toolchains = user.value("toolchains", Json::object());
+        if (signing_requested) {
+            const std::string target = profile->at("target").get<std::string>();
+            std::vector<Json> matching;
+            for (const auto& candidate : user.value("signingProfiles", Json::array()))
+                if (candidate.value("target", "") == target)
+                    matching.push_back(candidate);
+            const Json* selected = nullptr;
+            if (!options.signing_profile.empty()) {
+                for (const auto& candidate : matching)
+                    if (candidate.at("id") == options.signing_profile) {
+                        selected = &candidate;
+                        break;
+                    }
+            } else if (matching.size() == 1) {
+                selected = &matching.front();
+            }
+            if (!selected)
+                return fail("platform.signing_profile_required", "/signingProfile",
+                            !options.signing_profile.empty()
+                                ? "Signing profile '" + options.signing_profile +
+                                      "' is not configured for " + target + "."
+                            : matching.empty()
+                                ? "No signing profile is configured for " + target + "."
+                                : "Multiple signing profiles are configured for " + target +
+                                      "; pass --signing-profile <id>.");
+            signing[target] = Json::object();
+            for (auto it = selected->begin(); it != selected->end(); ++it)
+                if (it.key() != "id" && it.key() != "label" && it.key() != "target")
+                    signing[target][it.key()] = it.value();
+        }
     }
-    if (config.contains("templateRoots") && !config.at("templateRoots").empty())
-        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/config/templateRoots",
-                    "Native export does not yet support alternate template registry roots.", 70);
-    if (config.contains("toolchains") && !config.at("toolchains").empty())
-        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/config/toolchains",
-                    "Native export does not yet apply explicitly configured toolchain paths.", 70);
-    if (!options.signing_profile.empty())
-        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/signingProfile",
-                    "Native export does not yet resolve named user signing profiles.", 70);
-    if (options.sign) {
-        const auto signing = config.value("signing", Json::object());
+    // Native Windows uses no external toolchains. Android builds consume the
+    // selected SDK/JDK/CMake paths in #568; this shared preflight now accepts
+    // and validates the fields without claiming that unsigned Windows needs
+    // or executes them. No target exporter may report signed output until it
+    // actually consumes and verifies these selected credentials.
+    (void)toolchains;
+    if (signing_requested) {
         if (!signing.contains(profile->value("target", "")))
             return fail("platform.signing_profile_required", "/signingProfile",
                         "Selected target has no configured signing credentials.");
         return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/signingProfile",
-                    "Configured native platform signing is not yet implemented.", 70);
+                    "Signing profile resolved, but the target-specific native signing and "
+                    "verification pipeline is not yet implemented.",
+                    70);
     }
 
     // Validate the whole output path BEFORE either acquiring ownership or
