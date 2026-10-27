@@ -1168,6 +1168,7 @@ struct ExportOptions {
     bool check = false;
     bool force = false;
     bool sign = false;
+    bool dmg = false;
     bool allow_untrusted = false;
     bool allow_identity_change = false;
     bool allow_localization_warnings = false;
@@ -1199,6 +1200,8 @@ ExportOptions parse_export_options(const std::vector<std::string>& command)
             options.force = true;
         } else if (option == "--sign") {
             options.sign = true;
+        } else if (option == "--dmg") {
+            options.dmg = true;
         } else if (option == "--allow-untrusted-template") {
             options.allow_untrusted = true;
         } else if (option == "--allow-identity-change") {
@@ -1358,11 +1361,13 @@ std::vector<fs::path> export_artifacts(const fs::path& output, const Json& profi
         artifacts.push_back(fs::u8path(base + ".zip"));
         artifacts.push_back(fs::u8path(base + ".dmg"));
         artifacts.push_back(fs::u8path(base + "-signing-report.json"));
+        artifacts.push_back(fs::u8path(base + "-export-manifest.json"));
     }
     if (target == "windows" ||
         (profile.value("includeDebugSymbols", false) && (target == "linux" || target == "macos")))
-        artifacts.push_back(
-            fs::u8path(text(output) + (target == "linux" ? "-symbols.tar.gz" : "-symbols.zip")));
+        artifacts.push_back(fs::u8path(
+            (target == "macos" ? text(output).substr(0, text(output).size() - 4) : text(output)) +
+            (target == "linux" ? "-symbols.tar.gz" : "-symbols.zip")));
     return artifacts;
 }
 
@@ -1493,6 +1498,9 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
     Json config = Json::object();
     PlatformResolvedExportSettings settings;
     settings.signing_requested = options.sign || !options.signing_profile.empty();
+    settings.dmg_requested = options.dmg;
+    if (options.dmg && profile->value("target", "") != "macos")
+        return fail("platform-artifact-invalid", "/output", "--dmg requires a macOS profile.");
     if (!options.config.empty()) {
         try {
             config = read_json(fs::absolute(fs::u8path(options.config)));

@@ -504,6 +504,11 @@ jobs:
       - name: Certify native CLI platform preflight and publication parity
         run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
 
+      - name: Certify cross-host native macOS bundle assembly and publication recovery
+        run: |
+          cmake --build --preset linux-authoring-release --target noveltea-cli-macos-export-certify noveltea-cli-platform-publication-certify
+          ctest --test-dir build/linux-authoring-release --output-on-failure -R '^native_cli_(macos_export|platform_publication)$'
+
       - name: Certify native CLI Test and Runtime Package candidates
         run: |
           node editor/scripts/certify-native-cli-tests.mjs "$PWD/build/cli/linux/noveltea"
@@ -868,12 +873,12 @@ jobs:
       # TypeScript host CLI or a cross-host PE writer compiled on Linux.
       - name: Build native Windows platform exporter certification targets
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-native-cli noveltea-cli-windows-pe-certify noveltea-cli-platform-publication-certify
+        run: cmake --build --preset windows-release --target noveltea-native-cli noveltea-cli-windows-pe-certify noveltea-cli-platform-publication-certify noveltea-cli-macos-export-certify
 
       - name: Certify native Windows platform exports and publication recovery
         shell: pwsh
         run: |
-          ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(windows_pe_resources|platform_publication|platform_commands|public_contract)$'
+          ctest --test-dir build/windows-release --output-on-failure -R '^native_cli_(windows_pe_resources|platform_publication|platform_commands|public_contract|macos_export)$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Set up Node.js for native release-template generation

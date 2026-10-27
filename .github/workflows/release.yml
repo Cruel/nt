@@ -719,6 +719,25 @@ jobs:
           NOVELTEA_CLI: ${{ github.workspace }}/build/cli/macos/noveltea
         run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
+      - name: Certify native C++ macOS exporter with release template and actual app launch
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/native_cli/macos_release_smoke.py \
+            "$PWD/build/cli/macos/noveltea" \
+            "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-macos-arm64-release.tar.gz" \
+            "$PWD" \
+            "$PWD/dist/noveltea-native-macos-release-certification.json"
+
+      - name: Upload native macOS export/launch qualification evidence
+        if: matrix.platform == 'macos' && always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-native-macos-export-${{ env.RELEASE_TAG }}
+          path: dist/noveltea-native-macos-release-certification.json
+          if-no-files-found: warn
+
       - name: Generate desktop platform certification report
         shell: pwsh
         run: |

@@ -41,6 +41,7 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_comfyui_http.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_media.cpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_media.hpp"
+    "${SOURCE_ROOT}/tools/editor_tool/native_cli_macho.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform.cpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_platform_stage.cpp"
