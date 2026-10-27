@@ -668,14 +668,41 @@ validate_native_platform_export_settings(const PlatformResolvedExportSettings& s
         return invalid;
     }
     if (settings.signing_requested) {
+        const auto target = profile.value("target", "");
         auto unavailable =
-            !settings.signing.contains(profile.value("target", ""))
+            !settings.signing.contains(target)
                 ? failure("platform.signing_profile_required",
                           "No signing state was resolved for the selected target.")
                 : failure("CLI_NATIVE_CANDIDATE_UNCLAIMED",
                           "Target-specific native signing and post-signing verification are not "
                           "implemented.",
                           70);
+        if (target == "windows" && settings.signing.contains("windows")) {
+            const auto& signer = settings.signing.at("windows");
+            bool valid = signer.is_object();
+            for (const char* name : {"command", "verifyCommand"})
+                valid = valid && signer.contains(name) && signer.at(name).is_string() &&
+                        !signer.at(name).get_ref<const std::string&>().empty();
+            for (const char* name : {"args", "verifyArgs"}) {
+                if (!valid || !signer.contains(name) || !signer.at(name).is_array()) {
+                    valid = false;
+                    break;
+                }
+                const auto& arguments = signer.at(name);
+                valid = std::any_of(arguments.begin(), arguments.end(), [](const Json& argument) {
+                    return argument.is_string() && argument.get_ref<const std::string&>().find(
+                                                       "{subject}") != std::string::npos;
+                });
+            }
+            if (!valid) {
+                auto invalid = failure("platform.signing_configuration_invalid",
+                                       "Windows signing and verification must each specify a "
+                                       "command and the {subject} argument.");
+                invalid.envelope["diagnostics"][0]["path"] = "/signingProfile";
+                return invalid;
+            }
+            return std::nullopt;
+        }
         unavailable.envelope["diagnostics"][0]["path"] = "/signingProfile";
         return unavailable;
     }
@@ -910,9 +937,9 @@ PlatformCliResult stage_native_platform_export(
                                "Windows template has an unresolved import: " + name);
         }
         std::string player_path;
-        const std::set<std::string> generated_names{"game.ntpkg", "icons/windows/app.ico",
-                                                    "WINDOWS_METADATA.json", "player.json",
-                                                    "export-manifest.json"};
+        const std::set<std::string> generated_names{
+            "game.ntpkg",  "icons/windows/app.ico", "WINDOWS_METADATA.json",
+            "player.json", "SIGNING_REPORT.json",   "export-manifest.json"};
         std::set<std::string> names;
         if (tools.progress)
             tools.progress("staging", "Staging player, package, assets and dependencies");
@@ -999,6 +1026,103 @@ PlatformCliResult stage_native_platform_export(
             return failure("platform-template-player", "Staged player entry is missing.");
         *player_entry = track_file(stage, exe_target, "template", "template:" + player_path,
                                    player_entry->mode);
+        Json signing_subjects = Json::array();
+        bool signtool_timestamp_verified = false;
+        if (settings.signing_requested) {
+            const auto& signer = settings.signing.at("windows");
+            if (!signer.is_object() || !signer.contains("command") ||
+                !signer.at("command").is_string() ||
+                signer.at("command").get<std::string>().empty() ||
+                !signer.contains("verifyCommand") || !signer.at("verifyCommand").is_string() ||
+                signer.at("verifyCommand").get<std::string>().empty() || !signer.contains("args") ||
+                !signer.at("args").is_array() || !signer.contains("verifyArgs") ||
+                !signer.at("verifyArgs").is_array())
+                return failure("platform.signing_configuration_invalid",
+                               "Windows signing configuration is incomplete.");
+            for (const char* field : {"args", "verifyArgs"}) {
+                const auto& arguments = signer.at(field);
+                if (!std::any_of(arguments.begin(), arguments.end(), [](const Json& argument) {
+                        return argument.is_string() && argument.get_ref<const std::string&>().find(
+                                                           "{subject}") != std::string::npos;
+                    }))
+                    return failure("platform.signing_configuration_invalid",
+                                   "Windows signing and verification must each identify the "
+                                   "specific {subject} binary.");
+            }
+            if (!tools.run_signing_command)
+                return failure("CLI_INTERNAL", "Native signing command executor is missing.", 70);
+            std::vector<FileEntry*> signables;
+            for (auto& file : files) {
+                auto name = file.path;
+                std::transform(name.begin(), name.end(), name.begin(), [](unsigned char ch) {
+                    return static_cast<char>(std::tolower(ch));
+                });
+                if (name.ends_with(".exe") || name.ends_with(".dll"))
+                    signables.push_back(&file);
+            }
+            std::sort(signables.begin(), signables.end(), [](const auto* lhs, const auto* rhs) {
+                const bool a_exe = fs::path(lhs->path).extension() == ".exe";
+                const bool b_exe = fs::path(rhs->path).extension() == ".exe";
+                return a_exe != b_exe ? b_exe : lhs->path < rhs->path;
+            });
+            if (std::none_of(signables.begin(), signables.end(),
+                             [&](const auto* file) { return file->path == exe_target; }))
+                return failure("platform.signing_configuration_invalid",
+                               "The Windows executable is not an available signing subject.");
+            const auto executable = path_text(player_target);
+            const auto stage_path = path_text(stage);
+            const auto verifier_name =
+                fs::u8path(signer.at("verifyCommand").get<std::string>()).filename().string();
+            const auto is_signtool = verifier_name == "signtool" ||
+                                     verifier_name == "signtool.exe" ||
+                                     verifier_name == "SignTool.exe";
+            const auto& verifier_args = signer.at("verifyArgs");
+            signtool_timestamp_verified =
+                is_signtool &&
+                std::any_of(verifier_args.begin(), verifier_args.end(), [](const Json& arg) {
+                    return arg.is_string() &&
+                           (arg.get<std::string>() == "/tw" || arg.get<std::string>() == "/TW");
+                });
+            for (auto* file : signables) {
+                check_cancellation(tools);
+                const auto subject = path_text(safe_child(stage, file->path));
+                const auto expand = [&](const Json& configured) {
+                    std::vector<std::string> arguments;
+                    for (const auto& argument : configured) {
+                        if (!argument.is_string())
+                            throw std::runtime_error("Invalid Windows signing argument.");
+                        auto value = argument.get<std::string>();
+                        for (const auto& [token, replacement] :
+                             std::array<std::pair<std::string_view, std::string_view>, 3>{
+                                 {{"{subject}", subject},
+                                  {"{executable}", executable},
+                                  {"{stage}", stage_path}}}) {
+                            std::size_t position = 0;
+                            while ((position = value.find(token, position)) != std::string::npos) {
+                                value.replace(position, token.size(), replacement);
+                                position += replacement.size();
+                            }
+                        }
+                        arguments.push_back(std::move(value));
+                    }
+                    return arguments;
+                };
+                if (tools.progress)
+                    tools.progress("signing",
+                                   "Signing and verifying Windows distribution binaries");
+                if (!tools.run_signing_command(signer.at("command").get<std::string>(),
+                                               expand(signer.at("args")), stage))
+                    return failure("platform.signing_failed",
+                                   "The configured Windows signing command failed.");
+                check_cancellation(tools);
+                if (!tools.run_signing_command(signer.at("verifyCommand").get<std::string>(),
+                                               expand(signer.at("verifyArgs")), stage))
+                    return failure("platform.signature_verification_failed",
+                                   "Independent verification of a signed Windows binary failed.");
+                *file = track_file(stage, file->path, file->origin, file->origin_id, file->mode);
+                signing_subjects.push_back({{"path", file->path}, {"sha256", file->sha256}});
+            }
+        }
         write_file(stage / "WINDOWS_METADATA.json",
                    Json{{"applicationId", app_id},
                         {"executable", exe_target},
@@ -1006,11 +1130,28 @@ PlatformCliResult stage_native_platform_export(
                         {"resourceMutationComplete", true},
                         {"signingBoundary",
                          "No executable or DLL mutation is permitted after this point."},
-                        {"signingCommandHook", {{"supported", true}, {"configured", false}}}}
+                        {"signingCommandHook",
+                         {{"supported", true}, {"configured", settings.signing_requested}}}}
                            .dump(2) +
                        '\n');
         files.push_back(track_file(stage, "WINDOWS_METADATA.json", "generated-metadata",
                                    "windows-metadata", 0644));
+        if (settings.signing_requested) {
+            write_file(
+                stage / "SIGNING_REPORT.json",
+                Json{{"format", "noveltea.signing-report"},
+                     {"platform", "windows"},
+                     {"templateBuildId", descriptor.at("buildId")},
+                     {"gamePackageSha256", package_sha},
+                     {"signed", true},
+                     {"verified", true},
+                     {"timestamped", signtool_timestamp_verified ? Json(true) : Json(nullptr)},
+                     {"subjects", signing_subjects}}
+                        .dump(2) +
+                    '\n');
+            files.push_back(track_file(stage, "SIGNING_REPORT.json", "signing-report",
+                                       "windows-signing", 0644));
+        }
 
         // Asset-memory policy values must match the public platform contract.
         // A custom policy is blocked until native policy resolution is ported.
@@ -1211,8 +1352,8 @@ PlatformCliResult stage_native_platform_export(
                       {"archivePath", path_text(archive_path)},
                       {"templateToken", descriptor.at("templateId").get<std::string>() + "@" +
                                             descriptor.at("buildId").get<std::string>()},
-                      {"signingRequested", false},
-                      {"signingApplied", false},
+                      {"signingRequested", settings.signing_requested},
+                      {"signingApplied", settings.signing_requested},
                       {"cancelled", false},
                       {"artifacts", std::move(artifacts)},
                       {"deployment", deployment}};

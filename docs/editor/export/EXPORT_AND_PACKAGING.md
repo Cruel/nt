@@ -276,14 +276,22 @@ missing, and ambiguous signers have `platform.signing_profile_required` diagnost
 generic unsupported errors. The `templateRoots` field is parsed but does not override the installed
 template registry, matching the existing TypeScript headless CLI. Configured toolchain fields are
 retained for target-specific exporters; an unrelated Android/JDK toolchain setting must not prevent
-unsigned Windows/Web preflight. Actual signed publication and post-signing readback remain deliberately
-unsupported until the Windows, macOS and Android exporter tickets (#564/#567/#568) provide verified
-execution. Resolved signing requests currently fail explicitly rather than reporting signed success.
+unsigned Windows/Web preflight. Native Windows export now executes its configured signing and
+independent verification commands using an argv-only host subprocess (no shell interpolation),
+expanding `{subject}`, `{executable}`, and `{stage}` placeholders. Signable DLLs are processed
+before the EXE, after PE resources have been finalized. Signed hashes are tracked in the
+distribution manifest and separate `SIGNING_REPORT.json`, with complete archive/publication
+readback and rollback on failure. A failed verification never replaces a previous output.
+macOS and Android signing remain owned by #567/#568 and fail explicitly until implemented.
 The common native staging boundary now receives the entire validated
 `PlatformResolvedExportSettings` (toolchains, target-keyed signer configuration and signing intent),
-not just an implicit unsigned choice. It fails closed on requested signing before creating staged
-artifacts until target-specific signing and post-signing verification are implemented; target
-exporters can use the resolved options without rereading machine/user settings.
+not just an implicit unsigned choice. Target exporters use the resolved options without rereading
+machine/user settings. Unknown or incomplete signing configuration fails closed. The Windows
+`timestamped` report field is `true` only when the configured verifier is SignTool with `/tw`,
+successfully verifies each signed file, and emits no warning; other verifier commands report
+`null` rather than claiming unproven timestamp evidence. Signed release certification still
+requires a trusted signing identity and timestamp authority; synthetic signer tests are not
+evidence of an Authenticode-trusted release.
 The native CLI stores successful-export identity
 in the ignored `.noveltea/editor/platform-export-identity.json` sidecar instead of replacing the
 editor-owned `state.json` (which contains live recovery and draft data). On editor Open, the latest

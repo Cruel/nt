@@ -229,7 +229,8 @@ std::wstring quote(const std::wstring& arg)
 
 // Invoke only the existing host archive tools. Never interpolate archive names
 // into a shell; the input is an arbitrary user-controlled filesystem path.
-ProcessResult run_archive_tool(const std::string& program, const std::vector<std::string>& args)
+ProcessResult run_archive_tool(const std::string& program, const std::vector<std::string>& args,
+                               const fs::path& directory = {})
 {
 #if defined(_WIN32)
     SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
@@ -248,8 +249,10 @@ ProcessResult run_archive_tool(const std::string& program, const std::vector<std
     for (const auto& arg : args)
         command += L" " + quote(fs::u8path(arg).wstring());
     PROCESS_INFORMATION process{};
-    const auto launched = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
-                                         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+    const auto cwd = directory.empty() ? std::wstring{} : directory.wstring();
+    const auto launched =
+        CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                       cwd.empty() ? nullptr : cwd.c_str(), &startup, &process);
     CloseHandle(write_pipe);
     if (!launched) {
         CloseHandle(read_pipe);
@@ -283,6 +286,8 @@ ProcessResult run_archive_tool(const std::string& program, const std::vector<std
         throw std::runtime_error("Could not launch archive tool.");
     }
     if (pid == 0) {
+        if (!directory.empty() && chdir(directory.c_str()) != 0)
+            _exit(127);
         close(pipe_fd[0]);
         dup2(pipe_fd[1], STDOUT_FILENO);
         dup2(pipe_fd[1], STDERR_FILENO);
@@ -1695,6 +1700,37 @@ PlatformCliResult run_native_platform_cli(const std::vector<std::string>& comman
                                           const std::function<Json(const Json&)>& project_request,
                                           const PlatformExportTools& export_tools)
 {
+    // Reuse the already-admitted host process boundary for signing; neither
+    // the platform stage nor the signing configuration may invoke a shell.
+    auto configured_tools = export_tools;
+    configured_tools.run_signing_command = [](const std::string& program,
+                                              const std::vector<std::string>& arguments,
+                                              const fs::path& directory) {
+        const auto launched = run_archive_tool(program, arguments, directory);
+        if (launched.code != 0)
+            return false;
+        auto name = fs::u8path(program).filename().string();
+        std::transform(name.begin(), name.end(), name.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+        // SignTool /tw emits a warning, sometimes with exit status 0, if the
+        // signature has no timestamp. Never certify a timestamp on warning.
+        if (name == "signtool" || name == "signtool.exe") {
+            const bool timestamp_check =
+                std::any_of(arguments.begin(), arguments.end(), [](const auto& argument) {
+                    return argument == "/tw" || argument == "/TW";
+                });
+            if (timestamp_check) {
+                auto output = launched.output;
+                std::transform(output.begin(), output.end(), output.begin(), [](unsigned char ch) {
+                    return static_cast<char>(std::tolower(ch));
+                });
+                if (output.find("warning") != std::string::npos ||
+                    output.find("not timestamped") != std::string::npos)
+                    return false;
+            }
+        }
+        return true;
+    };
     if (command.size() < 2)
         throw std::invalid_argument("Unknown platform command.");
     if (command[1] == "profiles") {
@@ -1702,7 +1738,7 @@ PlatformCliResult run_native_platform_cli(const std::vector<std::string>& comman
         return platform_profiles(root, project_request);
     }
     if (command[1] == "export")
-        return export_preflight(command, root, project_request, export_tools);
+        return export_preflight(command, root, project_request, configured_tools);
     if (command[1] != "template" && command[1] != "config")
         return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/",
                     "Command is not implemented by the direct C++ CLI candidate.", 70);
