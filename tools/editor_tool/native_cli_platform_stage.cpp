@@ -1,5 +1,6 @@
 #include "native_cli_platform_stage.hpp"
 
+#include "native_cli_web_shell.hpp"
 #include "native_cli_windows_pe.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
@@ -655,6 +656,464 @@ PlatformCliResult failure(std::string code, std::string message, int exit = 4)
             std::move(message)};
 }
 
+PlatformCliResult stage_web_export(const Json& admission, const Json& profile,
+                                   const Json& descriptor, const fs::path& template_directory,
+                                   const fs::path& icon_source, const fs::path& destination,
+                                   bool force, bool allow_localization_warnings,
+                                   bool include_unused_assets, bool include_shader_sources,
+                                   const PlatformPublicationLock& lock,
+                                   const PlatformExportTools& tools,
+                                   const std::function<bool()>& source_current)
+{
+    if (lock.destination() != destination)
+        return failure("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT",
+                       "Web publication requires exclusive output ownership.", 5);
+    if (!tools.prepare_package || !tools.create_archive || !tools.resize_image ||
+        !tools.physical_sources_current)
+        return failure("CLI_INTERNAL", "Native Web export tools are unavailable.", 70);
+    try {
+        check_cancellation(tools);
+        if (!source_current())
+            return failure("WORKSPACE_REVISION_CONFLICT", "Web sources changed.", 5);
+        const auto& app = admission.at("project").at("settings").at("app");
+        const auto& web = profile.at("web");
+        const auto& base = web.at("basePath").get_ref<const std::string&>();
+        if (base.empty() || base.front() != '/' || base.back() != '/' ||
+            base.find("//") != std::string::npos || base.find("..") != std::string::npos ||
+            base.find_first_of("\"<>\\?#") != std::string::npos)
+            return failure("platform-web-base-path", "Web base path is not safe for deployment.");
+        if (web.value("artifact", "") != "directory-zip")
+            return failure("CLI_NATIVE_CANDIDATE_UNCLAIMED",
+                           "Native Web exporter requires directory-zip output.", 70);
+        const auto app_id = app.at("applicationId").get<std::string>();
+        const auto app_name = app.at("displayName").get<std::string>();
+        const auto version = app.at("versionName").get<std::string>();
+        const auto save_namespace = app.at("saveNamespace").get<std::string>();
+        const auto icon_sha = digest(read_file(icon_source));
+        const auto descriptor_sha = digest(read_file(template_directory / "template.json"));
+        const auto registry_sha = digest(read_file(template_directory / ".noveltea-template.json"));
+        if (Json::parse(read_file(template_directory / "template.json")) != descriptor)
+            return failure("platform-template-changed", "Web template changed after preflight.", 5);
+
+        const auto nonce = random_nonce();
+        const auto archive_path = fs::u8path(path_text(destination) + ".zip");
+        const std::vector<PublicationEntry> entries{
+            {destination, fs::u8path(path_text(destination) + ".stage-" + nonce),
+             fs::u8path(path_text(destination) + ".previous-" + nonce),
+             fs::exists(fs::symlink_status(destination))},
+            {archive_path, fs::u8path(path_text(archive_path) + ".stage-" + nonce),
+             fs::u8path(path_text(archive_path) + ".previous-" + nonce),
+             fs::exists(fs::symlink_status(archive_path))}};
+        for (const auto& entry : entries)
+            if (fs::exists(fs::symlink_status(entry.stage)) ||
+                fs::exists(fs::symlink_status(entry.previous)) ||
+                fs::is_symlink(fs::symlink_status(entry.final)) || (entry.had_previous && !force))
+                return failure("platform-output-exists", "Web staging or output path is unsafe.");
+        fs::create_directories(destination.parent_path());
+        Staging cleanup(entries, journal_path(destination));
+        fs::create_directory(entries.front().stage);
+        const auto& stage = entries.front().stage;
+        Json native_profile = admission.at("profile");
+        native_profile["shaderVariants"] = Json::array({"essl-300"});
+        native_profile["localization"] = profile.at("localization");
+        native_profile["excludeUnusedAssets"] =
+            include_unused_assets ? false : profile.value("excludeUnusedAssets", true);
+        native_profile["includeShaderSources"] =
+            include_shader_sources || profile.value("includeShaderSources", false);
+        native_profile["stripShaderSources"] =
+            !native_profile.at("includeShaderSources").get<bool>();
+        if (tools.progress)
+            tools.progress("writing-package", "Preparing native Web runtime package (essl-300)");
+        const auto packaged =
+            tools.prepare_package(admission, native_profile, stage / "game.ntpkg");
+        check_cancellation(tools);
+        if (!packaged.value("ok", false))
+            return failure(packaged.value("code", "native.platform.package"),
+                           packaged.value("error", "Web runtime package failed."),
+                           packaged.value("code", "") == "WORKSPACE_REVISION_CONFLICT" ? 5 : 6);
+        const auto& artifact = packaged.at("artifact");
+        if (!artifact.contains("compiledProject") ||
+            artifact.at("packageOptions").value("kind", "") != "runtime")
+            return failure("native.runtime.artifact", "Native Web runtime evidence is invalid.", 6);
+        const auto& package_options = artifact.at("packageOptions");
+        for (const auto& finding : artifact.value("diagnostics", Json::array()))
+            if (finding.value("severity", "") == "warning" &&
+                finding.value("code", std::string{}).starts_with("localization.export.") &&
+                !allow_localization_warnings)
+                return failure("localization.export.warning_override_required",
+                               "Localization warnings require --allow-localization-warnings.");
+
+        std::vector<FileEntry> files;
+        files.push_back(track_file(stage, "game.ntpkg", "runtime-package", "game.ntpkg", 0644));
+        const auto package_sha = files.back().sha256;
+        const std::set<std::string> reserved{
+            "game.ntpkg",        "player.json",   "index.html",          "manifest.webmanifest",
+            "service-worker.js", "DEPLOYMENT.md", "export-manifest.json"};
+        std::set<std::string> names;
+        std::map<std::string, std::string> dependency_origins;
+        for (const auto& dependency : descriptor.at("runtimeDependencies")) {
+            const auto kind = dependency.value("kind", "");
+            dependency_origins[dependency.at("path").get<std::string>()] =
+                kind == "notice"    ? "notice"
+                : kind == "library" ? "native-dependency"
+                                    : "system-asset";
+        }
+        if (tools.progress)
+            tools.progress("staging", "Copying and verifying Web player and template dependencies");
+        for (const auto& declared : descriptor.at("files")) {
+            check_cancellation(tools);
+            const auto name = declared.at("path").get<std::string>();
+            if (!names.insert(name).second || reserved.contains(name) ||
+                name.starts_with("icons/web/"))
+                return failure("platform-template-collision",
+                               "Web template collides with an output: " + name);
+            const auto source = safe_child(template_directory, name);
+            if (!fs::is_regular_file(fs::symlink_status(source)) ||
+                fs::file_size(source) != declared.at("size").get<std::uint64_t>() ||
+                digest(read_file(source)) != declared.at("sha256").get<std::string>())
+                return failure("invalid-installed-template", "Web template file changed: " + name,
+                               5);
+            copy_verified_file(source, safe_child(stage, name));
+            const auto mode = declared.at("mode").get<std::uint32_t>();
+            const auto origin_it = dependency_origins.find(name);
+            const auto origin =
+                origin_it == dependency_origins.end() ? "template" : origin_it->second;
+            files.push_back(track_file(stage, name, origin,
+                                       "template:" + descriptor.at("templateId").get<std::string>(),
+                                       mode));
+            if (files.back().sha256 != declared.at("sha256").get<std::string>())
+                return failure("invalid-installed-template", "Web template copy changed.", 5);
+            if (name.starts_with("licenses/")) {
+                const auto mounted = "assets/system/" + name;
+                if (!names.insert(mounted).second)
+                    return failure("platform-template-collision", "Web system licenses collide.");
+                copy_verified_file(source, safe_child(stage, mounted));
+                files.push_back(track_file(stage, mounted, "system-asset", name, mode));
+            }
+        }
+        // Browser loading uses stable well-known filenames only as Emscripten
+        // lookup keys; downloaded paths are content-addressed at the root.
+        auto hash_asset = [&](FileEntry& entry) {
+            const auto source = safe_child(stage, entry.path);
+            const auto extension = source.extension().string();
+            const auto filename =
+                source.stem().string() + "." + entry.sha256.substr(0, 16) + extension;
+            const auto target = safe_child(stage, filename);
+            if (fs::exists(fs::symlink_status(target)))
+                throw std::runtime_error(
+                    "Web content-addressed asset collides with a template file.");
+            fs::rename(source, target);
+            entry.path = filename;
+        };
+        std::array<std::string, 3> runtime_names{"player.js", "player.wasm", "player.data"};
+        std::array<std::string, 3> hashed_runtime{};
+        for (std::size_t index = 0; index < runtime_names.size(); ++index) {
+            auto found = std::find_if(files.begin(), files.end(), [&](const FileEntry& file) {
+                return file.path == runtime_names[index] ||
+                       path_text(fs::u8path(file.path).filename()) == runtime_names[index];
+            });
+            if (found == files.end() || found->origin == "runtime-package")
+                return failure("platform-template-player",
+                               "Web template lacks " + runtime_names[index]);
+            hash_asset(*found);
+            hashed_runtime[index] = found->path;
+        }
+        hash_asset(files.front());
+        const auto package_path = files.front().path;
+        const std::string template_id = descriptor.at("templateId").get<std::string>();
+        if (tools.progress)
+            tools.progress("generating-metadata",
+                           "Generating Web icons, manifest and browser shell");
+        std::vector<std::pair<unsigned, std::string>> favicon_images;
+        Json web_icons = Json::array();
+        std::vector<std::string> icon_names;
+        for (const unsigned size : {16u, 32u, 180u, 192u, 512u}) {
+            check_cancellation(tools);
+            const auto temporary = stage / (".web-icon-" + std::to_string(size) + ".png");
+            const auto resized = tools.resize_image({{"sourcePath", path_text(icon_source)},
+                                                     {"outputPath", path_text(temporary)},
+                                                     {"size", size}});
+            if (!resized.value("ok", false))
+                return failure("platform-icon-generation",
+                               resized.value("error", "Web icon resize failed."));
+            const auto bytes = read_file(temporary);
+            fs::remove(temporary);
+            if (size == 16 || size == 32)
+                favicon_images.emplace_back(size, bytes);
+            const auto name = "icons/web/icons/icon-" + std::to_string(size) + "." +
+                              digest(bytes).substr(0, 16) + ".png";
+            write_file(safe_child(stage, name), bytes);
+            files.push_back(track_file(stage, name, "icon", "web-icon", 0644));
+            icon_names.push_back(name);
+            if (size == 192 || size == 512)
+                web_icons.push_back({{"src", base + name},
+                                     {"sizes", std::to_string(size) + "x" + std::to_string(size)},
+                                     {"type", "image/png"},
+                                     {"purpose", "any maskable"}});
+        }
+        const auto ico = make_ico(favicon_images);
+        const auto favicon = "icons/web/favicon." + digest(ico).substr(0, 16) + ".ico";
+        write_file(safe_child(stage, favicon), ico);
+        files.push_back(track_file(stage, favicon, "icon", "web-favicon", 0644));
+        icon_names.push_back(favicon);
+
+        const auto& memory = profile.at("assetMemory");
+        if (memory.value("kind", "") != "builtin")
+            return failure("platform-asset-memory-policy",
+                           "Native Web export does not yet support custom asset memory policies.",
+                           70);
+        const auto preset = memory.at("preset").get<std::string>();
+        const std::map<std::string, std::array<std::uint64_t, 7>> baselines{
+            {"low", {67108864, 671088640, 33554432, 33554432, 13421772, 536870912, 6710886}},
+            {"balanced",
+             {134217728, 1342177280, 67108864, 67108864, 40265318, 1073741824, 20132659}},
+            {"high",
+             {268435456, 2684354560, 134217728, 134217728, 107374182, 2147483648, 53687091}}};
+        if (!baselines.contains(preset))
+            return failure("platform-asset-memory-policy", "Unknown Web memory preset.");
+        const auto& amounts = baselines.at(preset);
+        Json asset_memory{{"preset", preset},
+                          {"preparedCpuBytes", amounts[0]},
+                          {"gpuBytes", amounts[1]},
+                          {"audioBytes", amounts[2]},
+                          {"temporaryBytes", amounts[3]},
+                          {"warmPreparedCpuBytes", amounts[4]},
+                          {"warmGpuBytes", amounts[5]},
+                          {"warmAudioBytes", amounts[6]}};
+        const auto& raw_display = package_options.at("display");
+        const auto& raw_accessibility = package_options.at("accessibility");
+        Json display{{"referenceResolution", raw_display.at("reference_resolution")},
+                     {"worldRasterPolicy", raw_display.at("world_raster_policy")},
+                     {"barColor", raw_display.at("bar_color")}};
+        Json accessibility{{"uiScale", raw_accessibility.at("ui_scale")},
+                           {"textScale", raw_accessibility.at("text_scale")}};
+        Json player{{"format", "noveltea.player-config"},
+                    {"formatVersion", 1},
+                    {"displayName", app_name},
+                    {"applicationId", app_id},
+                    {"saveNamespace", save_namespace},
+                    {"versionName", version},
+                    {"package", {{"path", package_path}, {"sha256", package_sha}}},
+                    {"capabilities", Json::array({"external-url"})},
+                    {"display", display},
+                    {"accessibility", accessibility},
+                    {"assetMemory", asset_memory}};
+        if (app.contains("defaultLocale") && app.at("defaultLocale").is_string())
+            player["defaultLocale"] = app.at("defaultLocale");
+        write_file(stage / "player.json", player.dump(2) + '\n');
+        files.push_back(
+            track_file(stage, "player.json", "generated-metadata", "player-config", 0644));
+        const auto& resolution = display.at("referenceResolution");
+        const auto width = resolution.at("width").get<int>();
+        const auto height = resolution.at("height").get<int>();
+        if (width <= 0 || height <= 0)
+            return failure("platform-runtime-display", "Web display resolution is invalid.");
+        const auto divisor = std::gcd(width, height);
+        Json geometry{{"aspectRatio", {{"width", width / divisor}, {"height", height / divisor}}},
+                      {"orientation", width >= height ? "landscape" : "portrait"},
+                      {"barColor", display.at("barColor")}};
+        const auto orientation = width >= height ? "landscape" : "portrait";
+        const auto optional_string = [&](const Json& owner, std::string_view key,
+                                         std::string fallback) {
+            const auto it = owner.find(std::string(key));
+            return it != owner.end() && it->is_string() ? it->get<std::string>() : fallback;
+        };
+        const auto locale = optional_string(app, "defaultLocale", "en");
+        const auto theme = optional_string(app, "themeColor", "#111827");
+        const auto background = optional_string(app, "launchBackgroundColor", "#000000");
+        auto encoded_id = app_id;
+        for (auto& character : encoded_id)
+            if (character == ' ')
+                character = '_';
+        Json manifest{{"id", optional_string(app.at("web"), "manifestId", "/" + encoded_id)},
+                      {"name", app_name},
+                      {"short_name", optional_string(app, "shortName", app_name)},
+                      {"start_url", base},
+                      {"scope", base},
+                      {"display", web.at("display")},
+                      {"orientation", orientation},
+                      {"theme_color", theme},
+                      {"background_color", background},
+                      {"icons", web_icons}};
+        if (app.contains("defaultLocale") && app.at("defaultLocale").is_string())
+            manifest["lang"] = app.at("defaultLocale");
+        write_file(stage / "manifest.webmanifest", manifest.dump(2) + '\n');
+        files.push_back(
+            track_file(stage, "manifest.webmanifest", "web-manifest", "web-manifest", 0644));
+
+        std::vector<std::string> immutable{hashed_runtime[0], hashed_runtime[1], hashed_runtime[2],
+                                           package_path};
+        for (const auto& file : files)
+            if (file.path.starts_with("assets/system/licenses/"))
+                immutable.push_back(file.path);
+        immutable.insert(immutable.end(), icon_names.begin(), icon_names.end());
+        std::string concatenated;
+        for (const auto& path : immutable) {
+            const auto it = std::find_if(files.begin(), files.end(),
+                                         [&](const FileEntry& file) { return file.path == path; });
+            if (it == files.end())
+                throw std::runtime_error("Web offline asset inventory is incomplete.");
+            concatenated += it->sha256;
+        }
+        const auto offline = web.value("pwa", false) && web.value("serviceWorker", "") == "offline";
+        if (offline) {
+            std::string prefix = "noveltea-" + app_id + "-";
+            for (auto& character : prefix)
+                if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' &&
+                    character != '.' && character != '-')
+                    character = '_';
+            Json assets =
+                Json::array({"./", "./index.html", "./player.json", "./manifest.webmanifest"});
+            for (const auto& path : immutable)
+                assets.push_back("./" + path);
+            std::string worker =
+                "const CACHE = " + web_shell_json(prefix + digest(concatenated).substr(0, 20)) +
+                ";\nconst PREFIX = " + web_shell_json(prefix) +
+                ";\nconst ASSETS = " + assets.dump() + ";\n" +
+                "self.addEventListener('install', event => "
+                "event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)).then(() => "
+                "self.skipWaiting())));\n"
+                "self.addEventListener('activate', event => "
+                "event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => "
+                "key.startsWith(PREFIX) && key !== CACHE).map(key => caches.delete(key)))).then(() "
+                "=> self.clients.claim())));\n"
+                "self.addEventListener('fetch', event => { if (event.request.method === 'GET') "
+                "event.respondWith(caches.match(event.request).then(hit => hit || "
+                "fetch(event.request))); });\n";
+            write_file(stage / "service-worker.js", worker);
+            files.push_back(track_file(stage, "service-worker.js", "web-service-worker",
+                                       "service-worker", 0644));
+        }
+        write_file(stage / "index.html",
+                   web_player_shell(app_name, locale, theme, background, base, favicon,
+                                    hashed_runtime[0], hashed_runtime[1], hashed_runtime[2],
+                                    offline));
+        files.push_back(track_file(stage, "index.html", "web-shell", "web-shell", 0644));
+        std::string deployment =
+            "# Web deployment\n\nServe this directory over HTTPS (localhost is also accepted by "
+            "browsers). Opening index.html through file:// is unsupported.\n\nBase path: `" +
+            base +
+            "`\n\nRequired MIME types:\n- .wasm: application/wasm\n- .js: text/javascript\n- "
+            ".ntpkg: application/octet-stream\n- .webmanifest: application/manifest+json\n\nUse "
+            "long-lived immutable caching for content-hashed .js, .wasm, .ntpkg, and icon files. "
+            "Serve index.html, player.json, and manifest.webmanifest with revalidation. Enable "
+            "Brotli or gzip compression for JavaScript and Wasm.\n\nHTTPS required: ";
+        deployment += web.value("pwa", false) ? "yes (PWA/service-worker behavior)" : "recommended";
+        deployment += "\nService worker: ";
+        deployment += offline ? "offline cache enabled" : "disabled";
+        deployment += "\nCross-origin isolation: ";
+        const auto threaded = web.value("threaded", false);
+        deployment += threaded ? "required" : "not required";
+        deployment += "\n";
+        if (threaded)
+            deployment += "Required response headers:\n- Cross-Origin-Opener-Policy: "
+                          "same-origin\n- Cross-Origin-Embedder-Policy: require-corp\n- "
+                          "Cross-Origin-Resource-Policy: same-origin\n";
+        write_file(stage / "DEPLOYMENT.md", deployment);
+        files.push_back(
+            track_file(stage, "DEPLOYMENT.md", "web-deployment", "web-deployment", 0644));
+
+        Json deployment_model{{"target", "web"},
+                              {"architecture", profile.at("architecture")},
+                              {"buildFlavor", profile.at("buildFlavor")},
+                              {"applicationId", app_id},
+                              {"displayName", app_name},
+                              {"versionName", version},
+                              {"saveNamespace", save_namespace},
+                              {"capabilities", Json::array({"external-url"})},
+                              {"capabilityMetadata",
+                               {{"androidPermissions", Json::array()},
+                                {"androidFeatures", Json::array()},
+                                {"webRequirements", Json::array({"external-navigation"})},
+                                {"desktopFeatures", Json::array()}}},
+                              {"display", geometry},
+                              {"packageAccess", profile.at("packageAccess")},
+                              {"templateId", descriptor.at("templateId")},
+                              {"buildId", descriptor.at("buildId")},
+                              {"compiledProjectFormatVersion", 1},
+                              {"playerRuntimeApiVersion", 1},
+                              {"assetMemory", asset_memory}};
+        std::sort(files.begin(), files.end(),
+                  [](const FileEntry& a, const FileEntry& b) { return a.path < b.path; });
+        Json inventory = Json::array();
+        for (const auto& file : files)
+            inventory.push_back(file.json());
+        write_file(stage / "export-manifest.json",
+                   Json{{"format", "noveltea.platform-export-manifest"},
+                        {"deployment", deployment_model},
+                        {"files", inventory}}
+                           .dump(2) +
+                       '\n');
+        files.push_back(track_file(stage, "export-manifest.json", "generated-metadata",
+                                   "export-manifest", 0644));
+        Json archive_entries = Json::array();
+        for (const auto& file : files)
+            archive_entries.push_back({{"sourcePath", path_text(safe_child(stage, file.path))},
+                                       {"archivePath", file.path},
+                                       {"size", file.size},
+                                       {"mode", file.mode}});
+        if (tools.progress)
+            tools.progress("finalizing", "Building reproducible Web distribution ZIP");
+        const auto archived =
+            tools.create_archive({{"outputPath", path_text(entries[1].stage)},
+                                  {"format", "zip"},
+                                  {"compression", profile.value("compression", "default")},
+                                  {"entries", archive_entries}});
+        check_cancellation(tools);
+        if (!archived.value("ok", false))
+            return failure("platform-archive-failed", archived.value("error", "Web ZIP failed."));
+        const auto verify_sources = [&]() {
+            if (!source_current() || !tools.physical_sources_current(package_options) ||
+                digest(read_file(icon_source)) != icon_sha)
+                throw SourceChanged("Web source generation or physical assets changed.");
+            if (digest(read_file(template_directory / "template.json")) != descriptor_sha ||
+                digest(read_file(template_directory / ".noveltea-template.json")) != registry_sha)
+                throw SourceChanged("Web template registry changed during export.");
+            for (const auto& declared : descriptor.at("files")) {
+                const auto source =
+                    safe_child(template_directory, declared.at("path").get<std::string>());
+                if (!fs::is_regular_file(fs::symlink_status(source)) ||
+                    digest(read_file(source)) != declared.at("sha256").get<std::string>())
+                    throw SourceChanged("Web player template changed during export.");
+            }
+        };
+        if (tools.progress)
+            tools.progress("verifying", "Verifying Web outputs and source freshness");
+        check_cancellation(tools);
+        verify_sources();
+        publish(destination, entries, nonce, [&]() {
+            check_cancellation(tools);
+            verify_distribution(destination, archive_path, files);
+            verify_sources();
+            check_cancellation(tools);
+        });
+        Json artifacts = Json::array({{{"kind", "directory"}, {"path", path_text(destination)}},
+                                      {{"kind", "archive"},
+                                       {"path", path_text(archive_path)},
+                                       {"size", fs::file_size(archive_path)}}});
+        return {{{"success", true},
+                 {"exitCode", 0},
+                 {"diagnostics", Json::array()},
+                 {"outputDirectory", path_text(destination)},
+                 {"archivePath", path_text(archive_path)},
+                 {"templateToken", template_id + "@" + descriptor.at("buildId").get<std::string>()},
+                 {"signingRequested", false},
+                 {"signingApplied", false},
+                 {"cancelled", false},
+                 {"artifacts", std::move(artifacts)},
+                 {"deployment", deployment_model}},
+                "Native Web platform export succeeded."};
+    } catch (const ExportCancelled& error) {
+        auto cancelled = failure("export-cancelled", error.what(), 130);
+        cancelled.envelope["cancelled"] = true;
+        return cancelled;
+    } catch (const SourceChanged& error) {
+        return failure("WORKSPACE_REVISION_CONFLICT", error.what(), 5);
+    } catch (const std::exception& error) {
+        return failure("platform-export-failed", error.what());
+    }
+}
+
 } // namespace
 
 std::optional<PlatformCliResult>
@@ -800,9 +1259,13 @@ PlatformCliResult stage_native_platform_export(
     // this guard is replaced for their respective targets.
     if (auto unavailable = validate_native_platform_export_settings(settings, profile))
         return *unavailable;
+    if (profile.value("target", "") == "web")
+        return stage_web_export(admission, profile, descriptor, template_directory, icon_source,
+                                destination, force, allow_localization_warnings,
+                                include_unused_assets, include_shader_sources, lock, tools,
+                                source_current);
     // Only enable a platform after its complete native assembly, signing,
-    // readback and publication contracts are implemented. No fake successful
-    // output for Web, Linux, macOS or Android.
+    // readback and publication contracts are implemented.
     if (profile.value("target", "") != "windows")
         return failure("CLI_NATIVE_CANDIDATE_UNCLAIMED",
                        "Native export staging for this target is not yet implemented.", 70);

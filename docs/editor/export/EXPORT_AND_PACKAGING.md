@@ -253,9 +253,26 @@ previous output. Native journal recovery first validates *all* members of a mult
 transaction before moving any of them: a missing prior backup with uncertain final-artifact
 provenance, a symlink, or a missing accepted artifact leaves the journal and remaining evidence for
 manual intervention instead of reporting recovery success. `platform export --check` inspects this
-journal without mutating output. These guarantees currently qualify the direct-native Windows
-candidate on Linux; target-specific Linux, Web, macOS, and Android native exporters and host-native
-Windows/macOS release testing remain separate certification work.
+journal without mutating output. These guarantees qualify direct-native Windows and Web publication
+on Linux. Target-specific Linux, macOS, and Android exporters and host-native Windows/macOS release
+testing remain separate certification work.
+
+Native Web export reuses the same admitted Project, verified template, physical Asset proof,
+localization gate, `essl-300` runtime preparation, and transactional directory-plus-ZIP publisher.
+The player template supplies `player.js`, `player.wasm`, and `player.data` and must declare the
+profile's matching `web-threads` or `web-single-threaded` feature. The exporter emits content-hashed
+download names (including `game.ntpkg`), a browser launch/resize shell, sized Web icons, PWA
+`manifest.webmanifest`, optional versioned offline service worker, `DEPLOYMENT.md` with hosting and
+cross-origin-isolation requirements, `player.json`, and `export-manifest.json`. The published directory
+and ZIP are read back before acceptance. `--check` performs the same admission and compatibility
+checks without writing files or recovering any previous publication journal.
+
+The release workflow certifies native Web exports using actual player template archives rather than
+only the existing TypeScript exporter: threaded/single-threaded players are exported for both `/` and
+`/nested/game/` using `tests/native_cli/web_release_smoke.py`, their ZIPs and manifests are checked,
+and the `pnpm web:certify-export` Chromium harness must observe the native player's ready marker,
+runtime-package fetch, and loaded license notices. The TypeScript production exporter remains in
+service until its separately scheduled cutover (#551).
 
 The direct-native publisher reserves a persistent sibling `.noveltea-publication.lock` with an
 exclusive OS-level file lock across recovery, staging, and journal acceptance. Other exporters and
