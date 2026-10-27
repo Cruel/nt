@@ -56,13 +56,15 @@ foreach(index RANGE 0 ${last_command})
         endif()
     endforeach()
 
-    # Host compiler/schema tooling is isolated from players and uses the host exception/RTTI model.
-    if(source MATCHES "/tools/(editor_tool|project_authoring)/")
-        set(is_first_party FALSE)
-    endif()
-
     string(JSON command GET "${commands}" ${index} command)
     string(JSON output GET "${commands}" ${index} output)
+
+    # Host compiler/schema tooling and the PE resource host-tool certification
+    # are isolated from players and use the host exception/RTTI model.
+    if(source MATCHES "/tools/(editor_tool|project_authoring)/" OR
+       output MATCHES "CMakeFiles[/\\]noveltea-cli-windows-pe-certify\\.dir[/\\]")
+        set(is_first_party FALSE)
+    endif()
     if(is_first_party)
         math(EXPR found_first_party_commands "${found_first_party_commands} + 1")
         foreach(required IN LISTS required_compiler_flags)

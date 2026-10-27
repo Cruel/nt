@@ -77,7 +77,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         'comfyui status', 'comfyui workflows', 'comfyui verify',
     }
     assert project_commands <= public_paths
-    claimed_platform = {'comfyui run', 'platform profiles', 'platform template list', 'platform template inspect',
+    claimed_platform = {'comfyui run', 'platform profiles', 'platform export',
+                        'platform template list', 'platform template inspect',
                         'platform template install', 'platform template remove',
                         'platform config init'}
     for command in public_paths - project_commands - claimed_platform:

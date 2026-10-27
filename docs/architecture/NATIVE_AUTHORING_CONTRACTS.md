@@ -439,19 +439,43 @@ fallback) rather than `resedit` or Win32 `UpdateResource`. The component
 replaces `RT_ICON` / `RT_GROUP_ICON`, creates a complete `VS_VERSIONINFO`
 resource with UTF-16 localized strings and numeric versions, and writes the
 Windows application manifest. It preserves other PE sections and imported
-DLLs; the public platform export command does not invoke it yet. Its initial
+DLLs; the unsigned native Windows export command now invokes it. Its initial
 cross-host validation used a real Windows player executable only in a local
 temporary workspace, not a committed fixture or permanent test.
 The permanent `native_cli_windows_pe_resources` regression instead builds a
 small synthetic PE and ICO at test runtime, then independently reads back the
 resulting icon, version and manifest resources.
 
+The native CLI now runs `platform export --check` through native scoped
+Project preparation, profile/template compatibility, trust and collision
+acknowledgements, source-generation proof, and editor-local identity checks.
+It never invokes compilation or publication in check mode. The non-check
+Windows path can produce an **unsigned** portable output directory, ZIP,
+optional symbols ZIP, customized GUI executable, `game.ntpkg`, player config,
+license mount, and export file-inventory manifest. The only compiler and
+package writer used are the existing native authoring and package components;
+archive and icon generation reuse the host-native tooling APIs. The staged
+artifact set is activated with a recoverable native publication journal, and
+the previous complete set is restored after interruption before any subsequent
+mutating export. The success identity is merged with the current ignored
+editor-local state after accepted publication; source changes or concurrent
+editor-state writes are not silently accepted.
+
+During development, a real local Windows devtools player template was
+imported into an isolated registry and exported from a Linux native CLI.
+Independent inspection verified the PE resources, package SHA-256, all 223
+distribution manifest file hashes, and both ZIP archives. The user-provided
+template ZIP is neither tracked nor used by any permanent test. Existing
+permanent synthetic-PE and native template/preflight/recovery tests are the
+repeatable coverage; actual Windows player **execution** and signed-export
+acceptance remain outstanding.
+
 This is **not completion of #545**. Direct C++ `platform export` still needs the
-full target-specific preparation and staging, signing/configuration semantics,
-generation-pinned package compilation, cancellation and recoverable multi-artifact
-publication. Editor/CLI parity and Windows/macOS/Android/Web output witnesses
-remain mandatory before closure; the native template/config commands alone
-are not sufficient for production CLI cutover.
+remaining Linux/macOS/Web/Android target staging, Windows and other platform
+signing/configuration semantics, cancellation integration, full profile-policy
+and CLI diagnostic parity, and cross-host platform output witnesses before
+closure. Windows output already uses native generation-pinned compilation and
+multi-artifact publication but has not been qualified as production-ready.
 
 Run `cmake --build --preset linux-debug --target noveltea-native-cli` and
 `ctest --test-dir build/linux-debug -R 'native_cli_(platform_commands|public_contract)' --output-on-failure`

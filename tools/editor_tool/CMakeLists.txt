@@ -302,7 +302,7 @@ noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
 
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
     native_cli.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
-    native_cli_platform.cpp
+    native_cli_platform.cpp native_cli_platform_stage.cpp
     native_cli_comfyui_http.cpp
     "${_native_comfyui_header}"
     "${_native_agent_kit_header}" native_cli_test_catalog.cpp

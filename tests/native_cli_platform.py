@@ -4,11 +4,13 @@ import json
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
 import zipfile
+import zlib
 
 
 binary = Path(sys.argv[1]).resolve()
@@ -118,6 +120,127 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
             if file.is_file():
                 writer.write(file, arcname=file.relative_to(staging))
     assert run('platform', 'template', 'install', zip_archive, '--force')['success']
+
+    # The complete export preflight stays write-free, including compiler/cache,
+    # registry and output side effects. It uses the Project source fixture and
+    # a separately synthesized template, not any release player archive.
+    platform_project = root / 'web-project'
+    shutil.copytree(source / 'tests/fixtures/native-platform-export-web', platform_project)
+    def png_pixel(rgb):
+        def chunk(kind, contents):
+            return struct.pack('>I', len(contents)) + kind + contents + struct.pack(
+                '>I', zlib.crc32(kind + contents))
+        raw = b'\0' + bytes((*rgb, 255))
+        return (b'\x89PNG\r\n\x1a\n' +
+                chunk(b'IHDR', struct.pack('>IIBBBBB', 1, 1, 8, 6, 0, 0, 0)) +
+                chunk(b'IDAT', zlib.compress(raw)) + chunk(b'IEND', b''))
+
+    for name in ['app-icon', 'backdrop', 'backdrop-fr']:
+        path = platform_project / 'assets/images' / f'{name}.png'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(png_pixel((35, 51, 153)))
+    for name in ['body', 'alternate']:
+        path = platform_project / 'assets/fonts' / f'{name}.ttf'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / 'engine/assets/system/fonts/LiberationSans.ttf', path)
+    audio = platform_project / 'assets/audio/theme.wav'
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b'RIFF' + struct.pack('<I', 36) + b'WAVEfmt ' +
+                      struct.pack('<IHHIIHH', 16, 1, 1, 8000, 16000, 2, 16) +
+                      b'data' + struct.pack('<I', 0))
+    script = platform_project / 'assets/scripts/startup.lua'
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text('fixture_started = true\n')
+    manifest_file = platform_project / 'project.yaml'
+    original_manifest = manifest_file.read_text()
+    manifest_file.write_text(original_manifest.replace('threaded: true', 'threaded: false'))
+    requested = ('--project', platform_project, 'platform', 'export',
+                 '--profile', 'canonical-web', '--output', root / 'web-export',
+                 '--template', 'sample@v1')
+    assert run(*requested, '--check', code=4)['diagnostics'][0]['code'] == (
+        'template-untrusted-acknowledgement-required')
+    validated = run(*requested, '--check', '--allow-untrusted-template')
+    assert validated['success'] and validated['signingApplied'] is False
+    assert validated['templateToken'] == 'sample@v1'
+    assert not (root / 'web-export').exists()
+    assert not (platform_project / '.noveltea/build').exists()
+    local = platform_project / '.noveltea/editor/state.json'
+    local.parent.mkdir(parents=True, exist_ok=True)
+    old_local = {
+        'schema': 'noveltea.editor.local-state',
+        'recovery': {'sequence': 3, 'saveUnitsById': {}},
+        'sourceRecoveryById': {},
+        'lastSuccessfulPlatformExportIdentity': {
+            'applicationId': 'org.example.prior', 'saveNamespace': 'org.example.prior'},
+    }
+    local.write_text(json.dumps(old_local))
+    assert run(*requested, '--check', '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'platform.identity_change_acknowledgement_required'
+    assert run(*requested, '--check', '--allow-untrusted-template',
+               '--allow-identity-change')['success']
+    assert json.loads(local.read_text()) == old_local
+    local.unlink()
+    assert run(*requested, '--allow-untrusted-template', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert not (root / 'web-export').exists()
+    (root / 'web-export').mkdir()
+    assert run(*requested, '--check', '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'platform-output-exists'
+    assert run(*requested, '--check', '--allow-untrusted-template', '--force')['success']
+    (root / 'web-export').rmdir()
+    (root / 'web-export').symlink_to(root / 'nonexistent-output')
+    assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=4)[
+        'diagnostics'][0]['code'] == 'platform-output-symlink-forbidden'
+    (root / 'web-export').unlink()
+
+    # Simulate a killed native publisher between artifact renames. --check
+    # remains entirely read-only; the next mutating command restores the
+    # previous complete distribution before considering new publication.
+    old_output = root / 'web-export'
+    old_archive = root / 'web-export.zip'
+    old_output.mkdir()
+    (old_output / 'marker').write_text('incumbent-directory')
+    old_archive.write_bytes(b'incumbent-archive')
+    nonce = '1234-5678'
+    old_output.rename(root / f'web-export.previous-{nonce}')
+    old_archive.rename(root / f'web-export.zip.previous-{nonce}')
+    old_output.mkdir()
+    (old_output / 'marker').write_text('interrupted-directory')
+    (root / f'web-export.zip.stage-{nonce}').write_bytes(b'interrupted-archive')
+    journal = root / 'web-export.noveltea-publication-transaction.json'
+    journal.write_text(json.dumps({
+        'format': 'noveltea.native-platform-publication', 'formatVersion': 1,
+        'nonce': nonce, 'accepted': False, 'outputs': [
+            {'kind': 'directory', 'hadPrevious': True},
+            {'kind': 'archive', 'hadPrevious': True},
+        ],
+    }))
+    assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=5)[
+        'diagnostics'][0]['code'] == 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
+    assert (old_output / 'marker').read_text() == 'interrupted-directory'
+    assert journal.exists()
+    assert run(*requested, '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'platform-output-exists'
+    assert (old_output / 'marker').read_text() == 'incumbent-directory'
+    assert old_archive.read_bytes() == b'incumbent-archive'
+    assert not journal.exists()
+    assert not (root / f'web-export.zip.stage-{nonce}').exists()
+
+    # If recovery evidence is irretrievably absent, preserve the journal
+    # rather than declaring a partial or missing publication recovered.
+    old_output.rename(root / f'web-export.previous-{nonce}')
+    old_archive.rename(root / f'web-export.zip.previous-{nonce}')
+    shutil.rmtree(root / f'web-export.previous-{nonce}')
+    journal.write_text(json.dumps({
+        'format': 'noveltea.native-platform-publication', 'formatVersion': 1,
+        'nonce': nonce, 'accepted': False, 'outputs': [
+            {'kind': 'directory', 'hadPrevious': True},
+            {'kind': 'archive', 'hadPrevious': True},
+        ],
+    }))
+    assert run(*requested, '--allow-untrusted-template', '--force', code=5)[
+        'diagnostics'][0]['code'] == 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
+    assert journal.exists()
 
     # Failed replacement must retain the prior verified installation.
     malformed = root / 'invalid.zip'
