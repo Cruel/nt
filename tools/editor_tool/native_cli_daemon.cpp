@@ -509,7 +509,8 @@ int owner_process(const Json& context, std::uint64_t worker_id,
                     structured["success"].is_boolean() && structured.contains("diagnostics") &&
                     structured["diagnostics"].is_array() &&
                     result.at(0).get<int>() == structured.value("exitCode", -1) &&
-                    structured.value("exitCode", -1) == 0) {
+                    (structured.value("exitCode", -1) == 0 ||
+                     structured.value("exitCode", -1) == 4)) {
                     (void)broker_call(
                         context, "owner-validation-result",
                         {{"ownerWorkerId", worker_id},
@@ -585,6 +586,12 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
     const auto reply =
         broker_call(context, "request",
                     {{"requestId", request_id}, {"method", "invoke"}, {"payload", payload}});
+    // A failed in-flight read is safe to re-execute locally. A mutation may
+    // already have committed, so it must never be replayed after dispatch.
+    // Cancellation is the caller's decision, not an acceleration failure.
+    if (!reply.value("ok", false) && !mutation && !reply.value("cancelled", false) &&
+        reply.value("error", std::string{}).find("cancel") == std::string::npos)
+        return std::nullopt;
     if (reply.value("ok", false) && reply.contains("retainedValidationResult") &&
         reply["retainedValidationResult"].is_object()) {
         Json cached = reply["retainedValidationResult"];
