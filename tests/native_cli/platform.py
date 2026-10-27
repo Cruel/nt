@@ -162,6 +162,12 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     validated = run(*requested, '--check', '--allow-untrusted-template')
     assert validated['success'] and validated['signingApplied'] is False
     assert validated['templateToken'] == 'sample@v1'
+    human = subprocess.run([str(installed), *map(str, requested), '--check',
+                            '--allow-untrusted-template'], cwd=root, env=environment,
+                           capture_output=True, text=True, timeout=90)
+    assert human.returncode == 0, human
+    assert '[validating]' in human.stderr and '[resolving-template]' in human.stderr, human
+    assert 'preflight succeeded' in human.stdout, human
     assert not (root / 'web-export').exists()
     assert not (platform_project / '.noveltea/build').exists()
     local = platform_project / '.noveltea/editor/state.json'
@@ -192,6 +198,20 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=4)[
         'diagnostics'][0]['code'] == 'platform-output-symlink-forbidden'
     (root / 'web-export').unlink()
+
+    # Replacing a non-directory output or following a linked output parent is
+    # never permitted, even when the user explicitly allows replacement.
+    (root / 'web-export').write_text('not-a-directory')
+    assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=4)[
+        'diagnostics'][0]['code'] == 'export.output_invalid'
+    (root / 'web-export').unlink()
+    (root / 'linked-parent').symlink_to(root, target_is_directory=True)
+    linked_request = ('--project', platform_project, 'platform', 'export',
+                      '--profile', 'canonical-web', '--output', root / 'linked-parent/web-export',
+                      '--template', 'sample@v1')
+    assert run(*linked_request, '--check', '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'platform-output-symlink-forbidden'
+    assert not (root / 'web-export').exists()
 
     # Simulate a killed native publisher between artifact renames. --check
     # remains entirely read-only; the next mutating command restores the

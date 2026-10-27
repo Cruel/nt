@@ -19,6 +19,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <cstdio>
 #include <filesystem>
@@ -50,6 +51,30 @@
 namespace noveltea::cli {
 namespace {
 using Json = nlohmann::ordered_json;
+
+volatile std::sig_atomic_t platform_interrupt_requested = 0;
+
+void on_platform_interrupt(int) { platform_interrupt_requested = 1; }
+
+struct PlatformInterruptScope {
+    using Handler = void (*)(int);
+    Handler previous_interrupt = SIG_ERR;
+    Handler previous_terminate = SIG_ERR;
+
+    PlatformInterruptScope()
+    {
+        platform_interrupt_requested = 0;
+        previous_interrupt = std::signal(SIGINT, on_platform_interrupt);
+        previous_terminate = std::signal(SIGTERM, on_platform_interrupt);
+    }
+    ~PlatformInterruptScope()
+    {
+        if (previous_interrupt != SIG_ERR)
+            std::signal(SIGINT, previous_interrupt);
+        if (previous_terminate != SIG_ERR)
+            std::signal(SIGTERM, previous_terminate);
+    }
+};
 
 struct Arguments {
     bool json = false;
@@ -2694,6 +2719,12 @@ int run(const std::vector<std::string>& argv)
         if (family == "platform") {
             const auto selected = project_root(args.project);
             PlatformExportTools platform_tools;
+            platform_tools.cancelled = [] { return platform_interrupt_requested != 0; };
+            if (!args.json) {
+                platform_tools.progress = [](const std::string& stage, const std::string& message) {
+                    std::cerr << '[' << stage << "] " << message << '\n';
+                };
+            }
             platform_tools.prepare_package = [&](const Json& admitted, const Json& runtime_profile,
                                                  const std::filesystem::path& output) -> Json {
                 try {
@@ -2764,6 +2795,12 @@ int run(const std::vector<std::string>& argv)
             platform_tools.physical_sources_current = [](const Json& options) {
                 return package_physical_pins_current(options);
             };
+            if (operation == "export") {
+                PlatformInterruptScope cancellation;
+                const auto outcome = run_native_platform_cli(
+                    args.command, selected, !args.project.empty(), native_request, platform_tools);
+                return emit(outcome.envelope, args.json, outcome.human);
+            }
             const auto outcome = run_native_platform_cli(
                 args.command, selected, !args.project.empty(), native_request, platform_tools);
             return emit(outcome.envelope, args.json, outcome.human);

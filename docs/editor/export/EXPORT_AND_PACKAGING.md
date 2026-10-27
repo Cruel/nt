@@ -244,6 +244,18 @@ recovery to restore the previous complete set, while termination after acceptanc
 and removes transaction debris. A partially renamed mixture is therefore never treated as a completed
 platform export.
 
+The direct-native Windows staging candidate independently reads back the published directory and ZIP
+inventory, checks packaged bytes against staged inputs, and repeats the pinned Project generation,
+physical Asset, application icon, and verified-template proofs before committing its publication
+journal. SIGINT/SIGTERM cancellation checkpoints fail with exit status 130 while preserving the
+previous output. Native journal recovery first validates *all* members of a multi-artifact
+transaction before moving any of them: a missing prior backup with uncertain final-artifact
+provenance, a symlink, or a missing accepted artifact leaves the journal and remaining evidence for
+manual intervention instead of reporting recovery success. `platform export --check` inspects this
+journal without mutating output. These guarantees currently qualify the direct-native Windows
+candidate on Linux; target-specific Linux, Web, macOS, and Android native exporters and host-native
+Windows/macOS release testing remain separate certification work.
+
 `platform export` produces the normal packaged artifact by default. Reusable signing configurations
 are machine-level NovelTea user settings shared by the editor and CLI, not project-profile fields.
 The editor selects a compatible signing identity in the Export pane and remembers that selection

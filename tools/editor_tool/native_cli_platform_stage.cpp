@@ -3,17 +3,21 @@
 #include "native_cli_windows_pe.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
+#include <miniz/miniz.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <set>
 #include <span>
@@ -37,6 +41,20 @@ namespace noveltea::cli {
 namespace {
 namespace fs = std::filesystem;
 using Json = PlatformJson;
+
+struct SourceChanged : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+struct ExportCancelled : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
+void check_cancellation(const PlatformExportTools& tools)
+{
+    if (tools.cancelled && tools.cancelled())
+        throw ExportCancelled("Platform export was cancelled.");
+}
 
 std::string path_text(const fs::path& path)
 {
@@ -183,7 +201,8 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
 {
     if (journal.value("format", "") != "noveltea.native-platform-publication" ||
         journal.value("formatVersion", 0) != 1 || !journal.contains("nonce") ||
-        !journal.at("nonce").is_string() || !journal.contains("outputs") ||
+        !journal.at("nonce").is_string() || !journal.contains("accepted") ||
+        !journal.at("accepted").is_boolean() || !journal.contains("outputs") ||
         !journal.at("outputs").is_array())
         throw std::runtime_error("Platform publication journal has an unsupported schema.");
     const auto nonce = journal.at("nonce").get<std::string>();
@@ -233,7 +252,37 @@ void recover_publication(const fs::path& destination)
         throw std::runtime_error("Unsafe platform publication journal.");
     const auto journal = Json::parse(read_file(journal_file));
     const auto entries = journal_entries(destination, journal);
-    const bool accepted = journal.value("accepted", false);
+    const bool accepted = journal.at("accepted").get<bool>();
+    // Validate the entire transaction before touching any output. Otherwise
+    // encountering an ambiguous backup after restoring another artifact can
+    // leave the originally complete distribution partially rolled back.
+    for (const auto& item : entries) {
+        const bool is_directory = item.final == destination;
+        const auto final_status = fs::symlink_status(item.final);
+        const auto stage_status = fs::symlink_status(item.stage);
+        const auto previous_status = fs::symlink_status(item.previous);
+        const auto valid_member = [is_directory](fs::file_status status) {
+            return !fs::exists(status) ||
+                   (is_directory ? fs::is_directory(status) : fs::is_regular_file(status));
+        };
+        if (!valid_member(final_status) || !valid_member(stage_status) ||
+            !valid_member(previous_status))
+            throw std::runtime_error("Unsafe platform publication recovery member: " +
+                                     path_text(item.final));
+        if (accepted) {
+            if (!fs::exists(final_status))
+                throw std::runtime_error("Accepted platform publication output is missing: " +
+                                         path_text(item.final));
+        } else if (item.had_previous) {
+            if (!fs::exists(previous_status) &&
+                (!fs::exists(final_status) || !fs::exists(stage_status)))
+                throw std::runtime_error("Platform publication previous output cannot be proven: " +
+                                         path_text(item.final));
+        } else if (fs::exists(stage_status) && fs::exists(final_status)) {
+            throw std::runtime_error("Unexpected platform publication incumbent: " +
+                                     path_text(item.final));
+        }
+    }
     if (!accepted) {
         // Reverse order to restore the previous complete artifact set.
         for (auto it = entries.rbegin(); it != entries.rend(); ++it) {
@@ -242,13 +291,6 @@ void recover_publication(const fs::path& destination)
                 if (fs::exists(fs::symlink_status(item.previous))) {
                     remove_published_path(item.final);
                     fs::rename(item.previous, item.final);
-                } else if (!fs::exists(fs::symlink_status(item.final))) {
-                    // Both the incumbent and its backup are missing. Do not
-                    // discard the journal: the prior distribution cannot be
-                    // restored safely without operator intervention.
-                    throw std::runtime_error(
-                        "Platform publication incumbent and recovery backup are missing: " +
-                        path_text(item.final));
                 }
             } else if (!fs::exists(fs::symlink_status(item.stage))) {
                 // A vanished stage without an incumbent means the rename
@@ -267,9 +309,17 @@ void recover_publication(const fs::path& destination)
 
 class Staging {
 public:
-    explicit Staging(std::vector<PublicationEntry> entries) : entries_(std::move(entries)) {}
+    Staging(std::vector<PublicationEntry> entries, fs::path journal)
+        : entries_(std::move(entries)), journal_(std::move(journal))
+    {
+    }
     ~Staging()
     {
+        // If rollback failed, keep the staged members alongside the journal
+        // so later recovery still has the evidence needed to decide safely.
+        std::error_code status_error;
+        if (fs::exists(fs::symlink_status(journal_, status_error)) || status_error)
+            return;
         for (const auto& item : entries_) {
             std::error_code ignored;
             fs::remove_all(item.stage, ignored);
@@ -279,10 +329,11 @@ public:
 
 private:
     std::vector<PublicationEntry> entries_;
+    fs::path journal_;
 };
 
 void publish(const fs::path& destination, const std::vector<PublicationEntry>& entries,
-             const std::string& nonce)
+             const std::string& nonce, const std::function<void()>& verify_activation)
 {
     const auto journal_file = journal_path(destination);
     if (fs::exists(fs::symlink_status(journal_file)))
@@ -315,6 +366,10 @@ void publish(const fs::path& destination, const std::vector<PublicationEntry>& e
             fs::rename(item.stage, item.final);
             sync_directory(item.final.parent_path());
         }
+        // An artifact set is not accepted merely because every rename worked.
+        // Read back the actual installed output and re-prove source identity
+        // while the journal still permits a complete rollback.
+        verify_activation();
         journal["accepted"] = true;
         publish_atomic_file(journal_file, journal.dump(2) + '\n', nonce);
     } catch (...) {
@@ -353,6 +408,118 @@ FileEntry track_file(const fs::path& stage, std::string relative, std::string or
             mode,
             static_cast<std::uint64_t>(bytes.size()),
             digest(bytes)};
+}
+
+void verify_archive(const fs::path& path, const fs::path& directory,
+                    const std::vector<FileEntry>& files)
+{
+    struct ZipReader {
+        std::ifstream file;
+        mz_zip_archive archive{};
+        bool initialized = false;
+        explicit ZipReader(const fs::path& source) : file(source, std::ios::binary)
+        {
+            if (!file)
+                throw std::runtime_error("Cannot open published ZIP archive.");
+            archive.m_pIO_opaque = &file;
+            archive.m_pRead = [](void* opaque, mz_uint64 offset, void* buffer,
+                                 std::size_t length) -> std::size_t {
+                auto& input = *static_cast<std::ifstream*>(opaque);
+                if (offset >
+                        static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
+                    length > static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()))
+                    return 0;
+                input.clear();
+                input.seekg(static_cast<std::streamoff>(offset));
+                input.read(static_cast<char*>(buffer), static_cast<std::streamsize>(length));
+                return static_cast<std::size_t>(input.gcount());
+            };
+            initialized = mz_zip_reader_init(&archive, fs::file_size(source), 0) != 0;
+            if (!initialized)
+                throw std::runtime_error("Published ZIP archive cannot be indexed.");
+        }
+        ~ZipReader()
+        {
+            if (initialized)
+                mz_zip_reader_end(&archive);
+        }
+        ZipReader(const ZipReader&) = delete;
+        ZipReader& operator=(const ZipReader&) = delete;
+    } reader(path);
+    if (mz_zip_reader_get_num_files(&reader.archive) != files.size())
+        throw std::runtime_error("Published archive inventory could not be verified.");
+    std::map<std::string, std::pair<mz_uint, std::uint64_t>> actual;
+    for (mz_uint index = 0; index < files.size(); ++index) {
+        mz_zip_archive_file_stat info{};
+        if (!mz_zip_reader_file_stat(&reader.archive, index, &info) ||
+            mz_zip_reader_is_file_a_directory(&reader.archive, index))
+            throw std::runtime_error("Published archive contains an invalid file entry.");
+        const auto name_length = mz_zip_reader_get_filename(&reader.archive, index, nullptr, 0);
+        if (name_length == 0)
+            throw std::runtime_error("Published archive contains an unnamed entry.");
+        std::vector<char> name(static_cast<std::size_t>(name_length) + 1, '\0');
+        if (!mz_zip_reader_get_filename(&reader.archive, index, name.data(),
+                                        static_cast<mz_uint>(name.size())) ||
+            !actual.emplace(name.data(), std::make_pair(index, info.m_uncomp_size)).second)
+            throw std::runtime_error("Published archive contains duplicate or invalid paths.");
+    }
+    for (const auto& file : files) {
+        if (!actual.contains(file.path) || actual.at(file.path).second != file.size)
+            throw std::runtime_error("Published archive entry does not match inventory: " +
+                                     file.path);
+        const auto original = safe_child(directory, file.path);
+        refuse_unsafe_entry(original);
+        if (digest(read_file(original)) != file.sha256)
+            throw std::runtime_error("Staged platform file changed: " + file.path);
+        std::ifstream source(original, std::ios::binary);
+        if (!source)
+            throw std::runtime_error("Cannot open published archive entry: " + file.path);
+        auto* iterator =
+            mz_zip_reader_extract_iter_new(&reader.archive, actual.at(file.path).first, 0);
+        if (!iterator)
+            throw std::runtime_error("Cannot decompress published archive entry: " + file.path);
+        std::array<char, 65536> bytes{};
+        std::array<char, 65536> comparison{};
+        std::uint64_t total = 0;
+        bool valid = true;
+        while (true) {
+            const auto chunk =
+                mz_zip_reader_extract_iter_read(iterator, bytes.data(), bytes.size());
+            if (chunk == 0)
+                break;
+            source.read(comparison.data(), static_cast<std::streamsize>(chunk));
+            if (source.gcount() != static_cast<std::streamsize>(chunk) ||
+                std::memcmp(bytes.data(), comparison.data(), chunk) != 0) {
+                valid = false;
+                break;
+            }
+            total += chunk;
+        }
+        if (mz_zip_peek_last_error(&reader.archive) != MZ_ZIP_NO_ERROR)
+            valid = false;
+        mz_zip_reader_extract_iter_free(iterator);
+        if (!valid || total != file.size || source.peek() != std::char_traits<char>::eof())
+            throw std::runtime_error("Published archive bytes differ from staging: " + file.path);
+    }
+}
+
+void verify_distribution(const fs::path& directory, const fs::path& archive,
+                         const std::vector<FileEntry>& files)
+{
+    std::set<std::string> expected;
+    for (const auto& file : files)
+        expected.insert(file.path);
+    std::set<std::string> found;
+    for (fs::recursive_directory_iterator it(directory), end; it != end; ++it) {
+        const auto status = it->symlink_status();
+        if (fs::is_symlink(status) || (!fs::is_directory(status) && !fs::is_regular_file(status)))
+            throw std::runtime_error("Published distribution contains an unsafe filesystem entry.");
+        if (fs::is_regular_file(status))
+            found.insert(it->path().lexically_relative(directory).generic_string());
+    }
+    if (found != expected)
+        throw std::runtime_error("Published distribution inventory does not match the manifest.");
+    verify_archive(archive, directory, files);
 }
 
 void copy_verified_file(const fs::path& input, const fs::path& output)
@@ -456,6 +623,9 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
         !tools.physical_sources_current)
         return failure("CLI_INTERNAL", "Native platform export tools are unavailable.", 70);
     try {
+        check_cancellation(tools);
+        if (tools.progress)
+            tools.progress("compiling-project", "Preparing the current Project runtime generation");
         if (!source_current())
             return failure("WORKSPACE_REVISION_CONFLICT", "Platform sources changed.", 5);
         const auto& app = admission.at("project").at("settings").at("app");
@@ -473,6 +643,13 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
         const auto version = app.at("versionName").get<std::string>();
         const auto save_namespace = app.at("saveNamespace").get<std::string>();
         const auto icon_source_sha = digest(read_file(icon_source));
+        const auto template_descriptor_sha =
+            digest(read_file(template_directory / "template.json"));
+        const auto template_entry_sha =
+            digest(read_file(template_directory / ".noveltea-template.json"));
+        if (Json::parse(read_file(template_directory / "template.json")) != descriptor)
+            return failure("platform-template-changed",
+                           "Selected player template descriptor changed after preflight.", 5);
 
         const auto nonce = random_nonce();
         const auto archive_path = fs::u8path(path_text(destination) + ".zip");
@@ -499,7 +676,7 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
                                "Platform output staging or incumbent path is unsafe.");
         }
         fs::create_directories(destination.parent_path());
-        Staging cleanup(entries);
+        Staging cleanup(entries, journal_path(destination));
         fs::create_directory(entries[0].stage);
         const auto& stage = entries[0].stage;
 
@@ -513,7 +690,10 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
         native_profile["stripShaderSources"] =
             !native_profile.at("includeShaderSources").get<bool>();
         const auto package_path = stage / "game.ntpkg";
+        if (tools.progress)
+            tools.progress("writing-package", "Preparing and writing game.ntpkg");
         const auto packaged = tools.prepare_package(admission, native_profile, package_path);
+        check_cancellation(tools);
         if (!packaged.value("ok", false))
             return failure(packaged.value("code", "native.platform.package"),
                            packaged.value("error", "Platform runtime package creation failed."),
@@ -571,11 +751,17 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
                                "Windows template has an unresolved import: " + name);
         }
         std::string player_path;
-        std::set<std::string> names{"game.ntpkg"};
+        const std::set<std::string> generated_names{"game.ntpkg", "icons/windows/app.ico",
+                                                    "WINDOWS_METADATA.json", "player.json",
+                                                    "export-manifest.json"};
+        std::set<std::string> names;
+        if (tools.progress)
+            tools.progress("staging", "Staging player, package, assets and dependencies");
         for (const auto& declared : descriptor.at("files")) {
+            check_cancellation(tools);
             const auto name = declared.at("path").get<std::string>();
             const auto role = declared.value("role", std::string{});
-            if (!names.insert(name).second)
+            if (!names.insert(name).second || generated_names.contains(name))
                 return failure("platform-template-collision",
                                "Player template collides with a generated output: " + name);
             const auto original = safe_child(template_directory, name);
@@ -619,7 +805,10 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
             return failure("platform-template-player", "Windows template has no player binary.");
 
         std::vector<std::pair<unsigned, std::string>> icon_images;
+        if (tools.progress)
+            tools.progress("generating-metadata", "Generating icons and platform metadata");
         for (const unsigned size : {16u, 24u, 32u, 48u, 64u, 128u, 256u}) {
+            check_cancellation(tools);
             const auto temporary = stage / (".icon-" + std::to_string(size) + ".png");
             const auto resized = tools.resize_image({{"sourcePath", path_text(icon_source)},
                                                      {"outputPath", path_text(temporary)},
@@ -758,22 +947,29 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
                                        {"archivePath", file.path},
                                        {"size", file.size},
                                        {"mode", file.mode}});
+        if (tools.progress)
+            tools.progress("finalizing", "Finalizing distribution archives");
         const auto archived =
             tools.create_archive({{"outputPath", path_text(entries[1].stage)},
                                   {"format", "zip"},
                                   {"compression", profile.value("compression", "default")},
                                   {"entries", archive_entries}});
+        check_cancellation(tools);
         if (!archived.value("ok", false))
             return failure("platform-archive-failed",
                            archived.value("error", "Windows distribution archive failed."));
+        std::optional<std::string> symbols_archive_sha;
         if (with_symbols) {
             const auto symbol_stage = stage / ".symbol-build";
             fs::create_directory(symbol_stage);
             Json symbol_entries = Json::array();
+            std::vector<FileEntry> symbol_files;
             for (const auto& file : symbols) {
+                check_cancellation(tools);
                 const auto name = fs::u8path(file.path).filename().string();
                 const auto copy = symbol_stage / fs::u8path(name);
                 copy_verified_file(safe_child(template_directory, file.path), copy);
+                symbol_files.push_back(track_file(symbol_stage, name, "symbol", name, file.mode));
                 symbol_entries.push_back({{"sourcePath", path_text(copy)},
                                           {"archivePath", name},
                                           {"size", file.size},
@@ -781,6 +977,8 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
             }
             write_file(symbol_stage / "BUILD_ID",
                        descriptor.at("buildId").get<std::string>() + '\n');
+            symbol_files.push_back(
+                track_file(symbol_stage, "BUILD_ID", "generated-metadata", "build-id", 0644));
             symbol_entries.push_back({{"sourcePath", path_text(symbol_stage / "BUILD_ID")},
                                       {"archivePath", "BUILD_ID"},
                                       {"size", fs::file_size(symbol_stage / "BUILD_ID")},
@@ -790,17 +988,27 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
                                       {"format", "zip"},
                                       {"compression", profile.value("compression", "default")},
                                       {"entries", symbol_entries}});
+            check_cancellation(tools);
             if (!packed_symbols.value("ok", false))
                 return failure("platform-archive-failed",
                                packed_symbols.value("error", "Windows symbols archive failed."));
+            verify_archive(entries[2].stage, symbol_stage, symbol_files);
+            symbols_archive_sha = digest(read_file(entries[2].stage));
             fs::remove_all(symbol_stage);
         }
         // Do not publish an obsolete Project or changed template/Icon bytes.
         // Template files are checked again separately from Project generation.
+        if (tools.progress)
+            tools.progress("verifying", "Verifying source freshness and published artifacts");
+        check_cancellation(tools);
         if (!source_current() || !tools.physical_sources_current(package_options) ||
             digest(read_file(icon_source)) != icon_source_sha)
             return failure("WORKSPACE_REVISION_CONFLICT",
                            "Platform export source changed before activation.", 5);
+        if (digest(read_file(template_directory / "template.json")) != template_descriptor_sha ||
+            digest(read_file(template_directory / ".noveltea-template.json")) != template_entry_sha)
+            return failure("platform-template-changed",
+                           "Player template registry metadata changed during export.", 5);
         for (const auto& item : descriptor.at("files")) {
             const auto original =
                 safe_child(template_directory, item.at("path").get<std::string>());
@@ -809,7 +1017,30 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
                 return failure("platform-template-changed",
                                "Player template changed before output activation.", 5);
         }
-        publish(destination, entries, nonce);
+        publish(destination, entries, nonce, [&]() {
+            check_cancellation(tools);
+            verify_distribution(destination, archive_path, files);
+            if (symbols_archive_sha && digest(read_file(entries[2].final)) != *symbols_archive_sha)
+                throw std::runtime_error("Published symbols archive changed after verification.");
+            check_cancellation(tools);
+            if (!source_current() || !tools.physical_sources_current(package_options) ||
+                digest(read_file(icon_source)) != icon_source_sha)
+                throw SourceChanged("Platform export inputs changed during publication.");
+            if (digest(read_file(template_directory / "template.json")) !=
+                    template_descriptor_sha ||
+                digest(read_file(template_directory / ".noveltea-template.json")) !=
+                    template_entry_sha)
+                throw SourceChanged(
+                    "Player template registry metadata changed during publication.");
+            for (const auto& item : descriptor.at("files")) {
+                const auto original =
+                    safe_child(template_directory, item.at("path").get<std::string>());
+                if (!fs::is_regular_file(fs::symlink_status(original)) ||
+                    digest(read_file(original)) != item.at("sha256").get<std::string>())
+                    throw SourceChanged("Player template changed during publication.");
+            }
+            check_cancellation(tools);
+        });
         Json artifacts = Json::array({{{"kind", "directory"}, {"path", path_text(destination)}},
                                       {{"kind", "archive"},
                                        {"path", path_text(archive_path)},
@@ -831,6 +1062,12 @@ stage_native_platform_export(const Json& admission, const Json& profile, const J
             envelope["symbolArchivePath"] = path_text(symbols_path);
         }
         return {std::move(envelope), "Native Windows platform export succeeded."};
+    } catch (const ExportCancelled& error) {
+        auto cancelled = failure("export-cancelled", error.what(), 130);
+        cancelled.envelope["cancelled"] = true;
+        return cancelled;
+    } catch (const SourceChanged& error) {
+        return failure("WORKSPACE_REVISION_CONFLICT", error.what(), 5);
     } catch (const std::exception& error) {
         return failure("platform-staging-failed", error.what());
     }
