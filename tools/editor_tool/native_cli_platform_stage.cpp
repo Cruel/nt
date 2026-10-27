@@ -297,6 +297,12 @@ void recover_publication(const fs::path& destination)
             !valid_member(previous_status))
             throw std::runtime_error("Unsafe platform publication recovery member: " +
                                      path_text(item.final));
+        // Retirement never produces a staged replacement. Its still-present
+        // final file is the untouched incumbent until it is renamed to the
+        // backup; requiring a stage here falsely rejects a safe rollback.
+        if (item.remove_only && fs::exists(stage_status))
+            throw std::runtime_error("Retired platform output has an unexpected stage: " +
+                                     path_text(item.final));
         if (accepted) {
             if (!item.remove_only && !fs::exists(final_status))
                 throw std::runtime_error("Accepted platform publication output is missing: " +
@@ -306,9 +312,15 @@ void recover_publication(const fs::path& destination)
                                          path_text(item.final));
         } else if (item.had_previous) {
             if (!fs::exists(previous_status) &&
-                (!fs::exists(final_status) || (!rolling_back && !fs::exists(stage_status))))
+                (!fs::exists(final_status) ||
+                 (!rolling_back && !item.remove_only && !fs::exists(stage_status))))
                 throw std::runtime_error("Platform publication previous output cannot be proven: " +
                                          path_text(item.final));
+        } else if (item.remove_only && fs::exists(final_status)) {
+            // There was no incumbent to retire and removal-only has no stage.
+            // A newly appeared symbols file is foreign, not our publication.
+            throw std::runtime_error("Unexpected platform publication symbols incumbent: " +
+                                     path_text(item.final));
         } else if (fs::exists(stage_status) && fs::exists(final_status)) {
             throw std::runtime_error("Unexpected platform publication incumbent: " +
                                      path_text(item.final));
@@ -343,7 +355,7 @@ void recover_publication(const fs::path& destination)
                     remove_published_path(item.final);
                     fs::rename(item.previous, item.final);
                 }
-            } else if (!fs::exists(fs::symlink_status(item.stage))) {
+            } else if (!item.remove_only && !fs::exists(fs::symlink_status(item.stage))) {
                 // A vanished stage without an incumbent means the rename
                 // installed the new output before interruption.
                 remove_published_path(item.final);

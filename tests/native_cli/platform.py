@@ -320,6 +320,42 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     assert not journal.exists()
     assert not (root / f'web-export.zip.stage-{nonce}').exists()
 
+    # A symbols-retirement member never has a stage file. Recovery must
+    # restore the entire previous distribution whether interruption occurred
+    # just before or just after moving the obsolete symbols into its backup.
+    symbols = root / 'web-export-symbols.zip'
+    symbols_backup = root / f'web-export-symbols.zip.previous-{nonce}'
+    for backup_taken in (False, True):
+        old_output.rename(root / f'web-export.previous-{nonce}')
+        old_archive.rename(root / f'web-export.zip.previous-{nonce}')
+        old_output.mkdir()
+        (old_output / 'marker').write_text('new-directory')
+        old_archive.write_bytes(b'new-archive')
+        if backup_taken:
+            symbols_backup.write_bytes(b'incumbent-symbols')
+        else:
+            symbols.write_bytes(b'incumbent-symbols')
+        journal.write_text(json.dumps({
+            'format': 'noveltea.native-platform-publication', 'nonce': nonce,
+            'accepted': False, 'rollingBack': False,
+            'outputs': [
+                {'kind': 'directory', 'hadPrevious': True, 'removeOnly': False},
+                {'kind': 'archive', 'hadPrevious': True, 'removeOnly': False},
+                {'kind': 'symbols', 'hadPrevious': True, 'removeOnly': True},
+            ],
+        }))
+        assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=5)[
+            'diagnostics'][0]['code'] == 'WORKSPACE_TRANSACTION_RECOVERY_CONFLICT'
+        assert journal.exists()
+        assert run(*requested, '--allow-untrusted-template', code=4)['diagnostics'][0][
+            'code'] == 'platform-output-exists'
+        assert (old_output / 'marker').read_text() == 'incumbent-directory'
+        assert old_archive.read_bytes() == b'incumbent-archive'
+        assert symbols.read_bytes() == b'incumbent-symbols'
+        assert not symbols_backup.exists()
+        assert not journal.exists()
+        symbols.unlink()
+
     # If recovery evidence is irretrievably absent, preserve the journal
     # rather than declaring a partial or missing publication recovered.
     old_output.rename(root / f'web-export.previous-{nonce}')
