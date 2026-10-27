@@ -2720,6 +2720,25 @@ int run(const std::vector<std::string>& argv)
             const auto selected = project_root(args.project);
             PlatformExportTools platform_tools;
             platform_tools.cancelled = [] { return platform_interrupt_requested != 0; };
+            platform_tools.check_runtime = [&](const Json& admitted,
+                                               const Json& native_profile) -> Json {
+                try {
+                    const auto compiled = compile_native_compiled_project(admitted.at("project"));
+                    const auto checked = prepare_native_runtime_artifact(
+                        admitted.at("project"), compiled, admitted.at("referencedAssetIds"),
+                        native_profile, admitted.at("materialEffectiveInputs"),
+                        path_text(selected));
+                    Json findings = checked.value("diagnostics", Json::array());
+                    if (checked.contains("artifact"))
+                        for (const auto& diagnostic :
+                             checked.at("artifact").value("diagnostics", Json::array()))
+                            findings.push_back(diagnostic);
+                    return {{"ok", checked.value("status", "") == "prepared"},
+                            {"diagnostics", std::move(findings)}};
+                } catch (const std::exception& error) {
+                    return {{"ok", false}, {"error", error.what()}};
+                }
+            };
             if (!args.json) {
                 platform_tools.progress = [](const std::string& stage, const std::string& message) {
                     std::cerr << '[' << stage << "] " << message << '\n';

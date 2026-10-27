@@ -7,6 +7,28 @@
 
 namespace noveltea::cli {
 
+// The destination lock is held from recovery through accepted publication.
+// Lock files are intentionally persistent: unlinking a locked inode allows
+// concurrent publishers to acquire different locks for the same destination.
+class PlatformPublicationLock {
+public:
+    explicit PlatformPublicationLock(const std::filesystem::path& destination);
+    ~PlatformPublicationLock();
+    PlatformPublicationLock(const PlatformPublicationLock&) = delete;
+    PlatformPublicationLock& operator=(const PlatformPublicationLock&) = delete;
+    [[nodiscard]] const std::filesystem::path& destination() const { return destination_; }
+
+private:
+    std::filesystem::path destination_;
+#if defined(_WIN32)
+    void* handle_ = nullptr;
+#else
+    int handle_ = -1;
+#endif
+};
+
+void validate_platform_publication_path(const std::filesystem::path& destination);
+
 // Platform-local packaging operates exclusively on a native-admitted Project,
 // a verified template descriptor, and a freshly prepared runtime package.
 // Stage publication is isolated from the Project owner and is never performed
@@ -16,12 +38,13 @@ PlatformCliResult stage_native_platform_export(
     const PlatformJson& template_descriptor, const std::filesystem::path& template_directory,
     const std::filesystem::path& icon_source, const std::filesystem::path& destination, bool force,
     bool allow_localization_warnings, bool include_unused_assets, bool include_shader_sources,
-    const PlatformExportTools& tools, const std::function<bool()>& source_current);
+    const PlatformPublicationLock& lock, const PlatformExportTools& tools,
+    const std::function<bool()>& source_current);
 
 // An interrupted prior transaction is recovered only on a mutating invocation.
 // Read-only --check treats an existing journal as a conflict instead.
 bool recover_native_platform_publication(const std::filesystem::path& destination,
-                                         std::string& error);
+                                         const PlatformPublicationLock& lock, std::string& error);
 bool has_native_platform_publication(const std::filesystem::path& destination);
 
 } // namespace noveltea::cli

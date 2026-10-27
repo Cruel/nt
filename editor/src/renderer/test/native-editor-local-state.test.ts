@@ -10,6 +10,59 @@ import { saveProjectEditorMetadata } from '../../main/services/project-editor-me
 import { guardNativeEditorProjectAuthority } from '../../shared/project-workspace/legacy-project-authority-guard';
 
 describe('native Project Open local-only editor recovery', () => {
+  it('overlays a newer accepted CLI export identity without changing editor-owned recovery bytes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-editor-cli-identity-'));
+    try {
+      const project = createAuthoringProject({ id: 'native-local', name: 'Native Local' });
+      const state = emptyEditorProjectState();
+      state.previewLocale = 'ja';
+      state.recovery.sequence = 23;
+      state.lastSuccessfulPlatformExportIdentity = {
+        applicationId: 'org.example.old',
+        saveNamespace: 'old',
+        completedAt: '2026-10-01T00:00:00.000Z',
+      };
+      const directory = path.join(root, '.noveltea', 'editor');
+      await mkdir(directory, { recursive: true });
+      const { chapters: _chapters, tags: _tags, recordMetadata: _metadata, ...local } = state;
+      const original = JSON.stringify({ ...local, schema: EDITOR_LOCAL_STATE_SCHEMA });
+      await writeFile(path.join(directory, 'state.json'), original);
+      await writeFile(
+        path.join(directory, 'platform-export-identity.json'),
+        JSON.stringify({
+          format: 'noveltea.platform-export-identity',
+          applicationId: 'org.example.new',
+          saveNamespace: 'new',
+          completedAt: '2026-10-26T12:00:00.123Z',
+        }),
+      );
+      const recovered = await readNativeEditorLocalState(root, project);
+      expect(recovered.lastSuccessfulPlatformExportIdentity?.applicationId).toBe('org.example.new');
+      expect(recovered.recovery.sequence).toBe(23);
+      expect(recovered.previewLocale).toBe('ja');
+      expect(await readFile(path.join(directory, 'state.json'), 'utf8')).toBe(original);
+      state.lastSuccessfulPlatformExportIdentity = {
+        applicationId: 'org.example.latest-editor',
+        saveNamespace: 'latest',
+        completedAt: '2026-10-27T12:00:00.000Z',
+      };
+      await writeFile(
+        path.join(directory, 'state.json'),
+        JSON.stringify({
+          ...local,
+          lastSuccessfulPlatformExportIdentity: state.lastSuccessfulPlatformExportIdentity,
+          schema: EDITOR_LOCAL_STATE_SCHEMA,
+        }),
+      );
+      expect(
+        (await readNativeEditorLocalState(root, project)).lastSuccessfulPlatformExportIdentity
+          ?.applicationId,
+      ).toBe('org.example.latest-editor');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('persists local view/recovery state with legacy authority disabled and leaves native dirty work untouched', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-editor-save-local-'));
     const release = guardNativeEditorProjectAuthority();

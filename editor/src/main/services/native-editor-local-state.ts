@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -7,6 +7,7 @@ import {
   EDITOR_PROJECT_STATE_SCHEMA,
   editorProjectStateSchema,
   emptyEditorProjectState,
+  lastSuccessfulPlatformExportIdentitySchema,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import { EDITOR_LOCAL_STATE_SCHEMA } from '../../shared/project-workspace/project-workspace-contracts';
@@ -64,6 +65,40 @@ export async function readNativeEditorLocalState(
         `Editor local state cannot be recovered: ${error instanceof Error ? error.message : String(error)}. The original file was preserved.`,
       );
     }
+  }
+  // The native CLI publishes this separate ignored record rather than
+  // replacing state.json, which the live editor writes independently. Overlay
+  // only an identity newer than the editor's own successful export metadata.
+  const identityFile = path.join(directory, 'platform-export-identity.json');
+  try {
+    const metadata = await lstat(identityFile);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > 4096)
+      throw new Error('Platform export identity record is not an ordinary file.');
+    const document = z
+      .object({
+        format: z.literal('noveltea.platform-export-identity'),
+        applicationId: z.string(),
+        saveNamespace: z.string(),
+        completedAt: z.string(),
+      })
+      .strict()
+      .parse(JSON.parse(await readFile(identityFile, 'utf8')) as unknown);
+    const identity = lastSuccessfulPlatformExportIdentitySchema.parse({
+      applicationId: document.applicationId,
+      saveNamespace: document.saveNamespace,
+      completedAt: document.completedAt,
+    });
+    if (
+      !local.lastSuccessfulPlatformExportIdentity ||
+      Date.parse(document.completedAt) >=
+        (Date.parse(local.lastSuccessfulPlatformExportIdentity.completedAt ?? '') || 0)
+    )
+      local = { ...local, lastSuccessfulPlatformExportIdentity: identity };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+      throw new Error(
+        `Platform export identity cannot be recovered: ${error instanceof Error ? error.message : String(error)}`,
+      );
   }
   return {
     ...local,

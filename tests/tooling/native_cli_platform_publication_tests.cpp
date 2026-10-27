@@ -33,17 +33,19 @@ void journal(const fs::path& output, bool accepted, bool prior_directory, bool p
 {
     write(output.string() + ".noveltea-publication-transaction.json",
           std::string{"{\"format\":\"noveltea.native-platform-publication\","} +
-              "\"formatVersion\":1,\"nonce\":\"123-456\",\"accepted\":" +
-              (accepted ? "true" : "false") +
-              ",\"outputs\":[{\"kind\":\"directory\",\"hadPrevious\":" +
-              (prior_directory ? "true" : "false") + "},{\"kind\":\"archive\",\"hadPrevious\":" +
+              "\"nonce\":\"123-456\",\"accepted\":" + (accepted ? "true" : "false") +
+              ",\"rollingBack\":false,\"outputs\":[{\"kind\":\"directory\",\"removeOnly\":false,"
+              "\"hadPrevious\":" +
+              (prior_directory ? "true" : "false") +
+              "},{\"kind\":\"archive\",\"removeOnly\":false,\"hadPrevious\":" +
               (prior_archive ? "true" : "false") + "}]}");
 }
 
 void expect_conflict(const fs::path& output)
 {
     std::string error;
-    require(!noveltea::cli::recover_native_platform_publication(output, error),
+    noveltea::cli::PlatformPublicationLock lock(output);
+    require(!noveltea::cli::recover_native_platform_publication(output, lock, error),
             "Ambiguous/incomplete publication must not recover as complete.");
     require(!error.empty(), "Recovery conflict must provide an explanation.");
     require(fs::exists(output.string() + ".noveltea-publication-transaction.json"),
@@ -112,11 +114,101 @@ int main()
         write(rollback.string() + ".zip.previous-123-456", "old-archive");
         journal(rollback, false, true, true);
         std::string error;
-        require(noveltea::cli::recover_native_platform_publication(rollback, error), error);
+        {
+            noveltea::cli::PlatformPublicationLock lock(rollback);
+            require(noveltea::cli::recover_native_platform_publication(rollback, lock, error),
+                    error);
+        }
         require(read(rollback / "marker") == "old-directory", "Directory rollback failed.");
         require(read(rollback.string() + ".zip") == "old-archive", "Archive rollback failed.");
         require(!fs::exists(rollback.string() + ".noveltea-publication-transaction.json"),
                 "Recovered journal must be removed.");
+
+        // Recovery can be terminated after restoring the archive but before
+        // restoring the directory. A durable rollback intent makes the next
+        // invocation complete the interrupted pass instead of failing.
+        const auto resumed = temp / "resumed";
+        fs::create_directory(resumed);
+        write(resumed / "marker", "new-directory");
+        fs::create_directory(resumed.string() + ".previous-123-456");
+        write(resumed.string() + ".previous-123-456/marker", "old-directory");
+        write(resumed.string() + ".zip", "old-archive");
+        journal(resumed, false, true, true);
+        {
+            auto file = resumed.string() + ".noveltea-publication-transaction.json";
+            auto contents = read(file);
+            const auto marker = contents.find("\"rollingBack\":false");
+            require(marker != std::string::npos, "Fixture rollback marker absent.");
+            contents.replace(marker, std::string{"\"rollingBack\":false"}.size(),
+                             "\"rollingBack\":true");
+            write(file, contents);
+        }
+        write(resumed.string() + ".noveltea-publication-transaction.json.new-123-456",
+              "incomplete journal rewrite");
+        {
+            noveltea::cli::PlatformPublicationLock lock(resumed);
+            require(noveltea::cli::recover_native_platform_publication(resumed, lock, error),
+                    error);
+        }
+        require(read(resumed / "marker") == "old-directory",
+                "Interrupted rollback did not resume.");
+        require(read(resumed.string() + ".zip") == "old-archive", "Restored archive was changed.");
+        require(
+            !fs::exists(resumed.string() + ".noveltea-publication-transaction.json.new-123-456"),
+            "Interrupted journal update debris must be cleared when rollback resumes.");
+
+        // The recovery API itself must never traverse a linked parent.
+        const auto linked = temp / "linked";
+        fs::create_directory(temp / "real");
+        fs::create_directory(temp / "real/dist");
+        write(temp / "real/dist.zip", "old");
+        journal(temp / "real/dist", false, true, true);
+        fs::create_directory(temp / "real/dist.previous-123-456");
+        std::error_code symlink_error;
+        fs::create_directory_symlink(temp / "real", linked, symlink_error);
+        if (!symlink_error) {
+            try {
+                noveltea::cli::PlatformPublicationLock lock(linked / "dist");
+                require(false, "Linked-parent recovery unexpectedly acquired a lock.");
+            } catch (const std::runtime_error&) {
+                require(fs::exists(temp / "real/dist.noveltea-publication-transaction.json"),
+                        "Linked-parent recovery mutated the journal.");
+            }
+        }
+
+        // A second invocation cannot recover a journal while its publisher
+        // still holds the destination lease, even in the same process.
+        const auto busy = temp / "busy";
+        {
+            noveltea::cli::PlatformPublicationLock publisher(busy);
+            bool rejected = false;
+            try {
+                noveltea::cli::PlatformPublicationLock second(busy);
+            } catch (const std::runtime_error&) {
+                rejected = true;
+            }
+            require(rejected, "Live publisher's destination lock must be exclusive.");
+        }
+
+        // Removing an obsolete symbols archive is an accepted, recoverable
+        // operation, not an unrelated deletion after publishing the new ZIP.
+        const auto retired = temp / "retired";
+        fs::create_directory(retired);
+        write(retired.string() + ".zip", "new-archive");
+        write(retired.string() + "-symbols.zip.previous-123-456", "old-symbols");
+        write(retired.string() + ".noveltea-publication-transaction.json",
+              "{\"format\":\"noveltea.native-platform-publication\",\"nonce\":\"123-456\","
+              "\"accepted\":true,\"rollingBack\":false,\"outputs\":["
+              "{\"kind\":\"directory\",\"hadPrevious\":false,\"removeOnly\":false},"
+              "{\"kind\":\"archive\",\"hadPrevious\":false,\"removeOnly\":false},"
+              "{\"kind\":\"symbols\",\"hadPrevious\":true,\"removeOnly\":true}]}");
+        {
+            noveltea::cli::PlatformPublicationLock lock(retired);
+            require(noveltea::cli::recover_native_platform_publication(retired, lock, error),
+                    error);
+        }
+        require(!fs::exists(retired.string() + "-symbols.zip.previous-123-456"),
+                "Accepted symbols retirement must clear the obsolete backup.");
 
         noveltea::cli::PlatformExportTools tools;
         tools.cancelled = [] { return true; };
@@ -126,9 +218,10 @@ int main()
         tools.create_archive = [](const auto&) { return noveltea::cli::PlatformJson::object(); };
         tools.resize_image = [](const auto&) { return noveltea::cli::PlatformJson::object(); };
         tools.physical_sources_current = [](const auto&) { return true; };
+        noveltea::cli::PlatformPublicationLock cancel_lock(temp / "not-published");
         const auto cancelled = noveltea::cli::stage_native_platform_export(
             {{}}, {{"target", "windows"}}, {{}}, temp, temp / "icon.png", temp / "not-published",
-            false, false, false, false, tools, [] { return true; });
+            false, false, false, false, cancel_lock, tools, [] { return true; });
         require(cancelled.envelope.value("exitCode", 0) == 130 &&
                     cancelled.envelope.value("cancelled", false) &&
                     cancelled.envelope.at("diagnostics").front().at("code") == "export-cancelled",
