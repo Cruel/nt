@@ -47,7 +47,7 @@ ctest --test-dir build/linux-debug --output-on-failure \
   -R '^native_runtime_(artifact_parity|physical)$'
 ```
 
-`tests/native_runtime_physical.py` uses the pinned FFmpeg executable from
+`tests/native_cli/runtime_physical.py` uses the pinned FFmpeg executable from
 `NOVELTEA_FFMPEG` or a staged CLI tool under `build/cli/linux/tools/ffmpeg`.
 When neither exists it reports a skipped media-tool prerequisite, not a false
 pass. It cold-admits Feature Lab and checks the private media manifest,

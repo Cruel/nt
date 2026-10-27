@@ -68,7 +68,7 @@ cmake --build --preset linux-debug --target noveltea-native-cli noveltea-runtime
 ctest --test-dir build/linux-debug --output-on-failure -R '^(native_cli_cold_runtime|native_runtime_cache_publish|native_runtime_physical)$'
 ```
 
-`tests/native_cli_cold_runtime.py` constructs a fresh native Project, uses the
+`tests/native_cli/cold_runtime.py` constructs a fresh native Project, uses the
 actual CLI with no TypeScript-produced cache, then verifies cold publication,
 warm reuse, authored-source staleness, malformed and forged-digest artifact
 rejection, explicit rebuild, and safe refusal to rewrite an unsafe cache

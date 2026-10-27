@@ -343,27 +343,27 @@ if(BUILD_TESTING)
     add_test(NAME native_cli_windows_pe_resources
         COMMAND noveltea-cli-windows-pe-certify)
     add_test(NAME native_cli_public_contract
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_contract.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_platform_commands
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_platform.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/platform.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_agent_tools
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_agent_tools.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/agent_tools.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_comfyui
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_comfyui.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/comfyui.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_comfyui_run
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_comfyui_run.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/comfyui_run.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_runtime_cache
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_runtime_cache.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/runtime_cache.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
             "--compiler-identity=${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
     set_tests_properties(native_cli_runtime_cache PROPERTIES SKIP_RETURN_CODE 77)
     add_test(NAME native_cli_cold_runtime
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_cold_runtime.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/cold_runtime.py"
             "$<TARGET_FILE:noveltea-native-cli>"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
             "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
@@ -387,7 +387,7 @@ if(BUILD_TESTING)
         set(_native_cli_cold_player "$<TARGET_FILE:noveltea-player>")
     endif()
     add_test(NAME native_cli_feature_lab_cold
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_feature_lab_cold.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/feature_lab_cold.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
             "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}"
             "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}"
@@ -409,20 +409,20 @@ if(BUILD_TESTING)
             "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
     set_tests_properties(native_runtime_cache_publish PROPERTIES SKIP_RETURN_CODE 77)
     add_test(NAME native_cli_shader_integrity
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli_shader_integrity.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/shader_integrity.py"
             "$<TARGET_FILE:noveltea-native-cli>"
             "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
             "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}")
     set_tests_properties(native_cli_shader_integrity PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     add_test(NAME native_compiled_project_parity
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_compiled_project_parity.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/compiled_project_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_runtime_artifact_parity
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_runtime_artifact_parity.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/runtime_artifact_parity.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_runtime_physical
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_runtime_physical.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/runtime_physical.py"
             "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
             "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
     set_tests_properties(native_runtime_physical PROPERTIES SKIP_RETURN_CODE 77)
