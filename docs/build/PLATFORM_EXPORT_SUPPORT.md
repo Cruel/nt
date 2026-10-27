@@ -66,6 +66,28 @@ the native CLI regression suite, while publicly trusted Authenticode signing,
 timestamp-chain validation, and production certificate credentials require
 separate signer/credential evidence (not included in CI fixtures).
 
+The direct C++ Linux exporter consumes the same verified template and pinned
+native runtime preparation as Windows and Web. It validates the actual x86_64
+ELF program-header/dynamic string-table closure against `linuxNeeded` and
+`linuxRpaths`, accepts only portable `$ORIGIN` library search paths, and
+checks that non-system NEEDED libraries are shipped in the template. Its
+directory contains the executable under `bin/`, adjacent `game.ntpkg` and
+`player.json`, a root launcher, hicolor icons and freedesktop `.desktop`
+metadata. It publishes a ZIP or deterministic tar.gz, with optional separate
+debug symbols; the opt-in AppImage uses an existing host-installed
+`appimagetool`, selectable via `NOVELTEA_LINUX_APPIMAGE_TOOL`. AppImage is
+not a new mandatory build dependency, and AppImage assembly is Linux-only.
+
+`tests/native_cli/platform.py` certifies Linux export with freshly built ELF
+and bundled native-library fixtures, independent-working-directory execution,
+unsafe/colliding outputs, and failure rollback. Release CI builds the direct
+C++ CLI and uses `tests/native_cli/linux_release_smoke.py` to install the actual
+release template and launch both its portable directory and optional AppImage
+under Xvfb, independently of the existing TypeScript exporter certification.
+CI emits `dist/noveltea-native-linux-release-certification.json` as separate
+native-export evidence. This does not replace the existing X11/Wayland release
+matrix or claim that AppImage building works without host tooling.
+
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,
 NDK 28.2.13676358 (r28c), CMake 3.31.6, and bundletool 1.18.1. Those are template build inputs,

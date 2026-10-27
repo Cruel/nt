@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -243,19 +244,27 @@ std::vector<PublicationEntry> journal_entries(const fs::path& destination, const
             throw std::runtime_error("Invalid platform publication journal entry.");
         const auto kind = item.at("kind").get<std::string>();
         if (!kinds.insert(kind).second ||
-            (kind != "directory" && kind != "archive" && kind != "symbols"))
+            (kind != "directory" && kind != "archive" && kind != "symbols" &&
+             kind != "archive-tar" && kind != "symbols-tar" && kind != "appimage"))
             throw std::runtime_error("Invalid platform publication journal output kind.");
         const auto base = path_text(destination);
-        const auto final = kind == "directory" ? destination
-                           : kind == "archive" ? fs::u8path(base + ".zip")
-                                               : fs::u8path(base + "-symbols.zip");
-        if (kind != "symbols" && item.at("removeOnly").get<bool>())
+        const auto final = kind == "directory"     ? destination
+                           : kind == "archive"     ? fs::u8path(base + ".zip")
+                           : kind == "archive-tar" ? fs::u8path(base + ".tar.gz")
+                           : kind == "symbols-tar" ? fs::u8path(base + "-symbols.tar.gz")
+                           : kind == "appimage"    ? fs::u8path(base + ".AppImage")
+                                                   : fs::u8path(base + "-symbols.zip");
+        if (kind != "symbols" && kind != "symbols-tar" && kind != "appimage" &&
+            item.at("removeOnly").get<bool>())
             throw std::runtime_error("Cannot retire required platform artifact.");
         entries.push_back({final, fs::u8path(path_text(final) + ".stage-" + nonce),
                            fs::u8path(path_text(final) + ".previous-" + nonce),
                            item.at("hadPrevious").get<bool>(), item.at("removeOnly").get<bool>()});
     }
-    if (kinds.size() < 2 || !kinds.contains("directory") || !kinds.contains("archive"))
+    if (kinds.size() < 2 || !kinds.contains("directory") ||
+        (!kinds.contains("archive") && !kinds.contains("archive-tar")) ||
+        (kinds.contains("archive") && kinds.contains("archive-tar")) ||
+        (kinds.contains("symbols") && kinds.contains("symbols-tar")))
         throw std::runtime_error("Platform publication journal omits required outputs.");
     return entries;
 }
@@ -405,9 +414,13 @@ void publish(const fs::path& destination, const std::vector<PublicationEntry>& e
         throw std::runtime_error("Unrecovered platform publication journal is present.");
     Json items = Json::array();
     for (const auto& entry : entries) {
-        const std::string kind = entry.final == destination                         ? "directory"
-                                 : path_text(entry.final).ends_with("-symbols.zip") ? "symbols"
-                                                                                    : "archive";
+        const std::string name = path_text(entry.final);
+        const std::string kind = entry.final == destination          ? "directory"
+                                 : name.ends_with("-symbols.zip")    ? "symbols"
+                                 : name.ends_with("-symbols.tar.gz") ? "symbols-tar"
+                                 : name.ends_with(".AppImage")       ? "appimage"
+                                 : name.ends_with(".tar.gz")         ? "archive-tar"
+                                                                     : "archive";
         items.push_back({{"kind", kind},
                          {"hadPrevious", entry.had_previous},
                          {"removeOnly", entry.remove_only}});
@@ -637,6 +650,198 @@ std::string make_ico(const std::vector<std::pair<unsigned, std::string>>& images
         ico += bytes;
     }
     return ico;
+}
+
+std::uint64_t elf_integer(std::string_view bytes, std::uint64_t offset, unsigned length)
+{
+    if (offset > bytes.size() || length > bytes.size() - offset)
+        throw std::runtime_error("Truncated Linux ELF player.");
+    std::uint64_t value = 0;
+    for (unsigned index = 0; index < length; ++index)
+        value |= static_cast<std::uint64_t>(static_cast<unsigned char>(bytes[offset + index]))
+                 << (index * 8u);
+    return value;
+}
+
+struct ElfDependencies {
+    std::set<std::string> needed;
+    std::vector<std::string> rpaths;
+};
+
+// Inspect the actual x86_64 ELF dynamic segment, independently of template
+// metadata. Virtual DT_STRTAB addresses are resolved through file-backed
+// PT_LOAD segments; no loader or host readelf invocation is involved.
+ElfDependencies inspect_linux_elf(std::string_view bytes)
+{
+    if (bytes.size() < 64 ||
+        bytes.substr(0, 4) != std::string_view{"\x7f"
+                                               "ELF",
+                                               4} ||
+        elf_integer(bytes, 4, 1) != 2 || elf_integer(bytes, 5, 1) != 1 ||
+        elf_integer(bytes, 18, 2) != 62 ||
+        (elf_integer(bytes, 16, 2) != 2 && elf_integer(bytes, 16, 2) != 3))
+        throw std::runtime_error("Linux player must be a 64-bit little-endian x86_64 ELF.");
+    struct Segment {
+        std::uint64_t offset, vaddr, size;
+    };
+    std::vector<Segment> loads;
+    std::optional<Segment> dynamic;
+    const auto phoff = elf_integer(bytes, 32, 8);
+    const auto phsize = elf_integer(bytes, 54, 2);
+    const auto phcount = elf_integer(bytes, 56, 2);
+    if (phsize < 56 || phcount == 0 || phcount > 512 || phoff > bytes.size() ||
+        phcount > (bytes.size() - phoff) / phsize)
+        throw std::runtime_error("Linux ELF has an invalid program-header table.");
+    for (std::uint64_t index = 0; index < phcount; ++index) {
+        const auto pos = phoff + index * phsize;
+        const auto type = elf_integer(bytes, pos, 4);
+        Segment segment{elf_integer(bytes, pos + 8, 8), elf_integer(bytes, pos + 16, 8),
+                        elf_integer(bytes, pos + 32, 8)};
+        if (segment.offset > bytes.size() || segment.size > bytes.size() - segment.offset)
+            throw std::runtime_error("Linux ELF segment exceeds the player file.");
+        if (type == 1)
+            loads.push_back(segment);
+        if (type == 2) {
+            if (dynamic)
+                throw std::runtime_error("Linux ELF has duplicate dynamic segments.");
+            dynamic = segment;
+        }
+    }
+    if (!dynamic || dynamic->size % 16 != 0)
+        throw std::runtime_error("Linux player has no valid dynamic segment.");
+    std::uint64_t string_address = 0, string_size = 0;
+    std::vector<std::uint64_t> needed_offsets, rpath_offsets;
+    bool terminated = false;
+    for (std::uint64_t pos = dynamic->offset; pos < dynamic->offset + dynamic->size; pos += 16) {
+        const auto tag = elf_integer(bytes, pos, 8);
+        const auto value = elf_integer(bytes, pos + 8, 8);
+        if (tag == 0) {
+            terminated = true;
+            break;
+        }
+        if (tag == 1)
+            needed_offsets.push_back(value);
+        if (tag == 5)
+            string_address = value;
+        if (tag == 10)
+            string_size = value;
+        if (tag == 15 || tag == 29)
+            rpath_offsets.push_back(value);
+    }
+    if (!terminated || string_size == 0)
+        throw std::runtime_error("Linux ELF dynamic string table is missing.");
+    std::optional<std::uint64_t> string_offset;
+    for (const auto& segment : loads)
+        if (string_address >= segment.vaddr && string_address - segment.vaddr < segment.size &&
+            string_size <= segment.size - (string_address - segment.vaddr)) {
+            string_offset = segment.offset + string_address - segment.vaddr;
+            break;
+        }
+    if (!string_offset)
+        throw std::runtime_error("Linux ELF dynamic strings are not file-backed.");
+    const auto string_at = [&](std::uint64_t offset) {
+        if (offset >= string_size)
+            throw std::runtime_error("Linux ELF contains an invalid dynamic string.");
+        const auto begin = bytes.substr(*string_offset + offset, string_size - offset);
+        const auto end = begin.find('\0');
+        if (end == std::string_view::npos || end == 0)
+            throw std::runtime_error("Linux ELF contains an unterminated dynamic string.");
+        return std::string(begin.substr(0, end));
+    };
+    ElfDependencies result;
+    for (const auto offset : needed_offsets)
+        result.needed.insert(string_at(offset));
+    for (const auto offset : rpath_offsets) {
+        const auto combined = string_at(offset);
+        std::size_t start = 0;
+        do {
+            const auto end = combined.find(':', start);
+            result.rpaths.push_back(combined.substr(start, end - start));
+            if (end == std::string::npos)
+                break;
+            start = end + 1;
+        } while (true);
+    }
+    return result;
+}
+
+void verify_linux_dependencies(const Json& descriptor, const fs::path& player,
+                               const std::map<std::string, fs::path>& libraries)
+{
+    if (!descriptor.contains("linuxNeeded") || !descriptor.at("linuxNeeded").is_array() ||
+        !descriptor.contains("linuxRpaths") || !descriptor.at("linuxRpaths").is_array())
+        throw std::runtime_error("Linux template is missing its ELF dependency declarations.");
+    const auto elf = inspect_linux_elf(read_file(player));
+    std::set<std::string> declared;
+    for (const auto& item : descriptor.at("linuxNeeded"))
+        declared.insert(item.get<std::string>());
+    if (elf.needed != declared)
+        throw std::runtime_error("Linux ELF NEEDED entries disagree with the template.");
+    // Template descriptors contain the full readelf RUNPATH/RPATH string for
+    // each ELF tag. The loader interprets colon-separated components.
+    std::vector<std::string> declared_paths;
+    for (const auto& item : descriptor.at("linuxRpaths")) {
+        const auto combined = item.get<std::string>();
+        std::size_t start = 0;
+        while (true) {
+            const auto end = combined.find(':', start);
+            declared_paths.push_back(combined.substr(start, end - start));
+            if (end == std::string::npos)
+                break;
+            start = end + 1;
+        }
+    }
+    if (elf.rpaths != declared_paths)
+        throw std::runtime_error("Linux ELF runtime paths disagree with the template.");
+    const auto validate = [&](const fs::path& owner, const ElfDependencies& binary) {
+        for (const auto& path : binary.rpaths)
+            if (path.empty() || path[0] == '/' || path.find("..") != std::string::npos ||
+                path.find('\\') != std::string::npos ||
+                (path != "$ORIGIN" && !path.starts_with("$ORIGIN/")) ||
+                path.find_first_of("\n\r") != std::string::npos)
+                throw std::runtime_error("Linux ELF has a nonportable runtime search path: " +
+                                         path);
+        for (const auto& needed : binary.needed) {
+            if (const auto bundled = libraries.find(needed); bundled != libraries.end()) {
+                bool reachable = false;
+                for (const auto& search_path : binary.rpaths) {
+                    const auto candidate =
+                        (owner.parent_path() /
+                         fs::u8path(search_path.size() > 7 ? search_path.substr(8)
+                                                           : std::string{}) /
+                         fs::u8path(needed))
+                            .lexically_normal();
+                    if (candidate == bundled->second.lexically_normal()) {
+                        reachable = true;
+                        break;
+                    }
+                }
+                if (!reachable)
+                    throw std::runtime_error("Linux ELF cannot resolve bundled library: " + needed);
+                continue;
+            }
+            const std::array<std::string_view, 18> system_prefixes{
+                "ld-linux",    "libc.so",      "libm.so",      "libdl.so", "libpthread.so",
+                "librt.so",    "libgcc_s.so",  "libstdc++.so", "libX",     "libxcb",
+                "libwayland-", "libxkbcommon", "libGL",        "libEGL",   "libdrm",
+                "libasound",   "libpulse",     "libudev"};
+            if (std::any_of(system_prefixes.begin(), system_prefixes.end(),
+                            [&](auto prefix) { return needed.starts_with(prefix); }) ||
+                needed.starts_with("libdbus-") || needed.starts_with("libfontconfig") ||
+                needed.starts_with("libfreetype") || needed.starts_with("libz.so"))
+                continue;
+            throw std::runtime_error("Linux ELF has an unresolved non-system dependency: " +
+                                     needed);
+        }
+    };
+    validate(player, elf);
+    // An ELF can load successfully while a transitive DT_NEEDED entry is
+    // absent or in the wrong directory. Check the actual dynamic section and
+    // origin-relative lookup of every shipped shared library as well.
+    for (const auto& [name, path] : libraries) {
+        (void)name;
+        validate(path, inspect_linux_elf(read_file(path)));
+    }
 }
 
 Json diagnostic(std::string code, std::string path, std::string message)
@@ -1114,6 +1319,565 @@ PlatformCliResult stage_web_export(const Json& admission, const Json& profile,
     }
 }
 
+PlatformCliResult stage_linux_export(const Json& admission, const Json& profile,
+                                     const Json& descriptor, const fs::path& template_directory,
+                                     const fs::path& icon_source, const fs::path& destination,
+                                     bool force, bool allow_localization_warnings,
+                                     bool include_unused_assets, bool include_shader_sources,
+                                     const PlatformExportTools& tools,
+                                     const std::function<bool()>& source_current)
+{
+    if (!tools.prepare_package || !tools.create_archive || !tools.resize_image ||
+        !tools.physical_sources_current)
+        return failure("CLI_INTERNAL", "Native Linux export tools are unavailable.", 70);
+    try {
+        check_cancellation(tools);
+        if (!source_current())
+            return failure("WORKSPACE_REVISION_CONFLICT", "Linux sources changed.", 5);
+        const auto& app = admission.at("project").at("settings").at("app");
+        const auto& desktop = profile.at("desktop");
+        const auto executable = desktop.at("executableName").get<std::string>();
+        if (executable.empty() || executable == "." || executable == ".." ||
+            !std::all_of(executable.begin(), executable.end(), [](unsigned char ch) {
+                return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                       (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '+' || ch == '-';
+            }))
+            return failure("platform-executable-name-invalid", "Invalid Linux executable name.");
+        const auto kind = desktop.at("artifact").get<std::string>();
+        if (kind != "zip" && kind != "tar" && kind != "tar.gz" && kind != "appimage")
+            return failure("platform-artifact-invalid", "Unsupported Linux export artifact.");
+        const auto archive_format = kind == "zip" ? "zip" : "tar.gz";
+        const auto appimage = kind == "appimage";
+        const auto app_id = app.at("applicationId").get<std::string>();
+        const auto app_name = app.at("displayName").get<std::string>();
+        const auto version = app.at("versionName").get<std::string>();
+        const auto save_namespace = app.at("saveNamespace").get<std::string>();
+        const auto desktop_id =
+            app.value("desktop", Json::object()).value("linuxDesktopId", app_id);
+        if (desktop_id.empty() || desktop_id.front() == '.' || desktop_id.back() == '.' ||
+            desktop_id.find('.') == std::string::npos ||
+            !std::all_of(desktop_id.begin(), desktop_id.end(),
+                         [](unsigned char ch) {
+                             return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+                                    (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-';
+                         }) ||
+            desktop_id.find("..") != std::string::npos)
+            return failure("platform-desktop-id-invalid", "Invalid Linux desktop application ID.");
+        const auto icon_sha = digest(read_file(icon_source));
+        const auto descriptor_sha = digest(read_file(template_directory / "template.json"));
+        const auto registry_sha = digest(read_file(template_directory / ".noveltea-template.json"));
+        if (Json::parse(read_file(template_directory / "template.json")) != descriptor)
+            return failure("platform-template-changed", "Linux template changed after preflight.",
+                           5);
+
+        const auto nonce = random_nonce();
+        const auto archive_path =
+            fs::u8path(path_text(destination) +
+                       (archive_format == std::string_view{"zip"} ? ".zip" : ".tar.gz"));
+        const auto symbols_path = fs::u8path(path_text(destination) + "-symbols.tar.gz");
+        const auto appimage_path = fs::u8path(path_text(destination) + ".AppImage");
+        const bool with_symbols = profile.value("includeDebugSymbols", false);
+        const auto make_entry = [&](const fs::path& final, bool retire = false) {
+            return PublicationEntry{final, fs::u8path(path_text(final) + ".stage-" + nonce),
+                                    fs::u8path(path_text(final) + ".previous-" + nonce),
+                                    fs::exists(fs::symlink_status(final)), retire};
+        };
+        std::vector<PublicationEntry> entries{make_entry(destination), make_entry(archive_path),
+                                              make_entry(symbols_path, !with_symbols),
+                                              make_entry(appimage_path, !appimage)};
+        for (const auto& entry : entries)
+            if (fs::exists(fs::symlink_status(entry.stage)) ||
+                fs::exists(fs::symlink_status(entry.previous)) ||
+                fs::is_symlink(fs::symlink_status(entry.final)) || (entry.had_previous && !force))
+                return failure("platform-output-exists",
+                               "Linux output path is unsafe or occupied.");
+        fs::create_directories(destination.parent_path());
+        Staging cleanup(entries, journal_path(destination));
+        fs::create_directory(entries.front().stage);
+        const auto& stage = entries.front().stage;
+
+        Json native_profile = admission.at("profile");
+        native_profile["shaderVariants"] = Json::array({"glsl-330"});
+        native_profile["localization"] = profile.at("localization");
+        native_profile["excludeUnusedAssets"] =
+            include_unused_assets ? false : profile.value("excludeUnusedAssets", true);
+        native_profile["includeShaderSources"] =
+            include_shader_sources || profile.value("includeShaderSources", false);
+        native_profile["stripShaderSources"] =
+            !native_profile.at("includeShaderSources").get<bool>();
+        if (tools.progress)
+            tools.progress("writing-package", "Preparing Linux runtime package (glsl-330)");
+        const auto packaged =
+            tools.prepare_package(admission, native_profile, stage / "game.ntpkg");
+        check_cancellation(tools);
+        if (!packaged.value("ok", false))
+            return failure(packaged.value("code", "native.platform.package"),
+                           packaged.value("error", "Linux runtime package failed."),
+                           packaged.value("code", "") == "WORKSPACE_REVISION_CONFLICT" ? 5 : 6);
+        const auto& artifact = packaged.at("artifact");
+        if (!artifact.contains("compiledProject") ||
+            artifact.at("packageOptions").value("kind", "") != "runtime")
+            return failure("native.runtime.artifact", "Linux runtime package evidence is invalid.",
+                           6);
+        const auto& options = artifact.at("packageOptions");
+        for (const auto& diagnostic : artifact.value("diagnostics", Json::array()))
+            if (diagnostic.value("severity", "") == "warning" &&
+                diagnostic.value("code", std::string{}).starts_with("localization.export.") &&
+                !allow_localization_warnings)
+                return failure("localization.export.warning_override_required",
+                               "Localization warnings require --allow-localization-warnings.");
+
+        std::vector<FileEntry> files, symbols;
+        std::set<std::string> names{"game.ntpkg"};
+        std::map<std::string, fs::path> libraries;
+        std::map<std::string, std::string> origins;
+        for (const auto& dependency : descriptor.at("runtimeDependencies")) {
+            const auto name = dependency.at("path").get<std::string>();
+            const auto category = dependency.value("kind", "");
+            origins[name] = category == "notice"    ? "notice"
+                            : category == "library" ? "native-dependency"
+                                                    : "system-asset";
+            if (category == "library" && name.find(".so") != std::string::npos) {
+                const auto basename = fs::u8path(name).filename().string();
+                if (!libraries.emplace(basename, safe_child(stage, name)).second)
+                    return failure("platform-template-dependencies",
+                                   "Ambiguous Linux shared library name: " + basename);
+            }
+        }
+        std::string player_path;
+        if (tools.progress)
+            tools.progress("staging", "Staging Linux player and verified dependencies");
+        for (const auto& declared : descriptor.at("files")) {
+            check_cancellation(tools);
+            const auto name = declared.at("path").get<std::string>();
+            if (!names.insert(name).second || name == "player.json" ||
+                name == "export-manifest.json" || name == "LINUX_METADATA.json" ||
+                name.starts_with("share/applications/") || name.starts_with("share/icons/"))
+                return failure("platform-template-collision",
+                               "Linux template output collision: " + name);
+            const auto source = safe_child(template_directory, name);
+            if (!fs::is_regular_file(fs::symlink_status(source)) ||
+                fs::file_size(source) != declared.at("size").get<std::uint64_t>() ||
+                digest(read_file(source)) != declared.at("sha256").get<std::string>())
+                return failure("invalid-installed-template", "Linux template file changed: " + name,
+                               5);
+            const auto mode = declared.at("mode").get<std::uint32_t>();
+            const auto role = declared.value("role", "");
+            if (role == "symbol" || name.ends_with(".debug")) {
+                symbols.push_back({name, "symbol", name, mode,
+                                   declared.at("size").get<std::uint64_t>(),
+                                   declared.at("sha256").get<std::string>()});
+                continue;
+            }
+            if (role == "player") {
+                if (!player_path.empty() || !(mode & 0111))
+                    return failure("platform-template-player", "Invalid Linux player declaration.");
+                player_path = name;
+            }
+            const auto target = safe_child(stage, name);
+            copy_verified_file(source, target);
+            fs::permissions(target, static_cast<fs::perms>(mode & 0777), fs::perm_options::replace);
+            files.push_back(
+                track_file(stage, name, origins.contains(name) ? origins.at(name) : "template",
+                           "template:" + descriptor.at("templateId").get<std::string>(), mode));
+            if (files.back().sha256 != declared.at("sha256").get<std::string>())
+                return failure("invalid-installed-template", "Linux template copy changed.", 5);
+            if (name.starts_with("licenses/")) {
+                const auto mounted = "assets/system/" + name;
+                if (!names.insert(mounted).second)
+                    return failure("platform-template-collision", "Linux license mount collides.");
+                copy_verified_file(target, safe_child(stage, mounted));
+                files.push_back(track_file(stage, mounted, "system-asset", name, mode));
+            }
+        }
+        if (player_path.empty())
+            return failure("platform-template-player", "Linux template has no player.");
+        const auto binary_target =
+            (fs::u8path(player_path).parent_path() / fs::u8path(executable)).generic_string();
+        if (binary_target == executable ||
+            (binary_target != player_path && names.contains(binary_target)))
+            return failure("platform-template-collision", "Linux launcher collides with player.");
+        auto player_entry = std::find_if(files.begin(), files.end(), [&](const FileEntry& file) {
+            return file.path == player_path;
+        });
+        if (binary_target != player_path) {
+            fs::rename(safe_child(stage, player_path), safe_child(stage, binary_target));
+            player_entry->path = binary_target;
+        }
+        const auto binary_path = safe_child(stage, binary_target);
+        verify_linux_dependencies(descriptor, binary_path, libraries);
+        *player_entry = track_file(stage, binary_target, "template", "template:" + player_path,
+                                   player_entry->mode | 0111);
+        fs::permissions(binary_path, static_cast<fs::perms>(player_entry->mode),
+                        fs::perm_options::replace);
+        const auto config_dir = fs::u8path(binary_target).parent_path().generic_string();
+        const auto package_relative =
+            config_dir.empty() ? "game.ntpkg" : config_dir + "/game.ntpkg";
+        if (names.contains(package_relative) && package_relative != "game.ntpkg")
+            return failure("platform-template-collision", "Linux runtime package collides.");
+        if (package_relative != "game.ntpkg") {
+            fs::create_directories(safe_child(stage, package_relative).parent_path());
+            fs::rename(stage / "game.ntpkg", safe_child(stage, package_relative));
+        }
+        files.push_back(track_file(stage, package_relative, "runtime-package", "game.ntpkg", 0644));
+        const auto package_sha = files.back().sha256;
+        const auto config_path = config_dir.empty() ? "player.json" : config_dir + "/player.json";
+        if (names.contains(config_path))
+            return failure("platform-template-collision", "Linux player configuration collides.");
+
+        std::vector<FileEntry> icons;
+        if (tools.progress)
+            tools.progress("generating-metadata", "Generating Linux icons and desktop metadata");
+        for (const unsigned size : {16u, 32u, 48u, 64u, 128u, 256u, 512u}) {
+            check_cancellation(tools);
+            const auto path = "share/icons/hicolor/" + std::to_string(size) + "x" +
+                              std::to_string(size) + "/apps/" + desktop_id + ".png";
+            if (names.contains(path))
+                return failure("platform-template-collision", "Linux icon path collides.");
+            const auto resized =
+                tools.resize_image({{"sourcePath", path_text(icon_source)},
+                                    {"outputPath", path_text(safe_child(stage, path))},
+                                    {"size", size}});
+            if (!resized.value("ok", false))
+                return failure("platform-icon-generation",
+                               resized.value("error", "Linux icon generation failed."));
+            icons.push_back(track_file(stage, path, "icon", "hicolor", 0644));
+            files.push_back(icons.back());
+        }
+        const auto escape = [](std::string value) {
+            std::string escaped;
+            for (const char ch : value) {
+                if (ch == '\r')
+                    continue;
+                if (ch == '\\')
+                    escaped += "\\\\";
+                else if (ch == '\n')
+                    escaped += "\\n";
+                else
+                    escaped += ch;
+            }
+            return escaped;
+        };
+        const auto desktop_path = "share/applications/" + desktop_id + ".desktop";
+        write_file(safe_child(stage, desktop_path),
+                   "[Desktop Entry]\nType=Application\nVersion=1.0\nName=" + escape(app_name) +
+                       "\nExec=" + executable + "\nIcon=" + desktop_id +
+                       "\nTerminal=false\nCategories=Game;\nStartupNotify=true\n"
+                       "X-NovelTea-ApplicationId=" +
+                       escape(app_id) + "\nX-NovelTea-SaveNamespace=" + escape(save_namespace) +
+                       "\n");
+        files.push_back(
+            track_file(stage, desktop_path, "generated-metadata", "linux-desktop-entry", 0644));
+        write_file(safe_child(stage, executable),
+                   "#!/bin/sh\nset -eu\nROOT=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && "
+                   "pwd)\nexec \"$ROOT/" +
+                       binary_target + "\" \"$@\"\n");
+        fs::permissions(stage / executable, static_cast<fs::perms>(0755),
+                        fs::perm_options::replace);
+        files.push_back(
+            track_file(stage, executable, "generated-metadata", "linux-launcher", 0755));
+        write_file(stage / "LINUX_METADATA.json", Json{{"applicationId", app_id},
+                                                       {"saveNamespace", save_namespace},
+                                                       {"desktopId", desktop_id},
+                                                       {"executable", executable},
+                                                       {"player", binary_target},
+                                                       {"buildId", descriptor.at("buildId")},
+                                                       {"needed", descriptor.at("linuxNeeded")},
+                                                       {"rpaths", descriptor.at("linuxRpaths")}}
+                                                          .dump(2) +
+                                                      '\n');
+        files.push_back(
+            track_file(stage, "LINUX_METADATA.json", "generated-metadata", "linux-metadata", 0644));
+
+        const auto& memory = profile.at("assetMemory");
+        if (memory.value("kind", "") != "builtin")
+            return failure("platform-asset-memory-policy",
+                           "Native Linux custom asset-memory policies are not yet supported.", 70);
+        const std::map<std::string, std::array<std::uint64_t, 7>> baselines{
+            {"low", {67108864, 671088640, 33554432, 33554432, 13421772, 536870912, 6710886}},
+            {"balanced",
+             {134217728, 1342177280, 67108864, 67108864, 40265318, 1073741824, 20132659}},
+            {"high",
+             {268435456, 2684354560, 134217728, 134217728, 107374182, 2147483648, 53687091}}};
+        const auto preset = memory.at("preset").get<std::string>();
+        if (!baselines.contains(preset))
+            return failure("platform-asset-memory-policy", "Unknown asset-memory preset.");
+        const auto& b = baselines.at(preset);
+        const Json asset_memory{{"preset", preset},       {"preparedCpuBytes", b[0]},
+                                {"gpuBytes", b[1]},       {"audioBytes", b[2]},
+                                {"temporaryBytes", b[3]}, {"warmPreparedCpuBytes", b[4]},
+                                {"warmGpuBytes", b[5]},   {"warmAudioBytes", b[6]}};
+        const auto& raw_display = options.at("display");
+        const auto& raw_access = options.at("accessibility");
+        const Json display{{"referenceResolution", raw_display.at("reference_resolution")},
+                           {"worldRasterPolicy", raw_display.at("world_raster_policy")},
+                           {"barColor", raw_display.at("bar_color")}};
+        const Json accessibility{{"uiScale", raw_access.at("ui_scale")},
+                                 {"textScale", raw_access.at("text_scale")}};
+        Json player{{"format", "noveltea.player-config"},
+                    {"formatVersion", 1},
+                    {"displayName", app_name},
+                    {"applicationId", app_id},
+                    {"saveNamespace", save_namespace},
+                    {"versionName", version},
+                    {"package", {{"path", "game.ntpkg"}, {"sha256", package_sha}}},
+                    {"capabilities", Json::array({"external-url"})},
+                    {"display", display},
+                    {"accessibility", accessibility},
+                    {"assetMemory", asset_memory}};
+        if (app.contains("defaultLocale") && app.at("defaultLocale").is_string())
+            player["defaultLocale"] = app.at("defaultLocale");
+        write_file(safe_child(stage, config_path), player.dump(2) + '\n');
+        files.push_back(
+            track_file(stage, config_path, "generated-metadata", "player-config", 0644));
+        const auto& resolution = display.at("referenceResolution");
+        const auto width = resolution.at("width").get<int>();
+        const auto height = resolution.at("height").get<int>();
+        if (width <= 0 || height <= 0)
+            return failure("platform-runtime-display", "Linux display resolution is invalid.");
+        const auto divisor = std::gcd(width, height);
+        const Json geometry{
+            {"aspectRatio", {{"width", width / divisor}, {"height", height / divisor}}},
+            {"orientation", width >= height ? "landscape" : "portrait"},
+            {"barColor", display.at("barColor")}};
+        const Json deployment{{"target", "linux"},
+                              {"architecture", profile.at("architecture")},
+                              {"buildFlavor", profile.at("buildFlavor")},
+                              {"applicationId", app_id},
+                              {"displayName", app_name},
+                              {"versionName", version},
+                              {"saveNamespace", save_namespace},
+                              {"capabilities", Json::array({"external-url"})},
+                              {"capabilityMetadata",
+                               {{"androidPermissions", Json::array()},
+                                {"androidFeatures", Json::array()},
+                                {"webRequirements", Json::array()},
+                                {"desktopFeatures", Json::array()}}},
+                              {"display", geometry},
+                              {"packageAccess", profile.at("packageAccess")},
+                              {"templateId", descriptor.at("templateId")},
+                              {"buildId", descriptor.at("buildId")},
+                              {"compiledProjectFormatVersion", 1},
+                              {"playerRuntimeApiVersion", 1},
+                              {"assetMemory", asset_memory}};
+        std::sort(files.begin(), files.end(),
+                  [](const FileEntry& a, const FileEntry& b) { return a.path < b.path; });
+        Json inventory = Json::array();
+        Json archive_entries = Json::array();
+        for (const auto& file : files) {
+            inventory.push_back(file.json());
+            archive_entries.push_back({{"sourcePath", path_text(safe_child(stage, file.path))},
+                                       {"archivePath", file.path},
+                                       {"size", file.size},
+                                       {"mode", file.mode}});
+        }
+        write_file(stage / "export-manifest.json",
+                   Json{{"format", "noveltea.platform-export-manifest"},
+                        {"deployment", deployment},
+                        {"files", inventory}}
+                           .dump(2) +
+                       '\n');
+        files.push_back(track_file(stage, "export-manifest.json", "generated-metadata",
+                                   "export-manifest", 0644));
+        archive_entries.push_back({{"sourcePath", path_text(stage / "export-manifest.json")},
+                                   {"archivePath", "export-manifest.json"},
+                                   {"size", fs::file_size(stage / "export-manifest.json")},
+                                   {"mode", 0644}});
+        if (tools.progress)
+            tools.progress("finalizing", "Building Linux distribution and debug-symbol archives");
+        const auto pack = [&](const fs::path& path, std::string_view format, const Json& contents) {
+            const auto result =
+                tools.create_archive({{"outputPath", path_text(path)},
+                                      {"format", format},
+                                      {"compression", profile.value("compression", "default")},
+                                      {"entries", contents}});
+            if (!result.value("ok", false))
+                throw std::runtime_error(result.value("error", "Linux archive generation failed."));
+        };
+        pack(entries[1].stage, archive_format, archive_entries);
+        std::optional<std::string> symbols_sha;
+        if (with_symbols) {
+            if (symbols.empty())
+                return failure("platform-template-symbols", "Linux template has no debug symbols.");
+            const auto symbol_stage = stage / ".symbols-temporary";
+            fs::create_directory(symbol_stage);
+            Json symbols_entries = Json::array();
+            for (const auto& file : symbols) {
+                check_cancellation(tools);
+                const auto name = fs::u8path(file.path).filename().string();
+                const auto target = symbol_stage / fs::u8path(name);
+                copy_verified_file(safe_child(template_directory, file.path), target);
+                symbols_entries.push_back({{"sourcePath", path_text(target)},
+                                           {"archivePath", name},
+                                           {"size", file.size},
+                                           {"mode", file.mode}});
+            }
+            write_file(symbol_stage / "BUILD_ID",
+                       descriptor.at("buildId").get<std::string>() + '\n');
+            symbols_entries.push_back({{"sourcePath", path_text(symbol_stage / "BUILD_ID")},
+                                       {"archivePath", "BUILD_ID"},
+                                       {"size", fs::file_size(symbol_stage / "BUILD_ID")},
+                                       {"mode", 0644}});
+            pack(entries[2].stage, "tar.gz", symbols_entries);
+            symbols_sha = digest(read_file(entries[2].stage));
+            fs::remove_all(symbol_stage);
+        }
+        std::optional<std::string> appimage_sha;
+        if (appimage) {
+#if !defined(__linux__)
+            return failure("platform-appimage-host", "AppImage requires a Linux assembly host.");
+#else
+            if (!tools.run_signing_command)
+                return failure("CLI_INTERNAL", "External tool executor is missing.", 70);
+            const auto appdir = fs::u8path(path_text(destination) + ".AppDir-" + nonce);
+            if (fs::exists(fs::symlink_status(appdir)))
+                return failure("platform-output-exists", "Linux AppDir staging path is occupied.");
+            struct CleanAppDir {
+                fs::path path;
+                ~CleanAppDir()
+                {
+                    std::error_code ignored;
+                    fs::remove_all(path, ignored);
+                }
+            } clean_appdir{appdir};
+            fs::create_directory(appdir);
+            for (const auto& file : files) {
+                const auto target = safe_child(appdir, file.path);
+                copy_verified_file(safe_child(stage, file.path), target);
+                fs::permissions(target, static_cast<fs::perms>(file.mode & 0777),
+                                fs::perm_options::replace);
+            }
+            write_file(appdir / "AppRun", "#!/bin/sh\nset -eu\nHERE=$(CDPATH= cd -- \"$(dirname -- "
+                                          "\"$0\")\" && pwd)\nexec \"$HERE/" +
+                                              binary_target + "\" \"$@\"\n");
+            fs::permissions(appdir / "AppRun", static_cast<fs::perms>(0755),
+                            fs::perm_options::replace);
+            copy_verified_file(safe_child(stage, desktop_path),
+                               appdir / fs::u8path(desktop_id + ".desktop"));
+            copy_verified_file(safe_child(stage, icons.back().path),
+                               appdir / fs::u8path(desktop_id + ".png"));
+            const char* selected = std::getenv("NOVELTEA_LINUX_APPIMAGE_TOOL");
+            const std::string tool = selected && *selected ? selected : "appimagetool";
+            if (!tools.run_signing_command("env",
+                                           {"ARCH=x86_64", "APPIMAGE_EXTRACT_AND_RUN=1", tool,
+                                            path_text(appdir), path_text(entries[3].stage)},
+                                           destination.parent_path()))
+                return failure("platform-appimage-tool",
+                               "AppImage creation requires the configured appimagetool.");
+            const auto image_bytes = read_file(entries[3].stage);
+            if (image_bytes.size() < 4096 || image_bytes.substr(0, 4) != std::string{"\x7f"
+                                                                                     "ELF",
+                                                                                     4})
+                return failure("platform-appimage-invalid",
+                               "AppImage tool did not emit an ELF image.");
+            appimage_sha = digest(image_bytes);
+#endif
+        }
+        check_cancellation(tools);
+        // The native archive writer emits deterministic tar/ZIP bytes. For tar,
+        // independently regenerate from the declared inventory before accepting
+        // the exact published archive hash. CI also extracts every tar member.
+        if (archive_format == std::string_view{"zip"})
+            verify_archive(entries[1].stage, stage, files);
+        else {
+            const auto comparison = fs::u8path(path_text(entries[1].stage) + ".verify");
+            struct CleanArchive {
+                fs::path path;
+                ~CleanArchive()
+                {
+                    std::error_code ignored;
+                    fs::remove(path, ignored);
+                }
+            } clean_comparison{comparison};
+            pack(comparison, "tar.gz", archive_entries);
+            if (digest(read_file(comparison)) != digest(read_file(entries[1].stage)))
+                return failure("platform-archive-failed", "Linux tar archive readback disagrees.");
+        }
+        const auto archive_sha = digest(read_file(entries[1].stage));
+        const auto sources_fresh = [&]() {
+            if (!source_current() || !tools.physical_sources_current(options) ||
+                digest(read_file(icon_source)) != icon_sha ||
+                digest(read_file(template_directory / "template.json")) != descriptor_sha ||
+                digest(read_file(template_directory / ".noveltea-template.json")) != registry_sha)
+                return false;
+            for (const auto& item : descriptor.at("files")) {
+                const auto original =
+                    safe_child(template_directory, item.at("path").get<std::string>());
+                if (!fs::is_regular_file(fs::symlink_status(original)) ||
+                    digest(read_file(original)) != item.at("sha256").get<std::string>())
+                    return false;
+            }
+            return true;
+        };
+        if (tools.progress)
+            tools.progress("verifying", "Checking Linux source and publication integrity");
+        if (!sources_fresh())
+            return failure("WORKSPACE_REVISION_CONFLICT", "Linux source changed before publish.",
+                           5);
+        publish(destination, entries, nonce, [&]() {
+            check_cancellation(tools);
+            std::set<std::string> found;
+            for (fs::recursive_directory_iterator it(destination), end; it != end; ++it) {
+                const auto status = it->symlink_status();
+                if (fs::is_symlink(status) ||
+                    (!fs::is_regular_file(status) && !fs::is_directory(status)))
+                    throw std::runtime_error("Unsafe Linux distribution member.");
+                if (fs::is_regular_file(status))
+                    found.insert(it->path().lexically_relative(destination).generic_string());
+            }
+            std::set<std::string> expected;
+            for (const auto& file : files) {
+                expected.insert(file.path);
+                if (digest(read_file(safe_child(destination, file.path))) != file.sha256)
+                    throw std::runtime_error("Published Linux file changed: " + file.path);
+            }
+            if (found != expected || digest(read_file(archive_path)) != archive_sha ||
+                (symbols_sha && digest(read_file(symbols_path)) != *symbols_sha) ||
+                (appimage_sha && digest(read_file(appimage_path)) != *appimage_sha))
+                throw std::runtime_error("Published Linux artifact inventory changed.");
+            check_cancellation(tools);
+            if (!sources_fresh())
+                throw SourceChanged("Linux inputs changed during publication.");
+        });
+        Json artifacts = Json::array({{{"kind", "directory"}, {"path", path_text(destination)}},
+                                      {{"kind", "archive"},
+                                       {"path", path_text(archive_path)},
+                                       {"size", fs::file_size(archive_path)}}});
+        Json result{{"success", true},
+                    {"exitCode", 0},
+                    {"diagnostics", Json::array()},
+                    {"outputDirectory", path_text(destination)},
+                    {"archivePath", path_text(archive_path)},
+                    {"templateToken", descriptor.at("templateId").get<std::string>() + "@" +
+                                          descriptor.at("buildId").get<std::string>()},
+                    {"signingRequested", false},
+                    {"signingApplied", false},
+                    {"cancelled", false},
+                    {"deployment", deployment}};
+        if (with_symbols) {
+            result["symbolArchivePath"] = path_text(symbols_path);
+            artifacts.push_back({{"kind", "symbols"},
+                                 {"path", path_text(symbols_path)},
+                                 {"size", fs::file_size(symbols_path)}});
+        }
+        if (appimage) {
+            artifacts.push_back({{"kind", "appimage"},
+                                 {"path", path_text(appimage_path)},
+                                 {"size", fs::file_size(appimage_path)}});
+        }
+        result["artifacts"] = std::move(artifacts);
+        return {std::move(result), "Native Linux platform export succeeded."};
+    } catch (const ExportCancelled& error) {
+        auto cancelled = failure("export-cancelled", error.what(), 130);
+        cancelled.envelope["cancelled"] = true;
+        return cancelled;
+    } catch (const SourceChanged& error) {
+        return failure("WORKSPACE_REVISION_CONFLICT", error.what(), 5);
+    } catch (const std::exception& error) {
+        return failure("platform-staging-failed", error.what());
+    }
+}
+
 } // namespace
 
 std::optional<PlatformCliResult>
@@ -1264,6 +2028,11 @@ PlatformCliResult stage_native_platform_export(
                                 destination, force, allow_localization_warnings,
                                 include_unused_assets, include_shader_sources, lock, tools,
                                 source_current);
+    if (profile.value("target", "") == "linux")
+        return stage_linux_export(admission, profile, descriptor, template_directory, icon_source,
+                                  destination, force, allow_localization_warnings,
+                                  include_unused_assets, include_shader_sources, tools,
+                                  source_current);
     // Only enable a platform after its complete native assembly, signing,
     // readback and publication contracts are implemented.
     if (profile.value("target", "") != "windows")
