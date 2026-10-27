@@ -33,6 +33,8 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES
     "${SOURCE_ROOT}/tests/*.h"
     "${SOURCE_ROOT}/tests/*.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli.cpp"
+    "${SOURCE_ROOT}/tools/editor_tool/native_cli_daemon.cpp"
+    "${SOURCE_ROOT}/tools/editor_tool/native_cli_daemon.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_agent.cpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_agent.hpp"
     "${SOURCE_ROOT}/tools/editor_tool/native_cli_comfyui.cpp"

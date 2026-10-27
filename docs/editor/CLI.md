@@ -797,6 +797,21 @@ manifest editor can author or repair arbitrary named generic contracts and futur
 
 ## Resident daemon lifecycle
 
+The **unshipped direct C++ CLI candidate** now launches the existing native broker and
+one resident **C++** Project-owner process per canonical Project root (#549). Owner reads,
+Project transactions, formatting, localization, validation, and Asset inspection/import
+execute against the already-native Project services without a ScriptC host or QuickJS.
+Broker-authoritative physical observations bracket owner work and advance the broker's
+existing session-epoch/generation identity; Project source/Asset changes and watcher
+reconciliation do not depend on a JavaScript engine. The native candidate forwards the
+caller's cwd and scoped environment to the owner, retains only exactly proven successful
+validation results using the existing native cache, and does not replay mutations after
+an uncertain daemon failure. `--no-daemon` retains the same local C++ command execution.
+The paragraphs below continue to describe the **currently shipped ScriptC host**;
+native heavy-job snapshot hydration/disposable execution remains #550, and replacing
+the shipped host remains #551. The C++ candidate is not installed as a partial
+production replacement.
+
 The standalone executable contains a native per-user daemon broker. The broker is keyed by the exact NovelTea build identity plus the independently versioned Daemon Protocol compatibility boundary. While NovelTea is unreleased that boundary remains development version `1`; incompatible development changes replace V1 atomically rather than incrementing it. Different build/protocol identities use different endpoints and may coexist. Linux uses a user-private Unix-domain socket under the platform runtime directory when suitable, with a private NovelTea fallback directory; the runtime directory is restricted to the current user and the socket is mode `0600`. Windows uses a named pipe whose ACL grants access only to the current user. The same `noveltea` executable launches the private daemon mode; NovelTea does not install an operating-system service.
 
 Daemon transport frames are bounded at 16 MiB, including completion results. Full authored-suite

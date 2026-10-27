@@ -69,6 +69,7 @@ set(approved_source_paths
     "tools/benchmark/main.cpp"
     "tools/editor_tool/native_cli.cpp"
     # Host-only external process, CLI command and HTTP JSON protocol adapters.
+    "tools/editor_tool/native_cli_daemon.cpp"
     "tools/editor_tool/native_cli_agent.cpp"
     "tools/editor_tool/native_cli_comfyui.cpp"
     "tools/editor_tool/native_cli_comfyui_http.cpp"
