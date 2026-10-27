@@ -27,6 +27,11 @@ struct PlatformExportTools {
     std::function<PlatformJson(const PlatformJson&, const PlatformJson&)> check_runtime;
     std::function<bool()> cancelled;
     std::function<void(const std::string&, const std::string&)> progress;
+    // Host-only, argv-based signing command runner; must never invoke a shell
+    // or write command arguments (which may contain secrets) to diagnostics.
+    std::function<bool(const std::string&, const std::vector<std::string>&,
+                       const std::filesystem::path&)>
+        run_signing_command;
 };
 
 // Direct CLI adapter for Project-scoped profiles and the machine-local

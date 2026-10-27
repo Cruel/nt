@@ -114,8 +114,21 @@ void check_export(const fs::path& input, const fs::path& output, const fs::path&
 }
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
+    if (argc == 3 && std::string_view(argv[1]) == "--emit-fixture") {
+        try {
+            // Native platform black-box tests generate this binary on demand.
+            // No synthetic PE binaries or large real players enter Git.
+            make_synthetic_gui_player(fs::u8path(argv[2]));
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << error.what() << '\n';
+            return 1;
+        }
+    }
+    if (argc != 1)
+        return 2;
     const auto root = fs::temp_directory_path() /
                       ("noveltea-pe-test-" +
                        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));

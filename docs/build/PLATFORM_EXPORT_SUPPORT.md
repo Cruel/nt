@@ -51,6 +51,20 @@ explicitly that private certificate credentials are not provided, so passing
 does not claim real signing, Android SDK packaging, or macOS notarization.
 Those remain certified only by the appropriate target-specific release jobs.
 
+The Windows native C++ exporter certification is integrated into the existing
+Windows jobs instead of a parallel Windows workflow: `build.yml` builds
+`noveltea-native-cli` with MSVC and runs the native PE, publication, platform
+command and public-contract tests; `release.yml` builds the same C++ CLI alongside
+the release player and runs `tests/native_cli/windows_release_smoke.py` using
+the actual release Windows template. That smoke checks manifest/archive byte
+identity and starts the resulting executable from an unrelated working
+directory on the Windows host. Linux can run the same script with a trusted
+local template for cross-host assembly/readback, but only the Windows runner
+can certify launch. Synthetic per-binary signing/verification is exercised in
+the native CLI regression suite, while publicly trusted Authenticode signing,
+timestamp-chain validation, and production certificate credentials require
+separate signer/credential evidence (not included in CI fixtures).
+
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,
 NDK 28.2.13676358 (r28c), CMake 3.31.6, and bundletool 1.18.1. Those are template build inputs,

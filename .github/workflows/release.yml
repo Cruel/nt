@@ -518,7 +518,7 @@ jobs:
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
           $targets = @("noveltea-player", "cxx-policy")
-          if ("${{ matrix.platform }}" -eq "windows") { $targets += "noveltea-tooling-bridge" }
+          if ("${{ matrix.platform }}" -eq "windows") { $targets += "noveltea-tooling-bridge"; $targets += "noveltea-native-cli" }
           cmake --build --preset ${{ matrix.preset }} --target @targets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -615,6 +615,17 @@ jobs:
           NOVELTEA_PLAYER_HEADLESS_ERRORS: "1"
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}\build\windows-release\tools\editor_tool\noveltea-tooling-bridge.exe
         run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+
+      - name: Export and launch real Windows player through native C++ CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python tests/native_cli/windows_release_smoke.py `
+            "${{ github.workspace }}/build/windows-release/tools/editor_tool/native-cli/noveltea.exe" `
+            "${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-release.zip" `
+            "${{ github.workspace }}" `
+            "${{ github.workspace }}/dist/noveltea-native-windows-release-certification.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Finalize and launch Linux portable export on X11
         if: matrix.platform == 'linux'

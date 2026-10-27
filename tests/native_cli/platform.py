@@ -18,6 +18,7 @@ if os.name == 'posix':
 
 binary = Path(sys.argv[1]).resolve()
 source = Path(sys.argv[2]).resolve()
+pe_fixture_generator = Path(sys.argv[3]).resolve() if len(sys.argv) > 3 else None
 
 
 def sha(data):
@@ -243,10 +244,24 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     # Never rely on the large user-supplied player archive for this fixture.
     win_stage = root / 'win-template'
     shutil.copytree(staging, win_stage)
+    if pe_fixture_generator:
+        (win_stage / 'player.js').unlink()
+        subprocess.run([str(pe_fixture_generator), '--emit-fixture',
+                        str(win_stage / 'player.exe')], check=True)
     win_descriptor = dict(descriptor)
     win_descriptor.update(templateId='test-win', platform='windows', architecture='x64',
                           shaderVariants=['glsl-330'], graphicsBackends=['d3d11'],
-                          packageAccessModes=['sidecar'])
+                          packageAccessModes=['sidecar'], windowsImports=[])
+    if pe_fixture_generator:
+        win_descriptor['files'] = [entry for entry in win_descriptor['files']
+                                   if entry['path'] != 'player.js']
+        for entry in win_descriptor['files']:
+            if entry['path'] == 'SBOM.cdx.json':
+                entry['role'] = 'support'
+        win_descriptor['files'].append({
+            'path': 'player.exe', 'size': (win_stage / 'player.exe').stat().st_size,
+            'mode': 0o755, 'sha256': sha((win_stage / 'player.exe').read_bytes()),
+            'role': 'player'})
     (win_stage / 'template.json').write_text(json.dumps(win_descriptor))
     win_zip = root / 'test-win-template.zip'
     with zipfile.ZipFile(win_zip, 'w') as writer:
@@ -276,23 +291,65 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
         'format': 'noveltea.user-config', 'formatVersion': 1,
         'export': {'toolchains': {}, 'signingProfiles': [{
             'id': 'desktop', 'label': 'Windows signer', 'target': 'windows',
-            'command': 'signtool', 'args': [],
-            'verifyCommand': 'signtool', 'verifyArgs': []}]}}))
+            'command': 'signtool', 'args': ['{subject}'],
+            'verifyCommand': 'signtool', 'verifyArgs': ['{subject}']}]}}))
     assert run(*win_req, '--signing-profile', 'unknown', code=4)[
         'diagnostics'][0]['code'] == 'platform.signing_profile_required'
-    assert run(*win_req, '--signing-profile', 'desktop', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
-    assert run(*win_req, '--sign', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert run(*win_req, '--force', '--signing-profile', 'desktop')['success']
+    assert run(*win_req, '--sign')['success']
     # A mutating invocation must pass the selected signer into common
     # staging, which rejects unsupported signing BEFORE any output or journal
     # is published. This is distinct from the --check-only rejection above.
     win_publish = tuple(part for part in win_req if part != '--check')
-    assert run(*win_publish, '--signing-profile', 'desktop', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
-    assert not (root / 'win-output').exists()
-    assert not (root / 'win-output.noveltea-publication-transaction.json').exists()
-    assert not (root / 'win-output.noveltea-publication.lock').exists()
+    if pe_fixture_generator:
+        signer_script = root / 'mock-windows-signer.py'
+        signer_script.write_text('''import pathlib, sys
+subject = pathlib.Path(sys.argv[2])
+if sys.argv[1] == 'sign':
+    subject.write_bytes(subject.read_bytes() + b'MOCK-ONLY-SIGNED')
+elif sys.argv[1] == 'verify':
+    if not subject.read_bytes().endswith(b'MOCK-ONLY-SIGNED'):
+        sys.exit(7)
+elif sys.argv[1] == 'reject':
+    sys.exit(7)
+else:
+    sys.exit(9)
+''')
+        user_signing = json.loads(user_config_file.read_text())
+        test_signer = user_signing['export']['signingProfiles'][0]
+        test_signer.update(command=sys.executable,
+                           args=[str(signer_script), 'sign', '{subject}'],
+                           verifyCommand=sys.executable,
+                           verifyArgs=[str(signer_script), 'verify', '{subject}'])
+        user_config_file.write_text(json.dumps(user_signing))
+        signed = run(*win_publish, '--signing-profile', 'desktop')
+        assert signed['signingRequested'] and signed['signingApplied']
+        win_output = root / 'win-output'
+        report = json.loads((win_output / 'SIGNING_REPORT.json').read_text())
+        assert report['verified'] and report['signed']
+        assert report['timestamped'] is None  # No trusted timestamp asserted by mock.
+        exe = win_output / 'game.exe'
+        assert exe.read_bytes().endswith(b'MOCK-ONLY-SIGNED')
+        assert report['subjects'][0]['sha256'] == sha(exe.read_bytes())
+        manifest = json.loads((win_output / 'export-manifest.json').read_text())
+        assert next(f for f in manifest['files'] if f['path'] == 'game.exe')['sha256'] == (
+            sha(exe.read_bytes()))
+        assert not (root / 'win-output.noveltea-publication-transaction.json').exists()
+        test_signer['verifyArgs'] = [str(signer_script), 'reject', '{subject}']
+        user_config_file.write_text(json.dumps(user_signing))
+        existing_hash = sha(exe.read_bytes())
+        assert run(*win_publish, '--sign', '--force', code=4)['diagnostics'][0]['code'] == (
+            'platform.signature_verification_failed')
+        assert sha(exe.read_bytes()) == existing_hash  # No partial overwrite.
+        test_signer['verifyArgs'] = []
+        user_config_file.write_text(json.dumps(user_signing))
+        assert run(*win_publish, '--sign', '--force', code=4)['diagnostics'][0]['code'] == (
+            'platform.signing_configuration_invalid')
+        assert sha(exe.read_bytes()) == existing_hash
+        test_signer['verifyArgs'] = [str(signer_script), 'verify', '{subject}']
+        user_config_file.write_text(json.dumps(user_signing))
+    else:
+        assert run(*win_publish, '--signing-profile', 'desktop', code=4)['success'] is False
     stored = json.loads(user_config_file.read_text())
     stored['export']['signingProfiles'].append({
         'id': 'second', 'label': 'Second signer', 'target': 'windows',
@@ -301,21 +358,16 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     user_config_file.write_text(json.dumps(stored))
     assert run(*win_req, '--sign', code=4)['diagnostics'][0]['code'] == (
         'platform.signing_profile_required')
-    assert run(*win_req, '--signing-profile', 'desktop', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert run(*win_req, '--force', '--signing-profile', 'desktop')['success']
     configured.write_text(json.dumps({
         'format': 'noveltea.editor-export-local-state',
         'toolchains': {'javaHome': '/unused/jdk'},
         'signing': {'windows': {
-            'command': 'signtool', 'args': [],
-            'verifyCommand': 'signtool', 'verifyArgs': [],
+            'command': 'signtool', 'args': ['{subject}'],
+            'verifyCommand': 'signtool', 'verifyArgs': ['{subject}'],
         }},
     }))
-    assert run(*win_req, '--config', configured, '--sign', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
-    assert run(*win_publish, '--config', configured, '--sign', code=70)[
-        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
-    assert not (root / 'win-output').exists()
+    assert run(*win_req, '--force', '--config', configured, '--sign')['success']
     user_config_file.unlink()
     assert run('platform', 'template', 'remove', 'test-win@v1', '--force')['removed']
 

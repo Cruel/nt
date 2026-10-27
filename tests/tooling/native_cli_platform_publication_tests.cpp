@@ -300,17 +300,16 @@ int main()
             {{"javaHome", "/unused/jdk"}},
             {{"windows",
               {{"command", "signtool"},
-               {"args", noveltea::cli::PlatformJson::array()},
+               {"args", noveltea::cli::PlatformJson::array({"{subject}"})},
                {"verifyCommand", "signtool"},
-               {"verifyArgs", noveltea::cli::PlatformJson::array()}}}},
+               {"verifyArgs", noveltea::cli::PlatformJson::array({"{subject}"})}}}},
             true};
         const auto not_signed = noveltea::cli::stage_native_platform_export(
             {{}}, {{"target", "windows"}}, {{}}, temp, temp / "icon.png", temp / "not-published",
             false, false, false, false, signed_settings, cancel_lock, tools, [] { return true; });
-        require(not_signed.envelope.value("exitCode", 0) == 70 &&
-                    not_signed.envelope.at("diagnostics").front().at("code") ==
-                        "CLI_NATIVE_CANDIDATE_UNCLAIMED",
-                "Resolved signing must not be silently discarded by the common stage.");
+        require(not_signed.envelope.value("exitCode", 0) == 130 &&
+                    not_signed.envelope.at("diagnostics").front().at("code") == "export-cancelled",
+                "Resolved signing must preserve cancellation when passed to the common stage.");
         require(!fs::exists(temp / "not-published"),
                 "Unsupported signed export must not publish any output.");
         const auto no_signer = noveltea::cli::stage_native_platform_export(

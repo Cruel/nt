@@ -358,7 +358,8 @@ if(BUILD_TESTING)
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_platform_commands
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/platform.py"
-            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
+            "$<TARGET_FILE:noveltea-cli-windows-pe-certify>")
     add_test(NAME native_cli_agent_tools
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/agent_tools.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
