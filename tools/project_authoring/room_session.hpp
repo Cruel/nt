@@ -340,6 +340,12 @@ public:
     {
         return source_authority_->verified_revisions();
     }
+    // The observer's immutable, exactly hashed capture. Diagnostic projections
+    // must consume these same bytes, not reopen files after observation.
+    const VerifiedProjectSource* verified_observed_source(std::string_view path) const
+    {
+        return source_authority_->verified_source(path);
+    }
     void source_watch_hint(std::string_view path) { source_authority_->hint(path); }
     void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
 

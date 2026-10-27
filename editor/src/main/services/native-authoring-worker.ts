@@ -83,11 +83,20 @@ let lastStatus: string | null = null;
 
 function fail(error: unknown) {
   if (stopped) return;
+  send({ ...identity, type: 'failure', error: String(error) });
+  shutdown();
+}
+
+function shutdown() {
+  if (stopped) return;
   stopped = true;
   clearInterval(poller);
-  send({ ...identity, type: 'failure', error: String(error) });
-  if (binding && handle !== undefined) binding.close(handle);
-  parent.close();
+  try {
+    if (binding && handle !== undefined) binding.close(handle);
+  } finally {
+    handle = undefined;
+    parent.close();
+  }
 }
 
 function observe() {
@@ -126,16 +135,21 @@ function observe() {
 
 // JS and native operations are serialized on this dedicated worker's event loop.
 // The native observer verifies exact source bytes; OS notifications are only hints.
-const poller = setInterval(
-  () => {
-    try {
-      if (!stopped) observe();
-    } catch (error) {
-      fail(error);
-    }
-  },
-  Math.max(50, start.pollIntervalMs),
-);
+// Zero explicitly disables background polling for deterministic command-driven
+// certification. Normal editor sessions always request a positive interval.
+const poller =
+  start.pollIntervalMs === 0
+    ? undefined
+    : setInterval(
+        () => {
+          try {
+            if (!stopped) observe();
+          } catch (error) {
+            fail(error);
+          }
+        },
+        Math.max(50, start.pollIntervalMs),
+      );
 
 try {
   binding = createRequire(start.addonPath)(start.addonPath) as NativeBinding;
@@ -147,6 +161,12 @@ try {
 }
 
 parent.on('message', (raw: unknown) => {
+  // Process shutdown after the current synchronous native operation, instead
+  // of forcibly terminating a worker inside the C++ addon on Windows.
+  if (raw && typeof raw === 'object' && 'type' in raw && raw.type === 'shutdown') {
+    shutdown();
+    return;
+  }
   if (stopped || !binding || handle === undefined) return;
   try {
     const command = nativeAuthoringCommandSchema.parse(raw);

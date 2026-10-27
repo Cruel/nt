@@ -216,7 +216,7 @@ export async function runNativeOnlyNovelTeaCli(
           success: independent.ok,
           exitCode: independent.ok
             ? NOVELTEA_CLI_EXIT_CODES.success
-            : (independent.exitCode ?? NOVELTEA_CLI_EXIT_CODES.native),
+            : (independent.exitCode ?? NOVELTEA_CLI_EXIT_CODES.semantic),
           diagnostics: independent.diagnostics,
           ...independent.fields,
         },

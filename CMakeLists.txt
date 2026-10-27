@@ -109,6 +109,13 @@ option(NOVELTEA_BUILD_SANDBOX "Build the sandbox application" ON)
 option(NOVELTEA_BUILD_EDITOR_PREVIEW "Build the Web-only editor preview application" OFF)
 option(NOVELTEA_BUILD_PLAYER "Build the release-facing player application" ON)
 option(NOVELTEA_BUILD_HOST_TOOLS "Build native editor and host-tool targets" ON)
+option(NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY
+    "Build cross-host native CLI export certification targets in production host-tool builds" OFF)
+if(NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY)
+    # Production CLI builds disable BUILD_TESTING. Register only the explicitly
+    # requested cross-host export CTests, without enabling the full test tree.
+    enable_testing()
+endif()
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
 option(NOVELTEA_FETCH_BGFX "Fetch/build the pinned bgfx/bx/bimg source bundle via FetchContent" ON)
 option(NOVELTEA_FETCH_RMLUI "Fetch/build the pinned patched RmlUi source via FetchContent" ON)

@@ -1,7 +1,7 @@
 import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
 import type { JsonValue } from '../project/json-value';
@@ -17,6 +17,18 @@ const workerScript = path.resolve(
   process.cwd(),
   'dist-electron/authoring-worker/native-authoring-worker.cjs',
 );
+// Reconciliation and Save tests drive observations explicitly. A background
+// watcher can consume edits between the test's physical write and its command,
+// changing source authority and assertions according to wall-clock timing.
+const deterministicPollIntervalMs = 0;
+
+// Windows fork crashes can bypass Vitest's per-test result reporting. Emit
+// direct stderr markers only in CI so a native worker exit identifies the
+// active test rather than falsely implicating the whole reconciliation suite.
+const traceWindowsCI = process.platform === 'win32' && process.env.CI === 'true';
+beforeEach(({ task }) => {
+  if (traceWindowsCI) process.stderr.write(`[native-reconciliation] START ${task.name}\n`);
+});
 
 async function testProject() {
   const root = await mkdtemp(path.join(tmpdir(), 'noveltea-reconcile-'));
@@ -37,7 +49,11 @@ async function testProject() {
   }
   const bridge = new NativeAuthoringSessionBridge(
     { requireActiveProjectRoot: () => root, isCurrent: () => true },
-    { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+    {
+      addonPath: path.resolve(addon!),
+      workerScript,
+      pollIntervalMs: deterministicPollIntervalMs,
+    },
   );
   const working = new NativeAuthoringWorkingProject(bridge);
   await working.open('native-reconcile-test');
@@ -46,8 +62,9 @@ async function testProject() {
 }
 
 const cleanups: Array<() => Promise<void>> = [];
-afterEach(async () => {
+afterEach(async ({ task }) => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
+  if (traceWindowsCI) process.stderr.write(`[native-reconciliation] END ${task.name}\n`);
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
@@ -56,10 +73,14 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     await cp(fixture, root, { recursive: true });
     const bridge = new NativeAuthoringSessionBridge(
       { requireActiveProjectRoot: () => root, isCurrent: () => true },
-      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
     );
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const working = new NativeAuthoringWorkingProject(bridge);
@@ -132,7 +153,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('admits a deleted tracked Room, preserving dirty edits as a native conflict until Use Disk', async () => {
     const { root, bridge, working, roomPath } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     await rm(roomPath);
@@ -184,7 +205,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('offers comment review before deleting native YAML and requires the selected disposition', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const id = 'native-comment-review';
@@ -230,7 +251,8 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     ).toBe(true);
     const blocked = await working.saveOwners([createdOwner, anotherOwner], { comments: 'keep' });
     expect(blocked.accepted, blocked.error).toBe(false);
-    expect(blocked.commentImpacts).toEqual(
+    expect(blocked.error).toContain('Deleting commented records requires explicit');
+    expect(blocked.commentImpacts, `Native Save rejected: ${blocked.error}`).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           file: `records/rooms/${id}.yaml`,
@@ -254,7 +276,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('moves and restores binary Asset bytes through the real worker and native journal', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const assetPath = 'assets/native-structural/bytes.bin';
@@ -283,10 +305,14 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     await cp(fixture, root, { recursive: true });
     const bridge = new NativeAuthoringSessionBridge(
       { requireActiveProjectRoot: () => root, isCurrent: () => true },
-      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
     );
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const working = new NativeAuthoringWorkingProject(bridge);
@@ -322,10 +348,14 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     await cp(fixture, root, { recursive: true });
     const bridge = new NativeAuthoringSessionBridge(
       { requireActiveProjectRoot: () => root, isCurrent: () => true },
-      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
     );
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const working = new NativeAuthoringWorkingProject(bridge);
@@ -372,7 +402,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('replays, discards, and atomically saves persisted-record deletion with exact source CAS', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const id = 'native-deletion-probe';
@@ -444,10 +474,14 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     await cp(fixture, root, { recursive: true });
     const bridge = new NativeAuthoringSessionBridge(
       { requireActiveProjectRoot: () => root, isCurrent: () => true },
-      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
     );
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const working = new NativeAuthoringWorkingProject(bridge);
@@ -513,7 +547,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('stages and transactionally creates a new generic record without a legacy writer', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const existing = await readFile(path.join(root, roomRelative), 'utf8');
@@ -599,10 +633,14 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     await cp(fixture, root, { recursive: true });
     const bridge = new NativeAuthoringSessionBridge(
       { requireActiveProjectRoot: () => root, isCurrent: () => true },
-      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
     );
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const working = new NativeAuthoringWorkingProject(bridge);
@@ -623,7 +661,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     });
     expect(await readFile(file, 'utf8')).toBe(first);
     expect((await working.prepareWorking()).textOverlays[relative]).toBeUndefined();
-    bridge.close();
+    await bridge.closeAndWait();
     await working.reopenAndReplay('native-source-save');
     expect((await working.prepareWorking()).textOverlays[relative]).toBeUndefined();
 
@@ -640,10 +678,14 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     await cp(fixture, root, { recursive: true });
     const bridge = new NativeAuthoringSessionBridge(
       { requireActiveProjectRoot: () => root, isCurrent: () => true },
-      { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 100 },
+      {
+        addonPath: path.resolve(addon!),
+        workerScript,
+        pollIntervalMs: deterministicPollIntervalMs,
+      },
     );
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const working = new NativeAuthoringWorkingProject(bridge);
@@ -670,7 +712,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
       textSourceStaged: true,
     });
     expect(await readFile(physical, 'utf8')).toBe(original);
-    bridge.close();
+    await bridge.closeAndWait();
     const replayed = await working.reopenAndReplay('text-replay');
     expect(replayed.source).toMatchObject({ project: { name: 'Unsaved alongside RML' } });
     const restored = await working.prepareWorking();
@@ -681,13 +723,13 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
       accepted: true,
       textSourceStaged: false,
     });
-    bridge.close();
+    await bridge.closeAndWait();
     await working.reopenAndReplay('text-replay');
     expect((await working.prepareWorking()).textOverlays[source]).toBeUndefined();
 
     expect((await working.stageTextSource(source, dirty)).accepted).toBe(true);
     await writeFile(physical, `${original}\n<!-- External change -->\n`);
-    bridge.close();
+    await bridge.closeAndWait();
     await expect(working.reopenAndReplay('text-replay')).rejects.toThrow(
       `Native Project text-source recovery conflict for ${source}`,
     );
@@ -698,7 +740,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('routes collection and export-profile Save units without committing unrelated owners', async () => {
     const { root, bridge, working, roomPath } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const variablePath = path.join(root, 'records/variables/board-ticket.yaml');
@@ -731,7 +773,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('routes localization Save to its physical source owners without saving a dirty Room', async () => {
     const { root, bridge, working, roomPath } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const messagesPath = path.join(root, 'i18n/messages.yaml');
@@ -757,7 +799,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('saves Traits, Tags, and one record metadata unit without publishing unrelated dirty owners', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const traitsPath = path.join(root, 'traits.yaml');
@@ -807,7 +849,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('merges disjoint same-record changes, retains dirty recovery, and writes only selected owners', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const original = await readFile(roomPath, 'utf8');
@@ -855,7 +897,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(working.snapshot()?.recordSnapshots?.[owner]?.conflictingPaths).toEqual([]);
     expect(working.snapshot()?.recordSnapshots?.[owner]?.dirty).toBe(true);
 
-    bridge.close();
+    await bridge.closeAndWait();
     const recovered = await working.reopenAndReplay('native-reconcile-test');
     expect(recovered.recordSnapshots?.[owner]?.source).toMatchObject({
       label: 'Changed externally',
@@ -879,7 +921,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('preserves conflicting local work, blocks Save, and validates Keep Mine against a second edit', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const original = await readFile(roomPath, 'utf8');
@@ -919,7 +961,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('conservatively conflicts structural arrays and supports Use Disk and tracked editor metadata', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const original = await readFile(roomPath, 'utf8');
@@ -988,7 +1030,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('blocks invalid source owners without discarding unrelated tracked metadata edits', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     await working.inspectRecord('editor');
@@ -1031,7 +1073,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('merges disjoint external edits to the shared tracked editor metadata source', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const editorPath = path.join(root, 'editor.yaml');
@@ -1072,7 +1114,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('restores unresolved conflicts across worker restart so ordinary Save remains blocked', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const baseline = await readFile(roomPath, 'utf8');
@@ -1084,7 +1126,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(
       (await working.reconcile(owner)).snapshot.recordSnapshots?.[owner]?.conflictingPaths,
     ).toEqual(['/label']);
-    bridge.close();
+    await bridge.closeAndWait();
     const replayed = await working.reopenAndReplay('native-reconcile-test');
     expect(replayed.recordSnapshots?.[owner]?.conflictingPaths).toEqual(['/label']);
     const rejected = await working.saveOwners([owner]);
@@ -1101,7 +1143,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('invalidates an ancestor undo/redo action after merging an external descendant', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const source = working.snapshot()?.recordSnapshots?.[owner]?.source;
@@ -1141,7 +1183,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('projects normalized default fields into sparse source and omits them on inverse', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const markup = `/rooms/${roomId}/data/description/markup`;
@@ -1172,7 +1214,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('materializes an implicit normalized anchors array for add, and restores omission on undo', async () => {
     const { root, bridge, working, roomPath } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const anchorsPath = `/rooms/${roomId}/data/anchors`;
@@ -1212,7 +1254,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('uses authoritative Project Settings paths for asset-memory Save and Use Disk', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const manifest = path.join(root, 'project.yaml');
@@ -1251,7 +1293,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('projects expanded normalized references to sparse YAML IDs including nested editor edits', async () => {
     const { root, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     const pathToAsset = `/rooms/${roomId}/data/background/asset`;
@@ -1281,7 +1323,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('saves and discards one logical Room unit without affecting unrelated shared editor metadata', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     await working.inspectRecord('editor');
@@ -1345,7 +1387,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
   it('lazily admits a Room save unit metadata owner when only the Room has been edited', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {
-      bridge.close();
+      await bridge.closeAndWait();
       await rm(root, { recursive: true, force: true });
     });
     expect(working.snapshot()?.recordSnapshots?.editor).toBeUndefined();

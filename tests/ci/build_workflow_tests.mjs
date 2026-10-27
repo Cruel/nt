@@ -11,6 +11,14 @@ const cmakePresets = JSON.parse(
   readFileSync(new URL('../../CMakePresets.json', import.meta.url), 'utf8'),
 );
 const rootCmake = readFileSync(new URL('../../CMakeLists.txt', import.meta.url), 'utf8');
+const editorToolCmake = readFileSync(
+  new URL('../../tools/editor_tool/CMakeLists.txt', import.meta.url),
+  'utf8',
+);
+const reconciliationTests = readFileSync(
+  new URL('../../editor/src/renderer/test/native-authoring-reconciliation.test.ts', import.meta.url),
+  'utf8',
+);
 const playerCmake = readFileSync(new URL('../../apps/player/CMakeLists.txt', import.meta.url), 'utf8');
 const vcpkg = readFileSync(
   new URL('../../.github/actions/setup-linux-vcpkg/action.yml', import.meta.url),
@@ -48,6 +56,40 @@ function field(source, name) {
   return match[1];
 }
 
+test('Linux production CLI enables its cross-host export certification targets explicitly', () => {
+  const producer = job('linux-cli');
+  const certification = step(
+    producer,
+    'Certify cross-host native macOS and Android export and publication recovery',
+  );
+  assert.match(rootCmake, /option\(NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY/);
+  assert.match(
+    rootCmake,
+    /if\(NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY\)[\s\S]{0,260}enable_testing\(\)/,
+  );
+  assert.match(
+    editorToolCmake,
+    /if\(BUILD_TESTING OR NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY\)/,
+  );
+  assert.match(
+    certification,
+    /cmake --preset linux-authoring-release -DNOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY=ON/,
+  );
+  for (const target of [
+    'noveltea-cli-macos-export-certify',
+    'noveltea-cli-android-export-certify',
+    'noveltea-cli-platform-publication-certify',
+  ]) {
+    assert.ok(editorToolCmake.includes(`add_executable(${target}`));
+    assert.ok(certification.includes(target));
+  }
+  assert.ok(
+    certification.indexOf('cmake --preset linux-authoring-release') <
+      certification.indexOf('cmake --build --preset linux-authoring-release'),
+  );
+  assert.match(certification, /ctest --test-dir build\/linux-authoring-release/);
+});
+
 test('standalone CI contract tests install the editor YAML parser before execution', () => {
   const policy = job('cxx-runtime-policy');
   const installPnpm = step(policy, 'Install pnpm for CI contract fixtures');
@@ -59,6 +101,41 @@ test('standalone CI contract tests install the editor YAML parser before executi
   assert.ok(policy.indexOf(install) < policy.indexOf(testContracts));
 });
 
+test('native Project worker crash diagnosis runs only on Windows', () => {
+  const workerHosts = job('native-authoring-hosts');
+  const diagnosis = step(workerHosts, 'Diagnose Windows native authoring worker failure');
+  assert.equal(field(diagnosis, 'if'), "failure() && runner.os == 'Windows'");
+});
+
+test('native reconciliation fixture cleanup awaits native worker exit before deleting sources', () => {
+  assert.doesNotMatch(reconciliationTests, /\bbridge\.close\(\)/);
+  assert.match(
+    reconciliationTests,
+    /await bridge\.closeAndWait\(\);\s*await rm\(root, \{ recursive: true, force: true \}\)/,
+  );
+  assert.match(reconciliationTests, /const deterministicPollIntervalMs = 0;/);
+  assert.doesNotMatch(reconciliationTests, /pollIntervalMs:\s*[1-9]/);
+  assert.match(reconciliationTests, /pollIntervalMs: deterministicPollIntervalMs/g);
+});
+
+test('release Linux and Windows CLI certification build the required renderer first', () => {
+  const producer = releaseJob('shader-assets');
+  const consumer = releaseJob('windows-cli');
+  for (const [release, cliBuild] of [
+    [producer, 'Build NovelTea host CLI'],
+    [consumer, 'Build native production bundles'],
+  ]) {
+    const renderer = step(release, 'Build renderer required by native production certification');
+    const certification = step(
+      release,
+      release === producer ? 'Certify NovelTea host CLI' : 'Certify Windows CLI',
+    );
+    assert.match(renderer, /pnpm -C editor exec vp build/);
+    assert.ok(release.indexOf(step(release, cliBuild)) < release.indexOf(renderer));
+    assert.ok(release.indexOf(renderer) < release.indexOf(certification));
+  }
+});
+
 test('release Windows CLI build and certification are separate same-run artifact stages', () => {
   const producer = releaseJob('windows-cli-build');
   const consumer = releaseJob('windows-cli');
@@ -66,7 +143,7 @@ test('release Windows CLI build and certification are separate same-run artifact
   const headersUpload = step(producer, 'Upload Windows CLI certification shader headers');
   const cliDownload = step(consumer, 'Download Windows CLI build');
   const headersDownload = step(consumer, 'Download Windows CLI certification shader headers');
-  const bundleBuild = step(consumer, 'Build Node reference bundle');
+  const bundleBuild = step(consumer, 'Build native production bundles');
   const certification = step(consumer, 'Certify Windows CLI');
 
   assert.match(producer, /pnpm -C editor run noveltea:build/);
@@ -133,16 +210,18 @@ test('CLI certification receives same-run shader headers without depending on ca
   assert.equal(field(cliDownload, 'path'), 'build/cli/linux');
   assert.equal(field(consumer, 'needs'), 'linux-cli');
   assert.doesNotMatch(consumer, /setup-linux-vcpkg|actions\/cache|run-id:/);
-  assert.ok(consumer.indexOf(download) < consumer.indexOf('- name: Certify NovelTea host CLI'));
+  const certification = step(consumer, 'Certify installed native CLI production');
+  assert.match(certification, /pnpm -C editor run noveltea:certify/);
+  assert.ok(consumer.indexOf(download) < consumer.indexOf(certification));
 });
 
-test('differential-only CLI certification builds its Node reference bundle in the clean matrix job', () => {
+test('installed native CLI certification builds the required native production bundles in the clean job', () => {
   const consumer = job('linux-cli-certify');
-  const bundleBuild = step(consumer, 'Build Node reference bundle for differential-only shard');
-  const certification = step(consumer, 'Certify NovelTea host CLI');
-  assert.equal(field(bundleBuild, 'if'), "matrix.sections == 'differential'");
+  const bundleBuild = step(consumer, 'Build native editor and ScriptC production bundles');
+  const certification = step(consumer, 'Certify installed native CLI production');
   assert.match(bundleBuild, /pnpm -C editor exec vp pack/);
   assert.ok(consumer.indexOf(bundleBuild) < consumer.indexOf(certification));
+  assert.doesNotMatch(consumer, /matrix\.sections/);
 });
 
 test('vcpkg binary caches have independent configuration writers and refresh on new commits', () => {

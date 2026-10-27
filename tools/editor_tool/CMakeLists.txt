@@ -55,6 +55,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native_project_fmt.cpp
     tooling_native_project_localization.cpp
     tooling_native_project_sync.cpp
+    tooling_native_project_generation.cpp
     tooling_native_project_entity.cpp
     tooling_native_project_bundle.cpp
     tooling_project_authority.cpp
@@ -342,6 +343,8 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-cli-windows-pe-certify)
     add_test(NAME native_cli_windows_pe_resources
         COMMAND noveltea-cli-windows-pe-certify)
+endif()
+if(BUILD_TESTING OR NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY)
     add_executable(noveltea-cli-platform-publication-certify
         "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_platform_publication_tests.cpp"
         native_cli_platform_stage.cpp)
@@ -375,6 +378,8 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-cli-android-export-certify)
     add_test(NAME native_cli_android_export
         COMMAND noveltea-cli-android-export-certify)
+endif()
+if(BUILD_TESTING)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")

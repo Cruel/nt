@@ -169,8 +169,14 @@ try {
       /\[scriptc-island\]/u,
       'The trace did not reach the ScriptC island.',
     );
-    if (native) assert.doesNotMatch(traced.stderr, /legacy workspace services import starting/u);
-    else assert.match(traced.stderr, /legacy workspace services import starting/u);
+    if (native) {
+      assert.doesNotMatch(traced.stderr, /legacy workspace services import starting/u);
+    } else {
+      // The shipped ScriptC CLI bypasses the daemon for --no-daemon. It no
+      // longer imports the retired workspace service merely to inspect a
+      // Project, so the prior positive assertion was an obsolete contract.
+      assert.match(traced.stderr, /\[scriptc-host\] daemon routing bypassed/u);
+    }
   }
   for (const project of [oracle, candidate]) {
     const source = path.join(project, 'records/rooms/sample.yaml');

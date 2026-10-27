@@ -119,6 +119,9 @@ jobs:
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
 
+      - name: Build renderer required by native production certification
+        run: pnpm -C editor exec vp build
+
       - name: Certify NovelTea host CLI
         run: pnpm -C editor run noveltea:certify
 
@@ -287,6 +290,8 @@ jobs:
         run: Get-Command dumpbin | Out-Null
       - name: Build native production bundles
         run: pnpm -C editor exec vp pack
+      - name: Build renderer required by native production certification
+        run: pnpm -C editor exec vp build
       - name: Certify Windows CLI
         run: pnpm -C editor run noveltea:certify
       - name: Stage standalone Windows CLI

@@ -81,9 +81,13 @@ target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project
 file(GLOB NOVELTEA_NATIVE_VALIDATION_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp")
 list(FILTER NOVELTEA_NATIVE_VALIDATION_SOURCES EXCLUDE REGEX "(_certify|authoring_node_addon)\\.cpp$")
+# This directory is also configured standalone for the Node-API authoring addon.
+# Normalize the shared root VERSION path without assuming CMAKE_SOURCE_DIR is
+# the repository root, and without adding a ../.. alias to Ninja dependencies.
+file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" _noveltea_repository_version)
 list(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json" "${NOVELTEA_MATERIAL_REGISTRY}"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
+    "${_noveltea_repository_version}")
 set(NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "")
 foreach(input IN LISTS NOVELTEA_NATIVE_VALIDATION_SOURCES)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${input}")

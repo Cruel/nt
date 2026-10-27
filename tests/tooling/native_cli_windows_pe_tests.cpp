@@ -1,4 +1,5 @@
 #include "native_cli_windows_pe.hpp"
+#include "native_cli_paths.hpp"
 
 #include <LIEF/PE/Binary.hpp>
 #include <LIEF/PE/Factory.hpp>
@@ -120,7 +121,7 @@ int main(int argc, char** argv)
         try {
             // Native platform black-box tests generate this binary on demand.
             // No synthetic PE binaries or large real players enter Git.
-            make_synthetic_gui_player(fs::u8path(argv[2]));
+            make_synthetic_gui_player(noveltea::cli::native_path_from_utf8(argv[2]));
             return 0;
         } catch (const std::exception& error) {
             std::cerr << error.what() << '\n';

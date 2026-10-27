@@ -1,4 +1,5 @@
 #include "native_cli_daemon.hpp"
+#include "native_cli_paths.hpp"
 
 #include "native_cli_contract.hpp"
 #include "tooling_daemon_broker.hpp"
@@ -226,7 +227,7 @@ struct ScopedDirectory {
     explicit ScopedDirectory(std::string_view requested)
     {
         previous = std::filesystem::current_path();
-        std::filesystem::current_path(std::filesystem::u8path(requested));
+        std::filesystem::current_path(native_path_from_utf8(requested));
     }
     ~ScopedDirectory()
     {
@@ -378,7 +379,7 @@ std::optional<Json> parse_hidden_context(const std::vector<std::string>& argv, s
             throw std::invalid_argument("Unknown private daemon option.");
         }
     }
-    if (supplied.value("--daemon-build", std::string{}) != context["build"] ||
+    if (supplied.value("--daemon-build", std::string{}) != context["build"].get<std::string>() ||
         supplied.value("--daemon-protocol", std::uint64_t{0}) !=
             tooling::daemon::protocol_version ||
         !supplied.contains("--daemon-idle-ms") || !supplied.contains("--project-session-idle-ms"))
@@ -439,7 +440,7 @@ int owner_process(const Json& context, std::uint64_t worker_id,
     const auto observe = [&]() -> std::optional<Json> {
         Json request;
         try {
-            request = owner_authority_configuration(std::filesystem::u8path(canonical_root));
+            request = owner_authority_configuration(native_path_from_utf8(canonical_root));
         } catch (const std::exception&) {
             return std::nullopt; // A failed proof must never produce an exact result.
         }

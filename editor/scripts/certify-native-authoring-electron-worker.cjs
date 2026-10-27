@@ -3,6 +3,7 @@ const { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } = require('node:fs/p
 const os = require('node:os');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { shutdownNativeWorker } = require('./native-worker-certification-shutdown.cjs');
 
 async function main() {
   const addon = path.resolve(process.argv[2]);
@@ -105,7 +106,7 @@ async function main() {
       `Electron ${process.versions.electron} native worker open/delta/patch/stale-revision passed.`,
     );
   } finally {
-    if (worker) await worker.terminate();
+    if (worker) await shutdownNativeWorker(worker);
     await rm(root, { recursive: true, force: true });
   }
 }

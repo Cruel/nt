@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { runNativeOnlyNovelTeaCli } from '../../cli/native-application';
 
 describe('native-only CLI application boundary', () => {
+  it('classifies missing standalone platform templates as semantic errors, not native failures', async () => {
+    const native = vi.fn();
+    const result = await runNativeOnlyNovelTeaCli(
+      ['--json', 'platform', 'template', 'inspect', 'missing@v1'],
+      {
+        nativeProjectCommands: native,
+        platformTools: { inspectTemplate: async () => null } as never,
+      },
+    );
+    expect(result.exitCode).toBe(4);
+    expect(result.envelope.diagnostics[0]?.code).toBe('platform.template_missing');
+    expect(native).not.toHaveBeenCalled();
+  });
+
   it('dispatches Project creation through C++ authority without legacy Workspace options', async () => {
     const native = vi.fn(async () => ({
       ok: true,

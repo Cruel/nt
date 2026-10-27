@@ -28,6 +28,7 @@ interface WorkerTransport {
 
 interface OpenSession {
   worker: WorkerTransport;
+  exited: boolean;
   sessionId: string;
   generation: number;
   ready: boolean;
@@ -57,6 +58,7 @@ export interface NativeAuthoringSessionOptions {
 export class NativeAuthoringSessionBridge {
   private current: OpenSession | null = null;
   private generation = 0;
+  private readonly terminations = new Set<Promise<void>>();
   private readonly subscribers = new Set<(delta: Delta) => void>();
   private readonly failures = new Set<(error: Error) => void>();
 
@@ -112,6 +114,7 @@ export class NativeAuthoringSessionBridge {
       }
       const state: OpenSession = {
         worker,
+        exited: false,
         sessionId: projectSessionId,
         generation,
         ready: false,
@@ -125,9 +128,10 @@ export class NativeAuthoringSessionBridge {
       this.current = state;
       worker.on('message', (raw) => this.receive(state, raw));
       worker.on('error', (error) => this.fail(state, error));
-      worker.on('exit', (code) =>
-        this.fail(state, new Error(`Native Project worker exited (${code}).`)),
-      );
+      worker.on('exit', (code) => {
+        state.exited = true;
+        this.fail(state, new Error(`Native Project worker exited (${code}).`));
+      });
     });
   }
 
@@ -173,6 +177,14 @@ export class NativeAuthoringSessionBridge {
     this.current = null;
     this.generation++;
     this.release(old, new Error('Native Project session closed or superseded.'));
+  }
+
+  /** Close synchronously to revoke the session, then wait for native handles to be released. */
+  async closeAndWait(): Promise<void> {
+    this.close();
+    await Promise.all(
+      [...this.terminations].map((termination) => termination.catch(() => undefined)),
+    );
   }
 
   private receive(state: OpenSession, raw: unknown): void {
@@ -264,6 +276,40 @@ export class NativeAuthoringSessionBridge {
     if (!state.ready) state.startReject(error);
     for (const pending of state.pending.values()) pending.reject(error);
     state.pending.clear();
-    void state.worker.terminate().catch(() => {});
+    const termination = new Promise<void>((resolve) => {
+      if (state.exited) {
+        resolve();
+        return;
+      }
+      let finished = false;
+      const complete = () => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(fallback);
+        resolve();
+      };
+      // Keep a bounded fallback for a wedged or older worker that does not
+      // understand shutdown. Normal close must not interrupt a native call.
+      const fallback = setTimeout(() => {
+        void state.worker
+          .terminate()
+          .catch(() => undefined)
+          .then(complete);
+      }, 5000);
+      state.worker.on('exit', complete);
+      try {
+        state.worker.postMessage({ type: 'shutdown' });
+      } catch {
+        void state.worker
+          .terminate()
+          .catch(() => undefined)
+          .then(complete);
+      }
+    });
+    this.terminations.add(termination);
+    void termination.then(
+      () => this.terminations.delete(termination),
+      () => this.terminations.delete(termination),
+    );
   }
 }
