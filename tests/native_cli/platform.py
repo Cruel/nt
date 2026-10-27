@@ -284,6 +284,15 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
         'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
     assert run(*win_req, '--sign', code=70)[
         'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    # A mutating invocation must pass the selected signer into common
+    # staging, which rejects unsupported signing BEFORE any output or journal
+    # is published. This is distinct from the --check-only rejection above.
+    win_publish = tuple(part for part in win_req if part != '--check')
+    assert run(*win_publish, '--signing-profile', 'desktop', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert not (root / 'win-output').exists()
+    assert not (root / 'win-output.noveltea-publication-transaction.json').exists()
+    assert not (root / 'win-output.noveltea-publication.lock').exists()
     stored = json.loads(user_config_file.read_text())
     stored['export']['signingProfiles'].append({
         'id': 'second', 'label': 'Second signer', 'target': 'windows',
@@ -304,6 +313,9 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     }))
     assert run(*win_req, '--config', configured, '--sign', code=70)[
         'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert run(*win_publish, '--config', configured, '--sign', code=70)[
+        'diagnostics'][0]['code'] == 'CLI_NATIVE_CANDIDATE_UNCLAIMED'
+    assert not (root / 'win-output').exists()
     user_config_file.unlink()
     assert run('platform', 'template', 'remove', 'test-win@v1', '--force')['removed']
 

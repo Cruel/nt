@@ -283,15 +283,45 @@ int main()
         tools.resize_image = [](const auto&) { return noveltea::cli::PlatformJson::object(); };
         tools.physical_sources_current = [](const auto&) { return true; };
         noveltea::cli::PlatformPublicationLock cancel_lock(temp / "not-published");
+        const noveltea::cli::PlatformResolvedExportSettings unsigned_settings{
+            {{"javaHome", "/unused/jdk"}}, noveltea::cli::PlatformJson::object(), false};
         const auto cancelled = noveltea::cli::stage_native_platform_export(
             {{}}, {{"target", "windows"}}, {{}}, temp, temp / "icon.png", temp / "not-published",
-            false, false, false, false, cancel_lock, tools, [] { return true; });
+            false, false, false, false, unsigned_settings, cancel_lock, tools, [] { return true; });
         require(cancelled.envelope.value("exitCode", 0) == 130 &&
                     cancelled.envelope.value("cancelled", false) &&
                     cancelled.envelope.at("diagnostics").front().at("code") == "export-cancelled",
                 "Native platform cancellation must preserve CLI exit and JSON contracts.");
         require(!fs::exists(temp / "not-published"),
                 "Cancelled export must not publish a distribution.");
+        // Signed requests must reach the common stage with their resolved
+        // credentials and still fail closed before preparing or publishing.
+        const noveltea::cli::PlatformResolvedExportSettings signed_settings{
+            {{"javaHome", "/unused/jdk"}},
+            {{"windows",
+              {{"command", "signtool"},
+               {"args", noveltea::cli::PlatformJson::array()},
+               {"verifyCommand", "signtool"},
+               {"verifyArgs", noveltea::cli::PlatformJson::array()}}}},
+            true};
+        const auto not_signed = noveltea::cli::stage_native_platform_export(
+            {{}}, {{"target", "windows"}}, {{}}, temp, temp / "icon.png", temp / "not-published",
+            false, false, false, false, signed_settings, cancel_lock, tools, [] { return true; });
+        require(not_signed.envelope.value("exitCode", 0) == 70 &&
+                    not_signed.envelope.at("diagnostics").front().at("code") ==
+                        "CLI_NATIVE_CANDIDATE_UNCLAIMED",
+                "Resolved signing must not be silently discarded by the common stage.");
+        require(!fs::exists(temp / "not-published"),
+                "Unsupported signed export must not publish any output.");
+        const auto no_signer = noveltea::cli::stage_native_platform_export(
+            {{}}, {{"target", "windows"}}, {{}}, temp, temp / "icon.png", temp / "not-published",
+            false, false, false, false,
+            noveltea::cli::PlatformResolvedExportSettings{
+                noveltea::cli::PlatformJson::object(), noveltea::cli::PlatformJson::object(), true},
+            cancel_lock, tools, [] { return true; });
+        require(no_signer.envelope.at("diagnostics").front().at("code") ==
+                    "platform.signing_profile_required",
+                "Common stage must reject an unbound signed request.");
         std::cout << "Native platform publication recovery passed.\n";
         return 0;
     } catch (const std::exception& error) {

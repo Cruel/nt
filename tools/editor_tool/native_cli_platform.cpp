@@ -1486,9 +1486,8 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
     // Both paths feed one target-specific signing state; execution belongs
     // to the corresponding platform exporter (#564/#567/#568).
     Json config = Json::object();
-    Json toolchains = Json::object();
-    Json signing = Json::object();
-    const bool signing_requested = options.sign || !options.signing_profile.empty();
+    PlatformResolvedExportSettings settings;
+    settings.signing_requested = options.sign || !options.signing_profile.empty();
     if (!options.config.empty()) {
         try {
             config = read_json(fs::absolute(fs::u8path(options.config)));
@@ -1498,15 +1497,15 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
         } catch (const std::exception& error) {
             return fail("platform.config_invalid", "/config", error.what());
         }
-        toolchains = config.value("toolchains", Json::object());
-        signing = config.value("signing", Json::object());
+        settings.toolchains = config.value("toolchains", Json::object());
+        settings.signing = config.value("signing", Json::object());
         // templateRoots and lastOutputDirectory are retained, validated
         // editor-local fields, but do not override the installed template
         // registry in the existing TypeScript headless CLI either.
     } else {
         const Json user = load_native_user_export_config();
-        toolchains = user.value("toolchains", Json::object());
-        if (signing_requested) {
+        settings.toolchains = user.value("toolchains", Json::object());
+        if (settings.signing_requested) {
             const std::string target = profile->at("target").get<std::string>();
             std::vector<Json> matching;
             for (const auto& candidate : user.value("signingProfiles", Json::array()))
@@ -1531,27 +1530,20 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                                 ? "No signing profile is configured for " + target + "."
                                 : "Multiple signing profiles are configured for " + target +
                                       "; pass --signing-profile <id>.");
-            signing[target] = Json::object();
+            settings.signing[target] = Json::object();
             for (auto it = selected->begin(); it != selected->end(); ++it)
                 if (it.key() != "id" && it.key() != "label" && it.key() != "target")
-                    signing[target][it.key()] = it.value();
+                    settings.signing[target][it.key()] = it.value();
         }
     }
-    // Native Windows uses no external toolchains. Android builds consume the
-    // selected SDK/JDK/CMake paths in #568; this shared preflight now accepts
-    // and validates the fields without claiming that unsigned Windows needs
-    // or executes them. No target exporter may report signed output until it
-    // actually consumes and verifies these selected credentials.
-    (void)toolchains;
-    if (signing_requested) {
-        if (!signing.contains(profile->value("target", "")))
-            return fail("platform.signing_profile_required", "/signingProfile",
-                        "Selected target has no configured signing credentials.");
-        return fail("CLI_NATIVE_CANDIDATE_UNCLAIMED", "/signingProfile",
-                    "Signing profile resolved, but the target-specific native signing and "
-                    "verification pipeline is not yet implemented.",
-                    70);
-    }
+    // Native Windows needs no external toolchains. Android (#568) will use
+    // settings.toolchains, and each signing-capable target (#564/#567/#568)
+    // must consume settings.signing and verify signed bytes before publishing.
+    // Reject unsupported target signing before creating a lock or touching
+    // interrupted publication state. The stage repeats this check for direct
+    // callers, while receiving the full settings for future target exporters.
+    if (auto unavailable = validate_native_platform_export_settings(settings, *profile))
+        return *unavailable;
 
     // Validate the whole output path BEFORE either acquiring ownership or
     // attempting recovery. The reusable recovery entrypoint enforces this too.
@@ -1670,7 +1662,7 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
             admitted, *profile, resolved->descriptor,
             template_root(fields(*resolved).at("id").get<std::string>()), icon_source, output,
             options.force, options.allow_localization_warnings, options.include_unused_assets,
-            options.include_shader_sources, *publication_lock, export_tools,
+            options.include_shader_sources, settings, *publication_lock, export_tools,
             [&]() { return source_proof().value("ok", false); });
         if (published.envelope.value("success", false)) {
             try {

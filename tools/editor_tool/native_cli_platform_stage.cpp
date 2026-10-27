@@ -657,6 +657,31 @@ PlatformCliResult failure(std::string code, std::string message, int exit = 4)
 
 } // namespace
 
+std::optional<PlatformCliResult>
+validate_native_platform_export_settings(const PlatformResolvedExportSettings& settings,
+                                         const Json& profile)
+{
+    if (!settings.toolchains.is_object() || !settings.signing.is_object()) {
+        auto invalid =
+            failure("platform.config_invalid", "Resolved export configuration is invalid.");
+        invalid.envelope["diagnostics"][0]["path"] = "/config";
+        return invalid;
+    }
+    if (settings.signing_requested) {
+        auto unavailable =
+            !settings.signing.contains(profile.value("target", ""))
+                ? failure("platform.signing_profile_required",
+                          "No signing state was resolved for the selected target.")
+                : failure("CLI_NATIVE_CANDIDATE_UNCLAIMED",
+                          "Target-specific native signing and post-signing verification are not "
+                          "implemented.",
+                          70);
+        unavailable.envelope["diagnostics"][0]["path"] = "/signingProfile";
+        return unavailable;
+    }
+    return std::nullopt;
+}
+
 void validate_platform_publication_path(const fs::path& destination)
 {
     validate_parents(destination);
@@ -735,12 +760,19 @@ PlatformCliResult stage_native_platform_export(
     const Json& admission, const Json& profile, const Json& descriptor,
     const fs::path& template_directory, const fs::path& icon_source, const fs::path& destination,
     bool force, bool allow_localization_warnings, bool include_unused_assets,
-    bool include_shader_sources, const PlatformPublicationLock& lock,
-    const PlatformExportTools& tools, const std::function<bool()>& source_current)
+    bool include_shader_sources, const PlatformResolvedExportSettings& settings,
+    const PlatformPublicationLock& lock, const PlatformExportTools& tools,
+    const std::function<bool()>& source_current)
 {
     if (lock.destination() != destination)
         return failure("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT",
                        "Platform staging requires exclusive destination ownership.", 5);
+    // Platform stages receive the complete resolved options; none may
+    // silently downgrade a requested signed distribution to unsigned. The
+    // target-specific tickets implement signing and verification here before
+    // this guard is replaced for their respective targets.
+    if (auto unavailable = validate_native_platform_export_settings(settings, profile))
+        return *unavailable;
     // Only enable a platform after its complete native assembly, signing,
     // readback and publication contracts are implemented. No fake successful
     // output for Web, Linux, macOS or Android.
