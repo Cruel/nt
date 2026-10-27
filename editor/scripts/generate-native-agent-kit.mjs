@@ -10,8 +10,13 @@ const contents = Buffer.from(JSON.stringify(payload), 'utf8');
 const packed = deflateSync(contents, { level: 9 });
 const rows = [];
 for (let offset = 0; offset < packed.length; offset += 16)
-  rows.push('    ' + [...packed.subarray(offset, offset + 16)]
-    .map((value) => '0x' + value.toString(16).padStart(2, '0')).join(', ') + ',');
+  rows.push(
+    '    ' +
+      [...packed.subarray(offset, offset + 16)]
+        .map((value) => '0x' + value.toString(16).padStart(2, '0'))
+        .join(', ') +
+      ',',
+  );
 const result = [
   '// Generated from the exact public TypeScript Agent Kit payload. Do not edit.',
   '#pragma once',
