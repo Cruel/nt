@@ -61,7 +61,7 @@ std::string physical_source_path(std::string_view root, const std::string& relat
          relative[1] == ':'))
         throw std::runtime_error("Runtime package source path is empty or external: '" + relative +
                                  "'.");
-    const auto path = std::filesystem::u8path(relative);
+    const auto path = std::filesystem::path(std::u8string(relative.begin(), relative.end()));
     if (path.is_absolute() || path.has_root_name())
         throw std::runtime_error("Runtime package source must be Project-relative: '" + relative +
                                  "'.");
@@ -70,7 +70,8 @@ std::string physical_source_path(std::string_view root, const std::string& relat
             throw std::runtime_error("Runtime package source contains traversal: '" + relative +
                                      "'.");
     return root.empty() ? relative
-                        : (std::filesystem::u8path(std::string(root)) / path).generic_string();
+                        : (std::filesystem::path(std::u8string(root.begin(), root.end())) / path)
+                              .generic_string();
 }
 
 // TypeScript's hashString operates on UTF-16 code units, not UTF-8 bytes.

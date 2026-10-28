@@ -116,7 +116,8 @@ struct Output {
 
 [[nodiscard]] fs::path absolute_ffmpeg_binary()
 {
-    const auto configured = fs::u8path(ffmpeg_binary());
+    const auto ffmpeg = ffmpeg_binary();
+    const auto configured = fs::path(std::u8string(ffmpeg.begin(), ffmpeg.end()));
     if (configured.is_absolute() && fs::is_regular_file(configured))
         return fs::canonical(configured);
     if (configured.has_parent_path())
@@ -132,7 +133,8 @@ struct Output {
     const std::string executable = configured.string();
 #endif
     while (std::getline(paths, directory, separator)) {
-        const auto candidate = fs::u8path(directory) / executable;
+        const auto candidate =
+            fs::path(std::u8string(directory.begin(), directory.end())) / executable;
         if (fs::is_regular_file(candidate))
             return fs::canonical(candidate);
     }
@@ -185,9 +187,9 @@ std::wstring quote(std::wstring_view input)
     startup.hStdOutput = out;
     startup.hStdError = err;
     startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    std::wstring command = quote(fs::u8path(binary).wstring());
+    std::wstring command = quote(fs::path(std::u8string(binary.begin(), binary.end())).wstring());
     for (const auto& arg : args)
-        command += L" " + quote(fs::u8path(arg).wstring());
+        command += L" " + quote(fs::path(std::u8string(arg.begin(), arg.end())).wstring());
     PROCESS_INFORMATION process{};
     const bool started = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
                                         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
@@ -439,7 +441,8 @@ struct ColorConversion {
         throw VideoError("Video source is missing an admitted physical revision.");
     const auto input = source_path(root, relative);
     const auto source = read(input, 512ull * 1024 * 1024);
-    if ("sha256:" + digest(source) != revisions.at(relative))
+    if (!revisions.at(relative).is_string() ||
+        "sha256:" + digest(source) != revisions.at(relative).get<std::string>())
         throw VideoError("Video source changed after Project admission.");
     const auto& canvas = request.at("canvas");
     const int width = canvas.at("width").get<int>();
@@ -696,7 +699,9 @@ struct ColorConversion {
     }
     if (cancelled && cancelled())
         throw VideoError("Video preparation was cancelled.");
-    if ("sha256:" + digest(read(input, 512ull * 1024 * 1024)) != revisions.at(relative))
+    if (!revisions.at(relative).is_string() ||
+        "sha256:" + digest(read(input, 512ull * 1024 * 1024)) !=
+            revisions.at(relative).get<std::string>())
         throw VideoError("Video source changed while preparing media.");
     const auto alpha_digest =
         encoded_alpha ? "sha256:" + digest(read(stage_alpha, 128ull * 1024 * 1024)) : std::string{};
