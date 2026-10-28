@@ -808,10 +808,34 @@ caller's cwd and scoped environment to the owner, retains exactly proven validat
 (including deterministic semantic failures) using the existing native cache, and safely
 replays read-only requests locally after an uncertain daemon failure, but never mutations.
 `--no-daemon` retains the same local C++ command execution.
-The paragraphs below continue to describe the **currently shipped ScriptC host**;
-native heavy-job snapshot hydration/disposable execution remains #550, and replacing
-the shipped host remains #551. The C++ candidate is not installed as a partial
-production replacement.
+The candidate also routes shader compilation and cold authored/Test-spec execution through
+one-job native disposable workers. The owner captures the native Project preparation responses
+(including normalized Project data and shader source overlays), brackets that capture with
+physical authority observations, and publishes opaque chunks through the existing broker snapshot
+store. Each capture has a distinct generation identity so a later workload cannot overwrite bytes
+already pinned by another worker. Workers resolve semantic Project requests exclusively against
+that capture; only a physical proof of a captured source generation may consult live disk. They
+reject source drift rather than silently switching to a newer Project. A cold worker does not
+probe a newer live runtime cache; complete warm runtime/Test-catalog hits still execute in the
+caller. Stdin Test specs, cwd, and environment travel with the invocation. Unknown uncaptured
+Project requests fail closed. Existing broker cancellation and child retirement isolate worker
+failure from the resident Project owner.
+
+`tests/native_cli/daemon_owner.py` exercises the relocated native executable, cold/warm Test
+routing, Test-spec stdin, real Feature Lab shader output, source drift after hydration, terminated
+workers, caller cancellation, and owner restart. Its deterministic hydration barrier is available
+only with the explicit CLI certification environment and isolated daemon root; it is not a public
+command option.
+
+**#550 is not complete:** native Runtime Package/platform and ComfyUI disposable publication,
+staged-output transfer/recovery, and streamed progress still require integration and installed
+failure-path certification. In particular, native platform publication journals must not be handed
+to the ScriptC transaction recovery reader: the two existing journal formats differ. ComfyUI
+staged Asset ownership must survive a disposable worker's death while the resident owner commits.
+Those commands retain their existing local native candidate execution until those boundaries are
+implemented; no QuickJS fallback is introduced. The paragraphs below continue to describe the
+**currently shipped ScriptC host**. Replacing that host remains #551; the C++ candidate is not
+installed as a partial production replacement.
 
 The standalone executable contains a native per-user daemon broker. The broker is keyed by the exact NovelTea build identity plus the independently versioned Daemon Protocol compatibility boundary. While NovelTea is unreleased that boundary remains development version `1`; incompatible development changes replace V1 atomically rather than incrementing it. Different build/protocol identities use different endpoints and may coexist. Linux uses a user-private Unix-domain socket under the platform runtime directory when suitable, with a private NovelTea fallback directory; the runtime directory is restricted to the current user and the socket is mode `0600`. Windows uses a named pipe whose ACL grants access only to the current user. The same `noveltea` executable launches the private daemon mode; NovelTea does not install an operating-system service.
 

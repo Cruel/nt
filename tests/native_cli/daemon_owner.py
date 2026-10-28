@@ -26,10 +26,10 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
     env.update(NOVELTEA_CLI_CERTIFICATION='1',
                NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(root / 'daemon'))
 
-    def invoke(*args, cwd=root, expected=0, timeout=45):
+    def invoke(*args, cwd=root, expected=0, timeout=45, input_text=None):
         completed = subprocess.run([str(installed), '--json', *map(str, args)],
                                    cwd=cwd, env=env, capture_output=True, text=True,
-                                   timeout=timeout)
+                                   timeout=timeout, input=input_text)
         assert completed.returncode == expected, (args, completed)
         assert not completed.stderr, (args, completed.stderr)
         result = json.loads(completed.stdout)
@@ -55,6 +55,33 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         assert status['running'] and status['projectSessions'] == 1, status
         assert status['disposableWorkers'] >= 1, status
 
+        # Heavy shader preparation must cross the native pinned-snapshot seam,
+        # not silently execute in the caller or resident Project owner.
+        before_handoffs = status['engineeringCounters']['snapshotHandoffs']
+        shader_args = ('shaders', 'compile', '--variant', 'glsl-330')
+        assert project_command(*shader_args) == project_command(*shader_args, local=True)
+        after_shaders = daemon_status()
+        assert after_shaders['engineeringCounters']['snapshotHandoffs'] > before_handoffs, after_shaders
+
+        before_stdin = after_shaders['engineeringCounters']['snapshotHandoffs']
+        for form in ('run-spec', 'run-ui-spec'):
+            remote = invoke('--project', project, 'test', form, input_text='not JSON', expected=2)
+            local = invoke('--no-daemon', '--project', project, 'test', form,
+                           input_text='not JSON', expected=2)
+            assert remote == local, (remote, local)
+        before_tests = daemon_status()['engineeringCounters']['snapshotHandoffs']
+        assert before_tests == before_stdin + 2
+        project_command('entity', 'create', 'tests', 'native-worker')
+        cold_tests = project_command('test', 'run')
+        assert cold_tests['success'], cold_tests
+        assert cold_tests['native']['report']['counts']['passed'] == 1, cold_tests
+        after_tests = daemon_status()
+        assert after_tests['engineeringCounters']['snapshotHandoffs'] > before_tests, after_tests
+        warm_tests = project_command('test', 'run')
+        assert warm_tests['success'], warm_tests
+        assert warm_tests['runtimeCache']['status'] == 'hit', warm_tests
+        assert daemon_status()['engineeringCounters']['snapshotHandoffs'] == after_tests['engineeringCounters']['snapshotHandoffs']
+
         room_args = ('entity', 'inspect', 'rooms', 'entry')
         baseline = project_command(*room_args, local=True)
         for _ in range(3):
@@ -66,6 +93,59 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
             assert invoke('--project', alias, *room_args) == invoke(
                 '--no-daemon', '--project', alias, *room_args)
             assert daemon_status()['projectSessions'] == 1
+            assert invoke('--project', alias, *shader_args) == invoke(
+                '--no-daemon', '--project', alias, *shader_args)
+
+        # Pause only after immutable hydration. Corrupt live authored data and
+        # reconcile it through the owner while the old worker remains pinned.
+        # Reading live Project semantics would return WORKSPACE_SOURCE_READ,
+        # rather than the captured generation's physical proof conflict.
+        room_source = project / 'records' / 'rooms' / 'entry.yaml'
+        original_room = room_source.read_bytes()
+        barrier = root / 'pinned-worker'
+        barrier_env = {**env, 'NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER': str(barrier)}
+
+        def paused_worker():
+            barrier.with_suffix('.ready').unlink(missing_ok=True)
+            barrier.with_suffix('.release').unlink(missing_ok=True)
+            process = subprocess.Popen(
+                [str(installed), '--json', '--project', str(project), *shader_args],
+                cwd=root, env=barrier_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True)
+            deadline = time.monotonic() + 20
+            ready = barrier.with_suffix('.ready')
+            while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                time.sleep(.02)
+            assert ready.exists(), process.communicate(timeout=5)
+            return process, int(ready.read_text())
+
+        process, worker_pid = paused_worker()
+        room_source.write_text('not: a valid Room\n', encoding='utf-8')
+        invalid = project_command('validate', expected=3)
+        assert invalid['diagnostics'][0]['code'] == 'WORKSPACE_SOURCE_READ', invalid
+        barrier.with_suffix('.release').touch()
+        out, err = process.communicate(timeout=30)
+        assert process.returncode == 3 and not err, (process.returncode, out, err)
+        rejected = json.loads(out)
+        assert rejected['diagnostics'][0]['code'] == 'WORKSPACE_REVISION_CONFLICT', rejected
+        room_source.write_bytes(original_room)
+
+        # Killing a pinned worker must fail only its request and leave the
+        # resident owner and broker usable for the next native heavy job.
+        process, worker_pid = paused_worker()
+        os.kill(worker_pid, signal.SIGTERM)
+        out, err = process.communicate(timeout=30)
+        assert process.returncode == 70 and not err, (process.returncode, out, err)
+        assert not json.loads(out)['success']
+        process, worker_pid = paused_worker()
+        process.terminate()
+        process.communicate(timeout=10)
+        deadline = time.monotonic() + 15
+        while daemon_status()['disposableBusyWorkers'] and time.monotonic() < deadline:
+            time.sleep(.05)
+        assert daemon_status()['disposableBusyWorkers'] == 0
+        assert project_command(*shader_args) == project_command(*shader_args, local=True)
+        assert project_command(*room_args) == baseline
 
         local_human = subprocess.run([str(installed), '--no-daemon', '--project', str(project),
                                       *room_args], cwd=root, env=env, capture_output=True, text=True)
@@ -108,6 +188,18 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         feature_local = invoke('--no-daemon', '--project', feature, *args)
         assert invoke('--project', feature, *args) == feature_local
         assert daemon_status()['projectSessions'] == 2
+        feature_copy = root / 'feature-lab'
+        shutil.copytree(feature, feature_copy, ignore=shutil.ignore_patterns('.noveltea'))
+        feature_shaders = invoke('--project', feature_copy, *shader_args, timeout=180)
+        feature_local_shaders = invoke('--no-daemon', '--project', feature_copy,
+                                       *shader_args, timeout=180)
+        # The first invocation compiles; the second legitimately hits its cache.
+        # Everything describing the generated shader bytes must still agree.
+        for result in (feature_shaders, feature_local_shaders):
+            assert result['native']['outputs'], result
+            for output in result['native']['outputs']:
+                output.pop('cacheHit')
+        assert feature_shaders == feature_local_shaders
 
         # A brokered mutation must commit exactly once and the resident owner
         # must not return stale in-RAM state on the following request.
@@ -141,11 +233,13 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
                     owner_ids.append(int(raw_pid))
                     assert Path(f'/proc/{raw_pid}/exe').resolve() == installed
             assert len(owner_ids) == 1, owner_ids
+            sessions_before_failure = daemon_status()['projectSessions']
             os.kill(owner_ids[0], signal.SIGKILL)
             time.sleep(0.1)
             recovered = project_command('entity', 'inspect', 'rooms', 'renamed')
             assert recovered == changed
-            assert daemon_status()['projectSessions'] == 2
+            assert daemon_status()['projectSessions'] == sessions_before_failure
+            assert project_command(*shader_args) == project_command(*shader_args, local=True)
 
         # Exact-result reuse includes deterministic semantic validation errors.
         # It must also reject the prior successful generation after an edit.
