@@ -204,14 +204,16 @@ void certify_android_export(const fs::path& root)
                 if (arg.starts_with("-PnovelteaGeneratedRoot="))
                     generated = arg.substr(std::string("-PnovelteaGeneratedRoot=").size());
             require(!generated.empty(), "Gradle was not passed generated Android sources.");
-            const auto properties = read(fs::u8path(generated) / "noveltea.properties");
+            const auto properties =
+                read(fs::path(std::u8string(generated.begin(), generated.end())) /
+                     "noveltea.properties");
             require(properties.find("novelteaVersionCode=41") != std::string::npos &&
                         properties.find("novelteaApplicationId=org.noveltea.test") !=
                             std::string::npos &&
                         properties.find("novelteaAbi=arm64-v8a") != std::string::npos &&
                         properties.find("novelteaMinSdk=24") != std::string::npos,
                     "Android version code, package identity or ABI were not passed to Gradle.");
-            const auto generated_root = fs::u8path(generated);
+            const auto generated_root = fs::path(std::u8string(generated.begin(), generated.end()));
             last_generated = generated_root;
             require(read(generated_root / "AndroidManifest.xml").find("sensorLandscape") !=
                         std::string::npos,

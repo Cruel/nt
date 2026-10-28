@@ -113,7 +113,7 @@ struct PreparationError : std::runtime_error {
                                "Project source was not admitted: '" + relative + "'.");
     const auto bytes = read_bytes(checked_source(root, relative), max_bytes);
     const auto actual = sha256(bytes);
-    if (actual != revisions.at(relative))
+    if (actual != revisions.at(relative).get<std::string>())
         throw PreparationError("runtime-artifact.physical-source.stale", "/sourceRevisions",
                                "Project source changed after admission: '" + relative + "'.");
     return actual;
@@ -554,7 +554,8 @@ Json prepare_native_runtime_physical(const Json& assembled, const Json& admitted
             throw PreparationError(
                 "runtime-artifact.physical-source.unpinned", "/artifact",
                 "Physical preparation requires a complete pinned native Project.");
-        const fs::path root = fs::canonical(fs::u8path(project_root));
+        const fs::path root =
+            fs::canonical(fs::path(std::u8string(project_root.begin(), project_root.end())));
         Json artifact = assembled;
         const auto& revisions = admitted.at("sourceRevisions");
         for (const auto& entry : artifact.at("fileEntries")) {
