@@ -526,7 +526,7 @@ jobs:
 
       - name: Certify cross-host native macOS and Android export and publication recovery
         run: |
-          cmake --preset linux-authoring-release -DNOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY=ON
+          cmake --preset linux-authoring-release -DNOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets"
           cmake --build --preset linux-authoring-release --target noveltea-cli-macos-export-certify noveltea-cli-android-export-certify noveltea-cli-platform-publication-certify
           ctest --test-dir build/linux-authoring-release --output-on-failure -R '^native_cli_(macos_export|android_export|platform_publication)$'
 
@@ -815,6 +815,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up repository Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Install dependencies for native Agent Kit generation
+        run: pnpm install --frozen-lockfile
 
       - name: Set up MSVC developer environment
         uses: TheMrMilchmann/setup-msvc-dev@v4

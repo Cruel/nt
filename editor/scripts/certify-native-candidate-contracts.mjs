@@ -72,7 +72,11 @@ const steps = [
     production ? 'check-native-production-closure.mjs' : 'check-native-cli-candidate-closure.mjs',
     [],
   ],
-  ['Native public command goldens and negatives', 'certify-native-cli-public-contracts.mjs', [cli]],
+  [
+    'Native public command goldens and negatives',
+    'certify-native-cli-public-contracts.mjs',
+    production ? [cli, '--production'] : [cli],
+  ],
   [
     'Native Feature Lab, source/cache, Tests and archive contracts',
     'certify-native-production-lifecycle.mjs',
