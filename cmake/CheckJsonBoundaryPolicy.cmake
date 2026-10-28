@@ -32,6 +32,7 @@ list(APPEND approved_header_paths
 # now belong to the separate Project authoring codec ownership root.
 list(APPEND approved_header_paths
     "tools/editor_tool/native_cli_comfyui.hpp"
+    "tools/editor_tool/native_cli_daemon.hpp"
     "tools/editor_tool/native_cli_comfyui_http.hpp"
     "tools/editor_tool/native_cli_media.hpp"
     "tools/editor_tool/native_cli_platform.hpp"

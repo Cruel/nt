@@ -386,7 +386,7 @@ if(BUILD_TESTING)
     add_test(NAME native_cli_daemon_owner
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/daemon_owner.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
-    set_tests_properties(native_cli_daemon_owner PROPERTIES TIMEOUT 180)
+    set_tests_properties(native_cli_daemon_owner PROPERTIES TIMEOUT 420)
     add_test(NAME native_cli_platform_commands
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/platform.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"

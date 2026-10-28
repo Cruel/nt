@@ -34,8 +34,11 @@ must be admitted explicitly (or represented by a fully documented temporary allo
 The standalone CLI has further **exact-path host protocol adapters**, audited in
 `CheckJsonBoundaryPolicy.cmake`: `native_cli_agent.cpp` (generated Agent Kit response),
 `native_cli_comfyui.cpp`/`native_cli_comfyui_http.cpp` (external ComfyUI HTTP request/response),
-`native_cli_media.cpp` (native CLI media command), and `native_cli_test_catalog.cpp`
-(serialized authored Test catalog). Their matching JSON-visible headers are admitted individually.
+`native_cli_media.cpp` (native CLI media command), `native_cli_test_catalog.cpp`
+(serialized authored Test catalog), and `native_cli_daemon.cpp` (broker IPC and immutable native
+Project-preparation snapshot requests/responses). Their matching JSON-visible headers are admitted
+individually. The daemon adapter's Project callback carries only the existing host command protocol;
+its snapshot DOM does not enter typed runtime state.
 `tooling_runtime_cache_publish_certify.cpp` is the independent, unshipped JSON command-line
 certification adapter. These exceptions are *owned protocol entry points*, not permission for
 arbitrary native editor-tool translation units to adopt a JSON DOM. The checker explicitly rejects

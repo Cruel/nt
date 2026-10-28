@@ -248,6 +248,8 @@ Json project_diagnostics(const Json& response)
 
 Json native_request(const Json& request)
 {
+    if (const auto pinned = pinned_native_project_request(request))
+        return *pinned;
     const auto serialized = request.dump();
     // No length probe or retry: an operation may have committed before its response is read.
     std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
@@ -615,7 +617,10 @@ RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
             noveltea_tooling_probe_runtime_cache_json,
             {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
     };
-    result.cache = probe();
+    result.cache =
+        native_disposable_active()
+            ? Json{{"ok", true}, {"status", "miss"}, {"reason", "pinned-native-generation"}}
+            : probe();
     if (!force && !include_unused && !include_shader_sources && result.cache.value("ok", false) &&
         result.cache.value("status", "") == "hit" && result.cache.contains("artifact") &&
         result.cache.at("artifact").is_object()) {
@@ -2539,13 +2544,58 @@ int run(const std::vector<std::string>& argv)
              (operation == "view" || operation == "sync" || operation == "reconcile" ||
               operation == "accept" || operation == "review")) ||
             (family == "agent" && operation == "sync");
-        if (owner_command) {
+        std::string disposable_kind;
+        if (family == "shaders" && operation == "compile")
+            disposable_kind = "shader";
+        if (family == "test" &&
+            (operation == "run" || operation == "run-spec" || operation == "run-ui-spec"))
+            disposable_kind = "runtime";
+        if (owner_command || !disposable_kind.empty()) {
             const auto root = project_root(args.project);
             if (!root.empty()) {
-                if (const auto routed =
-                        route_native_project_owner(argv, path_text(root), !args.project.empty(),
-                                                   mutation, args.json, family == "validate"))
-                    return *routed;
+                bool warm_runtime = false;
+                if (disposable_kind == "runtime") {
+                    const auto cache =
+                        invoke_native_json(noveltea_tooling_probe_runtime_cache_json,
+                                           {{"projectRoot", path_text(root)},
+                                            {"compilerIdentity", compiler_identity}});
+                    warm_runtime =
+                        cache.value("ok", false) && cache.value("status", "") == "hit" &&
+                        (operation != "run" || cache.value("testCatalogStatus", "") == "hit");
+                }
+                if (!warm_runtime) {
+                    std::optional<std::string> stdin_text;
+                    if (family == "test" &&
+                        (operation == "run-spec" || operation == "run-ui-spec")) {
+                        stdin_text.emplace();
+                        char buffer[4096];
+                        while (std::cin.read(buffer, sizeof(buffer)) || std::cin.gcount()) {
+                            stdin_text->append(buffer, static_cast<std::size_t>(std::cin.gcount()));
+                            if (stdin_text->size() > 8 * 1024 * 1024)
+                                return usage(args.json,
+                                             "Test spec stdin exceeds the native input limit.");
+                        }
+                    }
+                    if (const auto routed = route_native_project_owner(
+                            argv, path_text(root), !args.project.empty(),
+                            mutation || !disposable_kind.empty(), args.json, family == "validate",
+                            disposable_kind, stdin_text))
+                        return *routed;
+                    // A failed pre-dispatch broker startup may still run locally.
+                    if (stdin_text) {
+                        std::istringstream input(*stdin_text);
+                        struct RestoreInput {
+                            std::streambuf* previous;
+                            ~RestoreInput()
+                            {
+                                std::cin.rdbuf(previous);
+                                std::cin.clear();
+                            }
+                        } restore_input{std::cin.rdbuf(input.rdbuf())};
+                        std::cin.clear();
+                        return tests_from_native_runtime(args);
+                    }
+                }
             }
         }
     }
@@ -2907,9 +2957,11 @@ int main(int argc, char** argv)
     const std::vector<std::string> args(argv + 1, argv + argc);
     try {
         if (const auto daemon = noveltea::cli::run_native_daemon_process(
-                args, [](const std::vector<std::string>& local_args) {
+                args,
+                [](const std::vector<std::string>& local_args) {
                     return noveltea::cli::run(local_args);
-                }))
+                },
+                noveltea::cli::native_request))
             return *daemon;
         return noveltea::cli::run(args);
     } catch (const std::exception& error) {

@@ -16,6 +16,9 @@
 #include <cwchar>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
+#include <chrono>
+#include <thread>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -31,6 +34,9 @@
 namespace noveltea::cli {
 namespace {
 using Json = nlohmann::json;
+using ProjectRequest = std::function<nlohmann::ordered_json(const nlohmann::ordered_json&)>;
+std::optional<Json> pinned_project;
+std::function<bool()> disposable_cancelled;
 using NativeOperation = std::uint64_t (*)(const std::uint8_t*, std::uint64_t, std::uint8_t*,
                                           std::uint64_t);
 
@@ -345,7 +351,49 @@ Json run_owner_command(const Json& payload,
     }
     ScopedEnvironment environment(payload.at("environment"));
     ScopedDirectory cwd(payload["cwd"].get_ref<const std::string&>());
+    if (pinned_project && native_daemon_certification_runtime_root()) {
+        if (const char* barrier = std::getenv("NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER");
+            barrier && *barrier) {
+            auto ready_path = native_path_from_utf8(barrier);
+            ready_path += ".ready";
+            auto release_path = native_path_from_utf8(barrier);
+            release_path += ".release";
+            {
+                auto pending_path = ready_path;
+                pending_path += ".writing";
+                std::ofstream ready(pending_path);
+#if defined(_WIN32)
+                ready << GetCurrentProcessId();
+#else
+                ready << getpid();
+#endif
+                ready.close();
+                if (!ready)
+                    throw std::runtime_error("Cannot signal pinned worker certification barrier.");
+                std::filesystem::rename(pending_path, ready_path);
+            }
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+            while (!std::filesystem::exists(release_path)) {
+                if (disposable_cancelled && disposable_cancelled())
+                    throw std::runtime_error("Native disposable request cancelled at barrier.");
+                if (std::chrono::steady_clock::now() >= deadline)
+                    throw std::runtime_error("Pinned worker certification barrier timed out.");
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+    }
     CapturedOutput capture;
+    std::istringstream input(payload.value("stdin", std::string{}));
+    struct RestoreInput {
+        std::streambuf* previous = std::cin.rdbuf();
+        ~RestoreInput()
+        {
+            std::cin.rdbuf(previous);
+            std::cin.clear();
+        }
+    } restore_input;
+    std::cin.rdbuf(input.rdbuf());
+    std::cin.clear();
     const int code = run_local(argv);
     return Json::array({code, capture.out.str(), capture.err.str()});
 }
@@ -427,8 +475,44 @@ int broker_process(const Json& context)
     }
 }
 
+void publish_project_snapshot(const Json& context, std::uint64_t worker_id,
+                              std::uint64_t session_epoch, std::uint64_t generation,
+                              const std::string& root, const std::string& request_root,
+                              std::string_view kind, const ProjectRequest& project_request)
+{
+    std::vector<std::string> actions;
+    if (kind == "shader")
+        actions = {"project-validate", "shader-preparation"};
+    else if (kind == "runtime")
+        actions = {"runtime-package-preparation", "shader-preparation"};
+    else
+        throw std::runtime_error("Unsupported native disposable preparation kind.");
+    Json requests = Json::array();
+    for (const auto& action : actions) {
+        nlohmann::ordered_json request{{"action", action}, {"projectRoot", request_root}};
+        if (std::string_view(action) == "project-validate")
+            request["includeFontCoverageInputs"] = true;
+        requests.push_back({{"request", request}, {"response", project_request(request)}});
+    }
+    const auto bytes =
+        Json{{"projectRoot", root}, {"requestRoot", request_root}, {"requests", requests}}.dump(
+            -1, ' ', true);
+    require_ok(broker_call(context, "owner-snapshot-begin",
+                           {{"ownerWorkerId", worker_id},
+                            {"sessionEpoch", session_epoch},
+                            {"generation", generation},
+                            {"ownerMetadata", "{}"}}));
+    constexpr std::size_t chunk_size = 192 * 1024;
+    for (std::size_t offset = 0; offset < bytes.size(); offset += chunk_size)
+        require_ok(broker_call(
+            context, "owner-snapshot-chunk",
+            {{"ownerWorkerId", worker_id}, {"chunk", bytes.substr(offset, chunk_size)}}));
+    require_ok(broker_call(context, "owner-snapshot-commit", {{"ownerWorkerId", worker_id}}));
+}
+
 int owner_process(const Json& context, std::uint64_t worker_id,
-                  const std::function<int(const std::vector<std::string>&)>& run_local)
+                  const std::function<int(const std::vector<std::string>&)>& run_local,
+                  const ProjectRequest& project_request)
 {
     const auto descriptor =
         broker_call(context, "owner-snapshot-describe", {{"ownerWorkerId", worker_id}});
@@ -480,8 +564,32 @@ int owner_process(const Json& context, std::uint64_t worker_id,
         const auto token = next.at("token").get<std::uint64_t>();
         Json completion{{"ownerWorkerId", worker_id}, {"token", token}};
         try {
-            if (next.value("prepareDisposable", false))
-                throw std::runtime_error("Native pinned disposable preparation is owned by #550.");
+            if (next.value("prepareDisposable", false)) {
+                const auto before = observe();
+                if (!before)
+                    throw std::runtime_error("Cannot capture native Project authority.");
+                const auto& payload = next.at("payload");
+                ScopedEnvironment environment(payload.at("environment"));
+                ScopedDirectory cwd(payload.at("cwd").get<std::string>());
+                // Different workloads carry different projections of the same
+                // sources. Never replace bytes belonging to an already pinned identity.
+                ++generation;
+                require_ok(broker_call(context, "owner-project-generation",
+                                       {{"ownerWorkerId", worker_id},
+                                        {"sessionEpoch", session_epoch},
+                                        {"generation", generation}}));
+                publish_project_snapshot(
+                    context, worker_id, session_epoch, generation, canonical_root,
+                    payload.at("ownerProjectRoot").get<std::string>(),
+                    payload.at("nativeDisposableKind").get<std::string>(), project_request);
+                const auto after = observe();
+                if (!after || before->at("manifest") != after->at("manifest"))
+                    throw std::runtime_error("Project sources changed during snapshot capture.");
+                completion["result"] = Json::array({0, "", ""});
+                completion["requestOk"] = true;
+                require_ok(broker_call(context, "owner-complete", completion));
+                continue;
+            }
             if (next.value("method", "") != "invoke")
                 throw std::runtime_error("Native owner received an unsupported method.");
             const auto before = observe();
@@ -532,23 +640,79 @@ int owner_process(const Json& context, std::uint64_t worker_id,
     }
 }
 
-int disposable_process(const Json& context, std::uint64_t worker_id)
+int disposable_process(const Json& context, std::uint64_t worker_id,
+                       const std::function<int(const std::vector<std::string>&)>& run_local)
 {
     require_ok(broker_call(context, "disposable-ready", {{"disposableWorkerId", worker_id}}));
     const auto next = broker_call(context, "disposable-next", {{"disposableWorkerId", worker_id}});
     require_ok(next);
     if (next.value("stopped", false))
         return 0;
-    // #550 adds the native immutable snapshot hydration/execution boundary.
-    require_ok(broker_call(context, "disposable-complete",
-                           {{"disposableWorkerId", worker_id},
-                            {"token", next.at("token")},
-                            {"requestOk", false},
-                            {"error", "Native disposable execution is not available."}}));
+    const auto token = next.at("token").get<std::uint64_t>();
+    Json completion{{"disposableWorkerId", worker_id}, {"token", token}};
+    try {
+        if (!next.value("hasProjectSnapshot", false))
+            throw std::runtime_error("Native worker requires a pinned Project snapshot.");
+        std::string bytes;
+        const auto count = next.at("chunkCount").get<std::size_t>();
+        for (std::size_t index = 0; index < count; ++index) {
+            const auto chunk = broker_call(
+                context, "disposable-snapshot-read",
+                {{"disposableWorkerId", worker_id}, {"token", token}, {"index", index}});
+            require_ok(chunk);
+            bytes += chunk.at("chunk").get<std::string>();
+        }
+        pinned_project = Json::parse(bytes);
+        if (pinned_project->at("projectRoot") != next.at("canonicalRoot"))
+            throw std::runtime_error("Native snapshot Project identity mismatch.");
+        disposable_cancelled = [&] {
+            const auto status = broker_call(context, "disposable-cancelled",
+                                            {{"disposableWorkerId", worker_id}, {"token", token}});
+            return !status.value("ok", false) || status.value("cancelled", true);
+        };
+        if (disposable_cancelled())
+            throw std::runtime_error("Native disposable request cancelled before execution.");
+        completion["result"] = run_owner_command(next.at("payload"), run_local);
+        if (disposable_cancelled())
+            throw std::runtime_error("Native disposable request cancelled during execution.");
+        completion["requestOk"] = true;
+    } catch (const std::exception& error) {
+        completion["requestOk"] = false;
+        completion["error"] = error.what();
+    }
+    disposable_cancelled = {};
+    pinned_project.reset();
+    require_ok(broker_call(context, "disposable-complete", completion));
     return 0;
 }
 
 } // namespace
+
+bool native_disposable_active() { return pinned_project.has_value(); }
+
+std::optional<nlohmann::ordered_json>
+pinned_native_project_request(const nlohmann::ordered_json& request)
+{
+    if (!pinned_project)
+        return std::nullopt;
+    if (disposable_cancelled && disposable_cancelled())
+        throw std::runtime_error("Native disposable request cancelled.");
+    if (request.value("projectRoot", std::string{}) !=
+        pinned_project->at("requestRoot").get<std::string>())
+        throw std::runtime_error("Immutable worker cannot change Project identity.");
+    if (request.value("action", std::string{}) == "source-generation-proof") {
+        const auto generation = request.value("expectedSourceGeneration", std::string{});
+        for (const auto& entry : pinned_project->at("requests"))
+            if (!generation.empty() &&
+                entry.at("response").value("sourceGeneration", std::string{}) == generation)
+                return std::nullopt;
+        throw std::runtime_error("Immutable worker cannot prove an uncaptured source generation.");
+    }
+    for (const auto& entry : pinned_project->at("requests"))
+        if (entry.at("request") == Json(request))
+            return nlohmann::ordered_json(entry.at("response"));
+    throw std::runtime_error("Immutable worker cannot reopen live Project authority.");
+}
 
 std::optional<std::string> native_daemon_certification_runtime_root()
 {
@@ -563,7 +727,9 @@ std::optional<std::string> native_daemon_certification_runtime_root()
 
 std::optional<int> route_native_project_owner(const std::vector<std::string>& argv,
                                               std::string_view project_root, bool explicit_project,
-                                              bool mutation, bool json, bool validation)
+                                              bool mutation, bool json, bool validation,
+                                              std::string_view disposable_kind,
+                                              std::optional<std::string> stdin_text)
 {
     auto context = broker_context();
     const auto ready = broker_call(context, "ensure");
@@ -572,18 +738,23 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
     static std::atomic<std::uint64_t> sequence{1};
     const auto request_id =
         "native-owner-" + std::to_string(sequence.fetch_add(1, std::memory_order_relaxed));
-    const Json payload{{"argv", argv},
-                       {"cwd", utf8_path(std::filesystem::current_path())},
-                       {"environment", current_environment()},
-                       {"executionClass", mutation ? "owner-mutation" : "owner-short"},
-                       {"ownerProjectRoot", project_root},
-                       {"ownerProjectRootExplicit", explicit_project},
-                       {"replaySafe", !mutation},
-                       {"streamedEvents", false},
-                       {"outputMode", json ? "json" : "human"},
-                       {"nativeValidationRequest", validation},
-                       {"authoringValidationSemanticKey",
-                        json && validation ? native_validation_semantic_key() : std::string{}}};
+    Json payload{{"argv", argv},
+                 {"cwd", utf8_path(std::filesystem::current_path())},
+                 {"environment", current_environment()},
+                 {"executionClass", !disposable_kind.empty() ? "disposable-heavy"
+                                    : mutation               ? "owner-mutation"
+                                                             : "owner-short"},
+                 {"nativeDisposableKind", disposable_kind},
+                 {"ownerProjectRoot", project_root},
+                 {"ownerProjectRootExplicit", explicit_project},
+                 {"replaySafe", !mutation},
+                 {"streamedEvents", false},
+                 {"outputMode", json ? "json" : "human"},
+                 {"nativeValidationRequest", validation},
+                 {"authoringValidationSemanticKey",
+                  json && validation ? native_validation_semantic_key() : std::string{}}};
+    if (stdin_text)
+        payload["stdin"] = *stdin_text;
     const auto reply =
         broker_call(context, "request",
                     {{"requestId", request_id}, {"method", "invoke"}, {"payload", payload}});
@@ -616,7 +787,8 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
 
 std::optional<int>
 run_native_daemon_process(const std::vector<std::string>& argv,
-                          const std::function<int(const std::vector<std::string>&)>& run_local)
+                          const std::function<int(const std::vector<std::string>&)>& run_local,
+                          const ProjectRequest& project_request)
 {
     std::string action;
     std::uint64_t worker_id = 0;
@@ -626,8 +798,8 @@ run_native_daemon_process(const std::vector<std::string>& argv,
     if (action == "__daemon-broker")
         return broker_process(*context);
     if (action == "__daemon-owner")
-        return owner_process(*context, worker_id, run_local);
-    return disposable_process(*context, worker_id);
+        return owner_process(*context, worker_id, run_local, project_request);
+    return disposable_process(*context, worker_id, run_local);
 }
 
 } // namespace noveltea::cli
