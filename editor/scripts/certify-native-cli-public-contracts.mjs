@@ -15,17 +15,22 @@ import {
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-if (process.argv.length !== 3)
+if (process.argv.length !== 3 && (process.argv.length !== 4 || process.argv[3] !== '--production'))
   throw new Error(
-    'Usage: certify-native-cli-public-contracts.mjs <installed-native-candidate-cli>',
+    'Usage: certify-native-cli-public-contracts.mjs <installed-native-cli> [--production]',
   );
 const cli = path.resolve(process.argv[2]);
 await assertProductionInputs(cli);
-const island = path.join(repository, 'editor/dist-scriptc-native-island');
+const island = path.join(
+  repository,
+  process.argv[3] === '--production'
+    ? 'editor/dist-scriptc-island'
+    : 'editor/dist-scriptc-native-island',
+);
 const violations = await verifyNativeProductionClosure([island], {
   requireManifestRoots: [island],
 });
-assert.deepEqual(violations, [], 'Native ScriptC candidate provenance is required.');
+assert.deepEqual(violations, [], 'Native ScriptC provenance is required.');
 
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-534-public-contracts-'));
 const project = path.join(scratch, 'project');

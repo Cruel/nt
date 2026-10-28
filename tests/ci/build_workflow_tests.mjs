@@ -28,6 +28,14 @@ const cliBuildScript = readFileSync(
   new URL('../../editor/scripts/build-noveltea-cli.mjs', import.meta.url),
   'utf8',
 );
+const publicCliContracts = readFileSync(
+  new URL('../../editor/scripts/certify-native-cli-public-contracts.mjs', import.meta.url),
+  'utf8',
+);
+const candidateContracts = readFileSync(
+  new URL('../../editor/scripts/certify-native-candidate-contracts.mjs', import.meta.url),
+  'utf8',
+);
 
 function releaseJob(name) {
   const match = releaseWorkflow.match(
@@ -75,6 +83,8 @@ test('Linux production CLI enables its cross-host export certification targets e
     certification,
     /cmake --preset linux-authoring-release -DNOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY=ON/,
   );
+  assert.match(certification, /-DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT=/);
+  assert.match(certification, /-DNOVELTEA_COMPILE_SHADERS=OFF/);
   for (const target of [
     'noveltea-cli-macos-export-certify',
     'noveltea-cli-android-export-certify',
@@ -88,6 +98,31 @@ test('Linux production CLI enables its cross-host export certification targets e
       certification.indexOf('cmake --build --preset linux-authoring-release'),
   );
   assert.match(certification, /ctest --test-dir build\/linux-authoring-release/);
+});
+
+test('Windows native export certification installs pinned Node and Agent Kit dependencies', () => {
+  const windows = job('windows');
+  const installPnpm = step(windows, 'Install pnpm');
+  const node = step(windows, 'Set up repository Node.js');
+  const install = step(windows, 'Install dependencies for native Agent Kit generation');
+  const nativeBuild = step(windows, 'Build native Windows platform exporter certification targets');
+  assert.match(installPnpm, /pnpm\/action-setup@v6/);
+  assert.match(node, /node-version-file: .node-version/);
+  assert.match(install, /pnpm install --frozen-lockfile/);
+  assert.ok(windows.indexOf(installPnpm) < windows.indexOf(install));
+  assert.ok(windows.indexOf(node) < windows.indexOf(install));
+  assert.ok(windows.indexOf(install) < windows.indexOf(nativeBuild));
+});
+
+test('production CLI public contracts validate shipped ScriptC provenance, not candidate output', () => {
+  assert.match(
+    candidateContracts,
+    /'certify-native-cli-public-contracts\.mjs',[\s\S]*?production \? \[cli, '--production'\] : \[cli\]/,
+  );
+  assert.match(
+    publicCliContracts,
+    /process\.argv\[3\] === '--production'\s*\? 'editor\/dist-scriptc-island'\s*: 'editor\/dist-scriptc-native-island'/,
+  );
 });
 
 test('standalone CI contract tests install the editor YAML parser before execution', () => {
