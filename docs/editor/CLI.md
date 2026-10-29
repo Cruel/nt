@@ -824,8 +824,8 @@ manifest editor can author or repair arbitrary named generic contracts and futur
 
 ## Resident daemon lifecycle
 
-The **unshipped direct C++ CLI candidate** now launches the existing native broker and
-one resident **C++** Project-owner process per canonical Project root (#549). Owner reads,
+The **shipped direct C++ CLI** launches the native broker and one resident
+**C++** Project-owner process per canonical Project root (#549/#551). Owner reads,
 Project transactions, formatting, localization, validation, and Asset inspection/import
 execute against the already-native Project services without a ScriptC host or QuickJS.
 Broker-authoritative physical observations bracket owner work and advance the broker's
@@ -835,7 +835,7 @@ caller's cwd and scoped environment to the owner, retains exactly proven validat
 (including deterministic semantic failures) using the existing native cache, and safely
 replays read-only requests locally after an uncertain daemon failure, but never mutations.
 `--no-daemon` retains the same local C++ command execution.
-The candidate routes shader compilation, cold authored/Test-spec execution, Runtime Package
+The CLI routes shader compilation, cold authored/Test-spec execution, Runtime Package
 export, platform export, and Project-backed ComfyUI generation through one-job native disposable
 workers (#550). Projectless ComfyUI filesystem-only runs also use a one-job native
 disposable process, without inventing a Project generation. The owner captures the native
@@ -868,9 +868,10 @@ without the broker. The deterministic hydration barrier is available
 only with the explicit CLI certification environment and isolated daemon root; it is not a public
 command option.
 
-The paragraphs below continue to describe the
-**currently shipped ScriptC host**. Replacing that host remains #551; the C++ candidate is not
-installed as a partial production replacement.
+The older detailed ScriptC/QuickJS owner, cache and fallback paragraphs below
+are retained as **historical architecture** and are not production operating
+instructions. #551 retired those runtime paths. The native C++ owner and worker
+contracts above and the production qualification ledger take precedence.
 
 The standalone executable contains a native per-user daemon broker. The broker is keyed by the exact NovelTea build identity plus the independently versioned Daemon Protocol compatibility boundary. While NovelTea is unreleased that boundary remains development version `1`; incompatible development changes replace V1 atomically rather than incrementing it. Different build/protocol identities use different endpoints and may coexist. Linux uses a user-private Unix-domain socket under the platform runtime directory when suitable, with a private NovelTea fallback directory; the runtime directory is restricted to the current user and the socket is mode `0600`. Windows uses a named pipe whose ACL grants access only to the current user. The same `noveltea` executable launches the private daemon mode; NovelTea does not install an operating-system service.
 
@@ -982,14 +983,18 @@ secret-free skeleton with `platform config init`. `--config` does not combine wi
 The editor and CLI also share the per-user template registry at `~/.noveltea/templates`;
 `NOVELTEA_TEMPLATE_REGISTRY_ROOT` provides a hermetic override for CI.
 
-The Node reference/editor-hosted command and Linux x64 and Windows x64 standalone scriptc
-commands are implemented. The public standalone CLI archive keeps the certified scriptc host together
-with any native support executables and system assets required by its command surface. Every standalone
-host binary remains subject to the cross-host certification gate in `SCRIPTC_COMPATIBILITY.md`.
+The installed Linux x64, Windows x64 and macOS arm64 CLI is compiled directly
+from C++, with no Node, ScriptC or QuickJS dependency. The native broker and
+Project owners/disposable workers are instances of the same C++ executable.
+Agent Kit and built-in ComfyUI sources are embedded at build time, not loaded
+from a TypeScript application at runtime. Native production certification
+uses independently checked public command outputs, fake-server ComfyUI
+effects, exact source/artifact readback and real editor-addon disk witnesses;
+there is no longer a Node-versus-ScriptC oracle. See
+[production qualification](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md)
+for the final host-matrix gate.
 
-The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations and image inspection cross the existing NovelTea native boundary. `agent sync` embeds the checked-in agent-kit source texts as build-time package data, and built-in ComfyUI manifests/API workflows are likewise embedded as immutable build-time package data. The release certification runs Node-reference-versus-ScriptC ComfyUI operations against a deterministic local fake server and separately proves relocated built-in discovery. See `SCRIPTC_COMPATIBILITY.md` for admitted host assumptions, including current OS-signal limitations.
-
-The certification-only native Project lifecycle also handles Project-backed ComfyUI
+The native Project lifecycle also handles Project-backed ComfyUI
 catalog discovery and Project admission. `comfyui status` and Project-less catalog
 operations still do not open Project authoring state. For generated images routed to
 Project Assets, the disposable worker stages exact bytes and the resident owner
@@ -997,9 +1002,8 @@ delegates publication to the native Asset importer. That native transaction vali
 image bytes and expected source generation, allocates collision-safe IDs and paths,
 and commits Asset source files and YAML records with journaled recovery. Mixed
 filesystem-plus-Asset outputs retain the existing daemon broker activation,
-rollback and acceptance coordinator. The ordinary Node/ScriptC authoring path
-remains the production oracle until the coordinated native CLI cutover; the
-installed-CLI fake-server certification runs both paths independently.
+rollback and acceptance coordinator. The installed-CLI fake-server certification
+checks its own externally observable outputs, source revisions and rollback effects.
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
@@ -1144,10 +1148,12 @@ The CLI does not require Electron or an open editor. If an editor is open, its w
 
 ## Build and release
 
-The exact scriptc version and native ABI are pinned and certified against the Node reference
-implementation. Tagged releases publish `noveltea-<tag>-linux-x64.tar.gz` and
+The native C++ build identity, executable hash, UI Test runner hash and resource
+closure are checked against the actual installed binary, independent of the
+build-time JavaScript schema generator. Tagged releases publish `noveltea-<tag>-linux-x64.tar.gz` and
 `noveltea-<tag>-windows-x64.zip`, include both in `SHA256SUMS`, and attest their build provenance.
 Each archive contains the certified `noveltea` host plus the native UI-test runner and system assets
 needed by `run-ui-test`; host editors embed the same certified native-tool closure. Release packages
 contain no TypeScript source, first-party source maps, Node installation, sibling shaderc binary, or
-retired editor helper. See `SCRIPTC_COMPATIBILITY.md` and `BUILD_AND_DISTRIBUTION.md`.
+retired editor helper. See `BUILD_AND_DISTRIBUTION.md` and the
+[production qualification ledger](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md).

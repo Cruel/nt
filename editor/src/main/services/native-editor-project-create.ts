@@ -5,7 +5,7 @@ import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subproc
 type NativeCreate = (operation: string, request: unknown) => Promise<unknown>;
 
 /** Create is an independent native filesystem transaction. The UI separately
- * opens the resulting Project through candidate admission; no legacy Workspace
+ * opens the resulting Project through native admission; no legacy Workspace
  * writer, initializer or TypeScript Project validator is invoked. */
 export async function createNativeEditorProject(
   request: CreateProjectRequest,
@@ -15,7 +15,8 @@ export async function createNativeEditorProject(
     if (!request.projectDirectory.trim()) throw new Error('Project directory is required.');
     if (!request.projectName.trim()) throw new Error('Project name is required.');
     const destination = path.resolve(request.projectDirectory.trim());
-    const raw = await invoke('native-project-create', {
+    const raw = await invoke('native-project-commands', {
+      action: 'project-create',
       projectRoot: destination,
       name: request.projectName,
     });

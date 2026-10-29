@@ -1,13 +1,89 @@
 # Native Project production qualification (#522)
 
-Status: **blocked by #521 atomic cutover**. This is the post-retirement
-qualification plan and pre-cutover test harness; it is **not** evidence of a
-complete native-authoritative production release. #520's matrix and baselines
+Status: **post-cutover qualification in progress (#522)**. #521 switched the
+editor Project authority and #551 replaced the shipped CLI/daemon/worker host
+with direct C++ without ScriptC/QuickJS. The repository now has the production
+implementation, but that is **not** evidence of a completely certified release.
+#520's matrix and baselines
 in [NATIVE_AUTHORING_CUTOVER_READINESS.md](NATIVE_AUTHORING_CUTOVER_READINESS.md)
 remain the entry contract. Do not close #522/#506 without reproducing the
 required real-host results **on the exact switched/retired commit**.
 
-## Pre-cutover deliverables
+## Post-#551 required production command
+
+`pnpm -C editor run noveltea:certify` is the ordinary production gate. It
+requires a built native CLI, all five editor emitted roots, and the actual
+`NOVELTEA_AUTHORING_NODE_ADDON` to certify independent editor/CLI disk behavior.
+It **fails** if the addon is missing; it must not silently downgrade to a
+CLI-only pass. Standalone CLI builder jobs without the addon explicitly run
+`pnpm -C editor run noveltea:certify -- --cli-only`, which is a declared
+subset and is not a replacement for full host certification.
+
+The release editor-host matrix builds the renderer and Electron bundles and
+executes the full nine-stage production suite with the native addon on Linux,
+Windows and macOS. The standalone Linux and Windows builder jobs execute the
+explicit CLI-only subset. Existing independent 82-case command, native
+watcher/revision, package, export and relocated application checks remain
+separate matrix gates. A passing check on an earlier native *candidate* or
+ScriptC build must not be substituted for the final direct C++ executable.
+
+The full issue additionally requires actual interactive editor lifecycle
+verification, same-SHA cross-host artifacts, a measured like-for-like
+performance comparison against #519/#520 baselines, review of all original
+#506 criteria and explicit sign-off. Tests alone do not satisfy those rows.
+
+## Linux post-#551 implementation evidence (2026-10-29)
+
+The local Linux x64 checkout was at `84a2a5f7d28570d04c8b7ed8049d20dfdbe086d5`
+with uncommitted #522 changes, so the development CLI identity included a
+dirty-worktree suffix. This is **local implementation evidence**, not an
+exact-final-commit release certificate or Windows/macOS acceptance.
+
+- Pinned Node 24.18.0; `pnpm -C editor run noveltea:build` rebuilt the direct
+  C++ CLI and passed relocation, bundled FFmpeg and Project-create smokes.
+  The rebuilt Electron native addon, `vp pack`, `vp build`, bundle policy and
+  installed executable closure check all passed. Native binary verification
+  is now required by every production entrypoint, not just the auxiliary CLI
+  checker: build SHA, ELF/PE/Mach-O header and retired-runtime markers are
+  checked together, with negative tampering regressions.
+- `NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" pnpm -C editor run noveltea:certify`
+  passed **9/9** production stages without candidate routing: independent
+  command diagnostics, all **16** public record families (Maps in a disposable
+  supplemental Project), native cache/source repair, real authored Feature Lab
+  runtime and UI Tests, editable Project/Runtime Package readback, restart and
+  pinned worker cancellation, Web export/publication, ComfyUI source-drift
+  rollback and native editor/CLI two-way disk/dirty/Save interaction.
+- The full editor suite passed **2,182 tests / 135 skipped** after the
+  packaged-smoke repair; focused real-addon Create/Import/Open regression tests
+  passed **4/4**. Strict formatter/lint/typecheck/schema checks and **80/80**
+  focused production/CI tests also passed after the repair.
+- The actual Linux editor directory package passed stage/relocation/native
+  dependencies/ASAR/fuse verification. Initial packaged launch failed the
+  **production thumbnail protocol**: the editor still invoked
+  `native-project-create`, an operation the post-#551 C++ private bridge did
+  not recognize. The same defect affected desktop `native-project-import`.
+  Both now call the existing `native-project-commands` dispatcher with
+  `project-create`/`project-import` actions. Actual private import proved
+  name override and native source publication; **packaged smoke now passes
+  every reported check**, including production thumbnail protocol, Project
+  creation, native CLI resolution, media tools and PTY. No alternate editor
+  writer or compatibility path was introduced.
+- The production lifecycle measured individual CLI calls while the full
+  editor suite was concurrently running: initial Feature Lab validation
+  5,268 ms, unchanged exact cached validation later 12 ms, package export
+  9,211 ms. Those figures are **not comparable** to #520's native-addon-only
+  editor cold Open/Save/preparation baselines: they include CLI process/Project
+  preparation and concurrent host load. The required like-for-like production
+  cold, warm, YAML/Lua, scoped Save and export comparisons and changed-work
+  observations remain open; no performance exception is assumed.
+
+Feature Lab was exercised unchanged, including actual authored runtime and UI
+Tests. Maps is absent from its fixture and was covered at the public native
+create/inspect layer, not misrepresented as an authored gameplay/UI Test.
+Windows/macOS host CI, signing credentials, interactive editor workflows and
+final #506/#474 sign-off remain required before claiming #522 complete.
+
+## Reusable acceptance harness (originally prepared before cutover)
 
 - `editor/scripts/native-production-qualification.mjs` provides strict public
   CLI completion/exit checking, isolated ordinary host state, and an
@@ -17,12 +93,13 @@ required real-host results **on the exact switched/retired commit**.
   CLI invocation if the installed binary is missing, any candidate-only
   certification environment is present, required build provenance is absent,
   or any retired Project authority occurs in Electron main/preload/renderer,
-  the native worker, Node CLI-tools or ScriptC bundle closure. It never turns
+  the native worker or Node CLI-tools bundle closure. It never turns
   on native certification routing, invokes the installed public CLI without
   hidden flags, and copies Feature Lab to a disposable writable Project.
 - That public CLI smoke verifies cold and reused native clean validation,
-  independent local/daemon diagnostics, public record inspection for every
-  *present* schema-derived fixture family, editable `.ntproject` export with
+  independent local/daemon diagnostics, public record inspection for all 16
+  generated families (supplemental native create/inspect for absent Feature Lab
+  families), editable `.ntproject` export with
   exact source hashes and private-state exclusion, import/reopen, actual
   `.ntpkg` compiled gameplay readback, real authored runtime/UI Test execution,
   corrupted-cache regeneration, exact one-record YAML and tracked Lua
@@ -30,7 +107,8 @@ required real-host results **on the exact switched/retired commit**.
   exact-source repair. It emits a source-SHA / installed-binary-SHA and
   host-stamped stage-timing JSON
   record with `status: passed-smoke-not-complete-qualification`. It reports
-  families missing from Feature Lab rather than counting them as tested.
+  missing Feature Lab fixture families separately from the complete exercised
+  list; supplemental inspection is not authored-runtime gameplay acceptance.
   An unavailable UI Test runner is a failure to resolve or record explicitly,
   not a reason to skip the native authored Test invocation.
 - The existing `certify-native-authoring-cross-system.mjs` also accepts
@@ -42,13 +120,11 @@ required real-host results **on the exact switched/retired commit**.
   a stand-in for real editor UI acceptance. The old candidate mode remains
   unchanged until the #521 switch removes its need.
 
-Both production entrypoints deliberately **fail on the present pre-cutover
-build**, with substantive retired-authority findings. Do not bypass the guard
-to obtain a passing output. Do not wire them into mandatory pre-cutover CI;
-activate them on the final atomic production commit, once the superseded
-authoring implementation has actually been deleted and the CLI rebuilt.
+The production entrypoints intentionally rejected the retired pre-cutover
+build. On the switched branch they must instead verify the installed native
+binary and SHA-bound emitted editor closure without candidate-only flags.
 
-## After #521: reproducible production gates
+## Reproducible production gates
 
 Use a freshly built editor bundle and an *installed* standalone CLI built
 from the **same Git SHA**, with real host addon resources and no local
@@ -64,8 +140,7 @@ pnpm -C editor run check:native-production-closure
 node editor/scripts/certify-native-cli-inventory.mjs
 node editor/scripts/certify-native-production-lifecycle.mjs "$PWD/build/cli/linux/noveltea"
 NOVELTEA_AUTHORING_NODE_ADDON="$PWD/build/native-authoring-host/noveltea-authoring-node.node" \
-  node editor/scripts/certify-native-authoring-cross-system.mjs \
-  "$PWD/build/cli/linux/noveltea" --production
+  pnpm -C editor run noveltea:certify
 pnpm -C editor run check:schema-version-policy
 pnpm -C editor run test
 ctest --test-dir build/native-authoring-host --output-on-failure
@@ -85,14 +160,14 @@ an independent full export-performance certificate.
 
 | Qualification | Reusable seams / evidence to collect | Status |
 | --- | --- | --- |
-| All 16 families and all public/private CLI routes | Generated schema/native inventory and native CLI command matrix; negative fixtures for absent Feature Lab families (notably Maps), command options/transport/daemon/static/heavy paths | **pending #521** |
-| Editor workflows | Real packaged Open/Inspect/Edit/Undo/Redo/Save/Save All/Save As/Play/Preview/Test/Export/Reopen; Project Settings, text/Asset edits, working/recovery journal, Chapter/Tag/Layout changes; follow `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` | **pending #521** |
-| Editor/CLI independence and negative source races | Production-mode cross-system worker/addon plus real main/renderer IPC, dirty-only/private recovery, Comment Keep/Remove/Cancel, overlapping vs disjoint changes, invalid unrelated source, exact SHA conflict, writer/transaction recovery | **pending #521** |
-| Runtime correctness and host failures | Feature Lab authored semantic *and UI* Tests, preview/gameplay readback, pinned daemon generation and cancellation, corrupted caches, daemon restart/eviction, Asset/Project mutation race and output rollback | **pending #521** |
-| Host distribution / isolation | Linux installed CLI plus green Windows/macOS exact-SHA release matrix using real addon, watcher, CAS and daemon; editor package smoke, relocated CLI/media/shader tools; host-only addon absent from all game players | **pending #521** |
-| Performance/regressions | Cold admission, warm cache, YAML/Lua scope, Save, actual export preparation, elapsed + useful work vs #520 baseline | **pending #521** |
-| Generated contracts and docs | Agent Kit/schema/defaults, current-only cache and protocol inventory, production ownership docs, bundle closure and independent published-archive smoke | **pending #521** |
-| Review/sign-off | Standards + #474/#506 spec review on final diff, link exact platform jobs; record missing manual/OS/signing credentials without silently passing | **pending #521** |
+| All 16 families and all public/private CLI routes | Generated schema/native inventory and native CLI command matrix; negative fixtures for absent Feature Lab families (notably Maps), command options/transport/daemon/static/heavy paths | **post-#551 certification pending** |
+| Editor workflows | Real packaged Open/Inspect/Edit/Undo/Redo/Save/Save All/Save As/Play/Preview/Test/Export/Reopen; Project Settings, text/Asset edits, working/recovery journal, Chapter/Tag/Layout changes; follow `docs/editor/project/PROJECT_VALIDATION_AND_SAVING_CERTIFICATION.md` | **manual host UI acceptance pending** |
+| Editor/CLI independence and negative source races | Production-mode cross-system worker/addon plus real main/renderer IPC, dirty-only/private recovery, Comment Keep/Remove/Cancel, overlapping vs disjoint changes, invalid unrelated source, exact SHA conflict, writer/transaction recovery | **production host matrix pending** |
+| Runtime correctness and host failures | Feature Lab authored semantic *and UI* Tests, preview/gameplay readback, pinned daemon generation and cancellation, corrupted caches, daemon restart/eviction, Asset/Project mutation race and output rollback | **production host matrix pending** |
+| Host distribution / isolation | Linux installed CLI plus green Windows/macOS exact-SHA release matrix using real addon, watcher, CAS and daemon; editor package smoke, relocated CLI/media/shader tools; host-only addon absent from all game players | **exact-SHA release results pending** |
+| Performance/regressions | Cold admission, warm cache, YAML/Lua scope, Save, actual export preparation, elapsed + useful work vs #520 baseline | **comparison pending** |
+| Generated contracts and docs | Agent Kit/schema/defaults, current-only cache and protocol inventory, production ownership docs, bundle closure and independent published-archive smoke | **final audit pending** |
+| Review/sign-off | Standards + #474/#506 spec review on final diff, link exact platform jobs; record missing manual/OS/signing credentials without silently passing | **pending** |
 
 Record executed stage, project fixture, SHA, host, result, and any unavailable
 manual/CI evidence in this ledger after the cutover. The certification-only

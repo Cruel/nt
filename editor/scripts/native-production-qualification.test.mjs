@@ -12,7 +12,21 @@ import {
   isolatedProductionEnvironment,
   readProductionSourceRevision,
   readPortableZipMembers,
+  resolveProductionCertificationMode,
 } from './native-production-qualification.mjs';
+
+void test('production certification never silently skips editor and CLI integration', () => {
+  assert.throws(
+    () => resolveProductionCertificationMode([], undefined),
+    /requires NOVELTEA_AUTHORING_NODE_ADDON/,
+  );
+  assert.equal(resolveProductionCertificationMode(['--cli-only'], undefined), true);
+  assert.equal(resolveProductionCertificationMode([], '/tmp/noveltea-authoring-node.node'), false);
+  assert.equal(
+    resolveProductionCertificationMode(['--cli-only'], '/tmp/noveltea-authoring-node.node'),
+    true,
+  );
+});
 
 void test('native source revision verification respects container ownership and pinned build identity', () => {
   const repository = path.resolve(import.meta.dirname, '../..');
@@ -44,7 +58,10 @@ void test('installed native CLI build proof binds the executable and UI Test run
   const runner = path.join(directory, 'noveltea-ui-test-runner');
   const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   try {
-    const executable = Buffer.from('installed-native-binary');
+    const executable = Buffer.concat([
+      Buffer.from([0x7f, 0x45, 0x4c, 0x46]),
+      Buffer.from('installed-native-binary'),
+    ]);
     const runnerBytes = Buffer.from('installed-native-ui-test-runner');
     await writeFile(cli, executable);
     await writeFile(runner, runnerBytes);
@@ -63,6 +80,27 @@ void test('installed native CLI build proof binds the executable and UI Test run
     await writeFile(cli, executable);
     await writeFile(runner, Buffer.from('tampered UI Test runner'));
     await assert.rejects(assertInstalledNativeCliBuild(cli), /Test runner differs/i);
+    await writeFile(runner, runnerBytes);
+    for (const badExecutable of [
+      Buffer.from('#!/usr/bin/env node\n'),
+      Buffer.concat([executable, Buffer.from('noveltea_tooling_scriptc_')]),
+    ]) {
+      await writeFile(cli, badExecutable);
+      await writeFile(
+        path.join(directory, 'native-production-build.json'),
+        JSON.stringify({
+          contract: 'noveltea.native-cli-production-build.v2',
+          runtime: 'direct-cxx',
+          executableSha256: sha(badExecutable),
+          uiTestRunnerSha256: sha(runnerBytes),
+        }),
+      );
+      await assert.rejects(
+        assertInstalledNativeCliBuild(cli),
+        /not an ELF, PE, or Mach-O|Retired CLI runtime symbol/,
+        'A matching build manifest must not bypass native binary inspection.',
+      );
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

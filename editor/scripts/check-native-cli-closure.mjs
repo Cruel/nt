@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,26 +24,9 @@ const cli = path.join(
 );
 await assertInstalledNativeCliBuild(cli);
 
-// Check the actual installed binary, not merely the build configuration or
-// a source-code grep. A JavaScript wrapper cannot masquerade as the C++ CLI.
-const bytes = await readFile(cli);
-const nativeMagic =
-  (bytes[0] === 0x7f && bytes.subarray(1, 4).toString() === 'ELF') ||
-  (bytes[0] === 0x4d && bytes[1] === 0x5a) ||
-  ['feedfacf', 'cffaedfe'].includes(bytes.subarray(0, 4).toString('hex'));
-assert.ok(nativeMagic, 'Installed CLI is not an ELF, PE, or Mach-O native executable.');
-for (const symbol of [
-  'scr_island_lre_opaque',
-  'JS_RunGC',
-  'JS_SetGCThreshold',
-  'noveltea_tooling_scriptc_',
-]) {
-  assert.equal(
-    bytes.includes(Buffer.from(symbol)),
-    false,
-    `Retired scripting runtime symbol: ${symbol}`,
-  );
-}
+// The shared installed-build assertion checks both SHA-bound build provenance
+// and the actual executable format/retired runtime symbols in every production
+// and candidate acceptance entrypoint, not only in this auxiliary guard.
 
 if (args.includes('--with-node-tools')) {
   const tools = path.join(editorRoot, 'dist-electron/tools');
