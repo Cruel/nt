@@ -721,6 +721,10 @@ test('fetched LIEF is host-only Windows PE tooling, never a player dependency', 
   assert.equal(inventory.fetched.noveltea_lief.player, false);
   assert.match(editorToolCmake, /target_link_libraries\(noveltea_cli_windows_pe PUBLIC LIEF::LIEF\)/);
   assert.match(
+    editorToolCmake,
+    /target_link_libraries\(noveltea_cli_windows_pe PUBLIC LIEF::LIEF\)\s+if\(WIN32\)\s+(?:#.*\n\s+)*target_link_libraries\(noveltea_cli_windows_pe PUBLIC ws2_32\)\s+endif\(\)/,
+  );
+  assert.match(
     readFileSync(new URL('../../cmake/generate-player-template-metadata.mjs', import.meta.url), 'utf8'),
     /if \(rule\.player === false \|\| \(rule\.devtoolsOnly && !devtools\)\) continue;/,
   );

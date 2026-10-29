@@ -293,6 +293,11 @@ endif()
 add_library(noveltea_cli_windows_pe STATIC native_cli_windows_pe.cpp)
 target_include_directories(noveltea_cli_windows_pe PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(noveltea_cli_windows_pe PUBLIC LIEF::LIEF)
+if(WIN32)
+    # LIEF's X.509 helpers call inet_pton; MinGW needs Winsock explicitly.
+    # Propagate it to the native CLI and every PE-export certification target.
+    target_link_libraries(noveltea_cli_windows_pe PUBLIC ws2_32)
+endif()
 noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
 
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
