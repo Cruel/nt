@@ -59,10 +59,12 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-windows-release-') as t
     with zipfile.ZipFile(archive) as template_zip:
         descriptor_name = next(name for name in template_zip.namelist()
                                if name == 'template.json' or name.endswith('/template.json'))
-        release = json.loads(template_zip.read(descriptor_name))['buildFlavor'] == 'release'
+        descriptor = json.loads(template_zip.read(descriptor_name))
+        release = descriptor['buildFlavor'] == 'release'
     source = source.replace('id: canonical-web', 'id: canonical-windows')
     source = source.replace('buildFlavor: debug',
-                            'buildFlavor: release' if release else 'buildFlavor: debug')
+                            f"buildFlavor: {'release' if release else 'debug'}\n"
+                            f"      playerVariant: {descriptor['playerVariant']}")
     source = source.replace(
         '      target: web\n      architecture: wasm32\n'
         '      packageAccess: web-fetch\n      web:\n'

@@ -16,6 +16,7 @@ const descriptor = parseTemplateDescriptor({
   platform: 'web',
   architecture: 'wasm32',
   buildFlavor: 'release',
+  playerVariant: 'standard',
   minimumPlatformVersion: 'Chrome 121',
   graphicsBackends: ['webgl2'],
   shaderVariants: ['essl-300'],

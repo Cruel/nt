@@ -360,14 +360,11 @@ target_link_libraries(noveltea_engine PRIVATE
 # --- Dear ImGui native frontend (optional devtools presentation) ---
 
 set(NOVELTEA_COMPILE_IMGUI_FRONTEND OFF)
-if(NOVELTEA_ENABLE_DEVTOOLS)
-    # The optimized editor-preview configuration is instrumentation-only: it consumes the shared
-    # Devtools Snapshot through its Web transport and must not pay for the Dear ImGui frontend.
-    if(NOT (NOVELTEA_BUILD_EDITOR_PREVIEW AND
-            NOT NOVELTEA_BUILD_SANDBOX AND
-            NOT NOVELTEA_BUILD_PLAYER))
-        set(NOVELTEA_COMPILE_IMGUI_FRONTEND ON)
-    endif()
+# The editor preview uses the shared Devtools Snapshot through Web transport,
+# without linking the ImGui frontend. The root build rejects mixed preview/player
+# configurations because they otherwise share this engine target.
+if(NOVELTEA_ENABLE_DEVTOOLS AND NOT NOVELTEA_BUILD_EDITOR_PREVIEW)
+    set(NOVELTEA_COMPILE_IMGUI_FRONTEND ON)
 endif()
 
 if(NOVELTEA_COMPILE_IMGUI_FRONTEND)
@@ -377,6 +374,7 @@ if(NOVELTEA_COMPILE_IMGUI_FRONTEND)
         FetchContent_Declare(
             imgui
             URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.8-docking.tar.gz
+            URL_HASH SHA256=ca0653454ed371b7a87e9b0bc29a5d15c9be7f7c0fbe778042fc48c71df1d3d8
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         )
         FetchContent_MakeAvailable(imgui)

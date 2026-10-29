@@ -3328,6 +3328,7 @@ struct ProjectNode1562;
 struct ProjectNode1563;
 struct ProjectNode1564;
 struct ProjectNode1565;
+struct ProjectNode1566;
 struct RoomsRecord;
 struct RoomsRecordNode1;
 struct RoomsRecordNode2;
@@ -5292,6 +5293,7 @@ struct WorkspaceManifestNode418;
 struct WorkspaceManifestNode419;
 struct WorkspaceManifestNode420;
 struct WorkspaceManifestNode421;
+struct WorkspaceManifestNode422;
 struct WorkspaceProject;
 struct WorkspaceProjectNode1;
 struct WorkspaceProjectNode2;
@@ -5714,6 +5716,7 @@ struct WorkspaceProjectNode418;
 struct WorkspaceProjectNode419;
 struct WorkspaceProjectNode420;
 struct WorkspaceProjectNode421;
+struct WorkspaceProjectNode422;
 struct WorkspaceRecordsAnimations;
 struct WorkspaceRecordsAnimationsNode1;
 struct WorkspaceRecordsAnimationsNode2;
@@ -16965,48 +16968,51 @@ std::shared_ptr<ProjectNode365> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<ProjectNode366> field_buildFlavor;
-std::optional<std::shared_ptr<ProjectNode367>> field_compression;
+std::optional<std::shared_ptr<ProjectNode367>> field_playerVariant;
+std::optional<std::shared_ptr<ProjectNode368>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<ProjectNode368>> field_assetMemory;
+std::optional<std::shared_ptr<ProjectNode369>> field_assetMemory;
 std::optional<std::shared_ptr<ProjectNode111>> field_localization;
-std::shared_ptr<ProjectNode369> field_target;
-std::shared_ptr<ProjectNode370> field_architecture;
-std::shared_ptr<ProjectNode371> field_packageAccess;
-std::shared_ptr<ProjectNode372> field_desktop;
+std::shared_ptr<ProjectNode370> field_target;
+std::shared_ptr<ProjectNode371> field_architecture;
+std::shared_ptr<ProjectNode372> field_packageAccess;
+std::shared_ptr<ProjectNode373> field_desktop;
 };
 struct ProjectNode200 {
 std::shared_ptr<ProjectNode365> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<ProjectNode366> field_buildFlavor;
-std::optional<std::shared_ptr<ProjectNode367>> field_compression;
+std::optional<std::shared_ptr<ProjectNode367>> field_playerVariant;
+std::optional<std::shared_ptr<ProjectNode368>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<ProjectNode368>> field_assetMemory;
+std::optional<std::shared_ptr<ProjectNode369>> field_assetMemory;
 std::optional<std::shared_ptr<ProjectNode111>> field_localization;
-std::shared_ptr<ProjectNode373> field_target;
-std::shared_ptr<ProjectNode374> field_architecture;
-std::shared_ptr<ProjectNode375> field_packageAccess;
-std::shared_ptr<ProjectNode376> field_web;
+std::shared_ptr<ProjectNode374> field_target;
+std::shared_ptr<ProjectNode375> field_architecture;
+std::shared_ptr<ProjectNode376> field_packageAccess;
+std::shared_ptr<ProjectNode377> field_web;
 };
 struct ProjectNode201 {
 std::shared_ptr<ProjectNode365> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<ProjectNode366> field_buildFlavor;
-std::optional<std::shared_ptr<ProjectNode367>> field_compression;
+std::optional<std::shared_ptr<ProjectNode367>> field_playerVariant;
+std::optional<std::shared_ptr<ProjectNode368>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<ProjectNode368>> field_assetMemory;
+std::optional<std::shared_ptr<ProjectNode369>> field_assetMemory;
 std::optional<std::shared_ptr<ProjectNode111>> field_localization;
-std::shared_ptr<ProjectNode377> field_target;
-std::shared_ptr<ProjectNode378> field_architecture;
-std::shared_ptr<ProjectNode379> field_packageAccess;
-std::shared_ptr<ProjectNode380> field_android;
+std::shared_ptr<ProjectNode378> field_target;
+std::shared_ptr<ProjectNode379> field_architecture;
+std::shared_ptr<ProjectNode380> field_packageAccess;
+std::shared_ptr<ProjectNode381> field_android;
 };
 struct ProjectNode202 {
 enum class Value { choice0, choice1, choice2 };
@@ -17022,26 +17028,26 @@ std::optional<std::int64_t> field_warmGpuBytes;
 std::optional<std::int64_t> field_warmAudioBytes;
 };
 struct ProjectNode204 {
-using Value = std::variant<std::shared_ptr<ProjectNode381>, std::shared_ptr<ProjectNode382>, std::shared_ptr<ProjectNode383>, std::shared_ptr<ProjectNode384>, std::shared_ptr<ProjectNode385>, std::shared_ptr<ProjectNode386>, std::shared_ptr<ProjectNode387>, std::shared_ptr<ProjectNode388>, std::shared_ptr<ProjectNode389>, std::shared_ptr<ProjectNode390>, std::shared_ptr<ProjectNode391>, std::shared_ptr<ProjectNode392>, std::shared_ptr<ProjectNode393>, std::shared_ptr<ProjectNode394>, std::shared_ptr<ProjectNode395>, std::shared_ptr<ProjectNode396>, std::shared_ptr<ProjectNode397>, std::shared_ptr<ProjectNode398>, std::shared_ptr<ProjectNode399>, std::shared_ptr<ProjectNode400>, std::shared_ptr<ProjectNode401>, std::shared_ptr<ProjectNode402>, std::shared_ptr<ProjectNode403>, std::shared_ptr<ProjectNode404>, std::shared_ptr<ProjectNode405>, std::shared_ptr<ProjectNode406>, std::shared_ptr<ProjectNode407>, std::shared_ptr<ProjectNode408>>;
+using Value = std::variant<std::shared_ptr<ProjectNode382>, std::shared_ptr<ProjectNode383>, std::shared_ptr<ProjectNode384>, std::shared_ptr<ProjectNode385>, std::shared_ptr<ProjectNode386>, std::shared_ptr<ProjectNode387>, std::shared_ptr<ProjectNode388>, std::shared_ptr<ProjectNode389>, std::shared_ptr<ProjectNode390>, std::shared_ptr<ProjectNode391>, std::shared_ptr<ProjectNode392>, std::shared_ptr<ProjectNode393>, std::shared_ptr<ProjectNode394>, std::shared_ptr<ProjectNode395>, std::shared_ptr<ProjectNode396>, std::shared_ptr<ProjectNode397>, std::shared_ptr<ProjectNode398>, std::shared_ptr<ProjectNode399>, std::shared_ptr<ProjectNode400>, std::shared_ptr<ProjectNode401>, std::shared_ptr<ProjectNode402>, std::shared_ptr<ProjectNode403>, std::shared_ptr<ProjectNode404>, std::shared_ptr<ProjectNode405>, std::shared_ptr<ProjectNode406>, std::shared_ptr<ProjectNode407>, std::shared_ptr<ProjectNode408>, std::shared_ptr<ProjectNode409>>;
 Value value;
 };
 struct ProjectNode205 {
-std::shared_ptr<ProjectNode409> field_kind;
-std::string field_id;
-};
-struct ProjectNode206 {
 std::shared_ptr<ProjectNode410> field_kind;
 std::string field_id;
 };
-struct ProjectNode207 {
+struct ProjectNode206 {
 std::shared_ptr<ProjectNode411> field_kind;
 std::string field_id;
 };
-struct ProjectNode208 {
+struct ProjectNode207 {
 std::shared_ptr<ProjectNode412> field_kind;
+std::string field_id;
+};
+struct ProjectNode208 {
+std::shared_ptr<ProjectNode413> field_kind;
 };
 struct ProjectNode209 {
-std::shared_ptr<ProjectNode413> field_kind;
+std::shared_ptr<ProjectNode414> field_kind;
 };
 struct ProjectNode210 {
 enum class Value { choice0 };
@@ -17056,33 +17062,33 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode213 {
-std::shared_ptr<ProjectNode414> field_kind;
-std::shared_ptr<ProjectNode415> field_asset;
+std::shared_ptr<ProjectNode415> field_kind;
+std::shared_ptr<ProjectNode416> field_asset;
 };
 struct ProjectNode214 {
-std::shared_ptr<ProjectNode416> field_kind;
-std::shared_ptr<ProjectNode417> field_scene;
+std::shared_ptr<ProjectNode417> field_kind;
+std::shared_ptr<ProjectNode418> field_scene;
 };
 struct ProjectNode215 {
-std::shared_ptr<ProjectNode418> field_kind;
-std::shared_ptr<ProjectNode419> field_dialogue;
+std::shared_ptr<ProjectNode419> field_kind;
+std::shared_ptr<ProjectNode420> field_dialogue;
 };
 struct ProjectNode216 {
-std::shared_ptr<ProjectNode420> field_kind;
-std::shared_ptr<ProjectNode421> field_room;
+std::shared_ptr<ProjectNode421> field_kind;
+std::shared_ptr<ProjectNode422> field_room;
 };
 struct ProjectNode217 {
-std::shared_ptr<ProjectNode422> field_kind;
-std::shared_ptr<ProjectNode423> field_layout;
+std::shared_ptr<ProjectNode423> field_kind;
+std::shared_ptr<ProjectNode424> field_layout;
 };
 struct ProjectNode218 {
-std::shared_ptr<ProjectNode424> field_kind;
-std::shared_ptr<ProjectNode425> field_point;
+std::shared_ptr<ProjectNode425> field_kind;
+std::shared_ptr<ProjectNode426> field_point;
 };
 struct ProjectNode219 {
-std::shared_ptr<ProjectNode426> field_kind;
-std::shared_ptr<ProjectNode427> field_room;
-std::shared_ptr<ProjectNode428> field_scope;
+std::shared_ptr<ProjectNode427> field_kind;
+std::shared_ptr<ProjectNode428> field_room;
+std::shared_ptr<ProjectNode429> field_scope;
 };
 struct ProjectNode220 {
 enum class Value { choice0, choice1, choice2, choice3 };
@@ -17092,25 +17098,25 @@ struct ProjectNode221 {
 std::string field_id;
 std::optional<std::string> field_label;
 std::optional<std::string> field_description;
-std::shared_ptr<ProjectNode429> field_type;
+std::shared_ptr<ProjectNode430> field_type;
 bool field_nullable;
 std::optional<std::shared_ptr<ProjectNode269>> field_defaultValue;
-std::optional<std::shared_ptr<ProjectNode430>> field_enumValues;
+std::optional<std::shared_ptr<ProjectNode431>> field_enumValues;
 };
 struct ProjectNode222 {
-std::shared_ptr<ProjectNode431> field_collection;
+std::shared_ptr<ProjectNode432> field_collection;
 std::string field_id;
 };
 struct ProjectNode223 {
-std::shared_ptr<ProjectNode432> field_kind;
+std::shared_ptr<ProjectNode433> field_kind;
 };
 struct ProjectNode224 {
-std::shared_ptr<ProjectNode433> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
+std::shared_ptr<ProjectNode434> field_kind;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode225 {
-std::shared_ptr<ProjectNode435> field_kind;
-std::shared_ptr<ProjectNode436> field_inventory;
+std::shared_ptr<ProjectNode436> field_kind;
+std::shared_ptr<ProjectNode437> field_inventory;
 };
 struct ProjectNode226 {
 std::vector<std::string> value;
@@ -17122,50 +17128,50 @@ struct ProjectNode228 {
 std::string field_id;
 std::optional<std::string> field_label;
 std::optional<std::string> field_description;
-std::shared_ptr<ProjectNode437> field_type;
+std::shared_ptr<ProjectNode438> field_type;
 bool field_nullable;
 std::shared_ptr<ProjectNode269> field_value;
-std::optional<std::shared_ptr<ProjectNode438>> field_enumValues;
+std::optional<std::shared_ptr<ProjectNode439>> field_enumValues;
 };
 struct ProjectNode229 {
-using Value = std::variant<std::shared_ptr<ProjectNode439>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode440>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode230 {
-std::map<std::string, std::shared_ptr<ProjectNode440>> additional;
+std::map<std::string, std::shared_ptr<ProjectNode441>> additional;
 };
 struct ProjectNode231 {
-std::map<std::string, std::shared_ptr<ProjectNode441>> additional;
+std::map<std::string, std::shared_ptr<ProjectNode442>> additional;
 };
 struct ProjectNode232 {
 std::string field_featureId;
-std::shared_ptr<ProjectNode442> field_traits;
-std::shared_ptr<ProjectNode443> field_properties;
+std::shared_ptr<ProjectNode443> field_traits;
+std::shared_ptr<ProjectNode444> field_properties;
 };
 struct ProjectNode233 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode234 {
-using Value = std::variant<std::shared_ptr<ProjectNode444>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode445>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode235 {
-std::shared_ptr<ProjectNode445> field_kind;
+std::shared_ptr<ProjectNode446> field_kind;
 std::string field_source;
-std::optional<std::shared_ptr<ProjectNode446>> field_pattern;
+std::optional<std::shared_ptr<ProjectNode447>> field_pattern;
 std::optional<std::string> field_context;
 std::optional<std::string> field_translatorNote;
-std::optional<std::shared_ptr<ProjectNode447>> field_arguments;
+std::optional<std::shared_ptr<ProjectNode448>> field_arguments;
 };
 struct ProjectNode236 {
-std::shared_ptr<ProjectNode448> field_kind;
+std::shared_ptr<ProjectNode449> field_kind;
 std::string field_key;
 std::string field_source;
-std::optional<std::shared_ptr<ProjectNode446>> field_pattern;
+std::optional<std::shared_ptr<ProjectNode447>> field_pattern;
 std::optional<std::string> field_context;
 std::optional<std::string> field_translatorNote;
-std::optional<std::shared_ptr<ProjectNode447>> field_arguments;
+std::optional<std::shared_ptr<ProjectNode448>> field_arguments;
 };
 struct ProjectNode237 {
 enum class Value { choice0, choice1 };
@@ -17193,70 +17199,70 @@ std::map<std::string, std::shared_ptr<ProjectNode242>> additional;
 };
 struct ProjectNode242 {
 std::string field_text;
-std::optional<std::shared_ptr<ProjectNode446>> field_pattern;
-std::optional<std::shared_ptr<ProjectNode449>> field_dialogueCues;
+std::optional<std::shared_ptr<ProjectNode447>> field_pattern;
+std::optional<std::shared_ptr<ProjectNode450>> field_dialogueCues;
 std::string field_sourceFingerprint;
-std::shared_ptr<ProjectNode450> field_origin;
-std::shared_ptr<ProjectNode451> field_review;
+std::shared_ptr<ProjectNode451> field_origin;
+std::shared_ptr<ProjectNode452> field_review;
 std::optional<std::string> field_provider;
 std::optional<std::string> field_model;
 std::optional<std::string> field_acknowledgedPresentationFingerprint;
 std::optional<std::string> field_acknowledgedGuidanceFingerprint;
-std::optional<std::shared_ptr<ProjectNode452>> field_useSource;
+std::optional<std::shared_ptr<ProjectNode453>> field_useSource;
 };
 struct ProjectNode243 {
-using Value = std::variant<std::shared_ptr<ProjectNode453>, std::shared_ptr<ProjectNode454>>;
+using Value = std::variant<std::shared_ptr<ProjectNode454>, std::shared_ptr<ProjectNode455>>;
 Value value;
 };
 struct ProjectNode244 {
 std::int64_t field_sequence;
-std::shared_ptr<ProjectNode455> field_patches;
-std::shared_ptr<ProjectNode456> field_affectedPaths;
-std::shared_ptr<ProjectNode457> field_pendingRawInputByPath;
-std::optional<std::shared_ptr<ProjectNode458>> field_atomicTransactionGroupIds;
-std::optional<std::shared_ptr<ProjectNode459>> field_baselineFileRevisions;
-std::optional<std::shared_ptr<ProjectNode460>> field_externalConflict;
+std::shared_ptr<ProjectNode456> field_patches;
+std::shared_ptr<ProjectNode457> field_affectedPaths;
+std::shared_ptr<ProjectNode458> field_pendingRawInputByPath;
+std::optional<std::shared_ptr<ProjectNode459>> field_atomicTransactionGroupIds;
+std::optional<std::shared_ptr<ProjectNode460>> field_baselineFileRevisions;
+std::optional<std::shared_ptr<ProjectNode461>> field_externalConflict;
 };
 struct ProjectNode245 {
 std::string field_id;
 std::string field_displayPath;
 std::string field_projectRelativePath;
-std::shared_ptr<ProjectNode461> field_kind;
+std::shared_ptr<ProjectNode462> field_kind;
 };
 struct ProjectNode246 {
-using Value = std::variant<std::string, std::shared_ptr<ProjectNode462>>;
+using Value = std::variant<std::string, std::shared_ptr<ProjectNode463>>;
 Value value;
 };
 struct ProjectNode247 {
-std::shared_ptr<ProjectNode463> field_kind;
+std::shared_ptr<ProjectNode464> field_kind;
 std::string field_groupId;
 };
 struct ProjectNode248 {
-std::shared_ptr<ProjectNode464> field_kind;
+std::shared_ptr<ProjectNode465> field_kind;
 std::string field_id;
-std::shared_ptr<ProjectNode465> field_direction;
-std::shared_ptr<ProjectNode466> field_children;
-std::optional<std::shared_ptr<ProjectNode467>> field_sizesByChild;
+std::shared_ptr<ProjectNode466> field_direction;
+std::shared_ptr<ProjectNode467> field_children;
+std::optional<std::shared_ptr<ProjectNode468>> field_sizesByChild;
 };
 struct ProjectNode249 {
 std::string field_id;
-std::shared_ptr<ProjectNode468> field_tabIds;
-std::shared_ptr<ProjectNode469> field_activeTabId;
-std::optional<std::shared_ptr<ProjectNode470>> field_activationHistory;
+std::shared_ptr<ProjectNode469> field_tabIds;
+std::shared_ptr<ProjectNode470> field_activeTabId;
+std::optional<std::shared_ptr<ProjectNode471>> field_activationHistory;
 };
 struct ProjectNode250 {
 std::string field_id;
 std::string field_title;
 std::string field_editorType;
-std::optional<std::shared_ptr<ProjectNode471>> field_resource;
+std::optional<std::shared_ptr<ProjectNode472>> field_resource;
 std::optional<bool> field_pinned;
 std::optional<bool> field_preview;
 };
 struct ProjectNode251 {
 std::string field_id;
 std::string field_label;
-std::optional<std::shared_ptr<ProjectNode472>> field_color;
-std::optional<std::shared_ptr<ProjectNode473>> field_sortKey;
+std::optional<std::shared_ptr<ProjectNode473>> field_color;
+std::optional<std::shared_ptr<ProjectNode474>> field_sortKey;
 };
 struct ProjectNode252 {
 std::vector<std::string> value;
@@ -17264,23 +17270,23 @@ std::vector<std::string> value;
 struct ProjectNode253 {
 std::string field_name;
 std::string field_color;
-std::optional<std::shared_ptr<ProjectNode474>> field_sortKey;
+std::optional<std::shared_ptr<ProjectNode475>> field_sortKey;
 };
 struct ProjectNode254 {
-std::optional<std::shared_ptr<ProjectNode475>> field_tags;
-std::optional<std::shared_ptr<ProjectNode476>> field_color;
-std::optional<std::shared_ptr<ProjectNode477>> field_sortKey;
+std::optional<std::shared_ptr<ProjectNode476>> field_tags;
+std::optional<std::shared_ptr<ProjectNode477>> field_color;
+std::optional<std::shared_ptr<ProjectNode478>> field_sortKey;
 };
 struct ProjectNode255 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
 struct ProjectNode256 {
-std::shared_ptr<ProjectNode478> field_type;
+std::shared_ptr<ProjectNode479> field_type;
 std::string field_path;
 };
 struct ProjectNode257 {
-std::vector<std::shared_ptr<ProjectNode479>> value;
+std::vector<std::shared_ptr<ProjectNode480>> value;
 };
 struct ProjectNode258 {
 std::vector<std::string> value;
@@ -17290,7 +17296,7 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode260 {
-using Value = std::variant<std::shared_ptr<ProjectNode480>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode481>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode261 {
@@ -17306,14 +17312,14 @@ std::int64_t field_width;
 std::int64_t field_height;
 };
 struct ProjectNode264 {
-std::vector<std::shared_ptr<ProjectNode481>> value;
+std::vector<std::shared_ptr<ProjectNode482>> value;
 };
 struct ProjectNode265 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode266 {
-std::vector<std::shared_ptr<ProjectNode482>> value;
+std::vector<std::shared_ptr<ProjectNode483>> value;
 };
 struct ProjectNode267 {
 enum class Value { choice0 };
@@ -17324,7 +17330,7 @@ enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct ProjectNode269 {
-using Value = std::variant<std::shared_ptr<ProjectNode483>, std::shared_ptr<ProjectNode484>>;
+using Value = std::variant<std::shared_ptr<ProjectNode484>, std::shared_ptr<ProjectNode485>>;
 Value value;
 };
 struct ProjectNode270 {
@@ -17339,23 +17345,23 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode273 {
-using Value = std::variant<std::shared_ptr<ProjectNode485>, std::shared_ptr<ProjectNode486>>;
+using Value = std::variant<std::shared_ptr<ProjectNode486>, std::shared_ptr<ProjectNode487>>;
 Value value;
 };
 struct ProjectNode274 {
-std::optional<std::shared_ptr<ProjectNode487>> field_vertex;
-std::optional<std::shared_ptr<ProjectNode487>> field_fragment;
-std::optional<std::shared_ptr<ProjectNode487>> field_varying;
+std::optional<std::shared_ptr<ProjectNode488>> field_vertex;
+std::optional<std::shared_ptr<ProjectNode488>> field_fragment;
+std::optional<std::shared_ptr<ProjectNode488>> field_varying;
 };
 struct ProjectNode275 {
-std::map<std::string, std::shared_ptr<ProjectNode488>> additional;
-};
-struct ProjectNode276 {
 std::map<std::string, std::shared_ptr<ProjectNode489>> additional;
 };
+struct ProjectNode276 {
+std::map<std::string, std::shared_ptr<ProjectNode490>> additional;
+};
 struct ProjectNode277 {
-std::optional<std::shared_ptr<ProjectNode490>> field_geometry;
-std::optional<std::shared_ptr<ProjectNode491>> field_background;
+std::optional<std::shared_ptr<ProjectNode491>> field_geometry;
+std::optional<std::shared_ptr<ProjectNode492>> field_background;
 };
 struct ProjectNode278 {
 enum class Value { choice0 };
@@ -17370,46 +17376,46 @@ enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct ProjectNode281 {
-std::shared_ptr<ProjectNode492> field_ui;
-std::shared_ptr<ProjectNode493> field_text;
+std::shared_ptr<ProjectNode493> field_ui;
+std::shared_ptr<ProjectNode494> field_text;
 };
 struct ProjectNode282 {
-std::optional<std::shared_ptr<ProjectNode494>> field_inputs;
-std::optional<std::shared_ptr<ProjectNode495>> field_signals;
-std::optional<std::shared_ptr<ProjectNode496>> field_state;
+std::optional<std::shared_ptr<ProjectNode495>> field_inputs;
+std::optional<std::shared_ptr<ProjectNode496>> field_signals;
+std::optional<std::shared_ptr<ProjectNode497>> field_state;
 };
 struct ProjectNode283 {
-std::optional<std::shared_ptr<ProjectNode497>> field_sourceMode;
+std::optional<std::shared_ptr<ProjectNode498>> field_sourceMode;
 std::optional<std::string> field_sourceText;
-std::optional<std::shared_ptr<ProjectNode498>> field_sourceAsset;
+std::optional<std::shared_ptr<ProjectNode499>> field_sourceAsset;
 };
 struct ProjectNode284 {
-std::optional<std::shared_ptr<ProjectNode499>> field_sourceMode;
+std::optional<std::shared_ptr<ProjectNode500>> field_sourceMode;
 std::optional<std::string> field_sourceText;
 };
 struct ProjectNode285 {
 std::optional<bool> field_enabled;
 std::optional<std::string> field_namespace;
-std::optional<std::shared_ptr<ProjectNode500>> field_additionalDependencies;
+std::optional<std::shared_ptr<ProjectNode501>> field_additionalDependencies;
 };
 struct ProjectNode286 {
 std::optional<std::string> field_defaultParent;
 std::optional<bool> field_scopedStyles;
 };
 struct ProjectNode287 {
-std::optional<std::shared_ptr<ProjectNode501>> field_images;
-std::optional<std::shared_ptr<ProjectNode502>> field_fonts;
-std::optional<std::shared_ptr<ProjectNode503>> field_stylesheets;
-std::optional<std::shared_ptr<ProjectNode504>> field_materials;
-std::optional<std::shared_ptr<ProjectNode505>> field_scripts;
-std::optional<std::shared_ptr<ProjectNode506>> field_templates;
-std::optional<std::shared_ptr<ProjectNode507>> field_data;
+std::optional<std::shared_ptr<ProjectNode502>> field_images;
+std::optional<std::shared_ptr<ProjectNode503>> field_fonts;
+std::optional<std::shared_ptr<ProjectNode504>> field_stylesheets;
+std::optional<std::shared_ptr<ProjectNode505>> field_materials;
+std::optional<std::shared_ptr<ProjectNode506>> field_scripts;
+std::optional<std::shared_ptr<ProjectNode507>> field_templates;
+std::optional<std::shared_ptr<ProjectNode508>> field_data;
 };
 struct ProjectNode288 {
 std::map<std::string, std::shared_ptr<ProjectNode295>> additional;
 };
 struct ProjectNode289 {
-std::optional<std::shared_ptr<ProjectNode508>> field_background;
+std::optional<std::shared_ptr<ProjectNode509>> field_background;
 };
 struct ProjectNode290 {
 enum class Value { choice0 };
@@ -17427,10 +17433,10 @@ struct ProjectNode293 {
 std::map<std::string, std::shared_ptr<ProjectNode295>> additional;
 };
 struct ProjectNode294 {
-std::shared_ptr<ProjectNode509> field__u24_ref;
+std::shared_ptr<ProjectNode510> field__u24_ref;
 };
 struct ProjectNode295 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<ProjectNode510>, std::shared_ptr<ProjectNode511>>;
+using Value = std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<ProjectNode511>, std::shared_ptr<ProjectNode512>>;
 Value value;
 };
 struct ProjectNode296 {
@@ -17439,36 +17445,36 @@ Value value;
 };
 struct ProjectNode297 {
 std::optional<std::string> field_name;
-std::optional<std::shared_ptr<ProjectNode512>> field_nameColor;
-std::optional<std::shared_ptr<ProjectNode513>> field_textColor;
+std::optional<std::shared_ptr<ProjectNode513>> field_nameColor;
+std::optional<std::shared_ptr<ProjectNode514>> field_textColor;
 std::optional<std::string> field_styleClass;
 };
 struct ProjectNode298 {
 std::string field_profileId;
 std::string field_expressionId;
-std::optional<std::shared_ptr<ProjectNode514>> field_appearanceId;
-std::optional<std::shared_ptr<ProjectNode515>> field_idleId;
+std::optional<std::shared_ptr<ProjectNode515>> field_appearanceId;
+std::optional<std::shared_ptr<ProjectNode516>> field_idleId;
 };
 struct ProjectNode299 {
-std::vector<std::shared_ptr<ProjectNode516>> value;
-};
-struct ProjectNode300 {
 std::vector<std::shared_ptr<ProjectNode517>> value;
 };
-struct ProjectNode301 {
+struct ProjectNode300 {
 std::vector<std::shared_ptr<ProjectNode518>> value;
 };
-struct ProjectNode302 {
+struct ProjectNode301 {
 std::vector<std::shared_ptr<ProjectNode519>> value;
 };
-struct ProjectNode303 {
+struct ProjectNode302 {
 std::vector<std::shared_ptr<ProjectNode520>> value;
+};
+struct ProjectNode303 {
+std::vector<std::shared_ptr<ProjectNode521>> value;
 };
 struct ProjectNode304 {
 std::vector<std::shared_ptr<ProjectNode50>> value;
 };
 struct ProjectNode305 {
-std::shared_ptr<ProjectNode521> field_location;
+std::shared_ptr<ProjectNode522> field_location;
 bool field_enabled;
 bool field_visible;
 };
@@ -17477,77 +17483,77 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode307 {
-std::shared_ptr<ProjectNode522> field_asset;
-std::shared_ptr<ProjectNode523> field_materialApplication;
-std::shared_ptr<ProjectNode524> field_fit;
-std::shared_ptr<ProjectNode525> field_color;
+std::shared_ptr<ProjectNode523> field_asset;
+std::shared_ptr<ProjectNode524> field_materialApplication;
+std::shared_ptr<ProjectNode525> field_fit;
+std::shared_ptr<ProjectNode526> field_color;
 };
 struct ProjectNode308 {
-std::shared_ptr<ProjectNode526> field_source;
-std::shared_ptr<ProjectNode527> field_markup;
+std::shared_ptr<ProjectNode527> field_source;
+std::shared_ptr<ProjectNode528> field_markup;
 };
 struct ProjectNode309 {
-std::shared_ptr<ProjectNode528> field_size;
-std::shared_ptr<ProjectNode529> field_bounds;
-std::shared_ptr<ProjectNode530> field_edgePolicy;
-std::shared_ptr<ProjectNode531> field_defaultView;
-std::shared_ptr<ProjectNode532> field_views;
+std::shared_ptr<ProjectNode529> field_size;
+std::shared_ptr<ProjectNode530> field_bounds;
+std::shared_ptr<ProjectNode531> field_edgePolicy;
+std::shared_ptr<ProjectNode532> field_defaultView;
+std::shared_ptr<ProjectNode533> field_views;
 };
 struct ProjectNode310 {
-std::vector<std::shared_ptr<ProjectNode533>> value;
-};
-struct ProjectNode311 {
 std::vector<std::shared_ptr<ProjectNode534>> value;
 };
-struct ProjectNode312 {
+struct ProjectNode311 {
 std::vector<std::shared_ptr<ProjectNode535>> value;
 };
-struct ProjectNode313 {
+struct ProjectNode312 {
 std::vector<std::shared_ptr<ProjectNode536>> value;
 };
-struct ProjectNode314 {
+struct ProjectNode313 {
 std::vector<std::shared_ptr<ProjectNode537>> value;
 };
-struct ProjectNode315 {
+struct ProjectNode314 {
 std::vector<std::shared_ptr<ProjectNode538>> value;
 };
-struct ProjectNode316 {
+struct ProjectNode315 {
 std::vector<std::shared_ptr<ProjectNode539>> value;
+};
+struct ProjectNode316 {
+std::vector<std::shared_ptr<ProjectNode540>> value;
 };
 struct ProjectNode317 {
 std::shared_ptr<ProjectNode333> field_canEnter;
 std::shared_ptr<ProjectNode333> field_canLeave;
-std::shared_ptr<ProjectNode540> field_beforeEnter;
-std::shared_ptr<ProjectNode541> field_afterEnter;
-std::shared_ptr<ProjectNode542> field_beforeLeave;
-std::shared_ptr<ProjectNode543> field_afterLeave;
-std::shared_ptr<ProjectNode544> field_onEnterRejected;
-std::shared_ptr<ProjectNode545> field_onLeaveRejected;
+std::shared_ptr<ProjectNode541> field_beforeEnter;
+std::shared_ptr<ProjectNode542> field_afterEnter;
+std::shared_ptr<ProjectNode543> field_beforeLeave;
+std::shared_ptr<ProjectNode544> field_afterLeave;
+std::shared_ptr<ProjectNode545> field_onEnterRejected;
+std::shared_ptr<ProjectNode546> field_onLeaveRejected;
 };
 struct ProjectNode318 {
-std::vector<std::shared_ptr<ProjectNode546>> value;
+std::vector<std::shared_ptr<ProjectNode547>> value;
 };
 struct ProjectNode319 {
-std::vector<std::shared_ptr<ProjectNode547>> value;
+std::vector<std::shared_ptr<ProjectNode548>> value;
 };
 struct ProjectNode320 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode321 {
-std::vector<std::shared_ptr<ProjectNode548>> value;
+std::vector<std::shared_ptr<ProjectNode549>> value;
 };
 struct ProjectNode322 {
-std::vector<std::shared_ptr<ProjectNode549>> value;
+std::vector<std::shared_ptr<ProjectNode550>> value;
 };
 struct ProjectNode323 {
 std::string field_id;
 std::optional<std::string> field_label;
 std::optional<std::string> field_description;
-std::shared_ptr<ProjectNode550> field_type;
+std::shared_ptr<ProjectNode551> field_type;
 bool field_nullable;
 std::optional<std::shared_ptr<ProjectNode269>> field_defaultValue;
-std::optional<std::shared_ptr<ProjectNode551>> field_enumValues;
+std::optional<std::shared_ptr<ProjectNode552>> field_enumValues;
 };
 struct ProjectNode324 {
 enum class Value { choice0 };
@@ -17558,13 +17564,13 @@ using Value = std::variant<std::int64_t, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode326 {
-std::shared_ptr<ProjectNode552> field_visual;
-std::shared_ptr<ProjectNode553> field_materialApplication;
-std::optional<std::shared_ptr<ProjectNode554>> field_cursor;
-std::shared_ptr<ProjectNode555> field_hotspots;
+std::shared_ptr<ProjectNode553> field_visual;
+std::shared_ptr<ProjectNode554> field_materialApplication;
+std::optional<std::shared_ptr<ProjectNode555>> field_cursor;
+std::shared_ptr<ProjectNode556> field_hotspots;
 };
 struct ProjectNode327 {
-std::vector<std::shared_ptr<ProjectNode548>> value;
+std::vector<std::shared_ptr<ProjectNode549>> value;
 };
 struct ProjectNode328 {
 std::vector<std::shared_ptr<ProjectNode50>> value;
@@ -17574,16 +17580,16 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode330 {
-std::vector<std::shared_ptr<ProjectNode556>> value;
+std::vector<std::shared_ptr<ProjectNode557>> value;
 };
 struct ProjectNode331 {
 std::vector<std::string> value;
 };
 struct ProjectNode332 {
-std::vector<std::shared_ptr<ProjectNode557>> value;
+std::vector<std::shared_ptr<ProjectNode558>> value;
 };
 struct ProjectNode333 {
-using Value = std::variant<std::shared_ptr<ProjectNode558>, std::shared_ptr<ProjectNode559>, std::shared_ptr<ProjectNode560>, std::shared_ptr<ProjectNode561>, std::shared_ptr<ProjectNode562>, std::shared_ptr<ProjectNode563>, std::shared_ptr<ProjectNode564>, std::shared_ptr<ProjectNode565>, std::shared_ptr<ProjectNode566>, std::shared_ptr<ProjectNode567>>;
+using Value = std::variant<std::shared_ptr<ProjectNode559>, std::shared_ptr<ProjectNode560>, std::shared_ptr<ProjectNode561>, std::shared_ptr<ProjectNode562>, std::shared_ptr<ProjectNode563>, std::shared_ptr<ProjectNode564>, std::shared_ptr<ProjectNode565>, std::shared_ptr<ProjectNode566>, std::shared_ptr<ProjectNode567>, std::shared_ptr<ProjectNode568>>;
 Value value;
 };
 struct ProjectNode334 {
@@ -17591,51 +17597,51 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode335 {
-std::vector<std::shared_ptr<ProjectNode568>> value;
+std::vector<std::shared_ptr<ProjectNode569>> value;
 };
 struct ProjectNode336 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode337 {
-using Value = std::variant<std::shared_ptr<ProjectNode569>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode570>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode338 {
-std::vector<std::shared_ptr<ProjectNode570>> value;
+std::vector<std::shared_ptr<ProjectNode571>> value;
 };
 struct ProjectNode339 {
-std::vector<std::shared_ptr<ProjectNode571>> value;
+std::vector<std::shared_ptr<ProjectNode572>> value;
 };
 struct ProjectNode340 {
 bool field_showDisabledChoices;
-std::shared_ptr<ProjectNode572> field_logMode;
+std::shared_ptr<ProjectNode573> field_logMode;
 };
 struct ProjectNode341 {
-std::vector<std::shared_ptr<ProjectNode573>> value;
+std::vector<std::shared_ptr<ProjectNode574>> value;
 };
 struct ProjectNode342 {
-std::vector<std::shared_ptr<ProjectNode574>> value;
+std::vector<std::shared_ptr<ProjectNode575>> value;
 };
 struct ProjectNode343 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode344 {
-using Value = std::variant<std::shared_ptr<ProjectNode575>, std::shared_ptr<ProjectNode576>, std::shared_ptr<ProjectNode577>>;
+using Value = std::variant<std::shared_ptr<ProjectNode576>, std::shared_ptr<ProjectNode577>, std::shared_ptr<ProjectNode578>>;
 Value value;
 };
 struct ProjectNode345 {
-std::vector<std::shared_ptr<ProjectNode578>> value;
-};
-struct ProjectNode346 {
 std::vector<std::shared_ptr<ProjectNode579>> value;
 };
-struct ProjectNode347 {
+struct ProjectNode346 {
 std::vector<std::shared_ptr<ProjectNode580>> value;
 };
+struct ProjectNode347 {
+std::vector<std::shared_ptr<ProjectNode581>> value;
+};
 struct ProjectNode348 {
-using Value = std::variant<std::shared_ptr<ProjectNode581>, std::shared_ptr<ProjectNode582>, std::shared_ptr<ProjectNode583>, std::shared_ptr<ProjectNode584>, std::shared_ptr<ProjectNode585>>;
+using Value = std::variant<std::shared_ptr<ProjectNode582>, std::shared_ptr<ProjectNode583>, std::shared_ptr<ProjectNode584>, std::shared_ptr<ProjectNode585>, std::shared_ptr<ProjectNode586>>;
 Value value;
 };
 struct ProjectNode349 {
@@ -17643,23 +17649,23 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode350 {
-std::shared_ptr<ProjectNode586> field_title;
-std::shared_ptr<ProjectNode587> field_background;
-std::shared_ptr<ProjectNode588> field_layout;
-std::shared_ptr<ProjectNode589> field_initialMode;
+std::shared_ptr<ProjectNode587> field_title;
+std::shared_ptr<ProjectNode588> field_background;
+std::shared_ptr<ProjectNode589> field_layout;
+std::shared_ptr<ProjectNode590> field_initialMode;
 };
 struct ProjectNode351 {
-std::vector<std::shared_ptr<ProjectNode590>> value;
+std::vector<std::shared_ptr<ProjectNode591>> value;
 };
 struct ProjectNode352 {
-std::vector<std::shared_ptr<ProjectNode591>> value;
+std::vector<std::shared_ptr<ProjectNode592>> value;
 };
 struct ProjectNode353 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode354 {
-using Value = std::variant<std::shared_ptr<ProjectNode592>, std::shared_ptr<ProjectNode593>>;
+using Value = std::variant<std::shared_ptr<ProjectNode593>, std::shared_ptr<ProjectNode594>>;
 Value value;
 };
 struct ProjectNode355 {
@@ -17667,38 +17673,38 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode356 {
-std::vector<std::shared_ptr<ProjectNode594>> value;
-};
-struct ProjectNode357 {
 std::vector<std::shared_ptr<ProjectNode595>> value;
 };
+struct ProjectNode357 {
+std::vector<std::shared_ptr<ProjectNode596>> value;
+};
 struct ProjectNode358 {
-std::optional<std::shared_ptr<ProjectNode596>> field_selectedStepId;
-std::optional<std::shared_ptr<ProjectNode597>> field_selectedObservationIndex;
+std::optional<std::shared_ptr<ProjectNode597>> field_selectedStepId;
+std::optional<std::shared_ptr<ProjectNode598>> field_selectedObservationIndex;
 std::optional<bool> field_autoOpenReport;
 };
 struct ProjectNode359 {
-std::shared_ptr<ProjectNode598> field_collection;
-std::string field_id;
-};
-struct ProjectNode360 {
 std::shared_ptr<ProjectNode599> field_collection;
 std::string field_id;
 };
+struct ProjectNode360 {
+std::shared_ptr<ProjectNode600> field_collection;
+std::string field_id;
+};
 struct ProjectNode361 {
-std::shared_ptr<ProjectNode600> field_kind;
-std::shared_ptr<ProjectNode601> field_cursor;
+std::shared_ptr<ProjectNode601> field_kind;
+std::shared_ptr<ProjectNode602> field_cursor;
 };
 struct ProjectNode362 {
-std::shared_ptr<ProjectNode602> field_kind;
+std::shared_ptr<ProjectNode603> field_kind;
 std::string field_id;
 };
 struct ProjectNode363 {
-std::shared_ptr<ProjectNode603> field_kind;
+std::shared_ptr<ProjectNode604> field_kind;
 };
 struct ProjectNode364 {
-std::shared_ptr<ProjectNode604> field_kind;
-std::shared_ptr<ProjectNode605> field_semantic;
+std::shared_ptr<ProjectNode605> field_kind;
+std::shared_ptr<ProjectNode606> field_semantic;
 };
 struct ProjectNode365 {
 enum class Value { choice0 };
@@ -17709,19 +17715,19 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode367 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode368 {
-using Value = std::variant<std::shared_ptr<ProjectNode606>, std::shared_ptr<ProjectNode607>>;
-Value value;
-};
-struct ProjectNode369 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
+struct ProjectNode369 {
+using Value = std::variant<std::shared_ptr<ProjectNode607>, std::shared_ptr<ProjectNode608>>;
+Value value;
+};
 struct ProjectNode370 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode371 {
@@ -17729,12 +17735,12 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode372 {
-std::shared_ptr<ProjectNode608> field_artifact;
-std::string field_executableName;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct ProjectNode373 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode609> field_artifact;
+std::string field_executableName;
 };
 struct ProjectNode374 {
 enum class Value { choice0 };
@@ -17745,19 +17751,19 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode376 {
-std::shared_ptr<ProjectNode609> field_artifact;
-std::optional<bool> field_threaded;
-std::optional<bool> field_pwa;
-std::optional<std::shared_ptr<ProjectNode610>> field_display;
-std::optional<std::string> field_basePath;
-std::optional<std::shared_ptr<ProjectNode611>> field_serviceWorker;
-};
-struct ProjectNode377 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode377 {
+std::shared_ptr<ProjectNode610> field_artifact;
+std::optional<bool> field_threaded;
+std::optional<bool> field_pwa;
+std::optional<std::shared_ptr<ProjectNode611>> field_display;
+std::optional<std::string> field_basePath;
+std::optional<std::shared_ptr<ProjectNode612>> field_serviceWorker;
+};
 struct ProjectNode378 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode379 {
@@ -17765,198 +17771,198 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode380 {
-std::shared_ptr<ProjectNode612> field_artifact;
-std::shared_ptr<ProjectNode613> field_abi;
-std::int64_t field_minSdk;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct ProjectNode381 {
-std::string field_id;
-std::shared_ptr<ProjectNode614> field_kind;
-std::shared_ptr<ProjectNode615> field_variable;
-std::shared_ptr<ProjectNode616> field_value;
+std::shared_ptr<ProjectNode613> field_artifact;
+std::shared_ptr<ProjectNode614> field_abi;
+std::int64_t field_minSdk;
 };
 struct ProjectNode382 {
 std::string field_id;
-std::shared_ptr<ProjectNode617> field_kind;
-std::shared_ptr<ProjectNode615> field_variable;
+std::shared_ptr<ProjectNode615> field_kind;
+std::shared_ptr<ProjectNode616> field_variable;
+std::shared_ptr<ProjectNode617> field_value;
 };
 struct ProjectNode383 {
 std::string field_id;
 std::shared_ptr<ProjectNode618> field_kind;
-std::shared_ptr<ProjectNode619> field_owner;
-std::string field_propertyId;
-std::shared_ptr<ProjectNode616> field_value;
+std::shared_ptr<ProjectNode616> field_variable;
 };
 struct ProjectNode384 {
 std::string field_id;
-std::shared_ptr<ProjectNode620> field_kind;
-std::shared_ptr<ProjectNode619> field_owner;
+std::shared_ptr<ProjectNode619> field_kind;
+std::shared_ptr<ProjectNode620> field_owner;
 std::string field_propertyId;
+std::shared_ptr<ProjectNode617> field_value;
 };
 struct ProjectNode385 {
 std::string field_id;
 std::shared_ptr<ProjectNode621> field_kind;
-std::shared_ptr<ProjectNode619> field_owner;
-std::shared_ptr<ProjectNode622> field_trait;
+std::shared_ptr<ProjectNode620> field_owner;
+std::string field_propertyId;
 };
 struct ProjectNode386 {
 std::string field_id;
-std::shared_ptr<ProjectNode623> field_kind;
-std::shared_ptr<ProjectNode619> field_owner;
-std::shared_ptr<ProjectNode622> field_trait;
+std::shared_ptr<ProjectNode622> field_kind;
+std::shared_ptr<ProjectNode620> field_owner;
+std::shared_ptr<ProjectNode623> field_trait;
 };
 struct ProjectNode387 {
 std::string field_id;
 std::shared_ptr<ProjectNode624> field_kind;
-std::shared_ptr<ProjectNode625> field_subject;
-bool field_enabled;
+std::shared_ptr<ProjectNode620> field_owner;
+std::shared_ptr<ProjectNode623> field_trait;
 };
 struct ProjectNode388 {
 std::string field_id;
-std::shared_ptr<ProjectNode626> field_kind;
-std::shared_ptr<ProjectNode625> field_subject;
-bool field_visible;
+std::shared_ptr<ProjectNode625> field_kind;
+std::shared_ptr<ProjectNode626> field_subject;
+bool field_enabled;
 };
 struct ProjectNode389 {
 std::string field_id;
 std::shared_ptr<ProjectNode627> field_kind;
-std::shared_ptr<ProjectNode625> field_subject;
-std::shared_ptr<ProjectNode628> field_location;
-std::optional<std::shared_ptr<ProjectNode629>> field_roomPresentation;
+std::shared_ptr<ProjectNode626> field_subject;
+bool field_visible;
 };
 struct ProjectNode390 {
 std::string field_id;
-std::shared_ptr<ProjectNode630> field_kind;
-std::shared_ptr<ProjectNode631> field_source;
-std::optional<std::string> field_result;
+std::shared_ptr<ProjectNode628> field_kind;
+std::shared_ptr<ProjectNode626> field_subject;
+std::shared_ptr<ProjectNode629> field_location;
+std::optional<std::shared_ptr<ProjectNode630>> field_roomPresentation;
 };
 struct ProjectNode391 {
 std::string field_id;
-std::shared_ptr<ProjectNode632> field_kind;
-std::shared_ptr<ProjectNode631> field_source;
-std::shared_ptr<ProjectNode628> field_location;
-bool field_enabled;
-bool field_visible;
+std::shared_ptr<ProjectNode631> field_kind;
+std::shared_ptr<ProjectNode632> field_source;
 std::optional<std::string> field_result;
 };
 struct ProjectNode392 {
 std::string field_id;
 std::shared_ptr<ProjectNode633> field_kind;
-std::shared_ptr<ProjectNode634> field_definition;
-std::int64_t field_quantity;
-std::shared_ptr<ProjectNode628> field_location;
+std::shared_ptr<ProjectNode632> field_source;
+std::shared_ptr<ProjectNode629> field_location;
 bool field_enabled;
 bool field_visible;
-std::optional<std::shared_ptr<ProjectNode635>> field_roomPresentation;
 std::optional<std::string> field_result;
 };
 struct ProjectNode393 {
 std::string field_id;
-std::shared_ptr<ProjectNode636> field_kind;
-std::shared_ptr<ProjectNode619> field_instance;
+std::shared_ptr<ProjectNode634> field_kind;
+std::shared_ptr<ProjectNode635> field_definition;
+std::int64_t field_quantity;
+std::shared_ptr<ProjectNode629> field_location;
+bool field_enabled;
+bool field_visible;
+std::optional<std::shared_ptr<ProjectNode636>> field_roomPresentation;
+std::optional<std::string> field_result;
 };
 struct ProjectNode394 {
 std::string field_id;
 std::shared_ptr<ProjectNode637> field_kind;
-std::shared_ptr<ProjectNode638> field_source;
-std::int64_t field_quantity;
-std::optional<std::string> field_result;
+std::shared_ptr<ProjectNode620> field_instance;
 };
 struct ProjectNode395 {
 std::string field_id;
-std::shared_ptr<ProjectNode639> field_kind;
-std::shared_ptr<ProjectNode638> field_receiver;
-std::shared_ptr<ProjectNode638> field_donor;
+std::shared_ptr<ProjectNode638> field_kind;
+std::shared_ptr<ProjectNode639> field_source;
+std::int64_t field_quantity;
+std::optional<std::string> field_result;
 };
 struct ProjectNode396 {
 std::string field_id;
 std::shared_ptr<ProjectNode640> field_kind;
-std::shared_ptr<ProjectNode641> field_mode;
-std::shared_ptr<ProjectNode638> field_source;
-std::int64_t field_quantity;
-std::shared_ptr<ProjectNode628> field_location;
-std::optional<std::string> field_result;
+std::shared_ptr<ProjectNode639> field_receiver;
+std::shared_ptr<ProjectNode639> field_donor;
 };
 struct ProjectNode397 {
 std::string field_id;
-std::shared_ptr<ProjectNode642> field_kind;
-std::shared_ptr<ProjectNode643> field_mode;
-std::shared_ptr<ProjectNode644> field_matcher;
-std::optional<std::shared_ptr<ProjectNode645>> field_sourceInventory;
+std::shared_ptr<ProjectNode641> field_kind;
+std::shared_ptr<ProjectNode642> field_mode;
+std::shared_ptr<ProjectNode639> field_source;
 std::int64_t field_quantity;
-std::shared_ptr<ProjectNode628> field_location;
+std::shared_ptr<ProjectNode629> field_location;
+std::optional<std::string> field_result;
 };
 struct ProjectNode398 {
 std::string field_id;
-std::shared_ptr<ProjectNode646> field_kind;
-std::shared_ptr<ProjectNode634> field_definition;
+std::shared_ptr<ProjectNode643> field_kind;
+std::shared_ptr<ProjectNode644> field_mode;
+std::shared_ptr<ProjectNode645> field_matcher;
+std::optional<std::shared_ptr<ProjectNode646>> field_sourceInventory;
 std::int64_t field_quantity;
-std::shared_ptr<ProjectNode628> field_location;
+std::shared_ptr<ProjectNode629> field_location;
 };
 struct ProjectNode399 {
 std::string field_id;
 std::shared_ptr<ProjectNode647> field_kind;
-std::shared_ptr<ProjectNode648> field_mode;
-std::shared_ptr<ProjectNode638> field_source;
+std::shared_ptr<ProjectNode635> field_definition;
 std::int64_t field_quantity;
+std::shared_ptr<ProjectNode629> field_location;
 };
 struct ProjectNode400 {
 std::string field_id;
-std::shared_ptr<ProjectNode649> field_kind;
-std::shared_ptr<ProjectNode650> field_mode;
-std::shared_ptr<ProjectNode644> field_matcher;
-std::optional<std::shared_ptr<ProjectNode645>> field_sourceInventory;
+std::shared_ptr<ProjectNode648> field_kind;
+std::shared_ptr<ProjectNode649> field_mode;
+std::shared_ptr<ProjectNode639> field_source;
 std::int64_t field_quantity;
 };
 struct ProjectNode401 {
 std::string field_id;
-std::shared_ptr<ProjectNode651> field_kind;
-std::shared_ptr<ProjectNode645> field_inventory;
-std::optional<std::shared_ptr<ProjectNode652>> field_layout;
+std::shared_ptr<ProjectNode650> field_kind;
+std::shared_ptr<ProjectNode651> field_mode;
+std::shared_ptr<ProjectNode645> field_matcher;
+std::optional<std::shared_ptr<ProjectNode646>> field_sourceInventory;
+std::int64_t field_quantity;
+};
+struct ProjectNode402 {
+std::string field_id;
+std::shared_ptr<ProjectNode652> field_kind;
+std::shared_ptr<ProjectNode646> field_inventory;
+std::optional<std::shared_ptr<ProjectNode653>> field_layout;
 std::optional<bool> field_useTriggerAnchor;
 std::optional<bool> field_parentToTriggeringLayout;
 std::optional<bool> field_coexist;
 };
-struct ProjectNode402 {
-std::string field_id;
-std::shared_ptr<ProjectNode653> field_kind;
-std::string field_exitId;
-};
 struct ProjectNode403 {
 std::string field_id;
 std::shared_ptr<ProjectNode654> field_kind;
-std::shared_ptr<ProjectNode655> field_room;
+std::string field_exitId;
 };
 struct ProjectNode404 {
 std::string field_id;
-std::shared_ptr<ProjectNode656> field_kind;
-std::shared_ptr<ProjectNode657> field_scene;
+std::shared_ptr<ProjectNode655> field_kind;
+std::shared_ptr<ProjectNode656> field_room;
 };
 struct ProjectNode405 {
 std::string field_id;
-std::shared_ptr<ProjectNode658> field_kind;
-std::shared_ptr<ProjectNode659> field_dialogue;
+std::shared_ptr<ProjectNode657> field_kind;
+std::shared_ptr<ProjectNode658> field_scene;
 };
 struct ProjectNode406 {
 std::string field_id;
-std::shared_ptr<ProjectNode660> field_kind;
-std::shared_ptr<ProjectNode308> field_message;
+std::shared_ptr<ProjectNode659> field_kind;
+std::shared_ptr<ProjectNode660> field_dialogue;
 };
 struct ProjectNode407 {
 std::string field_id;
 std::shared_ptr<ProjectNode661> field_kind;
-std::string field_source;
+std::shared_ptr<ProjectNode308> field_message;
 };
 struct ProjectNode408 {
 std::string field_id;
 std::shared_ptr<ProjectNode662> field_kind;
-std::shared_ptr<ProjectNode333> field_condition;
-std::shared_ptr<ProjectNode663> field_then;
-std::shared_ptr<ProjectNode664> field_else;
+std::string field_source;
 };
 struct ProjectNode409 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::shared_ptr<ProjectNode663> field_kind;
+std::shared_ptr<ProjectNode333> field_condition;
+std::shared_ptr<ProjectNode664> field_then;
+std::shared_ptr<ProjectNode665> field_else;
 };
 struct ProjectNode410 {
 enum class Value { choice0 };
@@ -17979,65 +17985,65 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode415 {
-std::shared_ptr<ProjectNode665> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode416 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode417 {
 std::shared_ptr<ProjectNode666> field__u24_ref;
 };
-struct ProjectNode418 {
+struct ProjectNode417 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode419 {
+struct ProjectNode418 {
 std::shared_ptr<ProjectNode667> field__u24_ref;
 };
-struct ProjectNode420 {
+struct ProjectNode419 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode421 {
+struct ProjectNode420 {
 std::shared_ptr<ProjectNode668> field__u24_ref;
 };
-struct ProjectNode422 {
+struct ProjectNode421 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode423 {
+struct ProjectNode422 {
 std::shared_ptr<ProjectNode669> field__u24_ref;
 };
-struct ProjectNode424 {
+struct ProjectNode423 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode424 {
+std::shared_ptr<ProjectNode670> field__u24_ref;
+};
 struct ProjectNode425 {
-using Value = std::variant<std::shared_ptr<ProjectNode670>, std::shared_ptr<ProjectNode671>, std::shared_ptr<ProjectNode672>, std::shared_ptr<ProjectNode673>, std::shared_ptr<ProjectNode674>, std::shared_ptr<ProjectNode675>, std::shared_ptr<ProjectNode676>, std::shared_ptr<ProjectNode677>, std::shared_ptr<ProjectNode678>, std::shared_ptr<ProjectNode679>, std::shared_ptr<ProjectNode680>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode426 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode671>, std::shared_ptr<ProjectNode672>, std::shared_ptr<ProjectNode673>, std::shared_ptr<ProjectNode674>, std::shared_ptr<ProjectNode675>, std::shared_ptr<ProjectNode676>, std::shared_ptr<ProjectNode677>, std::shared_ptr<ProjectNode678>, std::shared_ptr<ProjectNode679>, std::shared_ptr<ProjectNode680>, std::shared_ptr<ProjectNode681>>;
 Value value;
 };
 struct ProjectNode427 {
-std::shared_ptr<ProjectNode681> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode428 {
+std::shared_ptr<ProjectNode682> field__u24_ref;
+};
+struct ProjectNode429 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode429 {
+struct ProjectNode430 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct ProjectNode430 {
-std::vector<std::string> value;
-};
 struct ProjectNode431 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::string> value;
 };
 struct ProjectNode432 {
 enum class Value { choice0 };
@@ -18048,113 +18054,113 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode434 {
-std::shared_ptr<ProjectNode682> field__u24_ref;
-};
-struct ProjectNode435 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode435 {
+std::shared_ptr<ProjectNode683> field__u24_ref;
+};
 struct ProjectNode436 {
-std::shared_ptr<ProjectNode683> field_owner;
-std::string field_inventoryId;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode437 {
+std::shared_ptr<ProjectNode684> field_owner;
+std::string field_inventoryId;
+};
+struct ProjectNode438 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct ProjectNode438 {
+struct ProjectNode439 {
 std::vector<std::string> value;
 };
-struct ProjectNode439 {
-std::shared_ptr<ProjectNode684> field__u24_ref;
-};
 struct ProjectNode440 {
-std::shared_ptr<ProjectNode685> field_type;
-std::shared_ptr<ProjectNode686> field_source;
+std::shared_ptr<ProjectNode685> field__u24_ref;
 };
 struct ProjectNode441 {
+std::shared_ptr<ProjectNode686> field_type;
 std::shared_ptr<ProjectNode687> field_source;
 };
 struct ProjectNode442 {
-std::shared_ptr<ProjectNode688> field_add;
-std::shared_ptr<ProjectNode689> field_remove;
+std::shared_ptr<ProjectNode688> field_source;
 };
 struct ProjectNode443 {
-std::vector<std::shared_ptr<ProjectNode690>> value;
+std::shared_ptr<ProjectNode689> field_add;
+std::shared_ptr<ProjectNode690> field_remove;
 };
 struct ProjectNode444 {
 std::vector<std::shared_ptr<ProjectNode691>> value;
 };
 struct ProjectNode445 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode692>> value;
 };
 struct ProjectNode446 {
-using Value = std::variant<std::shared_ptr<ProjectNode692>, std::shared_ptr<ProjectNode693>, std::shared_ptr<ProjectNode694>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode447 {
-std::map<std::string, std::shared_ptr<ProjectNode695>> additional;
+using Value = std::variant<std::shared_ptr<ProjectNode693>, std::shared_ptr<ProjectNode694>, std::shared_ptr<ProjectNode695>>;
+Value value;
 };
 struct ProjectNode448 {
+std::map<std::string, std::shared_ptr<ProjectNode696>> additional;
+};
+struct ProjectNode449 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode449 {
-std::vector<std::shared_ptr<ProjectNode696>> value;
-};
 struct ProjectNode450 {
+std::vector<std::shared_ptr<ProjectNode697>> value;
+};
+struct ProjectNode451 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
-struct ProjectNode451 {
+struct ProjectNode452 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode452 {
+struct ProjectNode453 {
 enum class Value { choice0 };
 Value value;
 static constexpr std::array<bool, 1> literals{true};
 };
-struct ProjectNode453 {
-std::shared_ptr<ProjectNode697> field_useSource;
-};
 struct ProjectNode454 {
-std::shared_ptr<ProjectNode691> field_asset;
+std::shared_ptr<ProjectNode698> field_useSource;
+};
+struct ProjectNode455 {
+std::shared_ptr<ProjectNode692> field_asset;
 std::string field_sourceFingerprint;
-std::shared_ptr<ProjectNode698> field_origin;
-std::shared_ptr<ProjectNode699> field_review;
+std::shared_ptr<ProjectNode699> field_origin;
+std::shared_ptr<ProjectNode700> field_review;
 std::optional<std::string> field_provider;
 std::optional<std::string> field_model;
 };
-struct ProjectNode455 {
-std::vector<std::shared_ptr<ProjectNode700>> value;
-};
 struct ProjectNode456 {
-std::vector<std::string> value;
+std::vector<std::shared_ptr<ProjectNode701>> value;
 };
 struct ProjectNode457 {
-std::map<std::string, std::shared_ptr<ProjectNode701>> additional;
-};
-struct ProjectNode458 {
 std::vector<std::string> value;
 };
+struct ProjectNode458 {
+std::map<std::string, std::shared_ptr<ProjectNode702>> additional;
+};
 struct ProjectNode459 {
-std::map<std::string, std::shared_ptr<ProjectNode246>> additional;
+std::vector<std::string> value;
 };
 struct ProjectNode460 {
-std::shared_ptr<ProjectNode702> field_baseValueByPath;
-std::shared_ptr<ProjectNode703> field_localValueByPath;
-std::shared_ptr<ProjectNode704> field_externalValueByPath;
-std::shared_ptr<ProjectNode705> field_conflictingPaths;
-std::shared_ptr<ProjectNode706> field_externalFileRevisions;
+std::map<std::string, std::shared_ptr<ProjectNode246>> additional;
 };
 struct ProjectNode461 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
-Value value;
+std::shared_ptr<ProjectNode703> field_baseValueByPath;
+std::shared_ptr<ProjectNode704> field_localValueByPath;
+std::shared_ptr<ProjectNode705> field_externalValueByPath;
+std::shared_ptr<ProjectNode706> field_conflictingPaths;
+std::shared_ptr<ProjectNode707> field_externalFileRevisions;
 };
 struct ProjectNode462 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct ProjectNode463 {
@@ -18166,27 +18172,31 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode465 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode466 {
-std::vector<std::shared_ptr<ProjectNode139>> value;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct ProjectNode467 {
-std::map<std::string, double> additional;
+std::vector<std::shared_ptr<ProjectNode139>> value;
 };
 struct ProjectNode468 {
-std::vector<std::string> value;
+std::map<std::string, double> additional;
 };
 struct ProjectNode469 {
+std::vector<std::string> value;
+};
+struct ProjectNode470 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode470 {
+struct ProjectNode471 {
 std::vector<std::string> value;
 };
-struct ProjectNode471 {
-std::shared_ptr<ProjectNode707> field_kind;
+struct ProjectNode472 {
+std::shared_ptr<ProjectNode708> field_kind;
 std::string field_stableId;
 std::optional<std::string> field_collection;
 std::optional<std::string> field_entityId;
@@ -18194,11 +18204,7 @@ std::optional<std::string> field_testId;
 std::optional<std::string> field_explorerNodeId;
 std::optional<std::string> field_sourceId;
 std::optional<std::string> field_projectRelativePath;
-std::optional<std::shared_ptr<ProjectNode708>> field_generationMode;
-};
-struct ProjectNode472 {
-using Value = std::variant<std::string, std::nullptr_t>;
-Value value;
+std::optional<std::shared_ptr<ProjectNode709>> field_generationMode;
 };
 struct ProjectNode473 {
 using Value = std::variant<std::string, std::nullptr_t>;
@@ -18209,84 +18215,84 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode475 {
-std::vector<std::string> value;
-};
-struct ProjectNode476 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
+};
+struct ProjectNode476 {
+std::vector<std::string> value;
 };
 struct ProjectNode477 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode478 {
-enum class Value { choice0 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode479 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode480 {
 std::string field_path;
-std::shared_ptr<ProjectNode709> field_purpose;
+std::shared_ptr<ProjectNode710> field_purpose;
 std::optional<std::string> field_displayName;
 std::optional<std::string> field_sourceBaselineHash;
 std::optional<std::string> field_assetBaselineHash;
 };
-struct ProjectNode480 {
+struct ProjectNode481 {
 std::int64_t field_width;
 std::int64_t field_height;
 bool field_hasAlpha;
-std::shared_ptr<ProjectNode710> field_orientation;
-};
-struct ProjectNode481 {
-using Value = std::variant<std::shared_ptr<ProjectNode711>, std::shared_ptr<ProjectNode712>>;
-Value value;
+std::shared_ptr<ProjectNode711> field_orientation;
 };
 struct ProjectNode482 {
+using Value = std::variant<std::shared_ptr<ProjectNode712>, std::shared_ptr<ProjectNode713>>;
+Value value;
+};
+struct ProjectNode483 {
 std::string field_path;
 std::string field_contentHash;
 std::string field_originalName;
 };
-struct ProjectNode483 {
+struct ProjectNode484 {
 using Value = std::variant<std::nullptr_t, bool, double, std::string>;
 Value value;
 };
-struct ProjectNode484 {
+struct ProjectNode485 {
 std::string field__u24_message;
 };
-struct ProjectNode485 {
-std::shared_ptr<ProjectNode713> field_kind;
-std::shared_ptr<ProjectNode714> field_preset;
-};
 struct ProjectNode486 {
-std::shared_ptr<ProjectNode715> field_kind;
-std::shared_ptr<ProjectNode716> field_material;
+std::shared_ptr<ProjectNode714> field_kind;
+std::shared_ptr<ProjectNode715> field_preset;
 };
 struct ProjectNode487 {
-using Value = std::variant<std::shared_ptr<ProjectNode717>, std::shared_ptr<ProjectNode718>>;
-Value value;
+std::shared_ptr<ProjectNode716> field_kind;
+std::shared_ptr<ProjectNode717> field_material;
 };
 struct ProjectNode488 {
-std::optional<std::shared_ptr<ProjectNode719>> field_type;
-std::optional<std::shared_ptr<ProjectNode720>> field_value;
-std::optional<std::shared_ptr<ProjectNode721>> field_binding;
-std::optional<std::shared_ptr<ProjectNode722>> field_editor;
+using Value = std::variant<std::shared_ptr<ProjectNode718>, std::shared_ptr<ProjectNode719>>;
+Value value;
 };
 struct ProjectNode489 {
-std::optional<std::shared_ptr<ProjectNode723>> field_source;
-std::optional<std::shared_ptr<ProjectNode724>> field_address;
-std::optional<std::shared_ptr<ProjectNode725>> field_filter;
-std::optional<std::shared_ptr<ProjectNode726>> field_binding;
-std::optional<std::shared_ptr<ProjectNode727>> field_editor;
+std::optional<std::shared_ptr<ProjectNode720>> field_type;
+std::optional<std::shared_ptr<ProjectNode721>> field_value;
+std::optional<std::shared_ptr<ProjectNode722>> field_binding;
+std::optional<std::shared_ptr<ProjectNode723>> field_editor;
 };
 struct ProjectNode490 {
-enum class Value { choice0, choice1, choice2, choice3 };
-Value value;
+std::optional<std::shared_ptr<ProjectNode724>> field_source;
+std::optional<std::shared_ptr<ProjectNode725>> field_address;
+std::optional<std::shared_ptr<ProjectNode726>> field_filter;
+std::optional<std::shared_ptr<ProjectNode727>> field_binding;
+std::optional<std::shared_ptr<ProjectNode728>> field_editor;
 };
 struct ProjectNode491 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode492 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode493 {
@@ -18294,68 +18300,68 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode494 {
-std::map<std::string, std::shared_ptr<ProjectNode728>> additional;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct ProjectNode495 {
 std::map<std::string, std::shared_ptr<ProjectNode729>> additional;
 };
 struct ProjectNode496 {
-using Value = std::variant<std::shared_ptr<ProjectNode730>, std::shared_ptr<ProjectNode731>, std::shared_ptr<ProjectNode732>>;
-Value value;
+std::map<std::string, std::shared_ptr<ProjectNode730>> additional;
 };
 struct ProjectNode497 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<ProjectNode731>, std::shared_ptr<ProjectNode732>, std::shared_ptr<ProjectNode733>>;
 Value value;
 };
 struct ProjectNode498 {
-using Value = std::variant<std::shared_ptr<ProjectNode733>, std::nullptr_t>;
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode499 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode734>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode500 {
-std::optional<std::shared_ptr<ProjectNode734>> field_targets;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode501 {
-std::vector<std::shared_ptr<ProjectNode733>> value;
+std::optional<std::shared_ptr<ProjectNode735>> field_targets;
 };
 struct ProjectNode502 {
-std::vector<std::shared_ptr<ProjectNode733>> value;
+std::vector<std::shared_ptr<ProjectNode734>> value;
 };
 struct ProjectNode503 {
-std::vector<std::shared_ptr<ProjectNode733>> value;
+std::vector<std::shared_ptr<ProjectNode734>> value;
 };
 struct ProjectNode504 {
-std::vector<std::shared_ptr<ProjectNode735>> value;
+std::vector<std::shared_ptr<ProjectNode734>> value;
 };
 struct ProjectNode505 {
-std::vector<std::string> value;
+std::vector<std::shared_ptr<ProjectNode736>> value;
 };
 struct ProjectNode506 {
-std::vector<std::shared_ptr<ProjectNode733>> value;
+std::vector<std::string> value;
 };
 struct ProjectNode507 {
-std::vector<std::shared_ptr<ProjectNode733>> value;
+std::vector<std::shared_ptr<ProjectNode734>> value;
 };
 struct ProjectNode508 {
+std::vector<std::shared_ptr<ProjectNode734>> value;
+};
+struct ProjectNode509 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
-struct ProjectNode509 {
-std::shared_ptr<ProjectNode736> field_collection;
+struct ProjectNode510 {
+std::shared_ptr<ProjectNode737> field_collection;
 std::string field_id;
 };
-struct ProjectNode510 {
+struct ProjectNode511 {
 std::vector<std::shared_ptr<ProjectNode295>> value;
 };
-struct ProjectNode511 {
-std::map<std::string, std::shared_ptr<ProjectNode295>> additional;
-};
 struct ProjectNode512 {
-using Value = std::variant<std::string, std::nullptr_t>;
-Value value;
+std::map<std::string, std::shared_ptr<ProjectNode295>> additional;
 };
 struct ProjectNode513 {
 using Value = std::variant<std::string, std::nullptr_t>;
@@ -18370,18 +18376,17 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode516 {
-std::string field_id;
-std::string field_label;
-std::optional<std::shared_ptr<ProjectNode737>> field_layers;
-std::string field_defaultPoseId;
-std::optional<std::shared_ptr<ProjectNode738>> field_poses;
-std::optional<std::shared_ptr<ProjectNode739>> field_animationClips;
-std::optional<std::shared_ptr<ProjectNode740>> field_automaticAnimations;
+using Value = std::variant<std::string, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode517 {
 std::string field_id;
 std::string field_label;
-std::optional<std::shared_ptr<ProjectNode741>> field_profiles;
+std::optional<std::shared_ptr<ProjectNode738>> field_layers;
+std::string field_defaultPoseId;
+std::optional<std::shared_ptr<ProjectNode739>> field_poses;
+std::optional<std::shared_ptr<ProjectNode740>> field_animationClips;
+std::optional<std::shared_ptr<ProjectNode741>> field_automaticAnimations;
 };
 struct ProjectNode518 {
 std::string field_id;
@@ -18396,119 +18401,121 @@ std::optional<std::shared_ptr<ProjectNode743>> field_profiles;
 struct ProjectNode520 {
 std::string field_id;
 std::string field_label;
-std::shared_ptr<ProjectNode744> field_kind;
-double field_amplitude;
-std::int64_t field_periodMs;
-std::shared_ptr<ProjectNode745> field_clock;
+std::optional<std::shared_ptr<ProjectNode744>> field_profiles;
 };
 struct ProjectNode521 {
-using Value = std::variant<std::shared_ptr<ProjectNode746>, std::shared_ptr<ProjectNode747>>;
-Value value;
+std::string field_id;
+std::string field_label;
+std::shared_ptr<ProjectNode745> field_kind;
+double field_amplitude;
+std::int64_t field_periodMs;
+std::shared_ptr<ProjectNode746> field_clock;
 };
 struct ProjectNode522 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode747>, std::shared_ptr<ProjectNode748>>;
 Value value;
 };
 struct ProjectNode523 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode524 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode525 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode526 {
-using Value = std::variant<std::shared_ptr<ProjectNode749>, std::shared_ptr<ProjectNode750>, std::shared_ptr<ProjectNode751>>;
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode527 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<ProjectNode750>, std::shared_ptr<ProjectNode751>, std::shared_ptr<ProjectNode752>>;
 Value value;
 };
 struct ProjectNode528 {
-double field_width;
-double field_height;
-};
-struct ProjectNode529 {
-using Value = std::variant<std::shared_ptr<ProjectNode752>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode530 {
 enum class Value { choice0, choice1 };
 Value value;
 };
+struct ProjectNode529 {
+double field_width;
+double field_height;
+};
+struct ProjectNode530 {
+using Value = std::variant<std::shared_ptr<ProjectNode753>, std::nullptr_t>;
+Value value;
+};
 struct ProjectNode531 {
-std::shared_ptr<ProjectNode753> field_center;
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode532 {
+std::shared_ptr<ProjectNode754> field_center;
 double field_zoom;
 double field_rotationDegrees;
 };
-struct ProjectNode532 {
-std::vector<std::shared_ptr<ProjectNode754>> value;
-};
 struct ProjectNode533 {
-std::string field_id;
-std::shared_ptr<ProjectNode755> field_bounds;
+std::vector<std::shared_ptr<ProjectNode755>> value;
 };
 struct ProjectNode534 {
 std::string field_id;
-std::shared_ptr<ProjectNode652> field_layout;
-std::shared_ptr<ProjectNode333> field_condition;
-bool field_visible;
-std::int64_t field_order;
+std::shared_ptr<ProjectNode756> field_bounds;
 };
 struct ProjectNode535 {
 std::string field_id;
-std::shared_ptr<ProjectNode569> field_character;
+std::shared_ptr<ProjectNode653> field_layout;
 std::shared_ptr<ProjectNode333> field_condition;
-std::string field_placementId;
-std::optional<std::shared_ptr<ProjectNode756>> field_profileId;
-std::shared_ptr<ProjectNode757> field_poseId;
-std::shared_ptr<ProjectNode758> field_expressionId;
-std::optional<std::shared_ptr<ProjectNode759>> field_appearanceId;
-std::optional<std::shared_ptr<ProjectNode760>> field_idleId;
 bool field_visible;
 std::int64_t field_order;
 };
 struct ProjectNode536 {
 std::string field_id;
+std::shared_ptr<ProjectNode570> field_character;
 std::shared_ptr<ProjectNode333> field_condition;
 std::string field_placementId;
-std::shared_ptr<ProjectNode761> field_asset;
-std::shared_ptr<ProjectNode762> field_materialApplication;
+std::optional<std::shared_ptr<ProjectNode757>> field_profileId;
+std::shared_ptr<ProjectNode758> field_poseId;
+std::shared_ptr<ProjectNode759> field_expressionId;
+std::optional<std::shared_ptr<ProjectNode760>> field_appearanceId;
+std::optional<std::shared_ptr<ProjectNode761>> field_idleId;
 bool field_visible;
 std::int64_t field_order;
 };
 struct ProjectNode537 {
 std::string field_id;
-std::shared_ptr<ProjectNode763> field_interactable;
 std::shared_ptr<ProjectNode333> field_condition;
 std::string field_placementId;
+std::shared_ptr<ProjectNode762> field_asset;
+std::shared_ptr<ProjectNode763> field_materialApplication;
 bool field_visible;
 std::int64_t field_order;
 };
 struct ProjectNode538 {
 std::string field_id;
+std::shared_ptr<ProjectNode764> field_interactable;
 std::shared_ptr<ProjectNode333> field_condition;
-std::shared_ptr<ProjectNode764> field_visual;
-std::shared_ptr<ProjectNode735> field_materialApplication;
-std::shared_ptr<ProjectNode755> field_bounds;
-std::shared_ptr<ProjectNode765> field_plane;
+std::string field_placementId;
+bool field_visible;
 std::int64_t field_order;
-std::shared_ptr<ProjectNode766> field_clock;
-std::shared_ptr<ProjectNode767> field_scrollPerSecond;
+};
+struct ProjectNode539 {
+std::string field_id;
+std::shared_ptr<ProjectNode333> field_condition;
+std::shared_ptr<ProjectNode765> field_visual;
+std::shared_ptr<ProjectNode736> field_materialApplication;
+std::shared_ptr<ProjectNode756> field_bounds;
+std::shared_ptr<ProjectNode766> field_plane;
+std::int64_t field_order;
+std::shared_ptr<ProjectNode767> field_clock;
+std::shared_ptr<ProjectNode768> field_scrollPerSecond;
 double field_opacity;
 bool field_visible;
 };
-struct ProjectNode539 {
-std::shared_ptr<ProjectNode768> field_hook;
-std::shared_ptr<ProjectNode769> field_handler;
-};
 struct ProjectNode540 {
-std::vector<std::shared_ptr<ProjectNode204>> value;
+std::shared_ptr<ProjectNode769> field_hook;
+std::shared_ptr<ProjectNode770> field_handler;
 };
 struct ProjectNode541 {
 std::vector<std::shared_ptr<ProjectNode204>> value;
@@ -18526,298 +18533,297 @@ struct ProjectNode545 {
 std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode546 {
-std::string field_id;
-std::string field_label;
-std::shared_ptr<ProjectNode770> field_direction;
-std::shared_ptr<ProjectNode434> field_target;
-std::shared_ptr<ProjectNode333> field_condition;
-std::optional<std::shared_ptr<ProjectNode771>> field_transition;
-std::shared_ptr<ProjectNode772> field_onRejected;
+std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode547 {
 std::string field_id;
-std::shared_ptr<ProjectNode755> field_bounds;
-std::shared_ptr<ProjectNode773> field_presentation;
+std::string field_label;
+std::shared_ptr<ProjectNode771> field_direction;
+std::shared_ptr<ProjectNode435> field_target;
+std::shared_ptr<ProjectNode333> field_condition;
+std::optional<std::shared_ptr<ProjectNode772>> field_transition;
+std::shared_ptr<ProjectNode773> field_onRejected;
 };
 struct ProjectNode548 {
 std::string field_id;
-std::string field_label;
-std::shared_ptr<ProjectNode774> field_traits;
-std::shared_ptr<ProjectNode128> field_localProperties;
-std::shared_ptr<ProjectNode165> field_defaultProperties;
-std::shared_ptr<ProjectNode775> field_inventories;
+std::shared_ptr<ProjectNode756> field_bounds;
+std::shared_ptr<ProjectNode774> field_presentation;
 };
 struct ProjectNode549 {
 std::string field_id;
 std::string field_label;
-std::shared_ptr<ProjectNode333> field_condition;
-std::int64_t field_inputOrder;
-std::shared_ptr<ProjectNode776> field_highlight;
-std::optional<std::shared_ptr<ProjectNode777>> field_cursor;
-std::shared_ptr<ProjectNode778> field_shape;
-std::shared_ptr<ProjectNode779> field_target;
+std::shared_ptr<ProjectNode775> field_traits;
+std::shared_ptr<ProjectNode128> field_localProperties;
+std::shared_ptr<ProjectNode165> field_defaultProperties;
+std::shared_ptr<ProjectNode776> field_inventories;
 };
 struct ProjectNode550 {
+std::string field_id;
+std::string field_label;
+std::shared_ptr<ProjectNode333> field_condition;
+std::int64_t field_inputOrder;
+std::shared_ptr<ProjectNode777> field_highlight;
+std::optional<std::shared_ptr<ProjectNode778>> field_cursor;
+std::shared_ptr<ProjectNode779> field_shape;
+std::shared_ptr<ProjectNode780> field_target;
+};
+struct ProjectNode551 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct ProjectNode551 {
+struct ProjectNode552 {
 std::vector<std::string> value;
 };
-struct ProjectNode552 {
-using Value = std::variant<std::shared_ptr<ProjectNode780>, std::nullptr_t>;
-Value value;
-};
 struct ProjectNode553 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode781>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode554 {
-using Value = std::variant<std::shared_ptr<ProjectNode191>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode555 {
-using Value = std::variant<std::shared_ptr<ProjectNode781>, std::shared_ptr<ProjectNode782>, std::shared_ptr<ProjectNode783>>;
+using Value = std::variant<std::shared_ptr<ProjectNode191>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode556 {
-std::string field_id;
-std::shared_ptr<ProjectNode308> field_label;
-std::shared_ptr<ProjectNode308> field_prompt;
-std::shared_ptr<ProjectNode784> field_selectors;
+using Value = std::variant<std::shared_ptr<ProjectNode782>, std::shared_ptr<ProjectNode783>, std::shared_ptr<ProjectNode784>>;
+Value value;
 };
 struct ProjectNode557 {
 std::string field_id;
-std::string field_slotId;
+std::shared_ptr<ProjectNode308> field_label;
+std::shared_ptr<ProjectNode308> field_prompt;
 std::shared_ptr<ProjectNode785> field_selectors;
+};
+struct ProjectNode558 {
+std::string field_id;
+std::string field_slotId;
+std::shared_ptr<ProjectNode786> field_selectors;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
 std::int64_t field_rank;
 bool field_primary;
 };
-struct ProjectNode558 {
-std::shared_ptr<ProjectNode786> field_kind;
-};
 struct ProjectNode559 {
 std::shared_ptr<ProjectNode787> field_kind;
-std::shared_ptr<ProjectNode788> field_conditions;
 };
 struct ProjectNode560 {
-std::shared_ptr<ProjectNode789> field_kind;
-std::shared_ptr<ProjectNode790> field_conditions;
+std::shared_ptr<ProjectNode788> field_kind;
+std::shared_ptr<ProjectNode789> field_conditions;
 };
 struct ProjectNode561 {
-std::shared_ptr<ProjectNode791> field_kind;
-std::shared_ptr<ProjectNode333> field_condition;
+std::shared_ptr<ProjectNode790> field_kind;
+std::shared_ptr<ProjectNode791> field_conditions;
 };
 struct ProjectNode562 {
 std::shared_ptr<ProjectNode792> field_kind;
-std::shared_ptr<ProjectNode615> field_variable;
-std::shared_ptr<ProjectNode793> field_operator;
-std::optional<std::shared_ptr<ProjectNode616>> field_value;
+std::shared_ptr<ProjectNode333> field_condition;
 };
 struct ProjectNode563 {
-std::shared_ptr<ProjectNode794> field_kind;
-std::shared_ptr<ProjectNode619> field_owner;
-std::string field_propertyId;
-std::shared_ptr<ProjectNode793> field_operator;
-std::optional<std::shared_ptr<ProjectNode616>> field_value;
+std::shared_ptr<ProjectNode793> field_kind;
+std::shared_ptr<ProjectNode616> field_variable;
+std::shared_ptr<ProjectNode794> field_operator;
+std::optional<std::shared_ptr<ProjectNode617>> field_value;
 };
 struct ProjectNode564 {
 std::shared_ptr<ProjectNode795> field_kind;
-std::shared_ptr<ProjectNode619> field_owner;
-std::shared_ptr<ProjectNode622> field_trait;
-bool field_present;
+std::shared_ptr<ProjectNode620> field_owner;
+std::string field_propertyId;
+std::shared_ptr<ProjectNode794> field_operator;
+std::optional<std::shared_ptr<ProjectNode617>> field_value;
 };
 struct ProjectNode565 {
 std::shared_ptr<ProjectNode796> field_kind;
-std::shared_ptr<ProjectNode625> field_subject;
-std::shared_ptr<ProjectNode797> field_operator;
-std::shared_ptr<ProjectNode628> field_location;
+std::shared_ptr<ProjectNode620> field_owner;
+std::shared_ptr<ProjectNode623> field_trait;
+bool field_present;
 };
 struct ProjectNode566 {
-std::shared_ptr<ProjectNode798> field_kind;
-std::shared_ptr<ProjectNode645> field_inventory;
-std::shared_ptr<ProjectNode644> field_matcher;
-std::shared_ptr<ProjectNode799> field_operator;
-std::int64_t field_quantity;
+std::shared_ptr<ProjectNode797> field_kind;
+std::shared_ptr<ProjectNode626> field_subject;
+std::shared_ptr<ProjectNode798> field_operator;
+std::shared_ptr<ProjectNode629> field_location;
 };
 struct ProjectNode567 {
-std::shared_ptr<ProjectNode800> field_kind;
-std::string field_source;
-std::optional<std::shared_ptr<ProjectNode500>> field_additionalDependencies;
+std::shared_ptr<ProjectNode799> field_kind;
+std::shared_ptr<ProjectNode646> field_inventory;
+std::shared_ptr<ProjectNode645> field_matcher;
+std::shared_ptr<ProjectNode800> field_operator;
+std::int64_t field_quantity;
 };
 struct ProjectNode568 {
+std::shared_ptr<ProjectNode801> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<ProjectNode501>> field_additionalDependencies;
+};
+struct ProjectNode569 {
 std::string field_id;
-std::shared_ptr<ProjectNode801> field_verb;
-std::shared_ptr<ProjectNode802> field_slots;
-std::shared_ptr<ProjectNode803> field_offer;
+std::shared_ptr<ProjectNode802> field_verb;
+std::shared_ptr<ProjectNode803> field_slots;
+std::shared_ptr<ProjectNode804> field_offer;
 std::shared_ptr<ProjectNode333> field_guard;
 std::int64_t field_priority;
 std::shared_ptr<ProjectNode46> field_program;
 };
-struct ProjectNode569 {
-std::shared_ptr<ProjectNode804> field__u24_ref;
-};
 struct ProjectNode570 {
-std::string field_id;
-std::string field_label;
-bool field_speakerSync;
-std::shared_ptr<ProjectNode805> field_initial;
+std::shared_ptr<ProjectNode805> field__u24_ref;
 };
 struct ProjectNode571 {
 std::string field_id;
 std::string field_label;
+bool field_speakerSync;
 std::shared_ptr<ProjectNode806> field_initial;
-bool field_visible;
 };
 struct ProjectNode572 {
+std::string field_id;
+std::string field_label;
+std::shared_ptr<ProjectNode807> field_initial;
+bool field_visible;
+};
+struct ProjectNode573 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
-struct ProjectNode573 {
-using Value = std::variant<std::shared_ptr<ProjectNode807>, std::shared_ptr<ProjectNode808>, std::shared_ptr<ProjectNode809>, std::shared_ptr<ProjectNode810>>;
-Value value;
-};
 struct ProjectNode574 {
-using Value = std::variant<std::shared_ptr<ProjectNode811>, std::shared_ptr<ProjectNode812>>;
+using Value = std::variant<std::shared_ptr<ProjectNode808>, std::shared_ptr<ProjectNode809>, std::shared_ptr<ProjectNode810>, std::shared_ptr<ProjectNode811>>;
 Value value;
 };
 struct ProjectNode575 {
-std::shared_ptr<ProjectNode813> field_kind;
+using Value = std::variant<std::shared_ptr<ProjectNode812>, std::shared_ptr<ProjectNode813>>;
+Value value;
 };
 struct ProjectNode576 {
 std::shared_ptr<ProjectNode814> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
 };
 struct ProjectNode577 {
 std::shared_ptr<ProjectNode815> field_kind;
-std::shared_ptr<ProjectNode816> field_background;
-std::shared_ptr<ProjectNode817> field_layout;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode578 {
-std::string field_id;
-std::string field_label;
-std::shared_ptr<ProjectNode818> field_type;
-bool field_nullable;
-std::optional<std::shared_ptr<ProjectNode616>> field_defaultValue;
+std::shared_ptr<ProjectNode816> field_kind;
+std::shared_ptr<ProjectNode817> field_background;
+std::shared_ptr<ProjectNode818> field_layout;
 };
 struct ProjectNode579 {
 std::string field_id;
 std::string field_label;
+std::shared_ptr<ProjectNode819> field_type;
+bool field_nullable;
+std::optional<std::shared_ptr<ProjectNode617>> field_defaultValue;
 };
 struct ProjectNode580 {
-using Value = std::variant<std::shared_ptr<ProjectNode819>, std::shared_ptr<ProjectNode820>, std::shared_ptr<ProjectNode821>, std::shared_ptr<ProjectNode822>, std::shared_ptr<ProjectNode823>, std::shared_ptr<ProjectNode824>, std::shared_ptr<ProjectNode825>, std::shared_ptr<ProjectNode826>, std::shared_ptr<ProjectNode827>, std::shared_ptr<ProjectNode828>, std::shared_ptr<ProjectNode829>, std::shared_ptr<ProjectNode830>, std::shared_ptr<ProjectNode831>, std::shared_ptr<ProjectNode832>, std::shared_ptr<ProjectNode833>, std::shared_ptr<ProjectNode834>, std::shared_ptr<ProjectNode835>, std::shared_ptr<ProjectNode836>, std::shared_ptr<ProjectNode837>, std::shared_ptr<ProjectNode838>, std::shared_ptr<ProjectNode839>, std::shared_ptr<ProjectNode840>, std::shared_ptr<ProjectNode841>>;
-Value value;
+std::string field_id;
+std::string field_label;
 };
 struct ProjectNode581 {
-std::shared_ptr<ProjectNode842> field_kind;
-std::shared_ptr<ProjectNode843> field_outcome;
+using Value = std::variant<std::shared_ptr<ProjectNode820>, std::shared_ptr<ProjectNode821>, std::shared_ptr<ProjectNode822>, std::shared_ptr<ProjectNode823>, std::shared_ptr<ProjectNode824>, std::shared_ptr<ProjectNode825>, std::shared_ptr<ProjectNode826>, std::shared_ptr<ProjectNode827>, std::shared_ptr<ProjectNode828>, std::shared_ptr<ProjectNode829>, std::shared_ptr<ProjectNode830>, std::shared_ptr<ProjectNode831>, std::shared_ptr<ProjectNode832>, std::shared_ptr<ProjectNode833>, std::shared_ptr<ProjectNode834>, std::shared_ptr<ProjectNode835>, std::shared_ptr<ProjectNode836>, std::shared_ptr<ProjectNode837>, std::shared_ptr<ProjectNode838>, std::shared_ptr<ProjectNode839>, std::shared_ptr<ProjectNode840>, std::shared_ptr<ProjectNode841>, std::shared_ptr<ProjectNode842>>;
+Value value;
 };
 struct ProjectNode582 {
-std::shared_ptr<ProjectNode844> field_kind;
-std::shared_ptr<ProjectNode657> field_scene;
-std::shared_ptr<ProjectNode845> field_inputs;
+std::shared_ptr<ProjectNode843> field_kind;
+std::shared_ptr<ProjectNode844> field_outcome;
 };
 struct ProjectNode583 {
-std::shared_ptr<ProjectNode846> field_kind;
-std::shared_ptr<ProjectNode659> field_dialogue;
+std::shared_ptr<ProjectNode845> field_kind;
+std::shared_ptr<ProjectNode658> field_scene;
+std::shared_ptr<ProjectNode846> field_inputs;
 };
 struct ProjectNode584 {
 std::shared_ptr<ProjectNode847> field_kind;
+std::shared_ptr<ProjectNode660> field_dialogue;
 };
 struct ProjectNode585 {
 std::shared_ptr<ProjectNode848> field_kind;
 };
 struct ProjectNode586 {
+std::shared_ptr<ProjectNode849> field_kind;
+};
+struct ProjectNode587 {
 using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode587 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
-Value value;
-};
 struct ProjectNode588 {
-using Value = std::variant<std::shared_ptr<ProjectNode652>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode589 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<ProjectNode653>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode590 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode591 {
 std::string field_id;
-std::shared_ptr<ProjectNode434> field_room;
-std::shared_ptr<ProjectNode849> field_regions;
-std::shared_ptr<ProjectNode850> field_label;
-std::shared_ptr<ProjectNode851> field_icon;
-std::shared_ptr<ProjectNode852> field_style;
-std::shared_ptr<ProjectNode853> field_labelAnchor;
-std::shared_ptr<ProjectNode854> field_connectionAnchor;
+std::shared_ptr<ProjectNode435> field_room;
+std::shared_ptr<ProjectNode850> field_regions;
+std::shared_ptr<ProjectNode851> field_label;
+std::shared_ptr<ProjectNode852> field_icon;
+std::shared_ptr<ProjectNode853> field_style;
+std::shared_ptr<ProjectNode854> field_labelAnchor;
+std::shared_ptr<ProjectNode855> field_connectionAnchor;
 std::shared_ptr<ProjectNode333> field_visibility;
 std::int64_t field_pickOrder;
 std::int64_t field_logicalOrder;
 };
-struct ProjectNode591 {
+struct ProjectNode592 {
 std::string field_id;
-std::shared_ptr<ProjectNode855> field_exits;
-std::shared_ptr<ProjectNode856> field_label;
-std::shared_ptr<ProjectNode857> field_icon;
-std::shared_ptr<ProjectNode858> field_style;
+std::shared_ptr<ProjectNode856> field_exits;
+std::shared_ptr<ProjectNode857> field_label;
+std::shared_ptr<ProjectNode858> field_icon;
+std::shared_ptr<ProjectNode859> field_style;
 std::shared_ptr<ProjectNode333> field_visibility;
 std::int64_t field_logicalOrder;
-std::shared_ptr<ProjectNode859> field_path;
-std::shared_ptr<ProjectNode860> field_hitRegions;
-};
-struct ProjectNode592 {
-std::shared_ptr<ProjectNode861> field_kind;
-std::string field_source;
+std::shared_ptr<ProjectNode860> field_path;
+std::shared_ptr<ProjectNode861> field_hitRegions;
 };
 struct ProjectNode593 {
 std::shared_ptr<ProjectNode862> field_kind;
-std::string field_path;
+std::string field_source;
 };
 struct ProjectNode594 {
-std::string field_id;
-std::optional<std::shared_ptr<ProjectNode863>> field_input;
-std::string field_label;
-std::optional<bool> field_enabled;
-std::optional<std::shared_ptr<ProjectNode864>> field_expectations;
-std::optional<std::shared_ptr<ProjectNode865>> field_tick;
-std::optional<std::shared_ptr<ProjectNode866>> field_dialogueChoice;
-std::optional<std::shared_ptr<ProjectNode867>> field_sceneChoice;
-std::optional<std::shared_ptr<ProjectNode868>> field_navigate;
-std::optional<std::shared_ptr<ProjectNode869>> field_selectSubjects;
-std::optional<std::shared_ptr<ProjectNode870>> field_subjectAction;
-std::optional<std::shared_ptr<ProjectNode871>> field_runInteraction;
-std::optional<std::shared_ptr<ProjectNode872>> field_saveSlot;
-std::optional<std::shared_ptr<ProjectNode873>> field_uiClick;
+std::shared_ptr<ProjectNode863> field_kind;
+std::string field_path;
 };
 struct ProjectNode595 {
 std::string field_id;
-std::shared_ptr<ProjectNode874> field_type;
-std::shared_ptr<ProjectNode875> field_operator;
-std::optional<std::shared_ptr<ProjectNode876>> field_property;
-std::optional<std::shared_ptr<ProjectNode877>> field_currentRoom;
-std::optional<std::shared_ptr<ProjectNode878>> field_location;
-std::optional<std::shared_ptr<ProjectNode879>> field_quantity;
-std::optional<std::shared_ptr<ProjectNode880>> field_trait;
-std::optional<std::shared_ptr<ProjectNode881>> field_entityState;
-std::optional<std::shared_ptr<ProjectNode882>> field_activeFlow;
-std::optional<std::shared_ptr<ProjectNode883>> field_layout;
-std::optional<std::shared_ptr<ProjectNode884>> field_uiElement;
-std::optional<std::shared_ptr<ProjectNode885>> field_event;
-std::optional<std::shared_ptr<ProjectNode886>> field_diagnostic;
+std::optional<std::shared_ptr<ProjectNode864>> field_input;
+std::string field_label;
+std::optional<bool> field_enabled;
+std::optional<std::shared_ptr<ProjectNode865>> field_expectations;
+std::optional<std::shared_ptr<ProjectNode866>> field_tick;
+std::optional<std::shared_ptr<ProjectNode867>> field_dialogueChoice;
+std::optional<std::shared_ptr<ProjectNode868>> field_sceneChoice;
+std::optional<std::shared_ptr<ProjectNode869>> field_navigate;
+std::optional<std::shared_ptr<ProjectNode870>> field_selectSubjects;
+std::optional<std::shared_ptr<ProjectNode871>> field_subjectAction;
+std::optional<std::shared_ptr<ProjectNode872>> field_runInteraction;
+std::optional<std::shared_ptr<ProjectNode873>> field_saveSlot;
+std::optional<std::shared_ptr<ProjectNode874>> field_uiClick;
 };
 struct ProjectNode596 {
+std::string field_id;
+std::shared_ptr<ProjectNode875> field_type;
+std::shared_ptr<ProjectNode876> field_operator;
+std::optional<std::shared_ptr<ProjectNode877>> field_property;
+std::optional<std::shared_ptr<ProjectNode878>> field_currentRoom;
+std::optional<std::shared_ptr<ProjectNode879>> field_location;
+std::optional<std::shared_ptr<ProjectNode880>> field_quantity;
+std::optional<std::shared_ptr<ProjectNode881>> field_trait;
+std::optional<std::shared_ptr<ProjectNode882>> field_entityState;
+std::optional<std::shared_ptr<ProjectNode883>> field_activeFlow;
+std::optional<std::shared_ptr<ProjectNode884>> field_layout;
+std::optional<std::shared_ptr<ProjectNode885>> field_uiElement;
+std::optional<std::shared_ptr<ProjectNode886>> field_event;
+std::optional<std::shared_ptr<ProjectNode887>> field_diagnostic;
+};
+struct ProjectNode597 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode597 {
-using Value = std::variant<std::int64_t, std::nullptr_t>;
-Value value;
-};
 struct ProjectNode598 {
-enum class Value { choice0 };
+using Value = std::variant<std::int64_t, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode599 {
@@ -18829,11 +18835,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode601 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode602 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11 };
 Value value;
 };
 struct ProjectNode603 {
@@ -18849,50 +18855,50 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode606 {
-std::shared_ptr<ProjectNode887> field_kind;
-std::shared_ptr<ProjectNode888> field_preset;
-};
-struct ProjectNode607 {
-std::shared_ptr<ProjectNode889> field_kind;
-std::string field_policyId;
-};
-struct ProjectNode608 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode607 {
+std::shared_ptr<ProjectNode888> field_kind;
+std::shared_ptr<ProjectNode889> field_preset;
+};
+struct ProjectNode608 {
+std::shared_ptr<ProjectNode890> field_kind;
+std::string field_policyId;
+};
 struct ProjectNode609 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode610 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode611 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode612 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode613 {
 enum class Value { choice0, choice1 };
 Value value;
 };
+struct ProjectNode613 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
 struct ProjectNode614 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode615 {
-std::shared_ptr<ProjectNode890> field__u24_ref;
-};
-struct ProjectNode616 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode616 {
+std::shared_ptr<ProjectNode891> field__u24_ref;
+};
 struct ProjectNode617 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, bool, double, std::string>;
 Value value;
 };
 struct ProjectNode618 {
@@ -18900,11 +18906,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode619 {
-using Value = std::variant<std::shared_ptr<ProjectNode891>, std::shared_ptr<ProjectNode892>, std::shared_ptr<ProjectNode893>, std::shared_ptr<ProjectNode894>, std::shared_ptr<ProjectNode895>, std::shared_ptr<ProjectNode896>, std::shared_ptr<ProjectNode897>, std::shared_ptr<ProjectNode898>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode620 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode892>, std::shared_ptr<ProjectNode893>, std::shared_ptr<ProjectNode894>, std::shared_ptr<ProjectNode895>, std::shared_ptr<ProjectNode896>, std::shared_ptr<ProjectNode897>, std::shared_ptr<ProjectNode898>, std::shared_ptr<ProjectNode899>>;
 Value value;
 };
 struct ProjectNode621 {
@@ -18912,22 +18918,22 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode622 {
-std::shared_ptr<ProjectNode899> field__u24_ref;
-};
-struct ProjectNode623 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode623 {
+std::shared_ptr<ProjectNode900> field__u24_ref;
 };
 struct ProjectNode624 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode625 {
-using Value = std::variant<std::shared_ptr<ProjectNode900>, std::shared_ptr<ProjectNode901>, std::shared_ptr<ProjectNode897>, std::shared_ptr<ProjectNode898>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode626 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode901>, std::shared_ptr<ProjectNode902>, std::shared_ptr<ProjectNode898>, std::shared_ptr<ProjectNode899>>;
 Value value;
 };
 struct ProjectNode627 {
@@ -18935,23 +18941,23 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode628 {
-using Value = std::variant<std::shared_ptr<ProjectNode902>, std::shared_ptr<ProjectNode903>, std::shared_ptr<ProjectNode904>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode629 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<ProjectNode903>, std::shared_ptr<ProjectNode904>, std::shared_ptr<ProjectNode905>>;
 Value value;
 };
 struct ProjectNode630 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode631 {
-using Value = std::variant<std::shared_ptr<ProjectNode905>, std::shared_ptr<ProjectNode906>, std::shared_ptr<ProjectNode907>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode632 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode906>, std::shared_ptr<ProjectNode907>, std::shared_ptr<ProjectNode908>>;
 Value value;
 };
 struct ProjectNode633 {
@@ -18959,14 +18965,14 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode634 {
-std::shared_ptr<ProjectNode908> field__u24_ref;
-};
-struct ProjectNode635 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode635 {
+std::shared_ptr<ProjectNode909> field__u24_ref;
+};
 struct ProjectNode636 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode637 {
@@ -18974,11 +18980,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode638 {
-using Value = std::variant<std::shared_ptr<ProjectNode909>, std::shared_ptr<ProjectNode897>, std::shared_ptr<ProjectNode898>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode639 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode910>, std::shared_ptr<ProjectNode898>, std::shared_ptr<ProjectNode899>>;
 Value value;
 };
 struct ProjectNode640 {
@@ -18998,17 +19004,17 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode644 {
-std::optional<std::shared_ptr<ProjectNode634>> field_definition;
-std::optional<std::shared_ptr<ProjectNode910>> field_traits;
-std::optional<std::shared_ptr<ProjectNode911>> field_properties;
-std::optional<std::shared_ptr<ProjectNode638>> field_exact;
-};
-struct ProjectNode645 {
-using Value = std::variant<std::shared_ptr<ProjectNode912>, std::shared_ptr<ProjectNode913>, std::shared_ptr<ProjectNode914>, std::shared_ptr<ProjectNode898>>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode645 {
+std::optional<std::shared_ptr<ProjectNode635>> field_definition;
+std::optional<std::shared_ptr<ProjectNode911>> field_traits;
+std::optional<std::shared_ptr<ProjectNode912>> field_properties;
+std::optional<std::shared_ptr<ProjectNode639>> field_exact;
+};
 struct ProjectNode646 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode913>, std::shared_ptr<ProjectNode914>, std::shared_ptr<ProjectNode915>, std::shared_ptr<ProjectNode899>>;
 Value value;
 };
 struct ProjectNode647 {
@@ -19032,37 +19038,37 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode652 {
-std::shared_ptr<ProjectNode915> field__u24_ref;
-};
-struct ProjectNode653 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode653 {
+std::shared_ptr<ProjectNode916> field__u24_ref;
 };
 struct ProjectNode654 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode655 {
-using Value = std::variant<std::shared_ptr<ProjectNode916>, std::shared_ptr<ProjectNode917>, std::shared_ptr<ProjectNode898>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode656 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode917>, std::shared_ptr<ProjectNode918>, std::shared_ptr<ProjectNode899>>;
 Value value;
 };
 struct ProjectNode657 {
-std::shared_ptr<ProjectNode918> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode658 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode659 {
 std::shared_ptr<ProjectNode919> field__u24_ref;
 };
-struct ProjectNode660 {
+struct ProjectNode659 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode660 {
+std::shared_ptr<ProjectNode920> field__u24_ref;
 };
 struct ProjectNode661 {
 enum class Value { choice0 };
@@ -19073,14 +19079,14 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode663 {
-std::vector<std::shared_ptr<ProjectNode204>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode664 {
 std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode665 {
-std::shared_ptr<ProjectNode920> field_collection;
-std::string field_id;
+std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode666 {
 std::shared_ptr<ProjectNode921> field_collection;
@@ -19099,285 +19105,286 @@ std::shared_ptr<ProjectNode924> field_collection;
 std::string field_id;
 };
 struct ProjectNode670 {
-std::shared_ptr<ProjectNode925> field_kind;
-std::shared_ptr<ProjectNode926> field_scene;
+std::shared_ptr<ProjectNode925> field_collection;
+std::string field_id;
 };
 struct ProjectNode671 {
-std::shared_ptr<ProjectNode927> field_kind;
-std::shared_ptr<ProjectNode928> field_scene;
-std::string field_stepId;
+std::shared_ptr<ProjectNode926> field_kind;
+std::shared_ptr<ProjectNode927> field_scene;
 };
 struct ProjectNode672 {
-std::shared_ptr<ProjectNode929> field_kind;
-std::shared_ptr<ProjectNode930> field_scene;
+std::shared_ptr<ProjectNode928> field_kind;
+std::shared_ptr<ProjectNode929> field_scene;
+std::string field_stepId;
 };
 struct ProjectNode673 {
-std::shared_ptr<ProjectNode931> field_kind;
-std::shared_ptr<ProjectNode932> field_dialogue;
+std::shared_ptr<ProjectNode930> field_kind;
+std::shared_ptr<ProjectNode931> field_scene;
 };
 struct ProjectNode674 {
-std::shared_ptr<ProjectNode933> field_kind;
-std::shared_ptr<ProjectNode934> field_dialogue;
+std::shared_ptr<ProjectNode932> field_kind;
+std::shared_ptr<ProjectNode933> field_dialogue;
+};
+struct ProjectNode675 {
+std::shared_ptr<ProjectNode934> field_kind;
+std::shared_ptr<ProjectNode935> field_dialogue;
 std::string field_blockId;
 std::optional<std::string> field_segmentId;
 std::optional<std::string> field_edgeId;
-std::shared_ptr<ProjectNode935> field_stage;
+std::shared_ptr<ProjectNode936> field_stage;
 std::int64_t field_cursor;
 };
-struct ProjectNode675 {
-std::shared_ptr<ProjectNode936> field_kind;
-std::shared_ptr<ProjectNode937> field_dialogue;
-};
 struct ProjectNode676 {
-std::shared_ptr<ProjectNode938> field_kind;
-std::shared_ptr<ProjectNode939> field_room;
-std::shared_ptr<ProjectNode940> field_stage;
+std::shared_ptr<ProjectNode937> field_kind;
+std::shared_ptr<ProjectNode938> field_dialogue;
 };
 struct ProjectNode677 {
-std::shared_ptr<ProjectNode941> field_kind;
-std::shared_ptr<ProjectNode942> field_interaction;
-std::string field_ruleId;
+std::shared_ptr<ProjectNode939> field_kind;
+std::shared_ptr<ProjectNode940> field_room;
+std::shared_ptr<ProjectNode941> field_stage;
 };
 struct ProjectNode678 {
-std::shared_ptr<ProjectNode943> field_kind;
-std::shared_ptr<ProjectNode944> field_verb;
+std::shared_ptr<ProjectNode942> field_kind;
+std::shared_ptr<ProjectNode943> field_interaction;
+std::string field_ruleId;
 };
 struct ProjectNode679 {
-std::shared_ptr<ProjectNode945> field_kind;
+std::shared_ptr<ProjectNode944> field_kind;
+std::shared_ptr<ProjectNode945> field_verb;
 };
 struct ProjectNode680 {
 std::shared_ptr<ProjectNode946> field_kind;
-std::shared_ptr<ProjectNode947> field_layout;
 };
 struct ProjectNode681 {
-std::shared_ptr<ProjectNode948> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode947> field_kind;
+std::shared_ptr<ProjectNode948> field_layout;
 };
 struct ProjectNode682 {
 std::shared_ptr<ProjectNode949> field_collection;
 std::string field_id;
 };
 struct ProjectNode683 {
-using Value = std::variant<std::shared_ptr<ProjectNode950>, std::shared_ptr<ProjectNode951>, std::shared_ptr<ProjectNode952>, std::shared_ptr<ProjectNode953>, std::shared_ptr<ProjectNode954>>;
-Value value;
-};
-struct ProjectNode684 {
-std::shared_ptr<ProjectNode955> field_collection;
+std::shared_ptr<ProjectNode950> field_collection;
 std::string field_id;
 };
+struct ProjectNode684 {
+using Value = std::variant<std::shared_ptr<ProjectNode951>, std::shared_ptr<ProjectNode952>, std::shared_ptr<ProjectNode953>, std::shared_ptr<ProjectNode954>, std::shared_ptr<ProjectNode955>>;
+Value value;
+};
 struct ProjectNode685 {
+std::shared_ptr<ProjectNode956> field_collection;
+std::string field_id;
+};
+struct ProjectNode686 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
-struct ProjectNode686 {
-using Value = std::variant<std::shared_ptr<ProjectNode956>, std::shared_ptr<ProjectNode957>, std::shared_ptr<ProjectNode958>>;
+struct ProjectNode687 {
+using Value = std::variant<std::shared_ptr<ProjectNode957>, std::shared_ptr<ProjectNode958>, std::shared_ptr<ProjectNode959>>;
 Value value;
 };
-struct ProjectNode687 {
-std::shared_ptr<ProjectNode959> field__u24_ref;
-};
 struct ProjectNode688 {
-std::vector<std::string> value;
+std::shared_ptr<ProjectNode960> field__u24_ref;
 };
 struct ProjectNode689 {
 std::vector<std::string> value;
 };
 struct ProjectNode690 {
+std::vector<std::string> value;
+};
+struct ProjectNode691 {
 std::string field_propertyId;
 std::shared_ptr<ProjectNode269> field_value;
 };
-struct ProjectNode691 {
-std::shared_ptr<ProjectNode960> field__u24_ref;
-};
 struct ProjectNode692 {
-std::shared_ptr<ProjectNode961> field_kind;
-std::string field_text;
+std::shared_ptr<ProjectNode961> field__u24_ref;
 };
 struct ProjectNode693 {
 std::shared_ptr<ProjectNode962> field_kind;
-std::string field_argument;
-std::shared_ptr<ProjectNode963> field_cases;
+std::string field_text;
 };
 struct ProjectNode694 {
-std::shared_ptr<ProjectNode964> field_kind;
+std::shared_ptr<ProjectNode963> field_kind;
 std::string field_argument;
-std::shared_ptr<ProjectNode965> field_cases;
+std::shared_ptr<ProjectNode964> field_cases;
 };
 struct ProjectNode695 {
+std::shared_ptr<ProjectNode965> field_kind;
+std::string field_argument;
+std::shared_ptr<ProjectNode966> field_cases;
+};
+struct ProjectNode696 {
 enum class Value { choice0, choice1, choice2, choice3, choice4 };
 Value value;
 };
-struct ProjectNode696 {
-std::string field_id;
-std::shared_ptr<ProjectNode966> field_position;
-};
 struct ProjectNode697 {
+std::string field_id;
+std::shared_ptr<ProjectNode967> field_position;
+};
+struct ProjectNode698 {
 enum class Value { choice0 };
 Value value;
 static constexpr std::array<bool, 1> literals{true};
 };
-struct ProjectNode698 {
-enum class Value { choice0, choice1, choice2, choice3 };
-Value value;
-};
 struct ProjectNode699 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode700 {
-using Value = std::variant<std::shared_ptr<ProjectNode967>, std::shared_ptr<ProjectNode968>, std::shared_ptr<ProjectNode969>>;
-Value value;
-};
-struct ProjectNode701 {
-std::string field_value;
-std::optional<std::string> field_diagnosticCode;
-};
-struct ProjectNode702 {
-std::map<std::string, std::shared_ptr<ProjectNode970>> additional;
-};
-struct ProjectNode703 {
-std::map<std::string, std::shared_ptr<ProjectNode970>> additional;
-};
-struct ProjectNode704 {
-std::map<std::string, std::shared_ptr<ProjectNode970>> additional;
-};
-struct ProjectNode705 {
-std::vector<std::string> value;
-};
-struct ProjectNode706 {
-std::map<std::string, std::shared_ptr<ProjectNode246>> additional;
-};
-struct ProjectNode707 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
-Value value;
-};
-struct ProjectNode708 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode709 {
-enum class Value { choice0, choice1, choice2, choice3 };
+struct ProjectNode701 {
+using Value = std::variant<std::shared_ptr<ProjectNode968>, std::shared_ptr<ProjectNode969>, std::shared_ptr<ProjectNode970>>;
 Value value;
 };
-struct ProjectNode710 {
-using Value = std::variant<std::shared_ptr<ProjectNode971>, std::shared_ptr<ProjectNode972>, std::shared_ptr<ProjectNode973>, std::shared_ptr<ProjectNode974>, std::shared_ptr<ProjectNode975>, std::shared_ptr<ProjectNode976>, std::shared_ptr<ProjectNode977>, std::shared_ptr<ProjectNode978>>;
-Value value;
+struct ProjectNode702 {
+std::string field_value;
+std::optional<std::string> field_diagnosticCode;
 };
-struct ProjectNode711 {
-std::string field_id;
-std::shared_ptr<ProjectNode979> field_kind;
-std::shared_ptr<ProjectNode980> field_frames;
-std::shared_ptr<ProjectNode981> field_markers;
+struct ProjectNode703 {
+std::map<std::string, std::shared_ptr<ProjectNode971>> additional;
 };
-struct ProjectNode712 {
-std::string field_id;
-std::shared_ptr<ProjectNode982> field_kind;
-std::shared_ptr<ProjectNode748> field_video;
-std::optional<std::shared_ptr<ProjectNode983>> field_sourceRange;
-std::optional<std::shared_ptr<ProjectNode984>> field_frameSampling;
-std::shared_ptr<ProjectNode985> field_markers;
+struct ProjectNode704 {
+std::map<std::string, std::shared_ptr<ProjectNode971>> additional;
 };
-struct ProjectNode713 {
-enum class Value { choice0 };
-Value value;
+struct ProjectNode705 {
+std::map<std::string, std::shared_ptr<ProjectNode971>> additional;
 };
-struct ProjectNode714 {
+struct ProjectNode706 {
+std::vector<std::string> value;
+};
+struct ProjectNode707 {
+std::map<std::string, std::shared_ptr<ProjectNode246>> additional;
+};
+struct ProjectNode708 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct ProjectNode715 {
+struct ProjectNode709 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode710 {
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
+struct ProjectNode711 {
+using Value = std::variant<std::shared_ptr<ProjectNode972>, std::shared_ptr<ProjectNode973>, std::shared_ptr<ProjectNode974>, std::shared_ptr<ProjectNode975>, std::shared_ptr<ProjectNode976>, std::shared_ptr<ProjectNode977>, std::shared_ptr<ProjectNode978>, std::shared_ptr<ProjectNode979>>;
+Value value;
+};
+struct ProjectNode712 {
+std::string field_id;
+std::shared_ptr<ProjectNode980> field_kind;
+std::shared_ptr<ProjectNode981> field_frames;
+std::shared_ptr<ProjectNode982> field_markers;
+};
+struct ProjectNode713 {
+std::string field_id;
+std::shared_ptr<ProjectNode983> field_kind;
+std::shared_ptr<ProjectNode749> field_video;
+std::optional<std::shared_ptr<ProjectNode984>> field_sourceRange;
+std::optional<std::shared_ptr<ProjectNode985>> field_frameSampling;
+std::shared_ptr<ProjectNode986> field_markers;
+};
+struct ProjectNode714 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode715 {
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+Value value;
+};
 struct ProjectNode716 {
-std::shared_ptr<ProjectNode986> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode717 {
-std::shared_ptr<ProjectNode987> field_kind;
-std::string field_path;
+std::shared_ptr<ProjectNode987> field__u24_ref;
 };
 struct ProjectNode718 {
 std::shared_ptr<ProjectNode988> field_kind;
 std::string field_path;
 };
 struct ProjectNode719 {
+std::shared_ptr<ProjectNode989> field_kind;
+std::string field_path;
+};
+struct ProjectNode720 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
-struct ProjectNode720 {
-using Value = std::variant<std::nullptr_t, double, bool, std::shared_ptr<ProjectNode989>, std::shared_ptr<ProjectNode990>, std::shared_ptr<ProjectNode991>, std::shared_ptr<ProjectNode992>>;
-Value value;
-};
 struct ProjectNode721 {
-using Value = std::variant<std::shared_ptr<ProjectNode993>, std::nullptr_t>;
+using Value = std::variant<std::nullptr_t, double, bool, std::shared_ptr<ProjectNode990>, std::shared_ptr<ProjectNode991>, std::shared_ptr<ProjectNode992>, std::shared_ptr<ProjectNode993>>;
 Value value;
 };
 struct ProjectNode722 {
-std::optional<std::string> field_label;
-std::optional<std::shared_ptr<ProjectNode994>> field_range;
-std::optional<std::shared_ptr<ProjectNode995>> field_control;
-};
-struct ProjectNode723 {
-using Value = std::variant<std::shared_ptr<ProjectNode687>, std::shared_ptr<ProjectNode996>, std::shared_ptr<ProjectNode997>>;
+using Value = std::variant<std::shared_ptr<ProjectNode994>, std::nullptr_t>;
 Value value;
 };
+struct ProjectNode723 {
+std::optional<std::string> field_label;
+std::optional<std::shared_ptr<ProjectNode995>> field_range;
+std::optional<std::shared_ptr<ProjectNode996>> field_control;
+};
 struct ProjectNode724 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<ProjectNode688>, std::shared_ptr<ProjectNode997>, std::shared_ptr<ProjectNode998>>;
 Value value;
 };
 struct ProjectNode725 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode726 {
-using Value = std::variant<std::shared_ptr<ProjectNode998>, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode727 {
-std::optional<std::string> field_label;
+using Value = std::variant<std::shared_ptr<ProjectNode999>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode728 {
-std::shared_ptr<ProjectNode999> field_type;
-std::optional<bool> field_nullable;
-std::optional<std::shared_ptr<ProjectNode483>> field_defaultValue;
+std::optional<std::string> field_label;
 };
 struct ProjectNode729 {
-std::optional<std::shared_ptr<ProjectNode1000>> field_fields;
+std::shared_ptr<ProjectNode1000> field_type;
+std::optional<bool> field_nullable;
+std::optional<std::shared_ptr<ProjectNode484>> field_defaultValue;
 };
 struct ProjectNode730 {
-std::shared_ptr<ProjectNode1001> field_type;
-std::optional<bool> field_nullable;
-std::optional<std::shared_ptr<ProjectNode1002>> field_defaultValue;
+std::optional<std::shared_ptr<ProjectNode1001>> field_fields;
 };
 struct ProjectNode731 {
-std::shared_ptr<ProjectNode1003> field_type;
+std::shared_ptr<ProjectNode1002> field_type;
 std::optional<bool> field_nullable;
-std::shared_ptr<ProjectNode496> field_items;
-std::optional<std::shared_ptr<ProjectNode1002>> field_defaultValue;
+std::optional<std::shared_ptr<ProjectNode1003>> field_defaultValue;
 };
 struct ProjectNode732 {
 std::shared_ptr<ProjectNode1004> field_type;
 std::optional<bool> field_nullable;
-std::optional<std::shared_ptr<ProjectNode1005>> field_fields;
-std::optional<std::shared_ptr<ProjectNode1002>> field_defaultValue;
+std::shared_ptr<ProjectNode497> field_items;
+std::optional<std::shared_ptr<ProjectNode1003>> field_defaultValue;
 };
 struct ProjectNode733 {
-std::shared_ptr<ProjectNode1006> field__u24_ref;
+std::shared_ptr<ProjectNode1005> field_type;
+std::optional<bool> field_nullable;
+std::optional<std::shared_ptr<ProjectNode1006>> field_fields;
+std::optional<std::shared_ptr<ProjectNode1003>> field_defaultValue;
 };
 struct ProjectNode734 {
-std::vector<std::shared_ptr<ProjectNode1007>> value;
+std::shared_ptr<ProjectNode1007> field__u24_ref;
 };
 struct ProjectNode735 {
-std::shared_ptr<ProjectNode439> field_material;
-std::optional<std::shared_ptr<ProjectNode1008>> field_parameters;
-std::optional<std::shared_ptr<ProjectNode1009>> field_textures;
+std::vector<std::shared_ptr<ProjectNode1008>> value;
 };
 struct ProjectNode736 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode440> field_material;
+std::optional<std::shared_ptr<ProjectNode1009>> field_parameters;
+std::optional<std::shared_ptr<ProjectNode1010>> field_textures;
 };
 struct ProjectNode737 {
-std::vector<std::shared_ptr<ProjectNode1010>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode738 {
 std::vector<std::shared_ptr<ProjectNode1011>> value;
@@ -19386,72 +19393,71 @@ struct ProjectNode739 {
 std::vector<std::shared_ptr<ProjectNode1012>> value;
 };
 struct ProjectNode740 {
-std::optional<std::shared_ptr<ProjectNode1013>> field_blink;
-std::optional<std::shared_ptr<ProjectNode1014>> field_speaking;
+std::vector<std::shared_ptr<ProjectNode1013>> value;
 };
 struct ProjectNode741 {
-std::vector<std::shared_ptr<ProjectNode1015>> value;
+std::optional<std::shared_ptr<ProjectNode1014>> field_blink;
+std::optional<std::shared_ptr<ProjectNode1015>> field_speaking;
 };
 struct ProjectNode742 {
-std::vector<std::shared_ptr<ProjectNode1015>> value;
+std::vector<std::shared_ptr<ProjectNode1016>> value;
 };
 struct ProjectNode743 {
 std::vector<std::shared_ptr<ProjectNode1016>> value;
 };
 struct ProjectNode744 {
+std::vector<std::shared_ptr<ProjectNode1017>> value;
+};
+struct ProjectNode745 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
-struct ProjectNode745 {
+struct ProjectNode746 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode746 {
-std::shared_ptr<ProjectNode1017> field_kind;
-};
 struct ProjectNode747 {
 std::shared_ptr<ProjectNode1018> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
 };
 struct ProjectNode748 {
-std::shared_ptr<ProjectNode1019> field__u24_ref;
+std::shared_ptr<ProjectNode1019> field_kind;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode749 {
-std::shared_ptr<ProjectNode1020> field_kind;
-std::string field_text;
+std::shared_ptr<ProjectNode1020> field__u24_ref;
 };
 struct ProjectNode750 {
 std::shared_ptr<ProjectNode1021> field_kind;
-std::string field_key;
+std::string field_text;
 };
 struct ProjectNode751 {
 std::shared_ptr<ProjectNode1022> field_kind;
-std::string field_source;
-std::optional<std::shared_ptr<ProjectNode500>> field_additionalDependencies;
+std::string field_key;
 };
 struct ProjectNode752 {
-double field_x;
-double field_y;
-double field_width;
-double field_height;
+std::shared_ptr<ProjectNode1023> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<ProjectNode501>> field_additionalDependencies;
 };
 struct ProjectNode753 {
 double field_x;
 double field_y;
+double field_width;
+double field_height;
 };
 struct ProjectNode754 {
-std::string field_id;
-std::shared_ptr<ProjectNode531> field_view;
+double field_x;
+double field_y;
 };
 struct ProjectNode755 {
+std::string field_id;
+std::shared_ptr<ProjectNode532> field_view;
+};
+struct ProjectNode756 {
 double field_x;
 double field_y;
 double field_width;
 double field_height;
-};
-struct ProjectNode756 {
-using Value = std::variant<std::string, std::nullptr_t>;
-Value value;
 };
 struct ProjectNode757 {
 using Value = std::variant<std::string, std::nullptr_t>;
@@ -19470,130 +19476,130 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode761 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode762 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode763 {
-std::shared_ptr<ProjectNode1023> field__u24_ref;
-};
-struct ProjectNode764 {
-using Value = std::variant<std::shared_ptr<ProjectNode780>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
+struct ProjectNode764 {
+std::shared_ptr<ProjectNode1024> field__u24_ref;
+};
 struct ProjectNode765 {
-enum class Value { choice0, choice1, choice2 };
+using Value = std::variant<std::shared_ptr<ProjectNode781>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode766 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode767 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode768 {
 double field_x;
 double field_y;
 };
-struct ProjectNode768 {
+struct ProjectNode769 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8 };
 Value value;
 };
-struct ProjectNode769 {
+struct ProjectNode770 {
 std::shared_ptr<ProjectNode5> field_module;
 std::string field_export;
 };
-struct ProjectNode770 {
+struct ProjectNode771 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8 };
 Value value;
 };
-struct ProjectNode771 {
+struct ProjectNode772 {
 using Value = std::variant<std::shared_ptr<ProjectNode108>, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode772 {
+struct ProjectNode773 {
 std::vector<std::shared_ptr<ProjectNode204>> value;
 };
-struct ProjectNode773 {
-using Value = std::variant<std::shared_ptr<ProjectNode1024>, std::shared_ptr<ProjectNode1025>>;
-Value value;
-};
 struct ProjectNode774 {
-std::vector<std::string> value;
+using Value = std::variant<std::shared_ptr<ProjectNode1025>, std::shared_ptr<ProjectNode1026>>;
+Value value;
 };
 struct ProjectNode775 {
-std::vector<std::shared_ptr<ProjectNode50>> value;
+std::vector<std::string> value;
 };
 struct ProjectNode776 {
-using Value = std::variant<std::shared_ptr<ProjectNode1026>, std::shared_ptr<ProjectNode1027>, std::shared_ptr<ProjectNode1028>>;
-Value value;
+std::vector<std::shared_ptr<ProjectNode50>> value;
 };
 struct ProjectNode777 {
-using Value = std::variant<std::shared_ptr<ProjectNode191>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode1027>, std::shared_ptr<ProjectNode1028>, std::shared_ptr<ProjectNode1029>>;
 Value value;
 };
 struct ProjectNode778 {
-std::shared_ptr<ProjectNode1029> field_kind;
-std::shared_ptr<ProjectNode1030> field_bounds;
-};
-struct ProjectNode779 {
-using Value = std::variant<std::shared_ptr<ProjectNode1031>, std::shared_ptr<ProjectNode1032>, std::shared_ptr<ProjectNode1033>, std::shared_ptr<ProjectNode1034>>;
+using Value = std::variant<std::shared_ptr<ProjectNode191>, std::nullptr_t>;
 Value value;
 };
+struct ProjectNode779 {
+std::shared_ptr<ProjectNode1030> field_kind;
+std::shared_ptr<ProjectNode1031> field_bounds;
+};
 struct ProjectNode780 {
-using Value = std::variant<std::shared_ptr<ProjectNode1035>, std::shared_ptr<ProjectNode1036>>;
+using Value = std::variant<std::shared_ptr<ProjectNode1032>, std::shared_ptr<ProjectNode1033>, std::shared_ptr<ProjectNode1034>, std::shared_ptr<ProjectNode1035>>;
 Value value;
 };
 struct ProjectNode781 {
-std::shared_ptr<ProjectNode1037> field_kind;
+using Value = std::variant<std::shared_ptr<ProjectNode1036>, std::shared_ptr<ProjectNode1037>>;
+Value value;
 };
 struct ProjectNode782 {
 std::shared_ptr<ProjectNode1038> field_kind;
-std::shared_ptr<ProjectNode1039> field_hotspot;
 };
 struct ProjectNode783 {
-std::shared_ptr<ProjectNode1040> field_kind;
-std::shared_ptr<ProjectNode1041> field_hotspots;
+std::shared_ptr<ProjectNode1039> field_kind;
+std::shared_ptr<ProjectNode1040> field_hotspot;
 };
 struct ProjectNode784 {
-std::vector<std::shared_ptr<ProjectNode1042>> value;
+std::shared_ptr<ProjectNode1041> field_kind;
+std::shared_ptr<ProjectNode1042> field_hotspots;
 };
 struct ProjectNode785 {
-std::vector<std::shared_ptr<ProjectNode1042>> value;
+std::vector<std::shared_ptr<ProjectNode1043>> value;
 };
 struct ProjectNode786 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode1043>> value;
 };
 struct ProjectNode787 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode788 {
-std::vector<std::shared_ptr<ProjectNode333>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode789 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode790 {
 std::vector<std::shared_ptr<ProjectNode333>> value;
 };
-struct ProjectNode791 {
+struct ProjectNode790 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode791 {
+std::vector<std::shared_ptr<ProjectNode333>> value;
 };
 struct ProjectNode792 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode793 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode794 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
 Value value;
 };
 struct ProjectNode795 {
@@ -19605,87 +19611,87 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode797 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode798 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode799 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
-Value value;
-};
-struct ProjectNode800 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode800 {
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+Value value;
+};
 struct ProjectNode801 {
-std::shared_ptr<ProjectNode1043> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode802 {
-std::vector<std::shared_ptr<ProjectNode1044>> value;
+std::shared_ptr<ProjectNode1044> field__u24_ref;
 };
 struct ProjectNode803 {
-using Value = std::variant<std::shared_ptr<ProjectNode1045>, std::nullptr_t>;
-Value value;
+std::vector<std::shared_ptr<ProjectNode1045>> value;
 };
 struct ProjectNode804 {
-std::shared_ptr<ProjectNode1046> field_collection;
-std::string field_id;
+using Value = std::variant<std::shared_ptr<ProjectNode1046>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode805 {
-using Value = std::variant<std::shared_ptr<ProjectNode1047>, std::nullptr_t>;
-Value value;
+std::shared_ptr<ProjectNode1047> field_collection;
+std::string field_id;
 };
 struct ProjectNode806 {
 using Value = std::variant<std::shared_ptr<ProjectNode1048>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode807 {
-std::string field_id;
-std::shared_ptr<ProjectNode1049> field_type;
-std::string field_label;
-std::shared_ptr<ProjectNode1050> field_defaultSpeaker;
-std::shared_ptr<ProjectNode1051> field_segments;
+using Value = std::variant<std::shared_ptr<ProjectNode1049>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode808 {
 std::string field_id;
-std::shared_ptr<ProjectNode1052> field_type;
+std::shared_ptr<ProjectNode1050> field_type;
 std::string field_label;
+std::shared_ptr<ProjectNode1051> field_defaultSpeaker;
+std::shared_ptr<ProjectNode1052> field_segments;
 };
 struct ProjectNode809 {
 std::string field_id;
 std::shared_ptr<ProjectNode1053> field_type;
 std::string field_label;
-std::string field_targetBlockId;
 };
 struct ProjectNode810 {
 std::string field_id;
 std::shared_ptr<ProjectNode1054> field_type;
 std::string field_label;
-std::string field_text;
+std::string field_targetBlockId;
 };
 struct ProjectNode811 {
 std::string field_id;
-std::shared_ptr<ProjectNode1055> field_kind;
-std::string field_fromBlockId;
-std::string field_toBlockId;
+std::shared_ptr<ProjectNode1055> field_type;
+std::string field_label;
+std::string field_text;
 };
 struct ProjectNode812 {
 std::string field_id;
 std::shared_ptr<ProjectNode1056> field_kind;
 std::string field_fromBlockId;
 std::string field_toBlockId;
-std::shared_ptr<ProjectNode308> field_label;
-std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1057> field_effects;
-bool field_logged;
-bool field_autosaveSafePoint;
 };
 struct ProjectNode813 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::shared_ptr<ProjectNode1057> field_kind;
+std::string field_fromBlockId;
+std::string field_toBlockId;
+std::shared_ptr<ProjectNode308> field_label;
+std::optional<std::shared_ptr<ProjectNode333>> field_condition;
+std::shared_ptr<ProjectNode1058> field_effects;
+bool field_logged;
+bool field_autosaveSafePoint;
 };
 struct ProjectNode814 {
 enum class Value { choice0 };
@@ -19696,57 +19702,37 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode816 {
-std::shared_ptr<ProjectNode1058> field_asset;
-std::shared_ptr<ProjectNode1059> field_materialApplication;
-std::shared_ptr<ProjectNode1060> field_color;
-std::shared_ptr<ProjectNode1061> field_fit;
-};
-struct ProjectNode817 {
-using Value = std::variant<std::shared_ptr<ProjectNode652>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode817 {
+std::shared_ptr<ProjectNode1059> field_asset;
+std::shared_ptr<ProjectNode1060> field_materialApplication;
+std::shared_ptr<ProjectNode1061> field_color;
+std::shared_ptr<ProjectNode1062> field_fit;
+};
 struct ProjectNode818 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::shared_ptr<ProjectNode653>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode819 {
-std::string field_id;
-std::string field_label;
-std::optional<bool> field_enabled;
-std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1064> field_type;
-std::shared_ptr<ProjectNode1065> field_owner;
-std::shared_ptr<ProjectNode1066> field_asset;
-std::shared_ptr<ProjectNode1067> field_materialApplication;
-std::shared_ptr<ProjectNode1068> field_color;
-std::shared_ptr<ProjectNode1069> field_fit;
-std::shared_ptr<ProjectNode1070> field_transition;
-std::int64_t field_durationMs;
-bool field_waitForCompletion;
-bool field_skippable;
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
 };
 struct ProjectNode820 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1071> field_type;
-std::shared_ptr<ProjectNode1072> field_owner;
-std::string field_slotId;
-std::shared_ptr<ProjectNode569> field_character;
-std::shared_ptr<ProjectNode1073> field_action;
-std::optional<std::shared_ptr<ProjectNode1074>> field_profileId;
-std::shared_ptr<ProjectNode1075> field_poseId;
-std::shared_ptr<ProjectNode1076> field_expressionId;
-std::optional<std::shared_ptr<ProjectNode1077>> field_appearanceId;
-std::shared_ptr<ProjectNode1078> field_position;
-std::shared_ptr<ProjectNode1079> field_offset;
-double field_scale;
-std::shared_ptr<ProjectNode1080> field_transition;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1065> field_type;
+std::shared_ptr<ProjectNode1066> field_owner;
+std::shared_ptr<ProjectNode1067> field_asset;
+std::shared_ptr<ProjectNode1068> field_materialApplication;
+std::shared_ptr<ProjectNode1069> field_color;
+std::shared_ptr<ProjectNode1070> field_fit;
+std::shared_ptr<ProjectNode1071> field_transition;
 std::int64_t field_durationMs;
 bool field_waitForCompletion;
 bool field_skippable;
@@ -19756,223 +19742,227 @@ std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::optional<bool> field_autosaveSafePoint;
-std::shared_ptr<ProjectNode1081> field_type;
-std::shared_ptr<ProjectNode657> field_scene;
-std::shared_ptr<ProjectNode1082> field_inputs;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1072> field_type;
+std::shared_ptr<ProjectNode1073> field_owner;
+std::string field_slotId;
+std::shared_ptr<ProjectNode570> field_character;
+std::shared_ptr<ProjectNode1074> field_action;
+std::optional<std::shared_ptr<ProjectNode1075>> field_profileId;
+std::shared_ptr<ProjectNode1076> field_poseId;
+std::shared_ptr<ProjectNode1077> field_expressionId;
+std::optional<std::shared_ptr<ProjectNode1078>> field_appearanceId;
+std::shared_ptr<ProjectNode1079> field_position;
+std::shared_ptr<ProjectNode1080> field_offset;
+double field_scale;
+std::shared_ptr<ProjectNode1081> field_transition;
+std::int64_t field_durationMs;
+bool field_waitForCompletion;
+bool field_skippable;
 };
 struct ProjectNode822 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::optional<bool> field_autosaveSafePoint;
-std::shared_ptr<ProjectNode1083> field_type;
-std::shared_ptr<ProjectNode657> field_scene;
-std::shared_ptr<ProjectNode1084> field_inputs;
-std::shared_ptr<ProjectNode1085> field_owner;
+std::shared_ptr<ProjectNode1082> field_type;
+std::shared_ptr<ProjectNode658> field_scene;
+std::shared_ptr<ProjectNode1083> field_inputs;
 };
 struct ProjectNode823 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::optional<bool> field_autosaveSafePoint;
-std::shared_ptr<ProjectNode1086> field_type;
-std::shared_ptr<ProjectNode659> field_dialogue;
-std::shared_ptr<ProjectNode1087> field_startBlockId;
+std::shared_ptr<ProjectNode1084> field_type;
+std::shared_ptr<ProjectNode658> field_scene;
+std::shared_ptr<ProjectNode1085> field_inputs;
+std::shared_ptr<ProjectNode1086> field_owner;
 };
 struct ProjectNode824 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::optional<bool> field_autosaveSafePoint;
-std::shared_ptr<ProjectNode1088> field_type;
+std::shared_ptr<ProjectNode1087> field_type;
+std::shared_ptr<ProjectNode660> field_dialogue;
+std::shared_ptr<ProjectNode1088> field_startBlockId;
 };
 struct ProjectNode825 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::optional<bool> field_autosaveSafePoint;
 std::shared_ptr<ProjectNode1089> field_type;
-std::shared_ptr<ProjectNode308> field_text;
-std::shared_ptr<ProjectNode1090> field_speaker;
-std::shared_ptr<ProjectNode1091> field_wait;
 };
 struct ProjectNode826 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1092> field_type;
-std::shared_ptr<ProjectNode1093> field_owner;
-std::shared_ptr<ProjectNode1094> field_asset;
-std::shared_ptr<ProjectNode1095> field_purpose;
-std::shared_ptr<ProjectNode1096> field_action;
-std::shared_ptr<ProjectNode1097> field_lifetime;
-std::shared_ptr<ProjectNode1098> field_pausePolicy;
-double field_gain;
-double field_pan;
-std::shared_ptr<ProjectNode1099> field_panSource;
-std::int64_t field_fadeMs;
-bool field_waitForCompletion;
-std::shared_ptr<ProjectNode1100> field_causality;
-bool field_synchronized;
-std::shared_ptr<ProjectNode1101> field_skipBehavior;
-std::shared_ptr<ProjectNode1102> field_instanceId;
-std::shared_ptr<ProjectNode1103> field_replacementGroup;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::optional<bool> field_autosaveSafePoint;
+std::shared_ptr<ProjectNode1090> field_type;
+std::shared_ptr<ProjectNode308> field_text;
+std::shared_ptr<ProjectNode1091> field_speaker;
+std::shared_ptr<ProjectNode1092> field_wait;
 };
 struct ProjectNode827 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1104> field_type;
-std::shared_ptr<ProjectNode615> field_variable;
-std::shared_ptr<ProjectNode616> field_value;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1093> field_type;
+std::shared_ptr<ProjectNode1094> field_owner;
+std::shared_ptr<ProjectNode1095> field_asset;
+std::shared_ptr<ProjectNode1096> field_purpose;
+std::shared_ptr<ProjectNode1097> field_action;
+std::shared_ptr<ProjectNode1098> field_lifetime;
+std::shared_ptr<ProjectNode1099> field_pausePolicy;
+double field_gain;
+double field_pan;
+std::shared_ptr<ProjectNode1100> field_panSource;
+std::int64_t field_fadeMs;
+bool field_waitForCompletion;
+std::shared_ptr<ProjectNode1101> field_causality;
+bool field_synchronized;
+std::shared_ptr<ProjectNode1102> field_skipBehavior;
+std::shared_ptr<ProjectNode1103> field_instanceId;
+std::shared_ptr<ProjectNode1104> field_replacementGroup;
 };
 struct ProjectNode828 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::shared_ptr<ProjectNode1105> field_type;
-std::shared_ptr<ProjectNode1106> field_operations;
+std::shared_ptr<ProjectNode616> field_variable;
+std::shared_ptr<ProjectNode617> field_value;
 };
 struct ProjectNode829 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1107> field_type;
-std::shared_ptr<ProjectNode1108> field_operations;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1106> field_type;
+std::shared_ptr<ProjectNode1107> field_operations;
 };
 struct ProjectNode830 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1109> field_type;
-std::shared_ptr<ProjectNode434> field_room;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1108> field_type;
+std::shared_ptr<ProjectNode1109> field_operations;
 };
 struct ProjectNode831 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::shared_ptr<ProjectNode1110> field_type;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_exitId;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode832 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
 std::shared_ptr<ProjectNode1111> field_type;
-std::shared_ptr<ProjectNode801> field_verb;
-std::shared_ptr<ProjectNode1112> field_bindings;
+std::shared_ptr<ProjectNode435> field_room;
+std::string field_exitId;
 };
 struct ProjectNode833 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::optional<bool> field_autosaveSafePoint;
-std::shared_ptr<ProjectNode1113> field_type;
-std::string field_source;
-bool field_mayYield;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1112> field_type;
+std::shared_ptr<ProjectNode802> field_verb;
+std::shared_ptr<ProjectNode1113> field_bindings;
 };
 struct ProjectNode834 {
-using Value = std::variant<std::shared_ptr<ProjectNode1114>, std::shared_ptr<ProjectNode1115>, std::shared_ptr<ProjectNode1116>, std::shared_ptr<ProjectNode1117>, std::shared_ptr<ProjectNode1118>, std::shared_ptr<ProjectNode1119>>;
-Value value;
-};
-struct ProjectNode835 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1120> field_type;
-std::shared_ptr<ProjectNode1121> field_branches;
-std::string field_fallbackStepId;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::optional<bool> field_autosaveSafePoint;
+std::shared_ptr<ProjectNode1114> field_type;
+std::string field_source;
+bool field_mayYield;
+};
+struct ProjectNode835 {
+using Value = std::variant<std::shared_ptr<ProjectNode1115>, std::shared_ptr<ProjectNode1116>, std::shared_ptr<ProjectNode1117>, std::shared_ptr<ProjectNode1118>, std::shared_ptr<ProjectNode1119>, std::shared_ptr<ProjectNode1120>>;
+Value value;
 };
 struct ProjectNode836 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::optional<bool> field_autosaveSafePoint;
-std::shared_ptr<ProjectNode1122> field_type;
-std::shared_ptr<ProjectNode1123> field_prompt;
-std::shared_ptr<ProjectNode1124> field_options;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1121> field_type;
+std::shared_ptr<ProjectNode1122> field_branches;
+std::string field_fallbackStepId;
 };
 struct ProjectNode837 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1125> field_type;
-std::shared_ptr<ProjectNode1126> field_owner;
-std::shared_ptr<ProjectNode1127> field_layout;
-std::optional<std::shared_ptr<ProjectNode1128>> field_scaleOverrides;
-std::shared_ptr<ProjectNode1129> field_action;
-std::shared_ptr<ProjectNode1130> field_slot;
-std::shared_ptr<ProjectNode1131> field_transition;
-std::int64_t field_durationMs;
-bool field_waitForCompletion;
-bool field_skippable;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::optional<bool> field_autosaveSafePoint;
+std::shared_ptr<ProjectNode1123> field_type;
+std::shared_ptr<ProjectNode1124> field_prompt;
+std::shared_ptr<ProjectNode1125> field_options;
 };
 struct ProjectNode838 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1132> field_type;
-std::shared_ptr<ProjectNode1133> field_owner;
-std::shared_ptr<ProjectNode1134> field_target;
-std::shared_ptr<ProjectNode439> field_material;
-std::string field_parameter;
-std::shared_ptr<ProjectNode720> field_value;
-std::shared_ptr<ProjectNode1135> field_transition;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1126> field_type;
+std::shared_ptr<ProjectNode1127> field_owner;
+std::shared_ptr<ProjectNode1128> field_layout;
+std::optional<std::shared_ptr<ProjectNode1129>> field_scaleOverrides;
+std::shared_ptr<ProjectNode1130> field_action;
+std::shared_ptr<ProjectNode1131> field_slot;
+std::shared_ptr<ProjectNode1132> field_transition;
 std::int64_t field_durationMs;
-std::shared_ptr<ProjectNode1136> field_easing;
-std::shared_ptr<ProjectNode1137> field_clock;
 bool field_waitForCompletion;
 bool field_skippable;
 };
@@ -19981,58 +19971,74 @@ std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1138> field_type;
-std::shared_ptr<ProjectNode1139> field_owner;
-std::shared_ptr<ProjectNode1140> field_action;
-std::string field_instanceId;
-std::shared_ptr<ProjectNode1141> field_materialApplication;
-std::shared_ptr<ProjectNode1142> field_scope;
-std::int64_t field_order;
-std::shared_ptr<ProjectNode1143> field_clock;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1133> field_type;
+std::shared_ptr<ProjectNode1134> field_owner;
+std::shared_ptr<ProjectNode1135> field_target;
+std::shared_ptr<ProjectNode440> field_material;
+std::string field_parameter;
+std::shared_ptr<ProjectNode721> field_value;
+std::shared_ptr<ProjectNode1136> field_transition;
+std::int64_t field_durationMs;
+std::shared_ptr<ProjectNode1137> field_easing;
+std::shared_ptr<ProjectNode1138> field_clock;
+bool field_waitForCompletion;
+bool field_skippable;
 };
 struct ProjectNode840 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1144> field_type;
-std::shared_ptr<ProjectNode1145> field_owner;
-std::shared_ptr<ProjectNode1146> field_transitionKind;
-std::int64_t field_durationMs;
-std::shared_ptr<ProjectNode1147> field_color;
-bool field_waitForCompletion;
-bool field_skippable;
-std::shared_ptr<ProjectNode1148> field_children;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1139> field_type;
+std::shared_ptr<ProjectNode1140> field_owner;
+std::shared_ptr<ProjectNode1141> field_action;
+std::string field_instanceId;
+std::shared_ptr<ProjectNode1142> field_materialApplication;
+std::shared_ptr<ProjectNode1143> field_scope;
+std::int64_t field_order;
+std::shared_ptr<ProjectNode1144> field_clock;
 };
 struct ProjectNode841 {
 std::string field_id;
 std::string field_label;
-std::shared_ptr<ProjectNode1149> field_type;
-std::string field_text;
-std::shared_ptr<ProjectNode1150> field_timeline;
+std::optional<bool> field_enabled;
+std::optional<std::shared_ptr<ProjectNode333>> field_condition;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1145> field_type;
+std::shared_ptr<ProjectNode1146> field_owner;
+std::shared_ptr<ProjectNode1147> field_transitionKind;
+std::int64_t field_durationMs;
+std::shared_ptr<ProjectNode1148> field_color;
+bool field_waitForCompletion;
+bool field_skippable;
+std::shared_ptr<ProjectNode1149> field_children;
 };
 struct ProjectNode842 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::string field_label;
+std::shared_ptr<ProjectNode1150> field_type;
+std::string field_text;
+std::shared_ptr<ProjectNode1151> field_timeline;
 };
 struct ProjectNode843 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode844 {
-enum class Value { choice0 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode845 {
-std::vector<std::shared_ptr<ProjectNode1151>> value;
-};
-struct ProjectNode846 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode846 {
+std::vector<std::shared_ptr<ProjectNode1152>> value;
 };
 struct ProjectNode847 {
 enum class Value { choice0 };
@@ -20043,290 +20049,290 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode849 {
-std::vector<std::shared_ptr<ProjectNode1152>> value;
-};
-struct ProjectNode850 {
-using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode850 {
+std::vector<std::shared_ptr<ProjectNode1153>> value;
+};
 struct ProjectNode851 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode852 {
-using Value = std::variant<std::string, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode853 {
-using Value = std::variant<std::shared_ptr<ProjectNode1153>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode854 {
-using Value = std::variant<std::shared_ptr<ProjectNode1153>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode855 {
-std::vector<std::shared_ptr<ProjectNode1154>> value;
-};
-struct ProjectNode856 {
-using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode857 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode858 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
+struct ProjectNode854 {
+using Value = std::variant<std::shared_ptr<ProjectNode1154>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode855 {
+using Value = std::variant<std::shared_ptr<ProjectNode1154>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode856 {
+std::vector<std::shared_ptr<ProjectNode1155>> value;
+};
+struct ProjectNode857 {
+using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode858 {
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
+Value value;
+};
 struct ProjectNode859 {
-std::vector<std::shared_ptr<ProjectNode1153>> value;
+using Value = std::variant<std::string, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode860 {
-std::vector<std::shared_ptr<ProjectNode1152>> value;
+std::vector<std::shared_ptr<ProjectNode1154>> value;
 };
 struct ProjectNode861 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode1153>> value;
 };
 struct ProjectNode862 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode863 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode864 {
-std::vector<std::shared_ptr<ProjectNode595>> value;
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13 };
+Value value;
 };
 struct ProjectNode865 {
-std::optional<double> field_deltaSeconds;
+std::vector<std::shared_ptr<ProjectNode596>> value;
 };
 struct ProjectNode866 {
-std::optional<std::string> field_edgeId;
+std::optional<double> field_deltaSeconds;
 };
 struct ProjectNode867 {
-std::optional<std::string> field_optionId;
+std::optional<std::string> field_edgeId;
 };
 struct ProjectNode868 {
-std::optional<std::string> field_exitId;
+std::optional<std::string> field_optionId;
 };
 struct ProjectNode869 {
-std::optional<std::shared_ptr<ProjectNode1155>> field_subjects;
+std::optional<std::string> field_exitId;
 };
 struct ProjectNode870 {
-std::optional<std::shared_ptr<ProjectNode1156>> field_subject;
+std::optional<std::shared_ptr<ProjectNode1156>> field_subjects;
 };
 struct ProjectNode871 {
-std::optional<std::shared_ptr<ProjectNode1157>> field_verb;
-std::optional<std::shared_ptr<ProjectNode1158>> field_bindings;
+std::optional<std::shared_ptr<ProjectNode1157>> field_subject;
 };
 struct ProjectNode872 {
-std::optional<std::string> field_slotId;
+std::optional<std::shared_ptr<ProjectNode1158>> field_verb;
+std::optional<std::shared_ptr<ProjectNode1159>> field_bindings;
 };
 struct ProjectNode873 {
-std::optional<std::shared_ptr<ProjectNode1159>> field_documentId;
-std::optional<std::shared_ptr<ProjectNode1160>> field_mountInstanceId;
-std::optional<std::string> field_selector;
+std::optional<std::string> field_slotId;
 };
 struct ProjectNode874 {
+std::optional<std::shared_ptr<ProjectNode1160>> field_documentId;
+std::optional<std::shared_ptr<ProjectNode1161>> field_mountInstanceId;
+std::optional<std::string> field_selector;
+};
+struct ProjectNode875 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10 };
 Value value;
 };
-struct ProjectNode875 {
+struct ProjectNode876 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
 Value value;
 };
-struct ProjectNode876 {
-std::optional<std::shared_ptr<ProjectNode1161>> field_scope;
+struct ProjectNode877 {
+std::optional<std::shared_ptr<ProjectNode1162>> field_scope;
 std::optional<std::string> field_ownerId;
 std::optional<std::string> field_propertyId;
-std::optional<std::shared_ptr<ProjectNode483>> field_value;
-};
-struct ProjectNode877 {
-std::optional<std::string> field_roomId;
+std::optional<std::shared_ptr<ProjectNode484>> field_value;
 };
 struct ProjectNode878 {
-std::optional<std::shared_ptr<ProjectNode1162>> field_entityKind;
-std::optional<std::string> field_entityId;
-std::optional<std::shared_ptr<ProjectNode1163>> field_locationKind;
 std::optional<std::string> field_roomId;
-std::optional<std::shared_ptr<ProjectNode1164>> field_inventoryOwnerKind;
+};
+struct ProjectNode879 {
+std::optional<std::shared_ptr<ProjectNode1163>> field_entityKind;
+std::optional<std::string> field_entityId;
+std::optional<std::shared_ptr<ProjectNode1164>> field_locationKind;
+std::optional<std::string> field_roomId;
+std::optional<std::shared_ptr<ProjectNode1165>> field_inventoryOwnerKind;
 std::optional<std::string> field_inventoryOwnerId;
 std::optional<std::string> field_inventoryId;
 };
-struct ProjectNode879 {
+struct ProjectNode880 {
 std::optional<std::string> field_interactableId;
 std::optional<double> field_value;
 };
-struct ProjectNode880 {
-std::optional<std::shared_ptr<ProjectNode1165>> field_ownerKind;
+struct ProjectNode881 {
+std::optional<std::shared_ptr<ProjectNode1166>> field_ownerKind;
 std::optional<std::string> field_ownerId;
 std::optional<std::string> field_traitId;
 };
-struct ProjectNode881 {
-std::optional<std::shared_ptr<ProjectNode1166>> field_entityKind;
-std::optional<std::string> field_entityId;
-std::optional<std::shared_ptr<ProjectNode1167>> field_field;
-std::optional<bool> field_value;
-};
 struct ProjectNode882 {
-std::optional<std::shared_ptr<ProjectNode1168>> field_kind;
-std::optional<std::string> field_flowId;
+std::optional<std::shared_ptr<ProjectNode1167>> field_entityKind;
+std::optional<std::string> field_entityId;
+std::optional<std::shared_ptr<ProjectNode1168>> field_field;
+std::optional<bool> field_value;
 };
 struct ProjectNode883 {
-std::optional<std::string> field_layoutId;
-std::optional<std::shared_ptr<ProjectNode1169>> field_field;
-std::optional<std::shared_ptr<ProjectNode1002>> field_value;
+std::optional<std::shared_ptr<ProjectNode1169>> field_kind;
+std::optional<std::string> field_flowId;
 };
 struct ProjectNode884 {
-std::optional<std::shared_ptr<ProjectNode1170>> field_documentId;
-std::optional<std::shared_ptr<ProjectNode1171>> field_mountInstanceId;
-std::optional<std::string> field_selector;
-std::optional<std::shared_ptr<ProjectNode1172>> field_field;
-std::optional<bool> field_value;
+std::optional<std::string> field_layoutId;
+std::optional<std::shared_ptr<ProjectNode1170>> field_field;
+std::optional<std::shared_ptr<ProjectNode1003>> field_value;
 };
 struct ProjectNode885 {
-std::optional<std::shared_ptr<ProjectNode1173>> field_kind;
-std::optional<std::string> field_value;
+std::optional<std::shared_ptr<ProjectNode1171>> field_documentId;
+std::optional<std::shared_ptr<ProjectNode1172>> field_mountInstanceId;
+std::optional<std::string> field_selector;
+std::optional<std::shared_ptr<ProjectNode1173>> field_field;
+std::optional<bool> field_value;
 };
 struct ProjectNode886 {
-std::optional<std::string> field_code;
+std::optional<std::shared_ptr<ProjectNode1174>> field_kind;
+std::optional<std::string> field_value;
 };
 struct ProjectNode887 {
-enum class Value { choice0 };
-Value value;
+std::optional<std::string> field_code;
 };
 struct ProjectNode888 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode889 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode890 {
-std::shared_ptr<ProjectNode1174> field_collection;
-std::string field_id;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode891 {
-std::shared_ptr<ProjectNode1175> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
+std::shared_ptr<ProjectNode1175> field_collection;
+std::string field_id;
 };
 struct ProjectNode892 {
 std::shared_ptr<ProjectNode1176> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode893 {
 std::shared_ptr<ProjectNode1177> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
+std::shared_ptr<ProjectNode570> field_character;
 };
 struct ProjectNode894 {
-std::shared_ptr<ProjectNode1179> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_featureId;
+std::shared_ptr<ProjectNode1178> field_kind;
+std::shared_ptr<ProjectNode1179> field_interactable;
 };
 struct ProjectNode895 {
 std::shared_ptr<ProjectNode1180> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
+std::shared_ptr<ProjectNode435> field_room;
 std::string field_featureId;
 };
 struct ProjectNode896 {
 std::shared_ptr<ProjectNode1181> field_kind;
+std::shared_ptr<ProjectNode1179> field_interactable;
+std::string field_featureId;
 };
 struct ProjectNode897 {
 std::shared_ptr<ProjectNode1182> field_kind;
-std::string field_slotId;
 };
 struct ProjectNode898 {
 std::shared_ptr<ProjectNode1183> field_kind;
-std::string field_bindingId;
+std::string field_slotId;
 };
 struct ProjectNode899 {
-std::shared_ptr<ProjectNode1184> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1184> field_kind;
+std::string field_bindingId;
 };
 struct ProjectNode900 {
-std::shared_ptr<ProjectNode1185> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
+std::shared_ptr<ProjectNode1185> field_collection;
+std::string field_id;
 };
 struct ProjectNode901 {
 std::shared_ptr<ProjectNode1186> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
+std::shared_ptr<ProjectNode570> field_character;
 };
 struct ProjectNode902 {
 std::shared_ptr<ProjectNode1187> field_kind;
+std::shared_ptr<ProjectNode1179> field_interactable;
 };
 struct ProjectNode903 {
 std::shared_ptr<ProjectNode1188> field_kind;
-std::shared_ptr<ProjectNode655> field_room;
 };
 struct ProjectNode904 {
 std::shared_ptr<ProjectNode1189> field_kind;
-std::shared_ptr<ProjectNode645> field_inventory;
+std::shared_ptr<ProjectNode656> field_room;
 };
 struct ProjectNode905 {
 std::shared_ptr<ProjectNode1190> field_kind;
-std::shared_ptr<ProjectNode1191> field_archetype;
+std::shared_ptr<ProjectNode646> field_inventory;
 };
 struct ProjectNode906 {
-std::shared_ptr<ProjectNode1192> field_kind;
-std::shared_ptr<ProjectNode619> field_instance;
+std::shared_ptr<ProjectNode1191> field_kind;
+std::shared_ptr<ProjectNode1192> field_archetype;
 };
 struct ProjectNode907 {
 std::shared_ptr<ProjectNode1193> field_kind;
-std::shared_ptr<ProjectNode619> field_instance;
+std::shared_ptr<ProjectNode620> field_instance;
 };
 struct ProjectNode908 {
-std::shared_ptr<ProjectNode1194> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1194> field_kind;
+std::shared_ptr<ProjectNode620> field_instance;
 };
 struct ProjectNode909 {
-std::shared_ptr<ProjectNode1195> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
+std::shared_ptr<ProjectNode1195> field_collection;
+std::string field_id;
 };
 struct ProjectNode910 {
-std::vector<std::shared_ptr<ProjectNode622>> value;
+std::shared_ptr<ProjectNode1196> field_kind;
+std::shared_ptr<ProjectNode1179> field_interactable;
 };
 struct ProjectNode911 {
-std::vector<std::shared_ptr<ProjectNode1196>> value;
+std::vector<std::shared_ptr<ProjectNode623>> value;
 };
 struct ProjectNode912 {
-std::shared_ptr<ProjectNode1197> field_kind;
-std::shared_ptr<ProjectNode436> field_inventory;
+std::vector<std::shared_ptr<ProjectNode1197>> value;
 };
 struct ProjectNode913 {
 std::shared_ptr<ProjectNode1198> field_kind;
+std::shared_ptr<ProjectNode437> field_inventory;
 };
 struct ProjectNode914 {
 std::shared_ptr<ProjectNode1199> field_kind;
-std::shared_ptr<ProjectNode1200> field_owner;
-std::string field_inventoryId;
 };
 struct ProjectNode915 {
-std::shared_ptr<ProjectNode1201> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1200> field_kind;
+std::shared_ptr<ProjectNode1201> field_owner;
+std::string field_inventoryId;
 };
 struct ProjectNode916 {
-std::shared_ptr<ProjectNode1202> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
+std::shared_ptr<ProjectNode1202> field_collection;
+std::string field_id;
 };
 struct ProjectNode917 {
 std::shared_ptr<ProjectNode1203> field_kind;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode918 {
-std::shared_ptr<ProjectNode1204> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1204> field_kind;
 };
 struct ProjectNode919 {
 std::shared_ptr<ProjectNode1205> field_collection;
 std::string field_id;
 };
 struct ProjectNode920 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1206> field_collection;
+std::string field_id;
 };
 struct ProjectNode921 {
 enum class Value { choice0 };
@@ -20349,306 +20355,306 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode926 {
-std::shared_ptr<ProjectNode1206> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode927 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode928 {
 std::shared_ptr<ProjectNode1207> field__u24_ref;
 };
-struct ProjectNode929 {
+struct ProjectNode928 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode930 {
+struct ProjectNode929 {
 std::shared_ptr<ProjectNode1208> field__u24_ref;
 };
-struct ProjectNode931 {
+struct ProjectNode930 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode932 {
+struct ProjectNode931 {
 std::shared_ptr<ProjectNode1209> field__u24_ref;
 };
-struct ProjectNode933 {
+struct ProjectNode932 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode934 {
+struct ProjectNode933 {
 std::shared_ptr<ProjectNode1210> field__u24_ref;
 };
+struct ProjectNode934 {
+enum class Value { choice0 };
+Value value;
+};
 struct ProjectNode935 {
+std::shared_ptr<ProjectNode1211> field__u24_ref;
+};
+struct ProjectNode936 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct ProjectNode936 {
+struct ProjectNode937 {
 enum class Value { choice0 };
 Value value;
-};
-struct ProjectNode937 {
-std::shared_ptr<ProjectNode1211> field__u24_ref;
 };
 struct ProjectNode938 {
+std::shared_ptr<ProjectNode1212> field__u24_ref;
+};
+struct ProjectNode939 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode939 {
-std::shared_ptr<ProjectNode1212> field__u24_ref;
-};
 struct ProjectNode940 {
+std::shared_ptr<ProjectNode1213> field__u24_ref;
+};
+struct ProjectNode941 {
 enum class Value { choice0, choice1, choice2, choice3, choice4 };
 Value value;
 };
-struct ProjectNode941 {
+struct ProjectNode942 {
 enum class Value { choice0 };
 Value value;
-};
-struct ProjectNode942 {
-std::shared_ptr<ProjectNode1213> field__u24_ref;
 };
 struct ProjectNode943 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode944 {
 std::shared_ptr<ProjectNode1214> field__u24_ref;
 };
-struct ProjectNode945 {
+struct ProjectNode944 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode945 {
+std::shared_ptr<ProjectNode1215> field__u24_ref;
 };
 struct ProjectNode946 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode947 {
-std::shared_ptr<ProjectNode1215> field__u24_ref;
-};
-struct ProjectNode948 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode948 {
+std::shared_ptr<ProjectNode1216> field__u24_ref;
 };
 struct ProjectNode949 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode950 {
-std::shared_ptr<ProjectNode1216> field_kind;
-};
-struct ProjectNode951 {
-std::shared_ptr<ProjectNode1217> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
-};
-struct ProjectNode952 {
-std::shared_ptr<ProjectNode1218> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
-};
-struct ProjectNode953 {
-std::shared_ptr<ProjectNode1219> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_featureId;
-};
-struct ProjectNode954 {
-std::shared_ptr<ProjectNode1220> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
-std::string field_featureId;
-};
-struct ProjectNode955 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode956 {
+struct ProjectNode951 {
+std::shared_ptr<ProjectNode1217> field_kind;
+};
+struct ProjectNode952 {
+std::shared_ptr<ProjectNode1218> field_kind;
+std::shared_ptr<ProjectNode570> field_character;
+};
+struct ProjectNode953 {
+std::shared_ptr<ProjectNode1219> field_kind;
+std::shared_ptr<ProjectNode1179> field_interactable;
+};
+struct ProjectNode954 {
+std::shared_ptr<ProjectNode1220> field_kind;
+std::shared_ptr<ProjectNode435> field_room;
+std::string field_featureId;
+};
+struct ProjectNode955 {
 std::shared_ptr<ProjectNode1221> field_kind;
-std::shared_ptr<ProjectNode720> field_value;
+std::shared_ptr<ProjectNode1179> field_interactable;
+std::string field_featureId;
+};
+struct ProjectNode956 {
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode957 {
 std::shared_ptr<ProjectNode1222> field_kind;
-std::string field_property;
+std::shared_ptr<ProjectNode721> field_value;
 };
 struct ProjectNode958 {
 std::shared_ptr<ProjectNode1223> field_kind;
-std::shared_ptr<ProjectNode1224> field_facet;
+std::string field_property;
 };
 struct ProjectNode959 {
-std::shared_ptr<ProjectNode1225> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1224> field_kind;
+std::shared_ptr<ProjectNode1225> field_facet;
 };
 struct ProjectNode960 {
 std::shared_ptr<ProjectNode1226> field_collection;
 std::string field_id;
 };
 struct ProjectNode961 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1227> field_collection;
+std::string field_id;
 };
 struct ProjectNode962 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode963 {
-std::map<std::string, std::shared_ptr<ProjectNode446>> additional;
-};
-struct ProjectNode964 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode964 {
+std::map<std::string, std::shared_ptr<ProjectNode447>> additional;
+};
 struct ProjectNode965 {
-std::map<std::string, std::shared_ptr<ProjectNode446>> additional;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode966 {
+std::map<std::string, std::shared_ptr<ProjectNode447>> additional;
+};
+struct ProjectNode967 {
 std::int64_t field_offset;
 std::int64_t field_order;
 };
-struct ProjectNode967 {
-std::shared_ptr<ProjectNode1227> field_op;
-std::string field_path;
-std::shared_ptr<ProjectNode1228> field_value;
-};
 struct ProjectNode968 {
-std::shared_ptr<ProjectNode1229> field_op;
+std::shared_ptr<ProjectNode1228> field_op;
 std::string field_path;
-std::shared_ptr<ProjectNode1228> field_value;
+std::shared_ptr<ProjectNode1229> field_value;
 };
 struct ProjectNode969 {
 std::shared_ptr<ProjectNode1230> field_op;
 std::string field_path;
+std::shared_ptr<ProjectNode1229> field_value;
 };
 struct ProjectNode970 {
-using Value = std::variant<std::shared_ptr<ProjectNode1231>, std::shared_ptr<ProjectNode1232>>;
-Value value;
+std::shared_ptr<ProjectNode1231> field_op;
+std::string field_path;
 };
 struct ProjectNode971 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1232>, std::shared_ptr<ProjectNode1233>>;
 Value value;
-static constexpr std::array<double, 1> literals{1};
 };
 struct ProjectNode972 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{2};
+static constexpr std::array<double, 1> literals{1};
 };
 struct ProjectNode973 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{3};
+static constexpr std::array<double, 1> literals{2};
 };
 struct ProjectNode974 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{4};
+static constexpr std::array<double, 1> literals{3};
 };
 struct ProjectNode975 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{5};
+static constexpr std::array<double, 1> literals{4};
 };
 struct ProjectNode976 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{6};
+static constexpr std::array<double, 1> literals{5};
 };
 struct ProjectNode977 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{7};
+static constexpr std::array<double, 1> literals{6};
 };
 struct ProjectNode978 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<double, 1> literals{8};
+static constexpr std::array<double, 1> literals{7};
 };
 struct ProjectNode979 {
 enum class Value { choice0 };
 Value value;
+static constexpr std::array<double, 1> literals{8};
 };
 struct ProjectNode980 {
-std::vector<std::shared_ptr<ProjectNode1233>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode981 {
 std::vector<std::shared_ptr<ProjectNode1234>> value;
 };
 struct ProjectNode982 {
+std::vector<std::shared_ptr<ProjectNode1235>> value;
+};
+struct ProjectNode983 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode983 {
+struct ProjectNode984 {
 std::int64_t field_startMs;
 std::int64_t field_endMs;
 };
-struct ProjectNode984 {
-using Value = std::variant<std::shared_ptr<ProjectNode1235>, std::shared_ptr<ProjectNode1236>, std::shared_ptr<ProjectNode1237>>;
-Value value;
-};
 struct ProjectNode985 {
-std::vector<std::shared_ptr<ProjectNode1234>> value;
+using Value = std::variant<std::shared_ptr<ProjectNode1236>, std::shared_ptr<ProjectNode1237>, std::shared_ptr<ProjectNode1238>>;
+Value value;
 };
 struct ProjectNode986 {
-std::shared_ptr<ProjectNode1238> field_collection;
-std::string field_id;
+std::vector<std::shared_ptr<ProjectNode1235>> value;
 };
 struct ProjectNode987 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1239> field_collection;
+std::string field_id;
 };
 struct ProjectNode988 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode989 {
-std::tuple<double, double> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode990 {
-std::tuple<double, double, double> value;
+std::tuple<double, double> value;
 };
 struct ProjectNode991 {
-std::tuple<double, double, double, double> value;
+std::tuple<double, double, double> value;
 };
 struct ProjectNode992 {
+std::tuple<double, double, double, double> value;
+};
+struct ProjectNode993 {
 double field_r;
 double field_g;
 double field_b;
 double field_a;
 };
-struct ProjectNode993 {
+struct ProjectNode994 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12 };
 Value value;
 };
-struct ProjectNode994 {
+struct ProjectNode995 {
 std::tuple<double, double> value;
 };
-struct ProjectNode995 {
+struct ProjectNode996 {
 enum class Value { choice0, choice1, choice2, choice3, choice4 };
 Value value;
 };
-struct ProjectNode996 {
+struct ProjectNode997 {
 std::string field_alias;
 };
-struct ProjectNode997 {
+struct ProjectNode998 {
 std::string field_uri;
 };
-struct ProjectNode998 {
+struct ProjectNode999 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode999 {
+struct ProjectNode1000 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
-};
-struct ProjectNode1000 {
-std::map<std::string, std::shared_ptr<ProjectNode1239>> additional;
 };
 struct ProjectNode1001 {
-enum class Value { choice0, choice1, choice2, choice3 };
-Value value;
+std::map<std::string, std::shared_ptr<ProjectNode1240>> additional;
 };
 struct ProjectNode1002 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<ProjectNode1240>, std::shared_ptr<ProjectNode1241>>;
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1003 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<ProjectNode1241>, std::shared_ptr<ProjectNode1242>>;
 Value value;
 };
 struct ProjectNode1004 {
@@ -20656,70 +20662,70 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1005 {
-std::map<std::string, std::shared_ptr<ProjectNode1242>> additional;
-};
-struct ProjectNode1006 {
-std::shared_ptr<ProjectNode1243> field_collection;
-std::string field_id;
-};
-struct ProjectNode1007 {
-using Value = std::variant<std::shared_ptr<ProjectNode1244>, std::shared_ptr<ProjectNode1245>, std::shared_ptr<ProjectNode1246>, std::shared_ptr<ProjectNode1247>>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1006 {
+std::map<std::string, std::shared_ptr<ProjectNode1243>> additional;
+};
+struct ProjectNode1007 {
+std::shared_ptr<ProjectNode1244> field_collection;
+std::string field_id;
+};
 struct ProjectNode1008 {
-std::map<std::string, std::shared_ptr<ProjectNode440>> additional;
+using Value = std::variant<std::shared_ptr<ProjectNode1245>, std::shared_ptr<ProjectNode1246>, std::shared_ptr<ProjectNode1247>, std::shared_ptr<ProjectNode1248>>;
+Value value;
 };
 struct ProjectNode1009 {
 std::map<std::string, std::shared_ptr<ProjectNode441>> additional;
 };
 struct ProjectNode1010 {
-std::string field_id;
-std::string field_label;
-std::optional<std::shared_ptr<ProjectNode1248>> field_role;
+std::map<std::string, std::shared_ptr<ProjectNode442>> additional;
 };
 struct ProjectNode1011 {
 std::string field_id;
 std::string field_label;
-std::optional<std::shared_ptr<ProjectNode1249>> field_layers;
+std::optional<std::shared_ptr<ProjectNode1249>> field_role;
 };
 struct ProjectNode1012 {
 std::string field_id;
 std::string field_label;
-std::shared_ptr<ProjectNode1250> field_clock;
-std::shared_ptr<ProjectNode1251> field_frames;
+std::optional<std::shared_ptr<ProjectNode1250>> field_layers;
 };
 struct ProjectNode1013 {
-using Value = std::variant<std::shared_ptr<ProjectNode1252>, std::nullptr_t>;
-Value value;
+std::string field_id;
+std::string field_label;
+std::shared_ptr<ProjectNode1251> field_clock;
+std::shared_ptr<ProjectNode1252> field_frames;
 };
 struct ProjectNode1014 {
 using Value = std::variant<std::shared_ptr<ProjectNode1253>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1015 {
-std::string field_profileId;
-std::optional<std::shared_ptr<ProjectNode1254>> field_layers;
+using Value = std::variant<std::shared_ptr<ProjectNode1254>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1016 {
 std::string field_profileId;
-std::string field_clipId;
-std::optional<std::shared_ptr<ProjectNode1255>> field_cues;
+std::optional<std::shared_ptr<ProjectNode1255>> field_layers;
 };
 struct ProjectNode1017 {
-enum class Value { choice0 };
-Value value;
+std::string field_profileId;
+std::string field_clipId;
+std::optional<std::shared_ptr<ProjectNode1256>> field_cues;
 };
 struct ProjectNode1018 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1019 {
-std::shared_ptr<ProjectNode1256> field_collection;
-std::string field_id;
-};
-struct ProjectNode1020 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1020 {
+std::shared_ptr<ProjectNode1257> field_collection;
+std::string field_id;
 };
 struct ProjectNode1021 {
 enum class Value { choice0 };
@@ -20730,137 +20736,137 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1023 {
-std::shared_ptr<ProjectNode1257> field_registry;
-std::string field_id;
-};
-struct ProjectNode1024 {
-std::shared_ptr<ProjectNode1258> field_label;
-std::nullptr_t field_layout;
-};
-struct ProjectNode1025 {
-std::shared_ptr<ProjectNode1259> field_label;
-std::shared_ptr<ProjectNode652> field_layout;
-std::int64_t field_layoutOrder;
-};
-struct ProjectNode1026 {
-std::shared_ptr<ProjectNode1260> field_kind;
-};
-struct ProjectNode1027 {
-std::shared_ptr<ProjectNode1261> field_kind;
-std::shared_ptr<ProjectNode735> field_materialApplication;
-};
-struct ProjectNode1028 {
-std::shared_ptr<ProjectNode1262> field_kind;
-};
-struct ProjectNode1029 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1024 {
+std::shared_ptr<ProjectNode1258> field_registry;
+std::string field_id;
+};
+struct ProjectNode1025 {
+std::shared_ptr<ProjectNode1259> field_label;
+std::nullptr_t field_layout;
+};
+struct ProjectNode1026 {
+std::shared_ptr<ProjectNode1260> field_label;
+std::shared_ptr<ProjectNode653> field_layout;
+std::int64_t field_layoutOrder;
+};
+struct ProjectNode1027 {
+std::shared_ptr<ProjectNode1261> field_kind;
+};
+struct ProjectNode1028 {
+std::shared_ptr<ProjectNode1262> field_kind;
+std::shared_ptr<ProjectNode736> field_materialApplication;
+};
+struct ProjectNode1029 {
+std::shared_ptr<ProjectNode1263> field_kind;
+};
 struct ProjectNode1030 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1031 {
 double field_x;
 double field_y;
 double field_width;
 double field_height;
 };
-struct ProjectNode1031 {
-std::shared_ptr<ProjectNode1263> field_kind;
-};
 struct ProjectNode1032 {
 std::shared_ptr<ProjectNode1264> field_kind;
-std::string field_featureId;
 };
 struct ProjectNode1033 {
 std::shared_ptr<ProjectNode1265> field_kind;
-std::shared_ptr<ProjectNode1266> field_subject;
+std::string field_featureId;
 };
 struct ProjectNode1034 {
-std::shared_ptr<ProjectNode1267> field_kind;
-std::string field_exitId;
+std::shared_ptr<ProjectNode1266> field_kind;
+std::shared_ptr<ProjectNode1267> field_subject;
 };
 struct ProjectNode1035 {
 std::shared_ptr<ProjectNode1268> field_kind;
-std::shared_ptr<ProjectNode748> field_image;
+std::string field_exitId;
 };
 struct ProjectNode1036 {
 std::shared_ptr<ProjectNode1269> field_kind;
-std::shared_ptr<ProjectNode1270> field_animation;
-std::optional<std::shared_ptr<ProjectNode1271>> field_motionId;
-std::shared_ptr<ProjectNode1272> field_playback;
+std::shared_ptr<ProjectNode749> field_image;
 };
 struct ProjectNode1037 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1270> field_kind;
+std::shared_ptr<ProjectNode1271> field_animation;
+std::optional<std::shared_ptr<ProjectNode1272>> field_motionId;
+std::shared_ptr<ProjectNode1273> field_playback;
 };
 struct ProjectNode1038 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1039 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1040 {
 std::string field_id;
 std::string field_label;
 std::shared_ptr<ProjectNode333> field_condition;
 std::int64_t field_inputOrder;
-std::shared_ptr<ProjectNode776> field_highlight;
-std::shared_ptr<ProjectNode1273> field_target;
+std::shared_ptr<ProjectNode777> field_highlight;
+std::shared_ptr<ProjectNode1274> field_target;
 };
-struct ProjectNode1040 {
+struct ProjectNode1041 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1041 {
-std::vector<std::shared_ptr<ProjectNode1274>> value;
-};
 struct ProjectNode1042 {
-using Value = std::variant<std::shared_ptr<ProjectNode1275>, std::shared_ptr<ProjectNode1276>, std::shared_ptr<ProjectNode1277>, std::shared_ptr<ProjectNode1278>, std::shared_ptr<ProjectNode1279>, std::shared_ptr<ProjectNode1280>, std::shared_ptr<ProjectNode1281>>;
-Value value;
+std::vector<std::shared_ptr<ProjectNode1275>> value;
 };
 struct ProjectNode1043 {
-std::shared_ptr<ProjectNode1282> field_collection;
-std::string field_id;
+using Value = std::variant<std::shared_ptr<ProjectNode1276>, std::shared_ptr<ProjectNode1277>, std::shared_ptr<ProjectNode1278>, std::shared_ptr<ProjectNode1279>, std::shared_ptr<ProjectNode1280>, std::shared_ptr<ProjectNode1281>, std::shared_ptr<ProjectNode1282>>;
+Value value;
 };
 struct ProjectNode1044 {
-std::string field_slotId;
-std::shared_ptr<ProjectNode1283> field_selectors;
+std::shared_ptr<ProjectNode1283> field_collection;
+std::string field_id;
 };
 struct ProjectNode1045 {
+std::string field_slotId;
+std::shared_ptr<ProjectNode1284> field_selectors;
+};
+struct ProjectNode1046 {
 std::string field_slotId;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
 std::int64_t field_rank;
 bool field_primary;
 };
-struct ProjectNode1046 {
+struct ProjectNode1047 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1047 {
-std::shared_ptr<ProjectNode569> field_character;
+struct ProjectNode1048 {
+std::shared_ptr<ProjectNode570> field_character;
 std::string field_profileId;
 std::string field_poseId;
 std::string field_expressionId;
-std::shared_ptr<ProjectNode1284> field_appearanceId;
-std::shared_ptr<ProjectNode1285> field_position;
-std::shared_ptr<ProjectNode1286> field_offset;
+std::shared_ptr<ProjectNode1285> field_appearanceId;
+std::shared_ptr<ProjectNode1286> field_position;
+std::shared_ptr<ProjectNode1287> field_offset;
 double field_scale;
 bool field_visible;
 };
-struct ProjectNode1048 {
-using Value = std::variant<std::shared_ptr<ProjectNode1287>, std::shared_ptr<ProjectNode1288>>;
-Value value;
-};
 struct ProjectNode1049 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1288>, std::shared_ptr<ProjectNode1289>>;
 Value value;
 };
 struct ProjectNode1050 {
-using Value = std::variant<std::shared_ptr<ProjectNode569>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1051 {
-std::vector<std::shared_ptr<ProjectNode1289>> value;
+using Value = std::variant<std::shared_ptr<ProjectNode570>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1052 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode1290>> value;
 };
 struct ProjectNode1053 {
 enum class Value { choice0 };
@@ -20879,74 +20885,74 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1057 {
-std::vector<std::shared_ptr<ProjectNode204>> value;
-};
-struct ProjectNode1058 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1058 {
+std::vector<std::shared_ptr<ProjectNode204>> value;
+};
 struct ProjectNode1059 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1060 {
-using Value = std::variant<std::string, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1061 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1062 {
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
+struct ProjectNode1063 {
 std::string field_trackId;
 std::int64_t field_startMs;
 std::int64_t field_durationMs;
 };
-struct ProjectNode1063 {
+struct ProjectNode1064 {
 std::vector<std::string> value;
 };
-struct ProjectNode1064 {
-enum class Value { choice0 };
-Value value;
-};
 struct ProjectNode1065 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1066 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1067 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1068 {
-using Value = std::variant<std::string, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1069 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1070 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1071 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1072 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
+struct ProjectNode1072 {
+enum class Value { choice0 };
+Value value;
+};
 struct ProjectNode1073 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1074 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
 struct ProjectNode1075 {
@@ -20962,45 +20968,45 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1078 {
-enum class Value { choice0, choice1, choice2, choice3 };
-Value value;
-};
-struct ProjectNode1079 {
-double field_x;
-double field_y;
-};
-struct ProjectNode1080 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1081 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1082 {
-std::vector<std::shared_ptr<ProjectNode1151>> value;
-};
-struct ProjectNode1083 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1084 {
-std::vector<std::shared_ptr<ProjectNode1151>> value;
-};
-struct ProjectNode1085 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1086 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1087 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode1088 {
+struct ProjectNode1079 {
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
+struct ProjectNode1080 {
+double field_x;
+double field_y;
+};
+struct ProjectNode1081 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
+struct ProjectNode1082 {
 enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1083 {
+std::vector<std::shared_ptr<ProjectNode1152>> value;
+};
+struct ProjectNode1084 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1085 {
+std::vector<std::shared_ptr<ProjectNode1152>> value;
+};
+struct ProjectNode1086 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
+struct ProjectNode1087 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1088 {
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1089 {
@@ -21008,55 +21014,55 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1090 {
-using Value = std::variant<std::shared_ptr<ProjectNode569>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode1091 {
-enum class Value { choice0, choice1 };
-Value value;
-};
-struct ProjectNode1092 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1091 {
+using Value = std::variant<std::shared_ptr<ProjectNode570>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode1092 {
+enum class Value { choice0, choice1 };
+Value value;
+};
 struct ProjectNode1093 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1094 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1095 {
-enum class Value { choice0, choice1, choice2, choice3, choice4 };
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1096 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0, choice1, choice2, choice3, choice4 };
 Value value;
 };
 struct ProjectNode1097 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1098 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1099 {
-using Value = std::variant<std::shared_ptr<ProjectNode1290>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode1100 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode1101 {
+struct ProjectNode1099 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
+struct ProjectNode1100 {
+using Value = std::variant<std::shared_ptr<ProjectNode1291>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode1101 {
+enum class Value { choice0, choice1 };
+Value value;
+};
 struct ProjectNode1102 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1103 {
@@ -21064,7 +21070,7 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1104 {
-enum class Value { choice0 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1105 {
@@ -21072,18 +21078,18 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1106 {
-std::vector<std::shared_ptr<ProjectNode204>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1107 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode1108 {
-std::vector<std::shared_ptr<ProjectNode1291>> value;
-};
-struct ProjectNode1109 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1109 {
+std::vector<std::shared_ptr<ProjectNode1292>> value;
 };
 struct ProjectNode1110 {
 enum class Value { choice0 };
@@ -21094,33 +21100,26 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1112 {
-std::vector<std::shared_ptr<ProjectNode1292>> value;
-};
-struct ProjectNode1113 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1113 {
+std::vector<std::shared_ptr<ProjectNode1293>> value;
+};
 struct ProjectNode1114 {
-std::string field_id;
-std::string field_label;
-std::optional<bool> field_enabled;
-std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1293> field_type;
-std::shared_ptr<ProjectNode1294> field_waitKind;
-std::int64_t field_durationMs;
-bool field_skippable;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1115 {
 std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1295> field_type;
-std::shared_ptr<ProjectNode1296> field_waitKind;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1294> field_type;
+std::shared_ptr<ProjectNode1295> field_waitKind;
+std::int64_t field_durationMs;
 bool field_skippable;
 };
 struct ProjectNode1116 {
@@ -21128,11 +21127,10 @@ std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1297> field_type;
-std::shared_ptr<ProjectNode1298> field_waitKind;
-std::shared_ptr<ProjectNode333> field_waitCondition;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1296> field_type;
+std::shared_ptr<ProjectNode1297> field_waitKind;
 bool field_skippable;
 };
 struct ProjectNode1117 {
@@ -21140,11 +21138,11 @@ std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1299> field_type;
-std::shared_ptr<ProjectNode1300> field_waitKind;
-std::string field_eventId;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1298> field_type;
+std::shared_ptr<ProjectNode1299> field_waitKind;
+std::shared_ptr<ProjectNode333> field_waitCondition;
 bool field_skippable;
 };
 struct ProjectNode1118 {
@@ -21152,10 +21150,10 @@ std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1301> field_type;
-std::shared_ptr<ProjectNode1302> field_waitKind;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1300> field_type;
+std::shared_ptr<ProjectNode1301> field_waitKind;
 std::string field_eventId;
 bool field_skippable;
 };
@@ -21164,103 +21162,111 @@ std::string field_id;
 std::string field_label;
 std::optional<bool> field_enabled;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1062> field_timeline;
-std::optional<std::shared_ptr<ProjectNode1063>> field_completionDependencies;
-std::shared_ptr<ProjectNode1303> field_type;
-std::shared_ptr<ProjectNode1304> field_waitKind;
-std::shared_ptr<ProjectNode1305> field_owner;
-std::shared_ptr<ProjectNode1306> field_slot;
-std::string field_signalId;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1302> field_type;
+std::shared_ptr<ProjectNode1303> field_waitKind;
+std::string field_eventId;
 bool field_skippable;
 };
 struct ProjectNode1120 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::string field_label;
+std::optional<bool> field_enabled;
+std::optional<std::shared_ptr<ProjectNode333>> field_condition;
+std::shared_ptr<ProjectNode1063> field_timeline;
+std::optional<std::shared_ptr<ProjectNode1064>> field_completionDependencies;
+std::shared_ptr<ProjectNode1304> field_type;
+std::shared_ptr<ProjectNode1305> field_waitKind;
+std::shared_ptr<ProjectNode1306> field_owner;
+std::shared_ptr<ProjectNode1307> field_slot;
+std::string field_signalId;
+bool field_skippable;
 };
 struct ProjectNode1121 {
-std::vector<std::shared_ptr<ProjectNode1307>> value;
-};
-struct ProjectNode1122 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1122 {
+std::vector<std::shared_ptr<ProjectNode1308>> value;
+};
 struct ProjectNode1123 {
-using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1124 {
-std::vector<std::shared_ptr<ProjectNode1308>> value;
-};
-struct ProjectNode1125 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
 Value value;
 };
+struct ProjectNode1125 {
+std::vector<std::shared_ptr<ProjectNode1309>> value;
+};
 struct ProjectNode1126 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1127 {
-using Value = std::variant<std::shared_ptr<ProjectNode652>, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1128 {
-std::optional<std::shared_ptr<ProjectNode1309>> field_ui;
-std::optional<std::shared_ptr<ProjectNode1310>> field_text;
-};
-struct ProjectNode1129 {
-enum class Value { choice0, choice1, choice2 };
+using Value = std::variant<std::shared_ptr<ProjectNode653>, std::nullptr_t>;
 Value value;
 };
+struct ProjectNode1129 {
+std::optional<std::shared_ptr<ProjectNode1310>> field_ui;
+std::optional<std::shared_ptr<ProjectNode1311>> field_text;
+};
 struct ProjectNode1130 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1131 {
-enum class Value { choice0, choice1 };
-Value value;
-};
-struct ProjectNode1132 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1133 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1134 {
-using Value = std::variant<std::shared_ptr<ProjectNode1311>, std::shared_ptr<ProjectNode1312>, std::shared_ptr<ProjectNode1313>, std::shared_ptr<ProjectNode1314>>;
-Value value;
-};
-struct ProjectNode1135 {
-enum class Value { choice0, choice1 };
-Value value;
-};
-struct ProjectNode1136 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
-struct ProjectNode1137 {
+struct ProjectNode1132 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode1138 {
+struct ProjectNode1133 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1139 {
+struct ProjectNode1134 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
-struct ProjectNode1140 {
+struct ProjectNode1135 {
+using Value = std::variant<std::shared_ptr<ProjectNode1312>, std::shared_ptr<ProjectNode1313>, std::shared_ptr<ProjectNode1314>, std::shared_ptr<ProjectNode1315>>;
+Value value;
+};
+struct ProjectNode1136 {
 enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode1137 {
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
+struct ProjectNode1138 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode1139 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1140 {
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1141 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1142 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1143 {
@@ -21268,11 +21274,11 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1144 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1145 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1146 {
@@ -21280,68 +21286,68 @@ enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1147 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1148 {
-std::vector<std::shared_ptr<ProjectNode1315>> value;
+using Value = std::variant<std::string, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1149 {
+std::vector<std::shared_ptr<ProjectNode1316>> value;
+};
+struct ProjectNode1150 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1150 {
+struct ProjectNode1151 {
 std::string field_trackId;
 std::int64_t field_startMs;
 std::int64_t field_durationMs;
 };
-struct ProjectNode1151 {
-std::string field_inputId;
-std::shared_ptr<ProjectNode616> field_value;
-};
 struct ProjectNode1152 {
-std::shared_ptr<ProjectNode1316> field_points;
+std::string field_inputId;
+std::shared_ptr<ProjectNode617> field_value;
 };
 struct ProjectNode1153 {
+std::shared_ptr<ProjectNode1317> field_points;
+};
+struct ProjectNode1154 {
 double field_x;
 double field_y;
 };
-struct ProjectNode1154 {
+struct ProjectNode1155 {
 std::string field_room;
 std::string field_exit;
 };
-struct ProjectNode1155 {
-std::vector<std::shared_ptr<ProjectNode1317>> value;
-};
 struct ProjectNode1156 {
-using Value = std::variant<std::shared_ptr<ProjectNode1317>, std::nullptr_t>;
-Value value;
+std::vector<std::shared_ptr<ProjectNode1318>> value;
 };
 struct ProjectNode1157 {
 using Value = std::variant<std::shared_ptr<ProjectNode1318>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1158 {
-std::vector<std::shared_ptr<ProjectNode1319>> value;
+using Value = std::variant<std::shared_ptr<ProjectNode1319>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1159 {
-using Value = std::variant<std::string, std::nullptr_t>;
-Value value;
+std::vector<std::shared_ptr<ProjectNode1320>> value;
 };
 struct ProjectNode1160 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1161 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1162 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1163 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1164 {
@@ -21353,7 +21359,7 @@ enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1166 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1167 {
@@ -21369,7 +21375,7 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1170 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1171 {
@@ -21377,7 +21383,7 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1172 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1173 {
@@ -21385,7 +21391,7 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1174 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1175 {
@@ -21401,11 +21407,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1178 {
-std::shared_ptr<ProjectNode1320> field__u24_ref;
-};
-struct ProjectNode1179 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1179 {
+std::shared_ptr<ProjectNode1321> field__u24_ref;
 };
 struct ProjectNode1180 {
 enum class Value { choice0 };
@@ -21452,11 +21458,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1191 {
-std::shared_ptr<ProjectNode1321> field__u24_ref;
-};
-struct ProjectNode1192 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1192 {
+std::shared_ptr<ProjectNode1322> field__u24_ref;
 };
 struct ProjectNode1193 {
 enum class Value { choice0 };
@@ -21471,12 +21477,12 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1196 {
-std::string field_propertyId;
-std::shared_ptr<ProjectNode616> field_value;
-};
-struct ProjectNode1197 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1197 {
+std::string field_propertyId;
+std::shared_ptr<ProjectNode617> field_value;
 };
 struct ProjectNode1198 {
 enum class Value { choice0 };
@@ -21487,11 +21493,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1200 {
-using Value = std::variant<std::shared_ptr<ProjectNode1322>, std::shared_ptr<ProjectNode1323>, std::shared_ptr<ProjectNode1324>, std::shared_ptr<ProjectNode1325>, std::shared_ptr<ProjectNode1326>, std::shared_ptr<ProjectNode897>, std::shared_ptr<ProjectNode898>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1201 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1323>, std::shared_ptr<ProjectNode1324>, std::shared_ptr<ProjectNode1325>, std::shared_ptr<ProjectNode1326>, std::shared_ptr<ProjectNode1327>, std::shared_ptr<ProjectNode898>, std::shared_ptr<ProjectNode899>>;
 Value value;
 };
 struct ProjectNode1202 {
@@ -21511,8 +21517,8 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1206 {
-std::shared_ptr<ProjectNode1327> field_collection;
-std::string field_id;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1207 {
 std::shared_ptr<ProjectNode1328> field_collection;
@@ -21551,8 +21557,8 @@ std::shared_ptr<ProjectNode1336> field_collection;
 std::string field_id;
 };
 struct ProjectNode1216 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1337> field_collection;
+std::string field_id;
 };
 struct ProjectNode1217 {
 enum class Value { choice0 };
@@ -21583,11 +21589,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1224 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1225 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct ProjectNode1226 {
@@ -21599,11 +21605,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1228 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<ProjectNode1337>, std::shared_ptr<ProjectNode1338>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1229 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, bool, double, std::string, std::shared_ptr<ProjectNode1338>, std::shared_ptr<ProjectNode1339>>;
 Value value;
 };
 struct ProjectNode1230 {
@@ -21611,113 +21617,113 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1231 {
-std::shared_ptr<ProjectNode1339> field_exists;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1232 {
 std::shared_ptr<ProjectNode1340> field_exists;
-std::shared_ptr<ProjectNode1228> field_value;
 };
 struct ProjectNode1233 {
-std::shared_ptr<ProjectNode748> field_image;
-std::int64_t field_durationMs;
+std::shared_ptr<ProjectNode1341> field_exists;
+std::shared_ptr<ProjectNode1229> field_value;
 };
 struct ProjectNode1234 {
+std::shared_ptr<ProjectNode749> field_image;
+std::int64_t field_durationMs;
+};
+struct ProjectNode1235 {
 std::string field_id;
 std::int64_t field_timeMs;
 };
-struct ProjectNode1235 {
-std::shared_ptr<ProjectNode1341> field_mode;
-};
 struct ProjectNode1236 {
 std::shared_ptr<ProjectNode1342> field_mode;
-std::shared_ptr<ProjectNode1343> field_fps;
 };
 struct ProjectNode1237 {
-std::shared_ptr<ProjectNode1344> field_mode;
-std::int64_t field_percent;
+std::shared_ptr<ProjectNode1343> field_mode;
+std::shared_ptr<ProjectNode1344> field_fps;
 };
 struct ProjectNode1238 {
+std::shared_ptr<ProjectNode1345> field_mode;
+std::int64_t field_percent;
+};
+struct ProjectNode1239 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1239 {
-std::shared_ptr<ProjectNode1345> field_type;
+struct ProjectNode1240 {
+std::shared_ptr<ProjectNode1346> field_type;
 std::optional<bool> field_nullable;
 std::optional<bool> field_required;
 };
-struct ProjectNode1240 {
-std::vector<std::shared_ptr<ProjectNode1002>> value;
-};
 struct ProjectNode1241 {
-std::map<std::string, std::shared_ptr<ProjectNode1002>> additional;
+std::vector<std::shared_ptr<ProjectNode1003>> value;
 };
 struct ProjectNode1242 {
-std::optional<bool> field_required;
-std::shared_ptr<ProjectNode496> field_shape;
+std::map<std::string, std::shared_ptr<ProjectNode1003>> additional;
 };
 struct ProjectNode1243 {
+std::optional<bool> field_required;
+std::shared_ptr<ProjectNode497> field_shape;
+};
+struct ProjectNode1244 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1244 {
-std::shared_ptr<ProjectNode1346> field_kind;
-std::shared_ptr<ProjectNode1347> field_collection;
+struct ProjectNode1245 {
+std::shared_ptr<ProjectNode1347> field_kind;
+std::shared_ptr<ProjectNode1348> field_collection;
 std::string field_id;
 };
-struct ProjectNode1245 {
-std::shared_ptr<ProjectNode1348> field_kind;
-std::shared_ptr<ProjectNode1349> field_owner;
-std::string field_propertyId;
-};
 struct ProjectNode1246 {
-std::shared_ptr<ProjectNode1350> field_kind;
-std::string field_roomId;
-std::string field_placementId;
+std::shared_ptr<ProjectNode1349> field_kind;
+std::shared_ptr<ProjectNode1350> field_owner;
+std::string field_propertyId;
 };
 struct ProjectNode1247 {
 std::shared_ptr<ProjectNode1351> field_kind;
 std::string field_roomId;
-std::string field_exitId;
+std::string field_placementId;
 };
 struct ProjectNode1248 {
+std::shared_ptr<ProjectNode1352> field_kind;
+std::string field_roomId;
+std::string field_exitId;
+};
+struct ProjectNode1249 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode1249 {
-std::vector<std::shared_ptr<ProjectNode1352>> value;
-};
 struct ProjectNode1250 {
+std::vector<std::shared_ptr<ProjectNode1353>> value;
+};
+struct ProjectNode1251 {
 enum class Value { choice0, choice1 };
 Value value;
 };
-struct ProjectNode1251 {
-std::vector<std::shared_ptr<ProjectNode1353>> value;
-};
 struct ProjectNode1252 {
-std::string field_clipId;
-std::string field_role;
-std::int64_t field_intervalMs;
+std::vector<std::shared_ptr<ProjectNode1354>> value;
 };
 struct ProjectNode1253 {
 std::string field_clipId;
 std::string field_role;
+std::int64_t field_intervalMs;
 };
 struct ProjectNode1254 {
-std::vector<std::shared_ptr<ProjectNode1354>> value;
+std::string field_clipId;
+std::string field_role;
 };
 struct ProjectNode1255 {
 std::vector<std::shared_ptr<ProjectNode1355>> value;
 };
 struct ProjectNode1256 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode1356>> value;
 };
 struct ProjectNode1257 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1258 {
-using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1259 {
@@ -21725,7 +21731,7 @@ using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1260 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode308>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1261 {
@@ -21749,11 +21755,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1266 {
-using Value = std::variant<std::shared_ptr<ProjectNode1356>, std::shared_ptr<ProjectNode1357>, std::shared_ptr<ProjectNode1358>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1267 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1357>, std::shared_ptr<ProjectNode1358>, std::shared_ptr<ProjectNode1359>>;
 Value value;
 };
 struct ProjectNode1268 {
@@ -21765,109 +21771,109 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1270 {
-std::shared_ptr<ProjectNode1359> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1271 {
+std::shared_ptr<ProjectNode1360> field__u24_ref;
+};
+struct ProjectNode1272 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode1272 {
-using Value = std::variant<std::shared_ptr<ProjectNode1360>, std::nullptr_t>;
-Value value;
-};
 struct ProjectNode1273 {
-using Value = std::variant<std::shared_ptr<ProjectNode1361>, std::shared_ptr<ProjectNode1362>, std::shared_ptr<ProjectNode1363>, std::shared_ptr<ProjectNode1364>>;
+using Value = std::variant<std::shared_ptr<ProjectNode1361>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1274 {
+using Value = std::variant<std::shared_ptr<ProjectNode1362>, std::shared_ptr<ProjectNode1363>, std::shared_ptr<ProjectNode1364>, std::shared_ptr<ProjectNode1365>>;
+Value value;
+};
+struct ProjectNode1275 {
 std::string field_id;
 std::string field_label;
 std::shared_ptr<ProjectNode333> field_condition;
 std::int64_t field_inputOrder;
-std::shared_ptr<ProjectNode776> field_highlight;
-std::optional<std::shared_ptr<ProjectNode1365>> field_cursor;
-std::shared_ptr<ProjectNode1273> field_target;
-std::shared_ptr<ProjectNode1366> field_shape;
-};
-struct ProjectNode1275 {
-std::shared_ptr<ProjectNode1367> field_kind;
+std::shared_ptr<ProjectNode777> field_highlight;
+std::optional<std::shared_ptr<ProjectNode1366>> field_cursor;
+std::shared_ptr<ProjectNode1274> field_target;
+std::shared_ptr<ProjectNode1367> field_shape;
 };
 struct ProjectNode1276 {
 std::shared_ptr<ProjectNode1368> field_kind;
-std::shared_ptr<ProjectNode1369> field_family;
 };
 struct ProjectNode1277 {
-std::shared_ptr<ProjectNode1370> field_kind;
-std::shared_ptr<ProjectNode1371> field_trait;
+std::shared_ptr<ProjectNode1369> field_kind;
+std::shared_ptr<ProjectNode1370> field_family;
 };
 struct ProjectNode1278 {
-std::shared_ptr<ProjectNode1372> field_kind;
-std::shared_ptr<ProjectNode634> field_interactableDefinition;
+std::shared_ptr<ProjectNode1371> field_kind;
+std::shared_ptr<ProjectNode1372> field_trait;
 };
 struct ProjectNode1279 {
 std::shared_ptr<ProjectNode1373> field_kind;
-std::shared_ptr<ProjectNode634> field_interactableDefinition;
-std::string field_featureId;
+std::shared_ptr<ProjectNode635> field_interactableDefinition;
 };
 struct ProjectNode1280 {
 std::shared_ptr<ProjectNode1374> field_kind;
-std::shared_ptr<ProjectNode1369> field_family;
-std::string field_pattern;
+std::shared_ptr<ProjectNode635> field_interactableDefinition;
+std::string field_featureId;
 };
 struct ProjectNode1281 {
 std::shared_ptr<ProjectNode1375> field_kind;
-std::shared_ptr<ProjectNode1266> field_subject;
+std::shared_ptr<ProjectNode1370> field_family;
+std::string field_pattern;
 };
 struct ProjectNode1282 {
+std::shared_ptr<ProjectNode1376> field_kind;
+std::shared_ptr<ProjectNode1267> field_subject;
+};
+struct ProjectNode1283 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1283 {
-std::vector<std::shared_ptr<ProjectNode1042>> value;
-};
 struct ProjectNode1284 {
+std::vector<std::shared_ptr<ProjectNode1043>> value;
+};
+struct ProjectNode1285 {
 using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode1285 {
+struct ProjectNode1286 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
-struct ProjectNode1286 {
+struct ProjectNode1287 {
 double field_x;
 double field_y;
 };
-struct ProjectNode1287 {
-std::shared_ptr<ProjectNode1376> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
+struct ProjectNode1288 {
+std::shared_ptr<ProjectNode1377> field_kind;
+std::shared_ptr<ProjectNode570> field_character;
 std::string field_profileId;
 std::string field_poseId;
 std::string field_expressionId;
-std::shared_ptr<ProjectNode1377> field_appearanceId;
-};
-struct ProjectNode1288 {
-std::shared_ptr<ProjectNode1378> field_kind;
-std::shared_ptr<ProjectNode748> field_asset;
+std::shared_ptr<ProjectNode1378> field_appearanceId;
 };
 struct ProjectNode1289 {
-using Value = std::variant<std::shared_ptr<ProjectNode1379>, std::shared_ptr<ProjectNode1380>, std::shared_ptr<ProjectNode1381>, std::shared_ptr<ProjectNode1382>, std::shared_ptr<ProjectNode1383>>;
-Value value;
+std::shared_ptr<ProjectNode1379> field_kind;
+std::shared_ptr<ProjectNode749> field_asset;
 };
 struct ProjectNode1290 {
-using Value = std::variant<std::shared_ptr<ProjectNode1384>, std::shared_ptr<ProjectNode1385>>;
+using Value = std::variant<std::shared_ptr<ProjectNode1380>, std::shared_ptr<ProjectNode1381>, std::shared_ptr<ProjectNode1382>, std::shared_ptr<ProjectNode1383>, std::shared_ptr<ProjectNode1384>>;
 Value value;
 };
 struct ProjectNode1291 {
-using Value = std::variant<std::shared_ptr<ProjectNode1386>, std::shared_ptr<ProjectNode1387>, std::shared_ptr<ProjectNode1388>, std::shared_ptr<ProjectNode1389>, std::shared_ptr<ProjectNode1390>, std::shared_ptr<ProjectNode1391>, std::shared_ptr<ProjectNode1392>>;
+using Value = std::variant<std::shared_ptr<ProjectNode1385>, std::shared_ptr<ProjectNode1386>>;
 Value value;
 };
 struct ProjectNode1292 {
-std::string field_slotId;
-std::shared_ptr<ProjectNode1266> field_subject;
+using Value = std::variant<std::shared_ptr<ProjectNode1387>, std::shared_ptr<ProjectNode1388>, std::shared_ptr<ProjectNode1389>, std::shared_ptr<ProjectNode1390>, std::shared_ptr<ProjectNode1391>, std::shared_ptr<ProjectNode1392>, std::shared_ptr<ProjectNode1393>>;
+Value value;
 };
 struct ProjectNode1293 {
-enum class Value { choice0 };
-Value value;
+std::string field_slotId;
+std::shared_ptr<ProjectNode1267> field_subject;
 };
 struct ProjectNode1294 {
 enum class Value { choice0 };
@@ -21914,99 +21920,99 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1305 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1306 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1307 {
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
+struct ProjectNode1308 {
 std::string field_id;
 std::shared_ptr<ProjectNode333> field_condition;
 std::string field_targetStepId;
 };
-struct ProjectNode1308 {
+struct ProjectNode1309 {
 std::string field_id;
 std::shared_ptr<ProjectNode308> field_label;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1393> field_effects;
+std::shared_ptr<ProjectNode1394> field_effects;
 std::string field_targetStepId;
-};
-struct ProjectNode1309 {
-enum class Value { choice0, choice1 };
-Value value;
 };
 struct ProjectNode1310 {
 enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1311 {
-std::shared_ptr<ProjectNode1394> field_kind;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct ProjectNode1312 {
 std::shared_ptr<ProjectNode1395> field_kind;
-std::string field_slotId;
-std::string field_layerId;
 };
 struct ProjectNode1313 {
 std::shared_ptr<ProjectNode1396> field_kind;
-std::shared_ptr<ProjectNode1397> field_slot;
+std::string field_slotId;
+std::string field_layerId;
 };
 struct ProjectNode1314 {
-std::shared_ptr<ProjectNode1398> field_kind;
-std::string field_instanceId;
+std::shared_ptr<ProjectNode1397> field_kind;
+std::shared_ptr<ProjectNode1398> field_slot;
 };
 struct ProjectNode1315 {
-using Value = std::variant<std::shared_ptr<ProjectNode1399>, std::shared_ptr<ProjectNode1400>, std::shared_ptr<ProjectNode1401>, std::shared_ptr<ProjectNode1402>>;
-Value value;
+std::shared_ptr<ProjectNode1399> field_kind;
+std::string field_instanceId;
 };
 struct ProjectNode1316 {
-std::vector<std::shared_ptr<ProjectNode1153>> value;
-};
-struct ProjectNode1317 {
-using Value = std::variant<std::shared_ptr<ProjectNode1403>, std::shared_ptr<ProjectNode1404>, std::shared_ptr<ProjectNode1405>>;
+using Value = std::variant<std::shared_ptr<ProjectNode1400>, std::shared_ptr<ProjectNode1401>, std::shared_ptr<ProjectNode1402>, std::shared_ptr<ProjectNode1403>>;
 Value value;
 };
+struct ProjectNode1317 {
+std::vector<std::shared_ptr<ProjectNode1154>> value;
+};
 struct ProjectNode1318 {
-std::shared_ptr<ProjectNode1406> field__u24_ref;
+using Value = std::variant<std::shared_ptr<ProjectNode1404>, std::shared_ptr<ProjectNode1405>, std::shared_ptr<ProjectNode1406>>;
+Value value;
 };
 struct ProjectNode1319 {
-std::string field_slotId;
-std::shared_ptr<ProjectNode1317> field_subject;
+std::shared_ptr<ProjectNode1407> field__u24_ref;
 };
 struct ProjectNode1320 {
-std::shared_ptr<ProjectNode1407> field_registry;
-std::string field_id;
+std::string field_slotId;
+std::shared_ptr<ProjectNode1318> field_subject;
 };
 struct ProjectNode1321 {
-std::shared_ptr<ProjectNode1408> field_collection;
+std::shared_ptr<ProjectNode1408> field_registry;
 std::string field_id;
 };
 struct ProjectNode1322 {
-std::shared_ptr<ProjectNode1409> field_kind;
+std::shared_ptr<ProjectNode1409> field_collection;
+std::string field_id;
 };
 struct ProjectNode1323 {
 std::shared_ptr<ProjectNode1410> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
 };
 struct ProjectNode1324 {
 std::shared_ptr<ProjectNode1411> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
+std::shared_ptr<ProjectNode570> field_character;
 };
 struct ProjectNode1325 {
 std::shared_ptr<ProjectNode1412> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_featureId;
+std::shared_ptr<ProjectNode1179> field_interactable;
 };
 struct ProjectNode1326 {
 std::shared_ptr<ProjectNode1413> field_kind;
-std::shared_ptr<ProjectNode1178> field_interactable;
+std::shared_ptr<ProjectNode435> field_room;
 std::string field_featureId;
 };
 struct ProjectNode1327 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1414> field_kind;
+std::shared_ptr<ProjectNode1179> field_interactable;
+std::string field_featureId;
 };
 struct ProjectNode1328 {
 enum class Value { choice0 };
@@ -22045,156 +22051,156 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1337 {
-std::vector<std::shared_ptr<ProjectNode1228>> value;
-};
-struct ProjectNode1338 {
-std::map<std::string, std::shared_ptr<ProjectNode1228>> additional;
-};
-struct ProjectNode1339 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<bool, 1> literals{false};
+};
+struct ProjectNode1338 {
+std::vector<std::shared_ptr<ProjectNode1229>> value;
+};
+struct ProjectNode1339 {
+std::map<std::string, std::shared_ptr<ProjectNode1229>> additional;
 };
 struct ProjectNode1340 {
 enum class Value { choice0 };
 Value value;
-static constexpr std::array<bool, 1> literals{true};
+static constexpr std::array<bool, 1> literals{false};
 };
 struct ProjectNode1341 {
 enum class Value { choice0 };
 Value value;
+static constexpr std::array<bool, 1> literals{true};
 };
 struct ProjectNode1342 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1343 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1344 {
 std::int64_t field_numerator;
 std::int64_t field_denominator;
 };
-struct ProjectNode1344 {
-enum class Value { choice0 };
-Value value;
-};
 struct ProjectNode1345 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1346 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1347 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1348 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
 Value value;
 };
 struct ProjectNode1349 {
-std::shared_ptr<ProjectNode1414> field_kind;
-std::string field_id;
-};
-struct ProjectNode1350 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1350 {
+std::shared_ptr<ProjectNode1415> field_kind;
+std::string field_id;
 };
 struct ProjectNode1351 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1352 {
-std::string field_layerId;
-std::optional<std::shared_ptr<ProjectNode1415>> field_visual;
-std::optional<std::shared_ptr<ProjectNode1416>> field_materialApplication;
-std::optional<std::shared_ptr<ProjectNode1417>> field_offset;
-std::optional<double> field_scale;
-std::optional<std::shared_ptr<ProjectNode1417>> field_anchor;
-std::optional<bool> field_visible;
-};
-struct ProjectNode1353 {
-std::int64_t field_durationMs;
-std::optional<std::shared_ptr<ProjectNode1418>> field_layers;
-};
-struct ProjectNode1354 {
-std::string field_layerId;
-std::optional<std::shared_ptr<ProjectNode1419>> field_visual;
-std::optional<std::shared_ptr<ProjectNode1420>> field_materialApplication;
-std::optional<bool> field_visible;
-};
-struct ProjectNode1355 {
-using Value = std::variant<std::shared_ptr<ProjectNode1421>, std::shared_ptr<ProjectNode1422>>;
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1353 {
+std::string field_layerId;
+std::optional<std::shared_ptr<ProjectNode1416>> field_visual;
+std::optional<std::shared_ptr<ProjectNode1417>> field_materialApplication;
+std::optional<std::shared_ptr<ProjectNode1418>> field_offset;
+std::optional<double> field_scale;
+std::optional<std::shared_ptr<ProjectNode1418>> field_anchor;
+std::optional<bool> field_visible;
+};
+struct ProjectNode1354 {
+std::int64_t field_durationMs;
+std::optional<std::shared_ptr<ProjectNode1419>> field_layers;
+};
+struct ProjectNode1355 {
+std::string field_layerId;
+std::optional<std::shared_ptr<ProjectNode1420>> field_visual;
+std::optional<std::shared_ptr<ProjectNode1421>> field_materialApplication;
+std::optional<bool> field_visible;
+};
 struct ProjectNode1356 {
-std::shared_ptr<ProjectNode1423> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
+using Value = std::variant<std::shared_ptr<ProjectNode1422>, std::shared_ptr<ProjectNode1423>>;
+Value value;
 };
 struct ProjectNode1357 {
 std::shared_ptr<ProjectNode1424> field_kind;
-std::shared_ptr<ProjectNode1425> field_interactable;
+std::shared_ptr<ProjectNode570> field_character;
 };
 struct ProjectNode1358 {
-std::shared_ptr<ProjectNode1426> field_kind;
-std::shared_ptr<ProjectNode1427> field_feature;
+std::shared_ptr<ProjectNode1425> field_kind;
+std::shared_ptr<ProjectNode1426> field_interactable;
 };
 struct ProjectNode1359 {
-std::shared_ptr<ProjectNode1428> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1427> field_kind;
+std::shared_ptr<ProjectNode1428> field_feature;
 };
 struct ProjectNode1360 {
-std::shared_ptr<ProjectNode1429> field_repeat;
-double field_rate;
-std::shared_ptr<ProjectNode1430> field_clock;
-std::shared_ptr<ProjectNode1431> field_initialMarker;
-std::optional<std::shared_ptr<ProjectNode1432>> field_loopRange;
+std::shared_ptr<ProjectNode1429> field_collection;
+std::string field_id;
 };
 struct ProjectNode1361 {
-std::shared_ptr<ProjectNode1433> field_kind;
+std::shared_ptr<ProjectNode1430> field_repeat;
+double field_rate;
+std::shared_ptr<ProjectNode1431> field_clock;
+std::shared_ptr<ProjectNode1432> field_initialMarker;
+std::optional<std::shared_ptr<ProjectNode1433>> field_loopRange;
 };
 struct ProjectNode1362 {
 std::shared_ptr<ProjectNode1434> field_kind;
 };
 struct ProjectNode1363 {
 std::shared_ptr<ProjectNode1435> field_kind;
-std::string field_featureId;
 };
 struct ProjectNode1364 {
 std::shared_ptr<ProjectNode1436> field_kind;
-std::shared_ptr<ProjectNode1266> field_subject;
+std::string field_featureId;
 };
 struct ProjectNode1365 {
+std::shared_ptr<ProjectNode1437> field_kind;
+std::shared_ptr<ProjectNode1267> field_subject;
+};
+struct ProjectNode1366 {
 using Value = std::variant<std::shared_ptr<ProjectNode191>, std::nullptr_t>;
 Value value;
 };
-struct ProjectNode1366 {
-std::shared_ptr<ProjectNode1437> field_kind;
-std::shared_ptr<ProjectNode1030> field_bounds;
-std::optional<std::shared_ptr<ProjectNode1438>> field_motionTracks;
-};
 struct ProjectNode1367 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1438> field_kind;
+std::shared_ptr<ProjectNode1031> field_bounds;
+std::optional<std::shared_ptr<ProjectNode1439>> field_motionTracks;
 };
 struct ProjectNode1368 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1369 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1370 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1371 {
-std::shared_ptr<ProjectNode1439> field__u24_ref;
-};
-struct ProjectNode1372 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1372 {
+std::shared_ptr<ProjectNode1440> field__u24_ref;
 };
 struct ProjectNode1373 {
 enum class Value { choice0 };
@@ -22213,105 +22219,105 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1377 {
-using Value = std::variant<std::string, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode1378 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1378 {
+using Value = std::variant<std::string, std::nullptr_t>;
+Value value;
+};
 struct ProjectNode1379 {
-std::string field_id;
-std::shared_ptr<ProjectNode1440> field_type;
-std::shared_ptr<ProjectNode1441> field_speaker;
-std::shared_ptr<ProjectNode308> field_text;
-std::shared_ptr<ProjectNode1442> field_cues;
-std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode1443> field_effects;
-bool field_showOnce;
-bool field_logged;
-bool field_autosaveSafePoint;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1380 {
 std::string field_id;
-std::shared_ptr<ProjectNode1444> field_type;
+std::shared_ptr<ProjectNode1441> field_type;
+std::shared_ptr<ProjectNode1442> field_speaker;
+std::shared_ptr<ProjectNode308> field_text;
+std::shared_ptr<ProjectNode1443> field_cues;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::string field_source;
-bool field_mayYield;
+std::shared_ptr<ProjectNode1444> field_effects;
+bool field_showOnce;
+bool field_logged;
+bool field_autosaveSafePoint;
 };
 struct ProjectNode1381 {
 std::string field_id;
 std::shared_ptr<ProjectNode1445> field_type;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::shared_ptr<ProjectNode657> field_scene;
-std::shared_ptr<ProjectNode1446> field_inputs;
-std::shared_ptr<ProjectNode1447> field_uiPolicy;
+std::string field_source;
+bool field_mayYield;
 };
 struct ProjectNode1382 {
 std::string field_id;
-std::shared_ptr<ProjectNode1448> field_type;
+std::shared_ptr<ProjectNode1446> field_type;
 std::optional<std::shared_ptr<ProjectNode333>> field_condition;
-std::optional<std::shared_ptr<ProjectNode616>> field_payload;
+std::shared_ptr<ProjectNode658> field_scene;
+std::shared_ptr<ProjectNode1447> field_inputs;
+std::shared_ptr<ProjectNode1448> field_uiPolicy;
 };
 struct ProjectNode1383 {
 std::string field_id;
 std::shared_ptr<ProjectNode1449> field_type;
-std::string field_text;
+std::optional<std::shared_ptr<ProjectNode333>> field_condition;
+std::optional<std::shared_ptr<ProjectNode617>> field_payload;
 };
 struct ProjectNode1384 {
-std::shared_ptr<ProjectNode1450> field_kind;
-std::string field_slotId;
+std::string field_id;
+std::shared_ptr<ProjectNode1450> field_type;
+std::string field_text;
 };
 struct ProjectNode1385 {
 std::shared_ptr<ProjectNode1451> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_anchorId;
+std::string field_slotId;
 };
 struct ProjectNode1386 {
 std::shared_ptr<ProjectNode1452> field_kind;
-std::shared_ptr<ProjectNode1453> field_source;
+std::shared_ptr<ProjectNode435> field_room;
+std::string field_anchorId;
 };
 struct ProjectNode1387 {
-std::shared_ptr<ProjectNode1454> field_kind;
-std::shared_ptr<ProjectNode1453> field_source;
-std::shared_ptr<ProjectNode521> field_location;
-bool field_enabled;
-bool field_visible;
+std::shared_ptr<ProjectNode1453> field_kind;
+std::shared_ptr<ProjectNode1454> field_source;
 };
 struct ProjectNode1388 {
 std::shared_ptr<ProjectNode1455> field_kind;
-std::shared_ptr<ProjectNode634> field_definition;
+std::shared_ptr<ProjectNode1454> field_source;
+std::shared_ptr<ProjectNode522> field_location;
+bool field_enabled;
+bool field_visible;
+};
+struct ProjectNode1389 {
+std::shared_ptr<ProjectNode1456> field_kind;
+std::shared_ptr<ProjectNode635> field_definition;
 std::optional<std::int64_t> field_quantity;
 std::shared_ptr<ProjectNode126> field_location;
 bool field_enabled;
 bool field_visible;
-std::optional<std::shared_ptr<ProjectNode1456>> field_roomPresentation;
-};
-struct ProjectNode1389 {
-std::shared_ptr<ProjectNode1457> field_kind;
-std::shared_ptr<ProjectNode1458> field_instance;
-std::shared_ptr<ProjectNode1453> field_source;
+std::optional<std::shared_ptr<ProjectNode1457>> field_roomPresentation;
 };
 struct ProjectNode1390 {
-std::shared_ptr<ProjectNode1459> field_kind;
-std::shared_ptr<ProjectNode1458> field_instance;
+std::shared_ptr<ProjectNode1458> field_kind;
+std::shared_ptr<ProjectNode1459> field_instance;
+std::shared_ptr<ProjectNode1454> field_source;
 };
 struct ProjectNode1391 {
 std::shared_ptr<ProjectNode1460> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_exitId;
-std::shared_ptr<ProjectNode434> field_target;
+std::shared_ptr<ProjectNode1459> field_instance;
 };
 struct ProjectNode1392 {
 std::shared_ptr<ProjectNode1461> field_kind;
-std::shared_ptr<ProjectNode1458> field_instance;
+std::shared_ptr<ProjectNode435> field_room;
+std::string field_exitId;
+std::shared_ptr<ProjectNode435> field_target;
 };
 struct ProjectNode1393 {
-std::vector<std::shared_ptr<ProjectNode204>> value;
+std::shared_ptr<ProjectNode1462> field_kind;
+std::shared_ptr<ProjectNode1459> field_instance;
 };
 struct ProjectNode1394 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode1395 {
 enum class Value { choice0 };
@@ -22322,66 +22328,66 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1397 {
-enum class Value { choice0, choice1, choice2, choice3 };
-Value value;
-};
-struct ProjectNode1398 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1398 {
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
 struct ProjectNode1399 {
-std::string field_id;
-std::shared_ptr<ProjectNode1462> field_type;
-std::shared_ptr<ProjectNode1463> field_asset;
-std::shared_ptr<ProjectNode1464> field_materialApplication;
-std::shared_ptr<ProjectNode1465> field_color;
-std::shared_ptr<ProjectNode1466> field_fit;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1400 {
 std::string field_id;
-std::shared_ptr<ProjectNode1467> field_type;
+std::shared_ptr<ProjectNode1463> field_type;
+std::shared_ptr<ProjectNode1464> field_asset;
+std::shared_ptr<ProjectNode1465> field_materialApplication;
+std::shared_ptr<ProjectNode1466> field_color;
+std::shared_ptr<ProjectNode1467> field_fit;
 };
 struct ProjectNode1401 {
 std::string field_id;
 std::shared_ptr<ProjectNode1468> field_type;
-std::string field_slotId;
-std::shared_ptr<ProjectNode569> field_character;
-std::shared_ptr<ProjectNode1469> field_action;
-std::optional<std::shared_ptr<ProjectNode1470>> field_profileId;
-std::shared_ptr<ProjectNode1471> field_poseId;
-std::shared_ptr<ProjectNode1472> field_expressionId;
-std::optional<std::shared_ptr<ProjectNode1473>> field_appearanceId;
-std::shared_ptr<ProjectNode1474> field_position;
-std::shared_ptr<ProjectNode1475> field_offset;
-double field_scale;
 };
 struct ProjectNode1402 {
 std::string field_id;
-std::shared_ptr<ProjectNode1476> field_type;
-std::shared_ptr<ProjectNode1477> field_layout;
-std::optional<std::shared_ptr<ProjectNode1128>> field_scaleOverrides;
-std::shared_ptr<ProjectNode1478> field_action;
-std::shared_ptr<ProjectNode1479> field_slot;
+std::shared_ptr<ProjectNode1469> field_type;
+std::string field_slotId;
+std::shared_ptr<ProjectNode570> field_character;
+std::shared_ptr<ProjectNode1470> field_action;
+std::optional<std::shared_ptr<ProjectNode1471>> field_profileId;
+std::shared_ptr<ProjectNode1472> field_poseId;
+std::shared_ptr<ProjectNode1473> field_expressionId;
+std::optional<std::shared_ptr<ProjectNode1474>> field_appearanceId;
+std::shared_ptr<ProjectNode1475> field_position;
+std::shared_ptr<ProjectNode1476> field_offset;
+double field_scale;
 };
 struct ProjectNode1403 {
-std::shared_ptr<ProjectNode1480> field_kind;
-std::shared_ptr<ProjectNode1481> field_character;
+std::string field_id;
+std::shared_ptr<ProjectNode1477> field_type;
+std::shared_ptr<ProjectNode1478> field_layout;
+std::optional<std::shared_ptr<ProjectNode1129>> field_scaleOverrides;
+std::shared_ptr<ProjectNode1479> field_action;
+std::shared_ptr<ProjectNode1480> field_slot;
 };
 struct ProjectNode1404 {
-std::shared_ptr<ProjectNode1482> field_kind;
-std::shared_ptr<ProjectNode1483> field_interactable;
+std::shared_ptr<ProjectNode1481> field_kind;
+std::shared_ptr<ProjectNode1482> field_character;
 };
 struct ProjectNode1405 {
-std::shared_ptr<ProjectNode1484> field_kind;
-std::shared_ptr<ProjectNode1427> field_feature;
+std::shared_ptr<ProjectNode1483> field_kind;
+std::shared_ptr<ProjectNode1484> field_interactable;
 };
 struct ProjectNode1406 {
-std::shared_ptr<ProjectNode1485> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1485> field_kind;
+std::shared_ptr<ProjectNode1428> field_feature;
 };
 struct ProjectNode1407 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1486> field_collection;
+std::string field_id;
 };
 struct ProjectNode1408 {
 enum class Value { choice0 };
@@ -22408,71 +22414,71 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1414 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1415 {
-using Value = std::variant<std::shared_ptr<ProjectNode780>, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1416 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode781>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1417 {
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode1418 {
 double field_x;
 double field_y;
 };
-struct ProjectNode1418 {
-std::vector<std::shared_ptr<ProjectNode1486>> value;
-};
 struct ProjectNode1419 {
-using Value = std::variant<std::shared_ptr<ProjectNode780>, std::nullptr_t>;
-Value value;
+std::vector<std::shared_ptr<ProjectNode1487>> value;
 };
 struct ProjectNode1420 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode781>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1421 {
-std::shared_ptr<ProjectNode1487> field_kind;
-std::string field_id;
-std::int64_t field_atMs;
-std::string field_event;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1422 {
 std::shared_ptr<ProjectNode1488> field_kind;
 std::string field_id;
 std::int64_t field_atMs;
-std::shared_ptr<ProjectNode1489> field_asset;
-std::optional<double> field_gain;
-std::optional<double> field_pan;
+std::string field_event;
 };
 struct ProjectNode1423 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1489> field_kind;
+std::string field_id;
+std::int64_t field_atMs;
+std::shared_ptr<ProjectNode1490> field_asset;
+std::optional<double> field_gain;
+std::optional<double> field_pan;
 };
 struct ProjectNode1424 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1425 {
-std::shared_ptr<ProjectNode1490> field__u24_ref;
-};
-struct ProjectNode1426 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1426 {
+std::shared_ptr<ProjectNode1491> field__u24_ref;
+};
 struct ProjectNode1427 {
-using Value = std::variant<std::shared_ptr<ProjectNode1491>, std::shared_ptr<ProjectNode1492>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1428 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1492>, std::shared_ptr<ProjectNode1493>>;
 Value value;
 };
 struct ProjectNode1429 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1430 {
@@ -22480,16 +22486,16 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1431 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1432 {
-std::string field_start;
-std::string field_end;
+using Value = std::variant<std::string, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1433 {
-enum class Value { choice0 };
-Value value;
+std::string field_start;
+std::string field_end;
 };
 struct ProjectNode1434 {
 enum class Value { choice0 };
@@ -22508,43 +22514,43 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1438 {
-std::vector<std::shared_ptr<ProjectNode1493>> value;
-};
-struct ProjectNode1439 {
-std::shared_ptr<ProjectNode1494> field_collection;
-std::string field_id;
-};
-struct ProjectNode1440 {
 enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1439 {
+std::vector<std::shared_ptr<ProjectNode1494>> value;
+};
+struct ProjectNode1440 {
+std::shared_ptr<ProjectNode1495> field_collection;
+std::string field_id;
+};
 struct ProjectNode1441 {
-using Value = std::variant<std::shared_ptr<ProjectNode569>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1442 {
-std::vector<std::shared_ptr<ProjectNode1495>> value;
+using Value = std::variant<std::shared_ptr<ProjectNode570>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1443 {
-std::vector<std::shared_ptr<ProjectNode204>> value;
+std::vector<std::shared_ptr<ProjectNode1496>> value;
 };
 struct ProjectNode1444 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<ProjectNode204>> value;
 };
 struct ProjectNode1445 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1446 {
-std::vector<std::shared_ptr<ProjectNode1496>> value;
-};
-struct ProjectNode1447 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
+struct ProjectNode1447 {
+std::vector<std::shared_ptr<ProjectNode1497>> value;
+};
 struct ProjectNode1448 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1449 {
@@ -22564,11 +22570,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1453 {
-using Value = std::variant<std::shared_ptr<ProjectNode1497>, std::shared_ptr<ProjectNode1498>, std::shared_ptr<ProjectNode1499>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1454 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1498>, std::shared_ptr<ProjectNode1499>, std::shared_ptr<ProjectNode1500>>;
 Value value;
 };
 struct ProjectNode1455 {
@@ -22576,19 +22582,19 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1456 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1457 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct ProjectNode1458 {
-using Value = std::variant<std::shared_ptr<ProjectNode1500>, std::shared_ptr<ProjectNode1501>, std::shared_ptr<ProjectNode1502>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1459 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<ProjectNode1501>, std::shared_ptr<ProjectNode1502>, std::shared_ptr<ProjectNode1503>>;
 Value value;
 };
 struct ProjectNode1460 {
@@ -22604,23 +22610,23 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1463 {
-using Value = std::variant<std::shared_ptr<ProjectNode748>, std::nullptr_t>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1464 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode749>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1465 {
-using Value = std::variant<std::string, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1466 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1467 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1468 {
@@ -22628,11 +22634,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1469 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1470 {
-using Value = std::variant<std::string, std::nullptr_t>;
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
 struct ProjectNode1471 {
@@ -22648,148 +22654,148 @@ using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1474 {
-enum class Value { choice0, choice1, choice2, choice3 };
+using Value = std::variant<std::string, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1475 {
-double field_x;
-double field_y;
-};
-struct ProjectNode1476 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1477 {
-using Value = std::variant<std::shared_ptr<ProjectNode652>, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode1478 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1479 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
-struct ProjectNode1480 {
+struct ProjectNode1476 {
+double field_x;
+double field_y;
+};
+struct ProjectNode1477 {
 enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1478 {
+using Value = std::variant<std::shared_ptr<ProjectNode653>, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode1479 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
+struct ProjectNode1480 {
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct ProjectNode1481 {
-std::shared_ptr<ProjectNode1503> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1482 {
-enum class Value { choice0 };
-Value value;
-};
-struct ProjectNode1483 {
 std::shared_ptr<ProjectNode1504> field__u24_ref;
 };
-struct ProjectNode1484 {
+struct ProjectNode1483 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1484 {
+std::shared_ptr<ProjectNode1505> field__u24_ref;
 };
 struct ProjectNode1485 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1486 {
-std::string field_layerId;
-std::optional<std::shared_ptr<ProjectNode1505>> field_visual;
-std::optional<std::shared_ptr<ProjectNode1506>> field_materialApplication;
-std::optional<std::shared_ptr<ProjectNode1417>> field_offset;
-std::optional<double> field_scale;
-std::optional<std::shared_ptr<ProjectNode1417>> field_anchor;
-std::optional<bool> field_visible;
-};
-struct ProjectNode1487 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1487 {
+std::string field_layerId;
+std::optional<std::shared_ptr<ProjectNode1506>> field_visual;
+std::optional<std::shared_ptr<ProjectNode1507>> field_materialApplication;
+std::optional<std::shared_ptr<ProjectNode1418>> field_offset;
+std::optional<double> field_scale;
+std::optional<std::shared_ptr<ProjectNode1418>> field_anchor;
+std::optional<bool> field_visible;
 };
 struct ProjectNode1488 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1489 {
-std::shared_ptr<ProjectNode1507> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1490 {
-std::shared_ptr<ProjectNode1508> field_registry;
-std::string field_id;
+std::shared_ptr<ProjectNode1508> field__u24_ref;
 };
 struct ProjectNode1491 {
-std::shared_ptr<ProjectNode1509> field_ownerKind;
-std::shared_ptr<ProjectNode434> field_room;
-std::string field_featureId;
+std::shared_ptr<ProjectNode1509> field_registry;
+std::string field_id;
 };
 struct ProjectNode1492 {
 std::shared_ptr<ProjectNode1510> field_ownerKind;
-std::shared_ptr<ProjectNode1425> field_interactable;
+std::shared_ptr<ProjectNode435> field_room;
 std::string field_featureId;
 };
 struct ProjectNode1493 {
-std::string field_motionId;
-std::shared_ptr<ProjectNode1511> field_keyframes;
+std::shared_ptr<ProjectNode1511> field_ownerKind;
+std::shared_ptr<ProjectNode1426> field_interactable;
+std::string field_featureId;
 };
 struct ProjectNode1494 {
-enum class Value { choice0 };
-Value value;
+std::string field_motionId;
+std::shared_ptr<ProjectNode1512> field_keyframes;
 };
 struct ProjectNode1495 {
-using Value = std::variant<std::shared_ptr<ProjectNode1512>, std::shared_ptr<ProjectNode1513>, std::shared_ptr<ProjectNode1514>, std::shared_ptr<ProjectNode1515>, std::shared_ptr<ProjectNode1516>, std::shared_ptr<ProjectNode1517>, std::shared_ptr<ProjectNode1518>, std::shared_ptr<ProjectNode1519>, std::shared_ptr<ProjectNode1520>>;
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1496 {
-std::string field_inputId;
-std::shared_ptr<ProjectNode616> field_value;
+using Value = std::variant<std::shared_ptr<ProjectNode1513>, std::shared_ptr<ProjectNode1514>, std::shared_ptr<ProjectNode1515>, std::shared_ptr<ProjectNode1516>, std::shared_ptr<ProjectNode1517>, std::shared_ptr<ProjectNode1518>, std::shared_ptr<ProjectNode1519>, std::shared_ptr<ProjectNode1520>, std::shared_ptr<ProjectNode1521>>;
+Value value;
 };
 struct ProjectNode1497 {
-std::shared_ptr<ProjectNode1521> field_kind;
-std::shared_ptr<ProjectNode294> field_archetype;
+std::string field_inputId;
+std::shared_ptr<ProjectNode617> field_value;
 };
 struct ProjectNode1498 {
 std::shared_ptr<ProjectNode1522> field_kind;
-std::shared_ptr<ProjectNode1458> field_instance;
+std::shared_ptr<ProjectNode294> field_archetype;
 };
 struct ProjectNode1499 {
 std::shared_ptr<ProjectNode1523> field_kind;
-std::shared_ptr<ProjectNode1458> field_instance;
+std::shared_ptr<ProjectNode1459> field_instance;
 };
 struct ProjectNode1500 {
 std::shared_ptr<ProjectNode1524> field_kind;
-std::shared_ptr<ProjectNode434> field_room;
+std::shared_ptr<ProjectNode1459> field_instance;
 };
 struct ProjectNode1501 {
 std::shared_ptr<ProjectNode1525> field_kind;
-std::shared_ptr<ProjectNode569> field_character;
+std::shared_ptr<ProjectNode435> field_room;
 };
 struct ProjectNode1502 {
 std::shared_ptr<ProjectNode1526> field_kind;
-std::shared_ptr<ProjectNode1527> field_interactable;
+std::shared_ptr<ProjectNode570> field_character;
 };
 struct ProjectNode1503 {
-std::shared_ptr<ProjectNode1528> field_collection;
-std::string field_id;
+std::shared_ptr<ProjectNode1527> field_kind;
+std::shared_ptr<ProjectNode1528> field_interactable;
 };
 struct ProjectNode1504 {
-std::shared_ptr<ProjectNode1529> field_registry;
+std::shared_ptr<ProjectNode1529> field_collection;
 std::string field_id;
 };
 struct ProjectNode1505 {
-using Value = std::variant<std::shared_ptr<ProjectNode780>, std::nullptr_t>;
-Value value;
+std::shared_ptr<ProjectNode1530> field_registry;
+std::string field_id;
 };
 struct ProjectNode1506 {
-using Value = std::variant<std::shared_ptr<ProjectNode735>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<ProjectNode781>, std::nullptr_t>;
 Value value;
 };
 struct ProjectNode1507 {
-std::shared_ptr<ProjectNode1530> field_collection;
-std::string field_id;
+using Value = std::variant<std::shared_ptr<ProjectNode736>, std::nullptr_t>;
+Value value;
 };
 struct ProjectNode1508 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<ProjectNode1531> field_collection;
+std::string field_id;
 };
 struct ProjectNode1509 {
 enum class Value { choice0 };
@@ -22800,81 +22806,81 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1511 {
-std::vector<std::shared_ptr<ProjectNode1531>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1512 {
-std::string field_id;
-std::shared_ptr<ProjectNode1532> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::string field_token;
+std::vector<std::shared_ptr<ProjectNode1532>> value;
 };
 struct ProjectNode1513 {
 std::string field_id;
-std::shared_ptr<ProjectNode1534> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
+std::shared_ptr<ProjectNode1533> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
 std::string field_token;
-std::string field_message;
 };
 struct ProjectNode1514 {
 std::string field_id;
 std::shared_ptr<ProjectNode1535> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::string field_expressionId;
+std::shared_ptr<ProjectNode1534> field_position;
+std::string field_token;
+std::string field_message;
 };
 struct ProjectNode1515 {
 std::string field_id;
 std::shared_ptr<ProjectNode1536> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::shared_ptr<ProjectNode1537> field_mutation;
+std::shared_ptr<ProjectNode1534> field_position;
+std::string field_expressionId;
 };
 struct ProjectNode1516 {
 std::string field_id;
-std::shared_ptr<ProjectNode1538> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::shared_ptr<ProjectNode1539> field_mutation;
+std::shared_ptr<ProjectNode1537> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
+std::shared_ptr<ProjectNode1538> field_mutation;
 };
 struct ProjectNode1517 {
 std::string field_id;
-std::shared_ptr<ProjectNode1540> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
+std::shared_ptr<ProjectNode1539> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
+std::shared_ptr<ProjectNode1540> field_mutation;
+};
+struct ProjectNode1518 {
+std::string field_id;
+std::shared_ptr<ProjectNode1541> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
 std::string field_slotId;
 std::string field_gestureId;
 bool field_waitForCompletion;
 bool field_skippable;
 };
-struct ProjectNode1518 {
-std::string field_id;
-std::shared_ptr<ProjectNode1541> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::shared_ptr<ProjectNode748> field_asset;
-std::shared_ptr<ProjectNode1542> field_pausePolicy;
-double field_gain;
-double field_pan;
-bool field_waitForCompletion;
-std::shared_ptr<ProjectNode1543> field_skipBehavior;
-};
 struct ProjectNode1519 {
 std::string field_id;
-std::shared_ptr<ProjectNode1544> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::shared_ptr<ProjectNode748> field_asset;
-std::shared_ptr<ProjectNode1545> field_pausePolicy;
+std::shared_ptr<ProjectNode1542> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
+std::shared_ptr<ProjectNode749> field_asset;
+std::shared_ptr<ProjectNode1543> field_pausePolicy;
 double field_gain;
 double field_pan;
 bool field_waitForCompletion;
-std::shared_ptr<ProjectNode1546> field_causality;
-bool field_synchronized;
-std::shared_ptr<ProjectNode1547> field_skipBehavior;
+std::shared_ptr<ProjectNode1544> field_skipBehavior;
 };
 struct ProjectNode1520 {
 std::string field_id;
-std::shared_ptr<ProjectNode1548> field_kind;
-std::shared_ptr<ProjectNode1533> field_position;
-std::shared_ptr<ProjectNode1549> field_emphasis;
+std::shared_ptr<ProjectNode1545> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
+std::shared_ptr<ProjectNode749> field_asset;
+std::shared_ptr<ProjectNode1546> field_pausePolicy;
+double field_gain;
+double field_pan;
+bool field_waitForCompletion;
+std::shared_ptr<ProjectNode1547> field_causality;
+bool field_synchronized;
+std::shared_ptr<ProjectNode1548> field_skipBehavior;
 };
 struct ProjectNode1521 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::shared_ptr<ProjectNode1549> field_kind;
+std::shared_ptr<ProjectNode1534> field_position;
+std::shared_ptr<ProjectNode1550> field_emphasis;
 };
 struct ProjectNode1522 {
 enum class Value { choice0 };
@@ -22897,11 +22903,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1527 {
-std::shared_ptr<ProjectNode1550> field__u24_ref;
-};
-struct ProjectNode1528 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1528 {
+std::shared_ptr<ProjectNode1551> field__u24_ref;
 };
 struct ProjectNode1529 {
 enum class Value { choice0 };
@@ -22912,22 +22918,22 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1531 {
-std::int64_t field_timeMs;
-std::shared_ptr<ProjectNode1551> field_interpolation;
-bool field_active;
-std::shared_ptr<ProjectNode1030> field_bounds;
+enum class Value { choice0 };
+Value value;
 };
 struct ProjectNode1532 {
-enum class Value { choice0 };
-Value value;
+std::int64_t field_timeMs;
+std::shared_ptr<ProjectNode1552> field_interpolation;
+bool field_active;
+std::shared_ptr<ProjectNode1031> field_bounds;
 };
 struct ProjectNode1533 {
-std::int64_t field_offset;
-std::int64_t field_order;
-};
-struct ProjectNode1534 {
 enum class Value { choice0 };
 Value value;
+};
+struct ProjectNode1534 {
+std::int64_t field_offset;
+std::int64_t field_order;
 };
 struct ProjectNode1535 {
 enum class Value { choice0 };
@@ -22938,36 +22944,36 @@ enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1537 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1538 {
 std::string field_slotId;
-std::shared_ptr<ProjectNode1552> field_action;
-std::optional<std::shared_ptr<ProjectNode569>> field_character;
+std::shared_ptr<ProjectNode1553> field_action;
+std::optional<std::shared_ptr<ProjectNode570>> field_character;
 std::optional<std::string> field_profileId;
 std::optional<std::string> field_poseId;
 std::optional<std::string> field_expressionId;
-std::optional<std::shared_ptr<ProjectNode1553>> field_appearanceId;
-std::optional<std::shared_ptr<ProjectNode1554>> field_position;
-std::optional<std::shared_ptr<ProjectNode1555>> field_offset;
+std::optional<std::shared_ptr<ProjectNode1554>> field_appearanceId;
+std::optional<std::shared_ptr<ProjectNode1555>> field_position;
+std::optional<std::shared_ptr<ProjectNode1556>> field_offset;
 std::optional<double> field_scale;
 };
-struct ProjectNode1538 {
+struct ProjectNode1539 {
 enum class Value { choice0 };
 Value value;
-};
-struct ProjectNode1539 {
-std::string field_slotId;
-std::shared_ptr<ProjectNode1556> field_action;
-std::optional<std::shared_ptr<ProjectNode1048>> field_content;
 };
 struct ProjectNode1540 {
-enum class Value { choice0 };
-Value value;
+std::string field_slotId;
+std::shared_ptr<ProjectNode1557> field_action;
+std::optional<std::shared_ptr<ProjectNode1049>> field_content;
 };
 struct ProjectNode1541 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1542 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1543 {
@@ -22975,103 +22981,107 @@ enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1544 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct ProjectNode1545 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1546 {
-enum class Value { choice0, choice1 };
-Value value;
-};
-struct ProjectNode1547 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct ProjectNode1548 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1549 {
-using Value = std::variant<std::shared_ptr<ProjectNode1557>, std::shared_ptr<ProjectNode1558>, std::shared_ptr<ProjectNode1559>>;
-Value value;
-};
-struct ProjectNode1550 {
-std::shared_ptr<ProjectNode1560> field_collection;
-std::string field_id;
-};
-struct ProjectNode1551 {
-enum class Value { choice0, choice1 };
-Value value;
-};
-struct ProjectNode1552 {
-enum class Value { choice0, choice1, choice2, choice3 };
-Value value;
-};
-struct ProjectNode1553 {
-using Value = std::variant<std::string, std::nullptr_t>;
-Value value;
-};
-struct ProjectNode1554 {
+struct ProjectNode1546 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
-struct ProjectNode1555 {
-double field_x;
-double field_y;
+struct ProjectNode1547 {
+enum class Value { choice0, choice1 };
+Value value;
 };
-struct ProjectNode1556 {
+struct ProjectNode1548 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
+struct ProjectNode1549 {
+enum class Value { choice0 };
+Value value;
+};
+struct ProjectNode1550 {
+using Value = std::variant<std::shared_ptr<ProjectNode1558>, std::shared_ptr<ProjectNode1559>, std::shared_ptr<ProjectNode1560>>;
+Value value;
+};
+struct ProjectNode1551 {
+std::shared_ptr<ProjectNode1561> field_collection;
+std::string field_id;
+};
+struct ProjectNode1552 {
+enum class Value { choice0, choice1 };
+Value value;
+};
+struct ProjectNode1553 {
 enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
+struct ProjectNode1554 {
+using Value = std::variant<std::string, std::nullptr_t>;
+Value value;
+};
+struct ProjectNode1555 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
+struct ProjectNode1556 {
+double field_x;
+double field_y;
+};
 struct ProjectNode1557 {
-std::shared_ptr<ProjectNode1561> field_kind;
-std::shared_ptr<ProjectNode1562> field_amplitude;
+enum class Value { choice0, choice1, choice2, choice3 };
+Value value;
+};
+struct ProjectNode1558 {
+std::shared_ptr<ProjectNode1562> field_kind;
+std::shared_ptr<ProjectNode1563> field_amplitude;
 double field_frequencyHz;
 std::int64_t field_durationMs;
 bool field_skippable;
 bool field_waitForCompletion;
 };
-struct ProjectNode1558 {
-std::shared_ptr<ProjectNode1563> field_kind;
-std::shared_ptr<ProjectNode1564> field_translation;
+struct ProjectNode1559 {
+std::shared_ptr<ProjectNode1564> field_kind;
+std::shared_ptr<ProjectNode1565> field_translation;
 double field_zoomDelta;
 double field_rotationDegrees;
 std::int64_t field_durationMs;
 bool field_skippable;
 bool field_waitForCompletion;
 };
-struct ProjectNode1559 {
-std::shared_ptr<ProjectNode1565> field_kind;
+struct ProjectNode1560 {
+std::shared_ptr<ProjectNode1566> field_kind;
 std::string field_color;
 double field_opacity;
 std::int64_t field_durationMs;
 bool field_skippable;
 bool field_waitForCompletion;
 };
-struct ProjectNode1560 {
-enum class Value { choice0 };
-Value value;
-};
 struct ProjectNode1561 {
 enum class Value { choice0 };
 Value value;
 };
 struct ProjectNode1562 {
-double field_x;
-double field_y;
-};
-struct ProjectNode1563 {
 enum class Value { choice0 };
 Value value;
 };
-struct ProjectNode1564 {
+struct ProjectNode1563 {
 double field_x;
 double field_y;
 };
+struct ProjectNode1564 {
+enum class Value { choice0 };
+Value value;
+};
 struct ProjectNode1565 {
+double field_x;
+double field_y;
+};
+struct ProjectNode1566 {
 enum class Value { choice0 };
 Value value;
 };
@@ -30406,48 +30416,51 @@ std::shared_ptr<WorkspaceManifestNode124> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<WorkspaceManifestNode125> field_buildFlavor;
-std::optional<std::shared_ptr<WorkspaceManifestNode126>> field_compression;
+std::optional<std::shared_ptr<WorkspaceManifestNode126>> field_playerVariant;
+std::optional<std::shared_ptr<WorkspaceManifestNode127>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<WorkspaceManifestNode127>> field_assetMemory;
+std::optional<std::shared_ptr<WorkspaceManifestNode128>> field_assetMemory;
 std::optional<std::shared_ptr<WorkspaceManifestNode52>> field_localization;
-std::shared_ptr<WorkspaceManifestNode128> field_target;
-std::shared_ptr<WorkspaceManifestNode129> field_architecture;
-std::shared_ptr<WorkspaceManifestNode130> field_packageAccess;
-std::shared_ptr<WorkspaceManifestNode131> field_desktop;
+std::shared_ptr<WorkspaceManifestNode129> field_target;
+std::shared_ptr<WorkspaceManifestNode130> field_architecture;
+std::shared_ptr<WorkspaceManifestNode131> field_packageAccess;
+std::shared_ptr<WorkspaceManifestNode132> field_desktop;
 };
 struct WorkspaceManifestNode94 {
 std::shared_ptr<WorkspaceManifestNode124> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<WorkspaceManifestNode125> field_buildFlavor;
-std::optional<std::shared_ptr<WorkspaceManifestNode126>> field_compression;
+std::optional<std::shared_ptr<WorkspaceManifestNode126>> field_playerVariant;
+std::optional<std::shared_ptr<WorkspaceManifestNode127>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<WorkspaceManifestNode127>> field_assetMemory;
+std::optional<std::shared_ptr<WorkspaceManifestNode128>> field_assetMemory;
 std::optional<std::shared_ptr<WorkspaceManifestNode52>> field_localization;
-std::shared_ptr<WorkspaceManifestNode132> field_target;
-std::shared_ptr<WorkspaceManifestNode133> field_architecture;
-std::shared_ptr<WorkspaceManifestNode134> field_packageAccess;
-std::shared_ptr<WorkspaceManifestNode135> field_web;
+std::shared_ptr<WorkspaceManifestNode133> field_target;
+std::shared_ptr<WorkspaceManifestNode134> field_architecture;
+std::shared_ptr<WorkspaceManifestNode135> field_packageAccess;
+std::shared_ptr<WorkspaceManifestNode136> field_web;
 };
 struct WorkspaceManifestNode95 {
 std::shared_ptr<WorkspaceManifestNode124> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<WorkspaceManifestNode125> field_buildFlavor;
-std::optional<std::shared_ptr<WorkspaceManifestNode126>> field_compression;
+std::optional<std::shared_ptr<WorkspaceManifestNode126>> field_playerVariant;
+std::optional<std::shared_ptr<WorkspaceManifestNode127>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<WorkspaceManifestNode127>> field_assetMemory;
+std::optional<std::shared_ptr<WorkspaceManifestNode128>> field_assetMemory;
 std::optional<std::shared_ptr<WorkspaceManifestNode52>> field_localization;
-std::shared_ptr<WorkspaceManifestNode136> field_target;
-std::shared_ptr<WorkspaceManifestNode137> field_architecture;
-std::shared_ptr<WorkspaceManifestNode138> field_packageAccess;
-std::shared_ptr<WorkspaceManifestNode139> field_android;
+std::shared_ptr<WorkspaceManifestNode137> field_target;
+std::shared_ptr<WorkspaceManifestNode138> field_architecture;
+std::shared_ptr<WorkspaceManifestNode139> field_packageAccess;
+std::shared_ptr<WorkspaceManifestNode140> field_android;
 };
 struct WorkspaceManifestNode96 {
 enum class Value { choice0, choice1, choice2 };
@@ -30463,26 +30476,26 @@ std::optional<std::int64_t> field_warmGpuBytes;
 std::optional<std::int64_t> field_warmAudioBytes;
 };
 struct WorkspaceManifestNode98 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode140>, std::shared_ptr<WorkspaceManifestNode141>, std::shared_ptr<WorkspaceManifestNode142>, std::shared_ptr<WorkspaceManifestNode143>, std::shared_ptr<WorkspaceManifestNode144>, std::shared_ptr<WorkspaceManifestNode145>, std::shared_ptr<WorkspaceManifestNode146>, std::shared_ptr<WorkspaceManifestNode147>, std::shared_ptr<WorkspaceManifestNode148>, std::shared_ptr<WorkspaceManifestNode149>, std::shared_ptr<WorkspaceManifestNode150>, std::shared_ptr<WorkspaceManifestNode151>, std::shared_ptr<WorkspaceManifestNode152>, std::shared_ptr<WorkspaceManifestNode153>, std::shared_ptr<WorkspaceManifestNode154>, std::shared_ptr<WorkspaceManifestNode155>, std::shared_ptr<WorkspaceManifestNode156>, std::shared_ptr<WorkspaceManifestNode157>, std::shared_ptr<WorkspaceManifestNode158>, std::shared_ptr<WorkspaceManifestNode159>, std::shared_ptr<WorkspaceManifestNode160>, std::shared_ptr<WorkspaceManifestNode161>, std::shared_ptr<WorkspaceManifestNode162>, std::shared_ptr<WorkspaceManifestNode163>, std::shared_ptr<WorkspaceManifestNode164>, std::shared_ptr<WorkspaceManifestNode165>, std::shared_ptr<WorkspaceManifestNode166>, std::shared_ptr<WorkspaceManifestNode167>>;
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode141>, std::shared_ptr<WorkspaceManifestNode142>, std::shared_ptr<WorkspaceManifestNode143>, std::shared_ptr<WorkspaceManifestNode144>, std::shared_ptr<WorkspaceManifestNode145>, std::shared_ptr<WorkspaceManifestNode146>, std::shared_ptr<WorkspaceManifestNode147>, std::shared_ptr<WorkspaceManifestNode148>, std::shared_ptr<WorkspaceManifestNode149>, std::shared_ptr<WorkspaceManifestNode150>, std::shared_ptr<WorkspaceManifestNode151>, std::shared_ptr<WorkspaceManifestNode152>, std::shared_ptr<WorkspaceManifestNode153>, std::shared_ptr<WorkspaceManifestNode154>, std::shared_ptr<WorkspaceManifestNode155>, std::shared_ptr<WorkspaceManifestNode156>, std::shared_ptr<WorkspaceManifestNode157>, std::shared_ptr<WorkspaceManifestNode158>, std::shared_ptr<WorkspaceManifestNode159>, std::shared_ptr<WorkspaceManifestNode160>, std::shared_ptr<WorkspaceManifestNode161>, std::shared_ptr<WorkspaceManifestNode162>, std::shared_ptr<WorkspaceManifestNode163>, std::shared_ptr<WorkspaceManifestNode164>, std::shared_ptr<WorkspaceManifestNode165>, std::shared_ptr<WorkspaceManifestNode166>, std::shared_ptr<WorkspaceManifestNode167>, std::shared_ptr<WorkspaceManifestNode168>>;
 Value value;
 };
 struct WorkspaceManifestNode99 {
-std::shared_ptr<WorkspaceManifestNode168> field_kind;
-std::string field_id;
-};
-struct WorkspaceManifestNode100 {
 std::shared_ptr<WorkspaceManifestNode169> field_kind;
 std::string field_id;
 };
-struct WorkspaceManifestNode101 {
+struct WorkspaceManifestNode100 {
 std::shared_ptr<WorkspaceManifestNode170> field_kind;
 std::string field_id;
 };
-struct WorkspaceManifestNode102 {
+struct WorkspaceManifestNode101 {
 std::shared_ptr<WorkspaceManifestNode171> field_kind;
+std::string field_id;
+};
+struct WorkspaceManifestNode102 {
+std::shared_ptr<WorkspaceManifestNode172> field_kind;
 };
 struct WorkspaceManifestNode103 {
-std::shared_ptr<WorkspaceManifestNode172> field_kind;
+std::shared_ptr<WorkspaceManifestNode173> field_kind;
 };
 struct WorkspaceManifestNode104 {
 enum class Value { choice0 };
@@ -30497,19 +30510,19 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode107 {
-std::shared_ptr<WorkspaceManifestNode173> field_collection;
+std::shared_ptr<WorkspaceManifestNode174> field_collection;
 std::string field_id;
 };
 struct WorkspaceManifestNode108 {
-std::shared_ptr<WorkspaceManifestNode174> field_kind;
+std::shared_ptr<WorkspaceManifestNode175> field_kind;
 };
 struct WorkspaceManifestNode109 {
-std::shared_ptr<WorkspaceManifestNode175> field_kind;
-std::shared_ptr<WorkspaceManifestNode176> field_room;
+std::shared_ptr<WorkspaceManifestNode176> field_kind;
+std::shared_ptr<WorkspaceManifestNode177> field_room;
 };
 struct WorkspaceManifestNode110 {
-std::shared_ptr<WorkspaceManifestNode177> field_kind;
-std::shared_ptr<WorkspaceManifestNode178> field_inventory;
+std::shared_ptr<WorkspaceManifestNode178> field_kind;
+std::shared_ptr<WorkspaceManifestNode179> field_inventory;
 };
 struct WorkspaceManifestNode111 {
 std::vector<std::string> value;
@@ -30521,48 +30534,48 @@ struct WorkspaceManifestNode113 {
 std::string field_id;
 std::optional<std::string> field_label;
 std::optional<std::string> field_description;
-std::shared_ptr<WorkspaceManifestNode179> field_type;
+std::shared_ptr<WorkspaceManifestNode180> field_type;
 bool field_nullable;
-std::shared_ptr<WorkspaceManifestNode180> field_value;
-std::optional<std::shared_ptr<WorkspaceManifestNode181>> field_enumValues;
+std::shared_ptr<WorkspaceManifestNode181> field_value;
+std::optional<std::shared_ptr<WorkspaceManifestNode182>> field_enumValues;
 };
 struct WorkspaceManifestNode114 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode182>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode183>, std::nullptr_t>;
 Value value;
 };
 struct WorkspaceManifestNode115 {
-std::map<std::string, std::shared_ptr<WorkspaceManifestNode183>> additional;
+std::map<std::string, std::shared_ptr<WorkspaceManifestNode184>> additional;
 };
 struct WorkspaceManifestNode116 {
-std::map<std::string, std::shared_ptr<WorkspaceManifestNode184>> additional;
+std::map<std::string, std::shared_ptr<WorkspaceManifestNode185>> additional;
 };
 struct WorkspaceManifestNode117 {
 std::string field_featureId;
-std::shared_ptr<WorkspaceManifestNode185> field_traits;
-std::shared_ptr<WorkspaceManifestNode186> field_properties;
+std::shared_ptr<WorkspaceManifestNode186> field_traits;
+std::shared_ptr<WorkspaceManifestNode187> field_properties;
 };
 struct WorkspaceManifestNode118 {
-std::shared_ptr<WorkspaceManifestNode187> field_collection;
-std::string field_id;
-};
-struct WorkspaceManifestNode119 {
 std::shared_ptr<WorkspaceManifestNode188> field_collection;
 std::string field_id;
 };
+struct WorkspaceManifestNode119 {
+std::shared_ptr<WorkspaceManifestNode189> field_collection;
+std::string field_id;
+};
 struct WorkspaceManifestNode120 {
-std::shared_ptr<WorkspaceManifestNode189> field_kind;
-std::shared_ptr<WorkspaceManifestNode190> field_cursor;
+std::shared_ptr<WorkspaceManifestNode190> field_kind;
+std::shared_ptr<WorkspaceManifestNode191> field_cursor;
 };
 struct WorkspaceManifestNode121 {
-std::shared_ptr<WorkspaceManifestNode191> field_kind;
+std::shared_ptr<WorkspaceManifestNode192> field_kind;
 std::string field_id;
 };
 struct WorkspaceManifestNode122 {
-std::shared_ptr<WorkspaceManifestNode192> field_kind;
+std::shared_ptr<WorkspaceManifestNode193> field_kind;
 };
 struct WorkspaceManifestNode123 {
-std::shared_ptr<WorkspaceManifestNode193> field_kind;
-std::shared_ptr<WorkspaceManifestNode194> field_semantic;
+std::shared_ptr<WorkspaceManifestNode194> field_kind;
+std::shared_ptr<WorkspaceManifestNode195> field_semantic;
 };
 struct WorkspaceManifestNode124 {
 enum class Value { choice0 };
@@ -30573,19 +30586,19 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode126 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode127 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode195>, std::shared_ptr<WorkspaceManifestNode196>>;
-Value value;
-};
-struct WorkspaceManifestNode128 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
+struct WorkspaceManifestNode128 {
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode196>, std::shared_ptr<WorkspaceManifestNode197>>;
+Value value;
+};
 struct WorkspaceManifestNode129 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct WorkspaceManifestNode130 {
@@ -30593,12 +30606,12 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode131 {
-std::shared_ptr<WorkspaceManifestNode197> field_artifact;
-std::string field_executableName;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct WorkspaceManifestNode132 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceManifestNode198> field_artifact;
+std::string field_executableName;
 };
 struct WorkspaceManifestNode133 {
 enum class Value { choice0 };
@@ -30609,19 +30622,19 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode135 {
-std::shared_ptr<WorkspaceManifestNode198> field_artifact;
-std::optional<bool> field_threaded;
-std::optional<bool> field_pwa;
-std::optional<std::shared_ptr<WorkspaceManifestNode199>> field_display;
-std::optional<std::string> field_basePath;
-std::optional<std::shared_ptr<WorkspaceManifestNode200>> field_serviceWorker;
-};
-struct WorkspaceManifestNode136 {
 enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceManifestNode136 {
+std::shared_ptr<WorkspaceManifestNode199> field_artifact;
+std::optional<bool> field_threaded;
+std::optional<bool> field_pwa;
+std::optional<std::shared_ptr<WorkspaceManifestNode200>> field_display;
+std::optional<std::string> field_basePath;
+std::optional<std::shared_ptr<WorkspaceManifestNode201>> field_serviceWorker;
+};
 struct WorkspaceManifestNode137 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode138 {
@@ -30629,198 +30642,198 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode139 {
-std::shared_ptr<WorkspaceManifestNode201> field_artifact;
-std::shared_ptr<WorkspaceManifestNode202> field_abi;
-std::int64_t field_minSdk;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct WorkspaceManifestNode140 {
-std::string field_id;
-std::shared_ptr<WorkspaceManifestNode203> field_kind;
-std::shared_ptr<WorkspaceManifestNode204> field_variable;
-std::shared_ptr<WorkspaceManifestNode205> field_value;
+std::shared_ptr<WorkspaceManifestNode202> field_artifact;
+std::shared_ptr<WorkspaceManifestNode203> field_abi;
+std::int64_t field_minSdk;
 };
 struct WorkspaceManifestNode141 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode206> field_kind;
-std::shared_ptr<WorkspaceManifestNode204> field_variable;
+std::shared_ptr<WorkspaceManifestNode204> field_kind;
+std::shared_ptr<WorkspaceManifestNode205> field_variable;
+std::shared_ptr<WorkspaceManifestNode206> field_value;
 };
 struct WorkspaceManifestNode142 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode207> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_owner;
-std::string field_propertyId;
-std::shared_ptr<WorkspaceManifestNode205> field_value;
+std::shared_ptr<WorkspaceManifestNode205> field_variable;
 };
 struct WorkspaceManifestNode143 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode209> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_owner;
+std::shared_ptr<WorkspaceManifestNode208> field_kind;
+std::shared_ptr<WorkspaceManifestNode209> field_owner;
 std::string field_propertyId;
+std::shared_ptr<WorkspaceManifestNode206> field_value;
 };
 struct WorkspaceManifestNode144 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode210> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_owner;
-std::shared_ptr<WorkspaceManifestNode211> field_trait;
+std::shared_ptr<WorkspaceManifestNode209> field_owner;
+std::string field_propertyId;
 };
 struct WorkspaceManifestNode145 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode212> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_owner;
-std::shared_ptr<WorkspaceManifestNode211> field_trait;
+std::shared_ptr<WorkspaceManifestNode211> field_kind;
+std::shared_ptr<WorkspaceManifestNode209> field_owner;
+std::shared_ptr<WorkspaceManifestNode212> field_trait;
 };
 struct WorkspaceManifestNode146 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode213> field_kind;
-std::shared_ptr<WorkspaceManifestNode214> field_subject;
-bool field_enabled;
+std::shared_ptr<WorkspaceManifestNode209> field_owner;
+std::shared_ptr<WorkspaceManifestNode212> field_trait;
 };
 struct WorkspaceManifestNode147 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode215> field_kind;
-std::shared_ptr<WorkspaceManifestNode214> field_subject;
-bool field_visible;
+std::shared_ptr<WorkspaceManifestNode214> field_kind;
+std::shared_ptr<WorkspaceManifestNode215> field_subject;
+bool field_enabled;
 };
 struct WorkspaceManifestNode148 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode216> field_kind;
-std::shared_ptr<WorkspaceManifestNode214> field_subject;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
-std::optional<std::shared_ptr<WorkspaceManifestNode218>> field_roomPresentation;
+std::shared_ptr<WorkspaceManifestNode215> field_subject;
+bool field_visible;
 };
 struct WorkspaceManifestNode149 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode219> field_kind;
-std::shared_ptr<WorkspaceManifestNode220> field_source;
-std::optional<std::string> field_result;
+std::shared_ptr<WorkspaceManifestNode217> field_kind;
+std::shared_ptr<WorkspaceManifestNode215> field_subject;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
+std::optional<std::shared_ptr<WorkspaceManifestNode219>> field_roomPresentation;
 };
 struct WorkspaceManifestNode150 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode221> field_kind;
-std::shared_ptr<WorkspaceManifestNode220> field_source;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
-bool field_enabled;
-bool field_visible;
+std::shared_ptr<WorkspaceManifestNode220> field_kind;
+std::shared_ptr<WorkspaceManifestNode221> field_source;
 std::optional<std::string> field_result;
 };
 struct WorkspaceManifestNode151 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode222> field_kind;
-std::shared_ptr<WorkspaceManifestNode223> field_definition;
-std::int64_t field_quantity;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
+std::shared_ptr<WorkspaceManifestNode221> field_source;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
 bool field_enabled;
 bool field_visible;
-std::optional<std::shared_ptr<WorkspaceManifestNode224>> field_roomPresentation;
 std::optional<std::string> field_result;
 };
 struct WorkspaceManifestNode152 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode225> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_instance;
+std::shared_ptr<WorkspaceManifestNode223> field_kind;
+std::shared_ptr<WorkspaceManifestNode224> field_definition;
+std::int64_t field_quantity;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
+bool field_enabled;
+bool field_visible;
+std::optional<std::shared_ptr<WorkspaceManifestNode225>> field_roomPresentation;
+std::optional<std::string> field_result;
 };
 struct WorkspaceManifestNode153 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode226> field_kind;
-std::shared_ptr<WorkspaceManifestNode227> field_source;
-std::int64_t field_quantity;
-std::optional<std::string> field_result;
+std::shared_ptr<WorkspaceManifestNode209> field_instance;
 };
 struct WorkspaceManifestNode154 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode228> field_kind;
-std::shared_ptr<WorkspaceManifestNode227> field_receiver;
-std::shared_ptr<WorkspaceManifestNode227> field_donor;
+std::shared_ptr<WorkspaceManifestNode227> field_kind;
+std::shared_ptr<WorkspaceManifestNode228> field_source;
+std::int64_t field_quantity;
+std::optional<std::string> field_result;
 };
 struct WorkspaceManifestNode155 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode229> field_kind;
-std::shared_ptr<WorkspaceManifestNode230> field_mode;
-std::shared_ptr<WorkspaceManifestNode227> field_source;
-std::int64_t field_quantity;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
-std::optional<std::string> field_result;
+std::shared_ptr<WorkspaceManifestNode228> field_receiver;
+std::shared_ptr<WorkspaceManifestNode228> field_donor;
 };
 struct WorkspaceManifestNode156 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode231> field_kind;
-std::shared_ptr<WorkspaceManifestNode232> field_mode;
-std::shared_ptr<WorkspaceManifestNode233> field_matcher;
-std::optional<std::shared_ptr<WorkspaceManifestNode234>> field_sourceInventory;
+std::shared_ptr<WorkspaceManifestNode230> field_kind;
+std::shared_ptr<WorkspaceManifestNode231> field_mode;
+std::shared_ptr<WorkspaceManifestNode228> field_source;
 std::int64_t field_quantity;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
+std::optional<std::string> field_result;
 };
 struct WorkspaceManifestNode157 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode235> field_kind;
-std::shared_ptr<WorkspaceManifestNode223> field_definition;
+std::shared_ptr<WorkspaceManifestNode232> field_kind;
+std::shared_ptr<WorkspaceManifestNode233> field_mode;
+std::shared_ptr<WorkspaceManifestNode234> field_matcher;
+std::optional<std::shared_ptr<WorkspaceManifestNode235>> field_sourceInventory;
 std::int64_t field_quantity;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
 };
 struct WorkspaceManifestNode158 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode236> field_kind;
-std::shared_ptr<WorkspaceManifestNode237> field_mode;
-std::shared_ptr<WorkspaceManifestNode227> field_source;
+std::shared_ptr<WorkspaceManifestNode224> field_definition;
 std::int64_t field_quantity;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
 };
 struct WorkspaceManifestNode159 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode238> field_kind;
-std::shared_ptr<WorkspaceManifestNode239> field_mode;
-std::shared_ptr<WorkspaceManifestNode233> field_matcher;
-std::optional<std::shared_ptr<WorkspaceManifestNode234>> field_sourceInventory;
+std::shared_ptr<WorkspaceManifestNode237> field_kind;
+std::shared_ptr<WorkspaceManifestNode238> field_mode;
+std::shared_ptr<WorkspaceManifestNode228> field_source;
 std::int64_t field_quantity;
 };
 struct WorkspaceManifestNode160 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode240> field_kind;
-std::shared_ptr<WorkspaceManifestNode234> field_inventory;
-std::optional<std::shared_ptr<WorkspaceManifestNode241>> field_layout;
+std::shared_ptr<WorkspaceManifestNode239> field_kind;
+std::shared_ptr<WorkspaceManifestNode240> field_mode;
+std::shared_ptr<WorkspaceManifestNode234> field_matcher;
+std::optional<std::shared_ptr<WorkspaceManifestNode235>> field_sourceInventory;
+std::int64_t field_quantity;
+};
+struct WorkspaceManifestNode161 {
+std::string field_id;
+std::shared_ptr<WorkspaceManifestNode241> field_kind;
+std::shared_ptr<WorkspaceManifestNode235> field_inventory;
+std::optional<std::shared_ptr<WorkspaceManifestNode242>> field_layout;
 std::optional<bool> field_useTriggerAnchor;
 std::optional<bool> field_parentToTriggeringLayout;
 std::optional<bool> field_coexist;
 };
-struct WorkspaceManifestNode161 {
-std::string field_id;
-std::shared_ptr<WorkspaceManifestNode242> field_kind;
-std::string field_exitId;
-};
 struct WorkspaceManifestNode162 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode243> field_kind;
-std::shared_ptr<WorkspaceManifestNode244> field_room;
+std::string field_exitId;
 };
 struct WorkspaceManifestNode163 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode245> field_kind;
-std::shared_ptr<WorkspaceManifestNode246> field_scene;
+std::shared_ptr<WorkspaceManifestNode244> field_kind;
+std::shared_ptr<WorkspaceManifestNode245> field_room;
 };
 struct WorkspaceManifestNode164 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode247> field_kind;
-std::shared_ptr<WorkspaceManifestNode248> field_dialogue;
+std::shared_ptr<WorkspaceManifestNode246> field_kind;
+std::shared_ptr<WorkspaceManifestNode247> field_scene;
 };
 struct WorkspaceManifestNode165 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode249> field_kind;
-std::shared_ptr<WorkspaceManifestNode250> field_message;
+std::shared_ptr<WorkspaceManifestNode248> field_kind;
+std::shared_ptr<WorkspaceManifestNode249> field_dialogue;
 };
 struct WorkspaceManifestNode166 {
 std::string field_id;
-std::shared_ptr<WorkspaceManifestNode251> field_kind;
-std::string field_source;
+std::shared_ptr<WorkspaceManifestNode250> field_kind;
+std::shared_ptr<WorkspaceManifestNode251> field_message;
 };
 struct WorkspaceManifestNode167 {
 std::string field_id;
 std::shared_ptr<WorkspaceManifestNode252> field_kind;
-std::shared_ptr<WorkspaceManifestNode253> field_condition;
-std::shared_ptr<WorkspaceManifestNode254> field_then;
-std::shared_ptr<WorkspaceManifestNode255> field_else;
+std::string field_source;
 };
 struct WorkspaceManifestNode168 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::shared_ptr<WorkspaceManifestNode253> field_kind;
+std::shared_ptr<WorkspaceManifestNode254> field_condition;
+std::shared_ptr<WorkspaceManifestNode255> field_then;
+std::shared_ptr<WorkspaceManifestNode256> field_else;
 };
 struct WorkspaceManifestNode169 {
 enum class Value { choice0 };
@@ -30851,47 +30864,47 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode176 {
-std::shared_ptr<WorkspaceManifestNode256> field__u24_ref;
-};
-struct WorkspaceManifestNode177 {
 enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceManifestNode177 {
+std::shared_ptr<WorkspaceManifestNode257> field__u24_ref;
+};
 struct WorkspaceManifestNode178 {
-std::shared_ptr<WorkspaceManifestNode257> field_owner;
-std::string field_inventoryId;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode179 {
+std::shared_ptr<WorkspaceManifestNode258> field_owner;
+std::string field_inventoryId;
+};
+struct WorkspaceManifestNode180 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct WorkspaceManifestNode180 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode258>, std::shared_ptr<WorkspaceManifestNode259>>;
+struct WorkspaceManifestNode181 {
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode259>, std::shared_ptr<WorkspaceManifestNode260>>;
 Value value;
 };
-struct WorkspaceManifestNode181 {
+struct WorkspaceManifestNode182 {
 std::vector<std::string> value;
 };
-struct WorkspaceManifestNode182 {
-std::shared_ptr<WorkspaceManifestNode260> field__u24_ref;
-};
 struct WorkspaceManifestNode183 {
-std::shared_ptr<WorkspaceManifestNode261> field_type;
-std::shared_ptr<WorkspaceManifestNode262> field_source;
+std::shared_ptr<WorkspaceManifestNode261> field__u24_ref;
 };
 struct WorkspaceManifestNode184 {
+std::shared_ptr<WorkspaceManifestNode262> field_type;
 std::shared_ptr<WorkspaceManifestNode263> field_source;
 };
 struct WorkspaceManifestNode185 {
-std::shared_ptr<WorkspaceManifestNode264> field_add;
-std::shared_ptr<WorkspaceManifestNode265> field_remove;
+std::shared_ptr<WorkspaceManifestNode264> field_source;
 };
 struct WorkspaceManifestNode186 {
-std::vector<std::shared_ptr<WorkspaceManifestNode266>> value;
+std::shared_ptr<WorkspaceManifestNode265> field_add;
+std::shared_ptr<WorkspaceManifestNode266> field_remove;
 };
 struct WorkspaceManifestNode187 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<WorkspaceManifestNode267>> value;
 };
 struct WorkspaceManifestNode188 {
 enum class Value { choice0 };
@@ -30902,11 +30915,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode190 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode191 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11 };
 Value value;
 };
 struct WorkspaceManifestNode192 {
@@ -30922,50 +30935,50 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode195 {
-std::shared_ptr<WorkspaceManifestNode267> field_kind;
-std::shared_ptr<WorkspaceManifestNode268> field_preset;
-};
-struct WorkspaceManifestNode196 {
-std::shared_ptr<WorkspaceManifestNode269> field_kind;
-std::string field_policyId;
-};
-struct WorkspaceManifestNode197 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceManifestNode196 {
+std::shared_ptr<WorkspaceManifestNode268> field_kind;
+std::shared_ptr<WorkspaceManifestNode269> field_preset;
+};
+struct WorkspaceManifestNode197 {
+std::shared_ptr<WorkspaceManifestNode270> field_kind;
+std::string field_policyId;
+};
 struct WorkspaceManifestNode198 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct WorkspaceManifestNode199 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode200 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct WorkspaceManifestNode201 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct WorkspaceManifestNode202 {
 enum class Value { choice0, choice1 };
 Value value;
 };
+struct WorkspaceManifestNode202 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
 struct WorkspaceManifestNode203 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode204 {
-std::shared_ptr<WorkspaceManifestNode270> field__u24_ref;
-};
-struct WorkspaceManifestNode205 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceManifestNode205 {
+std::shared_ptr<WorkspaceManifestNode271> field__u24_ref;
+};
 struct WorkspaceManifestNode206 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, bool, double, std::string>;
 Value value;
 };
 struct WorkspaceManifestNode207 {
@@ -30973,11 +30986,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode208 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode271>, std::shared_ptr<WorkspaceManifestNode272>, std::shared_ptr<WorkspaceManifestNode273>, std::shared_ptr<WorkspaceManifestNode274>, std::shared_ptr<WorkspaceManifestNode275>, std::shared_ptr<WorkspaceManifestNode276>, std::shared_ptr<WorkspaceManifestNode277>, std::shared_ptr<WorkspaceManifestNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode209 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode272>, std::shared_ptr<WorkspaceManifestNode273>, std::shared_ptr<WorkspaceManifestNode274>, std::shared_ptr<WorkspaceManifestNode275>, std::shared_ptr<WorkspaceManifestNode276>, std::shared_ptr<WorkspaceManifestNode277>, std::shared_ptr<WorkspaceManifestNode278>, std::shared_ptr<WorkspaceManifestNode279>>;
 Value value;
 };
 struct WorkspaceManifestNode210 {
@@ -30985,22 +30998,22 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode211 {
-std::shared_ptr<WorkspaceManifestNode279> field__u24_ref;
-};
-struct WorkspaceManifestNode212 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode212 {
+std::shared_ptr<WorkspaceManifestNode280> field__u24_ref;
 };
 struct WorkspaceManifestNode213 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode214 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode280>, std::shared_ptr<WorkspaceManifestNode281>, std::shared_ptr<WorkspaceManifestNode277>, std::shared_ptr<WorkspaceManifestNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode215 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode281>, std::shared_ptr<WorkspaceManifestNode282>, std::shared_ptr<WorkspaceManifestNode278>, std::shared_ptr<WorkspaceManifestNode279>>;
 Value value;
 };
 struct WorkspaceManifestNode216 {
@@ -31008,23 +31021,23 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode217 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode282>, std::shared_ptr<WorkspaceManifestNode283>, std::shared_ptr<WorkspaceManifestNode284>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode218 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode283>, std::shared_ptr<WorkspaceManifestNode284>, std::shared_ptr<WorkspaceManifestNode285>>;
 Value value;
 };
 struct WorkspaceManifestNode219 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode220 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode285>, std::shared_ptr<WorkspaceManifestNode286>, std::shared_ptr<WorkspaceManifestNode287>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode221 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode286>, std::shared_ptr<WorkspaceManifestNode287>, std::shared_ptr<WorkspaceManifestNode288>>;
 Value value;
 };
 struct WorkspaceManifestNode222 {
@@ -31032,14 +31045,14 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode223 {
-std::shared_ptr<WorkspaceManifestNode288> field__u24_ref;
-};
-struct WorkspaceManifestNode224 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceManifestNode224 {
+std::shared_ptr<WorkspaceManifestNode289> field__u24_ref;
+};
 struct WorkspaceManifestNode225 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode226 {
@@ -31047,11 +31060,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode227 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode289>, std::shared_ptr<WorkspaceManifestNode277>, std::shared_ptr<WorkspaceManifestNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode228 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode290>, std::shared_ptr<WorkspaceManifestNode278>, std::shared_ptr<WorkspaceManifestNode279>>;
 Value value;
 };
 struct WorkspaceManifestNode229 {
@@ -31071,17 +31084,17 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode233 {
-std::optional<std::shared_ptr<WorkspaceManifestNode223>> field_definition;
-std::optional<std::shared_ptr<WorkspaceManifestNode290>> field_traits;
-std::optional<std::shared_ptr<WorkspaceManifestNode291>> field_properties;
-std::optional<std::shared_ptr<WorkspaceManifestNode227>> field_exact;
-};
-struct WorkspaceManifestNode234 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode292>, std::shared_ptr<WorkspaceManifestNode293>, std::shared_ptr<WorkspaceManifestNode294>, std::shared_ptr<WorkspaceManifestNode278>>;
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceManifestNode234 {
+std::optional<std::shared_ptr<WorkspaceManifestNode224>> field_definition;
+std::optional<std::shared_ptr<WorkspaceManifestNode291>> field_traits;
+std::optional<std::shared_ptr<WorkspaceManifestNode292>> field_properties;
+std::optional<std::shared_ptr<WorkspaceManifestNode228>> field_exact;
+};
 struct WorkspaceManifestNode235 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode293>, std::shared_ptr<WorkspaceManifestNode294>, std::shared_ptr<WorkspaceManifestNode295>, std::shared_ptr<WorkspaceManifestNode279>>;
 Value value;
 };
 struct WorkspaceManifestNode236 {
@@ -31105,337 +31118,337 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode241 {
-std::shared_ptr<WorkspaceManifestNode295> field__u24_ref;
-};
-struct WorkspaceManifestNode242 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode242 {
+std::shared_ptr<WorkspaceManifestNode296> field__u24_ref;
 };
 struct WorkspaceManifestNode243 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode244 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode296>, std::shared_ptr<WorkspaceManifestNode297>, std::shared_ptr<WorkspaceManifestNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode245 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode297>, std::shared_ptr<WorkspaceManifestNode298>, std::shared_ptr<WorkspaceManifestNode279>>;
 Value value;
 };
 struct WorkspaceManifestNode246 {
-std::shared_ptr<WorkspaceManifestNode298> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode247 {
-enum class Value { choice0 };
-Value value;
-};
-struct WorkspaceManifestNode248 {
 std::shared_ptr<WorkspaceManifestNode299> field__u24_ref;
 };
-struct WorkspaceManifestNode249 {
+struct WorkspaceManifestNode248 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode249 {
+std::shared_ptr<WorkspaceManifestNode300> field__u24_ref;
 };
 struct WorkspaceManifestNode250 {
-std::shared_ptr<WorkspaceManifestNode300> field_source;
-std::shared_ptr<WorkspaceManifestNode301> field_markup;
-};
-struct WorkspaceManifestNode251 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode251 {
+std::shared_ptr<WorkspaceManifestNode301> field_source;
+std::shared_ptr<WorkspaceManifestNode302> field_markup;
 };
 struct WorkspaceManifestNode252 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode253 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode302>, std::shared_ptr<WorkspaceManifestNode303>, std::shared_ptr<WorkspaceManifestNode304>, std::shared_ptr<WorkspaceManifestNode305>, std::shared_ptr<WorkspaceManifestNode306>, std::shared_ptr<WorkspaceManifestNode307>, std::shared_ptr<WorkspaceManifestNode308>, std::shared_ptr<WorkspaceManifestNode309>, std::shared_ptr<WorkspaceManifestNode310>, std::shared_ptr<WorkspaceManifestNode311>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode254 {
-std::vector<std::shared_ptr<WorkspaceManifestNode98>> value;
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode303>, std::shared_ptr<WorkspaceManifestNode304>, std::shared_ptr<WorkspaceManifestNode305>, std::shared_ptr<WorkspaceManifestNode306>, std::shared_ptr<WorkspaceManifestNode307>, std::shared_ptr<WorkspaceManifestNode308>, std::shared_ptr<WorkspaceManifestNode309>, std::shared_ptr<WorkspaceManifestNode310>, std::shared_ptr<WorkspaceManifestNode311>, std::shared_ptr<WorkspaceManifestNode312>>;
+Value value;
 };
 struct WorkspaceManifestNode255 {
 std::vector<std::shared_ptr<WorkspaceManifestNode98>> value;
 };
 struct WorkspaceManifestNode256 {
-std::shared_ptr<WorkspaceManifestNode312> field_collection;
-std::string field_id;
+std::vector<std::shared_ptr<WorkspaceManifestNode98>> value;
 };
 struct WorkspaceManifestNode257 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode313>, std::shared_ptr<WorkspaceManifestNode314>, std::shared_ptr<WorkspaceManifestNode315>, std::shared_ptr<WorkspaceManifestNode316>, std::shared_ptr<WorkspaceManifestNode317>>;
-Value value;
+std::shared_ptr<WorkspaceManifestNode313> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode258 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode314>, std::shared_ptr<WorkspaceManifestNode315>, std::shared_ptr<WorkspaceManifestNode316>, std::shared_ptr<WorkspaceManifestNode317>, std::shared_ptr<WorkspaceManifestNode318>>;
 Value value;
 };
 struct WorkspaceManifestNode259 {
-std::string field__u24_message;
+using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+Value value;
 };
 struct WorkspaceManifestNode260 {
-std::shared_ptr<WorkspaceManifestNode318> field_collection;
-std::string field_id;
+std::string field__u24_message;
 };
 struct WorkspaceManifestNode261 {
+std::shared_ptr<WorkspaceManifestNode319> field_collection;
+std::string field_id;
+};
+struct WorkspaceManifestNode262 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
-struct WorkspaceManifestNode262 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode319>, std::shared_ptr<WorkspaceManifestNode320>, std::shared_ptr<WorkspaceManifestNode321>>;
+struct WorkspaceManifestNode263 {
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode320>, std::shared_ptr<WorkspaceManifestNode321>, std::shared_ptr<WorkspaceManifestNode322>>;
 Value value;
 };
-struct WorkspaceManifestNode263 {
-std::shared_ptr<WorkspaceManifestNode322> field__u24_ref;
-};
 struct WorkspaceManifestNode264 {
-std::vector<std::string> value;
+std::shared_ptr<WorkspaceManifestNode323> field__u24_ref;
 };
 struct WorkspaceManifestNode265 {
 std::vector<std::string> value;
 };
 struct WorkspaceManifestNode266 {
-std::string field_propertyId;
-std::shared_ptr<WorkspaceManifestNode180> field_value;
+std::vector<std::string> value;
 };
 struct WorkspaceManifestNode267 {
-enum class Value { choice0 };
-Value value;
+std::string field_propertyId;
+std::shared_ptr<WorkspaceManifestNode181> field_value;
 };
 struct WorkspaceManifestNode268 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode269 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct WorkspaceManifestNode270 {
-std::shared_ptr<WorkspaceManifestNode323> field_collection;
-std::string field_id;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode271 {
-std::shared_ptr<WorkspaceManifestNode324> field_kind;
-std::shared_ptr<WorkspaceManifestNode176> field_room;
+std::shared_ptr<WorkspaceManifestNode324> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode272 {
 std::shared_ptr<WorkspaceManifestNode325> field_kind;
-std::shared_ptr<WorkspaceManifestNode326> field_character;
+std::shared_ptr<WorkspaceManifestNode177> field_room;
 };
 struct WorkspaceManifestNode273 {
-std::shared_ptr<WorkspaceManifestNode327> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode326> field_kind;
+std::shared_ptr<WorkspaceManifestNode327> field_character;
 };
 struct WorkspaceManifestNode274 {
-std::shared_ptr<WorkspaceManifestNode329> field_kind;
-std::shared_ptr<WorkspaceManifestNode176> field_room;
-std::string field_featureId;
+std::shared_ptr<WorkspaceManifestNode328> field_kind;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
 };
 struct WorkspaceManifestNode275 {
 std::shared_ptr<WorkspaceManifestNode330> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode177> field_room;
 std::string field_featureId;
 };
 struct WorkspaceManifestNode276 {
 std::shared_ptr<WorkspaceManifestNode331> field_kind;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
+std::string field_featureId;
 };
 struct WorkspaceManifestNode277 {
 std::shared_ptr<WorkspaceManifestNode332> field_kind;
-std::string field_slotId;
 };
 struct WorkspaceManifestNode278 {
 std::shared_ptr<WorkspaceManifestNode333> field_kind;
-std::string field_bindingId;
+std::string field_slotId;
 };
 struct WorkspaceManifestNode279 {
-std::shared_ptr<WorkspaceManifestNode334> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceManifestNode334> field_kind;
+std::string field_bindingId;
 };
 struct WorkspaceManifestNode280 {
-std::shared_ptr<WorkspaceManifestNode335> field_kind;
-std::shared_ptr<WorkspaceManifestNode326> field_character;
+std::shared_ptr<WorkspaceManifestNode335> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode281 {
 std::shared_ptr<WorkspaceManifestNode336> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode327> field_character;
 };
 struct WorkspaceManifestNode282 {
 std::shared_ptr<WorkspaceManifestNode337> field_kind;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
 };
 struct WorkspaceManifestNode283 {
 std::shared_ptr<WorkspaceManifestNode338> field_kind;
-std::shared_ptr<WorkspaceManifestNode244> field_room;
 };
 struct WorkspaceManifestNode284 {
 std::shared_ptr<WorkspaceManifestNode339> field_kind;
-std::shared_ptr<WorkspaceManifestNode234> field_inventory;
+std::shared_ptr<WorkspaceManifestNode245> field_room;
 };
 struct WorkspaceManifestNode285 {
 std::shared_ptr<WorkspaceManifestNode340> field_kind;
-std::shared_ptr<WorkspaceManifestNode341> field_archetype;
+std::shared_ptr<WorkspaceManifestNode235> field_inventory;
 };
 struct WorkspaceManifestNode286 {
-std::shared_ptr<WorkspaceManifestNode342> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_instance;
+std::shared_ptr<WorkspaceManifestNode341> field_kind;
+std::shared_ptr<WorkspaceManifestNode342> field_archetype;
 };
 struct WorkspaceManifestNode287 {
 std::shared_ptr<WorkspaceManifestNode343> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_instance;
+std::shared_ptr<WorkspaceManifestNode209> field_instance;
 };
 struct WorkspaceManifestNode288 {
-std::shared_ptr<WorkspaceManifestNode344> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceManifestNode344> field_kind;
+std::shared_ptr<WorkspaceManifestNode209> field_instance;
 };
 struct WorkspaceManifestNode289 {
-std::shared_ptr<WorkspaceManifestNode345> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode345> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode290 {
-std::vector<std::shared_ptr<WorkspaceManifestNode211>> value;
+std::shared_ptr<WorkspaceManifestNode346> field_kind;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
 };
 struct WorkspaceManifestNode291 {
-std::vector<std::shared_ptr<WorkspaceManifestNode346>> value;
+std::vector<std::shared_ptr<WorkspaceManifestNode212>> value;
 };
 struct WorkspaceManifestNode292 {
-std::shared_ptr<WorkspaceManifestNode347> field_kind;
-std::shared_ptr<WorkspaceManifestNode178> field_inventory;
+std::vector<std::shared_ptr<WorkspaceManifestNode347>> value;
 };
 struct WorkspaceManifestNode293 {
 std::shared_ptr<WorkspaceManifestNode348> field_kind;
+std::shared_ptr<WorkspaceManifestNode179> field_inventory;
 };
 struct WorkspaceManifestNode294 {
 std::shared_ptr<WorkspaceManifestNode349> field_kind;
-std::shared_ptr<WorkspaceManifestNode350> field_owner;
-std::string field_inventoryId;
 };
 struct WorkspaceManifestNode295 {
-std::shared_ptr<WorkspaceManifestNode351> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceManifestNode350> field_kind;
+std::shared_ptr<WorkspaceManifestNode351> field_owner;
+std::string field_inventoryId;
 };
 struct WorkspaceManifestNode296 {
-std::shared_ptr<WorkspaceManifestNode352> field_kind;
-std::shared_ptr<WorkspaceManifestNode176> field_room;
+std::shared_ptr<WorkspaceManifestNode352> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode297 {
 std::shared_ptr<WorkspaceManifestNode353> field_kind;
+std::shared_ptr<WorkspaceManifestNode177> field_room;
 };
 struct WorkspaceManifestNode298 {
-std::shared_ptr<WorkspaceManifestNode354> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceManifestNode354> field_kind;
 };
 struct WorkspaceManifestNode299 {
 std::shared_ptr<WorkspaceManifestNode355> field_collection;
 std::string field_id;
 };
 struct WorkspaceManifestNode300 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode356>, std::shared_ptr<WorkspaceManifestNode357>, std::shared_ptr<WorkspaceManifestNode358>>;
-Value value;
+std::shared_ptr<WorkspaceManifestNode356> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode301 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode357>, std::shared_ptr<WorkspaceManifestNode358>, std::shared_ptr<WorkspaceManifestNode359>>;
 Value value;
 };
 struct WorkspaceManifestNode302 {
-std::shared_ptr<WorkspaceManifestNode359> field_kind;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct WorkspaceManifestNode303 {
 std::shared_ptr<WorkspaceManifestNode360> field_kind;
-std::shared_ptr<WorkspaceManifestNode361> field_conditions;
 };
 struct WorkspaceManifestNode304 {
-std::shared_ptr<WorkspaceManifestNode362> field_kind;
-std::shared_ptr<WorkspaceManifestNode363> field_conditions;
+std::shared_ptr<WorkspaceManifestNode361> field_kind;
+std::shared_ptr<WorkspaceManifestNode362> field_conditions;
 };
 struct WorkspaceManifestNode305 {
-std::shared_ptr<WorkspaceManifestNode364> field_kind;
-std::shared_ptr<WorkspaceManifestNode253> field_condition;
+std::shared_ptr<WorkspaceManifestNode363> field_kind;
+std::shared_ptr<WorkspaceManifestNode364> field_conditions;
 };
 struct WorkspaceManifestNode306 {
 std::shared_ptr<WorkspaceManifestNode365> field_kind;
-std::shared_ptr<WorkspaceManifestNode204> field_variable;
-std::shared_ptr<WorkspaceManifestNode366> field_operator;
-std::optional<std::shared_ptr<WorkspaceManifestNode205>> field_value;
+std::shared_ptr<WorkspaceManifestNode254> field_condition;
 };
 struct WorkspaceManifestNode307 {
-std::shared_ptr<WorkspaceManifestNode367> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_owner;
-std::string field_propertyId;
-std::shared_ptr<WorkspaceManifestNode366> field_operator;
-std::optional<std::shared_ptr<WorkspaceManifestNode205>> field_value;
+std::shared_ptr<WorkspaceManifestNode366> field_kind;
+std::shared_ptr<WorkspaceManifestNode205> field_variable;
+std::shared_ptr<WorkspaceManifestNode367> field_operator;
+std::optional<std::shared_ptr<WorkspaceManifestNode206>> field_value;
 };
 struct WorkspaceManifestNode308 {
 std::shared_ptr<WorkspaceManifestNode368> field_kind;
-std::shared_ptr<WorkspaceManifestNode208> field_owner;
-std::shared_ptr<WorkspaceManifestNode211> field_trait;
-bool field_present;
+std::shared_ptr<WorkspaceManifestNode209> field_owner;
+std::string field_propertyId;
+std::shared_ptr<WorkspaceManifestNode367> field_operator;
+std::optional<std::shared_ptr<WorkspaceManifestNode206>> field_value;
 };
 struct WorkspaceManifestNode309 {
 std::shared_ptr<WorkspaceManifestNode369> field_kind;
-std::shared_ptr<WorkspaceManifestNode214> field_subject;
-std::shared_ptr<WorkspaceManifestNode370> field_operator;
-std::shared_ptr<WorkspaceManifestNode217> field_location;
+std::shared_ptr<WorkspaceManifestNode209> field_owner;
+std::shared_ptr<WorkspaceManifestNode212> field_trait;
+bool field_present;
 };
 struct WorkspaceManifestNode310 {
-std::shared_ptr<WorkspaceManifestNode371> field_kind;
-std::shared_ptr<WorkspaceManifestNode234> field_inventory;
-std::shared_ptr<WorkspaceManifestNode233> field_matcher;
-std::shared_ptr<WorkspaceManifestNode372> field_operator;
-std::int64_t field_quantity;
+std::shared_ptr<WorkspaceManifestNode370> field_kind;
+std::shared_ptr<WorkspaceManifestNode215> field_subject;
+std::shared_ptr<WorkspaceManifestNode371> field_operator;
+std::shared_ptr<WorkspaceManifestNode218> field_location;
 };
 struct WorkspaceManifestNode311 {
-std::shared_ptr<WorkspaceManifestNode373> field_kind;
-std::string field_source;
-std::optional<std::shared_ptr<WorkspaceManifestNode374>> field_additionalDependencies;
+std::shared_ptr<WorkspaceManifestNode372> field_kind;
+std::shared_ptr<WorkspaceManifestNode235> field_inventory;
+std::shared_ptr<WorkspaceManifestNode234> field_matcher;
+std::shared_ptr<WorkspaceManifestNode373> field_operator;
+std::int64_t field_quantity;
 };
 struct WorkspaceManifestNode312 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceManifestNode374> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<WorkspaceManifestNode375>> field_additionalDependencies;
 };
 struct WorkspaceManifestNode313 {
-std::shared_ptr<WorkspaceManifestNode375> field_kind;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode314 {
 std::shared_ptr<WorkspaceManifestNode376> field_kind;
-std::shared_ptr<WorkspaceManifestNode326> field_character;
 };
 struct WorkspaceManifestNode315 {
 std::shared_ptr<WorkspaceManifestNode377> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode327> field_character;
 };
 struct WorkspaceManifestNode316 {
 std::shared_ptr<WorkspaceManifestNode378> field_kind;
-std::shared_ptr<WorkspaceManifestNode176> field_room;
-std::string field_featureId;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
 };
 struct WorkspaceManifestNode317 {
 std::shared_ptr<WorkspaceManifestNode379> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode177> field_room;
 std::string field_featureId;
 };
 struct WorkspaceManifestNode318 {
+std::shared_ptr<WorkspaceManifestNode380> field_kind;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
+std::string field_featureId;
+};
+struct WorkspaceManifestNode319 {
 enum class Value { choice0 };
 Value value;
 };
-struct WorkspaceManifestNode319 {
-std::shared_ptr<WorkspaceManifestNode380> field_kind;
-std::shared_ptr<WorkspaceManifestNode381> field_value;
-};
 struct WorkspaceManifestNode320 {
-std::shared_ptr<WorkspaceManifestNode382> field_kind;
-std::string field_property;
+std::shared_ptr<WorkspaceManifestNode381> field_kind;
+std::shared_ptr<WorkspaceManifestNode382> field_value;
 };
 struct WorkspaceManifestNode321 {
 std::shared_ptr<WorkspaceManifestNode383> field_kind;
-std::shared_ptr<WorkspaceManifestNode384> field_facet;
+std::string field_property;
 };
 struct WorkspaceManifestNode322 {
-std::shared_ptr<WorkspaceManifestNode385> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceManifestNode384> field_kind;
+std::shared_ptr<WorkspaceManifestNode385> field_facet;
 };
 struct WorkspaceManifestNode323 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceManifestNode386> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode324 {
 enum class Value { choice0 };
@@ -31446,18 +31459,18 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode326 {
-std::shared_ptr<WorkspaceManifestNode386> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode327 {
-enum class Value { choice0 };
-Value value;
-};
-struct WorkspaceManifestNode328 {
 std::shared_ptr<WorkspaceManifestNode387> field__u24_ref;
 };
-struct WorkspaceManifestNode329 {
+struct WorkspaceManifestNode328 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode329 {
+std::shared_ptr<WorkspaceManifestNode388> field__u24_ref;
 };
 struct WorkspaceManifestNode330 {
 enum class Value { choice0 };
@@ -31504,11 +31517,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode341 {
-std::shared_ptr<WorkspaceManifestNode388> field__u24_ref;
-};
-struct WorkspaceManifestNode342 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode342 {
+std::shared_ptr<WorkspaceManifestNode389> field__u24_ref;
 };
 struct WorkspaceManifestNode343 {
 enum class Value { choice0 };
@@ -31523,12 +31536,12 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode346 {
-std::string field_propertyId;
-std::shared_ptr<WorkspaceManifestNode205> field_value;
-};
-struct WorkspaceManifestNode347 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode347 {
+std::string field_propertyId;
+std::shared_ptr<WorkspaceManifestNode206> field_value;
 };
 struct WorkspaceManifestNode348 {
 enum class Value { choice0 };
@@ -31539,11 +31552,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode350 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode389>, std::shared_ptr<WorkspaceManifestNode390>, std::shared_ptr<WorkspaceManifestNode391>, std::shared_ptr<WorkspaceManifestNode392>, std::shared_ptr<WorkspaceManifestNode393>, std::shared_ptr<WorkspaceManifestNode277>, std::shared_ptr<WorkspaceManifestNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode351 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode390>, std::shared_ptr<WorkspaceManifestNode391>, std::shared_ptr<WorkspaceManifestNode392>, std::shared_ptr<WorkspaceManifestNode393>, std::shared_ptr<WorkspaceManifestNode394>, std::shared_ptr<WorkspaceManifestNode278>, std::shared_ptr<WorkspaceManifestNode279>>;
 Value value;
 };
 struct WorkspaceManifestNode352 {
@@ -31563,50 +31576,50 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode356 {
-std::shared_ptr<WorkspaceManifestNode394> field_kind;
-std::string field_text;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode357 {
 std::shared_ptr<WorkspaceManifestNode395> field_kind;
-std::string field_key;
+std::string field_text;
 };
 struct WorkspaceManifestNode358 {
 std::shared_ptr<WorkspaceManifestNode396> field_kind;
-std::string field_source;
-std::optional<std::shared_ptr<WorkspaceManifestNode374>> field_additionalDependencies;
+std::string field_key;
 };
 struct WorkspaceManifestNode359 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceManifestNode397> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<WorkspaceManifestNode375>> field_additionalDependencies;
 };
 struct WorkspaceManifestNode360 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode361 {
-std::vector<std::shared_ptr<WorkspaceManifestNode253>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode362 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<WorkspaceManifestNode254>> value;
 };
 struct WorkspaceManifestNode363 {
-std::vector<std::shared_ptr<WorkspaceManifestNode253>> value;
-};
-struct WorkspaceManifestNode364 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode364 {
+std::vector<std::shared_ptr<WorkspaceManifestNode254>> value;
 };
 struct WorkspaceManifestNode365 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode366 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode367 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
 Value value;
 };
 struct WorkspaceManifestNode368 {
@@ -31618,27 +31631,27 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode370 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode371 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceManifestNode372 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode373 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct WorkspaceManifestNode374 {
-std::optional<std::shared_ptr<WorkspaceManifestNode397>> field_targets;
-};
-struct WorkspaceManifestNode375 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode375 {
+std::optional<std::shared_ptr<WorkspaceManifestNode398>> field_targets;
 };
 struct WorkspaceManifestNode376 {
 enum class Value { choice0 };
@@ -31661,11 +31674,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode381 {
-using Value = std::variant<std::nullptr_t, double, bool, std::shared_ptr<WorkspaceManifestNode398>, std::shared_ptr<WorkspaceManifestNode399>, std::shared_ptr<WorkspaceManifestNode400>, std::shared_ptr<WorkspaceManifestNode401>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode382 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, double, bool, std::shared_ptr<WorkspaceManifestNode399>, std::shared_ptr<WorkspaceManifestNode400>, std::shared_ptr<WorkspaceManifestNode401>, std::shared_ptr<WorkspaceManifestNode402>>;
 Value value;
 };
 struct WorkspaceManifestNode383 {
@@ -31673,49 +31686,49 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode384 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode385 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct WorkspaceManifestNode386 {
-std::shared_ptr<WorkspaceManifestNode402> field_collection;
-std::string field_id;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode387 {
-std::shared_ptr<WorkspaceManifestNode403> field_registry;
+std::shared_ptr<WorkspaceManifestNode403> field_collection;
 std::string field_id;
 };
 struct WorkspaceManifestNode388 {
-std::shared_ptr<WorkspaceManifestNode404> field_collection;
+std::shared_ptr<WorkspaceManifestNode404> field_registry;
 std::string field_id;
 };
 struct WorkspaceManifestNode389 {
-std::shared_ptr<WorkspaceManifestNode405> field_kind;
+std::shared_ptr<WorkspaceManifestNode405> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode390 {
 std::shared_ptr<WorkspaceManifestNode406> field_kind;
-std::shared_ptr<WorkspaceManifestNode326> field_character;
 };
 struct WorkspaceManifestNode391 {
 std::shared_ptr<WorkspaceManifestNode407> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode327> field_character;
 };
 struct WorkspaceManifestNode392 {
 std::shared_ptr<WorkspaceManifestNode408> field_kind;
-std::shared_ptr<WorkspaceManifestNode176> field_room;
-std::string field_featureId;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
 };
 struct WorkspaceManifestNode393 {
 std::shared_ptr<WorkspaceManifestNode409> field_kind;
-std::shared_ptr<WorkspaceManifestNode328> field_interactable;
+std::shared_ptr<WorkspaceManifestNode177> field_room;
 std::string field_featureId;
 };
 struct WorkspaceManifestNode394 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceManifestNode410> field_kind;
+std::shared_ptr<WorkspaceManifestNode329> field_interactable;
+std::string field_featureId;
 };
 struct WorkspaceManifestNode395 {
 enum class Value { choice0 };
@@ -31726,26 +31739,26 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode397 {
-std::vector<std::shared_ptr<WorkspaceManifestNode410>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceManifestNode398 {
-std::tuple<double, double> value;
+std::vector<std::shared_ptr<WorkspaceManifestNode411>> value;
 };
 struct WorkspaceManifestNode399 {
-std::tuple<double, double, double> value;
+std::tuple<double, double> value;
 };
 struct WorkspaceManifestNode400 {
-std::tuple<double, double, double, double> value;
+std::tuple<double, double, double> value;
 };
 struct WorkspaceManifestNode401 {
+std::tuple<double, double, double, double> value;
+};
+struct WorkspaceManifestNode402 {
 double field_r;
 double field_g;
 double field_b;
 double field_a;
-};
-struct WorkspaceManifestNode402 {
-enum class Value { choice0 };
-Value value;
 };
 struct WorkspaceManifestNode403 {
 enum class Value { choice0 };
@@ -31776,54 +31789,58 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode410 {
-using Value = std::variant<std::shared_ptr<WorkspaceManifestNode411>, std::shared_ptr<WorkspaceManifestNode412>, std::shared_ptr<WorkspaceManifestNode413>, std::shared_ptr<WorkspaceManifestNode414>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode411 {
-std::shared_ptr<WorkspaceManifestNode415> field_kind;
-std::shared_ptr<WorkspaceManifestNode416> field_collection;
-std::string field_id;
+using Value = std::variant<std::shared_ptr<WorkspaceManifestNode412>, std::shared_ptr<WorkspaceManifestNode413>, std::shared_ptr<WorkspaceManifestNode414>, std::shared_ptr<WorkspaceManifestNode415>>;
+Value value;
 };
 struct WorkspaceManifestNode412 {
-std::shared_ptr<WorkspaceManifestNode417> field_kind;
-std::shared_ptr<WorkspaceManifestNode418> field_owner;
-std::string field_propertyId;
+std::shared_ptr<WorkspaceManifestNode416> field_kind;
+std::shared_ptr<WorkspaceManifestNode417> field_collection;
+std::string field_id;
 };
 struct WorkspaceManifestNode413 {
-std::shared_ptr<WorkspaceManifestNode419> field_kind;
-std::string field_roomId;
-std::string field_placementId;
+std::shared_ptr<WorkspaceManifestNode418> field_kind;
+std::shared_ptr<WorkspaceManifestNode419> field_owner;
+std::string field_propertyId;
 };
 struct WorkspaceManifestNode414 {
 std::shared_ptr<WorkspaceManifestNode420> field_kind;
 std::string field_roomId;
-std::string field_exitId;
+std::string field_placementId;
 };
 struct WorkspaceManifestNode415 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceManifestNode421> field_kind;
+std::string field_roomId;
+std::string field_exitId;
 };
 struct WorkspaceManifestNode416 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode417 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
 Value value;
 };
 struct WorkspaceManifestNode418 {
-std::shared_ptr<WorkspaceManifestNode421> field_kind;
-std::string field_id;
-};
-struct WorkspaceManifestNode419 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceManifestNode419 {
+std::shared_ptr<WorkspaceManifestNode422> field_kind;
+std::string field_id;
 };
 struct WorkspaceManifestNode420 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceManifestNode421 {
+enum class Value { choice0 };
+Value value;
+};
+struct WorkspaceManifestNode422 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
@@ -32280,48 +32297,51 @@ std::shared_ptr<WorkspaceProjectNode124> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<WorkspaceProjectNode125> field_buildFlavor;
-std::optional<std::shared_ptr<WorkspaceProjectNode126>> field_compression;
+std::optional<std::shared_ptr<WorkspaceProjectNode126>> field_playerVariant;
+std::optional<std::shared_ptr<WorkspaceProjectNode127>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<WorkspaceProjectNode127>> field_assetMemory;
+std::optional<std::shared_ptr<WorkspaceProjectNode128>> field_assetMemory;
 std::optional<std::shared_ptr<WorkspaceProjectNode52>> field_localization;
-std::shared_ptr<WorkspaceProjectNode128> field_target;
-std::shared_ptr<WorkspaceProjectNode129> field_architecture;
-std::shared_ptr<WorkspaceProjectNode130> field_packageAccess;
-std::shared_ptr<WorkspaceProjectNode131> field_desktop;
+std::shared_ptr<WorkspaceProjectNode129> field_target;
+std::shared_ptr<WorkspaceProjectNode130> field_architecture;
+std::shared_ptr<WorkspaceProjectNode131> field_packageAccess;
+std::shared_ptr<WorkspaceProjectNode132> field_desktop;
 };
 struct WorkspaceProjectNode94 {
 std::shared_ptr<WorkspaceProjectNode124> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<WorkspaceProjectNode125> field_buildFlavor;
-std::optional<std::shared_ptr<WorkspaceProjectNode126>> field_compression;
+std::optional<std::shared_ptr<WorkspaceProjectNode126>> field_playerVariant;
+std::optional<std::shared_ptr<WorkspaceProjectNode127>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<WorkspaceProjectNode127>> field_assetMemory;
+std::optional<std::shared_ptr<WorkspaceProjectNode128>> field_assetMemory;
 std::optional<std::shared_ptr<WorkspaceProjectNode52>> field_localization;
-std::shared_ptr<WorkspaceProjectNode132> field_target;
-std::shared_ptr<WorkspaceProjectNode133> field_architecture;
-std::shared_ptr<WorkspaceProjectNode134> field_packageAccess;
-std::shared_ptr<WorkspaceProjectNode135> field_web;
+std::shared_ptr<WorkspaceProjectNode133> field_target;
+std::shared_ptr<WorkspaceProjectNode134> field_architecture;
+std::shared_ptr<WorkspaceProjectNode135> field_packageAccess;
+std::shared_ptr<WorkspaceProjectNode136> field_web;
 };
 struct WorkspaceProjectNode95 {
 std::shared_ptr<WorkspaceProjectNode124> field_format;
 std::string field_id;
 std::string field_label;
 std::shared_ptr<WorkspaceProjectNode125> field_buildFlavor;
-std::optional<std::shared_ptr<WorkspaceProjectNode126>> field_compression;
+std::optional<std::shared_ptr<WorkspaceProjectNode126>> field_playerVariant;
+std::optional<std::shared_ptr<WorkspaceProjectNode127>> field_compression;
 std::optional<bool> field_includeDebugSymbols;
 std::optional<bool> field_excludeUnusedAssets;
 std::optional<bool> field_includeShaderSources;
-std::optional<std::shared_ptr<WorkspaceProjectNode127>> field_assetMemory;
+std::optional<std::shared_ptr<WorkspaceProjectNode128>> field_assetMemory;
 std::optional<std::shared_ptr<WorkspaceProjectNode52>> field_localization;
-std::shared_ptr<WorkspaceProjectNode136> field_target;
-std::shared_ptr<WorkspaceProjectNode137> field_architecture;
-std::shared_ptr<WorkspaceProjectNode138> field_packageAccess;
-std::shared_ptr<WorkspaceProjectNode139> field_android;
+std::shared_ptr<WorkspaceProjectNode137> field_target;
+std::shared_ptr<WorkspaceProjectNode138> field_architecture;
+std::shared_ptr<WorkspaceProjectNode139> field_packageAccess;
+std::shared_ptr<WorkspaceProjectNode140> field_android;
 };
 struct WorkspaceProjectNode96 {
 enum class Value { choice0, choice1, choice2 };
@@ -32337,26 +32357,26 @@ std::optional<std::int64_t> field_warmGpuBytes;
 std::optional<std::int64_t> field_warmAudioBytes;
 };
 struct WorkspaceProjectNode98 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode140>, std::shared_ptr<WorkspaceProjectNode141>, std::shared_ptr<WorkspaceProjectNode142>, std::shared_ptr<WorkspaceProjectNode143>, std::shared_ptr<WorkspaceProjectNode144>, std::shared_ptr<WorkspaceProjectNode145>, std::shared_ptr<WorkspaceProjectNode146>, std::shared_ptr<WorkspaceProjectNode147>, std::shared_ptr<WorkspaceProjectNode148>, std::shared_ptr<WorkspaceProjectNode149>, std::shared_ptr<WorkspaceProjectNode150>, std::shared_ptr<WorkspaceProjectNode151>, std::shared_ptr<WorkspaceProjectNode152>, std::shared_ptr<WorkspaceProjectNode153>, std::shared_ptr<WorkspaceProjectNode154>, std::shared_ptr<WorkspaceProjectNode155>, std::shared_ptr<WorkspaceProjectNode156>, std::shared_ptr<WorkspaceProjectNode157>, std::shared_ptr<WorkspaceProjectNode158>, std::shared_ptr<WorkspaceProjectNode159>, std::shared_ptr<WorkspaceProjectNode160>, std::shared_ptr<WorkspaceProjectNode161>, std::shared_ptr<WorkspaceProjectNode162>, std::shared_ptr<WorkspaceProjectNode163>, std::shared_ptr<WorkspaceProjectNode164>, std::shared_ptr<WorkspaceProjectNode165>, std::shared_ptr<WorkspaceProjectNode166>, std::shared_ptr<WorkspaceProjectNode167>>;
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode141>, std::shared_ptr<WorkspaceProjectNode142>, std::shared_ptr<WorkspaceProjectNode143>, std::shared_ptr<WorkspaceProjectNode144>, std::shared_ptr<WorkspaceProjectNode145>, std::shared_ptr<WorkspaceProjectNode146>, std::shared_ptr<WorkspaceProjectNode147>, std::shared_ptr<WorkspaceProjectNode148>, std::shared_ptr<WorkspaceProjectNode149>, std::shared_ptr<WorkspaceProjectNode150>, std::shared_ptr<WorkspaceProjectNode151>, std::shared_ptr<WorkspaceProjectNode152>, std::shared_ptr<WorkspaceProjectNode153>, std::shared_ptr<WorkspaceProjectNode154>, std::shared_ptr<WorkspaceProjectNode155>, std::shared_ptr<WorkspaceProjectNode156>, std::shared_ptr<WorkspaceProjectNode157>, std::shared_ptr<WorkspaceProjectNode158>, std::shared_ptr<WorkspaceProjectNode159>, std::shared_ptr<WorkspaceProjectNode160>, std::shared_ptr<WorkspaceProjectNode161>, std::shared_ptr<WorkspaceProjectNode162>, std::shared_ptr<WorkspaceProjectNode163>, std::shared_ptr<WorkspaceProjectNode164>, std::shared_ptr<WorkspaceProjectNode165>, std::shared_ptr<WorkspaceProjectNode166>, std::shared_ptr<WorkspaceProjectNode167>, std::shared_ptr<WorkspaceProjectNode168>>;
 Value value;
 };
 struct WorkspaceProjectNode99 {
-std::shared_ptr<WorkspaceProjectNode168> field_kind;
-std::string field_id;
-};
-struct WorkspaceProjectNode100 {
 std::shared_ptr<WorkspaceProjectNode169> field_kind;
 std::string field_id;
 };
-struct WorkspaceProjectNode101 {
+struct WorkspaceProjectNode100 {
 std::shared_ptr<WorkspaceProjectNode170> field_kind;
 std::string field_id;
 };
-struct WorkspaceProjectNode102 {
+struct WorkspaceProjectNode101 {
 std::shared_ptr<WorkspaceProjectNode171> field_kind;
+std::string field_id;
+};
+struct WorkspaceProjectNode102 {
+std::shared_ptr<WorkspaceProjectNode172> field_kind;
 };
 struct WorkspaceProjectNode103 {
-std::shared_ptr<WorkspaceProjectNode172> field_kind;
+std::shared_ptr<WorkspaceProjectNode173> field_kind;
 };
 struct WorkspaceProjectNode104 {
 enum class Value { choice0 };
@@ -32371,19 +32391,19 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode107 {
-std::shared_ptr<WorkspaceProjectNode173> field_collection;
+std::shared_ptr<WorkspaceProjectNode174> field_collection;
 std::string field_id;
 };
 struct WorkspaceProjectNode108 {
-std::shared_ptr<WorkspaceProjectNode174> field_kind;
+std::shared_ptr<WorkspaceProjectNode175> field_kind;
 };
 struct WorkspaceProjectNode109 {
-std::shared_ptr<WorkspaceProjectNode175> field_kind;
-std::shared_ptr<WorkspaceProjectNode176> field_room;
+std::shared_ptr<WorkspaceProjectNode176> field_kind;
+std::shared_ptr<WorkspaceProjectNode177> field_room;
 };
 struct WorkspaceProjectNode110 {
-std::shared_ptr<WorkspaceProjectNode177> field_kind;
-std::shared_ptr<WorkspaceProjectNode178> field_inventory;
+std::shared_ptr<WorkspaceProjectNode178> field_kind;
+std::shared_ptr<WorkspaceProjectNode179> field_inventory;
 };
 struct WorkspaceProjectNode111 {
 std::vector<std::string> value;
@@ -32395,48 +32415,48 @@ struct WorkspaceProjectNode113 {
 std::string field_id;
 std::optional<std::string> field_label;
 std::optional<std::string> field_description;
-std::shared_ptr<WorkspaceProjectNode179> field_type;
+std::shared_ptr<WorkspaceProjectNode180> field_type;
 bool field_nullable;
-std::shared_ptr<WorkspaceProjectNode180> field_value;
-std::optional<std::shared_ptr<WorkspaceProjectNode181>> field_enumValues;
+std::shared_ptr<WorkspaceProjectNode181> field_value;
+std::optional<std::shared_ptr<WorkspaceProjectNode182>> field_enumValues;
 };
 struct WorkspaceProjectNode114 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode182>, std::nullptr_t>;
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode183>, std::nullptr_t>;
 Value value;
 };
 struct WorkspaceProjectNode115 {
-std::map<std::string, std::shared_ptr<WorkspaceProjectNode183>> additional;
+std::map<std::string, std::shared_ptr<WorkspaceProjectNode184>> additional;
 };
 struct WorkspaceProjectNode116 {
-std::map<std::string, std::shared_ptr<WorkspaceProjectNode184>> additional;
+std::map<std::string, std::shared_ptr<WorkspaceProjectNode185>> additional;
 };
 struct WorkspaceProjectNode117 {
 std::string field_featureId;
-std::shared_ptr<WorkspaceProjectNode185> field_traits;
-std::shared_ptr<WorkspaceProjectNode186> field_properties;
+std::shared_ptr<WorkspaceProjectNode186> field_traits;
+std::shared_ptr<WorkspaceProjectNode187> field_properties;
 };
 struct WorkspaceProjectNode118 {
-std::shared_ptr<WorkspaceProjectNode187> field_collection;
-std::string field_id;
-};
-struct WorkspaceProjectNode119 {
 std::shared_ptr<WorkspaceProjectNode188> field_collection;
 std::string field_id;
 };
+struct WorkspaceProjectNode119 {
+std::shared_ptr<WorkspaceProjectNode189> field_collection;
+std::string field_id;
+};
 struct WorkspaceProjectNode120 {
-std::shared_ptr<WorkspaceProjectNode189> field_kind;
-std::shared_ptr<WorkspaceProjectNode190> field_cursor;
+std::shared_ptr<WorkspaceProjectNode190> field_kind;
+std::shared_ptr<WorkspaceProjectNode191> field_cursor;
 };
 struct WorkspaceProjectNode121 {
-std::shared_ptr<WorkspaceProjectNode191> field_kind;
+std::shared_ptr<WorkspaceProjectNode192> field_kind;
 std::string field_id;
 };
 struct WorkspaceProjectNode122 {
-std::shared_ptr<WorkspaceProjectNode192> field_kind;
+std::shared_ptr<WorkspaceProjectNode193> field_kind;
 };
 struct WorkspaceProjectNode123 {
-std::shared_ptr<WorkspaceProjectNode193> field_kind;
-std::shared_ptr<WorkspaceProjectNode194> field_semantic;
+std::shared_ptr<WorkspaceProjectNode194> field_kind;
+std::shared_ptr<WorkspaceProjectNode195> field_semantic;
 };
 struct WorkspaceProjectNode124 {
 enum class Value { choice0 };
@@ -32447,19 +32467,19 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode126 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode127 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode195>, std::shared_ptr<WorkspaceProjectNode196>>;
-Value value;
-};
-struct WorkspaceProjectNode128 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };
+struct WorkspaceProjectNode128 {
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode196>, std::shared_ptr<WorkspaceProjectNode197>>;
+Value value;
+};
 struct WorkspaceProjectNode129 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct WorkspaceProjectNode130 {
@@ -32467,12 +32487,12 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode131 {
-std::shared_ptr<WorkspaceProjectNode197> field_artifact;
-std::string field_executableName;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct WorkspaceProjectNode132 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceProjectNode198> field_artifact;
+std::string field_executableName;
 };
 struct WorkspaceProjectNode133 {
 enum class Value { choice0 };
@@ -32483,19 +32503,19 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode135 {
-std::shared_ptr<WorkspaceProjectNode198> field_artifact;
-std::optional<bool> field_threaded;
-std::optional<bool> field_pwa;
-std::optional<std::shared_ptr<WorkspaceProjectNode199>> field_display;
-std::optional<std::string> field_basePath;
-std::optional<std::shared_ptr<WorkspaceProjectNode200>> field_serviceWorker;
-};
-struct WorkspaceProjectNode136 {
 enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceProjectNode136 {
+std::shared_ptr<WorkspaceProjectNode199> field_artifact;
+std::optional<bool> field_threaded;
+std::optional<bool> field_pwa;
+std::optional<std::shared_ptr<WorkspaceProjectNode200>> field_display;
+std::optional<std::string> field_basePath;
+std::optional<std::shared_ptr<WorkspaceProjectNode201>> field_serviceWorker;
+};
 struct WorkspaceProjectNode137 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode138 {
@@ -32503,198 +32523,198 @@ enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode139 {
-std::shared_ptr<WorkspaceProjectNode201> field_artifact;
-std::shared_ptr<WorkspaceProjectNode202> field_abi;
-std::int64_t field_minSdk;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct WorkspaceProjectNode140 {
-std::string field_id;
-std::shared_ptr<WorkspaceProjectNode203> field_kind;
-std::shared_ptr<WorkspaceProjectNode204> field_variable;
-std::shared_ptr<WorkspaceProjectNode205> field_value;
+std::shared_ptr<WorkspaceProjectNode202> field_artifact;
+std::shared_ptr<WorkspaceProjectNode203> field_abi;
+std::int64_t field_minSdk;
 };
 struct WorkspaceProjectNode141 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode206> field_kind;
-std::shared_ptr<WorkspaceProjectNode204> field_variable;
+std::shared_ptr<WorkspaceProjectNode204> field_kind;
+std::shared_ptr<WorkspaceProjectNode205> field_variable;
+std::shared_ptr<WorkspaceProjectNode206> field_value;
 };
 struct WorkspaceProjectNode142 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode207> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_owner;
-std::string field_propertyId;
-std::shared_ptr<WorkspaceProjectNode205> field_value;
+std::shared_ptr<WorkspaceProjectNode205> field_variable;
 };
 struct WorkspaceProjectNode143 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode209> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_owner;
+std::shared_ptr<WorkspaceProjectNode208> field_kind;
+std::shared_ptr<WorkspaceProjectNode209> field_owner;
 std::string field_propertyId;
+std::shared_ptr<WorkspaceProjectNode206> field_value;
 };
 struct WorkspaceProjectNode144 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode210> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_owner;
-std::shared_ptr<WorkspaceProjectNode211> field_trait;
+std::shared_ptr<WorkspaceProjectNode209> field_owner;
+std::string field_propertyId;
 };
 struct WorkspaceProjectNode145 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode212> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_owner;
-std::shared_ptr<WorkspaceProjectNode211> field_trait;
+std::shared_ptr<WorkspaceProjectNode211> field_kind;
+std::shared_ptr<WorkspaceProjectNode209> field_owner;
+std::shared_ptr<WorkspaceProjectNode212> field_trait;
 };
 struct WorkspaceProjectNode146 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode213> field_kind;
-std::shared_ptr<WorkspaceProjectNode214> field_subject;
-bool field_enabled;
+std::shared_ptr<WorkspaceProjectNode209> field_owner;
+std::shared_ptr<WorkspaceProjectNode212> field_trait;
 };
 struct WorkspaceProjectNode147 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode215> field_kind;
-std::shared_ptr<WorkspaceProjectNode214> field_subject;
-bool field_visible;
+std::shared_ptr<WorkspaceProjectNode214> field_kind;
+std::shared_ptr<WorkspaceProjectNode215> field_subject;
+bool field_enabled;
 };
 struct WorkspaceProjectNode148 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode216> field_kind;
-std::shared_ptr<WorkspaceProjectNode214> field_subject;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
-std::optional<std::shared_ptr<WorkspaceProjectNode218>> field_roomPresentation;
+std::shared_ptr<WorkspaceProjectNode215> field_subject;
+bool field_visible;
 };
 struct WorkspaceProjectNode149 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode219> field_kind;
-std::shared_ptr<WorkspaceProjectNode220> field_source;
-std::optional<std::string> field_result;
+std::shared_ptr<WorkspaceProjectNode217> field_kind;
+std::shared_ptr<WorkspaceProjectNode215> field_subject;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
+std::optional<std::shared_ptr<WorkspaceProjectNode219>> field_roomPresentation;
 };
 struct WorkspaceProjectNode150 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode221> field_kind;
-std::shared_ptr<WorkspaceProjectNode220> field_source;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
-bool field_enabled;
-bool field_visible;
+std::shared_ptr<WorkspaceProjectNode220> field_kind;
+std::shared_ptr<WorkspaceProjectNode221> field_source;
 std::optional<std::string> field_result;
 };
 struct WorkspaceProjectNode151 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode222> field_kind;
-std::shared_ptr<WorkspaceProjectNode223> field_definition;
-std::int64_t field_quantity;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
+std::shared_ptr<WorkspaceProjectNode221> field_source;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
 bool field_enabled;
 bool field_visible;
-std::optional<std::shared_ptr<WorkspaceProjectNode224>> field_roomPresentation;
 std::optional<std::string> field_result;
 };
 struct WorkspaceProjectNode152 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode225> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_instance;
+std::shared_ptr<WorkspaceProjectNode223> field_kind;
+std::shared_ptr<WorkspaceProjectNode224> field_definition;
+std::int64_t field_quantity;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
+bool field_enabled;
+bool field_visible;
+std::optional<std::shared_ptr<WorkspaceProjectNode225>> field_roomPresentation;
+std::optional<std::string> field_result;
 };
 struct WorkspaceProjectNode153 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode226> field_kind;
-std::shared_ptr<WorkspaceProjectNode227> field_source;
-std::int64_t field_quantity;
-std::optional<std::string> field_result;
+std::shared_ptr<WorkspaceProjectNode209> field_instance;
 };
 struct WorkspaceProjectNode154 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode228> field_kind;
-std::shared_ptr<WorkspaceProjectNode227> field_receiver;
-std::shared_ptr<WorkspaceProjectNode227> field_donor;
+std::shared_ptr<WorkspaceProjectNode227> field_kind;
+std::shared_ptr<WorkspaceProjectNode228> field_source;
+std::int64_t field_quantity;
+std::optional<std::string> field_result;
 };
 struct WorkspaceProjectNode155 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode229> field_kind;
-std::shared_ptr<WorkspaceProjectNode230> field_mode;
-std::shared_ptr<WorkspaceProjectNode227> field_source;
-std::int64_t field_quantity;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
-std::optional<std::string> field_result;
+std::shared_ptr<WorkspaceProjectNode228> field_receiver;
+std::shared_ptr<WorkspaceProjectNode228> field_donor;
 };
 struct WorkspaceProjectNode156 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode231> field_kind;
-std::shared_ptr<WorkspaceProjectNode232> field_mode;
-std::shared_ptr<WorkspaceProjectNode233> field_matcher;
-std::optional<std::shared_ptr<WorkspaceProjectNode234>> field_sourceInventory;
+std::shared_ptr<WorkspaceProjectNode230> field_kind;
+std::shared_ptr<WorkspaceProjectNode231> field_mode;
+std::shared_ptr<WorkspaceProjectNode228> field_source;
 std::int64_t field_quantity;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
+std::optional<std::string> field_result;
 };
 struct WorkspaceProjectNode157 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode235> field_kind;
-std::shared_ptr<WorkspaceProjectNode223> field_definition;
+std::shared_ptr<WorkspaceProjectNode232> field_kind;
+std::shared_ptr<WorkspaceProjectNode233> field_mode;
+std::shared_ptr<WorkspaceProjectNode234> field_matcher;
+std::optional<std::shared_ptr<WorkspaceProjectNode235>> field_sourceInventory;
 std::int64_t field_quantity;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
 };
 struct WorkspaceProjectNode158 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode236> field_kind;
-std::shared_ptr<WorkspaceProjectNode237> field_mode;
-std::shared_ptr<WorkspaceProjectNode227> field_source;
+std::shared_ptr<WorkspaceProjectNode224> field_definition;
 std::int64_t field_quantity;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
 };
 struct WorkspaceProjectNode159 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode238> field_kind;
-std::shared_ptr<WorkspaceProjectNode239> field_mode;
-std::shared_ptr<WorkspaceProjectNode233> field_matcher;
-std::optional<std::shared_ptr<WorkspaceProjectNode234>> field_sourceInventory;
+std::shared_ptr<WorkspaceProjectNode237> field_kind;
+std::shared_ptr<WorkspaceProjectNode238> field_mode;
+std::shared_ptr<WorkspaceProjectNode228> field_source;
 std::int64_t field_quantity;
 };
 struct WorkspaceProjectNode160 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode240> field_kind;
-std::shared_ptr<WorkspaceProjectNode234> field_inventory;
-std::optional<std::shared_ptr<WorkspaceProjectNode241>> field_layout;
+std::shared_ptr<WorkspaceProjectNode239> field_kind;
+std::shared_ptr<WorkspaceProjectNode240> field_mode;
+std::shared_ptr<WorkspaceProjectNode234> field_matcher;
+std::optional<std::shared_ptr<WorkspaceProjectNode235>> field_sourceInventory;
+std::int64_t field_quantity;
+};
+struct WorkspaceProjectNode161 {
+std::string field_id;
+std::shared_ptr<WorkspaceProjectNode241> field_kind;
+std::shared_ptr<WorkspaceProjectNode235> field_inventory;
+std::optional<std::shared_ptr<WorkspaceProjectNode242>> field_layout;
 std::optional<bool> field_useTriggerAnchor;
 std::optional<bool> field_parentToTriggeringLayout;
 std::optional<bool> field_coexist;
 };
-struct WorkspaceProjectNode161 {
-std::string field_id;
-std::shared_ptr<WorkspaceProjectNode242> field_kind;
-std::string field_exitId;
-};
 struct WorkspaceProjectNode162 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode243> field_kind;
-std::shared_ptr<WorkspaceProjectNode244> field_room;
+std::string field_exitId;
 };
 struct WorkspaceProjectNode163 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode245> field_kind;
-std::shared_ptr<WorkspaceProjectNode246> field_scene;
+std::shared_ptr<WorkspaceProjectNode244> field_kind;
+std::shared_ptr<WorkspaceProjectNode245> field_room;
 };
 struct WorkspaceProjectNode164 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode247> field_kind;
-std::shared_ptr<WorkspaceProjectNode248> field_dialogue;
+std::shared_ptr<WorkspaceProjectNode246> field_kind;
+std::shared_ptr<WorkspaceProjectNode247> field_scene;
 };
 struct WorkspaceProjectNode165 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode249> field_kind;
-std::shared_ptr<WorkspaceProjectNode250> field_message;
+std::shared_ptr<WorkspaceProjectNode248> field_kind;
+std::shared_ptr<WorkspaceProjectNode249> field_dialogue;
 };
 struct WorkspaceProjectNode166 {
 std::string field_id;
-std::shared_ptr<WorkspaceProjectNode251> field_kind;
-std::string field_source;
+std::shared_ptr<WorkspaceProjectNode250> field_kind;
+std::shared_ptr<WorkspaceProjectNode251> field_message;
 };
 struct WorkspaceProjectNode167 {
 std::string field_id;
 std::shared_ptr<WorkspaceProjectNode252> field_kind;
-std::shared_ptr<WorkspaceProjectNode253> field_condition;
-std::shared_ptr<WorkspaceProjectNode254> field_then;
-std::shared_ptr<WorkspaceProjectNode255> field_else;
+std::string field_source;
 };
 struct WorkspaceProjectNode168 {
-enum class Value { choice0 };
-Value value;
+std::string field_id;
+std::shared_ptr<WorkspaceProjectNode253> field_kind;
+std::shared_ptr<WorkspaceProjectNode254> field_condition;
+std::shared_ptr<WorkspaceProjectNode255> field_then;
+std::shared_ptr<WorkspaceProjectNode256> field_else;
 };
 struct WorkspaceProjectNode169 {
 enum class Value { choice0 };
@@ -32725,47 +32745,47 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode176 {
-std::shared_ptr<WorkspaceProjectNode256> field__u24_ref;
-};
-struct WorkspaceProjectNode177 {
 enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceProjectNode177 {
+std::shared_ptr<WorkspaceProjectNode257> field__u24_ref;
+};
 struct WorkspaceProjectNode178 {
-std::shared_ptr<WorkspaceProjectNode257> field_owner;
-std::string field_inventoryId;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode179 {
+std::shared_ptr<WorkspaceProjectNode258> field_owner;
+std::string field_inventoryId;
+};
+struct WorkspaceProjectNode180 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
-struct WorkspaceProjectNode180 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode258>, std::shared_ptr<WorkspaceProjectNode259>>;
+struct WorkspaceProjectNode181 {
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode259>, std::shared_ptr<WorkspaceProjectNode260>>;
 Value value;
 };
-struct WorkspaceProjectNode181 {
+struct WorkspaceProjectNode182 {
 std::vector<std::string> value;
 };
-struct WorkspaceProjectNode182 {
-std::shared_ptr<WorkspaceProjectNode260> field__u24_ref;
-};
 struct WorkspaceProjectNode183 {
-std::shared_ptr<WorkspaceProjectNode261> field_type;
-std::shared_ptr<WorkspaceProjectNode262> field_source;
+std::shared_ptr<WorkspaceProjectNode261> field__u24_ref;
 };
 struct WorkspaceProjectNode184 {
+std::shared_ptr<WorkspaceProjectNode262> field_type;
 std::shared_ptr<WorkspaceProjectNode263> field_source;
 };
 struct WorkspaceProjectNode185 {
-std::shared_ptr<WorkspaceProjectNode264> field_add;
-std::shared_ptr<WorkspaceProjectNode265> field_remove;
+std::shared_ptr<WorkspaceProjectNode264> field_source;
 };
 struct WorkspaceProjectNode186 {
-std::vector<std::shared_ptr<WorkspaceProjectNode266>> value;
+std::shared_ptr<WorkspaceProjectNode265> field_add;
+std::shared_ptr<WorkspaceProjectNode266> field_remove;
 };
 struct WorkspaceProjectNode187 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<WorkspaceProjectNode267>> value;
 };
 struct WorkspaceProjectNode188 {
 enum class Value { choice0 };
@@ -32776,11 +32796,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode190 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode191 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11 };
 Value value;
 };
 struct WorkspaceProjectNode192 {
@@ -32796,50 +32816,50 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode195 {
-std::shared_ptr<WorkspaceProjectNode267> field_kind;
-std::shared_ptr<WorkspaceProjectNode268> field_preset;
-};
-struct WorkspaceProjectNode196 {
-std::shared_ptr<WorkspaceProjectNode269> field_kind;
-std::string field_policyId;
-};
-struct WorkspaceProjectNode197 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceProjectNode196 {
+std::shared_ptr<WorkspaceProjectNode268> field_kind;
+std::shared_ptr<WorkspaceProjectNode269> field_preset;
+};
+struct WorkspaceProjectNode197 {
+std::shared_ptr<WorkspaceProjectNode270> field_kind;
+std::string field_policyId;
+};
 struct WorkspaceProjectNode198 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct WorkspaceProjectNode199 {
-enum class Value { choice0, choice1, choice2, choice3 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode200 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0, choice1, choice2, choice3 };
 Value value;
 };
 struct WorkspaceProjectNode201 {
-enum class Value { choice0, choice1, choice2 };
-Value value;
-};
-struct WorkspaceProjectNode202 {
 enum class Value { choice0, choice1 };
 Value value;
 };
+struct WorkspaceProjectNode202 {
+enum class Value { choice0, choice1, choice2 };
+Value value;
+};
 struct WorkspaceProjectNode203 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode204 {
-std::shared_ptr<WorkspaceProjectNode270> field__u24_ref;
-};
-struct WorkspaceProjectNode205 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceProjectNode205 {
+std::shared_ptr<WorkspaceProjectNode271> field__u24_ref;
+};
 struct WorkspaceProjectNode206 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, bool, double, std::string>;
 Value value;
 };
 struct WorkspaceProjectNode207 {
@@ -32847,11 +32867,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode208 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode271>, std::shared_ptr<WorkspaceProjectNode272>, std::shared_ptr<WorkspaceProjectNode273>, std::shared_ptr<WorkspaceProjectNode274>, std::shared_ptr<WorkspaceProjectNode275>, std::shared_ptr<WorkspaceProjectNode276>, std::shared_ptr<WorkspaceProjectNode277>, std::shared_ptr<WorkspaceProjectNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode209 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode272>, std::shared_ptr<WorkspaceProjectNode273>, std::shared_ptr<WorkspaceProjectNode274>, std::shared_ptr<WorkspaceProjectNode275>, std::shared_ptr<WorkspaceProjectNode276>, std::shared_ptr<WorkspaceProjectNode277>, std::shared_ptr<WorkspaceProjectNode278>, std::shared_ptr<WorkspaceProjectNode279>>;
 Value value;
 };
 struct WorkspaceProjectNode210 {
@@ -32859,22 +32879,22 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode211 {
-std::shared_ptr<WorkspaceProjectNode279> field__u24_ref;
-};
-struct WorkspaceProjectNode212 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode212 {
+std::shared_ptr<WorkspaceProjectNode280> field__u24_ref;
 };
 struct WorkspaceProjectNode213 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode214 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode280>, std::shared_ptr<WorkspaceProjectNode281>, std::shared_ptr<WorkspaceProjectNode277>, std::shared_ptr<WorkspaceProjectNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode215 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode281>, std::shared_ptr<WorkspaceProjectNode282>, std::shared_ptr<WorkspaceProjectNode278>, std::shared_ptr<WorkspaceProjectNode279>>;
 Value value;
 };
 struct WorkspaceProjectNode216 {
@@ -32882,23 +32902,23 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode217 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode282>, std::shared_ptr<WorkspaceProjectNode283>, std::shared_ptr<WorkspaceProjectNode284>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode218 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode283>, std::shared_ptr<WorkspaceProjectNode284>, std::shared_ptr<WorkspaceProjectNode285>>;
 Value value;
 };
 struct WorkspaceProjectNode219 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode220 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode285>, std::shared_ptr<WorkspaceProjectNode286>, std::shared_ptr<WorkspaceProjectNode287>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode221 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode286>, std::shared_ptr<WorkspaceProjectNode287>, std::shared_ptr<WorkspaceProjectNode288>>;
 Value value;
 };
 struct WorkspaceProjectNode222 {
@@ -32906,14 +32926,14 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode223 {
-std::shared_ptr<WorkspaceProjectNode288> field__u24_ref;
-};
-struct WorkspaceProjectNode224 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceProjectNode224 {
+std::shared_ptr<WorkspaceProjectNode289> field__u24_ref;
+};
 struct WorkspaceProjectNode225 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode226 {
@@ -32921,11 +32941,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode227 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode289>, std::shared_ptr<WorkspaceProjectNode277>, std::shared_ptr<WorkspaceProjectNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode228 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode290>, std::shared_ptr<WorkspaceProjectNode278>, std::shared_ptr<WorkspaceProjectNode279>>;
 Value value;
 };
 struct WorkspaceProjectNode229 {
@@ -32945,17 +32965,17 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode233 {
-std::optional<std::shared_ptr<WorkspaceProjectNode223>> field_definition;
-std::optional<std::shared_ptr<WorkspaceProjectNode290>> field_traits;
-std::optional<std::shared_ptr<WorkspaceProjectNode291>> field_properties;
-std::optional<std::shared_ptr<WorkspaceProjectNode227>> field_exact;
-};
-struct WorkspaceProjectNode234 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode292>, std::shared_ptr<WorkspaceProjectNode293>, std::shared_ptr<WorkspaceProjectNode294>, std::shared_ptr<WorkspaceProjectNode278>>;
+enum class Value { choice0 };
 Value value;
 };
+struct WorkspaceProjectNode234 {
+std::optional<std::shared_ptr<WorkspaceProjectNode224>> field_definition;
+std::optional<std::shared_ptr<WorkspaceProjectNode291>> field_traits;
+std::optional<std::shared_ptr<WorkspaceProjectNode292>> field_properties;
+std::optional<std::shared_ptr<WorkspaceProjectNode228>> field_exact;
+};
 struct WorkspaceProjectNode235 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode293>, std::shared_ptr<WorkspaceProjectNode294>, std::shared_ptr<WorkspaceProjectNode295>, std::shared_ptr<WorkspaceProjectNode279>>;
 Value value;
 };
 struct WorkspaceProjectNode236 {
@@ -32979,337 +32999,337 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode241 {
-std::shared_ptr<WorkspaceProjectNode295> field__u24_ref;
-};
-struct WorkspaceProjectNode242 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode242 {
+std::shared_ptr<WorkspaceProjectNode296> field__u24_ref;
 };
 struct WorkspaceProjectNode243 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode244 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode296>, std::shared_ptr<WorkspaceProjectNode297>, std::shared_ptr<WorkspaceProjectNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode245 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode297>, std::shared_ptr<WorkspaceProjectNode298>, std::shared_ptr<WorkspaceProjectNode279>>;
 Value value;
 };
 struct WorkspaceProjectNode246 {
-std::shared_ptr<WorkspaceProjectNode298> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode247 {
-enum class Value { choice0 };
-Value value;
-};
-struct WorkspaceProjectNode248 {
 std::shared_ptr<WorkspaceProjectNode299> field__u24_ref;
 };
-struct WorkspaceProjectNode249 {
+struct WorkspaceProjectNode248 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode249 {
+std::shared_ptr<WorkspaceProjectNode300> field__u24_ref;
 };
 struct WorkspaceProjectNode250 {
-std::shared_ptr<WorkspaceProjectNode300> field_source;
-std::shared_ptr<WorkspaceProjectNode301> field_markup;
-};
-struct WorkspaceProjectNode251 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode251 {
+std::shared_ptr<WorkspaceProjectNode301> field_source;
+std::shared_ptr<WorkspaceProjectNode302> field_markup;
 };
 struct WorkspaceProjectNode252 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode253 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode302>, std::shared_ptr<WorkspaceProjectNode303>, std::shared_ptr<WorkspaceProjectNode304>, std::shared_ptr<WorkspaceProjectNode305>, std::shared_ptr<WorkspaceProjectNode306>, std::shared_ptr<WorkspaceProjectNode307>, std::shared_ptr<WorkspaceProjectNode308>, std::shared_ptr<WorkspaceProjectNode309>, std::shared_ptr<WorkspaceProjectNode310>, std::shared_ptr<WorkspaceProjectNode311>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode254 {
-std::vector<std::shared_ptr<WorkspaceProjectNode98>> value;
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode303>, std::shared_ptr<WorkspaceProjectNode304>, std::shared_ptr<WorkspaceProjectNode305>, std::shared_ptr<WorkspaceProjectNode306>, std::shared_ptr<WorkspaceProjectNode307>, std::shared_ptr<WorkspaceProjectNode308>, std::shared_ptr<WorkspaceProjectNode309>, std::shared_ptr<WorkspaceProjectNode310>, std::shared_ptr<WorkspaceProjectNode311>, std::shared_ptr<WorkspaceProjectNode312>>;
+Value value;
 };
 struct WorkspaceProjectNode255 {
 std::vector<std::shared_ptr<WorkspaceProjectNode98>> value;
 };
 struct WorkspaceProjectNode256 {
-std::shared_ptr<WorkspaceProjectNode312> field_collection;
-std::string field_id;
+std::vector<std::shared_ptr<WorkspaceProjectNode98>> value;
 };
 struct WorkspaceProjectNode257 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode313>, std::shared_ptr<WorkspaceProjectNode314>, std::shared_ptr<WorkspaceProjectNode315>, std::shared_ptr<WorkspaceProjectNode316>, std::shared_ptr<WorkspaceProjectNode317>>;
-Value value;
+std::shared_ptr<WorkspaceProjectNode313> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode258 {
-using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode314>, std::shared_ptr<WorkspaceProjectNode315>, std::shared_ptr<WorkspaceProjectNode316>, std::shared_ptr<WorkspaceProjectNode317>, std::shared_ptr<WorkspaceProjectNode318>>;
 Value value;
 };
 struct WorkspaceProjectNode259 {
-std::string field__u24_message;
+using Value = std::variant<std::nullptr_t, bool, double, std::string>;
+Value value;
 };
 struct WorkspaceProjectNode260 {
-std::shared_ptr<WorkspaceProjectNode318> field_collection;
-std::string field_id;
+std::string field__u24_message;
 };
 struct WorkspaceProjectNode261 {
+std::shared_ptr<WorkspaceProjectNode319> field_collection;
+std::string field_id;
+};
+struct WorkspaceProjectNode262 {
 enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6 };
 Value value;
 };
-struct WorkspaceProjectNode262 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode319>, std::shared_ptr<WorkspaceProjectNode320>, std::shared_ptr<WorkspaceProjectNode321>>;
+struct WorkspaceProjectNode263 {
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode320>, std::shared_ptr<WorkspaceProjectNode321>, std::shared_ptr<WorkspaceProjectNode322>>;
 Value value;
 };
-struct WorkspaceProjectNode263 {
-std::shared_ptr<WorkspaceProjectNode322> field__u24_ref;
-};
 struct WorkspaceProjectNode264 {
-std::vector<std::string> value;
+std::shared_ptr<WorkspaceProjectNode323> field__u24_ref;
 };
 struct WorkspaceProjectNode265 {
 std::vector<std::string> value;
 };
 struct WorkspaceProjectNode266 {
-std::string field_propertyId;
-std::shared_ptr<WorkspaceProjectNode180> field_value;
+std::vector<std::string> value;
 };
 struct WorkspaceProjectNode267 {
-enum class Value { choice0 };
-Value value;
+std::string field_propertyId;
+std::shared_ptr<WorkspaceProjectNode181> field_value;
 };
 struct WorkspaceProjectNode268 {
-enum class Value { choice0, choice1, choice2 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode269 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2 };
 Value value;
 };
 struct WorkspaceProjectNode270 {
-std::shared_ptr<WorkspaceProjectNode323> field_collection;
-std::string field_id;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode271 {
-std::shared_ptr<WorkspaceProjectNode324> field_kind;
-std::shared_ptr<WorkspaceProjectNode176> field_room;
+std::shared_ptr<WorkspaceProjectNode324> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode272 {
 std::shared_ptr<WorkspaceProjectNode325> field_kind;
-std::shared_ptr<WorkspaceProjectNode326> field_character;
+std::shared_ptr<WorkspaceProjectNode177> field_room;
 };
 struct WorkspaceProjectNode273 {
-std::shared_ptr<WorkspaceProjectNode327> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode326> field_kind;
+std::shared_ptr<WorkspaceProjectNode327> field_character;
 };
 struct WorkspaceProjectNode274 {
-std::shared_ptr<WorkspaceProjectNode329> field_kind;
-std::shared_ptr<WorkspaceProjectNode176> field_room;
-std::string field_featureId;
+std::shared_ptr<WorkspaceProjectNode328> field_kind;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
 };
 struct WorkspaceProjectNode275 {
 std::shared_ptr<WorkspaceProjectNode330> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode177> field_room;
 std::string field_featureId;
 };
 struct WorkspaceProjectNode276 {
 std::shared_ptr<WorkspaceProjectNode331> field_kind;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
+std::string field_featureId;
 };
 struct WorkspaceProjectNode277 {
 std::shared_ptr<WorkspaceProjectNode332> field_kind;
-std::string field_slotId;
 };
 struct WorkspaceProjectNode278 {
 std::shared_ptr<WorkspaceProjectNode333> field_kind;
-std::string field_bindingId;
+std::string field_slotId;
 };
 struct WorkspaceProjectNode279 {
-std::shared_ptr<WorkspaceProjectNode334> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceProjectNode334> field_kind;
+std::string field_bindingId;
 };
 struct WorkspaceProjectNode280 {
-std::shared_ptr<WorkspaceProjectNode335> field_kind;
-std::shared_ptr<WorkspaceProjectNode326> field_character;
+std::shared_ptr<WorkspaceProjectNode335> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode281 {
 std::shared_ptr<WorkspaceProjectNode336> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode327> field_character;
 };
 struct WorkspaceProjectNode282 {
 std::shared_ptr<WorkspaceProjectNode337> field_kind;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
 };
 struct WorkspaceProjectNode283 {
 std::shared_ptr<WorkspaceProjectNode338> field_kind;
-std::shared_ptr<WorkspaceProjectNode244> field_room;
 };
 struct WorkspaceProjectNode284 {
 std::shared_ptr<WorkspaceProjectNode339> field_kind;
-std::shared_ptr<WorkspaceProjectNode234> field_inventory;
+std::shared_ptr<WorkspaceProjectNode245> field_room;
 };
 struct WorkspaceProjectNode285 {
 std::shared_ptr<WorkspaceProjectNode340> field_kind;
-std::shared_ptr<WorkspaceProjectNode341> field_archetype;
+std::shared_ptr<WorkspaceProjectNode235> field_inventory;
 };
 struct WorkspaceProjectNode286 {
-std::shared_ptr<WorkspaceProjectNode342> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_instance;
+std::shared_ptr<WorkspaceProjectNode341> field_kind;
+std::shared_ptr<WorkspaceProjectNode342> field_archetype;
 };
 struct WorkspaceProjectNode287 {
 std::shared_ptr<WorkspaceProjectNode343> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_instance;
+std::shared_ptr<WorkspaceProjectNode209> field_instance;
 };
 struct WorkspaceProjectNode288 {
-std::shared_ptr<WorkspaceProjectNode344> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceProjectNode344> field_kind;
+std::shared_ptr<WorkspaceProjectNode209> field_instance;
 };
 struct WorkspaceProjectNode289 {
-std::shared_ptr<WorkspaceProjectNode345> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode345> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode290 {
-std::vector<std::shared_ptr<WorkspaceProjectNode211>> value;
+std::shared_ptr<WorkspaceProjectNode346> field_kind;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
 };
 struct WorkspaceProjectNode291 {
-std::vector<std::shared_ptr<WorkspaceProjectNode346>> value;
+std::vector<std::shared_ptr<WorkspaceProjectNode212>> value;
 };
 struct WorkspaceProjectNode292 {
-std::shared_ptr<WorkspaceProjectNode347> field_kind;
-std::shared_ptr<WorkspaceProjectNode178> field_inventory;
+std::vector<std::shared_ptr<WorkspaceProjectNode347>> value;
 };
 struct WorkspaceProjectNode293 {
 std::shared_ptr<WorkspaceProjectNode348> field_kind;
+std::shared_ptr<WorkspaceProjectNode179> field_inventory;
 };
 struct WorkspaceProjectNode294 {
 std::shared_ptr<WorkspaceProjectNode349> field_kind;
-std::shared_ptr<WorkspaceProjectNode350> field_owner;
-std::string field_inventoryId;
 };
 struct WorkspaceProjectNode295 {
-std::shared_ptr<WorkspaceProjectNode351> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceProjectNode350> field_kind;
+std::shared_ptr<WorkspaceProjectNode351> field_owner;
+std::string field_inventoryId;
 };
 struct WorkspaceProjectNode296 {
-std::shared_ptr<WorkspaceProjectNode352> field_kind;
-std::shared_ptr<WorkspaceProjectNode176> field_room;
+std::shared_ptr<WorkspaceProjectNode352> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode297 {
 std::shared_ptr<WorkspaceProjectNode353> field_kind;
+std::shared_ptr<WorkspaceProjectNode177> field_room;
 };
 struct WorkspaceProjectNode298 {
-std::shared_ptr<WorkspaceProjectNode354> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceProjectNode354> field_kind;
 };
 struct WorkspaceProjectNode299 {
 std::shared_ptr<WorkspaceProjectNode355> field_collection;
 std::string field_id;
 };
 struct WorkspaceProjectNode300 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode356>, std::shared_ptr<WorkspaceProjectNode357>, std::shared_ptr<WorkspaceProjectNode358>>;
-Value value;
+std::shared_ptr<WorkspaceProjectNode356> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode301 {
-enum class Value { choice0, choice1 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode357>, std::shared_ptr<WorkspaceProjectNode358>, std::shared_ptr<WorkspaceProjectNode359>>;
 Value value;
 };
 struct WorkspaceProjectNode302 {
-std::shared_ptr<WorkspaceProjectNode359> field_kind;
+enum class Value { choice0, choice1 };
+Value value;
 };
 struct WorkspaceProjectNode303 {
 std::shared_ptr<WorkspaceProjectNode360> field_kind;
-std::shared_ptr<WorkspaceProjectNode361> field_conditions;
 };
 struct WorkspaceProjectNode304 {
-std::shared_ptr<WorkspaceProjectNode362> field_kind;
-std::shared_ptr<WorkspaceProjectNode363> field_conditions;
+std::shared_ptr<WorkspaceProjectNode361> field_kind;
+std::shared_ptr<WorkspaceProjectNode362> field_conditions;
 };
 struct WorkspaceProjectNode305 {
-std::shared_ptr<WorkspaceProjectNode364> field_kind;
-std::shared_ptr<WorkspaceProjectNode253> field_condition;
+std::shared_ptr<WorkspaceProjectNode363> field_kind;
+std::shared_ptr<WorkspaceProjectNode364> field_conditions;
 };
 struct WorkspaceProjectNode306 {
 std::shared_ptr<WorkspaceProjectNode365> field_kind;
-std::shared_ptr<WorkspaceProjectNode204> field_variable;
-std::shared_ptr<WorkspaceProjectNode366> field_operator;
-std::optional<std::shared_ptr<WorkspaceProjectNode205>> field_value;
+std::shared_ptr<WorkspaceProjectNode254> field_condition;
 };
 struct WorkspaceProjectNode307 {
-std::shared_ptr<WorkspaceProjectNode367> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_owner;
-std::string field_propertyId;
-std::shared_ptr<WorkspaceProjectNode366> field_operator;
-std::optional<std::shared_ptr<WorkspaceProjectNode205>> field_value;
+std::shared_ptr<WorkspaceProjectNode366> field_kind;
+std::shared_ptr<WorkspaceProjectNode205> field_variable;
+std::shared_ptr<WorkspaceProjectNode367> field_operator;
+std::optional<std::shared_ptr<WorkspaceProjectNode206>> field_value;
 };
 struct WorkspaceProjectNode308 {
 std::shared_ptr<WorkspaceProjectNode368> field_kind;
-std::shared_ptr<WorkspaceProjectNode208> field_owner;
-std::shared_ptr<WorkspaceProjectNode211> field_trait;
-bool field_present;
+std::shared_ptr<WorkspaceProjectNode209> field_owner;
+std::string field_propertyId;
+std::shared_ptr<WorkspaceProjectNode367> field_operator;
+std::optional<std::shared_ptr<WorkspaceProjectNode206>> field_value;
 };
 struct WorkspaceProjectNode309 {
 std::shared_ptr<WorkspaceProjectNode369> field_kind;
-std::shared_ptr<WorkspaceProjectNode214> field_subject;
-std::shared_ptr<WorkspaceProjectNode370> field_operator;
-std::shared_ptr<WorkspaceProjectNode217> field_location;
+std::shared_ptr<WorkspaceProjectNode209> field_owner;
+std::shared_ptr<WorkspaceProjectNode212> field_trait;
+bool field_present;
 };
 struct WorkspaceProjectNode310 {
-std::shared_ptr<WorkspaceProjectNode371> field_kind;
-std::shared_ptr<WorkspaceProjectNode234> field_inventory;
-std::shared_ptr<WorkspaceProjectNode233> field_matcher;
-std::shared_ptr<WorkspaceProjectNode372> field_operator;
-std::int64_t field_quantity;
+std::shared_ptr<WorkspaceProjectNode370> field_kind;
+std::shared_ptr<WorkspaceProjectNode215> field_subject;
+std::shared_ptr<WorkspaceProjectNode371> field_operator;
+std::shared_ptr<WorkspaceProjectNode218> field_location;
 };
 struct WorkspaceProjectNode311 {
-std::shared_ptr<WorkspaceProjectNode373> field_kind;
-std::string field_source;
-std::optional<std::shared_ptr<WorkspaceProjectNode374>> field_additionalDependencies;
+std::shared_ptr<WorkspaceProjectNode372> field_kind;
+std::shared_ptr<WorkspaceProjectNode235> field_inventory;
+std::shared_ptr<WorkspaceProjectNode234> field_matcher;
+std::shared_ptr<WorkspaceProjectNode373> field_operator;
+std::int64_t field_quantity;
 };
 struct WorkspaceProjectNode312 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceProjectNode374> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<WorkspaceProjectNode375>> field_additionalDependencies;
 };
 struct WorkspaceProjectNode313 {
-std::shared_ptr<WorkspaceProjectNode375> field_kind;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode314 {
 std::shared_ptr<WorkspaceProjectNode376> field_kind;
-std::shared_ptr<WorkspaceProjectNode326> field_character;
 };
 struct WorkspaceProjectNode315 {
 std::shared_ptr<WorkspaceProjectNode377> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode327> field_character;
 };
 struct WorkspaceProjectNode316 {
 std::shared_ptr<WorkspaceProjectNode378> field_kind;
-std::shared_ptr<WorkspaceProjectNode176> field_room;
-std::string field_featureId;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
 };
 struct WorkspaceProjectNode317 {
 std::shared_ptr<WorkspaceProjectNode379> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode177> field_room;
 std::string field_featureId;
 };
 struct WorkspaceProjectNode318 {
+std::shared_ptr<WorkspaceProjectNode380> field_kind;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
+std::string field_featureId;
+};
+struct WorkspaceProjectNode319 {
 enum class Value { choice0 };
 Value value;
 };
-struct WorkspaceProjectNode319 {
-std::shared_ptr<WorkspaceProjectNode380> field_kind;
-std::shared_ptr<WorkspaceProjectNode381> field_value;
-};
 struct WorkspaceProjectNode320 {
-std::shared_ptr<WorkspaceProjectNode382> field_kind;
-std::string field_property;
+std::shared_ptr<WorkspaceProjectNode381> field_kind;
+std::shared_ptr<WorkspaceProjectNode382> field_value;
 };
 struct WorkspaceProjectNode321 {
 std::shared_ptr<WorkspaceProjectNode383> field_kind;
-std::shared_ptr<WorkspaceProjectNode384> field_facet;
+std::string field_property;
 };
 struct WorkspaceProjectNode322 {
-std::shared_ptr<WorkspaceProjectNode385> field_collection;
-std::string field_id;
+std::shared_ptr<WorkspaceProjectNode384> field_kind;
+std::shared_ptr<WorkspaceProjectNode385> field_facet;
 };
 struct WorkspaceProjectNode323 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceProjectNode386> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode324 {
 enum class Value { choice0 };
@@ -33320,18 +33340,18 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode326 {
-std::shared_ptr<WorkspaceProjectNode386> field__u24_ref;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode327 {
-enum class Value { choice0 };
-Value value;
-};
-struct WorkspaceProjectNode328 {
 std::shared_ptr<WorkspaceProjectNode387> field__u24_ref;
 };
-struct WorkspaceProjectNode329 {
+struct WorkspaceProjectNode328 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode329 {
+std::shared_ptr<WorkspaceProjectNode388> field__u24_ref;
 };
 struct WorkspaceProjectNode330 {
 enum class Value { choice0 };
@@ -33378,11 +33398,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode341 {
-std::shared_ptr<WorkspaceProjectNode388> field__u24_ref;
-};
-struct WorkspaceProjectNode342 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode342 {
+std::shared_ptr<WorkspaceProjectNode389> field__u24_ref;
 };
 struct WorkspaceProjectNode343 {
 enum class Value { choice0 };
@@ -33397,12 +33417,12 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode346 {
-std::string field_propertyId;
-std::shared_ptr<WorkspaceProjectNode205> field_value;
-};
-struct WorkspaceProjectNode347 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode347 {
+std::string field_propertyId;
+std::shared_ptr<WorkspaceProjectNode206> field_value;
 };
 struct WorkspaceProjectNode348 {
 enum class Value { choice0 };
@@ -33413,11 +33433,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode350 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode389>, std::shared_ptr<WorkspaceProjectNode390>, std::shared_ptr<WorkspaceProjectNode391>, std::shared_ptr<WorkspaceProjectNode392>, std::shared_ptr<WorkspaceProjectNode393>, std::shared_ptr<WorkspaceProjectNode277>, std::shared_ptr<WorkspaceProjectNode278>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode351 {
-enum class Value { choice0 };
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode390>, std::shared_ptr<WorkspaceProjectNode391>, std::shared_ptr<WorkspaceProjectNode392>, std::shared_ptr<WorkspaceProjectNode393>, std::shared_ptr<WorkspaceProjectNode394>, std::shared_ptr<WorkspaceProjectNode278>, std::shared_ptr<WorkspaceProjectNode279>>;
 Value value;
 };
 struct WorkspaceProjectNode352 {
@@ -33437,50 +33457,50 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode356 {
-std::shared_ptr<WorkspaceProjectNode394> field_kind;
-std::string field_text;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode357 {
 std::shared_ptr<WorkspaceProjectNode395> field_kind;
-std::string field_key;
+std::string field_text;
 };
 struct WorkspaceProjectNode358 {
 std::shared_ptr<WorkspaceProjectNode396> field_kind;
-std::string field_source;
-std::optional<std::shared_ptr<WorkspaceProjectNode374>> field_additionalDependencies;
+std::string field_key;
 };
 struct WorkspaceProjectNode359 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceProjectNode397> field_kind;
+std::string field_source;
+std::optional<std::shared_ptr<WorkspaceProjectNode375>> field_additionalDependencies;
 };
 struct WorkspaceProjectNode360 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode361 {
-std::vector<std::shared_ptr<WorkspaceProjectNode253>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode362 {
-enum class Value { choice0 };
-Value value;
+std::vector<std::shared_ptr<WorkspaceProjectNode254>> value;
 };
 struct WorkspaceProjectNode363 {
-std::vector<std::shared_ptr<WorkspaceProjectNode253>> value;
-};
-struct WorkspaceProjectNode364 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode364 {
+std::vector<std::shared_ptr<WorkspaceProjectNode254>> value;
 };
 struct WorkspaceProjectNode365 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode366 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode367 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7 };
 Value value;
 };
 struct WorkspaceProjectNode368 {
@@ -33492,27 +33512,27 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode370 {
-enum class Value { choice0, choice1 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode371 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1 };
 Value value;
 };
 struct WorkspaceProjectNode372 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode373 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct WorkspaceProjectNode374 {
-std::optional<std::shared_ptr<WorkspaceProjectNode397>> field_targets;
-};
-struct WorkspaceProjectNode375 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode375 {
+std::optional<std::shared_ptr<WorkspaceProjectNode398>> field_targets;
 };
 struct WorkspaceProjectNode376 {
 enum class Value { choice0 };
@@ -33535,11 +33555,11 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode381 {
-using Value = std::variant<std::nullptr_t, double, bool, std::shared_ptr<WorkspaceProjectNode398>, std::shared_ptr<WorkspaceProjectNode399>, std::shared_ptr<WorkspaceProjectNode400>, std::shared_ptr<WorkspaceProjectNode401>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode382 {
-enum class Value { choice0 };
+using Value = std::variant<std::nullptr_t, double, bool, std::shared_ptr<WorkspaceProjectNode399>, std::shared_ptr<WorkspaceProjectNode400>, std::shared_ptr<WorkspaceProjectNode401>, std::shared_ptr<WorkspaceProjectNode402>>;
 Value value;
 };
 struct WorkspaceProjectNode383 {
@@ -33547,49 +33567,49 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode384 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode385 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5 };
 Value value;
 };
 struct WorkspaceProjectNode386 {
-std::shared_ptr<WorkspaceProjectNode402> field_collection;
-std::string field_id;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode387 {
-std::shared_ptr<WorkspaceProjectNode403> field_registry;
+std::shared_ptr<WorkspaceProjectNode403> field_collection;
 std::string field_id;
 };
 struct WorkspaceProjectNode388 {
-std::shared_ptr<WorkspaceProjectNode404> field_collection;
+std::shared_ptr<WorkspaceProjectNode404> field_registry;
 std::string field_id;
 };
 struct WorkspaceProjectNode389 {
-std::shared_ptr<WorkspaceProjectNode405> field_kind;
+std::shared_ptr<WorkspaceProjectNode405> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode390 {
 std::shared_ptr<WorkspaceProjectNode406> field_kind;
-std::shared_ptr<WorkspaceProjectNode326> field_character;
 };
 struct WorkspaceProjectNode391 {
 std::shared_ptr<WorkspaceProjectNode407> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode327> field_character;
 };
 struct WorkspaceProjectNode392 {
 std::shared_ptr<WorkspaceProjectNode408> field_kind;
-std::shared_ptr<WorkspaceProjectNode176> field_room;
-std::string field_featureId;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
 };
 struct WorkspaceProjectNode393 {
 std::shared_ptr<WorkspaceProjectNode409> field_kind;
-std::shared_ptr<WorkspaceProjectNode328> field_interactable;
+std::shared_ptr<WorkspaceProjectNode177> field_room;
 std::string field_featureId;
 };
 struct WorkspaceProjectNode394 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceProjectNode410> field_kind;
+std::shared_ptr<WorkspaceProjectNode329> field_interactable;
+std::string field_featureId;
 };
 struct WorkspaceProjectNode395 {
 enum class Value { choice0 };
@@ -33600,26 +33620,26 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode397 {
-std::vector<std::shared_ptr<WorkspaceProjectNode410>> value;
+enum class Value { choice0 };
+Value value;
 };
 struct WorkspaceProjectNode398 {
-std::tuple<double, double> value;
+std::vector<std::shared_ptr<WorkspaceProjectNode411>> value;
 };
 struct WorkspaceProjectNode399 {
-std::tuple<double, double, double> value;
+std::tuple<double, double> value;
 };
 struct WorkspaceProjectNode400 {
-std::tuple<double, double, double, double> value;
+std::tuple<double, double, double> value;
 };
 struct WorkspaceProjectNode401 {
+std::tuple<double, double, double, double> value;
+};
+struct WorkspaceProjectNode402 {
 double field_r;
 double field_g;
 double field_b;
 double field_a;
-};
-struct WorkspaceProjectNode402 {
-enum class Value { choice0 };
-Value value;
 };
 struct WorkspaceProjectNode403 {
 enum class Value { choice0 };
@@ -33650,54 +33670,58 @@ enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode410 {
-using Value = std::variant<std::shared_ptr<WorkspaceProjectNode411>, std::shared_ptr<WorkspaceProjectNode412>, std::shared_ptr<WorkspaceProjectNode413>, std::shared_ptr<WorkspaceProjectNode414>>;
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode411 {
-std::shared_ptr<WorkspaceProjectNode415> field_kind;
-std::shared_ptr<WorkspaceProjectNode416> field_collection;
-std::string field_id;
+using Value = std::variant<std::shared_ptr<WorkspaceProjectNode412>, std::shared_ptr<WorkspaceProjectNode413>, std::shared_ptr<WorkspaceProjectNode414>, std::shared_ptr<WorkspaceProjectNode415>>;
+Value value;
 };
 struct WorkspaceProjectNode412 {
-std::shared_ptr<WorkspaceProjectNode417> field_kind;
-std::shared_ptr<WorkspaceProjectNode418> field_owner;
-std::string field_propertyId;
+std::shared_ptr<WorkspaceProjectNode416> field_kind;
+std::shared_ptr<WorkspaceProjectNode417> field_collection;
+std::string field_id;
 };
 struct WorkspaceProjectNode413 {
-std::shared_ptr<WorkspaceProjectNode419> field_kind;
-std::string field_roomId;
-std::string field_placementId;
+std::shared_ptr<WorkspaceProjectNode418> field_kind;
+std::shared_ptr<WorkspaceProjectNode419> field_owner;
+std::string field_propertyId;
 };
 struct WorkspaceProjectNode414 {
 std::shared_ptr<WorkspaceProjectNode420> field_kind;
 std::string field_roomId;
-std::string field_exitId;
+std::string field_placementId;
 };
 struct WorkspaceProjectNode415 {
-enum class Value { choice0 };
-Value value;
+std::shared_ptr<WorkspaceProjectNode421> field_kind;
+std::string field_roomId;
+std::string field_exitId;
 };
 struct WorkspaceProjectNode416 {
-enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
+enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode417 {
-enum class Value { choice0 };
+enum class Value { choice0, choice1, choice2, choice3, choice4, choice5, choice6, choice7, choice8, choice9, choice10, choice11, choice12, choice13, choice14, choice15 };
 Value value;
 };
 struct WorkspaceProjectNode418 {
-std::shared_ptr<WorkspaceProjectNode421> field_kind;
-std::string field_id;
-};
-struct WorkspaceProjectNode419 {
 enum class Value { choice0 };
 Value value;
+};
+struct WorkspaceProjectNode419 {
+std::shared_ptr<WorkspaceProjectNode422> field_kind;
+std::string field_id;
 };
 struct WorkspaceProjectNode420 {
 enum class Value { choice0 };
 Value value;
 };
 struct WorkspaceProjectNode421 {
+enum class Value { choice0 };
+Value value;
+};
+struct WorkspaceProjectNode422 {
 enum class Value { choice0, choice1, choice2 };
 Value value;
 };

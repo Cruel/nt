@@ -19,11 +19,14 @@ const destination = value('--root');
 const platform = value('--target');
 if (!destination || !['web', 'android'].includes(platform))
   throw new Error(
-    'Usage: materialize-native-platform-export-fixture --root <directory> --target <web|android> [--revision 1|2] [--abi x86_64|arm64-v8a] [--flavor debug|release] [--artifact apk|aab|both]',
+    'Usage: materialize-native-platform-export-fixture --root <directory> --target <web|android> [--revision 1|2] [--abi x86_64|arm64-v8a] [--flavor debug|release] [--variant standard|devtools] [--artifact apk|aab|both]',
   );
 const revision = Number(value('--revision') ?? 1);
 if (![1, 2].includes(revision)) throw new Error('Fixture revision must be 1 or 2.');
 const flavor = value('--flavor') ?? 'debug';
+const playerVariant = value('--variant') ?? 'standard';
+if (!['standard', 'devtools'].includes(playerVariant))
+  throw new Error(`Unsupported player variant '${playerVariant}'.`);
 const abi = value('--abi') ?? 'x86_64';
 const artifact = value('--artifact') ?? 'apk';
 if (
@@ -56,11 +59,17 @@ if (platform === 'android') {
       id: `canonical-android-${flavor}`,
       label: `Canonical Android ${flavor}`,
       buildFlavor: flavor,
+      playerVariant,
       includeDebugSymbols: flavor === 'debug',
       android: { ...android.android, artifact },
       localization: { ...android.localization, locales: ['en'] },
     },
   ];
+  await writeFile(manifestPath, stringifyYaml(manifest));
+} else {
+  const manifestPath = path.join(target, 'project.yaml');
+  const manifest = parseYaml(await readFile(manifestPath, 'utf8'));
+  manifest.export.profiles[0].playerVariant = playerVariant;
   await writeFile(manifestPath, stringifyYaml(manifest));
 }
 for (const relative of ['assets/images', 'assets/fonts', 'assets/audio', 'assets/scripts'])

@@ -65,7 +65,9 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-web-release-') as tempo
     assert ('web-threads' if threaded else 'web-single-threaded') in features
     manifest = project / 'project.yaml'
     source = manifest.read_text()
-    source = source.replace('buildFlavor: debug', f"buildFlavor: {descriptor['buildFlavor']}")
+    source = source.replace('buildFlavor: debug',
+                            f"buildFlavor: {descriptor['buildFlavor']}\n"
+                            f"      playerVariant: {descriptor['playerVariant']}")
     if not threaded:
         source = source.replace('threaded: true', 'threaded: false')
     source = source.replace('basePath: /\n', f'basePath: {base}\n')

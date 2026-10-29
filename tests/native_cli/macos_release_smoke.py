@@ -83,7 +83,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
     manifest = manifest_path.read_text()
     manifest = manifest.replace('id: canonical-web', 'id: canonical-macos')
     manifest = manifest.replace('buildFlavor: debug',
-                                'buildFlavor: ' + descriptor['buildFlavor'])
+                                'buildFlavor: ' + descriptor['buildFlavor'] +
+                                '\n      playerVariant: ' + descriptor['playerVariant'])
     source_profile = (
         '      target: web\n      architecture: wasm32\n'
         '      packageAccess: web-fetch\n      web:\n'

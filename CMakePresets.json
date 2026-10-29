@@ -22,6 +22,22 @@
             }
         },
         {
+            "name": "linux-benchmark-debug",
+            "displayName": "Linux Graphics Benchmark Debug",
+            "description": "Isolated debug configuration for the standalone graphics benchmark",
+            "inherits": "linux-debug",
+            "binaryDir": "${sourceDir}/build/linux-benchmark-debug",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-benchmark-debug/vcpkg_installed",
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_PLAYER": "OFF",
+                "NOVELTEA_BUILD_HOST_TOOLS": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS": "OFF"
+            }
+        },
+        {
             "name": "linux-debug-no-threads",
             "displayName": "Linux Debug (No Threads)",
             "description": "Native cooperative-executor verification build",
@@ -95,6 +111,33 @@
             }
         },
         {
+            "name": "linux-benchmark-release",
+            "displayName": "Linux Graphics Benchmark Release",
+            "description": "Isolated optimized configuration for the standalone graphics benchmark",
+            "inherits": "linux-release",
+            "binaryDir": "${sourceDir}/build/linux-benchmark-release",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-benchmark-release/vcpkg_installed",
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_PLAYER": "OFF",
+                "NOVELTEA_BUILD_HOST_TOOLS": "OFF",
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS": "OFF",
+                "BUILD_TESTING": "OFF"
+            }
+        },
+        {
+            "name": "linux-release-devtools",
+            "displayName": "Linux Release + Devtools",
+            "inherits": "linux-release",
+            "binaryDir": "${sourceDir}/build/linux-release-devtools",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release-devtools/vcpkg_installed",
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
+            }
+        },
+        {
             "name": "linux-authoring-release",
             "displayName": "Linux Authoring Release",
             "description": "Release build for Linux authoring tools; release CI builds this preset in the glibc 2.36 authoring environment",
@@ -116,6 +159,16 @@
                 "VCPKG_MANIFEST_FEATURES": "tests",
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-release-editor-profiler/vcpkg_installed",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "ON"
+            }
+        },
+        {
+            "name": "windows-release-devtools",
+            "displayName": "Windows Release + Devtools",
+            "inherits": "windows-release",
+            "binaryDir": "${sourceDir}/build/windows-release-devtools",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/windows-release-devtools/vcpkg_installed",
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
             }
         },
         {
@@ -187,6 +240,16 @@
             }
         },
         {
+            "name": "macos-release-devtools",
+            "displayName": "macOS Release + Devtools",
+            "inherits": "macos-release",
+            "binaryDir": "${sourceDir}/build/macos-release-devtools",
+            "cacheVariables": {
+                "VCPKG_INSTALLED_DIR": "${sourceDir}/build/macos-release-devtools/vcpkg_installed",
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
+            }
+        },
+        {
             "name": "macos-authoring-release",
             "displayName": "macOS Authoring Release",
             "description": "Release build for macOS authoring tools targeting macOS 14",
@@ -252,6 +315,47 @@
             }
         },
         {
+            "name": "web-benchmark-release",
+            "displayName": "Web Benchmark (Optimized)",
+            "description": "Standalone WebGL2 graphics benchmark without the player",
+            "inherits": "web-release-no-threads",
+            "binaryDir": "${sourceDir}/build/web-benchmark-release",
+            "cacheVariables": {
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_PLAYER": "OFF"
+            }
+        },
+        {
+            "name": "web-benchmark-debug",
+            "displayName": "Web Benchmark (Debug)",
+            "description": "Debug WebGL2 graphics benchmark",
+            "inherits": "web-debug-no-threads",
+            "binaryDir": "${sourceDir}/build/web-benchmark-debug",
+            "cacheVariables": {
+                "NOVELTEA_BUILD_BENCHMARK_APP": "ON",
+                "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_BUILD_PLAYER": "OFF"
+            }
+        },
+        {
+            "name": "web-release-devtools",
+            "displayName": "Web Release + Devtools",
+            "inherits": "web-release",
+            "binaryDir": "${sourceDir}/build/web-release-devtools",
+            "cacheVariables": {
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
+            }
+        },
+        {
+            "name": "web-release-no-threads-devtools",
+            "displayName": "Web Release No Threads + Devtools",
+            "inherits": "web-release-no-threads",
+            "binaryDir": "${sourceDir}/build/web-release-no-threads-devtools",
+            "cacheVariables": {
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
+            }
+        },
+        {
             "name": "web-release-no-threads",
             "displayName": "Web Release (No Threads)",
             "description": "Release Web compatibility build without pthread/shared memory",
@@ -298,6 +402,10 @@
             "configurePreset": "linux-debug"
         },
         {
+            "name": "linux-benchmark-debug",
+            "configurePreset": "linux-benchmark-debug"
+        },
+        {
             "name": "linux-debug-no-threads",
             "configurePreset": "linux-debug-no-threads"
         },
@@ -318,6 +426,14 @@
             "configurePreset": "linux-release"
         },
         {
+            "name": "linux-release-devtools",
+            "configurePreset": "linux-release-devtools"
+        },
+        {
+            "name": "linux-benchmark-release",
+            "configurePreset": "linux-benchmark-release"
+        },
+        {
             "name": "linux-authoring-release",
             "configurePreset": "linux-authoring-release"
         },
@@ -330,12 +446,20 @@
             "configurePreset": "windows-release"
         },
         {
+            "name": "windows-release-devtools",
+            "configurePreset": "windows-release-devtools"
+        },
+        {
             "name": "windows-cli-gnu",
             "configurePreset": "windows-cli-gnu"
         },
         {
             "name": "macos-release",
             "configurePreset": "macos-release"
+        },
+        {
+            "name": "macos-release-devtools",
+            "configurePreset": "macos-release-devtools"
         },
         {
             "name": "macos-authoring-release",
@@ -358,8 +482,24 @@
             "configurePreset": "web-release"
         },
         {
+            "name": "web-release-devtools",
+            "configurePreset": "web-release-devtools"
+        },
+        {
+            "name": "web-benchmark-release",
+            "configurePreset": "web-benchmark-release"
+        },
+        {
+            "name": "web-benchmark-debug",
+            "configurePreset": "web-benchmark-debug"
+        },
+        {
             "name": "web-release-no-threads",
             "configurePreset": "web-release-no-threads"
+        },
+        {
+            "name": "web-release-no-threads-devtools",
+            "configurePreset": "web-release-no-threads-devtools"
         },
         {
             "name": "web-editor-preview",

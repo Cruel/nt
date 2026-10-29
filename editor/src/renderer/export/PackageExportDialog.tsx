@@ -152,10 +152,11 @@ function profileArtifact(profile: PlatformExportProfile) {
 
 function profileSummary(
   profile: PlatformExportProfile,
-  labels: Readonly<{ debug: string; release: string }>,
+  labels: Readonly<{ debug: string; release: string; devtools: string }>,
 ) {
   const parts = [platformDisplayName(profile.target)];
   parts.push(profile.buildFlavor === 'debug' ? labels.debug : labels.release);
+  if (profile.playerVariant === 'devtools') parts.push(labels.devtools);
   parts.push(profileArtifact(profile));
   return parts.join(' · ');
 }
@@ -540,9 +541,11 @@ export function PackageExportDialog({
   );
   const signingEnabled = selectedSigningProfile !== undefined;
   const toolchains = userExportConfig?.toolchains ?? {};
-  const effectiveTemplateToken =
-    selectedTemplateToken ||
-    (template ? `${template.descriptor.templateId}/${template.descriptor.buildId}` : '');
+  // The remembered token may belong to a previously selected variant or threading mode.
+  // Only pass a token that is compatible with the current profile to the export boundary.
+  const effectiveTemplateToken = template
+    ? `${template.descriptor.templateId}/${template.descriptor.buildId}`
+    : '';
 
   const readiness =
     preview && selectedPlatformProfile && templatesLoaded
@@ -890,6 +893,10 @@ export function PackageExportDialog({
         platform: selectedPlatformProfile.target,
         architecture: selectedPlatformProfile.architecture,
         buildFlavor: selectedPlatformProfile.buildFlavor,
+        playerVariant: selectedPlatformProfile.playerVariant,
+        ...(selectedPlatformProfile.target === 'web'
+          ? { webThreaded: selectedPlatformProfile.web.threaded }
+          : {}),
       });
       if (!result.success) {
         setTemplateDiagnostics(
@@ -1068,6 +1075,24 @@ export function PackageExportDialog({
             </select>
           </div>
         ) : null}
+
+        <div className="grid gap-1.5">
+          <Label htmlFor="export-player-variant">{t('settings:exportUi.playerVariant')}</Label>
+          <select
+            id="export-player-variant"
+            className="h-9 rounded border bg-background px-2 text-sm"
+            value={profileDraft.playerVariant ?? 'standard'}
+            onChange={(event) =>
+              setProfileDraft({
+                ...profileDraft,
+                playerVariant: event.currentTarget.value as 'standard' | 'devtools',
+              })
+            }
+          >
+            <option value="standard">{t('settings:exportUi.standardPlayer')}</option>
+            <option value="devtools">{t('settings:exportUi.devtoolsPlayer')}</option>
+          </select>
+        </div>
 
         {profileDraft.target === 'linux' ? (
           <div className="grid gap-1.5">
@@ -1555,6 +1580,7 @@ export function PackageExportDialog({
               {profileSummary(selectedPlatformProfile, {
                 debug: t('settings:exportUi.debug'),
                 release: t('settings:exportUi.release'),
+                devtools: t('settings:exportUi.devtoolsPlayer'),
               })}
             </p>
           </div>

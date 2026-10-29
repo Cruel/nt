@@ -14,3 +14,5 @@ editor-runtime-protocol	1	development	editor+engine	editor/src/shared/preview-pr
 runtime-user-settings	1	development	engine	engine/src/core/runtime_user_settings_codec.cpp	engine/src/core/runtime_user_settings_codec.cpp
 cli-json-protocol	1	development	editor	editor/src/cli/contracts.ts,tools/editor_tool/native_cli.cpp	editor/src/cli/contracts.ts,tools/editor_tool/native_cli.cpp,scripts/development-snapshot.mjs
 daemon-protocol	1	development	editor	editor/src/cli/static-contracts.ts,tools/editor_tool/tooling_daemon_broker.cpp	tools/editor_tool/native_cli_daemon.cpp,tools/editor_tool/tooling_daemon_broker.cpp
+benchmark-run-config	1	development	build	apps/benchmark/benchmark_report.cpp	apps/benchmark/benchmark_report.cpp,apps/benchmark/main.cpp
+benchmark-result	1	development	build	apps/benchmark/benchmark_report.cpp	apps/benchmark/benchmark_report_tests.cpp

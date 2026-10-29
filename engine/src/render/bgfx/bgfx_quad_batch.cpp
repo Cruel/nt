@@ -9,10 +9,13 @@
 #include <SDL3/SDL_log.h>
 #include <bgfx/bgfx.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
+#include <span>
 #include <vector>
 
 namespace noveltea {
@@ -54,9 +57,8 @@ bgfx::ViewId game_layer_view_id(GameLayer layer)
     }
 }
 
-bool set_quad_buffers(const QuadCommand& command)
+void write_quad_vertices(const QuadCommand& command, float opacity, QuadVertex* vertices)
 {
-    constexpr uint16_t indices[] = {0, 1, 2, 0, 2, 3};
     const float x = command.rect.x;
     const float y = command.rect.y;
     const float w = command.rect.width;
@@ -66,43 +68,156 @@ bool set_quad_buffers(const QuadCommand& command)
     const float u1 = command.uv.x + command.uv.width;
     const float v1 = command.uv.y + command.uv.height;
     const Color color = command.color;
-    QuadVertex vertices[] = {
-        {x, y, u0, v0, color.r, color.g, color.b, color.a},
-        {x + w, y, u1, v0, color.r, color.g, color.b, color.a},
-        {x + w, y + h, u1, v1, color.r, color.g, color.b, color.a},
-        {x, y + h, u0, v1, color.r, color.g, color.b, color.a},
-    };
+    const float alpha = color.a * opacity;
+    vertices[0] = {x, y, u0, v0, color.r, color.g, color.b, alpha};
+    vertices[1] = {x + w, y, u1, v0, color.r, color.g, color.b, alpha};
+    vertices[2] = {x + w, y + h, u1, v1, color.r, color.g, color.b, alpha};
+    vertices[3] = {x, y + h, u0, v1, color.r, color.g, color.b, alpha};
     if (command.rotation_degrees != 0.0f) {
         constexpr float degrees_to_radians = 0.017453292519943295769f;
         const float radians = command.rotation_degrees * degrees_to_radians;
         const float sine = std::sin(radians);
         const float cosine = std::cos(radians);
-        for (auto& vertex : vertices) {
+        for (std::size_t i = 0; i < 4; ++i) {
+            auto& vertex = vertices[i];
             const float local_x = vertex.x - command.rotation_origin.x;
             const float local_y = vertex.y - command.rotation_origin.y;
             vertex.x = command.rotation_origin.x + local_x * cosine - local_y * sine;
             vertex.y = command.rotation_origin.y + local_x * sine + local_y * cosine;
         }
     }
+}
 
+bgfx::VertexLayout quad_vertex_layout()
+{
     bgfx::VertexLayout layout;
     layout.begin()
         .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
         .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
         .end();
+    return layout;
+}
 
+bool set_quad_buffers(const QuadCommand& command)
+{
+    constexpr uint16_t indices[] = {0, 1, 2, 0, 2, 3};
+    const auto layout = quad_vertex_layout();
     bgfx::TransientVertexBuffer tvb;
     bgfx::TransientIndexBuffer tib;
     if (!bgfx::allocTransientBuffers(&tvb, layout, 4, &tib, 6)) {
         return false;
     }
+    QuadVertex vertices[4];
+    write_quad_vertices(command, 1.0f, vertices);
     std::memcpy(tvb.data, vertices, sizeof(vertices));
     std::memcpy(tib.data, indices, sizeof(indices));
 
     bgfx::setVertexBuffer(0, &tvb);
     bgfx::setIndexBuffer(&tib);
     return true;
+}
+
+struct QuadRunKey {
+    bgfx::ViewId view = 0;
+    uint16_t texture = UINT16_MAX;
+    MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+    bool operator==(const QuadRunKey&) const = default;
+};
+
+// A single indexed submission preserves the order of translucent quads within a compatible run.
+// Different views, textures, samplers, or specialized shaders are strict ordering barriers.
+bool submit_default_quad_run(std::span<const QuadCommand> run, QuadRunKey key, float opacity,
+                             std::optional<RasterScissor> scissor, uint16_t sampler_uniform,
+                             uint16_t quad_program)
+{
+    const auto layout = quad_vertex_layout();
+    bgfx::TransientVertexBuffer tvb;
+    bgfx::TransientIndexBuffer tib;
+    const auto quad_count = static_cast<uint32_t>(run.size());
+    if (!bgfx::allocTransientBuffers(&tvb, layout, quad_count * 4, &tib, quad_count * 6))
+        return false;
+    constexpr uint16_t pattern[] = {0, 1, 2, 0, 2, 3};
+    for (uint32_t i = 0; i < quad_count; ++i) {
+        QuadVertex vertices[4];
+        write_quad_vertices(run[i], opacity, vertices);
+        std::memcpy(tvb.data + i * sizeof(vertices), vertices, sizeof(vertices));
+        const auto offset = static_cast<uint16_t>(i * 4);
+        uint16_t indices[6];
+        for (uint32_t j = 0; j < 6; ++j)
+            indices[j] = static_cast<uint16_t>(offset + pattern[j]);
+        std::memcpy(tib.data + i * sizeof(indices), indices, sizeof(indices));
+    }
+    bgfx::setVertexBuffer(0, &tvb);
+    bgfx::setIndexBuffer(&tib);
+    bgfx::setTexture(0, bgfx::UniformHandle{sampler_uniform}, bgfx::TextureHandle{key.texture},
+                     bgfx_backend::bgfx_sampler_flags(key.sampler));
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                   BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA));
+    if (scissor) {
+        bgfx::setScissor(static_cast<uint16_t>(scissor->x), static_cast<uint16_t>(scissor->y),
+                         static_cast<uint16_t>(scissor->width),
+                         static_cast<uint16_t>(scissor->height));
+    } else {
+        bgfx::setScissor(UINT16_MAX);
+    }
+    bgfx::submit(key.view, bgfx::ProgramHandle{quad_program});
+    return true;
+}
+
+// 2048 quads stay well below the 16-bit indexed-vertex limit. Transient allocation failures
+// are recovered by progressively smaller chunks, falling back to the original one-quad path.
+template<class GetView, class SubmitSingle>
+void submit_ordered_quads(const QuadBatch& batch, float opacity, GetView get_view,
+                          SubmitSingle submit_single, std::optional<RasterScissor> scissor,
+                          uint16_t fallback_texture, uint16_t sampler_uniform,
+                          uint16_t quad_program)
+{
+    const auto& commands = batch.commands();
+    constexpr std::size_t max_quads = 2048;
+    std::size_t i = 0;
+    while (i < commands.size()) {
+        const auto& command = commands[i];
+        if (command.material.valid() || command.video_alpha_mask || command.video_alpha_required) {
+            submit_single(command, get_view(command));
+            ++i;
+            continue;
+        }
+        const auto handle = bgfx::TextureHandle{command.texture.handle};
+        const bool textured = command.texture.valid() && bgfx::isValid(handle);
+        const QuadRunKey key{.view = get_view(command),
+                             .texture = textured ? handle.idx : fallback_texture,
+                             .sampler = textured ? command.texture_sampler
+                                                 : MaterialTextureSampler::ClampLinear};
+        std::size_t end = i + 1;
+        while (end < commands.size() && end - i < max_quads) {
+            const auto& next = commands[end];
+            if (next.material.valid() || next.video_alpha_mask || next.video_alpha_required)
+                break;
+            const auto next_handle = bgfx::TextureHandle{next.texture.handle};
+            const bool next_textured = next.texture.valid() && bgfx::isValid(next_handle);
+            const QuadRunKey next_key{.view = get_view(next),
+                                      .texture = next_textured ? next_handle.idx : fallback_texture,
+                                      .sampler = next_textured
+                                                     ? next.texture_sampler
+                                                     : MaterialTextureSampler::ClampLinear};
+            if (!(key == next_key))
+                break;
+            ++end;
+        }
+        while (i < end) {
+            std::size_t chunk = end - i;
+            while (chunk > 1 &&
+                   !submit_default_quad_run(std::span(commands).subspan(i, chunk), key, opacity,
+                                            scissor, sampler_uniform, quad_program))
+                chunk /= 2;
+            if (chunk == 1) {
+                // A compatible singleton follows the same specialized code path as before.
+                submit_single(commands[i], key.view);
+            }
+            i += chunk;
+        }
+    }
 }
 
 bool transition_mode_uses_pass(WorldTransitionSceneMode mode, WorldCompositionPass pass)
@@ -153,9 +268,12 @@ void Renderer::draw_2d(const QuadBatch& batch)
         return;
     }
 
-    for (const QuadCommand& command : batch.commands()) {
-        submit_quad(command);
-    }
+    const auto scissor =
+        current_scissor().active ? std::optional{current_ui_raster_scissor()} : std::nullopt;
+    submit_ordered_quads(
+        batch, 1.0f, [](const QuadCommand& command) { return game_layer_view_id(command.layer); },
+        [this](const QuadCommand& command, bgfx::ViewId view) { submit_quad(command, view, 1.0f); },
+        scissor, m_white_texture, m_sampler, m_quad_program);
 }
 
 void Renderer::draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity)
@@ -163,31 +281,33 @@ void Renderer::draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, 
     if (!m_initialized || !bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
         return;
     opacity = std::clamp(opacity, 0.0f, 1.0f);
-    for (const QuadCommand& command : batch.commands()) {
-        bgfx::ViewId view = ViewWorldTargetContent;
+    const auto view_for = [pass](const QuadCommand& command) -> bgfx::ViewId {
         switch (pass) {
         case WorldCompositionPass::Ordinary:
             if (command.layer == GameLayer::Background)
-                view = ViewWorldTargetBackground;
-            else if (command.layer == GameLayer::Foreground)
-                view = ViewWorldNativeOverlay;
-            else
-                view = ViewWorldTargetContent;
-            break;
+                return ViewWorldTargetBackground;
+            if (command.layer == GameLayer::Foreground)
+                return ViewWorldNativeOverlay;
+            return ViewWorldTargetContent;
         case WorldCompositionPass::Source:
-            view = command.layer == GameLayer::Background ? ViewWorldSourceBackground
+            return command.layer == GameLayer::Background ? ViewWorldSourceBackground
                                                           : ViewWorldSourceContent;
-            break;
         case WorldCompositionPass::Target:
-            view = command.layer == GameLayer::Background ? ViewWorldTargetBackground
+            return command.layer == GameLayer::Background ? ViewWorldTargetBackground
                                                           : ViewWorldTargetContent;
-            break;
         case WorldCompositionPass::GameUiUnderlay:
-            view = ViewGameUiUnderlay;
-            break;
+            return ViewGameUiUnderlay;
         }
-        submit_quad(command, view, opacity);
-    }
+        return ViewWorldTargetContent;
+    };
+    const auto scissor =
+        current_scissor().active ? std::optional{current_ui_raster_scissor()} : std::nullopt;
+    submit_ordered_quads(
+        batch, opacity, view_for,
+        [this, opacity](const QuadCommand& command, bgfx::ViewId view) {
+            submit_quad(command, view, opacity);
+        },
+        scissor, m_white_texture, m_sampler, m_quad_program);
 }
 
 void Renderer::draw_world_overlay_2d(const QuadBatch& batch, std::uint16_t view, float opacity)
@@ -202,8 +322,14 @@ void Renderer::draw_world_overlay_2d(const QuadBatch& batch, std::uint16_t view,
     ortho[13] = 1.0f;
     ortho[15] = 1.0f;
     bgfx::setViewTransform(view, nullptr, ortho);
-    for (const auto& command : batch.commands())
-        submit_quad(command, view, opacity);
+    const auto scissor =
+        current_scissor().active ? std::optional{current_ui_raster_scissor()} : std::nullopt;
+    submit_ordered_quads(
+        batch, opacity, [view](const QuadCommand&) { return view; },
+        [this, opacity](const QuadCommand& command, bgfx::ViewId target_view) {
+            submit_quad(command, target_view, opacity);
+        },
+        scissor, m_white_texture, m_sampler, m_quad_program);
 }
 
 bool Renderer::prepare_ordinary_world_surface()

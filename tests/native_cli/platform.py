@@ -94,6 +94,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
         'format': 'noveltea.player-template', 'formatVersion': 1,
         'templateId': 'sample', 'buildId': 'v1', 'engineVersion': '0.1.0',
         'platform': 'web', 'architecture': 'wasm32', 'buildFlavor': 'debug',
+        'playerVariant': 'standard',
         'minimumPlatformVersion': 'test', 'graphicsBackends': ['webgl2'],
         'shaderVariants': ['essl-300'], 'compiledProjectFormatVersion': 1,
         'playerRuntimeApiVersion': 1, 'compiledFeatures': ['web-single-threaded'],
@@ -117,7 +118,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     created = run('platform', 'template', 'install', archive)
     assert created['entry']['trust'] == 'local-untrusted'
     expected = {'id': 'sample@v1', 'templateId': 'sample', 'buildId': 'v1', 'target': 'web',
-                'architecture': 'wasm32', 'buildFlavor': 'debug', 'trust': 'local-untrusted',
+                'architecture': 'wasm32', 'buildFlavor': 'debug', 'playerVariant': 'standard',
+                'trust': 'local-untrusted',
                 'status': 'untrusted'}
     assert run('platform', 'template', 'list')['templates'] == [expected]
     assert run('platform', 'template', 'inspect', 'sample@v1')['template'] == expected
@@ -130,6 +132,22 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
             if file.is_file():
                 writer.write(file, arcname=file.relative_to(staging))
     assert run('platform', 'template', 'install', zip_archive, '--force')['success']
+    for variant in (None, 'unknown'):
+        invalid_descriptor = dict(descriptor)
+        if variant is None:
+            del invalid_descriptor['playerVariant']
+        else:
+            invalid_descriptor['playerVariant'] = variant
+        invalid_archive = root / 'invalid-variant.zip'
+        with zipfile.ZipFile(invalid_archive, 'w') as writer:
+            for file in staging.rglob('*'):
+                if file.is_file():
+                    name = file.relative_to(staging).as_posix()
+                    writer.writestr(name, json.dumps(invalid_descriptor).encode()
+                                    if name == 'template.json' else file.read_bytes())
+        assert run('platform', 'template', 'install', invalid_archive, '--force', code=4)[
+            'diagnostics'][0]['code'] == 'template-install-failed'
+    assert run('platform', 'template', 'inspect', 'sample@v1')['template'] == expected
 
     # The complete export preflight stays write-free, including compiler/cache,
     # registry and output side effects. It uses the Project source fixture and
@@ -172,6 +190,25 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     validated = run(*requested, '--check', '--allow-untrusted-template')
     assert validated['success'] and validated['signingApplied'] is False
     assert validated['templateToken'] == 'sample@v1'
+    standard_manifest = manifest_file.read_text()
+    manifest_file.write_text(standard_manifest.replace(
+        'buildFlavor: debug', 'buildFlavor: debug\n      playerVariant: devtools'))
+    assert run(*requested, '--check', '--allow-untrusted-template', code=4)[
+        'diagnostics'][0]['code'] == 'template-incompatible'
+    devtools_descriptor = {**descriptor, 'buildId': 'devtools', 'playerVariant': 'devtools'}
+    devtools_archive = root / 'devtools.zip'
+    with zipfile.ZipFile(devtools_archive, 'w') as writer:
+        for file in staging.rglob('*'):
+            if file.is_file():
+                name = file.relative_to(staging).as_posix()
+                writer.writestr(name, json.dumps(devtools_descriptor).encode()
+                                if name == 'template.json' else file.read_bytes())
+    assert run('platform', 'template', 'install', devtools_archive)['success']
+    devtools_request = tuple('sample@devtools' if arg == 'sample@v1' else arg
+                             for arg in requested)
+    assert run(*devtools_request, '--check', '--allow-untrusted-template')['success']
+    assert run('platform', 'template', 'remove', 'sample@devtools', '--force')['removed']
+    manifest_file.write_text(standard_manifest)
     assert not (root / 'web-export.noveltea-publication.lock').exists()
     human = subprocess.run([str(installed), *map(str, requested), '--check',
                             '--allow-untrusted-template'], cwd=root, env=environment,

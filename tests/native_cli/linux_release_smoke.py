@@ -80,7 +80,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-linux-release-') as tem
     original = (project / 'project.yaml').read_text()
     original = original.replace('id: canonical-web', 'id: canonical-linux')
     original = original.replace('buildFlavor: debug',
-                                'buildFlavor: ' + descriptor['buildFlavor'])
+                                'buildFlavor: ' + descriptor['buildFlavor'] +
+                                '\n      playerVariant: ' + descriptor['playerVariant'])
     original = original.replace(
         '      target: web\n      architecture: wasm32\n'
         '      packageAccess: web-fetch\n      web:\n'

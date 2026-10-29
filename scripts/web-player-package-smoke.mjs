@@ -25,12 +25,15 @@ function parseArgs(argv) {
       options.alpha = true;
     } else if (argv[index] === '--start-via-title') {
       options.startViaTitle = true;
+    } else if (argv[index] === '--imgui') {
+      options.imgui = true;
     } else {
       throw new Error(`unknown argument: ${argv[index]}`);
     }
   }
   if (options.startViaTitle && !options.video) throw new Error('--start-via-title requires --video');
   if (options.alpha && !options.video) throw new Error('--alpha requires --video');
+  if (options.imgui && options.video) throw new Error('--imgui and --video are separate smoke modes');
   options.buildDir = path.resolve(root, options.buildDir);
   return options;
 }
@@ -226,6 +229,53 @@ try {
         `console errors: ${consoleErrors.join(' | ')}; requests: ${JSON.stringify([...requests])}`,
         { cause: error },
       );
+    }
+
+    if (options.imgui) {
+      // Verify the standalone Web player's devtools-enabled ImGui frontend renders,
+      // not just that F10 reaches an input handler. Two toggles must restore the scene.
+      await page.locator('#canvas').focus();
+      await page.waitForTimeout(500);
+      const before = await page.screenshot();
+      await page.keyboard.press('F10');
+      await page.waitForTimeout(600);
+      const shown = await page.screenshot();
+      await page.keyboard.press('F10');
+      await page.waitForTimeout(600);
+      const hidden = await page.screenshot();
+      const differences = await page.evaluate(async (screenshots) => {
+        const pixels = async (base64) => {
+          const bitmap = await createImageBitmap(
+            await (await fetch(`data:image/png;base64,${base64}`)).blob(),
+          );
+          const canvas = document.createElement('canvas');
+          canvas.width = bitmap.width;
+          canvas.height = bitmap.height;
+          const context = canvas.getContext('2d');
+          context.drawImage(bitmap, 0, 0);
+          bitmap.close();
+          return context.getImageData(0, 0, canvas.width, canvas.height).data;
+        };
+        const [baseline, visible, restored] = await Promise.all(screenshots.map(pixels));
+        const fractionChanged = (left, right) => {
+          let changed = 0;
+          for (let index = 0; index < left.length; index += 4) {
+            const rgbDelta = Math.abs(left[index] - right[index]) +
+              Math.abs(left[index + 1] - right[index + 1]) +
+              Math.abs(left[index + 2] - right[index + 2]);
+            if (rgbDelta > 60) ++changed;
+          }
+          return changed / (left.length / 4);
+        };
+        return {
+          visible: fractionChanged(baseline, visible),
+          restored: fractionChanged(baseline, restored),
+        };
+      }, [before, shown, hidden].map((screenshot) => screenshot.toString('base64')));
+      if (differences.visible < 0.03 || differences.restored > differences.visible * 0.25) {
+        throw new Error(`ImGui F10 show/hide did not change and restore the Web frame: ${JSON.stringify(differences)}`);
+      }
+      console.log(`[web-player-package-smoke] F10 opens and closes ImGui: changed ${(differences.visible * 100).toFixed(1)}%, restored ${(differences.restored * 100).toFixed(1)}%`);
     }
 
     if (options.startViaTitle) {

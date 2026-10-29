@@ -40,6 +40,7 @@ const descriptor = parseTemplateDescriptor({
   compiledFeatures: [],
   capabilities: ['network.client', 'microphone'],
   buildFlavor: 'release',
+  playerVariant: 'standard',
   packageAccessModes: ['android-private-copy'],
   files: [{ path: 'source/android/gradlew', size: 1, mode: 493, sha256: sha }],
   runtimeDependencies: [],

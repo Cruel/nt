@@ -209,6 +209,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     std::optional<core::RuntimeLocaleChangeResultView> m_runtime_locale_change_result;
     bool m_initialized = false;
     bool m_running = false;
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    bool m_android_surface_suspended = false;
+#endif
     bool m_job_shutdown_started = false;
     bool m_shutdown_release_started = false;
     bool m_shutdown_finalized = false;
@@ -221,6 +224,8 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool m_pointer_valid = false;
     bool m_debug_ui_enabled = true;
     bool m_render_perf_logging = false;
+    bool m_benchmark_frame_timing_enabled = false;
+    std::optional<EngineBenchmarkFrameTiming> m_benchmark_frame_timing;
     struct FramePerfSample {
         uint64_t sample_start = 0;
         uint64_t max_tick = 0;
