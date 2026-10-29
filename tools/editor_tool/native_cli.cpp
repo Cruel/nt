@@ -2804,9 +2804,9 @@ int run(const std::vector<std::string>& argv)
                                           "/project.yaml", 3, "Native Project admission failed.",
                                           path_text(root));
             }
-            const auto result = run_native_comfyui_catalog(
-                args.command, root, native_request, args.json,
-                native_disposable_comfyui_hooks(args.json));
+            const auto result =
+                run_native_comfyui_catalog(args.command, root, native_request, args.json,
+                                           native_disposable_comfyui_hooks(args.json));
             return emit(result.envelope, args.json, result.human);
         }
         if (family == "validate")

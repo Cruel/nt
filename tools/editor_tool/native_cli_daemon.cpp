@@ -619,9 +619,9 @@ int owner_process(const Json& context, std::uint64_t worker_id,
             };
             if (cancelled())
                 throw std::runtime_error("Native Project request cancelled before execution.");
-            if (payload.value("internalOperation", std::string{}) ==
-                "comfyui-asset-publication") {
-                const auto request = Json::parse(payload.at("internalRequestText").get<std::string>());
+            if (payload.value("internalOperation", std::string{}) == "comfyui-asset-publication") {
+                const auto request =
+                    Json::parse(payload.at("internalRequestText").get<std::string>());
                 if (!request.is_object() ||
                     (request.value("action", std::string{}) != "comfyui-assets" &&
                      !request.contains("publicationTransactionPath")))
@@ -703,8 +703,7 @@ int disposable_process(const Json& context, std::uint64_t worker_id,
             pinned_project = Json::parse(bytes);
             if (pinned_project->at("projectRoot") != next.at("canonicalRoot"))
                 throw std::runtime_error("Native snapshot Project identity mismatch.");
-        } else if (next.at("payload").value("nativeDisposableKind", std::string{}) !=
-                       "comfyui" ||
+        } else if (next.at("payload").value("nativeDisposableKind", std::string{}) != "comfyui" ||
                    !next.at("payload").value("ownerProjectRoot", Json(nullptr)).is_null()) {
             throw std::runtime_error("Native worker requires a pinned Project snapshot.");
         }
@@ -753,7 +752,8 @@ ComfyUiExecutionHooks native_disposable_comfyui_hooks(bool json_mode)
     ComfyUiExecutionHooks hooks;
     hooks.cancelled = [] { return native_disposable_cancellation_requested(); };
     hooks.register_staged_output = [call](const std::filesystem::path& path) {
-        require_ok(call("disposable-register-staged-output", {{"stagedOutputPath", utf8_path(path)}}));
+        require_ok(
+            call("disposable-register-staged-output", {{"stagedOutputPath", utf8_path(path)}}));
     };
     const auto mutate = [call](const Json& request) {
         const auto response =
@@ -798,12 +798,13 @@ ComfyUiExecutionHooks native_disposable_comfyui_hooks(bool json_mode)
         register_output(transaction_path);
         {
             std::ofstream out(transaction_path, std::ios::binary | std::ios::trunc);
-            if (!out || !(out << Json{{"format", "noveltea.output-publication-transaction"},
-                                     {"version", 1},
-                                     {"state", "prepared"},
-                                     {"entries", entries}}
-                                    .dump()
-                             << '\n') ||
+            if (!out ||
+                !(out << Json{{"format", "noveltea.output-publication-transaction"},
+                              {"version", 1},
+                              {"state", "prepared"},
+                              {"entries", entries}}
+                             .dump()
+                      << '\n') ||
                 !(out.flush()))
                 throw std::runtime_error("Cannot write ComfyUI publication journal.");
         }
@@ -813,10 +814,10 @@ ComfyUiExecutionHooks native_disposable_comfyui_hooks(bool json_mode)
     };
     if (!json_mode)
         hooks.progress = [call](std::string_view stage, std::string_view message) {
-            (void)call("disposable-event", {{"event", {{"type", "progress"},
-                                                          {"message", "[" + std::string(stage) +
-                                                                          "] " +
-                                                                          std::string(message)}}}});
+            (void)call("disposable-event",
+                       {{"event",
+                         {{"type", "progress"},
+                          {"message", "[" + std::string(stage) + "] " + std::string(message)}}}});
         };
     return hooks;
 }
