@@ -808,8 +808,11 @@ caller's cwd and scoped environment to the owner, retains exactly proven validat
 (including deterministic semantic failures) using the existing native cache, and safely
 replays read-only requests locally after an uncertain daemon failure, but never mutations.
 `--no-daemon` retains the same local C++ command execution.
-The candidate also routes shader compilation and cold authored/Test-spec execution through
-one-job native disposable workers. The owner captures the native Project preparation responses
+The candidate routes shader compilation, cold authored/Test-spec execution, Runtime Package
+export, platform export, and Project-backed ComfyUI generation through one-job native disposable
+workers (#550). Projectless ComfyUI filesystem-only runs also use a one-job native
+disposable process, without inventing a Project generation. The owner captures the native
+Project preparation responses
 (including normalized Project data and shader source overlays), brackets that capture with
 physical authority observations, and publishes opaque chunks through the existing broker snapshot
 store. Each capture has a distinct generation identity so a later workload cannot overwrite bytes
@@ -821,19 +824,24 @@ caller. Stdin Test specs, cwd, and environment travel with the invocation. Unkno
 Project requests fail closed. Existing broker cancellation and child retirement isolate worker
 failure from the resident Project owner.
 
+ComfyUI workers register staged files with the broker before writing them. Generated Project
+Assets are committed by the resident C++ owner against the captured generation; filesystem-only
+outputs (including projectless outputs) use the broker's journaled activation/acceptance
+transaction. A worker never issues a live Project mutation itself. The broker rolls back
+registered outputs when a worker exits or
+publication fails, while the owner retains its native Asset recovery journal. Direct local
+execution remains native C++ for `--no-daemon`. Platform exports retain their distinct native
+platform publication journal and do not pass it through ComfyUI's recovery protocol.
+
 `tests/native_cli/daemon_owner.py` exercises the relocated native executable, cold/warm Test
 routing, Test-spec stdin, real Feature Lab shader output, source drift after hydration, terminated
-workers, caller cancellation, and owner restart. Its deterministic hydration barrier is available
+workers, caller cancellation, and owner restart. `tests/native_cli/comfyui_run.py` covers native
+ComfyUI Project Assets, filesystem-only output, and mixed Asset/filesystem publication with and
+without the broker. The deterministic hydration barrier is available
 only with the explicit CLI certification environment and isolated daemon root; it is not a public
 command option.
 
-**#550 is not complete:** native Runtime Package/platform and ComfyUI disposable publication,
-staged-output transfer/recovery, and streamed progress still require integration and installed
-failure-path certification. In particular, native platform publication journals must not be handed
-to the ScriptC transaction recovery reader: the two existing journal formats differ. ComfyUI
-staged Asset ownership must survive a disposable worker's death while the resident owner commits.
-Those commands retain their existing local native candidate execution until those boundaries are
-implemented; no QuickJS fallback is introduced. The paragraphs below continue to describe the
+The paragraphs below continue to describe the
 **currently shipped ScriptC host**. Replacing that host remains #551; the C++ candidate is not
 installed as a partial production replacement.
 

@@ -3903,6 +3903,62 @@ private:
                         owner_request["publicationTransactionPath"].get<std::string>();
 #endif
                 }
+                // A Projectless ComfyUI run has no resident owner or Project
+                // generation to mutate. Its registered filesystem transaction
+                // can be activated and accepted by the broker itself; never
+                // grant this branch to an invocation carrying Project authority.
+                if (publication_transaction_path && owner_request.size() == 1) {
+                    bool projectless = false;
+                    const auto token = message_payload["token"].get<std::uint64_t>();
+                    const auto worker_id =
+                        message_payload["disposableWorkerId"].get<std::uint64_t>();
+                    {
+                        std::scoped_lock lock(queue_mutex_);
+                        const auto active = active_.find(token);
+                        const auto worker = disposable_workers_.find(worker_id);
+                        if (active != active_.end() &&
+                            active->second.disposable_worker_id == worker_id &&
+                            !active->second.cancelled &&
+                            active->second.pinned_project_root.empty() &&
+                            !active->second.pinned_generation &&
+                            active->second.payload.value("nativeDisposableKind", std::string{}) ==
+                                "comfyui" &&
+                            active->second.payload.value("ownerProjectRoot", Json(nullptr))
+                                .is_null() &&
+                            worker != disposable_workers_.end()) {
+                            const auto found = std::find(
+                                worker->second.staged_outputs.begin(),
+                                worker->second.staged_outputs.end(), *publication_transaction_path);
+                            if (found != worker->second.staged_outputs.end()) {
+                                worker->second.staged_outputs.erase(found);
+                                projectless = true;
+                            }
+                        }
+                    }
+                    if (projectless) {
+                        const bool activated =
+                            activate_publication_transaction(*publication_transaction_path);
+                        bool still_active = false;
+                        {
+                            std::scoped_lock lock(queue_mutex_);
+                            const auto active = active_.find(token);
+                            still_active = active != active_.end() &&
+                                           active->second.disposable_worker_id == worker_id &&
+                                           !active->second.cancelled;
+                        }
+                        const bool accepted = activated && still_active &&
+                                              accept_publication_transaction(
+                                                  *publication_transaction_path);
+                        if (!accepted)
+                            (void)recover_publication_transaction(*publication_transaction_path);
+                        client->send(result_event_json(
+                            request_id, accepted,
+                            accepted ? Json{{"ok", true}, {"result", {{"ok", true}}}}.dump()
+                                     : "null",
+                            accepted ? "" : "Projectless ComfyUI publication failed"));
+                        continue;
+                    }
+                }
                 {
                     std::scoped_lock lock(queue_mutex_);
                     const auto token = message_payload["token"].get<std::uint64_t>();
