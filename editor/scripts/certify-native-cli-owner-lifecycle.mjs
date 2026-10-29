@@ -27,13 +27,18 @@ const baseline = independentMode
       NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `nt533-native-${process.pid}`,
       NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'daemon'),
     };
+const pinnedEnvironment = {
+  ...baseline,
+  NOVELTEA_CLI_CERTIFICATION: '1',
+  NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'certification-daemon'),
+};
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function execute(args) {
+function execute(args, env = baseline) {
   const response = spawnSync(
     executable,
     ['--json', ...(args[0] === 'daemon' ? [] : ['--project', project]), ...args],
-    { env: baseline, encoding: 'utf8', timeout: 180_000, maxBuffer: 16 * 1024 * 1024 },
+    { env, encoding: 'utf8', timeout: 180_000, maxBuffer: 16 * 1024 * 1024 },
   );
   assert.ifError(response.error);
   assert.ok(response.stdout.trim().startsWith('{'), `${args.join(' ')}: ${response.stderr}`);
@@ -68,12 +73,7 @@ try {
     {
       // The instrumentation gate only enables the snapshot interlock. The
       // installed native-only island has no alternate Project authority.
-      env: {
-        ...baseline,
-        NOVELTEA_CLI_CERTIFICATION: '1',
-        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'certification-daemon'),
-        NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker,
-      },
+      env: { ...pinnedEnvironment, NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
   );
@@ -114,7 +114,17 @@ try {
   }
   console.log('Native-only installed pinned-worker cancellation PASSED.');
 } finally {
-  const stopped = execute(['daemon', 'stop']);
-  assert.equal(stopped.success, true, 'Owner lifecycle test failed to stop its private daemon.');
-  await rm(root, { recursive: true, force: true });
+  try {
+    const pinnedStopped = execute(['daemon', 'stop'], pinnedEnvironment);
+    assert.equal(
+      pinnedStopped.success,
+      true,
+      'Owner lifecycle test failed to stop its pinned daemon.',
+    );
+  } finally {
+    const stopped = execute(['daemon', 'stop']);
+    assert.equal(stopped.success, true, 'Owner lifecycle test failed to stop its private daemon.');
+    // Daemon shutdown can race with removal of its runtime files on Linux.
+    await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+  }
 }
