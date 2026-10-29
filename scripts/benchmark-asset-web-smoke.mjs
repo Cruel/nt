@@ -126,15 +126,16 @@ try {
       }
       console.log(name + ': headless hide/restore with suspended rAF PASS');
 
-      // Duration-based CPU work must yield to rAF while continuing to report
-      // active CPU throughput, not throughput diluted by browser scheduling.
+      // The CI responsiveness smoke uses a fixed amount of CPU work, not a
+      // duration or throughput target: slow/shared runners and coarse browser
+      // clocks must not turn successful work into a performance failure.
       await page.goto(origin + '/benchmark.html?' + new URLSearchParams({
-        scenario: 'cpu-lua', noUi: '1', warmup: '0.05',
-        seconds: '0.25', cpuWorkUnits: '16'
+        scenario: 'cpu-lua', noUi: '1', warmup: '0',
+        frames: '512', cpuWorkUnits: '16'
       }));
       try {
         await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length >= 1,
-                                   null, {timeout: 15000});
+                                   null, {timeout: 90000});
       } catch (error) {
         const diagnostic = await page.evaluate(() => ({
           ready: window.NovelTeaBenchmark?.ready,
@@ -153,8 +154,7 @@ try {
       if (cpuReport.report?.outcome !== 'complete' ||
           cpuAggregate?.frame_loop_cadence_hz !== null ||
           !cpuReport.report?.timing?.frame_wall?.includes('browser scheduling gaps excluded') ||
-          !(cpuAggregate?.cpu_work_batches_per_second > 0) ||
-          !(cpuAggregate?.measured_wall_seconds >= 0.25) ||
+          cpuAggregate?.measured_frames !== 512 ||
           cpuReport.report?.graphics?.renderer !== null ||
           cpuReport.rafTicks < 5) {
         throw new Error(name + ' headless CPU responsiveness invalid: ' +
@@ -198,7 +198,7 @@ try {
             report?.graphics?.asset_workload?.source_backend !== 'Web MEMFS' ||
             report?.graphics?.asset_workload?.gpu_upload_execution_ms !== null ||
             aggregate?.frame_loop_cadence_hz !== null ||
-            !(aggregate?.asset_work_batches_per_second > 0)) {
+            aggregate?.measured_frames !== 12) {
           throw new Error(name + ' ' + cache + ' invalid report: ' +
                           JSON.stringify(report).slice(0, 7000));
         }

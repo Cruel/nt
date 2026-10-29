@@ -26,6 +26,7 @@ struct ScenarioStub : Scenario {
     bool sent_interruption = false;
     int attempt_frames = 0;
     bool candidate_arm = false;
+    bool unmeasurably_fast = false;
     std::vector<std::string> order;
     Interruption state = Interruption::None;
     [[nodiscard]] Interruption interruption() const override { return state; }
@@ -50,7 +51,8 @@ struct ScenarioStub : Scenario {
     {
         ++frames;
         ++attempt_frames;
-        clock.time += candidate_arm ? 0.006 : 0.003;
+        if (!unmeasurably_fast)
+            clock.time += candidate_arm ? 0.006 : 0.003;
         if (attempt_frames == 2 &&
             (always_interrupt || (!sent_interruption && interrupt_first_attempt))) {
             state = Interruption::Recoverable;
@@ -152,6 +154,39 @@ int main()
                         0.00001 &&
                     std::abs(headless.result().scenarios.front().wall_frame.mean_ms - 3.0) < 0.0001,
                 "headless Web measurements exclude browser scheduling delays"))
+        return 1;
+
+    // Coarse browser timers may report identical timestamps for real CPU
+    // operations. A fixed-frame smoke must still verify executed work and
+    // cleanup, without turning absent throughput into a functional failure.
+    ClockStub coarse_clock;
+    ScenarioStub coarse_scenario(coarse_clock);
+    coarse_scenario.unmeasurably_fast = true;
+    Options coarse_options = headless_options;
+    coarse_options.measurement_frames = 3;
+    FrameDrivenSuite coarse(coarse_options, coarse_scenario, coarse_clock, {}, true);
+    bool coarse_done = false;
+    for (int callback = 0; callback < 10 && !coarse_done; ++callback)
+        coarse_done = coarse.step_bounded_batch();
+    if (!verify(coarse_done && coarse.result().outcome == "complete" &&
+                    coarse_scenario.frames == 3 && coarse_scenario.cleaned == 1 &&
+                    coarse.result().scenarios.front().measured_frames == 3 &&
+                    coarse.result().scenarios.front().measured_wall_seconds == 0.0,
+                "fixed-frame CPU work completes despite unmeasurable timing"))
+        return 1;
+
+    ClockStub coarse_frame_clock;
+    ScenarioStub coarse_frame_scenario(coarse_frame_clock);
+    coarse_frame_scenario.unmeasurably_fast = true;
+    FrameDrivenSuite coarse_frame(coarse_options, coarse_frame_scenario, coarse_frame_clock);
+    for (int step = 0; step < 12; ++step) {
+        if (coarse_frame.step())
+            break;
+    }
+    if (!verify(coarse_frame.result().outcome == "complete" && coarse_frame_scenario.frames == 3 &&
+                    coarse_frame.result().scenarios.front().measured_frames == 3 &&
+                    coarse_frame.result().scenarios.front().measured_wall_seconds == 0.0,
+                "fixed-frame rendering accepts identical clock samples"))
         return 1;
 
     ClockStub alternating_clock;

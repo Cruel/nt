@@ -67,6 +67,16 @@ operation-only timing. The shell supports
 `cpuWorkUnits` and `assetCache` query parameters. After building the Web
 benchmark, run the browser functional regression (no throughput thresholds):
 
+CI uses these browser benchmark runs as **functional qualification**, not CPU/GPU
+performance gates. Fixed-frame workloads must execute and report their expected
+sample counts, but no minimum throughput, FPS, or positive measured duration is
+required: shared runners and browser clock quantization are not controlled
+benchmark conditions. Timing remains in the reports for informational analysis;
+when elapsed work is unmeasurable, throughput is `null` rather than invented.
+Runtime errors, incomplete work, invalid outputs, and lifecycle failures still
+fail CI. The headless responsiveness smoke uses fixed work counts and checks
+that rAF continues advancing, rather than enforcing a duration or speed target.
+
 ```sh
 NOVELTEA_BENCHMARK_BROWSER=Chromium node scripts/benchmark-asset-web-smoke.mjs build/web-benchmark-debug/apps/benchmark
 ```
