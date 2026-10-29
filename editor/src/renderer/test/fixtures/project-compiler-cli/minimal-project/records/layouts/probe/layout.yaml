@@ -1,0 +1,21 @@
+id: probe
+label: Probe Layout
+data:
+  displayName: Probe Layout
+  target: menu-ui
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  rml:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  lua:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: probe_layout

@@ -1,0 +1,1 @@
+Small physical Asset for Project source and attachment membership tests.

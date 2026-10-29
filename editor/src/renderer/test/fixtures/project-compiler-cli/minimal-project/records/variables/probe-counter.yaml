@@ -1,0 +1,5 @@
+id: probe-counter
+label: Probe Counter
+data:
+  type: integer
+  value: 0

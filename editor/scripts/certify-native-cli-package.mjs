@@ -224,5 +224,7 @@ try {
   } catch {
     // Preserve the original certification result.
   }
-  await rm(root, { recursive: true, force: true });
+  // The stopped resident daemon can still be releasing its temporary files.
+  // Node retries ENOTEMPTY/EBUSY only when maxRetries is explicitly supplied.
+  await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
 }

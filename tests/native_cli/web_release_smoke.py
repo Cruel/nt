@@ -126,4 +126,9 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-web-release-') as tempo
         'templateToken': installed['id'], 'fileCount': len(files),
         'publicationReadback': True, 'archiveReadback': True,
     }, indent=2) + '\n')
+    canonical_evidence = os.environ.get('NOVELTEA_CANONICAL_EVIDENCE_OUTPUT')
+    if canonical_evidence:
+        subprocess.run(['node', str(repository / 'scripts/native-canonical-export-evidence.mjs'),
+                        '--archive', str(archive), '--export', str(output),
+                        '--project', str(project), '--evidence', canonical_evidence], check=True)
     print(f'Native Web export verified: {len(files)} files at {base}; threaded: {threaded}')

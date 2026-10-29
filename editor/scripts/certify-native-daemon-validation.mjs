@@ -4,9 +4,12 @@ import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-// Real standalone ScriptC daemon integration, not a Node authoring imitation.
-// The native path is certification-only; the exact CLI envelope must continue
-// to agree with the no-daemon TypeScript oracle.
+// Certify the installed native-only CLI's daemon against independent local
+// execution and source revisions. Native development builds may additionally
+// expose internal exact-result counters; release CLI status is not required
+// to expose those engineering diagnostics.
+// The retired ScriptC-only [native-disk-validation] stderr witness is not a
+// public native CLI contract.
 const executable = path.resolve(process.argv[2] ?? 'build/cli/linux/noveltea');
 const fixture = path.resolve(process.argv[3] ?? 'tests/projects/feature-lab');
 const oracleExecutable = path.resolve(process.argv[4] ?? executable);
@@ -20,19 +23,12 @@ const daemonRuntimeRoot =
 const environment = {
   ...process.env,
   NOVELTEA_CLI_CERTIFICATION: '1',
-  NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '1',
   NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: 'native-disk-parity-' + process.pid + '-' + Date.now(),
   NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRuntimeRoot,
 };
 const candidateEnvironment = {
   ...environment,
-  NOVELTEA_CLI_CERTIFICATION_NATIVE_DISK_VALIDATION: '0',
-  NOVELTEA_CLI_CERTIFICATION_NATIVE_LIFECYCLE: '1',
-  NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
   NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `native-validation-candidate-${process.pid}`,
-  // Keep the cold invalid-Project witness on macOS. If ScriptC/native aborts
-  // without a diagnostic, retain its final entered stage on stderr.
-  NOVELTEA_CLI_TRACE: '1',
 };
 function describeProcess(result) {
   return JSON.stringify({
@@ -113,37 +109,51 @@ function diagnostics(value) {
     }))
     .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
-function verify(daemon, oracle, expectedWarm) {
+function verify(daemon, oracle) {
   assert.equal(
     daemon.status,
     oracle.status,
-    `Native certification may not alter CLI exit codes: ${describeProcess(daemon)}`,
+    `Native daemon may not alter CLI exit codes: ${describeProcess(daemon)}`,
   );
   assert.deepEqual(JSON.parse(daemon.stdout), JSON.parse(oracle.stdout));
-  const rows = daemon.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-disk-validation] '));
-  assert.equal(rows.length, 1, 'Expected one native owner diagnostic: ' + daemon.stderr);
-  const native = JSON.parse(rows[0].slice('[native-disk-validation] '.length));
-  const expected = JSON.parse(oracle.stdout);
-  assert.equal(native.warm, expectedWarm);
-  assert.equal(native.valid, expected.success);
-  assert.equal(native.oracle.success, expected.success);
-  assert.equal(native.oracle.exitCode, expected.exitCode);
-  assert.deepEqual(diagnostics(native.cliDiagnostics), diagnostics(expected.diagnostics));
-  if (expectedWarm) {
-    assert.equal(native.work.recheckedRecords, 0);
-    assert.ok(native.work.retainedRecords > 0);
-  }
-  return native;
+  assert.equal(daemon.stderr, '', 'Native JSON validation wrote unexpected stderr.');
+}
+function daemonStatus() {
+  const outcome = execute(['--json', 'daemon', 'status']);
+  assert.equal(outcome.status, 0, describeProcess(outcome));
+  const status = JSON.parse(outcome.stdout).daemon;
+  assert.ok(status && typeof status === 'object', outcome.stdout);
+  return status;
 }
 try {
   await cp(fixture, project, { recursive: true });
   const manifest = await readFile(path.join(project, 'project.yaml'));
   const argv = ['--project', project, '--json', 'validate'];
+  assert.equal(daemonStatus().running, false);
   const oracle = execute(['--no-daemon', ...argv]);
   const cold = execute(argv);
-  verify(cold, oracle, false);
+  verify(cold, oracle);
+  const started = daemonStatus();
+  assert.equal(started.running, true, 'Validation did not start the native daemon.');
+  assert.ok(started.projectSessions >= 1, 'Daemon did not retain the native Project owner.');
+  const warm = execute(argv);
+  verify(warm, oracle);
+  const retained = daemonStatus();
+  assert.equal(retained.running, true, 'Repeated validation lost its native daemon.');
+  assert.ok(retained.projectSessions >= 1, 'Repeated validation lost its native Project owner.');
+  if (
+    started.exactValidationResults !== undefined ||
+    retained.exactValidationResults !== undefined
+  ) {
+    assert.ok(started.exactValidationResults >= 1, 'No native exact result was retained.');
+    assert.ok(retained.exactValidationResults >= 1, 'The native exact result was lost.');
+  }
+  if (started.engineeringCounters !== undefined || retained.engineeringCounters !== undefined) {
+    assert.ok(
+      retained.engineeringCounters?.exactResultHits > started.engineeringCounters?.exactResultHits,
+      'Repeated unchanged validation did not hit the native exact-result cache.',
+    );
+  }
   checkCandidate(['--no-daemon', ...argv], oracle);
   checkCandidate(argv, oracle);
 
@@ -152,20 +162,24 @@ try {
   const lua = path.join(project, 'scripts/notice-board.lua');
   await writeFile(lua, (await readFile(lua, 'utf8')) + '\n-- native CLI revision proof\n');
   const changedOracle = execute(['--no-daemon', ...argv]);
-  const warm = execute(argv);
-  verify(warm, changedOracle, true);
+  const changed = execute(argv);
+  verify(changed, changedOracle);
+  const changedRepeat = execute(argv);
+  verify(changedRepeat, changedOracle);
   checkCandidate(argv, changedOracle);
   checkCandidate(['--no-daemon', ...argv], changedOracle);
   // Invalid YAML must retain the public workspace exit class and physical
   // source coordinates. Repair must invalidate the previous native result.
   await writeFile(path.join(project, 'project.yaml'), `${manifest.toString()}\ninvalid: [\n`);
   const invalidOracle = execute(['--no-daemon', ...argv]);
+  verify(execute(argv), invalidOracle);
   checkCandidate(argv, invalidOracle);
   checkCandidate(['--no-daemon', ...argv], invalidOracle);
   await writeFile(path.join(project, 'project.yaml'), manifest);
+  verify(execute(argv), changedOracle);
   checkCandidate(argv, changedOracle);
   assert.deepEqual(await readFile(path.join(project, 'project.yaml')), manifest);
-  console.log('Native disk Project daemon cold/warm and TypeScript CLI parity passed.');
+  console.log('Native CLI daemon cold/warm validation, cache, and direct-execution parity passed.');
 } finally {
   try {
     execute(['daemon', 'stop']);

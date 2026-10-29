@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,8 +10,33 @@ import {
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
+  readProductionSourceRevision,
   readPortableZipMembers,
 } from './native-production-qualification.mjs';
+
+void test('native source revision verification respects container ownership and pinned build identity', () => {
+  const repository = path.resolve(import.meta.dirname, '../..');
+  const sha = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], {
+    cwd: repository,
+    encoding: 'utf8',
+  }).trim();
+  assert.equal(readProductionSourceRevision(repository, {}), sha);
+  assert.equal(
+    readProductionSourceRevision(repository, { NOVELTEA_BUILD_IDENTITY: `git:${sha}` }),
+    sha,
+  );
+  assert.throws(
+    () =>
+      readProductionSourceRevision(repository, {
+        NOVELTEA_BUILD_IDENTITY: 'git:' + '0'.repeat(40),
+      }),
+    /checked-out source differs/i,
+  );
+  assert.throws(
+    () => readProductionSourceRevision(path.join(repository, 'no-such-directory'), {}),
+    /identifiable source revision|ENOENT/i,
+  );
+});
 
 void test('installed native CLI build proof binds both executable and emitted module provenance', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-proof-'));

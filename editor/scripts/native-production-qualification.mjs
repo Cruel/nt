@@ -21,6 +21,32 @@ export async function assertProductionInputs(cli, env = process.env) {
   assert.ok((await stat(cli).catch(() => null))?.isFile(), `Missing installed CLI: ${cli}`);
 }
 
+/** Resolve the exact checked-out source, including inside CI containers whose
+ * checkout is owned by a different UID. Trust only this repository directory,
+ * never every Git repository on the runner. */
+export function readProductionSourceRevision(repositoryRoot, env = process.env) {
+  const revision = spawnSync(
+    'git',
+    ['-c', `safe.directory=${repositoryRoot}`, 'rev-parse', '--verify', 'HEAD'],
+    { cwd: repositoryRoot, encoding: 'utf8' },
+  );
+  assert.ifError(revision.error);
+  assert.equal(
+    revision.status,
+    0,
+    `Qualification requires an identifiable source revision: ${revision.stderr.trim()}`,
+  );
+  const sha = revision.stdout.trim();
+  assert.match(sha, /^[a-f0-9]{40}$/, 'Invalid source revision.');
+  if (env.NOVELTEA_BUILD_IDENTITY)
+    assert.equal(
+      env.NOVELTEA_BUILD_IDENTITY,
+      `git:${sha}`,
+      'The checked-out source differs from the pinned build identity.',
+    );
+  return sha;
+}
+
 /** An ordinary installed CLI must match the exact ScriptC bundle whose
  * module provenance was inspected. Build provenance alone is not a native
  * authority claim: strict whole-editor closure remains a separate gate. */

@@ -3,7 +3,6 @@
 // editor/CLI output to have passed the coordinated #521 retirement gate.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -14,6 +13,7 @@ import {
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
+  readProductionSourceRevision,
   readPortableZipMembers,
 } from './native-production-qualification.mjs';
 
@@ -44,13 +44,7 @@ if (!executable || process.argv.length > (candidateMode ? 4 : 3))
   );
 const cli = path.resolve(executable);
 await assertProductionInputs(cli);
-const revision = spawnSync('git', ['rev-parse', 'HEAD'], {
-  cwd: repositoryRoot,
-  encoding: 'utf8',
-});
-assert.ifError(revision.error);
-assert.equal(revision.status, 0, 'Qualification requires an identifiable source revision.');
-assert.match(revision.stdout.trim(), /^[a-f0-9]{40}$/, 'Invalid source revision.');
+const sourceRevision = readProductionSourceRevision(repositoryRoot);
 const cliSha256 = createHash('sha256')
   .update(await readFile(cli))
   .digest('hex');
@@ -276,7 +270,7 @@ try {
         : 'noveltea.native-production-smoke',
       version: 1,
       status: 'passed-smoke-not-complete-qualification',
-      sourceRevision: revision.stdout.trim(),
+      sourceRevision,
       cliSha256,
       host: { platform: process.platform, arch: process.arch, node: process.version },
       recordFamiliesCovered: included,

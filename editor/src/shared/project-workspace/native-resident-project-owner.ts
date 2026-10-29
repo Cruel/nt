@@ -406,13 +406,18 @@ export class NativeResidentProjectOwner {
   }
 
   async hydratePortableSnapshot(root: string, text: string): Promise<boolean> {
+    const reject = (reason: string): false => {
+      if (typeof process !== 'undefined' && process.env?.NOVELTEA_CLI_TRACE === '1')
+        process.stderr.write(`[project-owner] pinned snapshot rejected: ${reason}\n`);
+      return false;
+    };
     const canonical = await this.canonical(root);
-    if (this.entries.has(canonical)) return false;
+    if (this.entries.has(canonical)) return reject('Project already installed');
     let portable: Portable;
     try {
       portable = JSON.parse(text) as Portable;
     } catch {
-      return false;
+      return reject('snapshot JSON invalid');
     }
     if (
       !portable ||
@@ -432,41 +437,47 @@ export class NativeResidentProjectOwner {
       JSON.stringify(portable.snapshot.project) !==
         JSON.stringify(portable.nativePreparation.project)
     )
-      return false;
+      return reject('snapshot identity or Project data inconsistent');
     const expectedPaths = Object.keys(portable.nativePreparation.sourceRevisions)
       .filter(
         (name) => authored(name) && portable.nativePreparation.sourceRevisions[name] !== 'absent',
       )
       .sort();
     if (JSON.stringify(expectedPaths) !== JSON.stringify(portable.snapshot.canonicalSourceFiles))
-      return false;
+      return reject('authored path list does not match native preparation');
     const physicalPaths = new Set(portable.physicalAuthority.map((item) => item.path));
     if (
       portable.physicalAuthority.some((item) => !safePath(item.path)) ||
       physicalPaths.size !== portable.physicalAuthority.length
     )
-      return false;
+      return reject('physical path list unsafe or duplicated');
     for (const [name, revision] of Object.entries(portable.nativePreparation.sourceRevisions)) {
       if (
         !safePath(name) ||
         (revision !== 'absent' &&
           !validHash(revision) &&
           !/^physical:[0-9]+:-?[0-9]+$/u.test(revision)) ||
-        (revision !== 'absent' && !expectedPaths.includes(name) && !physicalPaths.has(name))
+        // Native portable export also pins non-Asset text sources (e.g.
+        // distribution notices) outside the Project observer's discovery
+        // scopes. Their bytes are independently verified below.
+        (revision !== 'absent' &&
+          !expectedPaths.includes(name) &&
+          !physicalPaths.has(name) &&
+          !Object.hasOwn(portable.projectTextSources, name))
       )
-        return false;
+        return reject(`source revision not admitted: ${name}`);
     }
     if (
       JSON.stringify(Object.keys(portable.snapshot.fileRevisions).sort()) !==
       JSON.stringify(expectedPaths)
     )
-      return false;
+      return reject('file revision paths differ');
     for (const name of expectedPaths)
       if (
         portable.snapshot.fileRevisions[name]?.contentHash !==
         portable.nativePreparation.sourceRevisions[name]
       )
-        return false;
+        return reject(`file revision mismatched: ${name}`);
     for (const [name, source] of Object.entries(portable.projectTextSources)) {
       if (
         !safePath(name) ||
@@ -475,13 +486,13 @@ export class NativeResidentProjectOwner {
         (portable.nativePreparation.sourceRevisions[name] &&
           portable.nativePreparation.sourceRevisions[name] !== source.contentHash)
       )
-        return false;
+        return reject(`text source mismatched: ${name}`);
     }
     if (
       JSON.stringify(Object.keys(portable.projectTextSources).sort()) !==
       JSON.stringify(textPaths(portable.nativePreparation.project, portable.physicalAuthority))
     )
-      return false;
+      return reject('text source path list differs');
     const assets = assetSourcePaths(portable.nativePreparation.project);
     if (
       portable.externalAssets.length !== assets.length ||
@@ -492,7 +503,7 @@ export class NativeResidentProjectOwner {
           ),
       )
     )
-      return false;
+      return reject('physical asset path list differs');
     const opened = {
       ok: true,
       snapshot: portable.snapshot,

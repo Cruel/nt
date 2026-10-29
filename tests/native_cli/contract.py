@@ -241,7 +241,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     assert repeated_asset['assets'][0]['alreadyImported']
     archive = root / 'portable.ntproject'
     bundle = envelope('--project', str(created), 'project', 'export', '--output', str(archive))
-    assert bundle['outputPath'] == str(archive) and archive.is_file()
+    # Native filesystem paths are serialized with forward slashes even on
+    # Windows, where pathlib renders the same path with backslashes.
+    assert Path(bundle['outputPath']) == archive, bundle
+    assert archive.is_file(), f'Portable Project bundle was not written: {archive}'
     imported = envelope('project', 'import', str(archive), str(root / 'imported'))
     assert Path(imported['projectFilePath']).is_file()
     assert Path(imported['projectFilePath']).read_bytes() == (created / 'project.yaml').read_bytes()

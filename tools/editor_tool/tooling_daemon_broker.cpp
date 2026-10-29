@@ -392,13 +392,30 @@ std::filesystem::path production_runtime_root()
         if (::lstat(candidate.c_str(), &info) == 0 && S_ISDIR(info.st_mode) &&
             info.st_uid == geteuid() && (info.st_mode & 0022) == 0) {
             const auto nested = candidate / "noveltea";
-            ensure_private_runtime_directory(nested);
-            return nested;
+            // The socket suffix is /daemon-<32 hex digits>.sock. A trusted
+            // XDG_RUNTIME_DIR can still be too long for the Unix socket ABI.
+            constexpr std::size_t socket_suffix_bytes =
+                sizeof("/daemon-") - 1 + 32 + sizeof(".sock") - 1;
+            if (nested.string().size() + socket_suffix_bytes < sizeof(sockaddr_un::sun_path)) {
+                ensure_private_runtime_directory(nested);
+                return nested;
+            }
         }
     }
+    // macOS TMPDIR commonly lives under /var/folders/<long randomized path>.
+    // Appending the broker's identity-bearing socket name can exceed
+    // sockaddr_un::sun_path even with no certification overrides. Use a short,
+    // per-UID private directory; ensure_private_runtime_directory rejects
+    // foreign-owned entries and symlinks before any socket is created.
+#if defined(__APPLE__)
+    const auto fallback =
+        std::filesystem::path("/tmp") /
+        ("noveltea-" + std::to_string(static_cast<unsigned long long>(geteuid())));
+#else
     const auto fallback =
         std::filesystem::temp_directory_path() /
         ("noveltea-" + std::to_string(static_cast<unsigned long long>(geteuid())));
+#endif
     ensure_private_runtime_directory(fallback);
     return fallback;
 }
@@ -2122,7 +2139,8 @@ public:
     Json cancel_active_disposable_for_tests(std::uint64_t worker_id, std::uint64_t token)
     {
         if (!context_.simulate_worker_processes_for_tests)
-            return error_json("simulated disposable cancellation is available only in scheduler tests");
+            return error_json(
+                "simulated disposable cancellation is available only in scheduler tests");
         std::scoped_lock lock(queue_mutex_);
         const auto active = active_.find(token);
         if (active == active_.end() || active->second.disposable_worker_id != worker_id)
@@ -3899,7 +3917,8 @@ private:
                             "disposable owner mutation requires an active Project-bound request"));
                         continue;
                     }
-                    const auto owner_id = project_owner_by_root_.find(active->second.pinned_project_root);
+                    const auto owner_id =
+                        project_owner_by_root_.find(active->second.pinned_project_root);
                     const auto owner = owner_id == project_owner_by_root_.end()
                                            ? project_owners_.end()
                                            : project_owners_.find(owner_id->second);
@@ -4922,7 +4941,7 @@ Json cancel_local_active_disposable_for_tests(const Json& request)
         return {{"ok", false},
                 {"error", "simulated disposable cancellation requires workerId and token"}};
     return server->cancel_active_disposable_for_tests(request["workerId"].get<std::uint64_t>(),
-                                                       request["token"].get<std::uint64_t>());
+                                                      request["token"].get<std::uint64_t>());
 }
 
 bool parse_string_array(const Json& object, std::string_view field,

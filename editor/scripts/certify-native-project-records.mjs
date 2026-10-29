@@ -31,6 +31,15 @@ const families = [
   'tests',
 ];
 let compared = 0;
+// Run the complete native normalization in one process, rather than spawning a
+// fresh sanitizer-instrumented C++ executable for each record. The assertions
+// below remain per-record and still use the independent TypeScript/Zod codec.
+const native = spawnSync(binary, ['--normalized-records', root], {
+  encoding: 'utf8',
+  maxBuffer: 64 * 1024 * 1024,
+});
+assert.equal(native.status, 0, `Native corpus normalization failed: ${native.stderr}`);
+const normalized = JSON.parse(native.stdout);
 for (const family of families) {
   const files = await readdir(join(root, 'records', family)).catch((error) => {
     if (error.code === 'ENOENT') return [];
@@ -41,13 +50,10 @@ for (const family of families) {
     const id = file.slice(0, -5);
     const source = await readFile(join(root, 'records', family, file), 'utf8');
     const expected = authoringRecordSchemas[family].parse(decodeSparseRecordYaml(family, source));
-    const result = spawnSync(binary, ['--normalized-record', root, family, id], {
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    assert.equal(result.status, 0, `Native ${family}/${id} failed: ${result.stderr}`);
+    const key = `${family}/${id}`;
+    assert.ok(Object.hasOwn(normalized, key), `Native corpus is missing ${key}`);
     assert.deepStrictEqual(
-      JSON.parse(result.stdout),
+      normalized[key],
       expected,
       `Normalized ${family}/${id} differs from Zod`,
     );
@@ -55,4 +61,9 @@ for (const family of families) {
   }
 }
 assert.ok(compared > 100, 'Feature Lab must exercise the actual Project record corpus.');
+assert.equal(
+  Object.keys(normalized).length,
+  compared,
+  'Native corpus contains unexpected records.',
+);
 console.log(`Native full-Project record normalization differential passed: ${compared} records.`);

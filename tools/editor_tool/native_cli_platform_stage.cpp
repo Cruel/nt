@@ -3449,10 +3449,18 @@ PlatformCliResult stage_android_export(const Json& admission, const Json& profil
                 inspect(path_text(aapt2), {"dump", "badging", path_text(derived)});
             if (!derived_badging ||
                 derived_badging->find("package: name='" + app_id + "' versionCode='" +
-                                      std::to_string(version_code) + "'") == std::string::npos ||
-                !verify_apk_signature(derived))
-                return failure("android-bundletool-verification-failed",
-                               "Derived universal APK has invalid identity or signature.");
+                                      std::to_string(version_code) + "'") == std::string::npos)
+                return failure("android-bundletool-identity-invalid",
+                               "Derived universal APK package name or versionCode differs from "
+                               "the requested Android deployment.");
+            // The release AAB may intentionally be unsigned. Match the primary
+            // APK's signature policy: only require an APK signature when release
+            // signing is requested or when building the signed debug variant.
+            // An unsigned universal APK still has its identity and full runtime
+            // package contents checked above.
+            if ((settings.signing_requested || flavor == "debug") && !verify_apk_signature(derived))
+                return failure("android-bundletool-signature-invalid",
+                               "Derived universal APK signature verification failed.");
         }
         Json deployment{
             {"target", "android"},

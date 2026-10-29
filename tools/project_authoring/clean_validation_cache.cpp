@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <optional>
 #include <random>
@@ -24,6 +25,27 @@ namespace noveltea::authoring {
 namespace {
 namespace fs = std::filesystem;
 using Json = jsoncons::ojson;
+
+// The cache proof reads large binary Assets repeatedly. Constructing a string
+// through single-character stream iterators is especially costly in the
+// unoptimized, gcov-instrumented CI build. Keep full-byte proof semantics,
+// but read into a sized buffer with one bulk I/O operation.
+std::optional<std::string> read_exact_file(const fs::path& path)
+{
+    std::error_code error;
+    const auto size = fs::file_size(path, error);
+    if (error || size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+        return std::nullopt;
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return std::nullopt;
+    std::string bytes(static_cast<std::size_t>(size), '\0');
+    if (!stream.read(bytes.data(), static_cast<std::streamsize>(bytes.size())) ||
+        stream.peek() != std::char_traits<char>::eof() || fs::file_size(path, error) != size ||
+        error)
+        return std::nullopt;
+    return bytes;
+}
 
 // Intentionally NOT the TypeScript authoring-cache semantic identity. Native
 // diagnostic semantics must be independently bumped when validation changes.
@@ -101,14 +123,10 @@ exact_proof(const fs::path& root, const std::optional<std::map<std::string, std:
         if (!fs::is_regular_file(path) || fs::is_symlink(fs::symlink_status(path)) ||
             contained.empty() || *contained.begin() == "..")
             return std::nullopt;
-        std::ifstream input(path, std::ios::binary);
-        if (!input)
+        const auto bytes = read_exact_file(path);
+        if (!bytes)
             return std::nullopt;
-        const std::string bytes{std::istreambuf_iterator<char>(input),
-                                std::istreambuf_iterator<char>()};
-        if (!input.eof() && input.fail())
-            return std::nullopt;
-        revision = exact_source_revision(bytes);
+        revision = exact_source_revision(*bytes);
     }
     return revisions;
 }
@@ -301,6 +319,12 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
                                       const RoomSessionSnapshot& cached) {
         if (!payload.is_object())
             return false;
+        // The cache's revision proof has already established a physical source
+        // generation. Reopening every resident owner without these scopes
+        // needlessly reads and decodes the entire Project a second time.
+        // A final proof below still rejects any intervening physical change.
+        ScopedVerifiedProjectSources observed(*source_authority_);
+        ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
         try {
             const auto& contributions = payload.at("contributions");
             const auto& spatial = payload.at("spatial");
@@ -487,9 +511,10 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
                     });
                 try {
                     const auto old_source = open_yaml_source(imported_clean_sources_.at(path));
-                    std::ifstream stream(root_ / path, std::ios::binary);
-                    const std::string current{std::istreambuf_iterator<char>(stream),
-                                              std::istreambuf_iterator<char>()};
+                    const auto current_bytes = read_exact_file(root_ / path);
+                    if (!current_bytes)
+                        throw std::runtime_error("Changed presentation source could not be read.");
+                    const auto& current = *current_bytes;
                     const auto new_source = open_yaml_source(current);
                     if (!owned_diagnostic && old_source.accepted && new_source.accepted &&
                         exact_source_revision(current) == revisions->at(path)) {
@@ -539,14 +564,12 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
                           path.starts_with("records/maps/")) ||
                         !path.ends_with(".yaml"))
                         continue;
-                    std::ifstream stream(root_ / path, std::ios::binary);
-                    const std::string bytes{std::istreambuf_iterator<char>(stream),
-                                            std::istreambuf_iterator<char>()};
-                    if (exact_source_revision(bytes) != revision) {
+                    const auto bytes = read_exact_file(root_ / path);
+                    if (!bytes || exact_source_revision(*bytes) != revision) {
                         presentation_sources.clear();
                         break;
                     }
-                    presentation_sources.emplace(path, bytes);
+                    presentation_sources.emplace(path, *bytes);
                 }
                 if (proof() == revisions) {
                     if (cached->resident.is_object()) {

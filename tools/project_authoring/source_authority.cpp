@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
@@ -79,7 +80,12 @@ std::string read_exact_bytes(const std::filesystem::path& path)
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read Project source: " + path.string());
-    std::string bytes{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    if (before_size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+        throw std::runtime_error("Project source is too large: " + path.string());
+    std::string bytes(static_cast<std::size_t>(before_size), '\0');
+    if (!input.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))
+        throw std::runtime_error("Project source changed during physical observation: " +
+                                 path.string());
     if (input.bad() || bytes.size() != before_size ||
         std::filesystem::file_size(path) != before_size ||
         std::filesystem::last_write_time(path) != before_time)
@@ -223,11 +229,6 @@ SourceAuthority::Capture SourceAuthority::capture() const
             throw std::runtime_error("Project source path escapes root: " + std::string(path));
         return root_ / relative;
     };
-    const auto read = [&](const std::string& relative) -> const std::string& {
-        static const std::string empty;
-        const auto found = result.sources.find(relative);
-        return found == result.sources.end() ? empty : found->second->bytes;
-    };
     const auto add = [&](const std::string& relative, bool physical_asset = false) {
         const auto absolute = secure(relative);
         const auto parent = std::filesystem::path(relative).parent_path();
@@ -303,8 +304,7 @@ SourceAuthority::Capture SourceAuthority::capture() const
         if (revision == "absent") {
             error = "Required tracked YAML source is absent.";
         } else {
-            const auto source = read(relative);
-            const auto opened = open_yaml_source(source);
+            const auto& opened = result.sources.at(relative)->yaml.value();
             if (!opened.accepted) {
                 error = opened.error;
             } else if (!Json::parse(opened.source_json).is_object()) {
@@ -351,10 +351,7 @@ SourceAuthority::Capture SourceAuthority::capture() const
                     result.invalid_sources.push_back(
                         {metadata, "Layout is missing its canonical layout.yaml metadata."});
                 } else {
-                    const auto bytes = read(metadata);
-                    if (exact_source_revision(bytes) != revision)
-                        throw std::runtime_error("Layout changed during observation: " + metadata);
-                    const auto opened = open_yaml_source(bytes);
+                    const auto& opened = result.sources.at(metadata)->yaml.value();
                     if (!opened.accepted)
                         result.invalid_sources.push_back({metadata, opened.error});
                 }
@@ -373,11 +370,7 @@ SourceAuthority::Capture SourceAuthority::capture() const
                             invalid != invalid_sources_.end())
                             result.invalid_sources.push_back(*invalid);
                     } else {
-                        const auto bytes = read(record);
-                        if (exact_source_revision(bytes) != revision)
-                            throw std::runtime_error("Record changed during observation: " +
-                                                     record);
-                        const auto opened = open_yaml_source(bytes);
+                        const auto& opened = result.sources.at(record)->yaml.value();
                         std::string error;
                         if (!opened.accepted)
                             error = opened.error;
@@ -393,11 +386,20 @@ SourceAuthority::Capture SourceAuthority::capture() const
                     // A malformed Asset YAML is attributable to this exact physical owner.
                     // Keep previously verified references watched until it is repaired, but
                     // do not treat its invalid source as an admitted semantic generation.
-                    const auto bytes = read(record);
-                    if (exact_source_revision(bytes) != result.revisions.at(record))
-                        throw std::runtime_error(
-                            "Asset source changed during physical observation: " + record);
-                    const auto decoded = open_yaml_source(bytes);
+                    const auto& decoded = result.sources.at(record)->yaml.value();
+                    const auto revision = result.revisions.at(record);
+                    if (const auto prior = baseline_.find(record);
+                        prior != baseline_.end() && prior->second == revision) {
+                        if (const auto known = asset_references_.find(record);
+                            known != asset_references_.end())
+                            result.asset_references.emplace(record, known->second);
+                        if (const auto invalid = std::find_if(
+                                invalid_sources_.begin(), invalid_sources_.end(),
+                                [&](const InvalidSource& source) { return source.path == record; });
+                            invalid != invalid_sources_.end())
+                            result.invalid_sources.push_back(*invalid);
+                        return;
+                    }
                     std::string error;
                     if (!decoded.accepted) {
                         error = decoded.error;
@@ -444,16 +446,17 @@ SourceAuthority::Capture SourceAuthority::capture() const
                                          relative);
             if (it->is_directory())
                 result.directories.insert(relative);
-            else if (it->is_regular_file() && it->path().extension() == extension)
+            else if (it->is_regular_file() &&
+                     (it->path().extension() == extension ||
+                      (directory == "shaders" && it->path().extension() == ".sh")))
                 add(relative);
         }
     };
     scan_tree("scripts", ".lua");
     scan_tree("shaders", ".sc");
 
-    const auto manifest = read("project.yaml");
     if (result.revisions.at("project.yaml") != "absent") {
-        const auto opened = open_yaml_source(manifest);
+        const auto& opened = result.sources.at("project.yaml")->yaml.value();
         if (!opened.accepted)
             throw std::runtime_error("Cannot discover Project references: " + opened.error);
         const auto root = Json::parse(opened.source_json);

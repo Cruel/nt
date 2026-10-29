@@ -738,7 +738,8 @@ bool includes(const Json& array, const std::string& value)
 
 // Match the zero-toolchain host projection used for public profile listings.
 // These rows are read-only presentation, not authorization for publication.
-bool host_compatible(const Json& profile, const std::vector<Template>& installed)
+bool host_compatible(const Json& profile, const std::vector<Template>& installed,
+                     bool zero_toolchain_only = true)
 {
 #if defined(_WIN32)
     constexpr std::string_view host = "windows";
@@ -757,7 +758,7 @@ bool host_compatible(const Json& profile, const std::vector<Template>& installed
         const auto assembly = descriptor.at("host").value("assembly", "");
         if (assembly != "any" && assembly != host)
             continue;
-        if (descriptor.at("host").value("requiresToolchain", false) &&
+        if (zero_toolchain_only && descriptor.at("host").value("requiresToolchain", false) &&
             !descriptor.at("host").at("tools").empty())
             continue;
         if (descriptor.value("compiledProjectFormatVersion", 0) != 1 ||
@@ -1315,7 +1316,11 @@ bool export_compatible(const Json& profile, const Template& item)
 {
     if (item.status == "corrupted")
         return false;
-    return host_compatible(profile, {item});
+    // The public profiles list describes zero-toolchain availability. Export,
+    // however, supplies and verifies Android's explicit SDK/JDK/bundletool
+    // configuration later. Do not exclude a valid installed template merely
+    // because its descriptor declares those required build tools.
+    return host_compatible(profile, {item}, false);
 }
 
 fs::path checked_project_source(const fs::path& project_root, std::string_view relative)

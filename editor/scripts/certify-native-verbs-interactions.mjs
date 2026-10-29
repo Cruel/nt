@@ -12,6 +12,12 @@ const [{ decodeSparseRecordYaml }, { authoringRecordSchemas }] = await Promise.a
   import('../src/shared/project-workspace/sparse-record-yaml-source.ts'),
   import('../src/shared/project-schema/authoring-records.ts'),
 ]);
+const native = spawnSync(binary, ['--normalized-records', projectRoot, 'verbs', 'interactions'], {
+  encoding: 'utf8',
+  maxBuffer: 64 * 1024 * 1024,
+});
+assert.equal(native.status, 0, `Native corpus normalization failed: ${native.stderr}`);
+const normalized = JSON.parse(native.stdout);
 
 let compared = 0;
 for (const family of ['verbs', 'interactions']) {
@@ -20,13 +26,10 @@ for (const family of ['verbs', 'interactions']) {
     const id = filename.slice(0, -'.yaml'.length);
     const source = await readFile(path.join(sourceRoot, filename), 'utf8');
     const expected = authoringRecordSchemas[family].parse(decodeSparseRecordYaml(family, source));
-    const native = spawnSync(binary, ['--normalized-record', projectRoot, family, id], {
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    assert.equal(native.status, 0, `Native ${family}/${id} failed: ${native.stderr}`);
+    const key = `${family}/${id}`;
+    assert.ok(Object.hasOwn(normalized, key), `Native corpus is missing ${key}`);
     assert.deepStrictEqual(
-      JSON.parse(native.stdout),
+      normalized[key],
       expected,
       `Native normalized ${family}/${id} differs from Zod`,
     );

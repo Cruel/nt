@@ -163,6 +163,11 @@ add_executable(noveltea-schema-certify certify.cpp types_compile.cpp)
 target_link_libraries(noveltea-schema-certify PRIVATE noveltea_project_authoring_contracts)
 if(BUILD_TESTING)
     add_test(NAME native_authoring_contracts COMMAND noveltea-schema-certify --self-test)
+    # Keep broad Feature Lab coverage in the integration suites; small isolated
+    # filesystem/cache regressions should not repeatedly validate its 294 YAML
+    # records when a valid, dependency-capable Project fixture already exists.
+    set(NOVELTEA_AUTHORING_SMALL_PROJECT
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project")
     find_program(NOVELTEA_AUTHORING_TEST_NODE NAMES node)
     add_executable(noveltea-flow-certify flow_certify.cpp)
     target_include_directories(noveltea-flow-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
@@ -192,7 +197,7 @@ if(BUILD_TESTING)
         add_test(NAME native_authoring_dialogue_scene_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-dialogue-scenes.mjs"
-                "$<TARGET_FILE:noveltea-dialogue-scene-certify>"
+                "$<TARGET_FILE:noveltea-project-session-certify>"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     endif()
     add_executable(noveltea-yaml-certify yaml_certify.cpp)
@@ -223,17 +228,17 @@ if(BUILD_TESTING)
     add_test(NAME native_authoring_project_validation COMMAND noveltea-project-session-certify
         --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_clean_cache_path_alias COMMAND noveltea-project-session-certify
-        --clean-cache-alias "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        --clean-cache-alias "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_missing_record_inspection COMMAND noveltea-project-session-certify
-        --missing-record-inspection "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        --missing-record-inspection "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_malformed_sibling_scoped_read COMMAND noveltea-project-session-certify
-        --malformed-sibling-scoped-read "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        --malformed-sibling-scoped-read "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_clean_cache_recovery COMMAND noveltea-project-session-certify
-        --clean-cache-recovery "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        --clean-cache-recovery "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_clean_cache_correctness COMMAND noveltea-project-session-certify
-        --clean-cache-correctness "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        --clean-cache-correctness "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_invalid_manifest COMMAND noveltea-project-session-certify
-        --invalid-manifest "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+        --invalid-manifest "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_project_record_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
@@ -278,21 +283,21 @@ if(BUILD_TESTING)
         add_test(NAME native_authoring_tests_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-tests.mjs"
-                "$<TARGET_FILE:noveltea-test-certify>"
+                "$<TARGET_FILE:noveltea-project-session-certify>"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     endif()
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_verb_interaction_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-verbs-interactions.mjs"
-                "$<TARGET_FILE:noveltea-verb-interaction-certify>"
+                "$<TARGET_FILE:noveltea-project-session-certify>"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     endif()
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_interactable_differential
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-interactables.mjs"
-                "$<TARGET_FILE:noveltea-interactable-inventory-certify>"
+                "$<TARGET_FILE:noveltea-project-session-certify>"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     endif()
     add_executable(noveltea-layout-certify layout_certify.cpp)
@@ -302,6 +307,34 @@ if(BUILD_TESTING)
     add_executable(noveltea-yaml-transaction-certify yaml_transaction_certify.cpp)
     target_link_libraries(noveltea-yaml-transaction-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_yaml_transaction COMMAND noveltea-yaml-transaction-certify)
+
+    # ASan/UBSan is a distinct memory-safety lane, not another exhaustive
+    # native/TypeScript differential run. These representative native tests
+    # cover malformed YAML, source generations, working edits, dependencies,
+    # and asset/layout semantics; the non-sanitized CI lanes retain complete
+    # functional and differential certification.
+    set_tests_properties(
+        native_authoring_contracts
+        native_authoring_flow_operations
+        native_authoring_yaml
+        native_authoring_room_session
+        native_authoring_room_map
+        native_authoring_semantic_graph
+        native_authoring_project_session
+        native_authoring_source_analysis
+        native_authoring_project_validation
+        native_authoring_malformed_sibling_scoped_read
+        native_authoring_clean_cache_correctness
+        native_authoring_invalid_manifest
+        native_authoring_working_preparation
+        native_authoring_asset_animation
+        native_authoring_material
+        native_authoring_interactable_inventory
+        native_authoring_tests
+        native_authoring_localization
+        native_authoring_layout
+        native_authoring_yaml_transaction
+        PROPERTIES LABELS "asan-smoke")
 endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     foreach(mode IN ITEMS format format-check)

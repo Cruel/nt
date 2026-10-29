@@ -1,0 +1,11 @@
+id: probe-note
+label: Probe Note
+data:
+  kind: text
+  source:
+    type: project-file
+    path: assets/data/probe.txt
+  aliases: []
+  mimeType: text/plain
+  extension: .txt
+  imageMetadata: null

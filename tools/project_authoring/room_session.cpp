@@ -25,6 +25,7 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -41,8 +42,12 @@ std::string read_bytes(const std::filesystem::path& path)
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read Room source: " + path.string());
-    std::string result(std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{});
-    if (input.bad())
+    const auto size = std::filesystem::file_size(path);
+    if (size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+        throw std::runtime_error("Room source is too large: " + path.string());
+    std::string result(static_cast<std::size_t>(size), '\0');
+    if (!input.read(result.data(), static_cast<std::streamsize>(result.size())) ||
+        input.peek() != std::char_traits<char>::eof())
         throw std::runtime_error("Cannot finish reading Room source: " + path.string());
     return result;
 }
@@ -5156,8 +5161,14 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.baseline_json = disk_json_;
     // An unsaved new source must be committed even when its valid body is
     // an empty mapping (e.g. a newly authored locale fragment).
+    // An exact source match is necessarily a semantic match. Most cold
+    // Project validations open hundreds of untouched records; do not parse
+    // their source and baseline JSON a second time merely to establish that
+    // identical bytes are not dirty. Text-different sources still compare
+    // decoded values so formatting-only edits retain their current behavior.
     state.dirty =
-        disk_revision_ == "absent" || Json::parse(disk_json_) != Json::parse(working_json_);
+        disk_revision_ == "absent" ||
+        (disk_json_ != working_json_ && Json::parse(disk_json_) != Json::parse(working_json_));
     state.conflicting_paths = conflicting_paths_;
     const auto result =
         record_family_ == "assets"

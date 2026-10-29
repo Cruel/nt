@@ -1,0 +1,17 @@
+id: unrelated
+label: Unrelated Room
+data:
+  displayName: Unrelated Room
+  description:
+    source:
+      kind: inline
+      text: An independent Room for incremental validation checks.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        'y': 540

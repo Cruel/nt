@@ -39,8 +39,10 @@ test('native suite snapshots remain independent and merge their coverage union',
     writeFileSync(path.join(root, 'deps/CMakeLists.txt'), 'add_library(dependency STATIC dep.cpp)\n');
     writeFileSync(path.join(root, 'deps/dep.cpp'), 'int dependency() { return 0; }\n');
     writeFileSync(path.join(root, 'engine/CMakeLists.txt'), 'add_library(model STATIC src/model.cpp)\nadd_executable(probe src/main.cpp)\ntarget_link_libraries(probe PRIVATE model dependency)\n');
-    writeFileSync(path.join(root, 'engine/src/model.cpp'), 'int model(int value) {\n  if (value < 0) return 1;\n  if (value > 0) {\n    return 0;\n  }\n  return 0;\n}\n');
-    writeFileSync(path.join(root, 'engine/src/main.cpp'), 'int model(int);\nint main(int argc, char**) { return model(argc > 2 ? -1 : argc > 1 ? 0 : 1); }\n');
+    // Different branch results must remain observable even at -Og: an
+    // optimizer is allowed to remove branches with identical outcomes.
+    writeFileSync(path.join(root, 'engine/src/model.cpp'), 'int model(int value) {\n  if (value < 0) return 1;\n  if (value > 0) return 2;\n  return 0;\n}\n');
+    writeFileSync(path.join(root, 'engine/src/main.cpp'), 'int model(int);\nint main(int argc, char**) { return model(argc > 2 ? -1 : argc > 1 ? 0 : 1) == 1 ? 1 : 0; }\n');
     run('cmake', ['-S', root, '-B', build, '-DNOVELTEA_ENABLE_COVERAGE=ON', '-DCMAKE_C_COMPILER=gcc', '-DCMAKE_CXX_COMPILER=g++']);
     run('cmake', ['--build', build]);
     run(path.join(build, 'engine/probe'), []);
@@ -57,6 +59,9 @@ test('native suite snapshots remain independent and merge their coverage union',
     run(process.execPath, [reporter, 'reset', build]);
     assert.ok(!existsSync(counters));
     assert.ok(existsSync(notes));
+    run(path.join(build, 'engine/probe'), []);
+    run(process.execPath, [reporter, 'report', build, path.join(reports, 'ctest-cli')]);
+    run(process.execPath, [reporter, 'reset', build]);
     run(path.join(build, 'engine/probe'), ['other-branch']);
     run(process.execPath, [reporter, 'report', build, path.join(reports, 'feature-lab')]);
     const unrelated = spawnSync(path.join(build, 'engine/probe'), ['negative', 'branch']);
@@ -73,7 +78,7 @@ test('native suite snapshots remain independent and merge their coverage union',
     assert.ok(combined.branch_covered < ctest.branch_covered + lab.branch_covered);
     assert.ok(combined.branch_covered < combined.branch_total);
     assert.equal(readFileSync(path.join(reports, 'ctest/coverage.json'), 'utf8'), firstSnapshot);
-    for (const suite of ['ctest', 'feature-lab', 'combined']) {
+    for (const suite of ['ctest', 'ctest-cli', 'feature-lab', 'combined']) {
       assert.ok(existsSync(path.join(reports, suite, 'index.html')));
       const files = JSON.parse(readFileSync(path.join(reports, suite, 'coverage.json'), 'utf8')).files;
       assert.ok(files.length > 0);

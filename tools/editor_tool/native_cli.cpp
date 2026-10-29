@@ -2858,11 +2858,19 @@ int run(const std::vector<std::string>& argv)
                                 {"error", "Platform sources changed during compilation."}};
                     prepared = prepare_native_runtime_physical(prepared.at("artifact"), admitted,
                                                                root_text);
-                    if (prepared.value("status", "") != "prepared")
+                    if (prepared.value("status", "") != "prepared") {
+                        std::string message = "Platform physical runtime preparation failed.";
+                        const auto diagnostics = prepared.value("diagnostics", Json::array());
+                        if (!diagnostics.empty() && diagnostics.front().is_object()) {
+                            const auto detail = diagnostics.front().value("message", std::string{});
+                            if (!detail.empty())
+                                message += " " + detail;
+                        }
                         return {{"ok", false},
                                 {"code", "native.runtime.physical"},
-                                {"error", "Platform physical runtime preparation failed."},
+                                {"error", std::move(message)},
                                 {"diagnostics", prepared.value("diagnostics", Json::array())}};
+                    }
                     const auto& artifact = prepared.at("artifact");
                     const auto& options = artifact.at("packageOptions");
                     if (!package_physical_pins_current(options) ||
