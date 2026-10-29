@@ -1235,7 +1235,25 @@ int package_from_native_runtime(const Arguments& args)
                         cache_fields);
     }
 
-    const auto target = std::filesystem::absolute(native_path_from_utf8(output)).lexically_normal();
+    auto target = std::filesystem::absolute(native_path_from_utf8(output)).lexically_normal();
+#if defined(__APPLE__)
+    // macOS exposes /tmp and /var as system-owned aliases of /private/tmp and
+    // /private/var. Resolve only those exact, verified aliases before rejecting
+    // user-controlled symlink components in the output directory walk.
+    // Do not weakly_canonical() the full parent: that would hide unsafe links.
+    const auto first = target.begin() == target.end() ? target.end() : std::next(target.begin());
+    if (first != target.end() && (*first == "tmp" || *first == "var")) {
+        const auto alias = target.root_path() / *first;
+        std::error_code error;
+        if (std::filesystem::is_symlink(std::filesystem::symlink_status(alias, error)) && !error) {
+            const auto canonical = std::filesystem::canonical(alias, error);
+            const auto expected = target.root_path() / "private" / *first;
+            if (!error && canonical == expected) {
+                target = (canonical / target.lexically_relative(alias)).lexically_normal();
+            }
+        }
+    }
+#endif
     if (target.filename().empty())
         return fail(4, "export.output_invalid", "Runtime Package output path is invalid.",
                     cache_fields);

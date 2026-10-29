@@ -14,7 +14,11 @@ cli = Path(sys.argv[1]).resolve()
 repo = Path(sys.argv[2]).resolve()
 
 with tempfile.TemporaryDirectory(prefix="noveltea-522-regression-") as scratch:
-    root = Path(scratch)
+    # Apple's TemporaryDirectory commonly lives under /var/folders, where
+    # /var is an OS-owned alias of /private/var. Keep the primary fixture
+    # canonical, then exercise /var and /tmp aliases explicitly below.
+    original_root = Path(scratch)
+    root = original_root.resolve()
     home = root / "home"
     home.mkdir()
     environment = {**os.environ, "HOME": str(home), "USERPROFILE": str(home),
@@ -79,6 +83,27 @@ with tempfile.TemporaryDirectory(prefix="noveltea-522-regression-") as scratch:
         unsafe = command(*package_args, alias / "unsafe.ntpkg", expected=4, timeout=180)
         assert unsafe["diagnostics"][0]["code"] == "export.output_invalid", unsafe
         assert not (destination.parent / "unsafe.ntpkg").exists()
+    if sys.platform == "darwin":
+        # Exercise the actual OS aliases, not a fabricated user-controlled
+        # symlink. The latter must still fail beneath either trusted prefix.
+        assert Path("/tmp").resolve() == Path("/private/tmp")
+        assert Path("/var").resolve() == Path("/private/var")
+        with (tempfile.TemporaryDirectory(prefix="noveltea-macos-tmp-", dir="/tmp") as temp_tmp,
+              tempfile.TemporaryDirectory(prefix="noveltea-macos-var-", dir="/var/tmp") as temp_var):
+            mac_targets = [Path(temp_tmp) / "nested" / "game.ntpkg",
+                           Path(temp_var) / "nested" / "game.ntpkg"]
+            if original_root.parts[:2] == ("/", "var"):
+                mac_targets.append(original_root / "mac-var-folders-output" / "game.ntpkg")
+            for alias_target in mac_targets:
+                accepted = command(*package_args, alias_target, timeout=180)
+                assert accepted["success"] and zipfile.is_zipfile(alias_target), accepted
+            user_link = Path(temp_tmp) / "user-link"
+            user_link.symlink_to(destination.parent, target_is_directory=True)
+            rejected = command(*package_args, user_link / "unsafe.ntpkg",
+                               expected=4, timeout=180)
+            assert rejected["diagnostics"][0]["code"] == "export.output_invalid", rejected
+            assert not (destination.parent / "unsafe.ntpkg").exists()
+        print("macOS /tmp and /var system aliases accepted; nested user symlink rejected.")
     print("Runtime Package export creates safe missing parents and rejects symlinks.")
 
     if os.name != "nt":
