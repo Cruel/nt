@@ -877,5 +877,29 @@ else:
     (root / 'templates/escape').symlink_to(root / 'outside', target_is_directory=True)
     assert run('platform', 'template', 'remove', 'escape@v1', '--force', code=4)['success'] is False
     assert (root / 'templates/escape').is_symlink()
-    run('daemon', 'stop')
+    status = run('daemon', 'status')['daemon']
+    if os.name == 'nt':
+        assert status['running'], status
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        # Hold the same process identity across stop, not just the named-pipe status.
+        broker = kernel32.OpenProcess(0x00100000, False, status['pid'])  # SYNCHRONIZE
+        assert broker, ctypes.get_last_error()
+        try:
+            assert run('daemon', 'stop')['daemon']['state'] == 'stopped'
+            assert kernel32.WaitForSingleObject(broker, 0) == 0, (
+                'daemon stop returned before broker process exit', status)
+        finally:
+            kernel32.CloseHandle(broker)
+    else:
+        run('daemon', 'stop')
+    assert not run('daemon', 'status')['daemon']['running']
     print('Native platform template, config, and scoped profiles contracts passed.')
