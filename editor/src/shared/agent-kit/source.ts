@@ -37,7 +37,7 @@ function findSourceRoot(): string {
     try {
       if (statSync(candidate).isDirectory()) return candidate;
     } catch {
-      // Try the next checkout-relative location used by the source and bundled Node CLI hosts.
+      // Try the next checkout-relative location used by the build-time native Agent Kit generator.
     }
   }
   throw new Error('NovelTea agent-kit source directory is unavailable.');

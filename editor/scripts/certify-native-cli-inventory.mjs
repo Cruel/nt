@@ -1,204 +1,126 @@
-// #519: the checked public command inventory is deliberately independent of
-// command-routing.ts. Derive the public surface from help, route branches and
-// concrete command definitions, then fail when any surface lacks a test owner.
+// #551: The authoritative public inventory is the help embedded in C++, not
+// the retired TypeScript CLI parser or command implementations.
 import assert from 'node:assert/strict';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const source = async (relative) => readFile(path.join(root, relative), 'utf8');
-const { classifyNovelTeaCliCommand } = await import(
-  pathToFileURL(path.join(root, 'src/cli/command-routing.ts')).href
-);
-
-// The owner is the native candidate entrypoint, or the independently retained
-// tool entrypoint. The witness is an executable installed-CLI check, not a
-// source-only assertion. A new command must be classified before this passes.
-const coverage = {
-  'project create': ['native-project-lifecycle-cli', 'certify-native-cli-project-routing.mjs'],
-  'project export': ['native-project-lifecycle-cli', 'certify-native-cli-project-routing.mjs'],
-  'project import': [
-    'native-project-lifecycle-cli',
-    'certify-native-project-command-differential.mjs',
-  ],
-  'agent sync': ['agent-sync-cli', 'certify-native-cli-public-contracts.mjs'],
-  'comfyui status': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
-  'comfyui workflows': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
-  'comfyui verify': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
-  'comfyui run': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
-  validate: ['native-project-validation-cli', 'certify-native-daemon-validation.mjs'],
-  fmt: ['native-project-fmt-cli', 'certify-native-cli-project-routing.mjs'],
-  'localization sync': [
-    'native-project-localization-cli',
-    'certify-native-cli-project-routing.mjs',
-  ],
-  'localization reconcile': ['native-project-reconcile-cli', 'certify-native-cli-mutations.mjs'],
-  'localization view': ['native-project-localization-cli', 'certify-native-cli-commands.mjs'],
-  'localization accept': ['native-project-localization-cli', 'certify-native-cli-mutations.mjs'],
-  'localization review': ['native-project-localization-cli', 'certify-native-cli-mutations.mjs'],
-  'asset audit': ['native-project-reads-cli', 'certify-native-cli-project-routing.mjs'],
-  'asset import': ['native-project-mutations-cli', 'certify-native-cli-mutations.mjs'],
-  'entity create': ['native-project-mutations-cli', 'certify-native-cli-mutations.mjs'],
-  'entity inspect': ['native-project-reads-cli', 'certify-native-cli-commands.mjs'],
-  'entity rename': ['native-project-mutations-cli', 'certify-native-cli-mutations.mjs'],
-  'entity delete': ['native-project-mutations-cli', 'certify-native-cli-mutations.mjs'],
-  usages: ['native-project-reads-cli', 'certify-native-cli-project-routing.mjs'],
-  'shaders compile': ['native-project-shaders-cli', 'certify-native-cli-project-routing.mjs'],
-  shaderc: ['native-tool', 'certify-native-cli-public-contracts.mjs'],
-  texturec: ['native-tool', 'certify-native-cli-public-contracts.mjs'],
-  'media-tool check': ['media-tool', 'certify-native-cli-public-contracts.mjs'],
-  'daemon status': ['daemon-control', 'certify-native-cli-owner-lifecycle.mjs'],
-  'daemon stop': ['daemon-control', 'certify-native-cli-owner-lifecycle.mjs'],
-  'test run': ['native-project-tests-cli', 'certify-native-cli-tests.mjs'],
-  'test run-spec': ['native-project-tests-cli', 'certify-native-cli-tests.mjs'],
-  'test run-ui-spec': ['native-project-tests-cli', 'certify-native-cli-tests.mjs'],
-  'package export': ['native-project-package-cli', 'certify-native-cli-package.mjs'],
-  'platform profiles': ['native-project-platform-cli', 'certify-native-cli-platform.mjs'],
-  'platform export': ['native-project-platform-cli', 'certify-native-cli-platform.mjs'],
-  'platform template list': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
-  'platform template inspect': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
-  'platform template install': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
-  'platform template remove': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
-  'platform config init': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
-};
-
-const help = await source('src/cli/static-contracts.ts');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const read = (file) => readFileSync(path.join(root, file), 'utf8');
+const help = read('tools/editor_tool/native_cli_help.txt');
 const section = help.split('\nCommands:\n')[1]?.split('\nGlobal options:\n')[0];
-assert.ok(section, 'Cannot derive CLI public surface from the static help contract.');
-const publicPaths = new Set();
-for (const line of section.split('\n')) {
-  // Wrapped options (indented below the command) do not define a new path.
-  if (!/^  [a-z]/.test(line)) continue;
-  const words = line.trim().match(/^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*/)?.[0];
-  assert.ok(words, `Unrecognized CLI help line: ${line}`);
-  publicPaths.add(words);
-}
-assert.deepEqual(
-  Object.keys(coverage).sort((a, b) => a.localeCompare(b)),
-  [...publicPaths].sort((a, b) => a.localeCompare(b)),
-  'Public help added/removed a command without assigning a certification owner.',
-);
-
-const routes = await source('src/cli/command-routing.ts');
-const routeBranches = routes
-  .split(/(?=^[ \t]*if \(family ===)/m)
-  .filter((branch) => /^[ \t]*if \(family ===/.test(branch));
-const discriminants = new Map();
-for (const branch of routeBranches) {
-  const families = [...branch.matchAll(/\bfamily === '([^']+)'/g)].map((match) => match[1]);
-  assert.ok(families.length, `Cannot derive command-routing family: ${branch.slice(0, 90)}`);
-  const operations = [...branch.matchAll(/\boperation\s*(?:===|!==)\s*'([^']+)'/g)].map(
-    (match) => match[1],
-  );
-  for (const family of families) {
-    assert.ok(!discriminants.has(family), `Duplicated routing branch: ${family}`);
-    discriminants.set(family, new Set(operations));
-  }
-}
-const routedPaths = new Set();
-for (const [family, operations] of discriminants) {
-  const candidates = [...publicPaths].filter((item) => item.split(' ')[0] === family);
-  assert.ok(candidates.length, `New routing family '${family}' lacks a public inventory row.`);
-  for (const operation of operations) {
-    assert.ok(
-      candidates.some((item) => item.split(' ')[1] === operation),
-      `Routing operation '${family} ${operation}' has no public inventory row.`,
-    );
-  }
-  for (const item of candidates) routedPaths.add(item);
-}
-assert.deepEqual(
-  [...routedPaths].sort((a, b) => a.localeCompare(b)),
-  [...publicPaths].sort((a, b) => a.localeCompare(b)),
-  'Public command path has no matching command-routing family.',
-);
-
-// All concrete parser definitions must be reachable through a public route.
-const definitions = await readdir(path.join(root, 'src/cli/commands'));
-definitions.push('../platform-independent-commands.ts');
-const parsedDefinitions = new Set();
-for (const filename of definitions.filter((name) => name.endsWith('.ts'))) {
-  const body = await source(`src/cli/commands/${filename}`);
-  for (const match of body.matchAll(/\bpath:\s*\[([^\]]+)\]/g)) {
-    const pieces = match[1].split(',').map((part) => part.trim());
-    if (pieces.some((part) => !/^'[^']+'$/.test(part))) continue; // parametric command factories
-    parsedDefinitions.add(pieces.map((part) => part.slice(1, -1)).join(' '));
-  }
-}
-for (const item of parsedDefinitions)
-  assert.ok(publicPaths.has(item), `Command definition '${item}' is not in the public inventory.`);
-
-// The public C++ entrypoint is separately checked against these 39 paths.
-const nativeCli = await source('../tools/editor_tool/native_cli.cpp');
-assert.match(
-  nativeCli,
-  /known_command\(/,
-  'Native CLI must validate the public command inventory.',
-);
-
-// Native C++ command actions and editor-to-native IPC routes are two more
-// entrypoint inventories. Their owners are independent of the public CLI,
-// and missing entries here must be a hard failure, not a silent skip.
-const nativeActionOwners = {
-  'project-create': 'native-project-lifecycle-cli',
-  'project-import': 'native-project-lifecycle-cli',
-  'project-export': 'native-project-lifecycle-cli',
-  'project-diagnostic-locations': 'native-project-validation-cli',
-  'project-validate': 'native-project-validation-cli',
-  'source-generation-proof': 'native-project-validation-cli',
-  'workspace-preflight': 'workspace-preflight',
-  'platform-profiles-preparation': 'native-project-profiles-cli',
-  'asset-audit': 'native-project-reads-cli',
-  'asset-import': 'native-project-mutations-cli',
-  'comfyui-assets': 'native-comfyui-asset-publication',
-  'comfyui-admission': 'comfyui-catalog-commands',
-  'entity-inspect': 'native-project-reads-cli',
-  'entity-usages': 'native-project-reads-cli',
-  'entity-create': 'native-project-mutations-cli',
-  'entity-rename': 'native-project-mutations-cli',
-  'entity-delete': 'native-project-mutations-cli',
-  'scoped-edit': ':native-only',
-  'fmt-strip-defaults': ':native-only',
-  fmt: 'native-project-fmt-cli',
-  'localization-targets': 'native-project-localization-cli',
-  'localization-view': 'native-project-reads-cli',
-  'localization-sync': 'native-project-localization-cli',
-  'localization-reconcile': 'native-project-reconcile-cli',
-  'shader-preparation': 'native-project-shaders-cli',
-  'runtime-package-preparation': 'native-project-package-cli',
-  'platform-export-preparation': 'native-project-platform-cli',
-  'export-preparation': 'native-project-platform-cli',
+assert.ok(section, 'Native help must enumerate all public commands.');
+const paths = [
+  ...new Set(
+    section
+      .split('\n')
+      .filter((line) => /^  [a-z]/.test(line))
+      .map((line) => line.trim().match(/^[a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*/)?.[0]),
+  ),
+];
+const comparePaths = (left, right) => left.localeCompare(right);
+assert.ok(paths.every(Boolean));
+const witnesses = {
+  'project create': 'certify-native-cli-project-routing.mjs',
+  'project export': 'certify-native-cli-project-routing.mjs',
+  'project import': 'certify-native-project-command-differential.mjs',
+  'agent sync': 'certify-native-cli-public-contracts.mjs',
+  'comfyui status': 'certify-native-cli-comfyui-contracts.mjs',
+  'comfyui workflows': 'certify-native-cli-comfyui-contracts.mjs',
+  'comfyui verify': 'certify-native-cli-comfyui-contracts.mjs',
+  'comfyui run': 'certify-native-cli-comfyui-contracts.mjs',
+  validate: 'certify-native-daemon-validation.mjs',
+  fmt: 'certify-native-cli-project-routing.mjs',
+  'localization sync': 'certify-native-cli-project-routing.mjs',
+  'localization reconcile': 'certify-native-cli-mutations.mjs',
+  'localization view': 'certify-native-cli-commands.mjs',
+  'localization accept': 'certify-native-cli-mutations.mjs',
+  'localization review': 'certify-native-cli-mutations.mjs',
+  'asset audit': 'certify-native-cli-project-routing.mjs',
+  'asset import': 'certify-native-cli-mutations.mjs',
+  'entity create': 'certify-native-cli-mutations.mjs',
+  'entity inspect': 'certify-native-cli-commands.mjs',
+  'entity rename': 'certify-native-cli-mutations.mjs',
+  'entity delete': 'certify-native-cli-mutations.mjs',
+  usages: 'certify-native-cli-project-routing.mjs',
+  'shaders compile': 'certify-native-cli-project-routing.mjs',
+  shaderc: 'certify-native-cli-public-contracts.mjs',
+  texturec: 'certify-native-cli-public-contracts.mjs',
+  'media-tool check': 'certify-native-cli-public-contracts.mjs',
+  'daemon status': 'certify-native-cli-owner-lifecycle.mjs',
+  'daemon stop': 'certify-native-cli-owner-lifecycle.mjs',
+  'test run': 'certify-native-cli-tests.mjs',
+  'test run-spec': 'certify-native-cli-tests.mjs',
+  'test run-ui-spec': 'certify-native-cli-tests.mjs',
+  'package export': 'certify-native-cli-package.mjs',
+  'platform profiles': 'certify-native-cli-platform.mjs',
+  'platform export': 'certify-native-cli-platform.mjs',
+  'platform template list': 'certify-native-cli-platform.mjs',
+  'platform template inspect': 'certify-native-cli-platform.mjs',
+  'platform template install': 'certify-native-cli-platform.mjs',
+  'platform template remove': 'certify-native-cli-platform.mjs',
+  'platform config init': 'certify-native-cli-platform.mjs',
 };
-const nativeDispatcher = await source('../tools/editor_tool/tooling_native_project_commands.cpp');
-const nativeActions = new Set(
-  [...nativeDispatcher.matchAll(/\baction\s*==\s*"([a-z-]+)"/g)].map((match) => match[1]),
-);
 assert.deepEqual(
-  [...nativeActions].sort(),
-  Object.keys(nativeActionOwners).sort(),
-  'Native Project C++ bridge introduced an unowned private command action.',
+  paths.sort(comparePaths),
+  Object.keys(witnesses).sort(comparePaths),
+  'Native public command inventory changed without an installed-CLI certification owner.',
 );
-for (const [action, owner] of Object.entries(nativeActionOwners)) {
-  const ownerFile =
-    owner === ':native-only'
-      ? '../tools/editor_tool/tooling_native_project_commands_certify.cpp'
-      : owner === 'native-comfyui-asset-publication'
-        ? `src/main/services/${owner}.ts`
-        : `src/cli/${owner}.ts`;
-  const ownerText = await source(ownerFile);
-  const claimed =
-    ownerText.includes(action) ||
-    (owner === 'native-project-mutations-cli' &&
-      action.startsWith('entity-') &&
-      ownerText.includes('entity-${operation}'));
+for (const witness of Object.values(witnesses))
   assert.ok(
-    claimed,
-    `Private native action '${action}' is not claimed by its documented owner '${owner}'.`,
+    statSync(path.join(root, 'editor/scripts', witness)).isFile(),
+    `Missing native CLI command witness: ${witness}`,
   );
-}
 
-const nativeIpcOwners = {
+const nativeCli = read('tools/editor_tool/native_cli.cpp');
+assert.match(nativeCli, /bool known_command\(/);
+assert.match(nativeCli, /help\.find\("\\nCommands:/);
+const dispatcher = read('tools/editor_tool/tooling_native_project_commands.cpp');
+const actions = [
+  ...new Set([...dispatcher.matchAll(/\baction\s*==\s*"([a-z-]+)"/g)].map((match) => match[1])),
+].sort(comparePaths);
+const ownedActions = [
+  'project-create',
+  'project-import',
+  'project-export',
+  'project-diagnostic-locations',
+  'project-validate',
+  'source-generation-proof',
+  'workspace-preflight',
+  'platform-profiles-preparation',
+  'asset-audit',
+  'asset-import',
+  'comfyui-assets',
+  'comfyui-admission',
+  'entity-inspect',
+  'entity-usages',
+  'entity-create',
+  'entity-rename',
+  'entity-delete',
+  'scoped-edit',
+  'fmt-strip-defaults',
+  'fmt',
+  'localization-targets',
+  'localization-view',
+  'localization-sync',
+  'localization-reconcile',
+  'shader-preparation',
+  'runtime-package-preparation',
+  'platform-export-preparation',
+  'export-preparation',
+].sort(comparePaths);
+assert.deepEqual(
+  actions,
+  ownedActions,
+  'C++ native Project action inventory changed without explicit certification.',
+);
+
+const ipcText = read('editor/src/shared/ipc-channels.ts');
+const ipc = [...ipcText.matchAll(/^\s+(NATIVE_PROJECT_[A-Z_]+):/gm)]
+  .map((m) => m[1])
+  .sort(comparePaths);
+const ipcWitnesses = {
   NATIVE_PROJECT_PATCH: 'native-editor-session-controller.test.ts',
   NATIVE_PROJECT_SAVE_UNIT: 'project-save-coordinator.test.ts',
   NATIVE_PROJECT_SAVE_TEXT: 'native-project-source-transactions.test.ts',
@@ -214,81 +136,30 @@ const nativeIpcOwners = {
   NATIVE_PROJECT_PREPARE_EXPORT: 'native-editor-export-service.test.ts',
   NATIVE_PROJECT_EXPORT_PACKAGE: 'native-editor-export-service.test.ts',
 };
-const ipc = await source('src/shared/ipc-channels.ts');
-const nativeIpc = [...ipc.matchAll(/^\s+(NATIVE_PROJECT_[A-Z_]+):/gm)].map((item) => item[1]);
-assert.deepEqual(
-  nativeIpc.sort(),
-  Object.keys(nativeIpcOwners).sort(),
-  'Editor introduced an unowned native Project IPC surface.',
-);
-for (const [channel, witness] of Object.entries(nativeIpcOwners)) {
+assert.deepEqual(ipc, Object.keys(ipcWitnesses).sort(comparePaths));
+for (const [channel, witness] of Object.entries(ipcWitnesses))
   assert.ok(
-    (await stat(path.join(root, 'src/renderer/test', witness))).isFile(),
-    `Native editor IPC '${channel}' lacks the expected regression test: ${witness}`,
+    existsSync(path.join(root, 'editor/src/renderer/test', witness)),
+    `Missing native IPC ${channel} witness ${witness}`,
   );
-}
 
-const retiredIpc = await source('src/main/services/native-editor-ipc-routing.ts');
-const rejectedLegacyIpc = [...retiredIpc.matchAll(/IPC_CHANNELS\.([A-Z_]+)/g)].map(
-  (item) => item[1],
-);
-assert.deepEqual(
-  rejectedLegacyIpc.sort(),
-  [
-    'SAVE_PROJECT_CONTENT',
-    'WRITE_PROJECT_SOURCE',
-    'PURGE_PROJECT_TRASH',
-    'VALIDATE_PROJECT',
-    'PREPARE_EDITOR_RUNTIME',
-    'RUN_PLAYBACK_TEST',
-    'RUN_PLAYBACK_SUITE',
-    'RUN_PLAYBACK_SPEC',
-    'RUN_UI_PLAYBACK_SPEC',
-  ].sort(),
-  'Editor legacy-authoring rejection list changed; reconcile its #506 cutover boundary.',
+// No second Project engine may silently creep into the editor or installed CLI.
+assert.equal(
+  existsSync(path.join(root, 'editor/src/cli')),
+  false,
+  'Retired TypeScript CLI implementation must not be restored.',
 );
 
-// Exercise the actual lightweight routing contract, including options which
-// affect write authority, stdin, transport, replay safety or native tool tier.
-for (const item of publicPaths) {
-  const route = classifyNovelTeaCliCommand(item.split(' '));
-  assert.ok(route, `The classifier rejected public path '${item}'.`);
-  assert.ok(coverage[item]?.every(Boolean), `Missing native owner or executable witness: ${item}`);
-  const [, witness] = coverage[item];
-  assert.ok(
-    (await stat(path.join(root, 'scripts', witness))).isFile(),
-    `Missing installed-CLI witness for '${item}': ${witness}`,
+const binary = process.argv[2] || process.env.NOVELTEA_NATIVE_CLI_BINARY;
+if (binary) {
+  const probe = spawnSync(path.resolve(binary), ['--help'], { encoding: 'utf8' });
+  assert.equal(probe.status, 0, probe.stderr || probe.error?.message);
+  assert.equal(
+    probe.stdout.trim(),
+    help.trim(),
+    'Installed native help differs from C++ contract.',
   );
 }
-for (const [command, option, expected] of [
-  ['asset import asset.png', '--dry-run', 'read'],
-  ['entity create rooms sample', '--dry-run', 'read'],
-  ['entity rename rooms before after', '--dry-run', 'read'],
-  ['entity delete rooms sample', '--dry-run', 'read'],
-  ['localization sync', '--dry-run', 'read'],
-  ['localization accept fr message', '--dry-run', 'read'],
-  ['localization review fr message', '--dry-run', 'read'],
-  ['localization reconcile', '--apply', 'transactional-write'],
-  ['platform export', '--check', 'read'],
-  ['fmt', '--check', 'read'],
-]) {
-  assert.equal(
-    classifyNovelTeaCliCommand([...command.split(' '), option])?.projectAccess,
-    expected,
-    `${command} ${option} lost its Project access classification.`,
-  );
-}
-for (const command of ['test run-spec', 'test run-ui-spec', 'localization reconcile --apply'])
-  assert.equal(classifyNovelTeaCliCommand(command.split(' '))?.stdin, 'json', command);
-for (const command of ['shaderc', 'texturec', 'media-tool check', 'daemon status', 'daemon stop'])
-  assert.equal(
-    classifyNovelTeaCliCommand(command.split(' '))?.quickJsRequiredAfterStaticMiss,
-    false,
-    `${command} must not initialize the authoring engine.`,
-  );
-
 console.log(
-  `Native CLI routing inventory PASSED: ${publicPaths.size} public paths, ` +
-    `${parsedDefinitions.size} concrete definitions, ${discriminants.size} routing families, ` +
-    `${nativeActions.size} native bridge actions and ${nativeIpc.length} editor IPC entrypoints.`,
+  `Native C++ CLI inventory PASSED: ${paths.length} public paths, ${actions.length} native actions, ${ipc.length} editor IPC routes.`,
 );

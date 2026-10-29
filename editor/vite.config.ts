@@ -6,7 +6,6 @@ import tailwindcss from '@tailwindcss/vite';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
-import { cliStartupPolicy } from './scripts/cli-startup-policy';
 import { nativeProductionProvenance } from './scripts/native-production-provenance';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
@@ -387,13 +386,7 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'node-tools',
-      plugins: [
-        cliStartupPolicy(
-          'Native CLI development forwarder',
-          path.join(editorRoot, 'scripts/noveltea-native.ts'),
-        ),
-        nativeProductionProvenance(editorRoot),
-      ],
+      plugins: [nativeProductionProvenance(editorRoot)],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],

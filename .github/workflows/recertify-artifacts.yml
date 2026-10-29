@@ -125,7 +125,7 @@ jobs:
           $cli = Join-Path $env:GITHUB_WORKSPACE "downloaded/${{ matrix.executable }}"
           if (!(Test-Path $cli)) { throw "Missing expected CLI executable: $cli" }
           if ("$env:RUNNER_OS" -ne "Windows") { chmod +x $cli }
-          node editor/scripts/certify-native-cli-inventory.mjs
+          node editor/scripts/certify-native-cli-inventory.mjs $cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $certifications = @(
             "certify-native-daemon-validation.mjs",

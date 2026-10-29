@@ -38,7 +38,10 @@ ScriptC/QuickJS cutover gates, and dated certification notes are preserved in th
 [Native CLI cutover archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
 Those candidate-only switches and historical acceptance states are not supported
 production operation. The current 39-path public command contract is verified by
-`node editor/scripts/certify-native-cli-inventory.mjs`; production qualification
+`node editor/scripts/certify-native-cli-inventory.mjs`, sourcing the canonical C++ help
+contract at `tools/editor_tool/native_cli_help.txt`. The obsolete `editor/src/cli`
+TypeScript command engine and its differential CI oracle are retired; Electron
+TypeScript UI and build-time Agent Kit/schema generation remain supported. Production qualification
 runs `pnpm -C editor run noveltea:certify` with the real native authoring addon.
 
 ## Private media-tool diagnosis

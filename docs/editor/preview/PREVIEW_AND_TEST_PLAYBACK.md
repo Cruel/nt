@@ -8,7 +8,7 @@ are effect-free; shader compiler effects are reserved for explicit export intent
 value is canonical `noveltea.compiled.project` Format V1 plus deterministic diagnostics. Preview sends that compiled object to the engine; it does not build
 a second runtime-project shape.
 
-The shared TypeScript CLI and Electron main process persist canonical runtime/test preparation under
+The native C++ CLI and Electron main process persist canonical runtime/test preparation under
 `.noveltea/cache/runtime/`. Each disposable Project-local generation contains the canonical prepared
 runtime artifact plus a lowered authored-test catalog. Runtime freshness and Test-catalog freshness
 are independent: runtime freshness uses exact relevant Project Workspace files, declared Asset source
@@ -39,12 +39,12 @@ or `blocked`, with deterministic readiness diagnostics. Cached consumers never n
 schema/Zod parsing. A blocked Test does not invalidate the runtime artifact or prevent cache
 publication, but explicitly running that Test returns its readiness diagnostics without invoking the
 native runner. A malformed cache generation or failed publication remains disposable and falls back
-to ordinary preparation. The standalone ScriptC host now probes this same cache contract before
-importing its QuickJS island for the test command family. Authored single/suite execution requires a
+to ordinary preparation. The standalone native C++ CLI probes this cache contract for
+the test command family. Authored single/suite execution requires a
 proven runtime-artifact hit plus a proven lowered-catalog hit, while stdin `run-spec`/`run-ui-spec`
 require only the runtime artifact and therefore remain static/native when authored Test sources alone
-are stale. A runtime miss, stale/unusable generation, or conservative Project-root uncertainty imports
-the shared TypeScript application and uses the normal preparation/publication path instead. Cached
+are stale. A runtime miss, stale/unusable generation, or conservative Project-root uncertainty uses
+native source validation and the normal preparation/publication path instead. Cached
 prepared-artifact diagnostics and shader/material metadata are carried through the static path so a
 cache hit preserves the same public warnings and UI runtime inputs as canonical fallback execution.
 Bare CLI `test run` and the editor's `Run All` action both hand

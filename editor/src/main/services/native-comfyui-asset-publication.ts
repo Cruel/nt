@@ -3,7 +3,6 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaultAssetIdFromFilename } from '../../shared/project-schema/authoring-assets';
-import type { NativeProjectCommandCall } from '../../cli/native-project-lifecycle-cli';
 import type {
   ComfyUiPublishedAssetOutput,
   ComfyUiPublishedFilesystemOutput,
@@ -11,6 +10,12 @@ import type {
   ComfyUiStagedAssetPublicationRequest,
 } from './comfyui-publication-contracts';
 import { ComfyUiRunError } from './comfyui-run-errors';
+
+type NativeProjectCommandCall = (
+  request: Readonly<Record<string, unknown>>,
+) =>
+  | Readonly<{ ok: boolean; error?: string; diagnostics?: unknown; fields?: unknown }>
+  | Promise<Readonly<{ ok: boolean; error?: string; diagnostics?: unknown; fields?: unknown }>>;
 import type {
   ComfyUiGeneratedImage,
   ComfyUiRunPlan,
