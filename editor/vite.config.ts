@@ -309,6 +309,7 @@ export default defineConfig({
         cache: true,
         output: [
           'dist-electron/main/**',
+          'dist-electron/authoring-worker/**',
           'dist-electron/preload/**',
           'dist-electron/tools/**',
           'dist-scriptc-island/**',

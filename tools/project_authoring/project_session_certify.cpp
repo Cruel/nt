@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <algorithm>
+#include <array>
 #include <set>
 
 #ifdef _WIN32
@@ -52,6 +53,10 @@ struct TemporaryProject {
                ("noveltea-project-session-" +
                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         std::filesystem::copy(fixture, root, std::filesystem::copy_options::recursive);
+        // The checked-in native CLI smoke Project may have disposable local
+        // caches. Every certification requires a truly cold independent copy.
+        std::error_code ignored;
+        std::filesystem::remove_all(root / ".noveltea" / "cache", ignored);
     }
     ~TemporaryProject()
     {
@@ -1850,14 +1855,14 @@ void missing_record_inspection_roundtrip(const std::filesystem::path& fixture)
     const auto missing = session->inspect_record("rooms/missing");
     require(!missing.accepted && missing.error == "Record does not exist.",
             "Missing Room must return a normal failed inspection without throwing");
-    const auto valid = session->inspect_record("rooms/room-lifecycle-roundtrip");
+    const auto valid = session->inspect_record("rooms/dependent");
     require(valid.accepted, "Failed Room inspection must not poison subsequent valid inspections");
 }
 
 void malformed_sibling_scoped_read_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
-    const auto room = temp.root / "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto room = temp.root / "records/rooms/dependent.yaml";
     const auto original = read(room);
     write(room, "broken: [\n");
 
@@ -1867,7 +1872,7 @@ void malformed_sibling_scoped_read_roundtrip(const std::filesystem::path& fixtur
     auto project = ProjectSession::open(temp.root, error);
     require(!project && error.starts_with("Invalid record YAML: records/rooms/"),
             "Malformed sibling rejects full Project admission without throwing: " + error);
-    auto script = RoomSession::open_record(temp.root, "scripts", "feature-lab-bootstrap", error);
+    auto script = RoomSession::open_record(temp.root, "scripts", "bootstrap", error);
     require(script != nullptr && script->snapshot().valid,
             "Valid Script can still be inspected with an unrelated malformed Room");
 
@@ -1910,13 +1915,13 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
     std::string error;
     auto project = ProjectSession::open(temp.root, error);
     require(project != nullptr, "Cannot open cache-correctness fixture: " + error);
-    require(project->inspect_record("rooms/active-text-finish").accepted,
+    require(project->inspect_record("rooms/dependent").accepted,
             "Inspected Room must remain in the editor's working inventory");
     require(project->validate_clean_project().snapshot.valid, "Initial Project is valid");
     auto imported = ProjectSession::open(temp.root, error);
     require(imported != nullptr && imported->validate_clean_project().cache_hit,
             "An independent clean host rehydrates verified native contributors");
-    const auto room_path = temp.root / "records/rooms/active-text-finish.yaml";
+    const auto room_path = temp.root / "records/rooms/dependent.yaml";
     const auto original = read(room_path);
     auto invalid = original;
     const auto marker = invalid.find("width: 1920");
@@ -1955,7 +1960,7 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
     write(room_path, original);
     require(project->validate_clean_project().snapshot.valid,
             "Repairing the physical Room revokes the invalid diagnostics");
-    const auto script_path = temp.root / "scripts/notice-board.lua";
+    const auto script_path = temp.root / "scripts/bootstrap.lua";
     const auto script_original = read(script_path);
     auto scripts_host = ProjectSession::open(temp.root, error);
     require(scripts_host && scripts_host->validate_clean_project().cache_hit,
@@ -1978,9 +1983,9 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
     const auto original = read(path);
     for (const auto& replacement : {"name: []", "name: ["}) {
         auto invalid = original;
-        const auto offset = invalid.find("name: Feature Lab");
-        require(offset != std::string::npos, "Feature Lab manifest must have project name");
-        invalid.replace(offset, std::string("name: Feature Lab").size(), replacement);
+        const auto offset = invalid.find("name: ");
+        require(offset != std::string::npos, "Fixture manifest must have project name");
+        invalid.replace(offset, invalid.find('\n', offset) - offset, replacement);
         write(path, invalid);
         std::string admission_error;
         require(!ProjectSession::open(temp.root, admission_error),
@@ -2018,6 +2023,50 @@ void invalid_manifest_roundtrip(const std::filesystem::path& fixture)
 int main(int argc, char** argv)
 {
     try {
+        // One native process certifies the entire physical record corpus. The
+        // differential driver still compares every record independently, but
+        // no longer pays for hundreds of instrumented process startups.
+        if (argc >= 3 && std::string_view(argv[1]) == "--normalized-records") {
+            constexpr std::array families{"archetypes",    "scripts", "assets",       "animations",
+                                          "materials",     "rooms",   "maps",         "characters",
+                                          "interactables", "verbs",   "interactions", "dialogues",
+                                          "scenes",        "tests"};
+            Json result = Json::object();
+            const auto root = std::filesystem::path(argv[2]);
+            for (int i = 3; i < argc; ++i)
+                require(std::find_if(families.begin(), families.end(),
+                                     [&](const char* name) {
+                                         return name == std::string_view(argv[i]);
+                                     }) != families.end(),
+                        "Unsupported normalization family");
+            for (const auto* family : families) {
+                if (argc > 3 && std::find_if(argv + 3, argv + argc, [&](const char* selected) {
+                                    return std::string_view(selected) == family;
+                                }) == argv + argc)
+                    continue;
+                const auto directory = root / "records" / family;
+                if (!std::filesystem::exists(directory))
+                    continue;
+                for (const auto& file : std::filesystem::directory_iterator(directory)) {
+                    if (!file.is_regular_file() || file.path().extension() != ".yaml")
+                        continue;
+                    const auto id = file.path().stem().string();
+                    std::string error;
+                    auto record = RoomSession::open_record(root, family, id, error);
+                    if (!record)
+                        throw std::runtime_error("Cannot open native " + std::string(family) + "/" +
+                                                 id + ": " + error);
+                    const auto normalized = record->snapshot();
+                    if (!normalized.valid || normalized.normalized_json.empty())
+                        throw std::runtime_error("Native record failed normalization: " +
+                                                 std::string(family) + "/" + id);
+                    result[std::string(family) + "/" + id] =
+                        Json::parse(normalized.normalized_json);
+                }
+            }
+            std::cout << result.to_string() << '\n';
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--profile-cold-validation") {
             const auto start = std::chrono::steady_clock::now();
             std::string error;

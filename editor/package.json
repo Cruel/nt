@@ -141,7 +141,7 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
-    "zod": "^4.4.3",
+    "zod": "4.4.3",
     "zustand": "^5.0.14"
   }
 }

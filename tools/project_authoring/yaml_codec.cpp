@@ -157,6 +157,7 @@ public:
                 fy_parse_document_destroy(parser, doc);
                 doc = nullptr;
             }
+            clear_collected_diagnostics();
             fy_parser_destroy(parser);
             parser = nullptr;
             throw;
@@ -167,8 +168,10 @@ public:
     {
         if (doc)
             fy_parse_document_destroy(parser, doc);
-        if (parser)
+        if (parser) {
+            clear_collected_diagnostics();
             fy_parser_destroy(parser);
+        }
     }
     Parsed(const Parsed&) = delete;
     Parsed& operator=(const Parsed&) = delete;
@@ -178,6 +181,17 @@ public:
     std::string source;
 
 private:
+    void clear_collected_diagnostics()
+    {
+        // libfyaml's parser cleanup unrefs its diagnostic object but does not
+        // drain collected errors before the final unref. Every malformed YAML
+        // input can therefore leak error nodes and token references. Explicit
+        // cleanup is required on both normal and constructor-failure paths.
+        if (auto* diag = fy_parser_get_diag(parser)) {
+            fy_diag_reset_error(diag);
+            fy_diag_unref(diag);
+        }
+    }
     fy_parser* parser = nullptr;
     fy_document* doc = nullptr;
 };

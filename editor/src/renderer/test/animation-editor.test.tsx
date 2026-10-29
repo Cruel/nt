@@ -303,7 +303,7 @@ it('confirms target FPS at authoring time before committing and preserves ration
   );
   const sampling = screen.getByRole('combobox', { name: 'Video frame sampling' });
   await user.click(sampling);
-  await user.click(screen.getByRole('option', { name: 'Target FPS' }));
+  await user.click(await screen.findByRole('option', { name: 'Target FPS' }));
   expect(await screen.findByText('Apply target frame rate?')).toBeInTheDocument();
   expect(window.noveltea.probeVideoTimeline).toHaveBeenCalledWith('video-session', {
     assetId: 'video',

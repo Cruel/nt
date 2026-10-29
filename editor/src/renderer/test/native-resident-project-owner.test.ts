@@ -148,6 +148,34 @@ describe('native-only resident Project owner', () => {
     ).toBe(true);
   });
 
+  it('hydrates pinned distribution notices outside the native observer inventory', async () => {
+    const notice = 'support/licenses/project.md';
+    const content = '# Copyright and credits\n';
+    const fixture = JSON.parse(portable()) as {
+      snapshot: { project: typeof project };
+      nativePreparation: {
+        project: typeof project;
+        sourceRevisions: Record<string, string>;
+      };
+      projectTextSources: Record<string, { text: string; contentHash: string }>;
+    };
+    const withNotice = structuredClone(project);
+    withNotice.settings.distributionNotices = [{ path: notice, displayName: 'Credits' }];
+    fixture.snapshot.project = withNotice;
+    fixture.nativePreparation.project = withNotice;
+    fixture.nativePreparation.sourceRevisions[notice] = hash(content);
+    fixture.projectTextSources[notice] = { text: content, contentHash: hash(content) };
+    const { owner: disposable } = owner();
+    expect(await disposable.hydratePortableSnapshot(root, JSON.stringify(fixture))).toBe(true);
+    expect((await disposable.pinnedPortableInputs(root))?.projectTextSources[notice]?.text).toBe(
+      content,
+    );
+
+    fixture.nativePreparation.sourceRevisions[notice] = hash('tampered notice');
+    const { owner: rejected } = owner();
+    expect(await rejected.hydratePortableSnapshot(root, JSON.stringify(fixture))).toBe(false);
+  });
+
   it('rejects tampered Project generations and source revisions', async () => {
     type PortableTamper = {
       snapshot: {

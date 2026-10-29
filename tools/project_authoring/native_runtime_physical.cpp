@@ -130,6 +130,30 @@ struct PreparationError : std::runtime_error {
         if (!relative.empty() && relative != "." && *relative.begin() != fs::path("..") &&
             safe_relative(relative.generic_string()))
             return relative.generic_string();
+        // Windows may serialize an absolute Project source through an 8.3
+        // alias (RUNNER~1) while fs::canonical(root) expands that alias. The
+        // paths still refer to the same file, even though lexical comparison
+        // fails. Reject symlink components BEFORE resolving the alias so a
+        // source cannot be admitted through a link inside or outside root.
+        for (auto cursor = path;;) {
+            std::error_code ec;
+            if (fs::is_symlink(fs::symlink_status(cursor, ec)))
+                throw PreparationError("runtime-artifact.physical-source.unsafe",
+                                       "/artifact/fileEntries",
+                                       "Project source contains a symlink: '" + value + "'.");
+            const auto parent = cursor.parent_path();
+            if (parent.empty() || parent == cursor)
+                break;
+            cursor = parent;
+        }
+        std::error_code ec;
+        const auto canonical = fs::canonical(path, ec);
+        if (!ec) {
+            const auto resolved = canonical.lexically_relative(root);
+            if (!resolved.empty() && resolved != "." && *resolved.begin() != fs::path("..") &&
+                safe_relative(resolved.generic_string()))
+                return resolved.generic_string();
+        }
     }
     throw PreparationError("runtime-artifact.physical-source.unsafe", "/artifact/fileEntries",
                            "Runtime source is outside the admitted Project: '" + value + "'.");

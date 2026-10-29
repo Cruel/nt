@@ -6,14 +6,11 @@ import { fileURLToPath } from 'node:url';
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
 const outputRoot = path.join(editorRoot, 'dist-electron');
-const fixtureRoot = path.join(editorRoot, 'dist-build-tools');
 const nodeBuiltins = new Set(builtinModules.map((moduleName) => moduleName.replace(/^node:/, '')));
 
 const requiredOutputs = {
   main: path.join(outputRoot, 'main', 'main.cjs'),
   preload: path.join(outputRoot, 'preload', 'preload.cjs'),
-  compiler: path.join(fixtureRoot, 'project-compile.mjs'),
-  goldens: path.join(fixtureRoot, 'generate-compiled-project-goldens.mjs'),
 };
 
 function fail(message) {
@@ -103,8 +100,6 @@ function assertRuntimeImports(label, text, allowedPackages, format) {
 
 const mainText = await readRequiredFile('main', requiredOutputs.main);
 const preloadText = await readRequiredFile('preload', requiredOutputs.preload);
-const compilerText = await readRequiredFile('project compiler', requiredOutputs.compiler);
-const goldensText = await readRequiredFile('golden generator', requiredOutputs.goldens);
 
 if (!/require\(["']electron["']\)/.test(mainText)) {
   fail('main output does not preserve Electron as an external runtime module');
@@ -144,13 +139,9 @@ await assertOnlyDeclaredFiles(
 for (const [label, text] of Object.entries({
   main: mainText,
   preload: preloadText,
-  compiler: compilerText,
-  goldens: goldensText,
 })) {
   assertNoCheckoutPaths(label, text);
 }
-assertNoForbiddenRuntimeImport('project compiler', compilerText);
-assertNoForbiddenRuntimeImport('golden generator', goldensText);
 
 const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((filePath) =>
   filePath.endsWith('.mjs'),

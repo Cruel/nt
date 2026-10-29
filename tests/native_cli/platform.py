@@ -831,6 +831,38 @@ else:
     after = run('--project', feature_lab, 'platform', 'profiles')['profiles']
     assert next(row for row in after if row['id'] == 'web-threaded')['hostCompatible']
 
+    # A template that requires Java/SDK/bundletool cannot be advertised as
+    # zero-toolchain host compatible, but it must remain eligible for native
+    # Android export. The export configuration then supplies those tools.
+    android_descriptor = {
+        **descriptor,
+        'templateId': 'android-with-tools', 'buildId': 'cert',
+        'platform': 'android', 'architecture': 'arm64',
+        'packageAccessModes': ['android-private-copy'],
+        'compiledFeatures': ['lua', 'rmlui', 'audio', 'save', 'android-private-copy'],
+        'capabilities': ['external-url', 'vibration'],
+        'host': {'assembly': 'any', 'requiresToolchain': True,
+                 'tools': ['java', 'android-sdk', 'bundletool']},
+        'android': {'supportedAbis': ['arm64-v8a'], 'artifactKinds': ['apk', 'aab'],
+                    'packageAccessModes': ['android-private-copy'],
+                    'minimumSdk': {'minimum': 24, 'maximum': 35}},
+    }
+    (staging / 'template.json').write_text(json.dumps(android_descriptor))
+    android_archive = root / 'android-with-tools.tar.gz'
+    with tarfile.open(android_archive, 'w:gz') as writer:
+        for file in staging.rglob('*'):
+            writer.add(file, arcname=file.relative_to(staging), recursive=False)
+    assert run('platform', 'template', 'install', android_archive)['success']
+    android_profiles = run('--project', feature_lab, 'platform', 'profiles')['profiles']
+    assert not next(row for row in android_profiles if row['id'] == 'android')['hostCompatible']
+    # Intentionally pass an absent config: reaching config validation proves
+    # that native export accepted this template despite its tool requirements.
+    android_export = run('--project', feature_lab, 'platform', 'export',
+                         '--profile', 'android', '--template', 'android-with-tools@cert',
+                         '--output', root / 'not-exported', '--allow-untrusted-template',
+                         '--config', root / 'absent-android-config.json', code=4)
+    assert android_export['diagnostics'][0]['code'] == 'platform.config_invalid', android_export
+
     unsafe = root / 'unsafe.tar.gz'
     with tarfile.open(unsafe, 'w:gz') as writer:
         symlink = tarfile.TarInfo('escape')

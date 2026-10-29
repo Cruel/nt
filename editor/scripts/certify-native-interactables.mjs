@@ -12,6 +12,12 @@ const [{ decodeSparseRecordYaml }, { authoringRecordSchemas }] = await Promise.a
   import('../src/shared/project-workspace/sparse-record-yaml-source.ts'),
   import('../src/shared/project-schema/authoring-records.ts'),
 ]);
+const native = spawnSync(binary, ['--normalized-records', projectRoot, 'interactables'], {
+  encoding: 'utf8',
+  maxBuffer: 64 * 1024 * 1024,
+});
+assert.equal(native.status, 0, `Native corpus normalization failed: ${native.stderr}`);
+const normalized = JSON.parse(native.stdout);
 
 const sourceRoot = path.join(projectRoot, 'records', 'interactables');
 let compared = 0;
@@ -21,16 +27,9 @@ for (const filename of (await readdir(sourceRoot)).filter((name) => name.endsWit
   const expected = authoringRecordSchemas.interactables.parse(
     decodeSparseRecordYaml('interactables', source),
   );
-  const native = spawnSync(binary, ['--normalized-definition', projectRoot, id], {
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
-  });
-  assert.equal(native.status, 0, `Native record '${id}' failed: ${native.stderr}`);
-  assert.deepStrictEqual(
-    JSON.parse(native.stdout),
-    expected,
-    `Normalized '${id}' differs from Zod`,
-  );
+  const key = `interactables/${id}`;
+  assert.ok(Object.hasOwn(normalized, key), `Native corpus is missing ${key}`);
+  assert.deepStrictEqual(normalized[key], expected, `Normalized '${id}' differs from Zod`);
   compared++;
 }
 

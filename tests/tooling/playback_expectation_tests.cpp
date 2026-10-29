@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -345,6 +346,8 @@ TEST_CASE("native test suite reports invalid compiled project as a suite-level f
 
 TEST_CASE("native package export admits semantic shaders sharing compiled binaries")
 {
+    const auto shared_hash =
+        "sha256:" + noveltea::core::sha256_hex(std::as_bytes(std::span("x", std::size_t{1})));
     ProjectRootFixture project_root;
     const auto shader_root = project_root.root() / ".noveltea" / "build";
     const auto vertex_path = shader_root / "shaders" / "derived" / "glsl-330" / "shared.vs.bin";
@@ -357,7 +360,7 @@ TEST_CASE("native package export admits semantic shaders sharing compiled binari
         REQUIRE(output.good());
     }
 
-    const auto shader = [](std::string_view label) {
+    const auto shader = [&](std::string_view label) {
         return nlohmann::json{
             {"display_name", label},
             {"interface_contract", "noveltea.material-preset:engine-2d:1"},
@@ -370,15 +373,13 @@ TEST_CASE("native package export admits semantic shaders sharing compiled binari
                {{"compiled",
                  {{"glsl-330",
                    {{"runtimePath", "project:/shaders/derived/glsl-330/shared.vs.bin"},
-                    {"byteHash",
-                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteHash", shared_hash},
                     {"byteSize", 1U}}}}}}},
               {"fragment",
                {{"compiled",
                  {{"glsl-330",
                    {{"runtimePath", "project:/shaders/derived/glsl-330/shared.fs.bin"},
-                    {"byteHash",
-                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteHash", shared_hash},
                     {"byteSize", 1U}}}}}}}}},
             {"uniforms", nlohmann::json::object()},
             {"samplers", nlohmann::json::object()},

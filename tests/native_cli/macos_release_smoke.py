@@ -147,6 +147,12 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
             assert len(data) == item['size']
             assert zipped.read(f'{output.name}/{name}') == data
 
+    canonical_evidence = os.environ.get('NOVELTEA_CANONICAL_EVIDENCE_OUTPUT')
+    if canonical_evidence:
+        subprocess.run(['node', str(repository / 'scripts/native-canonical-export-evidence.mjs'),
+                        '--archive', str(archive), '--export', str(output),
+                        '--project', str(project), '--evidence', canonical_evidence], check=True)
+
     unrelated = root / 'unrelated-working-directory'
     unrelated.mkdir()
     check_launch(executable, unrelated, environment)

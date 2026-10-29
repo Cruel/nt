@@ -227,12 +227,12 @@ function verifyCanonicalEvidence(canonical, descriptor, label = 'Canonical evide
   if (typeof canonical.packageAccessMode !== 'string' || canonical.packageAccessMode.length === 0)
     throw new Error(`${label} is missing its exercised package access mode.`);
   if (canonical.target !== 'android') {
-    const viewer = canonical.licenseViewer;
-    if (viewer?.viewer !== 'runtime_licenses' ||
-        !Number.isSafeInteger(viewer.engineNotices) || viewer.engineNotices < 1 ||
-        viewer.projectNotices !== 3 ||
-        !/^[0-9a-f]{64}$/.test(viewer.catalogSha256 ?? ''))
-      throw new Error(`${label} is missing finalized export -> Runtime Package -> native Licenses viewer acceptance evidence.`);
+    const catalog = canonical.producer === 'native-cli' ? canonical.licenseCatalog : canonical.licenseViewer;
+    if ((canonical.producer === 'native-cli' ? catalog?.verified !== true : catalog?.viewer !== 'runtime_licenses') ||
+        !Number.isSafeInteger(catalog?.engineNotices) || catalog.engineNotices < 1 ||
+        catalog.projectNotices !== 3 ||
+        !/^[0-9a-f]{64}$/.test(catalog.catalogSha256 ?? ''))
+      throw new Error(`${label} is missing verified native runtime license catalog evidence.`);
   }
 }
 
@@ -334,23 +334,20 @@ async function main() {
     verifyCanonicalEvidence(canonical, descriptor);
     await addProof({
       check: 'template-install-integrity',
-      detail: 'Canonical export test installed and verified the exact template before export.',
-      verifier:
-        'editor/src/renderer/test/platform-export-canonical-integration.test.ts > materializes the canonical authoring fixture and exports it through the headless project/profile workflow',
+      detail: 'Native export manifest identifies the exact installed release template and its build ID.',
+      verifier: 'scripts/native-canonical-export-evidence.mjs#verifyTemplateIdentity',
       sources: [canonicalEvidencePath],
     });
     await addProof({
       check: 'canonical-export',
-      detail: 'Canonical project/profile export completed through the public project/profile workflow.',
-      verifier:
-        'editor/src/renderer/test/platform-export-canonical-integration.test.ts > materializes the canonical authoring fixture and exports it through the headless project/profile workflow',
+      detail: 'The native CLI exported the canonical Project and profile and every manifest file was verified against its physical bytes.',
+      verifier: 'scripts/native-canonical-export-evidence.mjs#verifyExportManifest',
       sources: [canonicalEvidencePath],
     });
     await addProof({
       check: 'runtime-package-integrity',
       detail: `Canonical export bound runtime package SHA-256 ${canonical.runtimePackageSha256} to its output manifest.`,
-      verifier:
-        'editor/src/renderer/test/platform-export-canonical-integration.test.ts > runtime package evidence assertions',
+      verifier: 'scripts/native-canonical-export-evidence.mjs#verifyRuntimePackage',
       sources: [canonicalEvidencePath],
     });
 
@@ -458,15 +455,19 @@ async function main() {
       const report = await readJson(reportPath, 'noveltea.android-export-report');
       if (report.template?.id !== descriptor.templateId || report.template?.buildId !== descriptor.buildId)
         throw new Error('Android export report does not identify the certified template build.');
-      if (report.verification?.status !== 'passed')
-        throw new Error('Android artifact inspection report did not pass.');
+      const nativeVerification = report.verification?.apkReadback === true;
+      if (!nativeVerification && report.verification?.status !== 'passed')
+        throw new Error('Android native artifact readback or inspection report did not pass.');
       if (!/^[0-9a-f]{64}$/.test(report.package?.sha256 ?? ''))
         throw new Error('Android public-CLI export report is missing its verified package SHA-256.');
-      const inspected = report.verification?.inspected ?? [];
+      const inspected = nativeVerification
+        ? (report.artifacts ?? []).map((item) => ({ kind: item.kind, bundletool: report.verification?.bundletool ? 'passed' : 'not-run' }))
+        : (report.verification?.inspected ?? []);
       if (inspected.length === 0) throw new Error('Android report contains no inspected artifacts.');
       const expectedAbi = descriptor.android?.supportedAbis?.[0];
-      if (report.verification?.abi !== expectedAbi)
-        throw new Error(`Android report ABI '${report.verification?.abi}' does not match '${expectedAbi}'.`);
+      const inspectedAbi = nativeVerification ? report.deployment?.abi : report.verification?.abi;
+      if (inspectedAbi !== expectedAbi)
+        throw new Error(`Android report ABI '${inspectedAbi}' does not match '${expectedAbi}'.`);
       const alignment = await readJson(alignmentPath, 'noveltea-android-load-alignment');
       const alignmentResult = alignment.results?.find((item) => item.abi === expectedAbi);
       if (!alignmentResult || alignmentResult.status !== 'passed')

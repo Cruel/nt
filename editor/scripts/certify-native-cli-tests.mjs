@@ -301,5 +301,8 @@ try {
       /* preserve test failure */
     }
   }
-  await rm(root, { recursive: true, force: true });
+  // A successful daemon stop can precede the worker's final filesystem
+  // cleanup. Without retries, concurrently removed/created runtime files
+  // intermittently produce ENOTEMPTY on Linux after all assertions pass.
+  await rm(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
 }

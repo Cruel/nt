@@ -144,29 +144,20 @@ changed to compensate for missing engine resources. An explicit native font-cove
 different root. Standalone distributions continue to resolve `assets/system` beside their executable.
 Fallback-font failures identify the logical font Asset and selected system root.
 
-## Compile a Project Without the Editor
+## Verify Native Project Compilation Without the Editor
 
-Compile a saved project into canonical Compiled Project Format V1 gameplay JSON from the repository root:
-
-```sh
-pnpm project:compile -- \
-  --project path/to/project.json \
-  --output path/to/compiled-project.json
-```
-
-The editor-local equivalent is:
+The standalone native `noveltea` CLI compiles the current on-disk Project as part of Runtime Package
+export. The old Node-only `project:compile` command and its `dist-build-tools` compiler are retired;
+do not use them as CI verification or expect standalone compiled-project JSON from the public CLI.
 
 ```sh
-cd editor
-pnpm project:compile -- \
-  --project path/to/project.json \
-  --output path/to/compiled-project.json
+noveltea --no-daemon --project path/to/project package export --output /tmp/game.ntpkg
+unzip -t /tmp/game.ntpkg
 ```
 
-This is a Node-only test/CI command. It uses the same `publishCompiledArtifact` boundary as editor
-preview and runtime export, writes exact canonical bytes atomically, and does not create a runtime
-package or platform application. Add `--json` for a machine-readable report. Exit codes `2`, `3`,
-`4`, and `5` distinguish argument, input, compiler, and output failures respectively.
+The native cold-compilation differential certification, including the complete Compiled Project
+wire, is described in `docs/runtime/certifications/NATIVE_COMPILED_PROJECT.md`. The Build workflow's
+Electron job also checks native compilation and Runtime Package export against its minimal fixture.
 
 Export a saved editor project through `noveltea platform export`. Install the immutable player
 template first with `noveltea platform template install`, and generate local toolchain/signing
@@ -352,7 +343,18 @@ cd android
 
 Run the native robustness configuration after parser, filesystem, callback-boundary, or ownership
 changes. It enables ASan, UBSan, and deterministic smoke runs for the JSON, rich-text, package, and
-runtime-project fuzz harnesses:
+runtime-project fuzz harnesses. The sanitizer preset keeps Debug assertions but compiles with
+`-O1 -g1` to avoid multiplying JSON/schema traversal costs in unoptimized instrumented code.
+Only explicitly labeled `asan-smoke` authoring tests and `fuzz-smoke` parser tests run in this
+bounded CI lane; the ordinary native/coverage jobs retain exhaustive functional, Catch2 and
+differential certification:
+
+Native/Zod record differentials use `noveltea-project-session-certify --normalized-records
+<project-root> [family ...]` to normalize every requested record with **one native process**.
+The Node drivers still independently decode and compare each record against its Zod schema.
+This replaces a process launch per record (237 launches for the Feature Lab corpus), which
+was especially expensive under ASan/UBSan; targeted differential tests request only their
+own record families. The single-record certification modes remain available for diagnosis.
 
 ```sh
 cmake --preset linux-sanitize
@@ -360,7 +362,7 @@ cmake --build --preset linux-sanitize
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-  -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke|native_video_texture_smoke)'
+  -L '^(asan-smoke|fuzz-smoke)$' --parallel 2 --timeout 300
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
@@ -369,8 +371,9 @@ xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
 
 CI and local verification run GPU/sandbox smoke executables, including native video texture smoke,
 in the separate ASan/UBSan pass above because Mesa/EGL may retain driver-owned allocations until
-process exit. Keep the `-E` and `-R` expressions identical so no excluded tests lose sanitizer
-coverage; do not disable leak detection for the engine and parser test suites.
+process exit. Keep the GPU test expression synchronized with the CI step. Never disable leak
+detection for the parser and native authoring smoke tests. To investigate a specific failure under
+ASan/UBSan beyond the bounded smoke lane, run its named CTest explicitly with `-R`.
 
 The sanitizer configuration builds native host tooling as well as the player/runtime graph so the
 shader compiler service and its embedded shaderc closure receive sanitizer coverage in the same
@@ -430,9 +433,10 @@ cooperative job deliberately shares the `linux-debug` installed tree path while 
 `linux-no-threads` binary writer. All jobs must regenerate dependencies on cache misses; caches are
 acceleration, not required job-to-job inputs.
 
-CI build and vcpkg concurrency is four. CTest retains serial execution because some GPU captures share
-an Xvfb display and lack serialization properties; parallel test execution requires auditing shared
-resources first. Local builds continue to honor the inherited limit described above. Linux desktop,
+CI build and vcpkg concurrency is four. The sanitizer's bounded, non-GPU smoke set uses two CTest
+workers; the GPU and comprehensive CTest lanes remain serial because some captures share an Xvfb
+display and lack serialization properties. Local builds continue to honor the inherited limit
+described above. Linux desktop,
 CLI, and cooperative builds retain 120-minute timeout headroom; sanitizer, Web, and Android builds
 retain 90 minutes, pending cold-cache measurements rather than assuming a warm cache.
 

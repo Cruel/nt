@@ -16,6 +16,28 @@ apk_v2=${2:?updated APK required}
 application_id=${3:-org.noveltea.platformexportacceptance}
 abi=${4:-x86_64}
 
+apk_bootstrap_info() {
+  unzip -p "$1" assets/noveltea/bootstrap/player.json | python3 -c '
+import json, re, sys
+config = json.load(sys.stdin)
+digest = config["package"]["sha256"]
+if not re.fullmatch(r"[0-9a-f]{64}", digest) or config["package"]["path"] != "game.ntpkg":
+    raise SystemExit("APK has an invalid packaged game identity")
+if config["applicationId"] != sys.argv[1]:
+    raise SystemExit("APK application ID differs from emulator smoke target")
+print(digest, config["versionName"])
+' "$application_id"
+}
+
+check_embedded_package() {
+  local actual
+  actual=$(unzip -p "$1" assets/noveltea/bootstrap/game.ntpkg | sha256sum)
+  if [[ "${actual%% *}" != "$2" ]]; then
+    echo "APK game package does not match its declared SHA-256: $1" >&2
+    exit 1
+  fi
+}
+
 dump_startup_diagnostics() {
   local pid
   pid=$("$adb" shell pidof "$application_id" 2>/dev/null | tr -d '\r' || true)
@@ -74,6 +96,36 @@ wait_for_package_manager_idle() {
   fi
 }
 
+check_materialized_package() {
+  local phase=$1 expected_sha=$2
+  local expected_path="files/bootstrap/$expected_sha/game.ntpkg"
+  local actual_paths
+  actual_paths=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.ntpkg | tr -d '\r')
+  if [[ "$actual_paths" != "$expected_path" ]]; then
+    printf '%s game package mismatch (expected=%s, found=%s).\n' "$phase" "$expected_path" "$actual_paths" >&2
+    dump_startup_diagnostics
+    exit 1
+  fi
+  local installed_hash
+  installed_hash=$("$adb" exec-out run-as "$application_id" cat "$expected_path" | sha256sum)
+  if [[ "${installed_hash%% *}" != "$expected_sha" ]]; then
+    printf '%s game package checksum mismatch (expected=%s, actual=%s).\n' "$phase" "$expected_sha" "${installed_hash%% *}" >&2
+    dump_startup_diagnostics
+    exit 1
+  fi
+}
+
+apk_info_v1=$(apk_bootstrap_info "$apk_v1")
+apk_info_v2=$(apk_bootstrap_info "$apk_v2")
+read -r package_sha_v1 version_v1 <<< "$apk_info_v1"
+read -r package_sha_v2 version_v2 <<< "$apk_info_v2"
+if [[ "$version_v1" == "$version_v2" ]]; then
+  echo "Expected different APK app versions, found $version_v1 in both fixtures." >&2
+  exit 1
+fi
+check_embedded_package "$apk_v1" "$package_sha_v1"
+check_embedded_package "$apk_v2" "$package_sha_v2"
+
 "$adb" wait-for-device
 until [[ "$("$adb" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; do sleep 2; done
 "$adb" logcat -c
@@ -94,17 +146,18 @@ printf ci-save | "$adb" shell run-as "$application_id" tee files/saves/ci-save-m
 "$adb" shell am force-stop "$application_id"
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 
-before=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.ntpkg | tr -d '\r')
-test -n "$before"
+check_materialized_package 'Initial APK' "$package_sha_v1"
 "$adb" install -r "$apk_v2"
 wait_for_package_manager_idle
 "$adb" logcat -c
 "$adb" shell am start -W -n "$application_id/org.noveltea.player.MainActivity"
 wait_for_player_ready
-test "$("$adb" shell run-as "$application_id" cat files/saves/ci-save-marker | tr -d '\r')" = ci-save
-after=$("$adb" shell run-as "$application_id" find files/bootstrap -name game.ntpkg | tr -d '\r')
-test -n "$after"
-test "$before" != "$after"
+if [[ "$("$adb" shell run-as "$application_id" cat files/saves/ci-save-marker | tr -d '\r')" != ci-save ]]; then
+  echo 'APK update did not preserve the saved game marker.' >&2
+  dump_startup_diagnostics
+  exit 1
+fi
+check_materialized_package 'Updated APK' "$package_sha_v2"
 
 unzip -l "$apk_v2" | grep "lib/$abi/libnoveltea-player.so" >/dev/null
 if unzip -l "$apk_v2" | grep -Ei 'sandbox|lua_demo|preview|editor[-_ ]ipc|recorder' >/dev/null; then

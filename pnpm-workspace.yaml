@@ -18,11 +18,16 @@ catalog:
 
 overrides:
   "@electron/rebuild": 4.2.0
+  # Patch the site toolchain without replacing the editor's pinned schema
+  # visitor Zod or jsdom's compatible Undici API.
+  "@astrojs/sitemap>zod": 4.6.6
+  "astro>zod": 4.6.6
   js-yaml: 4.3.2
   nanoid: 3.3.18
   source-map-js: 1.2.2
   sharp: 0.35.5
   tmp: 0.2.7
+  "unifont>undici": 8.12.2
   vite: "catalog:"
   vitest: 4.1.10
 

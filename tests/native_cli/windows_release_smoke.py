@@ -113,25 +113,83 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-windows-release-') as t
         for item in manifest['files']:
             assert reader.read(item['path']) == (output / item['path']).read_bytes()
 
+    canonical_evidence = os.environ.get('NOVELTEA_CANONICAL_EVIDENCE_OUTPUT')
+    if canonical_evidence:
+        subprocess.run(['node', str(repository / 'scripts/native-canonical-export-evidence.mjs'),
+                        '--archive', str(archive), '--export', str(output),
+                        '--project', str(project), '--evidence', canonical_evidence], check=True)
+
     launched = None
     if os.name == 'nt':
         unrelated = root / 'unrelated-working-directory'
         unrelated.mkdir()
-        launched = subprocess.Popen([str(exe)], cwd=unrelated,
-                                    env={**env, 'NOVELTEA_PLAYER_HEADLESS_ERRORS': '1'},
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            time.sleep(5)
-            if launched.poll() is not None:
-                assert launched.returncode == 0, ('Windows game boot failed', launched.returncode)
-        finally:
-            if launched.poll() is None:
-                launched.terminate()
-                try:
-                    launched.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    launched.kill()
-                    launched.wait(timeout=10)
+        # GitHub-hosted Windows exposes an insufficient system OpenGL driver.
+        # Keep the published export/archive untouched: only a disposable
+        # launch copy receives the pinned Mesa WGL software driver.
+        software_gl = os.environ.get('NOVELTEA_WINDOWS_SOFTWARE_OPENGL_DIR')
+        launch_exe = exe
+        launch_env = {**env, 'NOVELTEA_PLAYER_HEADLESS_ERRORS': '1'}
+        if software_gl:
+            launch_root = root / 'launch-with-software-opengl'
+            shutil.copytree(output, launch_root)
+            for name in ('opengl32.dll', 'libgallium_wgl.dll'):
+                library = Path(software_gl) / name
+                assert library.is_file(), f'Pinned software OpenGL is missing {name}'
+                shutil.copy2(library, launch_root / name)
+            launch_exe = launch_root / exe.name
+            launch_env.update({'GALLIUM_DRIVER': 'llvmpipe', 'LIBGL_ALWAYS_SOFTWARE': '1'})
+        stdout_path = root / 'player-stdout.log'
+        stderr_path = root / 'player-stderr.log'
+        with stdout_path.open('wb') as stdout, stderr_path.open('wb') as stderr:
+            launched = subprocess.Popen([str(launch_exe)], cwd=unrelated,
+                                        env=launch_env,
+                                        stdout=stdout, stderr=stderr)
+            try:
+                # Passing requires a real initialized renderer, not merely a
+                # process that remains alive while bgfx is still starting.
+                deadline = time.monotonic() + 45
+                renderer_ready = False
+                while time.monotonic() < deadline:
+                    if b'[renderer] bgfx core initialized:' in stderr_path.read_bytes():
+                        renderer_ready = True
+                        break
+                    if launched.poll() is not None:
+                        break
+                    time.sleep(0.5)
+                if renderer_ready and launched.poll() is None:
+                    time.sleep(3)
+                if not renderer_ready or (launched.poll() is not None and launched.returncode != 0):
+                    # Do not discard the only startup diagnostics. A Windows
+                    # fail-fast exit (0xC0000409) gives no actionable stack
+                    # trace by itself; Event 1000 can identify its faulting DLL.
+                    event = ''
+                    try:
+                        result = subprocess.run([
+                            'powershell.exe', '-NoProfile', '-Command',
+                            'Get-WinEvent -FilterHashtable @{LogName="Application"; '
+                            'Id=1000,1001; StartTime=(Get-Date).AddMinutes(-5)} '
+                            '-ErrorAction SilentlyContinue | '
+                            'Where-Object { $_.Message -like "*game.exe*" } | '
+                            'Select-Object -First 2 | Format-List TimeCreated,Id,Message',
+                        ], capture_output=True, text=True, timeout=15)
+                        event = result.stdout[-6000:]
+                    except (OSError, subprocess.TimeoutExpired):
+                        pass
+                    raise AssertionError((
+                        'Windows game renderer did not initialize or exited abnormally',
+                        hex(launched.returncode) if launched.returncode is not None else 'running',
+                        stdout_path.read_text(errors='replace')[-4000:],
+                        stderr_path.read_text(errors='replace')[-4000:],
+                        event,
+                    ))
+            finally:
+                if launched.poll() is None:
+                    launched.terminate()
+                    try:
+                        launched.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        launched.kill()
+                        launched.wait(timeout=10)
 
     if evidence_path:
         evidence_path.parent.mkdir(parents=True, exist_ok=True)

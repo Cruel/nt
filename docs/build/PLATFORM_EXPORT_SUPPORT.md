@@ -19,6 +19,15 @@ separate certification workflow as described below.
 | Android debug/emulator | x86_64 | APK | OpenGL ES/Vulkan as declared by template; `essl-300` | Android JDK/SDK/NDK/Gradle required | min API 24; compile API 35 |
 
 The assembly-host column describes artifact mechanics, not standalone CLI release availability.
+Release certification now derives its canonical fixture evidence from the actual native C++
+platform exports (`scripts/native-canonical-export-evidence.mjs`), rather than from the retired
+renderer canonical-integration test. The verifier hashes the exported file inventory, binds
+the Runtime Package to the player configuration (or the Android native export report and APK),
+and verifies packaged Project license notices. The independent platform launch, browser,
+ABI, and Android artifact inspection checks remain mandatory. Android's native CLI publishes
+an artifact readback report rather than a desktop-style `export-manifest.json`; the evidence
+producer validates that report and its physical APK/AAB bytes.
+
 Verified template file modes are part of `template.json`. POSIX hosts verify extracted filesystem
 modes against those declarations; Windows hosts use the verified descriptor modes as authoritative
 because NTFS archive extraction cannot preserve POSIX permission bits. Staging carries those verified

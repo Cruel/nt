@@ -196,7 +196,14 @@ Stable exit codes are:
 | `4` | Compiler diagnostics prevented publication |
 | `5` | Output conflict or output publication failure |
 
-`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project/` is the checked-in
-workspace-v1 process/CI fixture. Its output is compared byte-for-byte with the canonical minimal
-compiled-project golden; normal CI never regenerates either fixture implicitly.
-`pnpm goldens:compiled-project` regenerates both from the shared minimal authoring fixture.
+`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project/` is an existing
+small, valid workspace-v1 fixture used by native cold Runtime Package export and focused
+Project-session certifications. It intentionally includes several independently editable
+record families, a physical Asset, Layout companion files, dependent and unrelated Rooms,
+and a simple authored Test. Keep its original startup Room and bootstrap valid, but it
+does **not** require a particular number of records.
+
+The previous compiler golden-generation description is historical: the legacy generator
+is no longer present. TypeScript golden projects under
+`compiled-project-golden-projects.ts` are constructed independently; expanding this native
+fixture does not regenerate them. Feature Lab remains the full-corpus acceptance fixture.

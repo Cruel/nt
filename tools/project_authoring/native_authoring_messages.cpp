@@ -780,9 +780,10 @@ NativeMessageProjection lower_authoring_messages(const Json& project)
             output.compiled_texts[message.path] = {
                 {"markup", message.markup}, {"source", {{"kind", "message"}, {"id", number}}}};
     }
+    const auto source_locale = localization.at("sourceLocale").get<std::string>();
     for (const auto& [locale, definition] : object(localization, "locales").items()) {
         Json entries = Json::array();
-        if (locale == localization.at("sourceLocale")) {
+        if (locale == source_locale) {
             entries = output.source_entries;
         } else {
             for (std::size_t i = 0; i < ordered.size(); ++i) {
@@ -790,8 +791,7 @@ NativeMessageProjection lower_authoring_messages(const Json& project)
                 std::string current = locale;
                 std::set<std::string> visited;
                 const Json* translation = nullptr;
-                while (current != localization.at("sourceLocale") &&
-                       visited.insert(current).second) {
+                while (current != source_locale && visited.insert(current).second) {
                     const auto& translations =
                         object(object(localization, "translations"), current);
                     if (translations.contains(id)) {

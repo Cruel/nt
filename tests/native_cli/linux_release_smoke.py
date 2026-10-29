@@ -135,6 +135,12 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-linux-release-') as tem
             assert packaged.extractfile(item['path']).read() == content
             assert packaged.getmember(item['path']).mode == item['mode'] & 0o777
 
+    canonical_evidence = os.environ.get('NOVELTEA_CANONICAL_EVIDENCE_OUTPUT')
+    if canonical_evidence:
+        subprocess.run(['node', str(repository / 'scripts/native-canonical-export-evidence.mjs'),
+                        '--archive', str(archive), '--export', str(output),
+                        '--project', str(project), '--evidence', canonical_evidence], check=True)
+
     unrelated = root / 'unrelated-working-directory'
     unrelated.mkdir()
     directory_exit = launch(launcher, unrelated, environment)

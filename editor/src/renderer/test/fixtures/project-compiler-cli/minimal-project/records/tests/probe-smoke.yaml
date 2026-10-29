@@ -1,0 +1,14 @@
+id: probe-smoke
+label: Probe Smoke Test
+data:
+  displayName: Probe Smoke Test
+  steps:
+    - id: start
+      input: tick
+      label: Start Room
+      expectations:
+        - id: start-room
+          type: current-room
+          operator: eq
+          currentRoom:
+            roomId: start

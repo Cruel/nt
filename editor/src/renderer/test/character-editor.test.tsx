@@ -161,7 +161,7 @@ describe('CharacterEditor', () => {
       screen.getByRole('combobox', { name: 'Character pose default layer body Visual' }),
     );
     await user.click(
-      screen.getByRole('option', { name: 'Portrait · idle (animation:portrait:idle)' }),
+      await screen.findByRole('option', { name: 'Portrait · idle (animation:portrait:idle)' }),
     );
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({

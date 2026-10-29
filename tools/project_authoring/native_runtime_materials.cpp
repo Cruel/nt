@@ -16,7 +16,7 @@ using Json = nlohmann::json;
 const Json& find_registry_record(const Json& records, std::string_view id)
 {
     for (const auto& record : records)
-        if (record.at("id") == id)
+        if (record.at("id").is_string() && record.at("id").get<std::string>() == id)
             return record;
     throw std::runtime_error("Native runtime Material references unknown contract '" +
                              std::string(id) + "'.");

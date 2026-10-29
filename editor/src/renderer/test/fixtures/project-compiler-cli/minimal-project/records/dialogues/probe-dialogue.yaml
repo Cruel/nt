@@ -1,0 +1,19 @@
+id: probe-dialogue
+label: Probe Dialogue
+data:
+  displayName: Probe Dialogue
+  entryBlockId: introduction
+  blocks:
+    - id: introduction
+      type: sequence
+      label: Introduction
+      segments:
+        - id: greeting
+          type: line
+          text:
+            source:
+              kind: inline
+              text: This is a small Dialogue fixture.
+            markup: plain
+  completion:
+    kind: return

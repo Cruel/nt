@@ -34,8 +34,12 @@ to see what the authored workflows exercise and what additional paths they cover
 
 Profile updates are atomic because runtime workers execute concurrently; ordinary shared-counter
 increments can corrupt gcov branch counts. Dependency targets (including prebuilt upstream host-tool
-closures) stay uninstrumented. Reports
-admit maintained engine headers/implementation, apps, and native editor tooling; tests, support,
+closures) stay uninstrumented. First-party native coverage builds
+use GCC `-Og -g` rather than `-O0`: generated authoring schema
+projection and semantic validation become excessively slow without optimization, while `-Og`
+retains debuggability and gcov counters. As with other compiler-optimized coverage builds,
+individual line/branch placement can differ from `-O0`; compare reports only under the same flags.
+Reports admit maintained engine headers/implementation, apps, and native editor tooling; tests, support,
 dependencies, build-generated code and inactive stub implementations do not count. The exact filter
 is [`cmake/gcovr.cfg`](../../cmake/gcovr.cfg). Unreachable/compiler-generated and exception-only
 branches are excluded; reports are compiler/configuration-specific. Only compiled sources can
