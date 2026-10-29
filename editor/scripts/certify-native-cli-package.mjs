@@ -158,7 +158,7 @@ try {
         NOVELTEA_CLI_CERTIFICATION: '1',
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: daemonId,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRoot,
-        NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
+        NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -178,7 +178,7 @@ try {
   try {
     let pinned = false;
     for (let attempt = 0; attempt < 300; attempt++) {
-      if (existsSync(marker)) {
+      if (existsSync(`${marker}.ready`)) {
         pinned = true;
         break;
       }

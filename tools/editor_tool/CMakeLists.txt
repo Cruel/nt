@@ -63,8 +63,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native.cpp
     tooling_native.hpp
     tooling_native_c.h
-    tooling_native_scriptc.cpp
-    tooling_scriptc_gc.cpp
+    tooling_native_dispatch.cpp
     tooling_image.cpp
     tooling_alpha_encoder.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/media/animated_webp_alpha.cpp"
@@ -165,7 +164,8 @@ target_compile_definitions(noveltea-tooling-bridge PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)
-# Unshipped direct-C++ CLI slice; the ScriptC production executable is unchanged.
+# The standalone release executable is direct C++; editor tooling remains a
+# separate native library for Electron and tests.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts"
     "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts"
@@ -323,8 +323,7 @@ endif()
 target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 noveltea_apply_policy_warnings(noveltea-native-cli)
 # Native font coverage resolves the same trusted system fonts as the installed
-# production CLI. Stage them alongside the unshipped candidate, without a
-# launcher, runtime ScriptC island or source-tree absolute path dependency.
+# production CLI, without a launcher or source-tree absolute path dependency.
 add_custom_command(TARGET noveltea-native-cli POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${CMAKE_SOURCE_DIR}/engine/assets/system"

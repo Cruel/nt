@@ -128,6 +128,19 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     REQUIRE(read(room) == original_room);
     REQUIRE(read(source) == original_script);
 
+    // Physical removal/recreation changes the authoritative source inventory,
+    // rather than being an incremental in-place edit of a retained record.
+    REQUIRE(std::filesystem::remove(room));
+    const auto deleted_record = disk_validate(project.root);
+    REQUIRE(deleted_record["ok"] == true);
+    REQUIRE(deleted_record["warm"] == false);
+    for (const auto& diagnostic : deleted_record["diagnostics"])
+        REQUIRE(diagnostic.value("code", "") != "WORKSPACE_SOURCE_READ");
+    write(room, original_room);
+    const auto recreated_record = disk_validate(project.root);
+    REQUIRE(recreated_record["ok"] == true);
+    REQUIRE(recreated_record["warm"] == false);
+
     REQUIRE(disk_validate(project.root, "release")["ok"] == true);
     const auto restarted = disk_validate(project.root);
     REQUIRE(restarted["ok"] == true);

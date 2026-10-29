@@ -1,6 +1,5 @@
-// #534/#522: independent native command contracts. The candidate mode verifies
-// only the native ScriptC island; production mode additionally requires every
-// editor/CLI output to have passed the coordinated #521 retirement gate.
+// Independent native command contracts. Production additionally certifies
+// every emitted editor JS root, never a CLI scripting island.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -9,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
-  assertInstalledCliBundleBinding,
+  assertInstalledNativeCliBuild,
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
@@ -50,13 +49,10 @@ const cliSha256 = createHash('sha256')
   .digest('hex');
 
 const artifacts = candidateMode
-  ? [path.join(editorRoot, 'dist-scriptc-native-island')]
-  : [
-      ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
-        path.join(editorRoot, 'dist-electron', name),
-      ),
-      path.join(editorRoot, 'dist-scriptc-island'),
-    ];
+  ? []
+  : ['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
+      path.join(editorRoot, 'dist-electron', name),
+    );
 // No production eligibility can be inferred from a candidate-only run, or a
 // build which omits a provenance artifact for a lazy/worker chunk.
 for (const artifact of artifacts) {
@@ -67,11 +63,7 @@ for (const artifact of artifacts) {
     `Missing current production module evidence: ${artifact}`,
   );
 }
-await assertInstalledCliBundleBinding(
-  cli,
-  path.join(artifacts.at(-1), 'native-production-provenance.json'),
-  candidateMode ? 'candidate' : 'production',
-);
+await assertInstalledNativeCliBuild(cli);
 const violations = await verifyNativeProductionClosure(artifacts, {
   requireManifestRoots: artifacts,
 });

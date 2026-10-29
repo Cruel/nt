@@ -1,12 +1,39 @@
 # NovelTea CLI
 
-> After #521, production Project authority is C++, but the production CLI
-> still uses ScriptC/QuickJS command orchestration. The direct C++ executable
-> below is an unshipped #542/#543 candidate, not the final CLI cutover. Later sections
-> labelled with pre-#521 certification tickets describe their historical gates;
-> [Native CLI cutover handoff](NATIVE_CLI_CUTOVER_HANDOFF.md) records that earlier handoff.
+> **Current architecture (#551):** The installed `noveltea` CLI is a direct
+> C++ executable. ScriptC, QuickJS, the embedded TypeScript island, and the
+> scripting host/FFI bridge have been retired. The editor still uses TypeScript
+> and build-time Zod schemas; authoring, broker owners and disposable CLI
+> workers execute native commands. Sections below describing the earlier
+> ScriptC runtime, the unshipped native *candidate* or pre-#551 gates are
+> historical design and certification records, not current build instructions.
 
-NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing retained TypeScript tooling in an embedded QuickJS-ng island plus statically linked C++ Project authority and host/native tooling. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
+NovelTea ships one public headless executable: `noveltea`. It is a natively
+compiled C++ binary including Project authoring, daemon, shader, package,
+platform, Agent Kit, ComfyUI and Test command families. The editor invokes
+this installed binary for headless operations. The old
+`noveltea-editor-tool`, ScriptC host and separately distributed bgfx
+`shaderc` executable are retired.
+
+## Current direct-C++ release and verification (#551)
+
+Use `pnpm -C editor run noveltea:build` to build the native CLI for the
+host, producing `build/cli/linux/noveltea`, `build/cli/windows/noveltea.exe`
+or `build/cli/macos/noveltea`. The binary includes its UI Test runner, assets,
+private FFmpeg tools and an SHA-256 build proof. Installed production checks
+run through `pnpm -C editor run noveltea:certify`, including relocation,
+CLI JSON/exit-code goldens, daemon/worker lifecycle, ComfyUI, platform,
+package, and cross-system authoring assertions. Electron emitted-module
+provenance is checked separately. The Node `noveltea-native.ts` entrypoint
+is a development-only forwarder to an installed, authenticated C++ binary.
+Neither the public CLI nor resident workers require Node at runtime.
+Editor-only native tooling calls use the same installed executable through
+the private `__editor-native <operation>` entry point: bounded JSON stdin,
+native operation dispatch and JSON stdout. This is not part of the 39-path
+public CLI inventory and does not start a ScriptC host or JavaScript runtime.
+
+The next section is a historical record of the earlier C++ candidate, not
+an alternate or supported release path.
 
 ## Direct C++ executable candidate (#542, #543)
 

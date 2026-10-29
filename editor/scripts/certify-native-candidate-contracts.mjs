@@ -1,13 +1,12 @@
-// #534 staged #521 certification: independently exercise native production
-// seams on an installed native-only ScriptC candidate, without a Node Project
-// implementation, retired Project oracle, or certification routing flags.
+// Certify the exact installed native CLI, independently from the editor's
+// build-time JS modules and without an alternate Project implementation.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
-  assertInstalledCliBundleBinding,
+  assertInstalledNativeCliBuild,
   assertProductionInputs,
 } from './native-production-qualification.mjs';
 
@@ -26,23 +25,12 @@ if (
   );
 await assertProductionInputs(cli);
 const mode = production ? 'production' : 'candidate';
-const island = path.join(
-  root,
-  production ? 'editor/dist-scriptc-island' : 'editor/dist-scriptc-native-island',
-);
 const roots = production
-  ? [
-      ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
-        path.join(root, 'editor/dist-electron', name),
-      ),
-      island,
-    ]
-  : [island];
-await assertInstalledCliBundleBinding(
-  cli,
-  path.join(island, 'native-production-provenance.json'),
-  mode,
-);
+  ? ['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
+      path.join(root, 'editor/dist-electron', name),
+    )
+  : [];
+await assertInstalledNativeCliBuild(cli);
 if (production) {
   const violations = await verifyNativeProductionClosure(roots, { requireManifestRoots: roots });
   assert.deepEqual(
@@ -69,7 +57,7 @@ for (const key of Object.keys(environment))
 const steps = [
   [
     'Native emitted module provenance',
-    production ? 'check-native-production-closure.mjs' : 'check-native-cli-candidate-closure.mjs',
+    production ? 'check-native-production-closure.mjs' : 'check-native-cli-closure.mjs',
     [],
   ],
   [

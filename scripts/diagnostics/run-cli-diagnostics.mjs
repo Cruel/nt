@@ -95,7 +95,14 @@ async function main() {
   try {
     await save();
     if (options.scenario === 'certification') {
-      await invoke('certification', process.execPath, ['editor/scripts/certify-noveltea-cli.mjs'], { timeoutMs: 1_800_000 });
+      await invoke('native-inventory', process.execPath, ['editor/scripts/certify-native-cli-inventory.mjs']);
+      await invoke('native-commands', process.execPath, [
+        'editor/scripts/certify-native-cli-commands.mjs', cli,
+      ], { timeoutMs: 1_800_000 });
+      await invoke('native-owner-lifecycle', process.execPath, [
+        'editor/scripts/certify-native-cli-owner-lifecycle.mjs', cli,
+        path.join(repositoryRoot, 'tests/projects/feature-lab'), '--production',
+      ], { timeoutMs: 1_800_000 });
     } else {
       const project = path.join(root, 'project');
       // Keep fixtures and generated caches alongside evidence for offline request replay.

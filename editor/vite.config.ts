@@ -6,7 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
-import { cliLazyModulePolicy, cliStartupPolicy } from './scripts/cli-startup-policy';
+import { cliStartupPolicy } from './scripts/cli-startup-policy';
 import { nativeProductionProvenance } from './scripts/native-production-provenance';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
@@ -312,7 +312,6 @@ export default defineConfig({
           'dist-electron/authoring-worker/**',
           'dist-electron/preload/**',
           'dist-electron/tools/**',
-          'dist-scriptc-island/**',
         ],
       },
       'validate:bundles': {
@@ -390,7 +389,7 @@ export default defineConfig({
       name: 'node-tools',
       plugins: [
         cliStartupPolicy(
-          'Native Node CLI candidate',
+          'Native CLI development forwarder',
           path.join(editorRoot, 'scripts/noveltea-native.ts'),
         ),
         nativeProductionProvenance(editorRoot),
@@ -407,38 +406,6 @@ export default defineConfig({
       fixedExtension: true,
       clean: true,
       outputOptions: { codeSplitting: true },
-    },
-    {
-      ...commonNodePack,
-      name: 'scriptc-island',
-      plugins: [
-        cliStartupPolicy(
-          'ScriptC island',
-          path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
-        ),
-        cliLazyModulePolicy(
-          'Native ScriptC application',
-          path.join(editorRoot, 'src/cli/native-application.ts'),
-        ),
-        nativeProductionProvenance(editorRoot),
-      ],
-      deps: {
-        ...commonNodePack.deps,
-        neverBundle: [
-          ...electronRuntimeExternals,
-          'noveltea-scriptc-agent-kit-source',
-          'noveltea-scriptc-comfyui-workflows',
-        ],
-        onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'yaml', 'zod'],
-      },
-      entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
-      format: 'esm',
-      outDir: 'dist-scriptc-island',
-      fixedExtension: true,
-      clean: true,
-      checks: { legacyCjs: false },
-      outputOptions: { codeSplitting: true },
-      sourcemap: false,
     },
   ],
 });

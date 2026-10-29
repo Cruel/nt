@@ -200,7 +200,7 @@ test('Linux host CLI builds the renderer before checking native production closu
 
 test('Linux installed CLI certification builds the renderer after packing native bundles', () => {
   const consumer = job('linux-cli-certify');
-  const pack = step(consumer, 'Build native editor and ScriptC production bundles');
+  const pack = step(consumer, 'Build native editor production bundles');
   const renderer = step(consumer, 'Build renderer required by installed CLI production certification');
   const certification = step(consumer, 'Certify installed native CLI production');
   assert.match(pack, /pnpm -C editor exec vp pack/);
@@ -223,14 +223,14 @@ test('Windows native export certification installs pinned Node and Agent Kit dep
   assert.ok(windows.indexOf(install) < windows.indexOf(nativeBuild));
 });
 
-test('production CLI public contracts validate shipped ScriptC provenance, not candidate output', () => {
+test('production CLI public contracts certify the installed direct C++ executable', () => {
   assert.match(
     candidateContracts,
     /'certify-native-cli-public-contracts\.mjs',[\s\S]*?production \? \[cli, '--production'\] : \[cli\]/,
   );
   assert.match(
     publicCliContracts,
-    /process\.argv\[3\] === '--production'\s*\? 'editor\/dist-scriptc-island'\s*: 'editor\/dist-scriptc-native-island'/,
+    /assertInstalledNativeCliBuild\(cli\)/,
   );
 });
 
@@ -361,7 +361,7 @@ test('CLI certification receives same-run shader headers without depending on ca
 
 test('installed native CLI certification builds the required native production bundles in the clean job', () => {
   const consumer = job('linux-cli-certify');
-  const bundleBuild = step(consumer, 'Build native editor and ScriptC production bundles');
+  const bundleBuild = step(consumer, 'Build native editor production bundles');
   const certification = step(consumer, 'Certify installed native CLI production');
   assert.match(bundleBuild, /pnpm -C editor exec vp pack/);
   assert.ok(consumer.indexOf(bundleBuild) < consumer.indexOf(certification));
@@ -494,15 +494,11 @@ test('Windows C++ policy runs lightweight native suites before shipped targets',
   assert.ok(windowsPolicy.indexOf('Build Windows lightweight native tests') < windowsPolicy.indexOf('Build shipped Windows targets'));
 });
 
-test('Windows CLI preserves static winpthreads without colliding with ScriptC time shims', () => {
-  assert.match(cliBuildScript, /libwinpthread-scriptc\.a/);
-  for (const symbol of ['clock_gettime32', 'clock_gettime64', 'nanosleep32', 'nanosleep64']) {
-    assert.match(cliBuildScript, new RegExp(`--redefine-sym=\\$\\{symbol\\}=`));
-  }
-  assert.doesNotMatch(
-    cliBuildScript,
-    /compilerLibrary\('gcc', '-print-file-name=libwinpthread\.a', 'libwinpthread\.a'\),\n\s*\]/,
-  );
+test('Windows CLI builds directly against MinGW rather than a ScriptC host', () => {
+  assert.match(cliBuildScript, /-dumpmachine/);
+  assert.match(cliBuildScript, /noveltea-native-cli/);
+  assert.doesNotMatch(cliBuildScript, /libwinpthread-scriptc\.a|SCRIPTC_CC|zigcc/);
+  assert.match(cliBuildScript, /windows-cli-gnu/);
 });
 
 test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => {
@@ -773,7 +769,8 @@ test('macOS player and CLI compile concurrently with independent triplets and ar
   assert.match(cli, /run: pnpm -C editor run noveltea:build/);
   assert.match(cli, /noveltea-release-host-cli-macos-arm64/);
   assert.match(cli, /macos-authoring-release\/vcpkg_installed/);
-  assert.match(cli, /cmake --build --preset macos-authoring-release --target noveltea-native-cli/);
+  assert.match(cliBuildScript, /macos-authoring-release/);
+  assert.match(cliBuildScript, /noveltea-native-cli/);
   assert.match(cli, /noveltea-release-native-cli-macos-arm64/);
   assert.match(certify, /needs: \[release-metadata, desktop-hosts, macos-cli\]/);
   assert.match(certify, /noveltea-release-macos-player-build/);

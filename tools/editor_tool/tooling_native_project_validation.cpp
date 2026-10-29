@@ -393,6 +393,16 @@ Json validate(std::string_view request_text)
         state.session.reset();
         state.root = root;
     }
+    if (state.session) {
+        const auto observed = state.session->observe_sources();
+        // The retained validator incrementally handles edits to existing
+        // sources (including Lua), preserving its warm semantic work. A new
+        // or removed source instead changes the inventory and requires fresh
+        // Project admission; otherwise deleted records can remain in the view.
+        if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
+            !observed.delta.removed.empty())
+            state.session.reset();
+    }
     const bool warm = state.session != nullptr;
     std::string error;
     if (!state.session) {

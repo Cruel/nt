@@ -91,6 +91,7 @@ try {
   assert.ok(inspected.workflow || inspected.workflows, 'Missing inspected workflow.');
   success(invoke(['verify', 'flux2-klein-text-to-image', '--server', url]), 'ComfyUI verification');
   const output = path.join(root, 'generated');
+  await mkdir(output, { recursive: true });
   success(
     invoke([
       'run',

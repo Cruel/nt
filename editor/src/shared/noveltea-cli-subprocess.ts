@@ -67,7 +67,9 @@ export function resolveNovelTeaCliPath(): string {
     return path.join(runtime.resourcesPath, 'bin', cliName());
   }
 
-  const relativeCandidates = [path.join('build', 'cli', 'linux', cliName())];
+  const platform =
+    process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
+  const relativeCandidates = [path.join('build', 'cli', platform, cliName())];
   for (const root of repoRootCandidates()) {
     for (const relative of relativeCandidates) {
       const candidate = path.resolve(root, relative);
@@ -75,7 +77,7 @@ export function resolveNovelTeaCliPath(): string {
     }
   }
 
-  return path.resolve(process.cwd(), '..', 'build', 'cli', 'linux', cliName());
+  return path.resolve(process.cwd(), '..', 'build', 'cli', platform, cliName());
 }
 
 export async function invokeNovelTeaNativeOperation(

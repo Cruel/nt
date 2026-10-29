@@ -16,7 +16,11 @@ const executable = path.resolve(
     : path.join(
         root,
         'build/cli',
-        process.platform === 'win32' ? 'windows/noveltea.exe' : 'linux/noveltea',
+        process.platform === 'win32'
+          ? 'windows/noveltea.exe'
+          : process.platform === 'darwin'
+            ? 'macos/noveltea'
+            : 'linux/noveltea',
       ),
 );
 const cliOnly = argv.includes('--cli-only') || !process.env.NOVELTEA_AUTHORING_NODE_ADDON;

@@ -598,8 +598,8 @@ jobs:
         run: pnpm -C editor exec vp build
 
       # The ordinary shipped editor and standalone CLI are native-only. Their
-      # proof must bind the installed host executable to the emitted ScriptC
-      # island and check all Electron roots, not a candidate-only bundle.
+      # proof must bind the installed native executable and UI Test runner;
+      # Electron's emitted module roots are certified separately.
       - name: Certify native production closure
         run: |
           pnpm -C editor run check:native-production-closure
@@ -648,7 +648,7 @@ jobs:
       - name: Make NovelTea host CLI executables executable
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
 
-      - name: Build native editor and ScriptC production bundles
+      - name: Build native editor production bundles
         run: pnpm -C editor exec vp pack
 
       - name: Build renderer required by installed CLI production certification

@@ -25,6 +25,9 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
                                               std::optional<std::string> stdin_text = std::nullopt);
 
 bool native_disposable_active();
+// Read-only pinned work may validate its captured source generation without
+// asking the live Project owner to re-prove physical disk state.
+bool native_disposable_has_source_generation(std::string_view generation);
 bool native_disposable_cancellation_requested();
 ComfyUiExecutionHooks native_disposable_comfyui_hooks(bool json_mode);
 

@@ -28,14 +28,14 @@ Json invoke_daemon(const Json& request)
                                    static_cast<std::size_t>(required)));
 }
 
-Json invoke_scriptc_adapter(std::string_view operation, std::string_view request_text)
+Json invoke_native_dispatch(std::string_view operation, std::string_view request_text)
 {
     const auto response_path =
         std::filesystem::temp_directory_path() /
-        ("noveltea-daemon-scriptc-" +
+        ("noveltea-daemon-native-" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
     const auto response_path_text = response_path.generic_string();
-    noveltea_tooling_scriptc_invoke_to_file(
+    noveltea_tooling_invoke_to_file(
         reinterpret_cast<const std::uint8_t*>(operation.data()), operation.size(),
         reinterpret_cast<const std::uint8_t*>(request_text.data()), request_text.size(),
         reinterpret_cast<const std::uint8_t*>(response_path_text.data()),
@@ -48,9 +48,9 @@ Json invoke_scriptc_adapter(std::string_view operation, std::string_view request
     return Json::parse(response);
 }
 
-Json invoke_daemon_via_scriptc_adapter(const Json& request)
+Json invoke_daemon_via_dispatch(const Json& request)
 {
-    return invoke_scriptc_adapter("daemon", request.dump());
+    return invoke_native_dispatch("daemon", request.dump());
 }
 
 std::string unique_build(std::string_view suffix)
@@ -70,11 +70,11 @@ Json context(std::string build)
 
 } // namespace
 
-TEST_CASE("ScriptC daemon adapter executes stateful broker actions once")
+TEST_CASE("Native daemon dispatch executes stateful broker actions once")
 {
-    auto request = context(unique_build("scriptc-adapter"));
+    auto request = context(unique_build("native-dispatch"));
     request["action"] = "serve-start";
-    const auto started = invoke_daemon_via_scriptc_adapter(request);
+    const auto started = invoke_daemon_via_dispatch(request);
     REQUIRE(started["ok"] == true);
     CHECK(started["state"] == "starting");
 
@@ -84,9 +84,9 @@ TEST_CASE("ScriptC daemon adapter executes stateful broker actions once")
     REQUIRE(invoke_daemon(request)["ok"] == true);
 }
 
-TEST_CASE("ScriptC native adapter reports terminal dimensions when available")
+TEST_CASE("Native tooling dispatch reports terminal dimensions when available")
 {
-    const auto terminal = invoke_scriptc_adapter("terminal-size", "");
+    const auto terminal = invoke_native_dispatch("terminal-size", "");
     REQUIRE(terminal.contains("columns"));
     REQUIRE(terminal.contains("rows"));
     if (!terminal["columns"].is_null())

@@ -62,16 +62,21 @@ try {
   // resident daemon. Interrupt the public CLI, release the worker and reject
   // any report that silently published a completed run after cancellation.
   const marker = path.join(root, 'cancel-after-snapshot');
-  const command = spawn(executable, ['--json', '--project', project, 'test', 'run', 'semantic'], {
-    // The instrumentation gate only enables the snapshot interlock. The
-    // installed native-only island has no alternate Project authority.
-    env: {
-      ...baseline,
-      NOVELTEA_CLI_CERTIFICATION: '1',
-      NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
+  const command = spawn(
+    executable,
+    ['--json', '--project', project, 'shaders', 'compile', '--variant', 'glsl-330'],
+    {
+      // The instrumentation gate only enables the snapshot interlock. The
+      // installed native-only island has no alternate Project authority.
+      env: {
+        ...baseline,
+        NOVELTEA_CLI_CERTIFICATION: '1',
+        NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'certification-daemon'),
+        NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  );
   let stdout = '';
   let stderr = '';
   command.stdout.setEncoding('utf8').on('data', (chunk) => {
@@ -87,7 +92,7 @@ try {
   try {
     let pinned = false;
     for (let attempt = 0; attempt < 300; attempt++) {
-      if (existsSync(marker)) {
+      if (existsSync(`${marker}.ready`)) {
         pinned = true;
         break;
       }
@@ -96,8 +101,7 @@ try {
     }
     assert.ok(pinned, `Disposable worker did not pin a Project: ${stderr}`);
     assert.equal(command.kill('SIGINT'), true, 'Could not signal the public CLI.');
-    for (let attempt = 0; attempt < 50 && !existsSync(`${marker}.cancelled`); attempt++)
-      await delay(100);
+    await delay(200);
   } finally {
     await writeFile(`${marker}.release`, 'release');
   }

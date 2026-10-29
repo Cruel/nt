@@ -26,6 +26,12 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <csignal>
 #else
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -111,7 +117,48 @@ struct Output {
 [[nodiscard]] std::string ffmpeg_binary()
 {
     const auto* override = std::getenv("NOVELTEA_FFMPEG");
-    return override && *override ? override : "ffmpeg";
+    if (override && *override)
+        return override;
+    // The shipped native CLI carries FFmpeg in its private installation
+    // tree. Looking up only PATH silently selects a system binary (or none)
+    // even though 'noveltea media-tool check' succeeds after relocation.
+    try {
+        fs::path running;
+#if defined(_WIN32)
+        std::wstring buffer(32768, L'\0');
+        const auto count =
+            GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (count && count < buffer.size()) {
+            buffer.resize(count);
+            running = fs::path(buffer);
+        }
+#elif defined(__APPLE__)
+        std::uint32_t size = 0;
+        _NSGetExecutablePath(nullptr, &size);
+        std::string buffer(size, '\0');
+        if (_NSGetExecutablePath(buffer.data(), &size) == 0)
+            running = buffer.c_str();
+#else
+        running = "/proc/self/exe";
+#endif
+        if (!running.empty()) {
+            const auto directory = fs::canonical(running).parent_path();
+            const auto installation =
+                directory.filename() == "bin" ? directory.parent_path() : directory;
+#if defined(_WIN32)
+            const auto bundled = installation / "tools/ffmpeg/bin/ffmpeg.exe";
+#else
+            const auto bundled = installation / "tools/ffmpeg/bin/ffmpeg";
+#endif
+            if (fs::is_regular_file(bundled)) {
+                const auto utf8 = bundled.u8string();
+                return {utf8.begin(), utf8.end()};
+            }
+        }
+    } catch (const fs::filesystem_error&) {
+        // Developer/test binaries can still use a pinned tool on PATH.
+    }
+    return "ffmpeg";
 }
 
 [[nodiscard]] fs::path absolute_ffmpeg_binary()

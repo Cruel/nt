@@ -42,7 +42,7 @@ int main(int argc, char** argv)
 
     const auto* operation = reinterpret_cast<const std::uint8_t*>(argv[1]);
     const auto* response_path = reinterpret_cast<const std::uint8_t*>(argv[3]);
-    noveltea_tooling_scriptc_invoke_to_file(operation, std::strlen(argv[1]), request.data(),
-                                            request.size(), response_path, std::strlen(argv[3]));
+    noveltea_tooling_invoke_to_file(operation, std::strlen(argv[1]), request.data(),
+                                   request.size(), response_path, std::strlen(argv[3]));
     return 0;
 }

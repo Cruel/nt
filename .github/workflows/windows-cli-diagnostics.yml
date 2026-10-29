@@ -85,10 +85,6 @@ jobs:
         run: |
           pnpm install --frozen-lockfile *> "$env:NT_DIAGNOSTIC_ROOT/setup/pnpm-install.log"
           if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed; see artifact.' }
-      - name: Set up Zig for ScriptC Windows GNU target
-        uses: vercel-labs/setup-zig@v1
-        with:
-          version: 0.16.0
 
       - name: Install and self-test diagnostic capture tools
         timeout-minutes: 15
@@ -132,7 +128,6 @@ jobs:
           gcc --version | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/gcc-version.txt"
           g++ -dumpmachine | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/gcc-target.txt"
           cmake --version | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/cmake-version.txt"
-          zig version | Set-Content "$env:NT_DIAGNOSTIC_ROOT/setup/zig-version.txt"
           cmake --preset windows-cli-gnu -G Ninja `
             '-DCMAKE_C_FLAGS_RELEASE=-O3 -DNDEBUG -g' `
             '-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG -g' `
@@ -143,9 +138,6 @@ jobs:
             *> "$env:NT_DIAGNOSTIC_ROOT/setup/configure.log"
           if ($LASTEXITCODE -ne 0) { throw 'GNU configuration failed; see artifact.' }
       - name: Build release CLI and retain unstripped runner
-        env:
-          SCRIPTC_CC: zigcc
-          SCRIPTC_TARGET: x86_64-windows-gnu
         run: |
           Write-Output 'Building the release GNU CLI; detailed build output goes to the artifact.'
           pnpm -C editor run noveltea:build *> "$env:NT_DIAGNOSTIC_ROOT/setup/build.log"

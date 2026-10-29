@@ -91,7 +91,7 @@ set(approved_source_paths
     "tools/editor_tool/tooling_filesystem.cpp"
     "tools/editor_tool/tooling_image.cpp"
     "tools/editor_tool/tooling_native.cpp"
-    "tools/editor_tool/tooling_native_scriptc.cpp"
+    "tools/editor_tool/tooling_native_dispatch.cpp"
     "tools/editor_tool/tooling_runtime_cache.cpp"
     "tools/editor_tool/tooling_ui_test_runner.cpp"
     "tools/project_authoring/contracts.cpp"

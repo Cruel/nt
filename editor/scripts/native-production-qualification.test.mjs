@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import {
-  assertInstalledCliBundleBinding,
+  assertInstalledNativeCliBuild,
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
@@ -38,40 +38,31 @@ void test('native source revision verification respects container ownership and 
   );
 });
 
-void test('installed native CLI build proof binds both executable and emitted module provenance', async () => {
+void test('installed native CLI build proof binds the executable and UI Test runner without a JS island', async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-cli-proof-'));
   const cli = path.join(directory, 'noveltea');
-  const manifest = path.join(directory, 'native-production-provenance.json');
+  const runner = path.join(directory, 'noveltea-ui-test-runner');
   const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   try {
-    const executable = Buffer.from('installed-scriptc-native-binary');
-    const island = Buffer.from('{"version":1,"chunks":{}}');
+    const executable = Buffer.from('installed-native-binary');
+    const runnerBytes = Buffer.from('installed-native-ui-test-runner');
     await writeFile(cli, executable);
-    await writeFile(manifest, island);
+    await writeFile(runner, runnerBytes);
     await writeFile(
       path.join(directory, 'native-production-build.json'),
       JSON.stringify({
-        contract: 'noveltea.native-cli-production-build.v1',
+        contract: 'noveltea.native-cli-production-build.v2',
+        runtime: 'direct-cxx',
         executableSha256: sha(executable),
-        islandProvenanceSha256: sha(island),
+        uiTestRunnerSha256: sha(runnerBytes),
       }),
     );
-    await assertInstalledCliBundleBinding(cli, manifest, 'production');
-    await assert.rejects(assertInstalledCliBundleBinding(cli, manifest, 'candidate'), {
-      code: 'ENOENT',
-    });
-    await writeFile(cli, Buffer.from('retired-scriptc-legacy-binary'));
-    await assert.rejects(
-      assertInstalledCliBundleBinding(cli, manifest, 'production'),
-      /executable differs/i,
-    );
+    await assertInstalledNativeCliBuild(cli);
+    await writeFile(cli, Buffer.from('modified-native-binary'));
+    await assert.rejects(assertInstalledNativeCliBuild(cli), /executable differs/i);
     await writeFile(cli, executable);
-    await writeFile(manifest, Buffer.from('tampered emitted module inventory'));
-    await assert.rejects(
-      assertInstalledCliBundleBinding(cli, manifest, 'production'),
-      /does not match inspected ScriptC/i,
-    );
-    await assert.rejects(assertInstalledCliBundleBinding(cli, manifest, 'unknown'), /build mode/i);
+    await writeFile(runner, Buffer.from('tampered UI Test runner'));
+    await assert.rejects(assertInstalledNativeCliBuild(cli), /Test runner differs/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

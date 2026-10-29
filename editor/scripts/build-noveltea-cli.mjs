@@ -1,232 +1,125 @@
-import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import {
-  chmod,
-  cp,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
-import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
 
-import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { readNovelTeaBuildIdentity } from '../../scripts/noveltea-version.mjs';
 import { removeCliRelocation } from './cleanup-cli-relocation.mjs';
+import { stagePrivateMediaTools } from './private-media-tools.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
-const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
-const scriptcVersion = '0.2.8';
 const targetOverride = process.env.NOVELTEA_CLI_TARGET;
 if (targetOverride && targetOverride !== 'windows')
   throw new Error(`Unsupported NOVELTEA_CLI_TARGET '${targetOverride}'.`);
-const isWindows = process.platform === 'win32' || targetOverride === 'windows';
-const isMac = !isWindows && process.platform === 'darwin';
-const crossCompilingWindows = isWindows && process.platform !== 'win32';
-const windowsCc = crossCompilingWindows ? 'x86_64-w64-mingw32-gcc-posix' : 'gcc';
-const windowsCxx = crossCompilingWindows ? 'x86_64-w64-mingw32-g++-posix' : 'g++';
-const windowsStrip = crossCompilingWindows ? 'x86_64-w64-mingw32-strip' : 'llvm-strip';
-const releasePlatform = isWindows ? 'windows' : isMac ? 'macos' : 'linux';
-const releasePreset = isWindows
-  ? 'windows-cli-gnu'
-  : isMac
-    ? 'macos-authoring-release'
-    : 'linux-authoring-release';
-const releaseTriplet = isWindows
-  ? 'x64-mingw-static-noveltea'
-  : isMac
-    ? 'arm64-osx-authoring-noveltea'
-    : 'x64-linux-authoring-noveltea';
-const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
-const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
-const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
-const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'bin', 'scriptc.exe');
-const vitePlusEntrypoint = path.join(editorRoot, 'node_modules', 'vite-plus', 'bin', 'vp');
-const scriptcRoot = path.join(
-  repositoryRoot,
-  'build',
-  'host-tools',
-  'scriptc',
-  `v${scriptcVersion}`,
-);
-const stageRoot = path.join(scriptcRoot, 'stage');
-const islandPackageRoot = path.join(stageRoot, 'node_modules', 'noveltea-scriptc-island');
-const agentKitSourcePackageRoot = path.join(
-  stageRoot,
-  'node_modules',
-  'noveltea-scriptc-agent-kit-source',
-);
-const comfyUiWorkflowPackageRoot = path.join(
-  stageRoot,
-  'node_modules',
-  'noveltea-scriptc-comfyui-workflows',
-);
-const comfyUiWorkflowSourceRoot = path.join(editorRoot, 'assets', 'comfyui', 'workflows');
-const agentKitSourceRoot = path.join(editorRoot, 'agent-kit');
-const agentKitSharedConceptSourceRoot = path.join(repositoryRoot, 'docs', 'public', 'concepts');
-const agentKitProvenancePath = path.join(editorRoot, 'agent-kit-provenance.json');
-const agentKitSystemLayoutSourceRoot = path.join(repositoryRoot, 'engine', 'assets', 'system');
-async function collectUtf8Files(root, directory, files = {}) {
-  const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
-    left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-  );
-  for (const entry of entries) {
-    const absolutePath = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      await collectUtf8Files(root, absolutePath, files);
-      continue;
-    }
-    if (!entry.isFile()) throw new Error(`Expected regular file while collecting ${absolutePath}`);
-    const relativePath = path.relative(root, absolutePath).split(path.sep).join('/');
-    files[relativePath] = await readFile(absolutePath, 'utf8');
-  }
-  return files;
-}
-
-const islandBundleRoot = path.join(editorRoot, 'dist-scriptc-island');
-const islandBundle = path.join(islandBundleRoot, 'noveltea-scriptc-island.mjs');
-const islandDeclaration = path.join(editorRoot, 'scripts', 'noveltea-scriptc-island.d.ts');
-const hostSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-host.ts');
-const hostProcessSource = path.join(editorRoot, 'scripts', 'noveltea-scriptc-process.ts');
-const staticContractsSource = path.join(editorRoot, 'src', 'cli', 'static-contracts.ts');
-const schemaStaticContractsSource = path.join(
-  editorRoot,
-  'src',
-  'shared',
-  'schema-static-contracts.ts',
-);
-const commandRoutingSource = path.join(editorRoot, 'src', 'cli', 'command-routing.ts');
-const productVersionSource = path.join(editorRoot, 'src', 'shared', 'product-version.ts');
-
 if (process.argv.length > 2)
   throw new Error(
     `NovelTea CLI build does not accept arguments: ${process.argv.slice(2).join(' ')}`,
   );
 
+const windows = process.platform === 'win32' || targetOverride === 'windows';
+const macos = !windows && process.platform === 'darwin';
+const crossWindows = windows && process.platform !== 'win32';
+const platform = windows ? 'windows' : macos ? 'macos' : 'linux';
+const preset = windows
+  ? 'windows-cli-gnu'
+  : macos
+    ? 'macos-authoring-release'
+    : 'linux-authoring-release';
+const buildRoot = path.join(repositoryRoot, 'build', preset);
+const executableName = windows ? 'noveltea.exe' : 'noveltea';
+const runnerName = windows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
+const outputDirectory = path.join(repositoryRoot, 'build', 'cli', platform);
+const outputPath = path.join(outputDirectory, executableName);
+const sourceDirectory = path.join(buildRoot, 'tools', 'editor_tool', 'native-cli');
+const cmake = 'cmake';
+const env = { ...process.env, NODE_ENV: 'production', NOVELTEA_BUILD_IDENTITY: buildIdentity };
+const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? repositoryRoot,
-    env: options.env ?? process.env,
-    stdio: 'inherit',
+    env: options.env ?? env,
+    stdio: options.stdio ?? 'inherit',
+    encoding: options.stdio === 'pipe' ? 'utf8' : undefined,
+    windowsHide: true,
   });
   if (result.error) throw result.error;
   if (result.status !== 0)
     throw new Error(
       `${command} ${args.join(' ')} failed with exit code ${result.status ?? 'unknown'}.`,
     );
-}
-
-async function resolveCmakeCommand() {
-  const cachePath = path.join(buildRoot, 'CMakeCache.txt');
-  if (!existsSync(cachePath)) return 'cmake';
-  const cache = await readFile(cachePath, 'utf8');
-  const match = /^CMAKE_COMMAND:INTERNAL=(.+)$/mu.exec(cache);
-  const cachedCommand = match?.[1]?.trim();
-  return cachedCommand && existsSync(cachedCommand) ? cachedCommand : 'cmake';
+  return result;
 }
 
 if (process.versions.node !== '24.18.0')
-  throw new Error(
-    `NovelTea CLI release builds require Node 24.18.0; received ${process.versions.node}.`,
-  );
-const supportedHost =
-  (process.platform === 'linux' && process.arch === 'x64') ||
-  (process.platform === 'win32' && process.arch === 'x64') ||
-  (process.platform === 'darwin' && process.arch === 'arm64');
-if (!supportedHost)
-  throw new Error(
-    `NovelTea CLI release builds support Linux x64, Windows x64, and macOS arm64 hosts; received ${process.platform}/${process.arch}.`,
-  );
-if (!process.env.VCPKG_ROOT)
-  throw new Error('VCPKG_ROOT is required for the native tooling release build.');
-if (!existsSync(scriptcEntrypoint))
-  throw new Error(`Pinned scriptc ${scriptcVersion} is not installed. Run pnpm install first.`);
-if (!existsSync(vitePlusEntrypoint))
-  throw new Error('Vite+ is not installed. Run pnpm install first.');
+  throw new Error(`NovelTea CLI builds require Node 24.18.0; received ${process.versions.node}.`);
+if (
+  !(
+    (process.platform === 'linux' && process.arch === 'x64') ||
+    (process.platform === 'win32' && process.arch === 'x64') ||
+    (process.platform === 'darwin' && process.arch === 'arm64')
+  )
+)
+  throw new Error(`Unsupported CLI build host: ${process.platform}/${process.arch}.`);
+if (!process.env.VCPKG_ROOT) throw new Error('VCPKG_ROOT is required for native CLI builds.');
 
-if (isWindows) {
-  for (const compiler of [windowsCc, windowsCxx]) {
-    const check = spawnSync(compiler, ['--version'], { encoding: 'utf8' });
-    if (check.error?.code === 'ENOENT' || check.status !== 0)
-      throw new Error(`NovelTea Windows CLI release builds require MinGW ${compiler} on PATH.`);
-    if (check.error) throw check.error;
-    const targetCheck = spawnSync(compiler, ['-dumpmachine'], { encoding: 'utf8' });
-    if (targetCheck.error) throw targetCheck.error;
-    if (targetCheck.status !== 0 || !/mingw/i.test(targetCheck.stdout.trim()))
-      throw new Error(
-        `NovelTea Windows CLI release builds require a MinGW GNU compiler; ${compiler} targets '${targetCheck.stdout.trim() || 'unknown'}'.`,
-      );
-  }
-} else {
-  const clangCheck = spawnSync('clang', ['--version'], { encoding: 'utf8' });
-  if (clangCheck.error?.code === 'ENOENT' || clangCheck.status !== 0)
-    throw new Error('NovelTea POSIX CLI release builds require clang on PATH for ScriptC.');
-  if (clangCheck.error) throw clangCheck.error;
-}
-
-const versionCheck = spawnSync(scriptcEntrypoint, ['--version'], {
-  cwd: editorRoot,
-  encoding: 'utf8',
-});
-if (versionCheck.error) throw versionCheck.error;
-if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
-  throw new Error(
-    `NovelTea CLI requires scriptc ${scriptcVersion}; received '${versionCheck.stdout.trim() || 'unknown'}'.`,
-  );
-
-const buildEnv = {
-  ...process.env,
-  NODE_ENV: 'production',
-  NOVELTEA_BUILD_IDENTITY: buildIdentity,
-};
-const scriptcBuildEnv = isWindows
-  ? {
-      ...buildEnv,
-      SCRIPTC_CC: 'zigcc',
-      SCRIPTC_TARGET: 'x86_64-windows-gnu',
-    }
-  : buildEnv;
-// Reject stale schema-derived graph metadata before running native build steps.
-// Normal CLI startup only loads the generated table and does no schema walk.
-run(
-  process.execPath,
-  [path.join(editorRoot, 'scripts/generate-authoring-graph-field-metadata.mjs'), '--check'],
-  { cwd: editorRoot, env: buildEnv },
-);
-if (isWindows) {
-  const zigCheck = spawnSync('zig', ['version'], { encoding: 'utf8' });
-  if (zigCheck.error?.code === 'ENOENT' || zigCheck.status !== 0)
-    throw new Error('NovelTea Windows CLI release builds require Zig on PATH for ScriptC.');
-  if (zigCheck.error) throw zigCheck.error;
-}
-const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
-const shadercProviderArguments = prebuiltShadercRoot
-  ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`]
-  : [];
-const windowsCrossArguments = crossCompilingWindows
+const crossArguments = crossWindows
   ? [
       '-DCMAKE_SYSTEM_NAME=Windows',
-      `-DCMAKE_C_COMPILER=${windowsCc}`,
-      `-DCMAKE_CXX_COMPILER=${windowsCxx}`,
+      '-DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix',
+      '-DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix',
       '-DCMAKE_CXX_FLAGS=-msse4.2',
       '-DVCPKG_HOST_TRIPLET=x64-linux',
     ]
   : [];
-const cmakeCommand = await resolveCmakeCommand();
+if (windows) {
+  for (const compiler of crossWindows
+    ? ['x86_64-w64-mingw32-gcc-posix', 'x86_64-w64-mingw32-g++-posix']
+    : ['gcc', 'g++']) {
+    const machine = run(compiler, ['-dumpmachine'], { stdio: 'pipe' }).stdout.trim();
+    if (!/mingw/i.test(machine))
+      throw new Error(
+        `Native Windows CLI requires MinGW GNU compiler; ${compiler} targets '${machine}'.`,
+      );
+  }
+}
 
-async function stagePrebuiltShadercLinkClosure() {
-  if (!prebuiltShadercRoot) return;
-  if (process.platform !== 'linux')
-    throw new Error('NOVELTEA_PREBUILT_SHADERC_ROOT is currently a Linux-only release input.');
-  const archives = [
+run(
+  process.execPath,
+  [path.join(editorRoot, 'scripts/generate-authoring-graph-field-metadata.mjs'), '--check'],
+  {
+    cwd: editorRoot,
+  },
+);
+
+const prebuiltShadercRoot = process.env.NOVELTEA_PREBUILT_SHADERC_ROOT;
+if (prebuiltShadercRoot && process.platform !== 'linux')
+  throw new Error('NOVELTEA_PREBUILT_SHADERC_ROOT is a Linux-only build input.');
+run(cmake, [
+  '--preset',
+  preset,
+  '-G',
+  'Ninja',
+  '-DBUILD_TESTING=OFF',
+  '-DNOVELTEA_BUILD_HOST_TOOLS=ON',
+  '-DNOVELTEA_COMPILE_SHADERS=OFF',
+  '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
+  `-DNOVELTEA_NATIVE_CLI_BUILD_IDENTITY=${buildIdentity}`,
+  ...(prebuiltShadercRoot ? [`-DNOVELTEA_PREBUILT_SHADERC_ROOT=${prebuiltShadercRoot}`] : []),
+  ...crossArguments,
+]);
+
+// The shaderc prebuild is a link-time input: preserve the existing pinned
+// archive closure without rebuilding the shader toolchain in release jobs.
+if (prebuiltShadercRoot) {
+  const linkDirectory = path.join(buildRoot, 'tools', 'editor_tool');
+  await mkdir(linkDirectory, { recursive: true });
+  for (const archive of [
     'libnoveltea_bgfx_shaderc_embedded.a',
     'libnoveltea_bimg_texturec_embedded.a',
     'libglslang.a',
@@ -237,553 +130,87 @@ async function stagePrebuiltShadercLinkClosure() {
     'libbimg_decode.a',
     'libbimg_encode.a',
     'libbx.a',
-  ];
-  const linkDirectory = path.join(repositoryRoot, 'build', releasePreset, 'tools', 'editor_tool');
-  await mkdir(linkDirectory, { recursive: true });
-  for (const archive of archives) {
+  ]) {
     const source = path.join(prebuiltShadercRoot, 'lib', archive);
-    if (!existsSync(source)) throw new Error(`Prebuilt shaderc archive is missing: ${source}`);
+    if (!existsSync(source)) throw new Error(`Missing pinned shaderc archive: ${source}`);
     const destination = path.join(linkDirectory, archive);
     if (existsSync(destination)) {
-      const info = await lstat(destination);
-      if (!info.isSymbolicLink())
-        throw new Error(
-          `Refusing to overwrite existing shaderc build artifact: ${destination}. Remove the stale build output before using NOVELTEA_PREBUILT_SHADERC_ROOT.`,
-        );
+      if (!(await lstat(destination)).isSymbolicLink())
+        throw new Error(`Refusing to replace non-symlink shaderc artifact: ${destination}`);
       await rm(destination);
     }
     await symlink(source, destination);
   }
 }
 
-run(
-  cmakeCommand,
-  [
-    '--preset',
-    releasePreset,
-    '-G',
-    'Ninja',
-    '-DBUILD_TESTING=OFF',
-    '-DNOVELTEA_BUILD_HOST_TOOLS=ON',
-    '-DNOVELTEA_COMPILE_SHADERS=OFF',
-    '-DNOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS=OFF',
-    ...shadercProviderArguments,
-    ...windowsCrossArguments,
-  ],
-  { env: buildEnv },
-);
-run(cmakeCommand, ['--build', '--preset', releasePreset, '--target', 'noveltea_tooling_native'], {
-  env: buildEnv,
-});
-await stagePrebuiltShadercLinkClosure();
-
-run(process.execPath, [vitePlusEntrypoint, 'pack'], { cwd: editorRoot, env: buildEnv });
-if (!existsSync(islandBundle))
-  throw new Error(`Scriptc island bundle was not produced: ${islandBundle}`);
-run(
-  process.execPath,
-  [path.join(editorRoot, 'scripts/check-native-cli-closure.mjs'), '--with-node-tools'],
-  {
-    cwd: editorRoot,
-    env: buildEnv,
-  },
-);
-
-const editorToolRoot = path.join(buildRoot, 'tools', 'editor_tool');
-const engineRoot = path.join(buildRoot, 'engine');
-const vcpkgLibRoot = path.join(buildRoot, 'vcpkg_installed', releaseTriplet, 'lib');
-const bgfxBuildRoot = path.join(buildRoot, '_deps', 'bgfx.cmake-build', 'cmake');
-const shadercBgfxRoot = path.join(bgfxBuildRoot, 'bgfx');
-const shadercBimgRoot = path.join(bgfxBuildRoot, 'bimg');
-const shadercBxRoot = path.join(bgfxBuildRoot, 'bx');
-
-function archive(...candidates) {
-  const found = candidates.find((candidate) => existsSync(candidate));
-  if (!found)
-    throw new Error(`Required NovelTea CLI link archive is missing: ${candidates.join(' or ')}`);
-  return found;
+// One native executable, not a ScriptC launcher linked with a C++ FFI archive.
+run(cmake, ['--build', '--preset', preset, '--target', 'noveltea-native-cli']);
+for (const filename of [executableName, runnerName]) {
+  if (!existsSync(path.join(sourceDirectory, filename)))
+    throw new Error(`Native CLI build did not produce ${filename}.`);
 }
-
-function staticArchive(root, name) {
-  return archive(path.join(root, `${name}.lib`), path.join(root, `lib${name}.a`));
-}
-
-function compilerLibrary(command, argument, label) {
-  const result = spawnSync(command, [argument], { encoding: 'utf8' });
-  if (result.error) throw result.error;
-  const candidate = result.stdout.trim();
-  if (result.status !== 0 || !candidate || candidate === label || !existsSync(candidate))
-    throw new Error(`MinGW ${label} archive is unavailable from ${command} ${argument}.`);
-  return candidate;
-}
-
-function compilerProgram(command, argument, label) {
-  const result = spawnSync(command, [argument], { encoding: 'utf8' });
-  if (result.error) throw result.error;
-  const candidate = result.stdout.trim();
-  if (result.status !== 0 || !candidate)
-    throw new Error(`MinGW ${label} tool is unavailable from ${command} ${argument}.`);
-  return candidate;
-}
-
-async function stageScriptcCompatibleWinpthread() {
-  const source = compilerLibrary(windowsCc, '-print-file-name=libwinpthread.a', 'libwinpthread.a');
-  const objcopy = compilerProgram(windowsCc, '-print-prog-name=objcopy', 'objcopy');
-  const nm = compilerProgram(windowsCc, '-print-prog-name=nm', 'nm');
-  const runtimeRoot = path.join(scriptcRoot, 'windows-gnu-runtime');
-  const destination = path.join(runtimeRoot, 'libwinpthread-scriptc.a');
-  const scriptcTimeSymbols = ['clock_gettime32', 'clock_gettime64', 'nanosleep32', 'nanosleep64'];
-
-  await rm(runtimeRoot, { recursive: true, force: true });
-  await mkdir(runtimeRoot, { recursive: true });
-  await cp(source, destination);
-
-  const sourceSymbols = spawnSync(nm, ['-g', '--defined-only', source], {
-    encoding: 'utf8',
-    env: buildEnv,
-  });
-  if (sourceSymbols.error) throw sourceSymbols.error;
-  if (sourceSymbols.status !== 0)
-    throw new Error(`MinGW nm failed while inspecting winpthreads archive.`);
-  const collidingSymbols = scriptcTimeSymbols.filter((symbol) =>
-    new RegExp(`\\b${symbol}$`, 'mu').test(sourceSymbols.stdout),
-  );
-  if (!crossCompilingWindows && collidingSymbols.length !== scriptcTimeSymbols.length)
-    throw new Error('MinGW winpthreads archive is missing the expected ScriptC time shim symbols.');
-
-  // ScriptC supplies these public Windows time shims. Keep the rest
-  // of static winpthreads for MinGW libstdc++, but make any colliding definitions
-  // private to the archive rather than asking the linker to accept duplicates.
-  if (collidingSymbols.length > 0) {
-    run(
-      objcopy,
-      [
-        ...collidingSymbols.map(
-          (symbol) => `--redefine-sym=${symbol}=noveltea_winpthread_${symbol}`,
-        ),
-        destination,
-      ],
-      { env: buildEnv },
-    );
-  }
-
-  const symbols = spawnSync(nm, ['-g', '--defined-only', destination], {
-    encoding: 'utf8',
-    env: buildEnv,
-  });
-  if (symbols.error) throw symbols.error;
-  if (symbols.status !== 0)
-    throw new Error(`MinGW nm failed while verifying staged winpthreads archive.`);
-  for (const symbol of collidingSymbols) {
-    if (new RegExp(`\\b${symbol}$`, 'mu').test(symbols.stdout))
-      throw new Error(`Staged winpthreads archive still exports ScriptC-owned symbol '${symbol}'.`);
-    if (!new RegExp(`\\bnoveltea_winpthread_${symbol}$`, 'mu').test(symbols.stdout))
-      throw new Error(`Staged winpthreads archive is missing renamed symbol '${symbol}'.`);
-  }
-  return destination;
-}
-
-const windowsGnuRuntimeLibraries = isWindows
-  ? [
-      compilerLibrary(windowsCxx, '-print-file-name=libstdc++.a', 'libstdc++.a'),
-      compilerLibrary(windowsCc, '-print-libgcc-file-name', 'libgcc.a'),
-      compilerLibrary(windowsCc, '-print-file-name=libgcc_eh.a', 'libgcc_eh.a'),
-      ...(crossCompilingWindows
-        ? [compilerLibrary(windowsCc, '-print-file-name=libmsvcrt.a', 'libmsvcrt.a')]
-        : []),
-      await stageScriptcCompatibleWinpthread(),
-    ]
-  : [];
-
-const libraries = [
-  staticArchive(editorToolRoot, 'noveltea_tooling_native'),
-  // The existing ScriptC host retains a certification-only native Project
-  // validator inside the daemon owner. ScriptC's explicit static FFI link
-  // archive list must match the CMake tooling link graph.
-  staticArchive(
-    path.join(buildRoot, 'tools', 'project_authoring'),
-    'noveltea_project_authoring_session',
-  ),
-  staticArchive(
-    path.join(buildRoot, 'tools', 'project_authoring'),
-    'noveltea_project_authoring_yaml',
-  ),
-  staticArchive(path.join(buildRoot, '_deps', 'noveltea_libfyaml-build'), 'fyaml_static'),
-  staticArchive(
-    path.join(buildRoot, 'tools', 'project_authoring'),
-    'noveltea_project_authoring_contracts',
-  ),
-  staticArchive(editorToolRoot, 'noveltea_text_tooling'),
-  staticArchive(editorToolRoot, 'noveltea_bimg_texturec_embedded'),
-  staticArchive(engineRoot, 'noveltea_presentation'),
-  staticArchive(engineRoot, 'noveltea_script_lua'),
-  staticArchive(engineRoot, 'noveltea_runtime'),
-  staticArchive(vcpkgLibRoot, 'lua'),
-  staticArchive(editorToolRoot, 'noveltea_shader_tooling'),
-  staticArchive(engineRoot, 'noveltea_content'),
-  staticArchive(engineRoot, 'noveltea_domain'),
-  staticArchive(editorToolRoot, 'noveltea_bgfx_shaderc_embedded'),
-  archive(
-    ...[editorToolRoot, shadercBgfxRoot].flatMap((root) => [
-      path.join(root, 'glslang.lib'),
-      path.join(root, 'libglslang.a'),
-    ]),
-  ),
-  archive(
-    path.join(editorToolRoot, 'spirv-opt.lib'),
-    path.join(editorToolRoot, 'libspirv-opt.a'),
-    path.join(shadercBgfxRoot, 'spirv-opt.lib'),
-    path.join(shadercBgfxRoot, 'libspirv-opt.a'),
-  ),
-  archive(
-    path.join(editorToolRoot, 'spirv-cross.lib'),
-    path.join(editorToolRoot, 'libspirv-cross.a'),
-    path.join(shadercBgfxRoot, 'spirv-cross.lib'),
-    path.join(shadercBgfxRoot, 'libspirv-cross.a'),
-  ),
-  archive(
-    path.join(editorToolRoot, 'tint.lib'),
-    path.join(editorToolRoot, 'libtint.a'),
-    path.join(shadercBgfxRoot, 'tint.lib'),
-    path.join(shadercBgfxRoot, 'libtint.a'),
-  ),
-  archive(
-    ...[editorToolRoot, shadercBimgRoot, vcpkgLibRoot].flatMap((root) => [
-      path.join(root, 'bimg_decode.lib'),
-      path.join(root, 'libbimg_decode.a'),
-    ]),
-  ),
-  archive(
-    ...[editorToolRoot, shadercBimgRoot, vcpkgLibRoot].flatMap((root) => [
-      path.join(root, 'bimg_encode.lib'),
-      path.join(root, 'libbimg_encode.a'),
-    ]),
-  ),
-  staticArchive(vcpkgLibRoot, 'harfbuzz'),
-  staticArchive(vcpkgLibRoot, 'freetype'),
-  staticArchive(vcpkgLibRoot, 'SheenBidi'),
-  staticArchive(vcpkgLibRoot, 'unibreak'),
-  staticArchive(vcpkgLibRoot, 'png16'),
-  staticArchive(vcpkgLibRoot, 'bz2'),
-  staticArchive(vcpkgLibRoot, 'brotlidec'),
-  staticArchive(vcpkgLibRoot, 'brotlicommon'),
-  isWindows ? archive(path.join(vcpkgLibRoot, 'libzs.a')) : staticArchive(vcpkgLibRoot, 'z'),
-  staticArchive(vcpkgLibRoot, 'miniz'),
-  archive(
-    ...[editorToolRoot, shadercBimgRoot].flatMap((root) => [
-      path.join(root, 'bimg.lib'),
-      path.join(root, 'libbimg.a'),
-    ]),
-  ),
-  archive(
-    ...[editorToolRoot, shadercBxRoot].flatMap((root) => [
-      path.join(root, 'bx.lib'),
-      path.join(root, 'libbx.a'),
-    ]),
-  ),
-  ...windowsGnuRuntimeLibraries,
-];
-
-const outputDirectory = path.join(repositoryRoot, 'build', 'cli', releasePlatform);
-const outputPath = path.join(outputDirectory, executableName);
 await mkdir(outputDirectory, { recursive: true });
-const productionBuildProof = path.join(outputDirectory, 'native-production-build.json');
-await rm(productionBuildProof, { force: true });
-await rm(stageRoot, { recursive: true, force: true });
-await mkdir(islandPackageRoot, { recursive: true });
-await mkdir(agentKitSourcePackageRoot, { recursive: true });
-await mkdir(comfyUiWorkflowPackageRoot, { recursive: true });
-
-try {
-  await cp(islandBundleRoot, islandPackageRoot, { recursive: true });
-  await cp(islandBundle, path.join(islandPackageRoot, 'index.mjs'));
-  await writeFile(
-    path.join(islandPackageRoot, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: 'noveltea-scriptc-island',
-        version: productVersion,
-        private: true,
-        main: 'index.mjs',
-        types: 'index.d.ts',
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  await cp(islandDeclaration, path.join(islandPackageRoot, 'index.d.ts'));
-
-  const comfyUiWorkflowFiles = await collectUtf8Files(
-    comfyUiWorkflowSourceRoot,
-    comfyUiWorkflowSourceRoot,
-  );
-  await writeFile(
-    path.join(comfyUiWorkflowPackageRoot, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: 'noveltea-scriptc-comfyui-workflows',
-        version: productVersion,
-        private: true,
-        main: 'index.mjs',
-        types: 'index.d.ts',
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  await writeFile(
-    path.join(comfyUiWorkflowPackageRoot, 'index.mjs'),
-    `export const scriptcComfyUiWorkflowFiles = Object.freeze(${JSON.stringify(comfyUiWorkflowFiles)});\n`,
-  );
-  await writeFile(
-    path.join(comfyUiWorkflowPackageRoot, 'index.d.ts'),
-    'export declare const scriptcComfyUiWorkflowFiles: Readonly<Record<string, string>>;\n',
-  );
-
-  const agentKitSourceFiles = await collectUtf8Files(agentKitSourceRoot, agentKitSourceRoot);
-  const agentKitSharedConceptSourceFiles = await collectUtf8Files(
-    agentKitSharedConceptSourceRoot,
-    agentKitSharedConceptSourceRoot,
-  );
-  for (const [relativePath, text] of Object.entries(agentKitSharedConceptSourceFiles))
-    agentKitSourceFiles[`concepts/${relativePath}`] = text;
-  const agentKitProvenance = JSON.parse(await readFile(agentKitProvenancePath, 'utf8'));
-  const agentKitSystemLayoutSourceFiles = await collectUtf8Files(
-    agentKitSystemLayoutSourceRoot,
-    path.join(agentKitSystemLayoutSourceRoot, 'ui'),
-  );
-  await writeFile(
-    path.join(agentKitSourcePackageRoot, 'package.json'),
-    `${JSON.stringify(
-      {
-        name: 'noveltea-scriptc-agent-kit-source',
-        version: productVersion,
-        private: true,
-        main: 'index.mjs',
-        types: 'index.d.ts',
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  await writeFile(
-    path.join(agentKitSourcePackageRoot, 'index.mjs'),
-    `export const scriptcAgentKitSourceFiles = Object.freeze(${JSON.stringify(agentKitSourceFiles)});\nexport const scriptcAgentKitProvenance = Object.freeze(${JSON.stringify(agentKitProvenance)});\nexport const scriptcAgentKitSystemLayoutSourceFiles = Object.freeze(${JSON.stringify(agentKitSystemLayoutSourceFiles)});\n`,
-  );
-  await writeFile(
-    path.join(agentKitSourcePackageRoot, 'index.d.ts'),
-    'export declare const scriptcAgentKitSourceFiles: Readonly<Record<string, string>>;\nexport declare const scriptcAgentKitProvenance: unknown;\nexport declare const scriptcAgentKitSystemLayoutSourceFiles: Readonly<Record<string, string>>;\n',
-  );
-
-  const stagedHost = path.join(stageRoot, 'noveltea-scriptc-host.ts');
-  const stagedHostProcess = path.join(stageRoot, 'noveltea-scriptc-process.ts');
-  const stagedStaticContracts = path.join(stageRoot, 'static-contracts.ts');
-  const stagedSchemaStaticContracts = path.join(stageRoot, 'schema-static-contracts.ts');
-  const stagedCommandRouting = path.join(stageRoot, 'command-routing.ts');
-  const stagedProductVersion = path.join(stageRoot, 'product-version.ts');
-  const stagedHostSource = (await readFile(hostSource, 'utf8'))
-    .replace('../src/cli/static-contracts', './static-contracts')
-    .replace('../src/cli/command-routing', './command-routing')
-    .replace('../src/main/services/media-preparation-service', './media-preparation-service')
-    .replaceAll(
-      '// @ts-expect-error The private island package is materialized only during release staging.',
-      '',
-    );
-  const stagedStaticContractsSource = (await readFile(staticContractsSource, 'utf8'))
-    .replace('../shared/product-version', './product-version')
-    .replace('../shared/schema-static-contracts', './schema-static-contracts');
-  const stagedProductVersionSource = (await readFile(productVersionSource, 'utf8'))
-    .replace('__NOVELTEA_VERSION__', JSON.stringify(productVersion))
-    .replace('__NOVELTEA_BUILD_IDENTITY__', JSON.stringify(buildIdentity));
-  await writeFile(stagedStaticContracts, stagedStaticContractsSource);
-  await cp(schemaStaticContractsSource, stagedSchemaStaticContracts);
-  await cp(commandRoutingSource, stagedCommandRouting);
-  await writeFile(stagedProductVersion, stagedProductVersionSource);
-  const mediaServiceSource = await readFile(
-    path.join(editorRoot, 'src', 'main', 'services', 'media-preparation-service.ts'),
-    'utf8',
-  );
-  const mediaPin = await readFile(
-    path.join(editorRoot, 'src', 'shared', 'media-tool-pin.json'),
-    'utf8',
-  );
-  await writeFile(
-    path.join(stageRoot, 'media-preparation-service.ts'),
-    mediaServiceSource
-      .replace(
-        "import pin from '../../shared/media-tool-pin.json';",
-        `const pin = ${mediaPin.trim()};`,
-      )
-      .replace('../../shared/prepared-media-contracts', './prepared-media-contracts'),
-  );
-  await cp(
-    path.join(editorRoot, 'src', 'shared', 'prepared-media-contracts.ts'),
-    path.join(stageRoot, 'prepared-media-contracts.ts'),
-  );
-  await cp(hostProcessSource, stagedHostProcess);
-  await writeFile(stagedHost, stagedHostSource);
-  const ffiPath = path.join(stageRoot, 'ffi.json');
-  await writeFile(
-    ffiPath,
-    `${JSON.stringify(
-      {
-        ffi_format: 1,
-        functions: [
-          {
-            name: 'nativeInvokeToFile',
-            symbol: 'noveltea_tooling_scriptc_invoke_to_file',
-            params: ['string', 'string', 'string'],
-            returns: 'void',
-          },
-          {
-            name: 'nativeRunQuickJsGc',
-            symbol: 'noveltea_tooling_scriptc_run_gc',
-            params: [],
-            returns: 'void',
-          },
-          {
-            name: 'nativeSetQuickJsGcThreshold',
-            symbol: 'noveltea_tooling_scriptc_set_gc_threshold',
-            params: ['u32'],
-            returns: 'void',
-          },
-        ],
-        libraries,
-        system_libraries: isWindows
-          ? ['advapi32', 'bcrypt', 'ole32', 'shell32', 'user32', 'ws2_32']
-          : isMac
-            ? ['c++']
-            : ['m', 'dl', 'rt', 'stdc++'],
-      },
-      null,
-      2,
-    )}\n`,
-  );
-
-  if (process.env.NOVELTEA_SCRIPTC_INSPECT === '1') {
-    const coverage = spawnSync(
-      scriptcEntrypoint,
-      ['coverage', stagedHost, '--dynamic', '--print', 'diagnostics'],
-      { cwd: stageRoot, env: scriptcBuildEnv, encoding: 'utf8' },
-    );
-    const reportPath = path.join(scriptcRoot, 'coverage-diagnostics.json');
-    if (coverage.error) throw coverage.error;
-    if (!coverage.stdout.trim())
-      throw new Error(`ScriptC coverage produced no diagnostics: ${coverage.stderr}`);
-    await writeFile(reportPath, coverage.stdout);
-    console.log(`ScriptC static coverage report: ${reportPath}`);
-  }
-
-  const scriptcOptimization = process.env.NOVELTEA_SCRIPTC_OPTIMIZATION;
-  if (scriptcOptimization && !['release', 'speed'].includes(scriptcOptimization))
-    throw new Error('NOVELTEA_SCRIPTC_OPTIMIZATION must be release or speed.');
-  run(
-    scriptcEntrypoint,
-    [
-      'build',
-      stagedHost,
-      '--dynamic',
-      '--ffi',
-      ffiPath,
-      '--out',
-      outputPath,
-      '--no-keep-llvm',
-      ...(scriptcOptimization ? [`--optimization=${scriptcOptimization}`] : []),
-    ],
-    { cwd: stageRoot, env: scriptcBuildEnv },
-  );
-  run(isWindows ? windowsStrip : 'strip', [isMac ? '-x' : '--strip-all', outputPath], {
-    env: buildEnv,
-  });
-
-  const uiTestRunnerSource = path.join(buildRoot, 'tools', 'editor_tool', uiTestRunnerName);
-  if (!existsSync(uiTestRunnerSource))
-    throw new Error(`NovelTea UI Test runner is missing: ${uiTestRunnerSource}`);
-  const uiTestRunnerOutput = path.join(outputDirectory, uiTestRunnerName);
-  await cp(uiTestRunnerSource, uiTestRunnerOutput);
-  run(isWindows ? windowsStrip : 'strip', [isMac ? '-x' : '--strip-all', uiTestRunnerOutput], {
-    env: buildEnv,
-  });
-  if (!isWindows) await chmod(uiTestRunnerOutput, 0o755);
-
-  await cp(
-    path.join(repositoryRoot, 'engine', 'assets', 'system'),
-    path.join(outputDirectory, 'assets', 'system'),
-    { recursive: true, dereference: true },
-  );
-} finally {
-  await rm(stageRoot, { recursive: true, force: true });
-}
-
-const { stagePrivateMediaTools } = await import('./private-media-tools.mjs');
+await cp(path.join(sourceDirectory, executableName), outputPath);
+await cp(path.join(sourceDirectory, runnerName), path.join(outputDirectory, runnerName));
+await cp(path.join(sourceDirectory, 'assets'), path.join(outputDirectory, 'assets'), {
+  recursive: true,
+  force: true,
+});
 await stagePrivateMediaTools(outputDirectory, { archivePath: process.env.NOVELTEA_FFMPEG_ARCHIVE });
-const relocatedMediaRoot = await mkdtemp(path.join(tmpdir(), 'noveltea media relocation '));
+
+// Certify from a relocated tree, with no Node modules, source files, or
+// dynamic island available. The packaged path is the same path users execute.
+const relocatedRoot = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-relocation-'));
 try {
-  const relocatedCli = path.join(relocatedMediaRoot, executableName);
-  await cp(outputPath, relocatedCli);
-  await cp(path.join(outputDirectory, 'tools'), path.join(relocatedMediaRoot, 'tools'), {
-    recursive: true,
+  for (const filename of [executableName, runnerName]) {
+    await cp(path.join(outputDirectory, filename), path.join(relocatedRoot, filename));
+  }
+  for (const directory of ['assets', 'tools']) {
+    await cp(path.join(outputDirectory, directory), path.join(relocatedRoot, directory), {
+      recursive: true,
+    });
+  }
+  const cli = path.join(relocatedRoot, executableName);
+  run(cli, ['--json', '--version'], { cwd: os.tmpdir() });
+  run(cli, ['--json', 'media-tool', 'check'], { cwd: os.tmpdir() });
+  const project = path.join(relocatedRoot, 'smoke-project');
+  run(cli, ['--no-daemon', '--json', 'project', 'create', project, '--name', 'Smoke'], {
+    cwd: os.tmpdir(),
   });
-  // Native validation uses the bundled fallback font as well as the media
-  // tools. Relocate the complete standalone runtime tree rather than testing
-  // validation with an intentionally incomplete installation.
-  await cp(path.join(outputDirectory, 'assets'), path.join(relocatedMediaRoot, 'assets'), {
-    recursive: true,
+  const validation = spawnSync(cli, ['--no-daemon', '--json', '--project', project, 'validate'], {
+    cwd: os.tmpdir(),
+    env,
+    encoding: 'utf8',
+    windowsHide: true,
   });
-  run(relocatedCli, ['--json', 'media-tool', 'check'], {
-    cwd: tmpdir(),
-    env: { ...process.env, NOVELTEA_FFMPEG: undefined },
-  });
-  // The media-tool probe is handled by the static host. Also exercise an
-  // actual dynamic Project command: a transitive native-only import must not
-  // make all ordinary ScriptC workspace operations fail at module link time.
-  const smokeProject = path.join(relocatedMediaRoot, 'scriptc-project');
-  run(
-    relocatedCli,
-    ['--no-daemon', '--json', 'project', 'create', smokeProject, '--name', 'Smoke'],
-    {
-      cwd: tmpdir(),
-    },
-  );
-  const validation = spawnSync(
-    relocatedCli,
-    ['--no-daemon', '--json', '--project', smokeProject, 'validate'],
-    { cwd: tmpdir(), encoding: 'utf8' },
-  );
   if (validation.error) throw validation.error;
-  // A newly created Project intentionally has no gameplay entrypoint. It
-  // must report that semantic diagnostic, not fail to import the ScriptC
-  // workspace or runtime-artifact modules.
-  let validationResponse;
+  let response;
   try {
-    validationResponse = JSON.parse(validation.stdout);
+    response = JSON.parse(validation.stdout);
   } catch {
-    throw new Error(`Standalone CLI validation returned malformed JSON: ${validation.stdout}`);
+    throw new Error(`Relocated native CLI returned invalid JSON: ${validation.stdout}`);
   }
   if (
     validation.status !== 4 ||
-    !validationResponse.diagnostics?.some((item) => item.code === 'COMPILER_ENTRYPOINT_REQUIRED')
+    validation.stderr !== '' ||
+    !response.diagnostics?.some((item) => item.code === 'COMPILER_ENTRYPOINT_REQUIRED')
   )
     throw new Error(
-      `Standalone CLI fresh Project validation failed to reach semantic checks: ${validation.stdout} ${validation.stderr}`,
+      `Relocated native Project validation failed: ${validation.stdout} ${validation.stderr}`,
     );
 } finally {
-  await removeCliRelocation(relocatedMediaRoot);
+  await removeCliRelocation(relocatedRoot);
 }
 
-// A build-binding alone does not qualify production: the certification
-// runner additionally requires a clean all-roots runtime module closure.
-const provenance = await readFile(
-  path.join(editorRoot, 'dist-scriptc-island/native-production-provenance.json'),
-);
-const fingerprint = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+// This proof binds the exact installed executable. Emitted Electron bundle
+// provenance is checked independently; no JS island is part of the CLI.
 await writeFile(
-  productionBuildProof,
+  path.join(outputDirectory, 'native-production-build.json'),
   `${JSON.stringify({
-    contract: 'noveltea.native-cli-production-build.v1',
-    executableSha256: fingerprint(await readFile(outputPath)),
-    islandProvenanceSha256: fingerprint(provenance),
+    contract: 'noveltea.native-cli-production-build.v2',
+    runtime: 'direct-cxx',
+    executableSha256: sha256(await readFile(outputPath)),
+    uiTestRunnerSha256: sha256(await readFile(path.join(outputDirectory, runnerName))),
   })}\n`,
 );
-
-console.log(`NovelTea CLI: ${outputPath}`);
+console.log(`NovelTea native CLI: ${outputPath}`);
