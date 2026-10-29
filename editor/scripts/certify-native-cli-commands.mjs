@@ -42,6 +42,22 @@ function execute(args) {
   return result;
 }
 
+// The native-only CLI no longer emits ScriptC's private [native-cli-*] stderr
+// witnesses. Certify its actual public result on both the resident daemon and
+// direct execution paths, then assert each command's semantic contract.
+function comparePublic(argv) {
+  const oracle = execute(['--no-daemon', ...argv]);
+  const actual = execute(argv);
+  assert.equal(actual.status, oracle.status, `CLI exit mismatch: ${argv.join(' ')}`);
+  assert.equal(actual.stderr, oracle.stderr, `CLI stderr mismatch: ${argv.join(' ')}`);
+  const expected = JSON.parse(oracle.stdout);
+  const result = JSON.parse(actual.stdout);
+  assert.deepEqual(result, expected, `CLI JSON mismatch: ${argv.join(' ')}`);
+  assert.equal(result.success, true, `CLI command failed: ${argv.join(' ')}`);
+  assert.equal(result.exitCode, 0);
+  return result;
+}
+
 function inspect(collection, id, provenance) {
   const argv = [
     '--project',
@@ -53,65 +69,36 @@ function inspect(collection, id, provenance) {
     id,
     ...(provenance ? ['--provenance'] : []),
   ];
-  const oracle = execute(['--no-daemon', ...argv]);
-  const result = execute(argv);
-  assert.equal(result.status, oracle.status, 'Native certification changed CLI exit status');
-  assert.deepEqual(JSON.parse(result.stdout), JSON.parse(oracle.stdout));
-  const observations = result.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-inspect] '));
-  assert.equal(observations.length, 1, 'Expected native inspection observation: ' + result.stderr);
-  const observed = JSON.parse(observations[0].slice('[native-cli-inspect] '.length));
-  const expected = JSON.parse(oracle.stdout);
-  assert.equal(observed.native.ok, true, observed.native.error);
-  assert.deepEqual(observed.native.fields.record, expected.record);
-  assert.equal(observed.native.fields.collection, collection);
-  assert.equal(observed.native.fields.id, id);
-  if (provenance) assert.deepEqual(observed.native.fields.provenance, expected.provenance);
-  else assert.equal(Object.hasOwn(observed.native.fields, 'provenance'), false);
+  const result = comparePublic(argv);
+  assert.equal(result.collection, collection);
+  assert.equal(result.id, id);
+  assert.equal(result.record?.id, id, 'Native inspection omitted the requested record.');
+  if (provenance) assert.ok(result.provenance && typeof result.provenance === 'object');
+  else assert.equal(Object.hasOwn(result, 'provenance'), false);
 }
 
 function verifyUsages(collection, id) {
   const argv = ['--project', project, '--json', 'usages', collection, id];
-  const oracle = execute(['--no-daemon', ...argv]);
-  const actual = execute(argv);
-  assert.equal(actual.status, oracle.status);
-  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
-  const observations = actual.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-usages] '));
-  assert.equal(observations.length, 1, 'Missing native usages observation: ' + actual.stderr);
-  const observed = JSON.parse(observations[0].slice('[native-cli-usages] '.length));
-  assert.equal(observed.native.ok, true, observed.native.error);
-  assert.deepEqual(observed.native.usages, observed.oracle);
+  const result = comparePublic(argv);
+  assert.equal(result.collection, collection);
+  assert.equal(result.id, id);
+  assert.ok(Array.isArray(result.usages), 'Native usages omitted the reference graph.');
+  for (const usage of result.usages) {
+    assert.equal(typeof usage.edgeId, 'string');
+    assert.equal(typeof usage.sourcePath, 'string');
+  }
 }
 
 function verifySync() {
   const argv = ['--project', project, '--json', 'localization', 'sync', '--dry-run'];
-  const oracle = execute(['--no-daemon', ...argv]);
-  const actual = execute(argv);
-  assert.equal(actual.status, oracle.status);
-  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
-  const rows = actual.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-localization-sync] '));
-  assert.equal(rows.length, 1, 'Expected one native localization observation: ' + actual.stderr);
-  const observed = JSON.parse(rows[0].slice('[native-cli-localization-sync] '.length));
-  assert.equal(observed.native.ok, true, observed.native.error);
-  const expected = JSON.parse(oracle.stdout);
-  for (const key of [
-    'changed',
-    'materializedMessageIds',
-    'preservedMessageIds',
-    'unresolved',
-    'structuredMessageCount',
-  ])
-    assert.deepEqual(
-      observed.native[key],
-      expected[key],
-      `Native localization sync differs at ${key}`,
-    );
-  return observed.native;
+  const result = comparePublic(argv);
+  assert.equal(result.dryRun, true);
+  assert.equal(typeof result.changed, 'boolean');
+  assert.ok(Array.isArray(result.materializedMessageIds));
+  assert.ok(Array.isArray(result.preservedMessageIds));
+  assert.ok(Array.isArray(result.unresolved));
+  assert.ok(Number.isInteger(result.structuredMessageCount));
+  return result;
 }
 
 function verifyLocalizationView(status) {
@@ -124,76 +111,51 @@ function verifyLocalizationView(status) {
     'fr',
     ...(status ? ['--status', status] : []),
   ];
-  const oracle = execute(['--no-daemon', ...argv]);
-  const actual = execute(argv);
-  assert.equal(actual.status, oracle.status);
-  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
-  const rows = actual.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-localization-view] '));
-  assert.equal(rows.length, 1, 'Expected native localization view: ' + actual.stderr);
-  const observed = JSON.parse(rows[0].slice('[native-cli-localization-view] '.length));
-  assert.equal(observed.native.ok, true, observed.native.error);
-  assert.equal(observed.native.locale, observed.oracle.locale);
-  assert.deepEqual(observed.native.messages, observed.oracle.messages);
-  assert.equal(observed.native.statusFilter, observed.oracle.statusFilter);
+  const result = comparePublic(argv);
+  assert.equal(result.locale, 'fr');
+  assert.ok(Array.isArray(result.messages), 'Native localization view omitted its messages.');
+  if (status) {
+    assert.ok(
+      result.messages.every(
+        (message) =>
+          message.status === status || (status === 'attention' && message.attention?.length > 0),
+      ),
+    );
+  }
 }
 
 function verifyReconcile() {
   const argv = ['--project', project, '--json', 'localization', 'reconcile'];
-  const oracle = execute(['--no-daemon', ...argv]);
-  const actual = execute(argv);
-  assert.equal(actual.status, oracle.status);
-  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
-  const rows = actual.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-reconcile] '));
-  assert.equal(rows.length, 1, 'Expected one native reconcile observation: ' + actual.stderr);
-  const observed = JSON.parse(rows[0].slice('[native-cli-reconcile] '.length));
-  assert.equal(observed.native.ok, true, observed.native.error);
-  assert.deepEqual(observed.native.plan, observed.oracle);
-  return observed.native.plan;
+  const result = comparePublic(argv);
+  assert.ok(result.plan && Array.isArray(result.plan.groups));
+  assert.ok(Array.isArray(result.writes));
+  return result.plan;
 }
 
 function verifyEntityDryRun(collection, id, operation) {
   const argv = ['--project', project, '--json', 'entity', operation, collection, id, '--dry-run'];
-  const oracle = execute(['--no-daemon', ...argv]);
-  const actual = execute(argv);
-  assert.equal(actual.status, oracle.status);
-  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
-  const observations = actual.stderr
-    .split('\n')
-    .filter((line) => line.startsWith('[native-cli-entity-edit] '));
-  assert.equal(observations.length, 1, 'Expected native dry-run observation: ' + actual.stderr);
-  const observed = JSON.parse(observations[0].slice('[native-cli-entity-edit] '.length));
-  assert.equal(observed.native.ok, true, observed.native.error);
-  assert.equal(observed.native.collection, collection);
-  assert.equal(observed.native.id, id);
-  assert.equal(observed.native.dryRun, true);
+  const result = comparePublic(argv);
+  assert.equal(result.collection, collection);
+  assert.equal(result.id, id);
+  assert.equal(result.dryRun, true);
+  assert.ok(result.plan && Array.isArray(result.plan.writes));
   if (operation === 'create') {
     const expectedPaths =
       collection === 'layouts'
         ? ['layout.lua', 'layout.rcss', 'layout.rml', 'layout.yaml'].map(
             (name) => `records/layouts/${id}/${name}`,
           )
-        : [observed.native.sourcePath];
-    assert.deepEqual(observed.oracle.plan.writes, expectedPaths);
+        : [`records/${collection}/${id}.yaml`];
+    assert.deepEqual(result.plan.writes, expectedPaths);
   }
 }
 
 function verifyFormatCheck(relative) {
   const args = ['--project', project, '--json', 'fmt', relative, '--check'];
-  const oracle = execute(['--no-daemon', ...args]);
-  const actual = execute(args);
-  assert.equal(actual.status, oracle.status);
-  assert.deepEqual(JSON.parse(actual.stdout), JSON.parse(oracle.stdout));
-  const observed = actual.stderr.split('\n').filter((line) => line.startsWith('[native-cli-fmt] '));
-  assert.equal(observed.length, 1, 'Expected native fmt check observation: ' + actual.stderr);
-  const native = JSON.parse(observed[0].slice('[native-cli-fmt] '.length)).native;
-  assert.equal(native.ok, true, native.error);
-  const expected = JSON.parse(oracle.stdout);
-  assert.deepEqual(native.files, expected.files);
-  assert.equal(native.changed, expected.changed > 0);
+  const result = comparePublic(args);
+  assert.equal(result.check, true);
+  assert.ok(Array.isArray(result.files));
+  assert.ok(Number.isInteger(result.changed));
 }
 
 try {
@@ -295,22 +257,27 @@ try {
       outputPath,
     ]);
     assert.equal(bundle.status, 0, bundle.stderr);
-    const observations = bundle.stderr
-      .split('\n')
-      .filter((line) => line.startsWith('[native-cli-bundle] '));
-    assert.equal(
-      observations.length,
-      1,
-      'Expected native archive parity observation: ' + bundle.stderr,
-    );
-    const result = JSON.parse(observations[0].slice('[native-cli-bundle] '.length));
-    assert.equal(result.exported.ok, true);
-    assert.equal(result.imported.ok, true);
-    assert.deepEqual(result.exported.manifest, result.imported.manifest);
-    assert.deepEqual(await readFile(result.nativeOutput), await readFile(outputPath));
+    assert.equal(JSON.parse(bundle.stdout).success, true);
+    const exportedBytes = await readFile(outputPath);
+    assert.ok(exportedBytes.length > 100, 'Native Project archive is unexpectedly empty.');
+    assert.equal(exportedBytes.subarray(0, 4).toString('hex'), '504b0304');
+    const directOutput = path.join(root, 'direct.ntproject');
+    const directBundle = execute([
+      '--no-daemon',
+      '--project',
+      project,
+      '--json',
+      'project',
+      'export',
+      '--output',
+      directOutput,
+    ]);
+    assert.equal(directBundle.status, 0, directBundle.stderr);
+    assert.equal(JSON.parse(directBundle.stdout).success, true);
     assert.deepEqual(
-      await readFile(path.join(result.nativeDestination, 'project.yaml')),
-      await readFile(path.join(project, 'project.yaml')),
+      exportedBytes,
+      await readFile(directOutput),
+      'Native daemon and direct Project archives differ.',
     );
     const scenePath = path.join(project, 'records/scenes/localized-story.yaml');
     const original = await readFile(scenePath, 'utf8');

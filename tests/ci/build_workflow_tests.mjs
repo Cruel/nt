@@ -801,6 +801,32 @@ test('native release certification uses private short macOS broker sockets and n
   assert.doesNotMatch(daemon, /filter\(\(line\) => line\.startsWith\('\[native-disk-validation\]/);
 });
 
+test('release CLI inspection certification validates native JSON rather than retired stderr witnesses', () => {
+  const script = readFileSync(
+    new URL('../../editor/scripts/certify-native-cli-commands.mjs', import.meta.url),
+    'utf8',
+  );
+  assert.match(script, /function comparePublic\(argv\)/);
+  assert.match(script, /assert\.deepEqual\(result, expected/);
+  assert.match(script, /assert\.equal\(result\.record\?\.id, id/);
+  assert.match(script, /assert\.ok\(Array\.isArray\(result\.usages\)/);
+  assert.match(script, /assert\.equal\(result\.dryRun, true\)/);
+  assert.match(script, /Native daemon and direct Project archives differ/);
+  assert.doesNotMatch(script, /startsWith\('\[native-cli-/);
+});
+
+test('native macOS release smoke checks the C++ exporter and its published manifest artifact', () => {
+  const smoke = readFileSync(
+    new URL('../../tests/native_cli/macos_release_smoke.py', import.meta.url),
+    'utf8',
+  );
+  assert.match(smoke, /command = \[str\(cli\), '--no-daemon', '--json'/);
+  assert.match(smoke, /published\['artifacts'\]/);
+  assert.match(smoke, /manifest_file\.is_file\(\)/);
+  assert.match(smoke, /check_launch\(executable, unrelated, environment\)/);
+  assert.match(smoke, /codesign.*--verify/);
+});
+
 test('canonical release notices follow the actual packaged Asset inventory', () => {
   const evidence = readFileSync(
     new URL('../../scripts/native-canonical-export-evidence.mjs', import.meta.url),

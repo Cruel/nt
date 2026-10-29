@@ -109,7 +109,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
     }
 
     def invoke(*args):
-        command = [str(cli), '--json', *map(str, args)]
+        # This lane certifies the native C++ exporter itself. Keep the
+        # platform publication in the invoking process rather than routing
+        # through the separate daemon/disposable-worker certification path.
+        command = [str(cli), '--no-daemon', '--json', *map(str, args)]
         done = subprocess.run(command, cwd=root, env=environment, capture_output=True,
                               text=True, timeout=240)
         assert done.stdout, (command, done.stderr)
@@ -134,7 +137,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
     assert (output / 'Contents/Resources/AppIcon.icns').read_bytes()[:4] == b'icns'
     info = output / 'Contents/Info.plist'
     assert info.is_file() and b'CFBundleIdentifier' in info.read_bytes()
-    manifest = json.loads((root / 'Tea Fixture-export-manifest.json').read_text())
+    manifest_artifact = next(
+        (item for item in published['artifacts'] if item['kind'] == 'manifest'), None)
+    assert manifest_artifact is not None, published
+    manifest_file = Path(manifest_artifact['path'])
+    assert manifest_file == root / 'Tea Fixture-export-manifest.json', manifest_artifact
+    assert manifest_file.is_file(), (manifest_artifact, sorted(p.name for p in root.iterdir()))
+    manifest = json.loads(manifest_file.read_text())
     assert manifest['deployment']['target'] == 'macos'
     files = {item['path']: item for item in manifest['files']}
     assert files and 'Contents/MacOS/game' in files
@@ -185,7 +194,8 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output)],
                    check=True, capture_output=True)
     assert (output / 'Contents/_CodeSignature/CodeResources').is_file()
-    manifest = json.loads((root / 'Tea Fixture-export-manifest.json').read_text())
+    assert manifest_file.is_file(), 'Signed macOS export lost its manifest sidecar.'
+    manifest = json.loads(manifest_file.read_text())
     assert any('CodeSignature' in item['path'] for item in manifest['files'])
     check_launch(output / 'Contents/MacOS/game', unrelated, environment)
 
