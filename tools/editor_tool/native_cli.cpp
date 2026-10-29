@@ -2550,11 +2550,17 @@ int run(const std::vector<std::string>& argv)
         if (family == "test" &&
             (operation == "run" || operation == "run-spec" || operation == "run-ui-spec"))
             disposable_kind = "runtime";
+        if (family == "package" && operation == "export")
+            disposable_kind = "runtime";
+        if (family == "platform" && operation == "export")
+            disposable_kind = "platform";
+        if (family == "comfyui" && operation == "run")
+            disposable_kind = "comfyui";
         if (owner_command || !disposable_kind.empty()) {
             const auto root = project_root(args.project);
             if (!root.empty()) {
                 bool warm_runtime = false;
-                if (disposable_kind == "runtime") {
+                if (family == "test" && disposable_kind == "runtime") {
                     const auto cache =
                         invoke_native_json(noveltea_tooling_probe_runtime_cache_json,
                                            {{"projectRoot", path_text(root)},
@@ -2596,6 +2602,11 @@ int run(const std::vector<std::string>& argv)
                         return tests_from_native_runtime(args);
                     }
                 }
+            }
+            if (disposable_kind == "comfyui" && root.empty() && args.project.empty()) {
+                if (const auto routed = route_native_project_owner(
+                        argv, "", false, true, args.json, false, disposable_kind, std::nullopt))
+                    return *routed;
             }
         }
     }
@@ -2781,7 +2792,7 @@ int run(const std::vector<std::string>& argv)
                 // native mixed-publication journal before the read-only
                 // workspace preflight rejects its in-flight lock. Inspection
                 // commands must never perform that recovery implicitly.
-                if (operation == "run") {
+                if (operation == "run" && !native_disposable_active()) {
                     if (const auto recovery = native_project_asset_recover(root))
                         return failure(args.json, 5, "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT",
                                        "/.noveltea/asset-import-staging", *recovery, *recovery);
@@ -2793,8 +2804,9 @@ int run(const std::vector<std::string>& argv)
                                           "/project.yaml", 3, "Native Project admission failed.",
                                           path_text(root));
             }
-            const auto result =
-                run_native_comfyui_catalog(args.command, root, native_request, args.json);
+            const auto result = run_native_comfyui_catalog(
+                args.command, root, native_request, args.json,
+                native_disposable_comfyui_hooks(args.json));
             return emit(result.envelope, args.json, result.human);
         }
         if (family == "validate")
@@ -2808,7 +2820,10 @@ int run(const std::vector<std::string>& argv)
         if (family == "platform") {
             const auto selected = project_root(args.project);
             PlatformExportTools platform_tools;
-            platform_tools.cancelled = [] { return platform_interrupt_requested != 0; };
+            platform_tools.cancelled = [] {
+                return platform_interrupt_requested != 0 ||
+                       native_disposable_cancellation_requested();
+            };
             platform_tools.check_runtime = [&](const Json& admitted,
                                                const Json& native_profile) -> Json {
                 try {

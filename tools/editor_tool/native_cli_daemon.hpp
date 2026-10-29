@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+#include "native_cli_comfyui.hpp"
+
 namespace noveltea::cli {
 
 // Production requests use the broker default; certification can isolate a
@@ -23,6 +25,8 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
                                               std::optional<std::string> stdin_text = std::nullopt);
 
 bool native_disposable_active();
+bool native_disposable_cancellation_requested();
+ComfyUiExecutionHooks native_disposable_comfyui_hooks(bool json_mode);
 
 // Immutable worker requests must resolve only against the pinned owner capture.
 // A physical source proof may inspect disk, but never readmit Project semantics.

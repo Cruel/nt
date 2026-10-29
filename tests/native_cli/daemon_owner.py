@@ -30,10 +30,10 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         completed = subprocess.run([str(installed), '--json', *map(str, args)],
                                    cwd=cwd, env=env, capture_output=True, text=True,
                                    timeout=timeout, input=input_text)
-        assert completed.returncode == expected, (args, completed)
+        assert expected is None or completed.returncode == expected, (args, completed)
         assert not completed.stderr, (args, completed.stderr)
         result = json.loads(completed.stdout)
-        assert result['exitCode'] == expected and result['protocolVersion'] == 1, result
+        assert result['exitCode'] == completed.returncode and result['protocolVersion'] == 1, result
         return result
 
     def project_command(*args, local=False, expected=0, cwd=root):
@@ -63,7 +63,23 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         after_shaders = daemon_status()
         assert after_shaders['engineeringCounters']['snapshotHandoffs'] > before_handoffs, after_shaders
 
-        before_stdin = after_shaders['engineeringCounters']['snapshotHandoffs']
+        # Every Project-bound heavyweight family uses a disposable native
+        # process, even when rejecting an invalid request before publication.
+        # The executable-seam result must match direct C++ execution.
+        heavy_cases = [
+            ('package', 'export', '--unknown-option'),
+            ('platform', 'export', '--output', root / 'platform'),
+            ('comfyui', 'run', 'missing-native-workflow'),
+        ]
+        for heavy in heavy_cases:
+            before = daemon_status()['engineeringCounters']['snapshotHandoffs']
+            local = invoke('--no-daemon', '--project', project, *heavy, expected=None)
+            remote = invoke('--project', project, *heavy, expected=local['exitCode'])
+            assert remote == local, (heavy, remote, local)
+            after = daemon_status()['engineeringCounters']['snapshotHandoffs']
+            assert after > before, (heavy, before, after)
+
+        before_stdin = daemon_status()['engineeringCounters']['snapshotHandoffs']
         for form in ('run-spec', 'run-ui-spec'):
             remote = invoke('--project', project, 'test', form, input_text='not JSON', expected=2)
             local = invoke('--no-daemon', '--project', project, 'test', form,
@@ -81,6 +97,11 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         assert warm_tests['success'], warm_tests
         assert warm_tests['runtimeCache']['status'] == 'hit', warm_tests
         assert daemon_status()['engineeringCounters']['snapshotHandoffs'] == after_tests['engineeringCounters']['snapshotHandoffs']
+        package_path = root / 'runtime.ntpkg'
+        before_package = daemon_status()['engineeringCounters']['snapshotHandoffs']
+        package = project_command('package', 'export', '--output', package_path)
+        assert package['success'] and package_path.is_file(), package
+        assert daemon_status()['engineeringCounters']['snapshotHandoffs'] > before_package
 
         room_args = ('entity', 'inspect', 'rooms', 'entry')
         baseline = project_command(*room_args, local=True)

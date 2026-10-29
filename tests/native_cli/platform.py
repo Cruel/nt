@@ -31,7 +31,9 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-platform-') as temporar
     installed = root / binary.name
     shutil.copy2(binary, installed)
     environment = {**os.environ, 'NOVELTEA_TEMPLATE_REGISTRY_ROOT': str(root / 'templates'),
-                   'NOVELTEA_USER_CONFIG_ROOT': str(root / 'user-config'), 'HOME': str(root)}
+                   'NOVELTEA_USER_CONFIG_ROOT': str(root / 'user-config'), 'HOME': str(root),
+                   'NOVELTEA_CLI_CERTIFICATION': '1',
+                   'NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT': str(root / 'daemon')}
 
     def run(*args, code=0, cwd=root):
         process = subprocess.run([str(installed), '--json', *map(str, args)], cwd=cwd,
@@ -875,4 +877,5 @@ else:
     (root / 'templates/escape').symlink_to(root / 'outside', target_is_directory=True)
     assert run('platform', 'template', 'remove', 'escape@v1', '--force', code=4)['success'] is False
     assert (root / 'templates/escape').is_symlink()
+    run('daemon', 'stop')
     print('Native platform template, config, and scoped profiles contracts passed.')

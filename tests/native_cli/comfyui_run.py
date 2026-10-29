@@ -119,6 +119,8 @@ with TemporaryDirectory(prefix="noveltea-comfyui-run-") as temporary:
     home = root / "home"
     home.mkdir()
     env = dict(os.environ, NOVELTEA_USER_CONFIG_ROOT=str(home))
+    broker_env = dict(env, NOVELTEA_CLI_CERTIFICATION='1',
+                      NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT=str(root / 'daemon'))
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -133,9 +135,9 @@ with TemporaryDirectory(prefix="noveltea-comfyui-run-") as temporary:
     }
     (home / "config.json").write_text(json.dumps(config))
 
-    def cmd(*args, status=0):
-        command = [str(cli), "--no-daemon", "--json", *map(str, args)]
-        process = subprocess.run(command, cwd=root, env=env, capture_output=True,
+    def cmd(*args, status=0, broker=False):
+        command = [str(cli), *([] if broker else ["--no-daemon"]), "--json", *map(str, args)]
+        process = subprocess.run(command, cwd=root, env=broker_env if broker else env, capture_output=True,
                                  text=True, timeout=30)
         assert process.returncode == status, (command, process.stdout, process.stderr)
         assert process.stderr == "", process.stderr
@@ -155,6 +157,19 @@ with TemporaryDirectory(prefix="noveltea-comfyui-run-") as temporary:
         assert len(list(output.glob("*.png"))) == 1
         assert list(output.glob("*.png"))[0].read_bytes() == png()
         assert not list(output.glob("*.noveltea-stage"))
+        projectless_folder = root / "broker-projectless"
+        projectless_folder.mkdir()
+        projectless_before = cmd("daemon", "status", broker=True)["daemon"].get(
+            "engineeringCounters", {}).get("disposableQueues", 0)
+        projectless = cmd(*base, "--output", projectless_folder, broker=True)
+        assert projectless["success"], projectless
+        assert len(list(projectless_folder.glob("*.png"))) == 1
+        assert list(projectless_folder.glob("*.png"))[0].read_bytes() == png()
+        assert not list(projectless_folder.glob("*.noveltea-*"))
+        projectless_status = cmd("daemon", "status", broker=True)["daemon"]
+        assert projectless_status["running"] and projectless_status[
+            "engineeringCounters"]["disposableSpawns"] >= 1, projectless_status
+        assert projectless_status["engineeringCounters"]["disposableQueues"] > projectless_before
 
         Handler.mode = "corrupt"
         invalid = cmd(*base, "--output", output, status=4)
@@ -209,6 +224,40 @@ with TemporaryDirectory(prefix="noveltea-comfyui-run-") as temporary:
         assert previous.read_bytes() == b"older bytes"
         assert not list(mixed_folder.glob("*.noveltea-backup"))
         assert not list(mixed_folder.glob("*.noveltea-stage"))
+
+        # The brokered native worker must hand off Project mutation to the
+        # resident C++ owner and accept filesystem-only output atomically.
+        broker_assets = cmd("--project", project, "comfyui", "run",
+                            "flux2-klein-text-to-image", "--input", "prompt=broker",
+                            broker=True)
+        asset = broker_assets["outputs"]["images"][0]
+        assert asset["assetId"] and (project / asset["projectRelativePath"]).read_bytes() == png()
+        human = subprocess.run(
+            [str(cli), "--project", str(project), "comfyui", "run",
+             "flux2-klein-text-to-image", "--input", "prompt=progress"],
+            cwd=root, env=broker_env, capture_output=True, text=True, timeout=30)
+        assert human.returncode == 0 and "completed" in human.stdout, human
+        assert "[publishing]" in human.stderr, human
+        broker_folder = root / "broker-files"
+        broker_folder.mkdir()
+        broker_files = cmd("--project", project, "comfyui", "run",
+                           "flux2-klein-text-to-image", "--input", "prompt=files",
+                           "--output", broker_folder, broker=True)
+        assert broker_files["success"] and len(list(broker_folder.glob("*.png"))) == 1
+        assert list(broker_folder.glob("*.png"))[0].read_bytes() == png()
+        assert not list(broker_folder.glob("*.noveltea-*"))
+        broker_mixed = cmd("--project", project, "comfyui", "run", "native-mixed-test",
+                           "--input", "prompt=mixed-broker", "--output",
+                           f"images={mixed_folder}", "--force", broker=True)
+        assert broker_mixed["success"], broker_mixed
+        broker_asset = broker_mixed["outputs"]["assetImage"][0]
+        assert (project / broker_asset["projectRelativePath"]).read_bytes() == png()
+        assert Path(broker_mixed["outputs"]["images"][0]["path"]).read_bytes() == png()
+        assert not list(mixed_folder.glob("*.noveltea-backup"))
+        assert not list(mixed_folder.glob("*.noveltea-stage"))
+        broker_status = cmd("daemon", "status", broker=True)["daemon"]
+        assert broker_status["engineeringCounters"]["snapshotHandoffs"] >= 3
+        cmd("daemon", "stop", broker=True)
 
         # Simulate the *native owner process* dying at three recovery edges.
         # The next installed CLI mutation must use the durable YAML commit
@@ -294,8 +343,30 @@ with TemporaryDirectory(prefix="noveltea-comfyui-run-") as temporary:
         assert process.returncode == 130 and interrupted["exitCode"] == 130, (stdout, stderr)
         assert Handler.last_prompt in Handler.deleted, Handler.deleted
         assert stderr == "" and not list(output.glob("*.noveltea-stage"))
+        # Cancellation must reach the pinned broker worker and remote ComfyUI
+        # queue without stopping the resident C++ Project owner.
+        Handler.submitted.clear()
+        broker_command = [str(cli), "--json", "--project", str(project),
+                          "comfyui", "run", "flux2-klein-text-to-image",
+                          "--input", "prompt=cancel-broker"]
+        before_assets = set((project / "records/assets").glob("*.yaml"))
+        process = subprocess.Popen(broker_command, cwd=root, env=broker_env, text=True,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        assert Handler.submitted.wait(10), "Native disposable worker did not submit its prompt"
+        remote_prompt = Handler.last_prompt
+        time.sleep(0.2)
+        process.send_signal(signal.SIGINT)
+        stdout, stderr = process.communicate(timeout=15)
+        assert process.returncode != 0, (stdout, stderr)
+        assert remote_prompt in Handler.deleted, (remote_prompt, Handler.deleted)
+        assert set((project / "records/assets").glob("*.yaml")) == before_assets
+        assert cmd("daemon", "status", broker=True)["daemon"]["running"]
         Handler.mode = "normal"
     finally:
+        try:
+            cmd("daemon", "stop", broker=True)
+        except (AssertionError, subprocess.TimeoutExpired):
+            pass
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)

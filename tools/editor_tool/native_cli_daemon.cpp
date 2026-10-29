@@ -4,6 +4,7 @@
 #include "native_cli_contract.hpp"
 #include "tooling_daemon_broker.hpp"
 #include "tooling_native_c.h"
+#include "tooling_native_project_asset.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -37,6 +38,12 @@ using Json = nlohmann::json;
 using ProjectRequest = std::function<nlohmann::ordered_json(const nlohmann::ordered_json&)>;
 std::optional<Json> pinned_project;
 std::function<bool()> disposable_cancelled;
+struct DisposableInvocation {
+    Json context;
+    std::uint64_t worker_id;
+    std::uint64_t token;
+};
+std::optional<DisposableInvocation> active_disposable;
 using NativeOperation = std::uint64_t (*)(const std::uint8_t*, std::uint64_t, std::uint8_t*,
                                           std::uint64_t);
 
@@ -341,7 +348,8 @@ Json run_owner_command(const Json& payload,
 {
     if (!payload.is_object() || !payload.contains("argv") || !payload["argv"].is_array() ||
         !payload.contains("cwd") || !payload["cwd"].is_string() ||
-        !payload.contains("ownerProjectRoot") || !payload["ownerProjectRoot"].is_string())
+        !payload.contains("ownerProjectRoot") ||
+        (!payload["ownerProjectRoot"].is_string() && !payload["ownerProjectRoot"].is_null()))
         throw std::runtime_error("Malformed native Project-owner invocation.");
     std::vector<std::string> argv{"--no-daemon"};
     for (const auto& part : payload["argv"]) {
@@ -485,12 +493,16 @@ void publish_project_snapshot(const Json& context, std::uint64_t worker_id,
         actions = {"project-validate", "shader-preparation"};
     else if (kind == "runtime")
         actions = {"runtime-package-preparation", "shader-preparation"};
+    else if (kind == "platform")
+        actions = {"platform-export-preparation"};
+    else if (kind == "comfyui")
+        actions = {"workspace-preflight", "project-validate"};
     else
         throw std::runtime_error("Unsupported native disposable preparation kind.");
     Json requests = Json::array();
     for (const auto& action : actions) {
         nlohmann::ordered_json request{{"action", action}, {"projectRoot", request_root}};
-        if (std::string_view(action) == "project-validate")
+        if (kind == "shader" && std::string_view(action) == "project-validate")
             request["includeFontCoverageInputs"] = true;
         requests.push_back({{"request", request}, {"response", project_request(request)}});
     }
@@ -565,10 +577,15 @@ int owner_process(const Json& context, std::uint64_t worker_id,
         Json completion{{"ownerWorkerId", worker_id}, {"token", token}};
         try {
             if (next.value("prepareDisposable", false)) {
+                const auto& payload = next.at("payload");
+                if (payload.value("nativeDisposableKind", std::string{}) == "comfyui") {
+                    if (const auto recovery =
+                            native_project_asset_recover(native_path_from_utf8(canonical_root)))
+                        throw std::runtime_error(*recovery);
+                }
                 const auto before = observe();
                 if (!before)
                     throw std::runtime_error("Cannot capture native Project authority.");
-                const auto& payload = next.at("payload");
                 ScopedEnvironment environment(payload.at("environment"));
                 ScopedDirectory cwd(payload.at("cwd").get<std::string>());
                 // Different workloads carry different projections of the same
@@ -602,6 +619,28 @@ int owner_process(const Json& context, std::uint64_t worker_id,
             };
             if (cancelled())
                 throw std::runtime_error("Native Project request cancelled before execution.");
+            if (payload.value("internalOperation", std::string{}) ==
+                "comfyui-asset-publication") {
+                const auto request = Json::parse(payload.at("internalRequestText").get<std::string>());
+                if (!request.is_object() ||
+                    (request.value("action", std::string{}) != "comfyui-assets" &&
+                     !request.contains("publicationTransactionPath")))
+                    throw std::runtime_error("Malformed native ComfyUI owner mutation.");
+                Json published{{"ok", true}, {"fields", {{"assets", Json::array()}}}};
+                if (request.value("action", std::string{}) == "comfyui-assets") {
+                    std::error_code error;
+                    const auto submitted_root = std::filesystem::canonical(
+                        native_path_from_utf8(request.value("projectRoot", std::string{})), error);
+                    if (error || submitted_root != native_path_from_utf8(canonical_root))
+                        throw std::runtime_error("ComfyUI mutation changed Project identity.");
+                    published = project_request(request);
+                }
+                require_ok(broker_call(context, "owner-internal-complete",
+                                       {{"ownerWorkerId", worker_id},
+                                        {"token", token},
+                                        {"resultText", published.dump()}}));
+                continue;
+            }
             completion["result"] = run_owner_command(payload, run_local);
             if (cancelled())
                 throw std::runtime_error(
@@ -651,20 +690,24 @@ int disposable_process(const Json& context, std::uint64_t worker_id,
     const auto token = next.at("token").get<std::uint64_t>();
     Json completion{{"disposableWorkerId", worker_id}, {"token", token}};
     try {
-        if (!next.value("hasProjectSnapshot", false))
+        if (next.value("hasProjectSnapshot", false)) {
+            std::string bytes;
+            const auto count = next.at("chunkCount").get<std::size_t>();
+            for (std::size_t index = 0; index < count; ++index) {
+                const auto chunk = broker_call(
+                    context, "disposable-snapshot-read",
+                    {{"disposableWorkerId", worker_id}, {"token", token}, {"index", index}});
+                require_ok(chunk);
+                bytes += chunk.at("chunk").get<std::string>();
+            }
+            pinned_project = Json::parse(bytes);
+            if (pinned_project->at("projectRoot") != next.at("canonicalRoot"))
+                throw std::runtime_error("Native snapshot Project identity mismatch.");
+        } else if (next.at("payload").value("nativeDisposableKind", std::string{}) !=
+                       "comfyui" ||
+                   !next.at("payload").value("ownerProjectRoot", Json(nullptr)).is_null()) {
             throw std::runtime_error("Native worker requires a pinned Project snapshot.");
-        std::string bytes;
-        const auto count = next.at("chunkCount").get<std::size_t>();
-        for (std::size_t index = 0; index < count; ++index) {
-            const auto chunk = broker_call(
-                context, "disposable-snapshot-read",
-                {{"disposableWorkerId", worker_id}, {"token", token}, {"index", index}});
-            require_ok(chunk);
-            bytes += chunk.at("chunk").get<std::string>();
         }
-        pinned_project = Json::parse(bytes);
-        if (pinned_project->at("projectRoot") != next.at("canonicalRoot"))
-            throw std::runtime_error("Native snapshot Project identity mismatch.");
         disposable_cancelled = [&] {
             const auto status = broker_call(context, "disposable-cancelled",
                                             {{"disposableWorkerId", worker_id}, {"token", token}});
@@ -672,6 +715,7 @@ int disposable_process(const Json& context, std::uint64_t worker_id,
         };
         if (disposable_cancelled())
             throw std::runtime_error("Native disposable request cancelled before execution.");
+        active_disposable = DisposableInvocation{context, worker_id, token};
         completion["result"] = run_owner_command(next.at("payload"), run_local);
         if (disposable_cancelled())
             throw std::runtime_error("Native disposable request cancelled during execution.");
@@ -681,6 +725,7 @@ int disposable_process(const Json& context, std::uint64_t worker_id,
         completion["error"] = error.what();
     }
     disposable_cancelled = {};
+    active_disposable.reset();
     pinned_project.reset();
     require_ok(broker_call(context, "disposable-complete", completion));
     return 0;
@@ -689,6 +734,92 @@ int disposable_process(const Json& context, std::uint64_t worker_id,
 } // namespace
 
 bool native_disposable_active() { return pinned_project.has_value(); }
+
+bool native_disposable_cancellation_requested()
+{
+    return disposable_cancelled && disposable_cancelled();
+}
+
+ComfyUiExecutionHooks native_disposable_comfyui_hooks(bool json_mode)
+{
+    if (!active_disposable)
+        return {};
+    const auto invocation = *active_disposable;
+    const auto call = [invocation](std::string_view action, Json fields) {
+        fields["disposableWorkerId"] = invocation.worker_id;
+        fields["token"] = invocation.token;
+        return broker_call(invocation.context, action, fields);
+    };
+    ComfyUiExecutionHooks hooks;
+    hooks.cancelled = [] { return native_disposable_cancellation_requested(); };
+    hooks.register_staged_output = [call](const std::filesystem::path& path) {
+        require_ok(call("disposable-register-staged-output", {{"stagedOutputPath", utf8_path(path)}}));
+    };
+    const auto mutate = [call](const Json& request) {
+        const auto response =
+            call("disposable-owner-mutation",
+                 {{"operation", "comfyui-asset-publication"}, {"requestText", request.dump()}});
+        require_ok(response);
+        if (!response.contains("result") || !response.at("result").is_object())
+            throw std::runtime_error("Native ComfyUI owner returned no publication result.");
+        return response.at("result");
+    };
+    hooks.commit_staged_project_assets = [mutate](const nlohmann::ordered_json& request) {
+        return nlohmann::ordered_json(mutate(request));
+    };
+    hooks.publish_staged_files = [mutate, register_output = hooks.register_staged_output](
+                                     const std::vector<ComfyUiStagedFilesystemOutput>& outputs) {
+        if (native_disposable_cancellation_requested())
+            throw std::runtime_error("Native ComfyUI publication cancelled.");
+        static std::atomic<std::uint64_t> sequence{1};
+        const auto transaction_path =
+            std::filesystem::temp_directory_path() /
+            ("noveltea-" + std::to_string(sequence.fetch_add(1)) + "-" +
+             std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+             ".noveltea-publication-transaction.json");
+        Json entries = Json::array();
+        for (const auto& output : outputs) {
+            std::error_code error;
+            const auto status = std::filesystem::symlink_status(output.final_path, error);
+            if (error && error != std::errc::no_such_file_or_directory)
+                throw std::runtime_error("Cannot inspect ComfyUI publication destination.");
+            const bool existed = status.type() != std::filesystem::file_type::not_found;
+            if (existed && (!output.force || !std::filesystem::is_regular_file(status) ||
+                            std::filesystem::is_symlink(status)))
+                throw std::runtime_error("ComfyUI publication destination changed.");
+            if (!std::filesystem::is_regular_file(output.staged_path) ||
+                std::filesystem::exists(output.backup_path))
+                throw std::runtime_error("ComfyUI staged publication is not safe.");
+            entries.push_back({{"stagedPath", utf8_path(output.staged_path)},
+                               {"finalPath", utf8_path(output.final_path)},
+                               {"backupPath", utf8_path(output.backup_path)},
+                               {"hadPrevious", existed}});
+        }
+        register_output(transaction_path);
+        {
+            std::ofstream out(transaction_path, std::ios::binary | std::ios::trunc);
+            if (!out || !(out << Json{{"format", "noveltea.output-publication-transaction"},
+                                     {"version", 1},
+                                     {"state", "prepared"},
+                                     {"entries", entries}}
+                                    .dump()
+                             << '\n') ||
+                !(out.flush()))
+                throw std::runtime_error("Cannot write ComfyUI publication journal.");
+        }
+        const auto response = mutate({{"publicationTransactionPath", utf8_path(transaction_path)}});
+        if (!response.value("ok", false))
+            throw std::runtime_error(response.value("error", "ComfyUI publication failed."));
+    };
+    if (!json_mode)
+        hooks.progress = [call](std::string_view stage, std::string_view message) {
+            (void)call("disposable-event", {{"event", {{"type", "progress"},
+                                                          {"message", "[" + std::string(stage) +
+                                                                          "] " +
+                                                                          std::string(message)}}}});
+        };
+    return hooks;
+}
 
 std::optional<nlohmann::ordered_json>
 pinned_native_project_request(const nlohmann::ordered_json& request)
@@ -711,7 +842,8 @@ pinned_native_project_request(const nlohmann::ordered_json& request)
     for (const auto& entry : pinned_project->at("requests"))
         if (entry.at("request") == Json(request))
             return nlohmann::ordered_json(entry.at("response"));
-    throw std::runtime_error("Immutable worker cannot reopen live Project authority.");
+    throw std::runtime_error("Immutable worker cannot reopen live Project authority for action '" +
+                             request.value("action", std::string{}) + "'.");
 }
 
 std::optional<std::string> native_daemon_certification_runtime_root()
@@ -745,7 +877,7 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
                                     : mutation               ? "owner-mutation"
                                                              : "owner-short"},
                  {"nativeDisposableKind", disposable_kind},
-                 {"ownerProjectRoot", project_root},
+                 {"ownerProjectRoot", project_root.empty() ? Json(nullptr) : Json(project_root)},
                  {"ownerProjectRootExplicit", explicit_project},
                  {"replaySafe", !mutation},
                  {"streamedEvents", false},
