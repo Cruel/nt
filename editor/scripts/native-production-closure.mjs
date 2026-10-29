@@ -40,6 +40,9 @@ const retiredAuthority = new Set([
   'scripts/generate-compiled-project-goldens.ts',
 ]);
 
+// #551 retired every TypeScript CLI adapter, not just the old entrypoint.
+const isRetiredSource = (module) => module.startsWith('src/cli/') || retiredAuthority.has(module);
+
 const bundledExtensions = new Set(['.js', '.mjs', '.cjs']);
 
 function isPureForwarder(text) {
@@ -147,7 +150,7 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
           );
         for (const source of entry.modules) {
           const module = sourceModule(source);
-          if (module && retiredAuthority.has(module))
+          if (module && isRetiredSource(module))
             violations.push(`${emittedIdentity} includes retired Project authority ${module}`);
         }
         // A forged module list must not conceal a retired module that is
@@ -170,7 +173,7 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
         const declared = new Set(entry.modules.map(sourceModule));
         for (const source of observed) {
           const module = sourceModule(source);
-          if (module && retiredAuthority.has(module) && !declared.has(module))
+          if (module && isRetiredSource(module) && !declared.has(module))
             violations.push(`${emittedIdentity} hides emitted retired Project authority ${module}`);
         }
         continue;
@@ -204,7 +207,7 @@ export async function verifyNativeProductionClosure(artifactRoots, options = {})
       }
       for (const source of sources) {
         const module = sourceModule(source);
-        if (module && retiredAuthority.has(module))
+        if (module && isRetiredSource(module))
           violations.push(`${emittedIdentity} includes retired Project authority ${module}`);
       }
     }

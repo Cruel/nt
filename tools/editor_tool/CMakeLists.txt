@@ -167,15 +167,10 @@ noveltea_apply_policy_warnings(noveltea-tooling-bridge)
 # The standalone release executable is direct C++; editor tooling remains a
 # separate native library for Electron and tests.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts"
+    "${CMAKE_CURRENT_SOURCE_DIR}/native_cli_help.txt"
     "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts"
     "${CMAKE_SOURCE_DIR}/VERSION")
-file(READ "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts" _cli_contract)
-string(REGEX MATCH "export const NOVELTEA_CLI_HELP = `([^`]+)`;" _cli_help "${_cli_contract}")
-if(NOT _cli_help)
-    message(FATAL_ERROR "Cannot extract the canonical CLI help contract")
-endif()
-set(NOVELTEA_NATIVE_CLI_HELP "${CMAKE_MATCH_1}")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/native_cli_help.txt" NOVELTEA_NATIVE_CLI_HELP)
 file(READ "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts" _collections)
 string(REGEX MATCH "authoringCollectionKeys = \\[([^]]+)\\] as const" _collection_keys "${_collections}")
 if(NOT _collection_keys)
@@ -226,9 +221,8 @@ add_custom_command(OUTPUT "${_native_agent_kit_header}"
     DEPENDS
         "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-agent-kit.mjs"
         "${CMAKE_SOURCE_DIR}/editor/scripts/native-agent-kit-loader.mjs"
-        "${CMAKE_SOURCE_DIR}/editor/src/cli/agent-kit.ts"
-        "${CMAKE_SOURCE_DIR}/editor/src/cli/agent-kit/source.ts"
-        "${CMAKE_SOURCE_DIR}/editor/src/cli/static-contracts.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/agent-kit/agent-kit.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/agent-kit/source.ts"
         "${CMAKE_SOURCE_DIR}/editor/src/shared/product-version.ts"
         "${CMAKE_SOURCE_DIR}/editor/src/shared/schema-static-contracts.ts"
         "${CMAKE_SOURCE_DIR}/editor/agent-kit-provenance.json"

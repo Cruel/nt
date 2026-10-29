@@ -291,7 +291,7 @@ are no longer requested. The persistent lock inode must not be unlinked while an
 Read-only `--check` performs in-memory native compilation/localization evaluation and requires explicit
 acknowledgement for release localization warnings without creating runtime or output artifacts. Local
 export configuration is strictly validated; the standalone native CLI now loads the same shared
-`~/.noveltea/config.json` signing profiles and toolchain settings as the editor/TypeScript CLI.
+`~/.noveltea/config.json` signing profiles and toolchain settings as the editor/native C++ CLI.
 An explicit `--config` overrides that user state; `--signing-profile <id>` resolves exactly one
 named matching-target signer, and bare `--sign` requires exactly one matching signer. Unknown,
 missing, and ambiguous signers have `platform.signing_profile_required` diagnostics rather than

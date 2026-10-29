@@ -1817,14 +1817,13 @@ jobs:
         run: node editor/scripts/certify-native-daemon-validation.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
 
       - name: Certify native CLI command inventory on this host
-        run: node editor/scripts/certify-native-cli-inventory.mjs
+        run: node editor/scripts/certify-native-cli-inventory.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
 
       - name: Certify native CLI record inspection parity on this host
         run: node editor/scripts/certify-native-cli-commands.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
 
-      # The platform candidate certification materializes its canonical Web
-      # export fixture via the packed node-tools entrypoint. Pack before that
-      # certification, not only before the later editor cross-system test.
+      # Pack the editor's native-operation integration and development forwarder
+      # before the host integration certification. No TypeScript CLI oracle is built.
       - name: Build native editor certification tool bundle
         run: pnpm -C editor exec vp pack
 

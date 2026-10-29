@@ -4,7 +4,7 @@ import { deflateSync } from 'node:zlib';
 
 if (process.argv.length !== 3) throw new Error('Expected generated header output path.');
 register('./native-agent-kit-loader.mjs', import.meta.url);
-const { createNovelTeaAgentKitPayload } = await import('../src/cli/agent-kit.ts');
+const { createNovelTeaAgentKitPayload } = await import('../src/shared/agent-kit/agent-kit.ts');
 const payload = createNovelTeaAgentKitPayload();
 const contents = Buffer.from(JSON.stringify(payload), 'utf8');
 const packed = deflateSync(contents, { level: 9 });
@@ -18,7 +18,7 @@ for (let offset = 0; offset < packed.length; offset += 16)
       ',',
   );
 const result = [
-  '// Generated from the exact public TypeScript Agent Kit payload. Do not edit.',
+  '// Generated from the build-time Agent Kit source payload. Do not edit.',
   '#pragma once',
   '#include <array>',
   `inline constexpr std::size_t native_agent_kit_uncompressed_size = ${contents.length};`,

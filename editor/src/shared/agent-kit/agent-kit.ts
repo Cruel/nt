@@ -1,25 +1,22 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import {
-  systemLayoutRoleValues,
-  type SystemLayoutRole,
-} from '../shared/project-schema/authoring-layouts';
+import { systemLayoutRoleValues, type SystemLayoutRole } from '../project-schema/authoring-layouts';
 import {
   createNovelTeaRawSchemaFiles,
   createNovelTeaCompactReferenceFiles,
-} from '../shared/project-schema/schema-reference';
+} from '../project-schema/schema-reference';
 export {
   createNovelTeaCompactReferenceFiles,
   createNovelTeaRawSchemaFiles,
   createNovelTeaWebsiteSchemaReference,
-} from '../shared/project-schema/schema-reference';
-import { PROJECT_WORKSPACE_SCHEMA_VERSION } from '../shared/project-workspace/project-workspace-contracts';
-import { NOVELTEA_CLI_VERSION } from './contracts';
+} from '../project-schema/schema-reference';
+import { PROJECT_WORKSPACE_SCHEMA_VERSION } from '../project-workspace/project-workspace-contracts';
+import { NOVELTEA_VERSION } from '../product-version';
 import {
   loadAgentKitProvenance,
   loadAgentKitSourceFiles,
   loadAgentKitSystemLayoutSourceFiles,
-} from './agent-kit/source';
+} from './source';
 
 export const NOVELTEA_AGENT_KIT_SCHEMA = 'noveltea.agent-kit.manifest' as const;
 
@@ -261,7 +258,7 @@ export function createNovelTeaAgentKitPayload(
   );
   const manifest = {
     schema: NOVELTEA_AGENT_KIT_SCHEMA,
-    cliVersion: NOVELTEA_CLI_VERSION,
+    cliVersion: NOVELTEA_VERSION,
     projectWorkspaceVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
     files: hashes,
     provenance: normalizeAgentKitProvenance(provenanceSource, sourceFiles),

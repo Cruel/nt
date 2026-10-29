@@ -164,7 +164,7 @@ void test('pure emitted ESM forwarding chunks do not need redundant provenance',
     );
     await writeFile(
       path.join(island, 'safe.mjs'),
-      '//#region src/cli/native-project-reads-cli.ts\nexport const n = 1;\n',
+      '//#region src/shared/product-version.ts\nexport const n = 1;\n',
     );
     assert.deepEqual(await verifyNativeProductionClosure([electron, island]), []);
   });
@@ -309,7 +309,7 @@ void test('a manifest may identify an emitted forwarding-only chunk without owni
         version: 1,
         chunks: {
           'forwarder.mjs': { sha256: hash(forwarder), modules: [] },
-          'native.mjs': { sha256: hash(native), modules: ['src/cli/native-project-reads-cli.ts'] },
+          'native.mjs': { sha256: hash(native), modules: ['src/shared/product-version.ts'] },
         },
       }),
     );

@@ -522,7 +522,7 @@ jobs:
         run: pnpm -C editor run noveltea:build
 
       - name: Certify exhaustive native CLI public command inventory
-        run: node editor/scripts/certify-native-cli-inventory.mjs
+        run: node editor/scripts/certify-native-cli-inventory.mjs "$PWD/build/cli/linux/noveltea"
 
       - name: Certify native CLI Project mutation parity
         run: |
@@ -547,10 +547,10 @@ jobs:
       - name: Certify native CLI platform preflight and publication parity
         run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
 
-      - name: Differentially certify native platform template and config commands
+      - name: Certify installed native platform template and config commands
         env:
           NOVELTEA_NATIVE_CLI_BINARY: ${{ github.workspace }}/build/cli/linux/noveltea
-        run: pnpm -C editor exec vp test src/renderer/test/native-platform-command-differential.test.ts
+        run: pnpm -C editor exec vp test src/renderer/test/native-platform-command-contracts.test.ts
 
       - name: Certify cross-host native macOS and Android export and publication recovery
         run: |

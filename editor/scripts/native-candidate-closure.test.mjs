@@ -20,8 +20,6 @@ const candidates = [
   'shared/authoring-source-downstream.ts',
   'shared/authoring-native-lua-sources.ts',
   'shared/runtime-artifact-preparation.ts',
-  'cli/native-project-package-cli.ts',
-  'cli/native-project-tests-cli.ts',
   'main/services/native-authoring-runtime-preparation.ts',
   'main/services/native-runtime-tool-service.ts',
   'main/services/project-editor-metadata-service.ts',
@@ -135,10 +133,6 @@ void test('native candidate editor, CLI and runtime lowering contain no retired 
       `Candidate closure not resolved: ${root}`,
     );
     assert.deepEqual(forbiddenEdges(chain, sourceRoot), [], root);
-    if (root.startsWith('cli/native-project-'))
-      assert.ok(
-        [...chain.keys()].some((file) => file.endsWith('/runtime-artifact-preparation.ts')),
-      );
   }
 });
 
