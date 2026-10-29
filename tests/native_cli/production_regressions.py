@@ -4,7 +4,6 @@
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -57,14 +56,20 @@ with tempfile.TemporaryDirectory(prefix="noveltea-522-regression-") as scratch:
     command("daemon", "stop")
     print("Default daemon and --no-daemon reconciliation stdin agree.")
 
-    project = root / "feature-lab"
-    shutil.copytree(repo / "tests/projects/feature-lab", project,
-                    ignore=shutil.ignore_patterns(".noveltea"))
+    # This regression is about output parents and symlink safety, not media
+    # preparation. Use a fresh playable Project so the cold native package
+    # build exercises real publication without requiring Feature Lab's FFmpeg.
+    project = root / "export-project"
+    command("project", "create", project, "--name", "Native Export Path")
+    command("--no-daemon", "--project", project, "entity", "create", "rooms", "start")
+    with (project / "project.yaml").open("a", encoding="utf-8") as manifest:
+        manifest.write("\nentrypoint:\n  kind: room\n  id: start\n")
     destination = root / "nonexistent" / "child" / "nested" / "game.ntpkg"
     package_args = ("--no-daemon", "--project", project, "package", "export",
                     "--allow-localization-warnings", "--output")
     output = command(*package_args, destination, timeout=180)
     assert output["success"] and zipfile.is_zipfile(destination), output
+    assert output["runtimeCache"]["status"] == "miss" and output["runtimeCache"]["published"], output
     assert not list(destination.parent.glob("*.tmp-*"))
     # An existing symlink in a parent component must never be followed, even
     # when the final destination is otherwise a replaceable regular file.
