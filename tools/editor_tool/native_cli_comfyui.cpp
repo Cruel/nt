@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <csignal>
@@ -17,6 +16,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <locale>
 #include <map>
 #include <optional>
 #include <random>
@@ -1351,9 +1351,11 @@ Json coerce_input(const std::string& id, const std::string& type, const std::str
             return false;
     } else {
         double number = 0;
-        const auto [end, error] =
-            std::from_chars(supplied.data(), supplied.data() + supplied.size(), number);
-        if (error == std::errc{} && end == supplied.data() + supplied.size() &&
+        // Floating-point from_chars is unavailable at our macOS 14 deployment target.
+        std::istringstream parser(supplied);
+        parser.imbue(std::locale::classic());
+        parser >> std::noskipws >> number;
+        if (!supplied.starts_with('+') && !parser.fail() && parser.peek() == EOF &&
             std::isfinite(number)) {
             if (type == "number")
                 return number;

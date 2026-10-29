@@ -6728,9 +6728,13 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
                                       response, response_capacity);
             // Acquire the process handle before requesting stop: a named pipe can disappear
             // before the broker exits, and a later PID lookup could refer to another process.
-            daemon_handle = OpenProcess(
-                SYNCHRONIZE, FALSE, static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>()));
-            if (!daemon_handle && GetLastError() != ERROR_INVALID_PARAMETER)
+            const auto daemon_pid = static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>());
+            // Native broker tests run the server inside this process. Waiting for
+            // our own process to exit would deadlock every in-process stop.
+            if (daemon_pid != GetCurrentProcessId())
+                daemon_handle = OpenProcess(SYNCHRONIZE, FALSE, daemon_pid);
+            if (daemon_pid != GetCurrentProcessId() && !daemon_handle &&
+                GetLastError() != ERROR_INVALID_PARAMETER)
                 return write_response({{"ok", false},
                                        {"error", "failed to open daemon process for shutdown wait"}},
                                       response, response_capacity);
@@ -6747,6 +6751,16 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
                 const auto status = client_request(*context, "status", "stop-status");
                 if (status.value("ok", false) && !status.value("running", false))
                     result = status;
+            }
+        } else if (was_running || !result.value("ok", false)) {
+            const auto deadline = Clock::now() + std::chrono::seconds(2);
+            while (Clock::now() < deadline) {
+                const auto status = client_request(*context, "status", "stop-status");
+                if (status.value("ok", false) && !status.value("running", false)) {
+                    result = status;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
 #else

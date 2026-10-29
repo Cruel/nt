@@ -239,21 +239,24 @@ function exportArgs(extra = []) {
   ];
 }
 
+async function assertPublishedIdentity(project) {
+  // The native publisher records identity in a sidecar, never by creating or
+  // replacing the editor-owned state.json (which contains recovery drafts).
+  const identity = JSON.parse(
+    await readFile(path.join(project, '.noveltea/editor/platform-export-identity.json'), 'utf8'),
+  );
+  assert.equal(identity.format, 'noveltea.platform-export-identity');
+  assert.equal(identity.applicationId, applicationId);
+  await assert.rejects(lstat(path.join(project, '.noveltea/editor/state.json')), {
+    code: 'ENOENT',
+  });
+}
+
 async function comparePublished() {
   if (independentMode) {
     for (const file of ['index.html', 'manifest.webmanifest', 'player.json'])
       assert.ok((await stat(path.join(candidate, 'dist/platform-web', file))).isFile(), file);
-    // The C++ publisher must not overwrite editor-owned drafts/recovery state.
-    // It records the successful identity in an editor-local sidecar, merged
-    // into state when the editor next opens the Project.
-    const identity = JSON.parse(
-      await readFile(
-        path.join(candidate, '.noveltea/editor/platform-export-identity.json'),
-        'utf8',
-      ),
-    );
-    assert.equal(identity.format, 'noveltea.platform-export-identity');
-    assert.equal(identity.applicationId, applicationId);
+    await assertPublishedIdentity(candidate);
     const player = JSON.parse(
       await readFile(path.join(candidate, 'dist/platform-web/player.json')),
     );
@@ -274,16 +277,7 @@ async function comparePublished() {
     const right = await readFile(path.join(candidate, 'dist/platform-web', name));
     assert.deepEqual(right, left, `Native platform publication changed ${name} bytes.`);
   }
-  for (const project of [oracle, candidate]) {
-    const state = JSON.parse(
-      await readFile(path.join(project, '.noveltea/editor/state.json'), 'utf8'),
-    );
-    assert.ok(
-      state.lastSuccessfulPlatformExportIdentity,
-      'Successful export omitted local identity.',
-    );
-    assert.equal(state.lastSuccessfulPlatformExportIdentity.applicationId, applicationId);
-  }
+  for (const project of [oracle, candidate]) await assertPublishedIdentity(project);
   const oraclePlayer = JSON.parse(
     await readFile(path.join(oracle, 'dist/platform-web/player.json')),
   );
@@ -451,22 +445,12 @@ try {
   );
 
   for (const project of projects) {
-    if (independentMode) {
-      const filename = path.join(project, '.noveltea/editor/platform-export-identity.json');
-      const identity = JSON.parse(await readFile(filename, 'utf8'));
-      identity.applicationId = 'com.example.old';
-      identity.saveNamespace = 'old-save';
-      identity.completedAt = '9999-12-31T23:59:59.999Z';
-      await writeFile(filename, JSON.stringify(identity));
-    } else {
-      const filename = path.join(project, '.noveltea/editor/state.json');
-      const state = JSON.parse(await readFile(filename, 'utf8'));
-      state.lastSuccessfulPlatformExportIdentity = {
-        applicationId: 'com.example.old',
-        saveNamespace: 'old-save',
-      };
-      await writeFile(filename, JSON.stringify(state));
-    }
+    const filename = path.join(project, '.noveltea/editor/platform-export-identity.json');
+    const identity = JSON.parse(await readFile(filename, 'utf8'));
+    identity.applicationId = 'com.example.old';
+    identity.saveNamespace = 'old-save';
+    identity.completedAt = '9999-12-31T23:59:59.999Z';
+    await writeFile(filename, JSON.stringify(identity));
   }
   compare(exportArgs(['--check', '--force', '--allow-untrusted-template']), {
     expectedSuccess: false,

@@ -26,10 +26,15 @@
 #include <string>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <Windows.h>
 #else
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#endif
 #endif
 
 namespace noveltea::cli {
@@ -145,7 +150,12 @@ Environment current_environment()
     }
     FreeEnvironmentStringsW(block);
 #else
-    for (auto** item = ::environ; item && *item; ++item) {
+#if defined(__APPLE__)
+    auto** environment = *_NSGetEnviron();
+#else
+    auto** environment = ::environ;
+#endif
+    for (auto** item = environment; item && *item; ++item) {
         const std::string_view setting(*item);
         const auto equals = setting.find('=');
         if (equals != std::string_view::npos && equals != 0)
