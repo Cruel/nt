@@ -97,9 +97,9 @@ explicit CLI-only subset). The test invokes the actual native executable:
   structured usage failure; pre-dispatch broker fallback replays the bytes
   through the localization handler, not the Test handler.
 - Native Runtime Package export creates a missing nested output directory and
-  publishes a real `.ntpkg`; symlinked output-parent components are rejected
-  before staged publication. The final target remains subject to the existing
-  replacement and publication checks.
+  publishes a real `.ntpkg`; user-controlled symlinked output-parent
+  components are rejected before staged publication. The final target remains
+  subject to the existing replacement and publication checks.
 - The controlled POSIX curl helper returns valid GET verification data then
   exits before reading a POST request. Both short and 100 KB ComfyUI prompts
   must return `COMFYUI_SERVER_UNAVAILABLE` with exit 4 and a single JSON
@@ -136,6 +136,30 @@ evidence, not a passing post-cutover measurement. #522 needs a replacement
 production-owned benchmark for comparable cold/warm, scoped Save, YAML/Lua and
 full export work before the dual slowdown threshold can be evaluated. No
 equivalence or waiver has been inferred from unrelated process-wall timings.
+
+### macOS Runtime Package output-path portability follow-up
+
+The #522 regression review identified that rejecting every symlink component
+of an output parent also rejected macOS's standard `/tmp` and `/var` aliases
+to `/private/tmp` and `/private/var`. The path normalizer now resolves **only**
+these two aliases, and only when their actual canonical destinations exactly
+match the known macOS system locations. The rest of the output-directory walk
+still rejects symlinks, including user-controlled symlinks below an approved
+alias. The regression harness resolves its primary system-provided temporary
+root and explicitly exercises output through macOS `/tmp`, `/var/tmp`, and
+`/var/folders` (when used by the system temp directory), as well as a nested
+user symlink. Linux checks do not certify the macOS-specific branch; the
+exact-revision macOS certification run remains required before sign-off.
+
+Local Linux evidence at `ca4e3d92` with the uncommitted portability patch:
+the rebuilt installed native CLI passed the full **10/10-stage** production
+certification, including the existing path/symlink regression cases, and the
+focused qualification/CI checks passed **12/12**. Repository-pinned
+clang-format 18.1.8 passed its 719-file check. The release CMake build had
+`BUILD_TESTING` disabled, so the native path regression was run by the
+production certification runner rather than claimed as a local CTest pass.
+The macOS-specific positive alias cases were not executable on this Linux
+host, and no final host certification or performance sign-off is inferred.
 
 ## Reusable acceptance harness (originally prepared before cutover)
 
