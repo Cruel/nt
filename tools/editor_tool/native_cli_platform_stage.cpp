@@ -3043,7 +3043,7 @@ PlatformCliResult stage_android_export(const Json& admission, const Json& profil
         const int height = resolution.at("height").get<int>();
         if (width <= 0 || height <= 0)
             return failure("platform-runtime-display", "Android reference resolution is invalid.");
-        const auto orientation = width >= height ? "landscape" : "portrait";
+        const std::string orientation = width >= height ? "landscape" : "portrait";
         const auto divisor = std::gcd(width, height);
         const Json display{{"referenceResolution", resolution},
                            {"worldRasterPolicy", options.at("display").at("world_raster_policy")},
