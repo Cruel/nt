@@ -1259,6 +1259,28 @@ int package_from_native_runtime(const Arguments& args)
                     "Native package admission omitted its physical source generation.",
                     cache_fields);
 
+    // Preserve writeBytesAtomic's missing-parent behavior without following a
+    // symlink (including a dangling one) in the destination directory chain.
+    // The final file and staging paths are checked independently below.
+    auto directory = target.root_path();
+    for (const auto& component : target.parent_path().relative_path()) {
+        directory /= component;
+        std::error_code error;
+        auto status = std::filesystem::symlink_status(directory, error);
+        if (error == std::errc::no_such_file_or_directory) {
+            error.clear();
+            std::filesystem::create_directory(directory, error);
+            if (error)
+                return fail(4, "export.output_invalid",
+                            "Could not safely create the Runtime Package output directory.",
+                            cache_fields);
+            status = std::filesystem::symlink_status(directory, error);
+        }
+        if (error || std::filesystem::is_symlink(status) || !std::filesystem::is_directory(status))
+            return fail(4, "export.output_invalid",
+                        "Runtime Package output parent is not a safe directory.", cache_fields);
+    }
+
     struct StagedOutput {
         std::filesystem::path path;
         ~StagedOutput()
@@ -2578,15 +2600,23 @@ int run(const std::vector<std::string>& argv)
                 }
                 if (!warm_runtime) {
                     std::optional<std::string> stdin_text;
-                    if (family == "test" &&
-                        (operation == "run-spec" || operation == "run-ui-spec")) {
+                    const bool test_spec_stdin =
+                        family == "test" && (operation == "run-spec" || operation == "run-ui-spec");
+                    const bool reconcile_stdin =
+                        family == "localization" && operation == "reconcile" &&
+                        std::find(args.command.begin(), args.command.end(), "--apply") !=
+                            args.command.end();
+                    if (test_spec_stdin || reconcile_stdin) {
                         stdin_text.emplace();
                         char buffer[4096];
                         while (std::cin.read(buffer, sizeof(buffer)) || std::cin.gcount()) {
                             stdin_text->append(buffer, static_cast<std::size_t>(std::cin.gcount()));
                             if (stdin_text->size() > 8 * 1024 * 1024)
-                                return usage(args.json,
-                                             "Test spec stdin exceeds the native input limit.");
+                                return usage(
+                                    args.json,
+                                    test_spec_stdin
+                                        ? "Test spec stdin exceeds the native input limit."
+                                        : "Reconciliation stdin exceeds the native input limit.");
                         }
                     }
                     if (const auto routed = route_native_project_owner(
@@ -2606,7 +2636,8 @@ int run(const std::vector<std::string>& argv)
                             }
                         } restore_input{std::cin.rdbuf(input.rdbuf())};
                         std::cin.clear();
-                        return tests_from_native_runtime(args);
+                        return test_spec_stdin ? tests_from_native_runtime(args)
+                                               : localization(args);
                     }
                 }
             }

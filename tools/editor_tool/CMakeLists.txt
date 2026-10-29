@@ -382,6 +382,10 @@ if(BUILD_TESTING)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_production_regressions
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/production_regressions.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(native_cli_production_regressions PROPERTIES TIMEOUT 420)
     add_test(NAME native_cli_daemon_owner
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/daemon_owner.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")

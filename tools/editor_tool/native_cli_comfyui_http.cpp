@@ -22,6 +22,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <pthread.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -305,6 +306,37 @@ ComfyUiHttpResult fetch_plain_http(const Url& url, const std::string& endpoint, 
 
 // On POSIX, the OS curl client supplies certificate validation for remote HTTPS.
 // HTTP remains self-contained and never depends on the availability of curl.
+bool write_curl_stdin(int fd, const std::string& payload)
+{
+    // POSIX write(2) raises SIGPIPE when the helper exits early. Block it for
+    // this thread only; restoring the original mask without consuming a new
+    // pending SIGPIPE would simply deliver the signal on return.
+    sigset_t pipe_signal, old_mask, pending;
+    sigemptyset(&pipe_signal);
+    sigaddset(&pipe_signal, SIGPIPE);
+    if (pthread_sigmask(SIG_BLOCK, &pipe_signal, &old_mask) != 0)
+        return false;
+    const bool previously_pending =
+        sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1;
+    std::size_t sent = 0;
+    while (sent < payload.size()) {
+        const auto n = write(fd, payload.data() + sent, payload.size() - sent);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            break;
+        sent += static_cast<std::size_t>(n);
+    }
+    // sigwait is supported by both Linux and macOS. Consume only the SIGPIPE
+    // raised by our write, never one that predates this temporary mask.
+    if (!previously_pending && sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
+        int signal = 0;
+        sigwait(&pipe_signal, &signal);
+    }
+    pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
+    return sent == payload.size();
+}
+
 ComfyUiHttpResult fetch_https(const Url& url, const std::string& endpoint, int timeout,
                               const std::string& method, const std::string& payload,
                               const std::string& content_type, std::size_t maximum)
@@ -359,13 +391,7 @@ ComfyUiHttpResult fetch_https(const Url& url, const std::string& endpoint, int t
     close(inputfd[0]);
     // Requests are bounded to small JSON or an image upload. Do not keep a
     // writable pipe open after the payload: curl must observe EOF.
-    std::size_t sent = 0;
-    while (sent < payload.size()) {
-        const auto n = write(inputfd[1], payload.data() + sent, payload.size() - sent);
-        if (n <= 0)
-            break;
-        sent += static_cast<std::size_t>(n);
-    }
+    const bool sent = write_curl_stdin(inputfd[1], payload);
     close(inputfd[1]);
     std::string bytes;
     std::array<char, 8192> block{};
@@ -377,7 +403,7 @@ ComfyUiHttpResult fetch_https(const Url& url, const std::string& endpoint, int t
         kill(pid, SIGKILL);
     int status = 0;
     waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    if (!sent || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
         return {.timed_out = WIFEXITED(status) && WEXITSTATUS(status) == 28};
     return {.ok = true, .bytes = std::move(bytes)};
 }
