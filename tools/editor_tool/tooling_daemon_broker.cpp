@@ -3926,9 +3926,9 @@ private:
                             active->second.payload.value("ownerProjectRoot", Json(nullptr))
                                 .is_null() &&
                             worker != disposable_workers_.end()) {
-                            const auto found = std::find(
-                                worker->second.staged_outputs.begin(),
-                                worker->second.staged_outputs.end(), *publication_transaction_path);
+                            const auto found = std::find(worker->second.staged_outputs.begin(),
+                                                         worker->second.staged_outputs.end(),
+                                                         *publication_transaction_path);
                             if (found != worker->second.staged_outputs.end()) {
                                 worker->second.staged_outputs.erase(found);
                                 projectless = true;
@@ -3946,9 +3946,9 @@ private:
                                            active->second.disposable_worker_id == worker_id &&
                                            !active->second.cancelled;
                         }
-                        const bool accepted = activated && still_active &&
-                                              accept_publication_transaction(
-                                                  *publication_transaction_path);
+                        const bool accepted =
+                            activated && still_active &&
+                            accept_publication_transaction(*publication_transaction_path);
                         if (!accepted)
                             (void)recover_publication_transaction(*publication_transaction_path);
                         client->send(result_event_json(
