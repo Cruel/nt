@@ -373,17 +373,29 @@ jobs:
             macOS-arm64-ccache-
       - name: Build NovelTea macOS host CLI
         run: pnpm -C editor run noveltea:build
+      # Keep the shipped ScriptC host separate from the native C++ exporter
+      # under certification until the CLI cutover is complete.
+      - name: Build native C++ macOS export certification CLI
+        run: cmake --build --preset macos-authoring-release --target noveltea-native-cli
       - name: Audit macOS host CLI deployment target
         shell: bash
         run: |
           set -euo pipefail
           minos="$(otool -l build/cli/macos/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
           test "$minos" = "14.0"
+          native_minos="$(otool -l build/macos-authoring-release/tools/editor_tool/native-cli/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
+          test "$native_minos" = "14.0"
       - name: Upload NovelTea macOS host CLI
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-release-host-cli-macos-arm64
           path: build/cli/macos
+          if-no-files-found: error
+      - name: Upload native C++ macOS export certification CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-native-cli-macos-arm64
+          path: build/macos-authoring-release/tools/editor_tool/native-cli/
           if-no-files-found: error
 
   desktop-hosts:
@@ -844,6 +856,11 @@ jobs:
         with:
           name: noveltea-release-host-cli-macos-arm64
           path: build/cli/macos
+      - name: Download native C++ macOS export certification CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-native-cli-macos-arm64
+          path: build/cli/macos-native
       - name: Verify macOS build artifacts and executable bits
         shell: bash
         run: |
@@ -852,7 +869,11 @@ jobs:
           test -f build/macos-release/runtime-assets/project/projects/runtime_presentation_package.ntpkg
           test -f dist/noveltea-dependency-audit-macos-arm64.json
           test -f build/cli/macos/noveltea
+          test -f build/cli/macos-native/noveltea
+          test -f build/cli/macos-native/noveltea-ui-test-runner
+          test -f build/cli/macos-native/assets/system/fonts/LiberationSans.ttf
           chmod +x build/cli/macos/noveltea build/cli/macos/noveltea-ui-test-runner
+          chmod +x build/cli/macos-native/noveltea build/cli/macos-native/noveltea-ui-test-runner
       - name: Finalize and launch macOS app bundle export
         working-directory: editor
         env:
@@ -873,7 +894,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 tests/native_cli/macos_release_smoke.py \
-            "$PWD/build/cli/macos/noveltea" \
+            "$PWD/build/cli/macos-native/noveltea" \
             "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-macos-arm64-release.tar.gz" \
             "$PWD" \
             "$PWD/dist/noveltea-native-macos-release-certification.json"

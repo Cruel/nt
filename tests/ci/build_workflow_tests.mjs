@@ -773,9 +773,17 @@ test('macOS player and CLI compile concurrently with independent triplets and ar
   assert.match(cli, /run: pnpm -C editor run noveltea:build/);
   assert.match(cli, /noveltea-release-host-cli-macos-arm64/);
   assert.match(cli, /macos-authoring-release\/vcpkg_installed/);
+  assert.match(cli, /cmake --build --preset macos-authoring-release --target noveltea-native-cli/);
+  assert.match(cli, /noveltea-release-native-cli-macos-arm64/);
   assert.match(certify, /needs: \[release-metadata, desktop-hosts, macos-cli\]/);
   assert.match(certify, /noveltea-release-macos-player-build/);
   assert.match(certify, /noveltea-release-host-cli-macos-arm64/);
+  assert.match(certify, /noveltea-release-native-cli-macos-arm64/);
+  assert.match(certify, /test -f build\/cli\/macos-native\/noveltea/);
+  assert.match(certify, /test -f build\/cli\/macos-native\/assets\/system\/fonts\/LiberationSans\.ttf/);
+  assert.match(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos-native\/noveltea"/);
+  assert.doesNotMatch(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos\/noveltea"/);
+  assert.match(certify, /NOVELTEA_CLI: \$\{\{ github\.workspace \}\}\/build\/cli\/macos\/noveltea/);
   assert.ok(certify.indexOf('Download macOS host CLI') < certify.indexOf('Finalize and launch macOS app bundle export'));
   assert.match(certify, /noveltea-platform-certification-macos-arm64-release\.json/);
   assert.match(certify, /noveltea-desktop-host-macos-arm64-release-dist/);
