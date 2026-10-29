@@ -13,6 +13,7 @@ const buildRoot = process.argv[5] ? path.resolve(process.argv[5]) : path.dirname
 const android = process.argv[6] === '--android';
 const cacheFile = path.join(buildRoot, 'CMakeCache.txt');
 const cacheContents = existsSync(cacheFile) ? readFileSync(cacheFile, 'utf8') : '';
+const devtools = /^NOVELTEA_ENABLE_DEVTOOLS:BOOL=ON$/m.test(cacheContents);
 const web = /^CMAKE_TOOLCHAIN_FILE:[^=]*=.*emscripten/im.test(cacheContents);
 const systemName = /^CMAKE_SYSTEM_NAME:[^=]*=(.+)$/m.exec(cacheContents)?.[1]?.trim();
 const linux = !android && !web && (systemName ? systemName === 'Linux' : process.platform === 'linux');
@@ -264,6 +265,7 @@ if (!android && existsSync(statusPath)) {
         include(dependency);
   }
   for (const name of exceptions.vcpkgRuntimeRoots) include(name);
+  if (devtools && !web) include('imgui');
   if (!web) for (const name of exceptions.vcpkgNativeRoots) include(name);
   if (target.includes('linux'))
     for (const name of exceptions.vcpkgLinuxRoots) include(name);
@@ -284,6 +286,7 @@ if (existsSync(deps)) {
     'libunibreak_src', 'lua_src', 'miniaudio', 'miniz', 'nlohmann_json',
     'rmlui', 'sheenbidi', 'sol2', 'twink', 'libwebm', 'libvpx',
   ]);
+  if (android && devtools) androidRequired.add('imgui');
   const observed = new Set();
   for (const entry of readdirSync(deps).filter((name) => name.endsWith('-src')).sort()) {
     const source = path.join(deps, entry);
@@ -291,7 +294,7 @@ if (existsSync(deps)) {
     const name = entry.slice(0, -4);
     const rule = exceptions.fetched[name];
     if (!rule) throw new Error(`Unclassified CMake source dependency ${name}: add a target applicability rule.`);
-    if (rule.player === false) continue;
+    if (rule.player === false || (rule.devtoolsOnly && !devtools)) continue;
     if (rule.androidOnly && !android) continue;
     if (rule.nativeOnly && web) continue;
     // Linux-only NVDEC/libva headers are fetched for the desktop renderer.

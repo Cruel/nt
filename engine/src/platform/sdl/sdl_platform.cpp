@@ -1,6 +1,10 @@
 #include "noveltea/platform.hpp"
 
 #include <SDL3/SDL.h>
+#if defined(SDL_PLATFORM_ANDROID)
+#include <SDL3/SDL_system.h>
+#include <jni.h>
+#endif
 #if defined(__APPLE__)
 #include <SDL3/SDL_metal.h>
 #endif
@@ -17,6 +21,45 @@
 #endif
 
 namespace noveltea {
+
+#if defined(SDL_PLATFORM_ANDROID)
+namespace sdl_platform {
+bool android_player_graphics_ready()
+{
+    auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    if (!env)
+        return false;
+    auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (!activity)
+        return false;
+    auto klass = env->GetObjectClass(activity);
+    const auto ready = klass ? env->GetMethodID(klass, "isPlayerGraphicsReady", "()Z") : nullptr;
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    const bool active = ready && env->CallBooleanMethod(activity, ready) == JNI_TRUE;
+    if (env->ExceptionCheck())
+        env->ExceptionClear();
+    if (klass)
+        env->DeleteLocalRef(klass);
+    env->DeleteLocalRef(activity);
+    return active;
+}
+
+void wait_for_android_player_graphics()
+{
+    bool waiting = false;
+    while (!android_player_graphics_ready()) {
+        if (!waiting) {
+            SDL_Log("[player] waiting for awake, focused Android Activity before graphics init");
+            waiting = true;
+        }
+        SDL_Delay(50);
+    }
+    if (waiting)
+        SDL_Log("[player] Android Activity ready for graphics initialization");
+}
+} // namespace sdl_platform
+#endif
 
 #if defined(__EMSCRIPTEN__)
 struct WebPointerEventScale {
@@ -153,6 +196,9 @@ Platform::~Platform() { shutdown(); }
 
 bool Platform::initialize(const PlatformConfig& config)
 {
+#if defined(SDL_PLATFORM_ANDROID)
+    sdl_platform::wait_for_android_player_graphics();
+#endif
     if (m_state->window) {
         std::fprintf(stderr, "[platform] already initialized\n");
         return false;

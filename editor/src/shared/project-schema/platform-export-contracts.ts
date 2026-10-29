@@ -43,6 +43,7 @@ export const exportCapabilityValues = [
 ] as const;
 export const exportPlatformValues = ['windows', 'linux', 'macos', 'web', 'android'] as const;
 export const exportBuildFlavorValues = ['debug', 'release'] as const;
+export const playerTemplateVariantValues = ['standard', 'devtools'] as const;
 export const exportArchitectureValues = ['x64', 'arm64', 'wasm32', 'x86_64'] as const;
 
 export type ExportCapability = (typeof exportCapabilityValues)[number];
@@ -602,6 +603,7 @@ export const templateDescriptorSchema = z
       .transform((values) => [...new Set(values)].sort()),
     capabilities: capabilityArraySchema,
     buildFlavor: z.enum(exportBuildFlavorValues),
+    playerVariant: z.enum(playerTemplateVariantValues),
     packageAccessModes: z
       .array(
         z.enum([
@@ -706,6 +708,7 @@ const platformProfileBase = z.object({
   id: trimmedNonEmptyStringSchema,
   label: trimmedNonEmptyStringSchema,
   buildFlavor: z.enum(exportBuildFlavorValues),
+  playerVariant: z.enum(playerTemplateVariantValues).optional(),
   compression: z.enum(['default', 'store', 'maximum']).default('default'),
   includeDebugSymbols: z.boolean().default(false),
   excludeUnusedAssets: z.boolean().default(true),
@@ -817,6 +820,7 @@ export function defaultPlatformExportProfile(
     id: `${target}-release`,
     label: `${target[0]!.toUpperCase()}${target.slice(1)}`,
     buildFlavor: 'release' as const,
+    playerVariant: 'standard' as const,
     compression: 'default' as const,
     includeDebugSymbols: false,
     excludeUnusedAssets: true,
@@ -1050,6 +1054,7 @@ export interface TemplateRegistryQuery {
   platform?: ExportPlatform;
   architecture?: string;
   buildFlavor?: 'debug' | 'release';
+  playerVariant?: (typeof playerTemplateVariantValues)[number];
 }
 export interface InstalledTemplate {
   entry: TemplateRegistryEntry;
@@ -1074,8 +1079,18 @@ export const templateDownloadRequestSchema = z
     platform: z.enum(exportPlatformValues),
     architecture: trimmedNonEmptyStringSchema,
     buildFlavor: z.enum(exportBuildFlavorValues),
+    playerVariant: z.enum(playerTemplateVariantValues).optional(),
+    webThreaded: z.boolean().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.platform === 'web' && value.webThreaded === undefined)
+      context.addIssue({
+        code: 'custom',
+        path: ['webThreaded'],
+        message: 'Web template downloads require a threading mode.',
+      });
+  });
 export type TemplateDownloadRequest = z.infer<typeof templateDownloadRequestSchema>;
 export interface TemplateDownloadResult extends TemplateInstallResult {
   template?: InstalledTemplate;
@@ -1102,6 +1117,8 @@ export const templateRegistryIndexSchema = z
           platform: z.enum(exportPlatformValues),
           architecture: z.string(),
           buildFlavor: z.enum(exportBuildFlavorValues),
+          playerVariant: z.enum(playerTemplateVariantValues),
+          webThreaded: z.boolean().optional(),
           archive: z.string(),
           archiveSha256: z.string().regex(/^[0-9a-f]{64}$/),
           descriptorSha256: z.string().regex(/^[0-9a-f]{64}$/),

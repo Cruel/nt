@@ -557,10 +557,19 @@ test('native build and release jobs verify the linked devtools capability matrix
     /check-native-devtools-symbols\.sh build\/linux-debug\/apps\/player\/noveltea-player on/,
   );
 
-  assert.match(
-    releaseWorkflow,
-    /name: Verify production player excludes developer components[\s\S]*check-native-devtools-symbols\.sh build\/linux-release\/apps\/player\/noveltea-player off/,
-  );
+  const desktopHosts = releaseJob('desktop-hosts');
+  const linuxVariants = [...desktopHosts.matchAll(
+    /- platform: linux\s+arch: x64\s+runner: ubuntu-latest\s+preset: (\S+)\s+variant: (\S+)/g,
+  )].map(([, preset, variant]) => [preset, variant]);
+  assert.deepEqual(linuxVariants, [
+    ['linux-release', 'release'],
+    ['linux-release-devtools', 'devtools'],
+  ]);
+  const verifyRelease = step(desktopHosts, 'Verify Linux player devtools composition');
+  assert.equal(field(verifyRelease, 'if'), "matrix.platform == 'linux'");
+  assert.ok(verifyRelease.includes(
+    "check-native-devtools-symbols.sh build/${{ matrix.preset }}/apps/player/noveltea-player ${{ matrix.variant == 'release' && 'off' || 'on' }}",
+  ));
 });
 
 test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
@@ -713,7 +722,7 @@ test('fetched LIEF is host-only Windows PE tooling, never a player dependency', 
   assert.match(editorToolCmake, /target_link_libraries\(noveltea_cli_windows_pe PUBLIC LIEF::LIEF\)/);
   assert.match(
     readFileSync(new URL('../../cmake/generate-player-template-metadata.mjs', import.meta.url), 'utf8'),
-    /if \(rule\.player === false\) continue;/,
+    /if \(rule\.player === false \|\| \(rule\.devtoolsOnly && !devtools\)\) continue;/,
   );
 });
 
@@ -782,8 +791,10 @@ test('macOS player and CLI compile concurrently with independent triplets and ar
   assert.doesNotMatch(certify, /tests\/native_cli\/macos_release_smoke\.py \\\s*"\$PWD\/build\/cli\/macos\/noveltea"/);
   assert.match(certify, /NOVELTEA_CLI: \$\{\{ github\.workspace \}\}\/build\/cli\/macos\/noveltea/);
   assert.ok(certify.indexOf('Download macOS host CLI') < certify.indexOf('Finalize and launch macOS app bundle export'));
-  assert.match(certify, /noveltea-platform-certification-macos-arm64-release\.json/);
-  assert.match(certify, /noveltea-desktop-host-macos-arm64-release-dist/);
+  assert.match(certify, /- variant: release\s+preset: macos-release/);
+  assert.match(certify, /- variant: devtools\s+preset: macos-release-devtools/);
+  assert.match(certify, /noveltea-platform-certification-macos-arm64-\$\{\{ matrix\.variant \}\}\.json/);
+  assert.match(certify, /noveltea-desktop-host-macos-arm64-\$\{\{ matrix\.variant \}\}-dist/);
   assert.match(editor, /macos-cli/);
   assert.match(inventory, /macos-certify/);
 });

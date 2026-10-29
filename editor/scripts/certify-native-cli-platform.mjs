@@ -196,6 +196,7 @@ async function makeTemplate() {
       compiledFeatures: ['lua', 'web-threads'],
       capabilities: ['external-url'],
       buildFlavor: 'debug',
+      playerVariant: 'standard',
       packageAccessModes: ['web-fetch'],
       files: inventory,
       runtimeDependencies: [

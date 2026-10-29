@@ -8,11 +8,13 @@ const sha = (file) => createHash('sha256').update(readFileSync(path.join(directo
 const templates = readdirSync(directory).filter((name) => name.endsWith('.template.json')).sort().map((name) => {
   const descriptorData = readFileSync(path.join(directory, name));
   const descriptor = JSON.parse(descriptorData);
-  if (descriptor.format !== 'noveltea.player-template' || descriptor.formatVersion !== 1) throw new Error(`Unsupported descriptor ${name}`);
+  if (descriptor.format !== 'noveltea.player-template' || descriptor.formatVersion !== 1 || !['standard', 'devtools'].includes(descriptor.playerVariant)) throw new Error(`Unsupported descriptor ${name}`);
   if (!readdirSync(directory).includes(descriptor.artifacts.archive)) throw new Error(`Missing archive ${descriptor.artifacts.archive}`);
   return {
     templateId: descriptor.templateId, buildId: descriptor.buildId, platform: descriptor.platform,
     architecture: descriptor.architecture, buildFlavor: descriptor.buildFlavor,
+    playerVariant: descriptor.playerVariant,
+    ...(descriptor.platform === 'web' ? { webThreaded: descriptor.compiledFeatures.includes('web-threads') } : {}),
     archive: descriptor.artifacts.archive, archiveSha256: sha(descriptor.artifacts.archive),
     descriptorSha256: createHash('sha256').update(descriptorData).digest('hex'),
     symbols: descriptor.artifacts.symbols,

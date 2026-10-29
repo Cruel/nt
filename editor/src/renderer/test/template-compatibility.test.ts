@@ -22,6 +22,7 @@ const descriptor = parseTemplateDescriptor({
   compiledFeatures: ['lua'],
   capabilities: ['gamepad'],
   buildFlavor: 'release',
+  playerVariant: 'standard',
   packageAccessModes: ['sidecar'],
   files: [{ path: 'bin/player', size: 1, mode: 493, sha256: sha }],
   runtimeDependencies: [{ path: 'bin/player', kind: 'library' }],
@@ -58,6 +59,35 @@ describe('template compatibility', () => {
         requiredFeatures: ['lua'],
       }).compatible,
     ).toBe(true));
+  it('selects optimized devtools templates independently of release packaging', () => {
+    const developerProfile = parsePlatformExportProfile({ ...profile, playerVariant: 'devtools' });
+    const standardMismatch = evaluateTemplateCompatibility(descriptor, {
+      profile: developerProfile,
+      compiledProjectFormatVersion: 1,
+      playerRuntimeApiVersion: 1,
+      shaderVariants: ['glsl-330'],
+      graphicsBackends: ['opengl'],
+      capabilities: ['gamepad'],
+      requiredFeatures: ['lua'],
+    });
+    expect(standardMismatch.diagnostics.map((item) => item.code)).toContain(
+      'template-variant-mismatch',
+    );
+    const developerMatch = evaluateTemplateCompatibility(
+      { ...descriptor, templateId: 'linux-x64-devtools', playerVariant: 'devtools' },
+      {
+        profile: developerProfile,
+        compiledProjectFormatVersion: 1,
+        playerRuntimeApiVersion: 1,
+        shaderVariants: ['glsl-330'],
+        graphicsBackends: ['opengl'],
+        capabilities: ['gamepad'],
+        requiredFeatures: ['lua'],
+      },
+    );
+    expect(developerMatch.compatible).toBe(true);
+    expect(developerProfile.buildFlavor).toBe('release');
+  });
   it('reports each incompatible contract dimension', () => {
     const incompatibleProfile = parsePlatformExportProfile({
       ...profile,

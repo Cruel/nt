@@ -38,6 +38,7 @@ const descriptor = {
   compiledFeatures: ['web-single-threaded'],
   capabilities: ['network.client' as const],
   buildFlavor: 'release' as const,
+  playerVariant: 'standard' as const,
   packageAccessModes: ['web-fetch' as const],
   files: [{ path: 'player.wasm', size: 1, mode: 0o644, sha256: 'a'.repeat(64) }],
   runtimeDependencies: [],

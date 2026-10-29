@@ -30,6 +30,12 @@ export function evaluateTemplateCompatibility(
       '/buildFlavor',
       `Template flavor ${descriptor.buildFlavor} does not match ${profile.buildFlavor}.`,
     );
+  if (descriptor.playerVariant !== (profile.playerVariant ?? 'standard'))
+    add(
+      'template-variant-mismatch',
+      '/playerVariant',
+      `Player variant ${descriptor.playerVariant} does not match ${profile.playerVariant ?? 'standard'}.`,
+    );
   if (!descriptor.packageAccessModes.includes(profile.packageAccess))
     add(
       'template-package-access-mismatch',

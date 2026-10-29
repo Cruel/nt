@@ -1997,6 +1997,43 @@ void RuntimeUI::enable_render_perf_logging(bool enabled)
         m_state->host->set_perf_logging_enabled(enabled);
 }
 
+std::optional<UiRenderConfiguration>
+ui::rmlui::RuntimeUiFacadeAccess::game_ui_render_configuration(const RuntimeUI& runtime_ui)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        return runtime_ui.m_state->host->game_ui_render_configuration();
+    return std::nullopt;
+}
+
+void ui::rmlui::RuntimeUiFacadeAccess::set_game_ui_effect_observation(RuntimeUI& runtime_ui,
+                                                                      bool enabled)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_game_ui_effect_observation(enabled);
+}
+
+std::optional<UiEffectActivity>
+ui::rmlui::RuntimeUiFacadeAccess::game_ui_effect_activity(const RuntimeUI& runtime_ui)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        return runtime_ui.m_state->host->game_ui_effect_activity();
+    return std::nullopt;
+}
+
+void ui::rmlui::RuntimeUiFacadeAccess::set_benchmark_timing(RuntimeUI& runtime_ui, bool enabled)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        runtime_ui.m_state->host->set_benchmark_timing(enabled);
+}
+
+std::optional<std::pair<double, double>>
+ui::rmlui::RuntimeUiFacadeAccess::benchmark_frame_timing(const RuntimeUI& runtime_ui)
+{
+    if (runtime_ui.m_state && runtime_ui.m_state->host)
+        return runtime_ui.m_state->host->benchmark_frame_timing();
+    return std::nullopt;
+}
+
 void ui::rmlui::RuntimeUiFacadeAccess::set_base_direct_compatibility(RuntimeUI& runtime_ui,
                                                                      bool enabled)
 {

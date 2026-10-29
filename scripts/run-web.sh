@@ -7,14 +7,22 @@ PROJECT_PATH=""
 EXPORT_PROFILE_ID=""
 READBACK_GALLERY=0
 CROSS_ORIGIN_ISOLATED=0
+DEVTOOLS=1
+RENDER_PERF=1
 
 usage() {
   echo "usage: $0 [--readback-gallery [--release|--profile]] [--project path/to/project] [--export-profile profile-id]" >&2
+  echo "       [--devtools|--no-devtools] [--render-perf|--no-render-perf]" >&2
+  echo "       Devtools instrumentation and render performance logging are enabled by default." >&2
   echo "       --release and --profile imply --readback-gallery" >&2
 }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
     --release)
       MODE="release"
       MODE_EXPLICIT=1
@@ -37,6 +45,22 @@ while [ "$#" -gt 0 ]; do
       ;;
     --readback-gallery)
       READBACK_GALLERY=1
+      shift
+      ;;
+    --devtools)
+      DEVTOOLS=1
+      shift
+      ;;
+    --no-devtools)
+      DEVTOOLS=0
+      shift
+      ;;
+    --render-perf)
+      RENDER_PERF=1
+      shift
+      ;;
+    --no-render-perf)
+      RENDER_PERF=0
       shift
       ;;
     *)
@@ -63,6 +87,15 @@ case "$MODE" in
   *) echo "[run] internal error: unknown mode $MODE" >&2; exit 2 ;;
 esac
 
+DEVTOOLS_CMAKE=OFF
+RENDER_PERF_CMAKE=OFF
+if [ "$DEVTOOLS" = "1" ]; then DEVTOOLS_CMAKE=ON; fi
+if [ "$RENDER_PERF" = "1" ]; then RENDER_PERF_CMAKE=ON; fi
+INSTRUMENTATION_CMAKE_ARGS=(
+  -DNOVELTEA_ENABLE_DEVTOOLS="$DEVTOOLS_CMAKE"
+  -DNOVELTEA_ENABLE_RENDER_PERF="$RENDER_PERF_CMAKE"
+)
+
 PORT="${PORT:-8080}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -86,6 +119,7 @@ export NOVELTEA_CLI
 if [ "$READBACK_GALLERY" = "1" ]; then
   CROSS_ORIGIN_ISOLATED=1
   CMAKE_CONFIGURE_ARGS=(
+    "${INSTRUMENTATION_CMAKE_ARGS[@]}"
     -DNOVELTEA_WEB_SHELL_FILE="$PROJECT_ROOT/web/shell.html"
   )
   if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
@@ -105,14 +139,14 @@ if [ "$READBACK_GALLERY" = "1" ]; then
       cmake --build --preset "$PRESET" --target noveltea-sandbox --parallel
   fi
   SERVE_ROOT="$PROJECT_ROOT/build/$PRESET/apps/sandbox"
-  if [ "$MODE" = "profile" ]; then
-    DEFAULT_QUERY="demo=none&noImgui=1&renderPerf=1&rmlui-document=project:/rmlui/readback_gallery.rml"
-  else
-    DEFAULT_QUERY="demo=none&noImgui=1&rmlui-document=project:/rmlui/readback_gallery.rml"
+  DEFAULT_QUERY="demo=none&noImgui=1&rmlui-document=project:/rmlui/readback_gallery.rml"
+  if [ "$RENDER_PERF" = "1" ]; then
+    DEFAULT_QUERY+="&renderPerf=1"
   fi
 else
   mkdir -p "$RUN_ROOT"
   rm -rf "$EXPORT_ROOT"
+  rm -f "$EXPORT_ROOT.zip"
 
   if [ -z "$PROJECT_PATH" ]; then
     rm -rf "$FIXTURE_ROOT"
@@ -162,7 +196,7 @@ else
   fi
   TEMPLATE_ARCHIVE="$PROJECT_ROOT/dist/noveltea-player-template-${TEMPLATE_TAG}-web-wasm32${TEMPLATE_SUFFIX}-release.zip"
 
-  WEB_CMAKE_ARGS=(-DBUILD_TESTING=OFF)
+  WEB_CMAKE_ARGS=(-DBUILD_TESTING=OFF "${INSTRUMENTATION_CMAKE_ARGS[@]}")
   if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
     echo "[run] using local rmlui-bgfx checkout at $PROJECT_ROOT/rmlui-bgfx"
     WEB_CMAKE_ARGS+=(
@@ -179,8 +213,28 @@ else
   else
       cmake --build --preset "$WEB_PRESET" --target noveltea-player --parallel
   fi
+  # Existing Web build trees can have a working Emscripten compiler even when
+  # this shell has not exported EMSDK. The template packager needs the SDK root
+  # to inventory runtime-port licenses, so recover it from the configured compiler.
+  if [ -z "${EMSDK:-}" ]; then
+    for compiler_file in "$PROJECT_ROOT/build/$WEB_PRESET/CMakeFiles"/*/CMakeCXXCompiler.cmake; do
+      [ -f "$compiler_file" ] || continue
+      compiler_path="$(awk -F '"' '/^set\(CMAKE_CXX_COMPILER "/ { print $2; exit }' "$compiler_file")"
+      case "$compiler_path" in
+        */upstream/emscripten/em++)
+          sdk_root="${compiler_path%/upstream/emscripten/em++}"
+          if [ -d "$sdk_root/upstream/emscripten/cache/ports" ]; then
+            export EMSDK="$sdk_root"
+            echo "[run] resolved EMSDK from configured Web compiler: $EMSDK"
+          fi
+          ;;
+      esac
+      break
+    done
+  fi
   cmake \
     -DNOVELTEA_TEMPLATE_PRESET="$WEB_PRESET" \
+    -DNOVELTEA_LOCAL_EXPORT_PROFILE_FLAVOR=release \
     -DNOVELTEA_RELEASE_TAG="$TEMPLATE_TAG" \
     -P cmake/PackageNovelTeaWebPlayerTemplate.cmake
 
@@ -192,10 +246,14 @@ else
       --profile "$EXPORT_PROFILE_ID" \
       --output "$EXPORT_ROOT" \
       --config "$CONFIG_PATH" \
+      --allow-localization-warnings \
       --allow-untrusted-template
 
   SERVE_ROOT="$EXPORT_ROOT"
   DEFAULT_QUERY=""
+  if [ "$RENDER_PERF" = "1" ]; then
+    DEFAULT_QUERY="renderPerf=1"
+  fi
 fi
 
 echo "[run] starting web server at http://localhost:$PORT"

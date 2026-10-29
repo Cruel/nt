@@ -9,6 +9,9 @@
 #include "render/bgfx/web_video_texture.hpp"
 
 #include <SDL3/SDL.h>
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+#include <android/native_window.h>
+#endif
 
 #include <bgfx/bgfx.h>
 #if defined(__EMSCRIPTEN__) && NOVELTEA_ENABLE_DEVTOOLS
@@ -242,7 +245,17 @@ bool Renderer::initialize(const RendererConfig& config)
 
     SDL_Log("[renderer] starting bgfx::init requested=%s window=%p display=%p", requested_renderer,
             config.native_window, config.native_display);
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // SDL's Android window property is borrowed. EGL may still use it after
+    // Android calls surfaceDestroyed on the Activity's UI thread.
+    ANativeWindow_acquire(static_cast<ANativeWindow*>(config.native_window));
+    m_android_native_window = config.native_window;
+#endif
     if (!bgfx::init(init)) {
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+        ANativeWindow_release(static_cast<ANativeWindow*>(m_android_native_window));
+        m_android_native_window = nullptr;
+#endif
         std::fprintf(stderr, "[renderer] bgfx::init failed\n");
         return false;
     }
@@ -498,6 +511,39 @@ void Renderer::resize(const PresentationMetrics& presentation)
     resize_text();
 }
 
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+bool Renderer::matches_android_surface(void* native_window) const noexcept
+{
+    return m_android_native_window == native_window;
+}
+
+bool Renderer::rebind_android_surface(void* native_window)
+{
+    if (!m_initialized || !native_window)
+        return false;
+    ANativeWindow_acquire(static_cast<ANativeWindow*>(native_window));
+    void* old_native_window = m_android_native_window;
+    m_android_native_window = native_window;
+    // bgfx::reset accepts a replacement main-window swap chain; the pinned
+    // Android EGL context requires the repository's narrow native-window
+    // rebind patch to use the new handle when creating the next EGL surface.
+    // The existing GL context and application-owned textures survive.
+    bgfx::SwapChain swap_chain;
+    swap_chain.nwh = native_window;
+    swap_chain.width = static_cast<uint32_t>(m_backbuffer_size.width);
+    swap_chain.height = static_cast<uint32_t>(m_backbuffer_size.height);
+    bgfx::reset(m_vsync ? BGFX_RESET_VSYNC : 0, &swap_chain);
+    bgfx::touch(0);
+    bgfx::frame();
+    // This project configures bgfx's renderer as single-threaded. The reset
+    // and EGL surface replacement have completed before frame() returns.
+    if (old_native_window)
+        ANativeWindow_release(static_cast<ANativeWindow*>(old_native_window));
+    SDL_Log("[renderer] Android EGL surface rebound window=%p", native_window);
+    return true;
+}
+#endif
+
 void Renderer::shutdown()
 {
     if (m_initialized) {
@@ -520,6 +566,13 @@ void Renderer::shutdown()
         m_device_diagnostics = {};
         std::printf("[renderer] bgfx shutdown\n");
     }
+#if defined(NOVELTEA_PLATFORM_ANDROID)
+    // bgfx has finished all EGL work before releasing the retained native window.
+    if (m_android_native_window) {
+        ANativeWindow_release(static_cast<ANativeWindow*>(m_android_native_window));
+        m_android_native_window = nullptr;
+    }
+#endif
 }
 
 const char* Renderer::renderer_name() const

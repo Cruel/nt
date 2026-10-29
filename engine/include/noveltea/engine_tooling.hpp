@@ -9,12 +9,14 @@
 #include "noveltea/devtools_console.hpp"
 #include "noveltea/devtools_trace.hpp"
 #include "noveltea/engine.hpp"
+#include "noveltea/ui_render_configuration.hpp"
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace noveltea {
 
@@ -60,6 +62,19 @@ struct EngineToolingConfig {
     bool show_fps_counter = false;
 };
 
+// Owner-thread, non-additive Diagnostic stage durations for one completed Engine tick.
+// The layout stage is Engine presentation/layout realization, not CSS layout alone.
+// All values are seconds and exclude benchmark fixture mutation performed before tick().
+struct EngineBenchmarkFrameTiming {
+    double events_seconds = 0.0;
+    double jobs_seconds = 0.0;
+    double assets_seconds = 0.0;
+    double update_seconds = 0.0; // Jobs through layout (inclusive); overlaps sub-stages.
+    double runtime_seconds = 0.0;
+    double layout_seconds = 0.0;
+    double render_seconds = 0.0;
+};
+
 class EngineTooling final {
 public:
     [[nodiscard]] static bool initialize(Engine& engine, const PlatformConfig& platform_config,
@@ -80,6 +95,9 @@ public:
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
     [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;
+    // True only when the host explicitly requested quit (Escape/close), not
+    // for arbitrary Engine tick or renderer failures. Read-only lifecycle probe.
+    [[nodiscard]] static bool host_quit_requested(const Engine& engine) noexcept;
 #if NOVELTEA_ENABLE_DEVTOOLS
     [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
     [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
@@ -100,6 +118,26 @@ public:
     static void record_debugger_console(Engine& engine, std::string message,
                                         devtools::ConsoleSeverity severity);
 #endif
+    // Read-only runtime document probe for host certification and integrations.
+    // Never initializes UI or alters its renderer ownership.
+    [[nodiscard]] static bool runtime_ui_document_ready(const Engine& engine, std::string_view id);
+    // Fixture-only layout contexts use the production RuntimeUI lifecycle and renderer.
+    // Unloading the empty case retains its context for subsequent Engine ticks.
+    // Optional UI-only stage clocks (Update/Render), never active in Clean frames.
+    static void set_ui_benchmark_timing(Engine& engine, bool enabled);
+    // Independent of devtools and periodic perf logging; no clocks in Clean runs.
+    static void set_engine_benchmark_timing(Engine& engine, bool enabled);
+    [[nodiscard]] static std::optional<EngineBenchmarkFrameTiming>
+    engine_benchmark_frame_timing(const Engine& engine);
+    [[nodiscard]] static std::optional<std::pair<double, double>>
+    ui_benchmark_frame_timing(const Engine& engine);
+    [[nodiscard]] static bool load_ui_fixture_context(Engine& engine, std::string id,
+                                                      std::string markup, uint32_t group,
+                                                      bool visible, bool empty);
+    [[nodiscard]] static std::optional<UiRenderConfiguration>
+    runtime_ui_render_configuration(const Engine& engine);
+    static void set_ui_effect_observation(Engine& engine, bool enabled);
+    [[nodiscard]] static std::optional<UiEffectActivity> ui_effect_activity(const Engine& engine);
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
     [[nodiscard]] static core::Result<core::AssetProfilerSnapshot, core::Diagnostic>

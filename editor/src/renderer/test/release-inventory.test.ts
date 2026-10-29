@@ -10,12 +10,18 @@ const verifier = path.resolve(process.cwd(), '../.github/verify-release-inventor
 const tag = 'v1.0.0';
 const templateIds = [
   'android-arm64-v8a-release',
+  'android-arm64-v8a-devtools',
   'android-x86_64-debug',
   'linux-x64-release',
+  'linux-x64-devtools',
   'macos-arm64-release',
+  'macos-arm64-devtools',
   'web-wasm32-release',
+  'web-wasm32-devtools',
   'web-wasm32-threads-release',
+  'web-wasm32-threads-devtools',
   'windows-x64-release',
+  'windows-x64-devtools',
 ];
 
 afterEach(() => {
@@ -57,7 +63,11 @@ function completeInventory() {
         engineVersion: tag,
         platform: templateId.split('-')[0],
         architecture: templateId.split('-')[1],
-        buildFlavor: templateId.includes('-debug') ? 'debug' : 'release',
+        buildFlavor: templateId === 'android-x86_64-debug' ? 'debug' : 'release',
+        playerVariant: templateId.endsWith('-devtools') ? 'devtools' : 'standard',
+        compiledFeatures: templateId.startsWith('web-wasm32')
+          ? [templateId.includes('-threads-') ? 'web-threads' : 'web-single-threaded']
+          : [],
         artifacts: { archive, symbols },
       }),
     );
@@ -209,14 +219,29 @@ describe('release inventory certification evidence', () => {
     const registry = JSON.parse(
       readFileSync(path.join(root, 'noveltea-player-template-registry.json'), 'utf8'),
     ) as {
-      templates: Array<{ platform: string; templateId: string; notices: string }>;
+      templates: Array<{
+        platform: string;
+        templateId: string;
+        notices: string;
+        webThreaded?: boolean;
+      }>;
     };
     for (const item of registry.templates) {
       expect(item.notices).toBe(`${item.templateId}.licenses.index.json`);
     }
-    expect(registry.templates.find((item) => item.platform === 'web')?.notices).toBe(
-      'web-wasm32-release.licenses.index.json',
-    );
+    expect(
+      registry.templates.find((item) => item.templateId === 'web-wasm32-release')?.notices,
+    ).toBe('web-wasm32-release.licenses.index.json');
+    expect(
+      registry.templates.find((item) => item.templateId === 'web-wasm32-devtools')?.notices,
+    ).toBe('web-wasm32-devtools.licenses.index.json');
+    expect(
+      registry.templates.find((item) => item.templateId === 'web-wasm32-threads-devtools')
+        ?.webThreaded,
+    ).toBe(true);
+    expect(
+      registry.templates.find((item) => item.templateId === 'web-wasm32-devtools')?.webThreaded,
+    ).toBe(false);
   });
   it('accepts one results file and every report proof for each required template', () => {
     const root = completeInventory();

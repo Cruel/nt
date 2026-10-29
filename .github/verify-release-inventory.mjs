@@ -22,12 +22,18 @@ const requireFile = (name) => {
 
 const expectedTemplateIds = new Set([
   "android-arm64-v8a-release",
+  "android-arm64-v8a-devtools",
   "android-x86_64-debug",
   "linux-x64-release",
+  "linux-x64-devtools",
   "macos-arm64-release",
+  "macos-arm64-devtools",
   "web-wasm32-release",
+  "web-wasm32-devtools",
   "web-wasm32-threads-release",
+  "web-wasm32-threads-devtools",
   "windows-x64-release",
+  "windows-x64-devtools",
 ]);
 const descriptorNames = names.filter((name) => name.endsWith(".template.json"));
 const actualTemplateIds = new Set(
@@ -49,6 +55,12 @@ for (const descriptorName of descriptorNames) {
     descriptor.buildId !== `${tag}-${descriptor.templateId}`
   ) {
     throw new Error(`${descriptorName} does not belong to release ${tag}.`);
+  }
+  const expectedFlavor = descriptor.templateId === 'android-x86_64-debug' ? 'debug' : 'release';
+  const expectedVariant = descriptor.templateId.endsWith('-devtools') ? 'devtools' : 'standard';
+  if (descriptor.buildFlavor !== expectedFlavor ||
+      descriptor.playerVariant !== expectedVariant) {
+    throw new Error(`${descriptorName} has mismatched export flavor/player variant identity.`);
   }
   for (const name of [
     descriptorName,

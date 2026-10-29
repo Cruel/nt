@@ -1,0 +1,37 @@
+{
+  "format": "noveltea.benchmark.configuration",
+  "version": 1,
+  "scenario": "raw-bgfx-geometry",
+  "scenario_version": 1,
+  "parameters": { "rect_count": 3, "rect_scale": 1.0 },
+  "alternate": {
+    "format": "noveltea.benchmark.configuration",
+    "version": 1,
+    "scenario": "raw-bgfx-geometry",
+    "scenario_version": 1,
+    "parameters": { "rect_count": 24, "rect_scale": 1.0 },
+    "alternate": null,
+    "clock_policy": "realtime",
+    "settings": {
+      "width": 1280, "height": 720,
+      "warmup_seconds": 0.03, "measurement_seconds": 2,
+      "measurement_frames": 30, "repeats": 2,
+      "ready_timeout_seconds": 5,
+      "profile": "clean", "no_ui": true, "quick_suite": false,
+      "raw_samples": true, "vsync": false, "native_resolution": false,
+      "capacity_dimension": "", "capacity_target": "cpu-ms",
+      "capacity_threshold": 16.67, "capacity_mode": "presented", "output": ""
+    }
+  },
+  "clock_policy": "realtime",
+  "settings": {
+    "width": 1280, "height": 720,
+    "warmup_seconds": 0.03, "measurement_seconds": 2,
+    "measurement_frames": 30, "repeats": 2,
+    "ready_timeout_seconds": 5,
+    "profile": "clean", "no_ui": true, "quick_suite": false,
+    "raw_samples": true, "vsync": false, "native_resolution": false,
+    "capacity_dimension": "", "capacity_target": "cpu-ms",
+    "capacity_threshold": 16.67, "capacity_mode": "presented", "output": ""
+  }
+}

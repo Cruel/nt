@@ -75,6 +75,7 @@ function installedLinuxTemplate() {
       compiledFeatures: [],
       capabilities: ['external-url' as const],
       buildFlavor: 'release' as const,
+      playerVariant: 'standard' as const,
       packageAccessModes: ['sidecar' as const],
       files: [{ path: 'player', size: 1, mode: 493, sha256: sha, role: 'player' as const }],
       runtimeDependencies: [],

@@ -136,8 +136,12 @@
       window.addEventListener('resize', measure);
       measure();
 
+      // The local Web runner can request performance logging without changing game exports.
+      const renderPerf = (new URLSearchParams(window.location.search).get('renderPerf') || '').toLowerCase();
+      const arguments_ = ['1', 'true', 'yes'].includes(renderPerf) ? ['--render-perf'] : [];
       window.Module = {
         canvas,
+        arguments: arguments_,
         onNovelTeaLoadingProgress: renderLoading,
         onNovelTeaStartupError(message) {
           renderLoading({

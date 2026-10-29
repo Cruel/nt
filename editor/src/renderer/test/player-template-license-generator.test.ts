@@ -324,6 +324,21 @@ describe('resolved player-template license generation', () => {
     ).toEqual(index.components.map((item) => item.component));
   });
 
+  it('includes Dear ImGui notices only for devtools-enabled Web player builds', () => {
+    const fixture = webFixture();
+    const existing = readFileSync(path.join(fixture.build, 'CMakeCache.txt'), 'utf8');
+    write(fixture.build, 'CMakeCache.txt', `${existing}NOVELTEA_ENABLE_DEVTOOLS:BOOL=ON\n`);
+    // The standard-fixture case deliberately mutates ImGui's otherwise unused notice.
+    // Re-pin that fixture source before validating the developer player closure.
+    pinDownloadedSource(fixture.root, 'imgui', '1.92.8-docking');
+    const { result, stage } = generate(fixture.root);
+    expect(result.status, result.stderr).toBe(0);
+    const imgui = getIndex(stage).components.find((item) => item.component === 'imgui');
+    expect(imgui).toBeDefined();
+    expect(imgui?.files).toHaveLength(1);
+    expect(readFileSync(path.join(stage, imgui!.files[0]!.path), 'utf8')).toContain('MIT License');
+  });
+
   it('fails if composite license text is missing or replaced by a placeholder', () => {
     const fixture = webFixture();
     const target = path.join(fixture.build, '_deps/bgfx.cmake-src/bimg/LICENSE');

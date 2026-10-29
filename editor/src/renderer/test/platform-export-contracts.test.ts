@@ -83,6 +83,7 @@ describe('platform export contracts', () => {
       compiledFeatures: ['lua'],
       capabilities: [],
       buildFlavor: 'release',
+      playerVariant: 'standard',
       packageAccessModes: ['sidecar'],
       files: [{ path: 'licenses/NOTICE.txt', size: 1, mode: 420, sha256: sha }],
       runtimeDependencies: [{ path: 'licenses/NOTICE.txt', kind: 'notice' }],

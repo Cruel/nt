@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NovelTea Graphics Benchmark</title>
+<style>
+html,body{margin:0;width:100%;height:100%;background:#111620;color:#dae0e9;font:14px system-ui,sans-serif}
+main{min-height:100%;display:flex;align-items:center;flex-direction:column;gap:10px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;width:min(96vw,1280px)}
+canvas{display:block;max-width:96vw;max-height:calc(100vh - 110px);outline:1px solid #394150;aspect-ratio:16/9}
+pre{margin:0;white-space:pre-wrap;overflow:auto;max-height:75px;width:min(96vw,1280px);font-size:12px}
+button{padding:6px 10px;background:#303c50;color:white;border:1px solid #66758b;cursor:pointer}
+</style>
+</head>
+<body>
+<main>
+<header><strong>NovelTea Graphics Benchmark</strong><span id="status">Loading WebGL2 benchmark…</span><button type="button" id="import-baseline">Import baseline JSON</button><button type="button" id="import-candidate">Import candidate JSON</button><button type="button" id="download" hidden>Download last JSON</button><button type="button" id="download-png" hidden>Download last PNG</button></header>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<pre id="log" aria-live="polite"></pre>
+</main>
+<script>
+const params = new URLSearchParams(location.search);
+const args = [];
+const encodedConfig = params.get('configB64');
+if (encodedConfig !== null) args.push('--config', '/benchmark-canonical-config.json');
+if (encodedConfig !== null && [...params.keys()].some(key => key !== 'configB64' && key !== 'output')) {
+  throw new Error('Canonical --config cannot be combined with run settings');
+}
+for (const [key, flag] of Object.entries({
+  scenario: '--scenario', frames: '--frames', seconds: '--seconds',
+  warmup: '--warmup-seconds', repeats: '--repeats', profile: '--profile',
+  width: '--width', height: '--height', rectCount: '--rect-count',
+  rectScale: '--rect-scale', drawCalls: '--draw-calls', quadCount: '--quad-count',
+  uiPreset: '--ui-preset', uiElements: '--ui-elements',
+  uiTextLines: '--ui-text-lines', uiDynamicLines: '--ui-dynamic-lines',
+  uiVisibleContexts: '--ui-visible-contexts',
+  uiEmptyContexts: '--ui-empty-contexts', uiHiddenContexts: '--ui-hidden-contexts',
+  uiTextMode: '--ui-text-mode', uiRedraw: '--ui-redraw',
+  uiClipping: '--ui-clipping', uiTransforms: '--ui-transforms',
+  uiGradients: '--ui-gradients', uiFilters: '--ui-filters',
+  uiMasks: '--ui-masks', uiNestedLayers: '--ui-nested-layers',
+  textureSize: '--texture-size', coverage: '--coverage',
+  compositionPath: '--composition-path', compositePasses: '--composite-passes',
+  targetScale: '--target-scale', msaaSamples: '--msaa-samples',
+  capacityDimension: '--capacity-dimension', capacityTarget: '--capacity-target',
+  capacityThreshold: '--capacity-threshold', capacityMode: '--capacity-mode',
+  readyTimeout: '--ready-timeout-seconds', clockPolicy: '--clock-policy',
+  featureLabPackage: '--feature-lab-package',
+  cpuWorkUnits: '--cpu-work-units', assetCache: '--asset-cache',
+  nativeQuads: '--native-quads', nativeGlyphs: '--native-glyphs',
+  nativeTextureSize: '--native-texture-size', shaderTint: '--shader-tint',
+  shaderScope: '--shader-scope', output: '--output'
+})) {
+  if (params.has(key)) args.push(flag, params.get(key));
+}
+if (params.has('smoke')) args.push('--smoke');
+if (params.has('noUi')) args.push('--no-ui');
+if (params.has('ui')) args.push('--ui');
+if (params.has('vsync')) args.push('--vsync');
+if (params.has('nativeResolution')) args.push('--native-resolution');
+if (params.has('rawSamples')) args.push('--raw-samples');
+if (params.has('noTransparentOverlay')) args.push('--no-transparent-overlay');
+if (params.has('dashboardSmoke')) args.push('--dashboard-smoke');
+if (params.has('inspectionSmoke')) args.push('--inspection-smoke');
+if (params.has('quickSuite')) args.push('--quick-suite');
+const status = document.querySelector('#status');
+const log = document.querySelector('#log');
+const canvas = document.querySelector('#canvas');
+canvas.width = Number(params.get('width') || 1280);
+canvas.height = Number(params.get('height') || 720);
+canvas.style.width = canvas.width + 'px';
+canvas.style.height = canvas.height + 'px';
+let lastReport = null;
+function downloadJson(report) {
+  const blob = new Blob([report.json], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.download = report.name;
+  anchor.href = url;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+document.querySelector('#download').onclick = () => lastReport && downloadJson(lastReport);
+let lastScreenshot = null;
+function downloadScreenshot(entry) {
+  const blob = new Blob([entry.bytes], {type: 'image/png'});
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.download = entry.name;
+  anchor.href = url;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+document.querySelector('#download-png').onclick = () => lastScreenshot && downloadScreenshot(lastScreenshot);
+window.NovelTeaBenchmark = {
+  ready: false,
+  backgrounded: false,
+  contextLost: false,
+  contextRecoveryNeeded: false,
+  runs: [],
+  screenshots: [],
+  importText: [null, null],
+  pickReport(slot) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 16 * 1024 * 1024) {
+        log.textContent = 'Report import exceeds 16 MiB limit';
+        return;
+      }
+      try {
+        this.importText[slot] = await file.text();
+      } catch (error) {
+        log.textContent = 'Report import failed: ' + error;
+      }
+    };
+    input.click();
+  },
+  screenshot(name, bytes) {
+    lastScreenshot = {name, bytes};
+    this.screenshots.push(lastScreenshot);
+    status.textContent = 'Untimed inspection captured: ' + name;
+    document.querySelector('#download-png').hidden = false;
+    downloadScreenshot(lastScreenshot);
+  },
+  report(name, json, outcome) {
+    lastReport = {name, json};
+    this.runs.push({name, report: JSON.parse(json)});
+    status.textContent = 'Run ' + outcome + ' · rAF-paced presentation (not uncapped GPU FPS)';
+    document.querySelector('#download').hidden = false;
+    downloadJson(lastReport);
+  }
+};
+// These HTML buttons provide a trusted click activation for native file
+// pickers. A file chooser launched by an ImGui rAF callback may be blocked.
+document.querySelector('#import-baseline').onclick = () => window.NovelTeaBenchmark.pickReport(0);
+document.querySelector('#import-candidate').onclick = () => window.NovelTeaBenchmark.pickReport(1);
+// Visibility notifications still fire even when the browser suspends rAF.
+// Latch the interruption until C++ observes it after the page becomes visible.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) window.NovelTeaBenchmark.backgrounded = true;
+});
+// A lost WebGL context invalidates *all* GPU resources in bgfx, even if the
+// browser later restores the same canvas. Recreate the entire benchmark host
+// outside measurement before allowing another attempt or preview frame.
+canvas.addEventListener('webglcontextlost', event => {
+  event.preventDefault(); // Opt in to browser context restoration.
+  window.NovelTeaBenchmark.contextLost = true;
+  window.NovelTeaBenchmark.contextRecoveryNeeded = true;
+  status.textContent = 'WebGL context lost · benchmark paused';
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  window.NovelTeaBenchmark.contextLost = false;
+  status.textContent = 'Restoring benchmark graphics…';
+});
+var Module = {
+  canvas,
+  arguments: args,
+  preRun: [() => {
+    if (encodedConfig === null) return;
+    try {
+      // Recover the exact UTF-8 bytes, without reparsing or normalizing JSON.
+      const binary = atob(encodedConfig);
+      if (binary.length < 1 || binary.length > 8192) throw new Error('invalid config size');
+      FS.writeFile('/benchmark-canonical-config.json',
+                   Uint8Array.from(binary, character => character.charCodeAt(0)));
+    } catch (error) {
+      // Keep --config in argv: native validation must report a failed startup,
+      // never silently switch to the dashboard/default benchmark.
+      console.error('Invalid canonical benchmark configuration transport:', error);
+      FS.writeFile('/benchmark-canonical-config.json', '');
+    }
+  }],
+  print: (line) => { console.log(line); log.textContent = (log.textContent + line + '\n').slice(-3000); },
+  printErr: (line) => { console.error(line); log.textContent = (log.textContent + line + '\n').slice(-3000); },
+  onRuntimeInitialized: () => { status.textContent = 'Running · requestAnimationFrame-paced'; },
+  onAbort: (error) => { status.textContent = 'Benchmark initialization failed: ' + error; }
+};
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

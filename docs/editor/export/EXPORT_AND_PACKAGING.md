@@ -62,8 +62,13 @@ reusable memory policies managed from Project Settings. `/settings` remains rese
 Project Settings data.
 Profile creation chooses name and platform first, then enters the same target-specific editor used by
 `Edit Profile`. Platform identity is immutable after creation. The currently selected profile, output
-directory, installed-template selection, and signing identity are user-local execution state rather
-than committed profile data.
+directory, installed-template build token, and signing identity are user-local execution state rather
+than committed profile data. Each authored platform profile owns `playerVariant: standard | devtools`
+when an explicit variant is selected. Standard players use `buildFlavor: release` and no developer
+instrumentation; optimized devtools players also use `buildFlavor: release` but compile the debug
+frontend and instrumentation. Android's `buildFlavor: debug` remains a distinct packaging/signing
+mode, not an alias for a devtools player. A profile's variant selects the eligible template family;
+its exact installed build version remains a user-local choice.
 
 Runtime Package is not an editable platform profile. Package-level behavior common to every export
 lives on the normal Export pane. Every Runtime Package and platform profile owns an explicit

@@ -287,6 +287,7 @@ void RmlUiHost::shutdown()
         m_rml_initialized = false;
     }
     m_plane_renderers.clear();
+    m_ui_effect_observation = false;
     Rml::SetSystemInterface(nullptr);
     Rml::SetFileInterface(nullptr);
     m_system_interface.reset();
@@ -363,6 +364,48 @@ Rml::Context* RmlUiHost::debugger_host_context() const noexcept { return m_debug
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
 
+std::optional<UiRenderConfiguration> RmlUiHost::game_ui_render_configuration() const
+{
+    for (const auto& renderer : m_plane_renderers) {
+        if (renderer.plane == core::PresentationPlane::GameUi && renderer.bgfx)
+            return renderer.bgfx->render_configuration();
+    }
+    return std::nullopt;
+}
+
+void RmlUiHost::set_game_ui_effect_observation(bool enabled)
+{
+    m_ui_effect_observation = enabled;
+    for (const auto& renderer : m_plane_renderers) {
+        if (renderer.plane == core::PresentationPlane::GameUi && renderer.bgfx)
+            renderer.bgfx->set_effect_observation(enabled);
+    }
+}
+
+std::optional<UiEffectActivity> RmlUiHost::game_ui_effect_activity() const
+{
+    // More than one GameUi backend can exist (e.g. transition-source layers).
+    // Never report an idle renderer as evidence that active contexts had no
+    // effect submissions.
+    std::optional<UiEffectActivity> combined;
+    for (const auto& renderer : m_plane_renderers) {
+        if (renderer.plane != core::PresentationPlane::GameUi || !renderer.bgfx)
+            continue;
+        const auto activity = renderer.bgfx->effect_activity();
+        if (!combined)
+            combined = UiEffectActivity{};
+        combined->clipping_calls += activity.clipping_calls;
+        combined->transforms += activity.transforms;
+        combined->gradient_draws += activity.gradient_draws;
+        combined->filtered_composites += activity.filtered_composites;
+        combined->mask_saves += activity.mask_saves;
+        combined->layer_pushes += activity.layer_pushes;
+        combined->max_layer_depth = std::max(combined->max_layer_depth, activity.max_layer_depth);
+        combined->backend_errors += activity.backend_errors;
+    }
+    return combined;
+}
+
 Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedContextMetrics& metrics)
 {
     const bool world_transition_source =
@@ -400,6 +443,8 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedCont
         bgfx->set_perf_logging_enabled(m_perf_logging);
         bgfx->set_base_direct_compatibility(m_base_direct_compatibility);
         bgfx->set_raster_snapping(m_geometry_raster_snapping, m_text_raster_snapping);
+        if (m_ui_effect_observation && key.plane == core::PresentationPlane::GameUi)
+            bgfx->set_effect_observation(true);
         renderer.bgfx = bgfx.get();
         renderer.owned = std::move(bgfx);
     }

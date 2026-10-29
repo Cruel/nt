@@ -575,7 +575,9 @@ std::optional<Template> inspect(const std::string& token)
             entry.value("templateId", "") != id || entry.value("buildId", "") != build ||
             descriptor.value("format", "") != "noveltea.player-template" ||
             descriptor.value("formatVersion", 0) != 1 || descriptor.value("templateId", "") != id ||
-            descriptor.value("buildId", "") != build)
+            descriptor.value("buildId", "") != build ||
+            (descriptor.value("playerVariant", "") != "standard" &&
+             descriptor.value("playerVariant", "") != "devtools"))
             return std::nullopt;
         std::string status = "corrupted";
         try {
@@ -717,6 +719,7 @@ Json fields(const Template& item)
             {"target", descriptor.at("platform")},
             {"architecture", descriptor.at("architecture")},
             {"buildFlavor", descriptor.at("buildFlavor")},
+            {"playerVariant", descriptor.at("playerVariant")},
             {"trust", item.entry.at("trust")},
             {"status", item.status}};
 }
@@ -753,7 +756,8 @@ bool host_compatible(const Json& profile, const std::vector<Template>& installed
         const auto target = profile.value("target", std::string{});
         if (item.status == "corrupted" || descriptor.value("platform", "") != target ||
             descriptor.value("architecture", "") != profile.value("architecture", "") ||
-            descriptor.value("buildFlavor", "") != profile.value("buildFlavor", ""))
+            descriptor.value("buildFlavor", "") != profile.value("buildFlavor", "") ||
+            descriptor.value("playerVariant", "") != profile.value("playerVariant", "standard"))
             continue;
         const auto assembly = descriptor.at("host").value("assembly", "");
         if (assembly != "any" && assembly != host)
@@ -1074,8 +1078,11 @@ PlatformCliResult template_install(const fs::path& archive, bool force)
         const auto descriptor_bytes = read_file(staged_root / "template.json");
         const auto descriptor = Json::parse(descriptor_bytes);
         if (descriptor.value("format", "") != "noveltea.player-template" ||
-            descriptor.value("formatVersion", 0) != 1)
-            throw std::runtime_error("Template descriptor format is not supported.");
+            descriptor.value("formatVersion", 0) != 1 ||
+            (descriptor.value("playerVariant", "") != "standard" &&
+             descriptor.value("playerVariant", "") != "devtools"))
+            throw std::runtime_error(
+                "Template descriptor format or player variant is not supported.");
         const auto id = descriptor.at("templateId").get<std::string>();
         const auto build = descriptor.at("buildId").get<std::string>();
         if (!valid_component(id) || !valid_component(build))

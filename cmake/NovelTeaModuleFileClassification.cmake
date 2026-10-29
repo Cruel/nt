@@ -257,6 +257,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/runtime_presentation_bridge.hpp
     engine/include/noveltea/runtime_preview_controller.hpp
     engine/include/noveltea/runtime_ui_contracts.hpp
+    engine/include/noveltea/ui_render_configuration.hpp
     engine/include/noveltea/surface.hpp
     engine/include/noveltea/text/font.hpp
     engine/include/noveltea/text/text.hpp
