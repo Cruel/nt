@@ -175,6 +175,7 @@ function installWebTemplate(root: string) {
     compiledFeatures: ['web-single-threaded'],
     capabilities: derivedPlatformCapabilities('web'),
     buildFlavor: 'release',
+    playerVariant: 'standard',
     packageAccessModes: ['web-fetch'],
     files: [...files, ...licenses.files],
     runtimeDependencies: [{ path: 'player.data', kind: 'asset' }, ...licenses.runtimeDependencies],
