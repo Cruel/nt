@@ -104,6 +104,12 @@ const steps = [
     [cli],
   ],
 ];
+if (production)
+  steps.push([
+    'Installed native stdin, output parent and HTTPS early-exit regressions',
+    'certify-native-cli-production-regressions.mjs',
+    [cli],
+  ]);
 if (!cliOnly)
   steps.push([
     'Independent native editor/CLI disk interaction',

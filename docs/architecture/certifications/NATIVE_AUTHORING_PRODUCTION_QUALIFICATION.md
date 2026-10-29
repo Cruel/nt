@@ -20,7 +20,7 @@ CLI-only pass. Standalone CLI builder jobs without the addon explicitly run
 subset and is not a replacement for full host certification.
 
 The release editor-host matrix builds the renderer and Electron bundles and
-executes the full nine-stage production suite with the native addon on Linux,
+executes the full ten-stage production suite with the native addon on Linux,
 Windows and macOS. The standalone Linux and Windows builder jobs execute the
 explicit CLI-only subset. Existing independent 82-case command, native
 watcher/revision, package, export and relocated application checks remain
@@ -82,6 +82,60 @@ Tests. Maps is absent from its fixture and was covered at the public native
 create/inspect layer, not misrepresented as an authored gameplay/UI Test.
 Windows/macOS host CI, signing credentials, interactive editor workflows and
 final #506/#474 sign-off remain required before claiming #522 complete.
+
+## Review remediation after `aab14f26` (2026-10-29)
+
+The risk-based #506/40-child review identified three reproducible C++ behavior
+regressions. These are now exercised by
+`tests/native_cli/production_regressions.py`, registered as CTest
+`native_cli_production_regressions`, and in the **ordinary production**
+`noveltea:certify` runner as the tenth independent stage (also in the
+explicit CLI-only subset). The test invokes the actual native executable:
+
+- Default daemon and `--no-daemon` both accept a native generated
+  `localization reconcile --apply` JSON plan on stdin. Empty stdin remains a
+  structured usage failure; pre-dispatch broker fallback replays the bytes
+  through the localization handler, not the Test handler.
+- Native Runtime Package export creates a missing nested output directory and
+  publishes a real `.ntpkg`; symlinked output-parent components are rejected
+  before staged publication. The final target remains subject to the existing
+  replacement and publication checks.
+- The controlled POSIX curl helper returns valid GET verification data then
+  exits before reading a POST request. Both short and 100 KB ComfyUI prompts
+  must return `COMFYUI_SERVER_UNAVAILABLE` with exit 4 and a single JSON
+  envelope, rather than SIGPIPE or partial output. The caller consumes its own
+  pending SIGPIPE with a thread-local signal mask and reaps the child.
+
+The completed candidate, retired ScriptC daemon/cache text and dated
+implementation status were moved from the current CLI reference to
+[`docs/archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md`](../../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
+
+This is **regression remediation, not #522/#506 sign-off**. The local regressions
+were run against a development worktree. Comparable production performance,
+manual interactive editor lifecycle, exact-commit Linux/Windows/macOS release
+artifacts and signing evidence remain unverified until separately recorded.
+
+**Post-review Linux execution:** With the repository at `aab14f26` plus the
+uncommitted review patch, the rebuilt C++ CLI passed **10/10** full native
+production stages, the focused native/CI checks passed **78/78**, and the
+complete editor suite passed **2,182/2,182** runnable tests (135 skipped).
+Pinned clang-format 18.1.8 `format-check` passed all 719 selected C/C++ files;
+`pnpm -C editor run check` passed strict lint, formatting, typecheck and
+generated contracts. Repacked Linux Electron with the rebuilt CLI: the
+directory-package verification and packaged-app launch smoke passed every
+reported check, including the production thumbnail protocol and native CLI.
+The controlled curl shim confirmed actual early-exiting **POST** invocations,
+not a GET-only failure. These results are local, non-signing evidence.
+
+The pre-cutover comparison runner
+`editor/scripts/certify-native-editor-performance.mjs` itself can no longer
+execute: it imports the removed
+`src/shared/project-workspace/node-project-workspace-service.ts` and fails
+with `ERR_MODULE_NOT_FOUND`. Its earlier figures remain historical baseline
+evidence, not a passing post-cutover measurement. #522 needs a replacement
+production-owned benchmark for comparable cold/warm, scoped Save, YAML/Lua and
+full export work before the dual slowdown threshold can be evaluated. No
+equivalence or waiver has been inferred from unrelated process-wall timings.
 
 ## Reusable acceptance harness (originally prepared before cutover)
 

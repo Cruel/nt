@@ -13,6 +13,10 @@
 
 ## Current Contents
 
+- `docs/archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md` preserves the retired
+  ScriptC/QuickJS host, partial native candidate, staged #474 cutover evidence
+  and old cache/daemon contracts. The active command reference is
+  `docs/editor/CLI.md`.
 - Bootstrap and legacy-core plans from earlier migration work.
 - Completed typed-asset architecture implementation plans.
 - The completed threading, asset-streaming, residency, prefetch, and telemetry plan plus its final

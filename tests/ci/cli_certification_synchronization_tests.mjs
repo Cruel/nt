@@ -40,6 +40,7 @@ test('native production qualification retains every independent behavior witness
     'certify-native-cli-platform.mjs',
     'certify-native-cli-comfyui-contracts.mjs',
     'certify-native-cli-comfyui-race.mjs',
+    'certify-native-cli-production-regressions.mjs',
     'certify-native-authoring-cross-system.mjs',
   ]) {
     assert.ok(candidate.includes(script), `Production qualification omitted ${script}`);
