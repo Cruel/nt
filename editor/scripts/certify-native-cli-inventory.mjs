@@ -22,11 +22,11 @@ const coverage = {
     'native-project-lifecycle-cli',
     'certify-native-project-command-differential.mjs',
   ],
-  'agent sync': ['agent-sync-cli', 'certify-noveltea-cli.mjs'],
-  'comfyui status': ['comfyui-catalog-commands', 'certify-noveltea-cli.mjs'],
-  'comfyui workflows': ['comfyui-catalog-commands', 'certify-noveltea-cli.mjs'],
-  'comfyui verify': ['comfyui-catalog-commands', 'certify-noveltea-cli.mjs'],
-  'comfyui run': ['comfyui-catalog-commands', 'certify-noveltea-cli.mjs'],
+  'agent sync': ['agent-sync-cli', 'certify-native-cli-public-contracts.mjs'],
+  'comfyui status': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
+  'comfyui workflows': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
+  'comfyui verify': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
+  'comfyui run': ['comfyui-catalog-commands', 'certify-native-cli-comfyui-contracts.mjs'],
   validate: ['native-project-validation-cli', 'certify-native-daemon-validation.mjs'],
   fmt: ['native-project-fmt-cli', 'certify-native-cli-project-routing.mjs'],
   'localization sync': [
@@ -45,22 +45,22 @@ const coverage = {
   'entity delete': ['native-project-mutations-cli', 'certify-native-cli-mutations.mjs'],
   usages: ['native-project-reads-cli', 'certify-native-cli-project-routing.mjs'],
   'shaders compile': ['native-project-shaders-cli', 'certify-native-cli-project-routing.mjs'],
-  shaderc: ['native-tool', 'certify-noveltea-cli.mjs'],
-  texturec: ['native-tool', 'certify-noveltea-cli.mjs'],
-  'media-tool check': ['media-tool', 'certify-noveltea-cli.mjs'],
-  'daemon status': ['daemon-control', 'certify-noveltea-cli.mjs'],
-  'daemon stop': ['daemon-control', 'certify-noveltea-cli.mjs'],
+  shaderc: ['native-tool', 'certify-native-cli-public-contracts.mjs'],
+  texturec: ['native-tool', 'certify-native-cli-public-contracts.mjs'],
+  'media-tool check': ['media-tool', 'certify-native-cli-public-contracts.mjs'],
+  'daemon status': ['daemon-control', 'certify-native-cli-owner-lifecycle.mjs'],
+  'daemon stop': ['daemon-control', 'certify-native-cli-owner-lifecycle.mjs'],
   'test run': ['native-project-tests-cli', 'certify-native-cli-tests.mjs'],
   'test run-spec': ['native-project-tests-cli', 'certify-native-cli-tests.mjs'],
   'test run-ui-spec': ['native-project-tests-cli', 'certify-native-cli-tests.mjs'],
   'package export': ['native-project-package-cli', 'certify-native-cli-package.mjs'],
-  'platform profiles': ['native-project-platform-cli', 'certify-noveltea-cli.mjs'],
+  'platform profiles': ['native-project-platform-cli', 'certify-native-cli-platform.mjs'],
   'platform export': ['native-project-platform-cli', 'certify-native-cli-platform.mjs'],
-  'platform template list': ['platform-independent-commands', 'certify-noveltea-cli.mjs'],
-  'platform template inspect': ['platform-independent-commands', 'certify-noveltea-cli.mjs'],
-  'platform template install': ['platform-independent-commands', 'certify-noveltea-cli.mjs'],
-  'platform template remove': ['platform-independent-commands', 'certify-noveltea-cli.mjs'],
-  'platform config init': ['platform-independent-commands', 'certify-noveltea-cli.mjs'],
+  'platform template list': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
+  'platform template inspect': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
+  'platform template install': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
+  'platform template remove': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
+  'platform config init': ['platform-independent-commands', 'certify-native-cli-platform.mjs'],
 };
 
 const help = await source('src/cli/static-contracts.ts');
@@ -129,22 +129,13 @@ for (const filename of definitions.filter((name) => name.endsWith('.ts'))) {
 for (const item of parsedDefinitions)
   assert.ok(publicPaths.has(item), `Command definition '${item}' is not in the public inventory.`);
 
-// Several CLI paths are dispatched before the ordinary command-definition
-// parser and the ScriptC island has its own scoped native host entrypoints.
-// Neither may introduce an unclassified family merely because the help and
-// routing table were not edited in the same change.
-for (const filename of ['src/cli/native-application.ts', 'scripts/noveltea-scriptc-island.ts']) {
-  const body = await source(filename);
-  const specialFamilies = new Set([
-    ...[...body.matchAll(/globals\.command\[0\] === '([^']+)'/g)].map((item) => item[1]),
-    ...[...body.matchAll(/\bfamily === '([^']+)'/g)].map((item) => item[1]),
-  ]);
-  for (const family of specialFamilies)
-    assert.ok(
-      [...publicPaths].some((item) => item.split(' ')[0] === family),
-      `${filename} added a private dispatch for unknown CLI family '${family}'.`,
-    );
-}
+// The public C++ entrypoint is separately checked against these 39 paths.
+const nativeCli = await source('../tools/editor_tool/native_cli.cpp');
+assert.match(
+  nativeCli,
+  /known_command\(/,
+  'Native CLI must validate the public command inventory.',
+);
 
 // Native C++ command actions and editor-to-native IPC routes are two more
 // entrypoint inventories. Their owners are independent of the public CLI,

@@ -22,8 +22,8 @@ The repository-root `VERSION` file is the sole authored NovelTea product version
 
 CMake reads `VERSION` before `project()`: `NOVELTEA_VERSION` retains the complete product version,
 while the numeric `MAJOR.MINOR.PATCH` core is supplied to CMake's `project(VERSION ...)` field. Vite+
-uses the same shared parser as release tooling and injects the value into editor and Node/ScriptC CLI
-bundles, while ScriptC release staging embeds it into the standalone host. Release editor staging
+uses the same shared parser as release tooling and injects the value into editor bundles; the
+native C++ standalone CLI embeds its pinned build identity during the CMake build. Release staging
 writes the canonical product version into packaged application metadata. Non-release staging,
 including ordinary local and CI builds, uses a derived development build identity instead: `1.0.0`
 becomes `1.0.0-dev.<revision>`, and an existing prerelease such as `1.1.0-rc.1` becomes
@@ -179,8 +179,8 @@ The standalone `noveltea` CLI must be built for the release-admitted host or sup
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
 `resources/bin/noveltea`; that directory contains no `noveltea-editor-tool` compatibility frontend
 and no sibling bgfx `shaderc` executable. Linux builds use the native host toolchain. Windows CLI
-builds use a dedicated MinGW GNU native-tooling/vcpkg closure plus ScriptC's
-`x86_64-windows-gnu` Zig target; the ordinary Windows desktop player/editor remains an independent
+builds use the dedicated MinGW GNU native-tooling/vcpkg closure; the ordinary Windows desktop
+player/editor remains an independent
 MSVC build. CLI certification rejects MinGW runtime DLL dependencies so the published executable
 remains relocatable. Shader compilation and raw shaderc forwarding use the statically linked native
 tooling inside `noveltea`. Packaged native operations resolve the installation-relative CLI and do
@@ -295,9 +295,9 @@ Tagged and manually qualified releases require Linux x64 and Windows x64 editor 
 authoring binaries are built in a digest-pinned Debian 12 container (glibc 2.36) and audited before
 the exact CLI bytes are published and embedded in the editor. The macOS editor and host CLI target
 macOS 14 even though exported macOS players target macOS 11. Linux players are built separately in a
-digest-pinned glibc 2.28 environment and statically link the GNU C++ runtime, so neither ScriptC nor
+digest-pinned glibc 2.28 environment and statically link the GNU C++ runtime, so neither the native CLI nor
 the editor build host can raise the game-runtime floor. Windows players target Windows 10 1809 while
-Windows authoring follows the broader upstream ScriptC Windows 10 contract. Release aggregation
+Windows authoring follows the MinGW native authoring host contract. Release aggregation
 rejects a missing or unexpected CLI, editor, or player-template platform artifact before a GitHub
 Release can be created.
 

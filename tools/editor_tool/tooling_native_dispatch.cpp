@@ -368,12 +368,12 @@ CapturedNativeResponse invoke_captured(NativeOperation operation, const std::uin
 
 } // namespace
 
-extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* operation_bytes,
-                                                        std::size_t operation_size,
-                                                        const std::uint8_t* request_bytes,
-                                                        std::size_t request_size,
-                                                        const std::uint8_t* response_path_bytes,
-                                                        std::size_t response_path_size)
+extern "C" void noveltea_tooling_invoke_to_file(const std::uint8_t* operation_bytes,
+                                                std::size_t operation_size,
+                                                const std::uint8_t* request_bytes,
+                                                std::size_t request_size,
+                                                const std::uint8_t* response_path_bytes,
+                                                std::size_t response_path_size)
 {
     const std::string_view requested_operation(reinterpret_cast<const char*>(operation_bytes),
                                                operation_size);

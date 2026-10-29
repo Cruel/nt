@@ -29,8 +29,8 @@ their visible category and message must use plain, localizable product language 
 - `docs/editor/TECH_STACK.md` — editor dependency and component standards, shadcn/Base UI usage, forms, tables, source editing, preview, localization, and testing standards.
 - `docs/editor/CLI.md` — public standalone `noveltea` command, JSON, exit-code, discovery, and transaction contract.
 - `docs/editor/AGENT_KIT.md` — embedded/generated coding-agent guidance, schemas, versioning, and sync behavior.
-- `docs/editor/SCRIPTC_COMPATIBILITY.md` — standalone `noveltea` scriptc/QuickJS architecture,
-  host/native boundary, release pin, compatibility limits, and certification gate.
+- `docs/editor/SCRIPTC_COMPATIBILITY.md` — archived ScriptC/QuickJS architecture and retirement
+  notes; the current direct-C++ CLI contract is documented in `docs/editor/CLI.md`.
 - `docs/editor/NATIVE_CLI_CUTOVER_HANDOFF.md` — classified shipped/candidate/build-only CLI roots,
   emitted provenance and exact #521 atomic switching/deletion/CI checklist.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,

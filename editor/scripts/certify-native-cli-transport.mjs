@@ -1,6 +1,6 @@
-// #519: installed transport/error evidence, rather than only semantic success.
-// Distinct disposable Projects and broker roots make accidental shared authority
-// or one side's cache satisfying the other side observable.
+// #519/#551: installed native transport/error evidence, not just semantic
+// success. Distinct disposable Projects and broker roots ensure that one
+// side's resident state cannot satisfy the other's requests.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
@@ -140,9 +140,9 @@ try {
     compare(args, { daemon: true });
     compare(args, { daemon: true, environment: { NOVELTEA_NO_DAEMON: '1' } });
   }
-  // A native-only invocation must not even initialize the legacy writer. This
-  // is a runtime guard, not proof of the final bundled dependency closure:
-  // the latter remains separately enforced at the coordinated #521 cutover.
+  // Both isolated installed invocations must remain native-only. The
+  // independent binary/package closure gate verifies absence of QuickJS;
+  // stderr must not contain the retired ScriptC host/island trace markers.
   for (const [project, native] of [
     [oracle, false],
     [candidate, true],
@@ -164,19 +164,8 @@ try {
     assert.ifError(traced.error);
     assert.equal(traced.status, 0, traced.stderr);
     assert.equal(JSON.parse(traced.stdout).success, true);
-    assert.match(
-      traced.stderr,
-      /\[scriptc-island\]/u,
-      'The trace did not reach the ScriptC island.',
-    );
-    if (native) {
-      assert.doesNotMatch(traced.stderr, /legacy workspace services import starting/u);
-    } else {
-      // The shipped ScriptC CLI bypasses the daemon for --no-daemon. It no
-      // longer imports the retired workspace service merely to inspect a
-      // Project, so the prior positive assertion was an obsolete contract.
-      assert.match(traced.stderr, /\[scriptc-host\] daemon routing bypassed/u);
-    }
+    assert.doesNotMatch(traced.stderr, /\[scriptc-(?:host|island)\]/u);
+    assert.doesNotMatch(traced.stderr, /legacy workspace services import starting/u);
   }
   for (const project of [oracle, candidate]) {
     const source = path.join(project, 'records/rooms/sample.yaml');

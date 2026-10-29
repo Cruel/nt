@@ -734,6 +734,16 @@ int disposable_process(const Json& context, std::uint64_t worker_id,
 
 bool native_disposable_active() { return pinned_project.has_value(); }
 
+bool native_disposable_has_source_generation(std::string_view generation)
+{
+    if (!pinned_project || generation.empty())
+        return false;
+    for (const auto& entry : pinned_project->at("requests"))
+        if (entry.at("response").value("sourceGeneration", std::string{}) == generation)
+            return true;
+    return false;
+}
+
 bool native_disposable_cancellation_requested()
 {
     return disposable_cancelled && disposable_cancelled();
@@ -834,10 +844,8 @@ pinned_native_project_request(const nlohmann::ordered_json& request)
         throw std::runtime_error("Immutable worker cannot change Project identity.");
     if (request.value("action", std::string{}) == "source-generation-proof") {
         const auto generation = request.value("expectedSourceGeneration", std::string{});
-        for (const auto& entry : pinned_project->at("requests"))
-            if (!generation.empty() &&
-                entry.at("response").value("sourceGeneration", std::string{}) == generation)
-                return std::nullopt;
+        if (native_disposable_has_source_generation(generation))
+            return std::nullopt;
         throw std::runtime_error("Immutable worker cannot prove an uncaptured source generation.");
     }
     for (const auto& entry : pinned_project->at("requests"))

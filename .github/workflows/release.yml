@@ -215,22 +215,15 @@ jobs:
         run: |
           if (!(Test-Path "$env:VCPKG_ROOT/.git")) { git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT" }
           & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
-      - name: Set up Zig for ScriptC Windows target
-        uses: vercel-labs/setup-zig@v1
-        with:
-          version: 0.16.0
       - name: Verify Windows GNU CLI tools
         shell: pwsh
         run: |
           gcc --version
           g++ --version
           llvm-strip --version
-          zig version
       - name: Build Windows CLI
         env:
           VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
-          SCRIPTC_CC: zigcc
-          SCRIPTC_TARGET: x86_64-windows-gnu
         run: pnpm -C editor run noveltea:build
       - name: Upload Windows CLI build
         uses: actions/upload-artifact@v7
@@ -373,10 +366,8 @@ jobs:
             macOS-arm64-ccache-
       - name: Build NovelTea macOS host CLI
         run: pnpm -C editor run noveltea:build
-      # Keep the shipped ScriptC host separate from the native C++ exporter
-      # under certification until the CLI cutover is complete.
-      - name: Build native C++ macOS export certification CLI
-        run: cmake --build --preset macos-authoring-release --target noveltea-native-cli
+      # The release executable is now the same direct C++ exporter certified
+      # at the native CMake target. No second, scripting-backed host is built.
       - name: Audit macOS host CLI deployment target
         shell: bash
         run: |

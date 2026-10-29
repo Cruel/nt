@@ -6,31 +6,20 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   assertProductionInputs,
   checkProductionJsonCommand,
   isolatedProductionEnvironment,
 } from './native-production-qualification.mjs';
-import { verifyNativeProductionClosure } from './native-production-closure.mjs';
+import { assertInstalledNativeCliBuild } from './native-production-qualification.mjs';
 
-const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 if (process.argv.length !== 3 && (process.argv.length !== 4 || process.argv[3] !== '--production'))
   throw new Error(
     'Usage: certify-native-cli-public-contracts.mjs <installed-native-cli> [--production]',
   );
 const cli = path.resolve(process.argv[2]);
 await assertProductionInputs(cli);
-const island = path.join(
-  repository,
-  process.argv[3] === '--production'
-    ? 'editor/dist-scriptc-island'
-    : 'editor/dist-scriptc-native-island',
-);
-const violations = await verifyNativeProductionClosure([island], {
-  requireManifestRoots: [island],
-});
-assert.deepEqual(violations, [], 'Native ScriptC provenance is required.');
+await assertInstalledNativeCliBuild(cli);
 
 const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-534-public-contracts-'));
 const project = path.join(scratch, 'project');
@@ -88,6 +77,33 @@ try {
   assert.match(help.stdout, /\bcomfyui workflows\b/);
   assert.match(help.stdout, /\bplatform export\b/);
   assert.equal(help.stderr, '');
+  assert.doesNotMatch(help.stdout, /__editor-native/);
+  // The packaged Electron editor uses the same installed native CLI for its
+  // private operations; this is not a public command in the 39-path inventory.
+  const internal = (operation, payload) => {
+    const invocation = spawnSync(cli, ['__editor-native', operation], {
+      env: environment,
+      encoding: 'utf8',
+      input: JSON.stringify(payload),
+      timeout: 30_000,
+    });
+    assert.ifError(invocation.error);
+    assert.equal(invocation.status, 0, `${operation}: ${invocation.stderr}`);
+    assert.equal(invocation.stderr, '', `${operation}: unexpected stderr`);
+    return JSON.parse(invocation.stdout);
+  };
+  assert.deepEqual(internal('path-metadata', { path: path.join(scratch, 'absent') }), {
+    ok: true,
+    kind: 'missing',
+  });
+  assert.deepEqual(internal('path-metadata', {}), {
+    ok: false,
+    error: 'Path metadata request requires path.',
+  });
+  assert.deepEqual(internal('unsupported-internal-operation', {}), {
+    ok: false,
+    error: 'unknown native operation',
+  });
   error(json(['--not-a-global-option'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
   error(json(['validate', '--invalid'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
 

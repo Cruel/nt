@@ -9,7 +9,7 @@ import path from 'node:path';
 import { editorRoot } from './editor-distribution-lib.mjs';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
-  assertInstalledCliBundleBinding,
+  assertInstalledNativeCliBuild,
   assertProductionInputs,
   isolatedProductionEnvironment,
 } from './native-production-qualification.mjs';
@@ -26,13 +26,10 @@ if (process.argv.length > 4 || (process.argv[3] && !production && !candidate))
 if (production || candidate) {
   await assertProductionInputs(path.resolve(process.argv[2]));
   const roots = candidate
-    ? [path.join(editorRoot, 'dist-scriptc-native-island')]
-    : [
-        ...['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
-          path.join(editorRoot, 'dist-electron', name),
-        ),
-        path.join(editorRoot, 'dist-scriptc-island'),
-      ];
+    ? []
+    : ['main', 'preload', 'authoring-worker', 'tools', 'renderer'].map((name) =>
+        path.join(editorRoot, 'dist-electron', name),
+      );
   for (const root of roots) {
     if (
       !(
@@ -41,11 +38,7 @@ if (production || candidate) {
     )
       throw new Error(`Missing emitted production module evidence: ${root}`);
   }
-  await assertInstalledCliBundleBinding(
-    path.resolve(process.argv[2]),
-    path.join(roots.at(-1), 'native-production-provenance.json'),
-    candidate ? 'candidate' : 'production',
-  );
+  await assertInstalledNativeCliBuild(path.resolve(process.argv[2]));
   const violations = await verifyNativeProductionClosure(roots);
   if (violations.length)
     throw new Error(

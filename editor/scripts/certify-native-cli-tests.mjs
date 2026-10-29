@@ -188,7 +188,7 @@ try {
       NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
       NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `noveltea-515-${process.pid}-native`,
       NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: path.join(root, 'native-daemon'),
-      NOVELTEA_CLI_CERTIFICATION_AFTER_SNAPSHOT_MARKER: marker,
+      NOVELTEA_CLI_CERTIFICATION_PINNED_BARRIER: marker,
     },
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -208,7 +208,7 @@ try {
   try {
     let observed = false;
     for (let attempt = 0; attempt < 300; attempt++) {
-      if (existsSync(marker)) {
+      if (existsSync(`${marker}.ready`)) {
         observed = true;
         break;
       }

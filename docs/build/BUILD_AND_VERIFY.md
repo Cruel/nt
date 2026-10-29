@@ -165,10 +165,15 @@ configuration with `noveltea platform config init` or the Android environment he
 Use `pnpm android:export-config -- --output <file>` to generate the Android exporter local-toolchain
 configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME` and `JAVA_HOME`. Shader compilation is provided
 by the standalone `noveltea` host CLI and no external `shaderc` executable is configured for export.
-The ScriptC standalone host CLI is certified on Linux x64 and Windows x64. The Windows CLI builds its
-native tooling/FFI closure with the MinGW GNU ABI and ScriptC targets `x86_64-windows-gnu`; this is
-separate from the MSVC-built Windows desktop player/editor. Platform player jobs still consume shader
-assets precompiled once by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`).
+The standalone CLI is direct C++ on Linux x64, Windows x64 and macOS arm64. Build it with
+`pnpm -C editor run noveltea:build`; the command configures the native authoring CMake
+preset and stages the installed executable and UI Test runner under `build/cli/<platform>/`.
+Windows CLI builds use the MinGW GNU ABI, separate from the MSVC-built desktop player/editor.
+No ScriptC, QuickJS, Zig ScriptC target, or Node execution is required at runtime. The build
+emits `native-production-build.json` binding the exact native executables by SHA-256;
+`pnpm -C editor run noveltea:certify` checks the installed artifact and emitted editor bundles.
+Platform player jobs still consume shader assets precompiled by the Linux shader-assets job
+(`NOVELTEA_COMPILE_SHADERS=OFF`).
 For repository-local Android development, `scripts/run-android.sh` builds the native player with the
 checked-in `android/` Gradle project, packages and installs an immutable player template in an
 isolated registry under `build/run-android`, and exports the selected Project through `noveltea

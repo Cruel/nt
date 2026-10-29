@@ -242,10 +242,17 @@ async function comparePublished() {
   if (independentMode) {
     for (const file of ['index.html', 'manifest.webmanifest', 'player.json'])
       assert.ok((await stat(path.join(candidate, 'dist/platform-web', file))).isFile(), file);
-    const state = JSON.parse(
-      await readFile(path.join(candidate, '.noveltea/editor/state.json'), 'utf8'),
+    // The C++ publisher must not overwrite editor-owned drafts/recovery state.
+    // It records the successful identity in an editor-local sidecar, merged
+    // into state when the editor next opens the Project.
+    const identity = JSON.parse(
+      await readFile(
+        path.join(candidate, '.noveltea/editor/platform-export-identity.json'),
+        'utf8',
+      ),
     );
-    assert.equal(state.lastSuccessfulPlatformExportIdentity?.applicationId, applicationId);
+    assert.equal(identity.format, 'noveltea.platform-export-identity');
+    assert.equal(identity.applicationId, applicationId);
     const player = JSON.parse(
       await readFile(path.join(candidate, 'dist/platform-web/player.json')),
     );
@@ -443,13 +450,22 @@ try {
   );
 
   for (const project of projects) {
-    const filename = path.join(project, '.noveltea/editor/state.json');
-    const state = JSON.parse(await readFile(filename, 'utf8'));
-    state.lastSuccessfulPlatformExportIdentity = {
-      applicationId: 'com.example.old',
-      saveNamespace: 'old-save',
-    };
-    await writeFile(filename, JSON.stringify(state));
+    if (independentMode) {
+      const filename = path.join(project, '.noveltea/editor/platform-export-identity.json');
+      const identity = JSON.parse(await readFile(filename, 'utf8'));
+      identity.applicationId = 'com.example.old';
+      identity.saveNamespace = 'old-save';
+      identity.completedAt = '9999-12-31T23:59:59.999Z';
+      await writeFile(filename, JSON.stringify(identity));
+    } else {
+      const filename = path.join(project, '.noveltea/editor/state.json');
+      const state = JSON.parse(await readFile(filename, 'utf8'));
+      state.lastSuccessfulPlatformExportIdentity = {
+        applicationId: 'com.example.old',
+        saveNamespace: 'old-save',
+      };
+      await writeFile(filename, JSON.stringify(state));
+    }
   }
   compare(exportArgs(['--check', '--force', '--allow-untrusted-template']), {
     expectedSuccess: false,

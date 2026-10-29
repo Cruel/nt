@@ -47,37 +47,35 @@ export function readProductionSourceRevision(repositoryRoot, env = process.env) 
   return sha;
 }
 
-/** An ordinary installed CLI must match the exact ScriptC bundle whose
- * module provenance was inspected. Build provenance alone is not a native
- * authority claim: strict whole-editor closure remains a separate gate. */
-export async function assertInstalledCliBundleBinding(cli, islandManifest, mode) {
-  assert.ok(mode === 'candidate' || mode === 'production', 'Unknown native CLI build mode.');
+/** Require the installed direct-C++ executable and its companion Test runner.
+ * Electron's JS module inventory is certified separately; no JS island belongs
+ * to the CLI release artifact. */
+export async function assertInstalledNativeCliBuild(cli) {
   const binding = JSON.parse(
-    await readFile(
-      path.join(
-        path.dirname(cli),
-        mode === 'candidate' ? 'native-candidate-build.json' : 'native-production-build.json',
-      ),
-      'utf8',
-    ),
+    await readFile(path.join(path.dirname(cli), 'native-production-build.json'), 'utf8'),
   );
   const hash = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   assert.equal(
     binding.contract,
-    mode === 'candidate'
-      ? 'noveltea.native-cli-candidate-build.v1'
-      : 'noveltea.native-cli-production-build.v1',
+    'noveltea.native-cli-production-build.v2',
     'Incorrect installed CLI build provenance.',
   );
+  assert.equal(binding.runtime, 'direct-cxx', 'Installed CLI must use the native C++ runtime.');
   assert.equal(
     binding.executableSha256,
     hash(await readFile(cli)),
     'Installed CLI executable differs from the built executable.',
   );
+  const runner = path.join(
+    path.dirname(cli),
+    path.extname(cli).toLowerCase() === '.exe'
+      ? 'noveltea-ui-test-runner.exe'
+      : 'noveltea-ui-test-runner',
+  );
   assert.equal(
-    binding.islandProvenanceSha256,
-    hash(await readFile(islandManifest)),
-    'Installed CLI does not match inspected ScriptC provenance.',
+    binding.uiTestRunnerSha256,
+    hash(await readFile(runner)),
+    'Installed CLI Test runner differs from the built executable.',
   );
 }
 
@@ -99,7 +97,7 @@ export function isolatedProductionEnvironment(base, home) {
   };
 }
 
-/** Actual stdout/stderr/exit contract of the installed ScriptC binary. */
+/** Actual stdout/stderr/exit contract of the installed C++ binary. */
 export function checkProductionJsonCommand(cli, args, options = {}) {
   assert.equal(
     args.includes('--json'),

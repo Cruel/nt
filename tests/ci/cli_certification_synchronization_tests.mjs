@@ -1,15 +1,19 @@
-import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
 
-import { waitForDaemonState } from "../../editor/scripts/cli-certification-synchronization.mjs";
+import { waitForDaemonState } from '../../editor/scripts/cli-certification-synchronization.mjs';
 
-const certificationSource = readFileSync(
-  new URL("../../editor/scripts/certify-noveltea-cli.mjs", import.meta.url),
-  "utf8",
+const candidate = readFileSync(
+  new URL('../../editor/scripts/certify-native-candidate-contracts.mjs', import.meta.url),
+  'utf8',
+);
+const build = readFileSync(
+  new URL('../../editor/scripts/build-noveltea-cli.mjs', import.meta.url),
+  'utf8',
 );
 
-test("daemon state wait resolves only after the requested postcondition", async () => {
+test('daemon state wait resolves only after the requested postcondition', async () => {
   const states = [
     { disposableBusyWorkers: 1, disposableStandbyWorkers: 0 },
     { disposableBusyWorkers: 0, disposableStandbyWorkers: 0 },
@@ -17,7 +21,7 @@ test("daemon state wait resolves only after the requested postcondition", async 
   ];
   let polls = 0;
   const result = await waitForDaemonState(
-    "standby replenishment",
+    'standby replenishment',
     () => states[polls++],
     (status) => status.disposableBusyWorkers === 0 && status.disposableStandbyWorkers >= 1,
     { pollMs: 1 },
@@ -26,63 +30,34 @@ test("daemon state wait resolves only after the requested postcondition", async 
   assert.equal(polls, 3);
 });
 
-test("resident daemon certification does not hide scheduler lifecycle suites", () => {
-  const residentStart = certificationSource.indexOf("async function certifyResidentDaemon");
-  const residentEnd = certificationSource.indexOf("async function certifyPerformanceEnvelope");
-  assert.notEqual(residentStart, -1);
-  assert.notEqual(residentEnd, -1);
-  const residentBody = certificationSource.slice(residentStart, residentEnd);
-  for (const nested of [
-    "certifyProjectOwnerScheduling(",
-    "certifyDisposableTestScheduling(",
-    "certifyDisposableOutputScheduling(",
-    "certifyDaemonBuildProtocolIsolation(",
-    "certifyStandaloneAuthorityAndMutationHandling(",
-    "certifyComfyUiDisposableOwnerIsolation(",
+test('native production qualification retains every independent behavior witness', () => {
+  for (const script of [
+    'certify-native-cli-public-contracts.mjs',
+    'certify-native-production-lifecycle.mjs',
+    'certify-native-cli-owner-lifecycle.mjs',
+    'certify-native-cli-package.mjs',
+    'certify-native-cli-platform.mjs',
+    'certify-native-cli-comfyui-contracts.mjs',
+    'certify-native-cli-comfyui-race.mjs',
+    'certify-native-authoring-cross-system.mjs',
   ]) {
-    assert.doesNotMatch(residentBody, new RegExp(nested.replace("(", "\\(")));
+    assert.ok(candidate.includes(script), `Production qualification omitted ${script}`);
   }
-  for (const section of [
-    "project-owner-scheduling",
-    "disposable-tests",
-    "disposable-output",
-    "build-protocol-isolation",
-    "authority-mutation",
-    "comfyui-owner-isolation",
-    "resident-daemon",
-  ]) {
-    assert.match(certificationSource, new RegExp(`runTimedSection\\('${section}'`));
-  }
+  assert.doesNotMatch(candidate, /certify-noveltea-cli\.mjs|dist-scriptc-island/);
 });
 
-test("disposable CLI certification avoids real-process scheduler races", () => {
-  const start = certificationSource.indexOf("async function certifyDisposableTestScheduling");
-  const end = certificationSource.indexOf("async function certifyDisposableOutputScheduling");
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  const body = certificationSource.slice(start, end);
-  assert.doesNotMatch(body, /disposable-test-concurrent/);
-  assert.doesNotMatch(body, /runAsync\(/);
-  assert.doesNotMatch(body, /disposableWorkers === 1/);
-  assert.doesNotMatch(body, /queuedRuns/);
-  assert.match(body, /schedulerConcurrencyCertifiedNatively: true/);
+test('release builder only links and installs native CLI, without a ScriptC compilation lane', () => {
+  assert.match(build, /--target', 'noveltea-native-cli'/);
+  assert.match(build, /native-cli-production-build\.v2/);
+  assert.match(build, /smoke-project/);
+  assert.doesNotMatch(build, /scriptcEntrypoint|SCRIPTC_CC|SCRIPTC_TARGET|JS_RunGC/);
 });
 
-test("hosted-runner timing is telemetry rather than a correctness gate", () => {
-  assert.match(certificationSource, /warning\(\s*'Hosted-runner performance variability'/);
-  assert.doesNotMatch(certificationSource, /tail ratio .*release gate/);
-  assert.doesNotMatch(certificationSource, /churnMs\s*>/);
-  assert.doesNotMatch(certificationSource, /scopedChurnMs\s*>/);
-  assert.doesNotMatch(certificationSource, /NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS/);
-  assert.doesNotMatch(certificationSource, /PROJECT_SESSION_IDLE_MS: '250'/);
-  assert.doesNotMatch(certificationSource, /PROJECT_SESSION_IDLE_MS: '500'/);
-});
-
-test("daemon state timeout reports observed transitions", async () => {
+test('daemon state timeout reports observed transitions', async () => {
   let polls = 0;
   await assert.rejects(
     waitForDaemonState(
-      "worker retirement",
+      'worker retirement',
       () => ({ disposableWorkers: polls++ === 0 ? 2 : 1 }),
       (status) => status.disposableWorkers === 0,
       { timeoutMs: 25, pollMs: 1 },

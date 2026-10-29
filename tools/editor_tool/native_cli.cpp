@@ -478,8 +478,14 @@ struct RuntimeBuild {
     int exit_code = 70;
 };
 
-bool runtime_source_current(const std::string& root, const std::string& generation)
+bool runtime_source_current(const std::string& root, const std::string& generation,
+                            bool allow_pinned_snapshot = false)
 {
+    // Read-only Test workers must execute the generation pinned before a
+    // concurrent edit. Cache publication separately rechecks physical sources
+    // and declines stale generations; package/platform writes never opt in.
+    if (allow_pinned_snapshot && native_disposable_active())
+        return native_disposable_has_source_generation(generation);
     return !generation.empty() && native_request({{"action", "source-generation-proof"},
                                                   {"projectRoot", root},
                                                   {"expectedSourceGeneration", generation}})
@@ -608,7 +614,8 @@ bool package_physical_pins_current(const Json& options)
 }
 
 RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
-                          bool include_unused = false, bool include_shader_sources = false)
+                          bool include_unused = false, bool include_shader_sources = false,
+                          bool allow_pinned_snapshot = false)
 {
     RuntimeBuild result;
     const auto root_text = path_text(root);
@@ -649,7 +656,7 @@ RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
         }
         result.diagnostics = project_diagnostics(admitted);
         result.source_generation = admitted.at("sourceGeneration").get<std::string>();
-        if (!runtime_source_current(root_text, result.source_generation))
+        if (!runtime_source_current(root_text, result.source_generation, allow_pinned_snapshot))
             return fail("WORKSPACE_REVISION_CONFLICT", "Runtime sources changed after admission.",
                         5);
 
@@ -668,7 +675,7 @@ RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
             result.diagnostics = prepared.value("diagnostics", Json::array());
             return fail("native.runtime.artifact", "Native runtime artifact assembly failed.", 4);
         }
-        if (!runtime_source_current(root_text, result.source_generation))
+        if (!runtime_source_current(root_text, result.source_generation, allow_pinned_snapshot))
             return fail("WORKSPACE_REVISION_CONFLICT",
                         "Runtime sources changed during compilation.", 5);
         prepared = prepare_native_runtime_physical(prepared.at("artifact"), admitted, root_text);
@@ -683,7 +690,7 @@ RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
         const auto test_paths = cache_input_paths(root, true);
         const auto runtime_inputs = cache_input_metadata(root, runtime_paths);
         const auto test_inputs = cache_input_metadata(root, test_paths);
-        if (!runtime_source_current(root_text, result.source_generation))
+        if (!runtime_source_current(root_text, result.source_generation, allow_pinned_snapshot))
             return fail("WORKSPACE_REVISION_CONFLICT",
                         "Runtime sources changed before publication.", 5);
         // Overrides are specific to one export and must never replace the
@@ -707,7 +714,7 @@ RuntimeBuild load_runtime(const std::filesystem::path& root, bool force = false,
                 result.cache["publicationReason"] =
                     published.value("reason", "native-publication-failed");
         }
-        if (!runtime_source_current(root_text, result.source_generation))
+        if (!runtime_source_current(root_text, result.source_generation, allow_pinned_snapshot))
             return fail("WORKSPACE_REVISION_CONFLICT", "Runtime sources changed after publication.",
                         5);
     } catch (const std::exception& error) {
@@ -768,7 +775,7 @@ int tests_from_native_runtime(const Arguments& args)
             noveltea_tooling_probe_runtime_cache_json,
             {{"projectRoot", root_text}, {"compilerIdentity", compiler_identity}});
     };
-    const auto runtime = load_runtime(root);
+    const auto runtime = load_runtime(root, false, false, false, true);
     const auto& cached = runtime.cache;
     const auto cache_observation = [&](const Json& value) {
         Json observation{{"status", value.value("status", "unusable")},
@@ -906,7 +913,7 @@ int tests_from_native_runtime(const Arguments& args)
     // verifier. Never return a result against a replaced or stale generation.
     const auto current = [&]() {
         if (!runtime.source_generation.empty())
-            return runtime_source_current(root_text, runtime.source_generation);
+            return runtime_source_current(root_text, runtime.source_generation, true);
         const auto verified = probe();
         if (!verified.value("ok", false) || verified.value("status", "") != "hit" ||
             verified.value("artifact", Json()) != artifact)
@@ -2975,10 +2982,82 @@ int run(const std::vector<std::string>& argv)
 } // namespace
 } // namespace noveltea::cli
 
+namespace {
+
+// Electron invokes private tooling operations through the installed CLI. Keep
+// this entry point outside the public command parser and execute the existing
+// native dispatcher once, including for side-effecting operations.
+int run_editor_native_operation(std::string_view operation)
+{
+    constexpr std::size_t max_request_bytes = 32 * 1024 * 1024;
+    std::string request;
+    std::array<char, 8192> chunk{};
+    while (std::cin) {
+        std::cin.read(chunk.data(), chunk.size());
+        const auto count = static_cast<std::size_t>(std::cin.gcount());
+        if (count > max_request_bytes - request.size())
+            throw std::runtime_error("Editor native operation request exceeds 32 MiB.");
+        request.append(chunk.data(), count);
+    }
+    if (std::cin.bad())
+        throw std::runtime_error("Could not read editor native operation request.");
+
+    const auto temporary_root = std::filesystem::temp_directory_path();
+    std::mt19937_64 random(std::random_device{}());
+    std::filesystem::path directory;
+    for (int attempt = 0; attempt < 64; ++attempt) {
+        const auto candidate =
+            temporary_root / ("noveltea-editor-native-" + std::to_string(random()));
+        if (std::filesystem::create_directory(candidate)) {
+            directory = candidate;
+            break;
+        }
+    }
+    if (directory.empty())
+        throw std::runtime_error("Could not create editor native response directory.");
+    struct TemporaryDirectory {
+        std::filesystem::path path;
+        ~TemporaryDirectory()
+        {
+            std::error_code ignored;
+            std::filesystem::remove_all(path, ignored);
+        }
+    } cleanup{directory};
+    std::filesystem::permissions(directory, std::filesystem::perms::owner_all,
+                                 std::filesystem::perm_options::replace);
+
+    const auto response_path = directory / "response.json";
+    const auto response_utf8 = response_path.u8string();
+    noveltea_tooling_invoke_to_file(
+        reinterpret_cast<const std::uint8_t*>(operation.data()), operation.size(),
+        reinterpret_cast<const std::uint8_t*>(request.data()), request.size(),
+        reinterpret_cast<const std::uint8_t*>(response_utf8.data()), response_utf8.size());
+    std::ifstream response(response_path, std::ios::binary);
+    if (!response)
+        throw std::runtime_error("Native tooling did not write an editor response.");
+    const auto max_response_bytes =
+        operation == "alpha-encode" ? 32 * 1024 * 1024 : 16 * 1024 * 1024;
+    const auto response_bytes = std::filesystem::file_size(response_path);
+    if (response_bytes > max_response_bytes)
+        throw std::runtime_error("Editor native operation response exceeds its size limit.");
+    if (response_bytes == 0)
+        return 0;
+    std::cout << response.rdbuf();
+    if (!response.eof() && response.bad())
+        throw std::runtime_error("Could not read editor native operation response.");
+    if (!std::cout)
+        throw std::runtime_error("Could not write editor native operation response.");
+    return 0;
+}
+
+} // namespace
+
 int main(int argc, char** argv)
 {
     const std::vector<std::string> args(argv + 1, argv + argc);
     try {
+        if (args.size() == 2 && args[0] == "__editor-native")
+            return run_editor_native_operation(args[1]);
         if (const auto daemon = noveltea::cli::run_native_daemon_process(
                 args,
                 [](const std::vector<std::string>& local_args) {
