@@ -5634,8 +5634,10 @@ void terminate_child_process(ChildProcess& process)
         return;
     if (child_process_alive(process)) {
         (void)TerminateProcess(process.handle, 1);
-        (void)WaitForSingleObject(process.handle, 1000);
     }
+    // TerminateProcess initiates an asynchronous exit. Do not release the last tracked child
+    // handle (or report broker shutdown) while Windows can still have the executable mapped.
+    (void)WaitForSingleObject(process.handle, INFINITE);
     CloseHandle(process.handle);
     process.handle = nullptr;
     process.pid = 0;
@@ -6716,7 +6718,38 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
     else if (action == "stop") {
         const auto before_stop = client_request(*context, "status", "stop-status-before");
         const bool was_running = before_stop.value("running", false);
+#if defined(_WIN32)
+        HANDLE daemon_handle = nullptr;
+        if (was_running) {
+            if (!before_stop.contains("pid") || !before_stop["pid"].is_number_unsigned() ||
+                before_stop["pid"].get<std::uint64_t>() == 0 ||
+                before_stop["pid"].get<std::uint64_t>() > MAXDWORD)
+                return write_response({{"ok", false}, {"error", "daemon status has no valid PID"}},
+                                      response, response_capacity);
+            // Acquire the process handle before requesting stop: a named pipe can disappear
+            // before the broker exits, and a later PID lookup could refer to another process.
+            daemon_handle = OpenProcess(
+                SYNCHRONIZE, FALSE, static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>()));
+            if (!daemon_handle && GetLastError() != ERROR_INVALID_PARAMETER)
+                return write_response({{"ok", false},
+                                       {"error", "failed to open daemon process for shutdown wait"}},
+                                      response, response_capacity);
+        }
+#endif
         result = client_request(*context, "stop", "stop");
+#if defined(_WIN32)
+        if (daemon_handle) {
+            const auto terminated = WaitForSingleObject(daemon_handle, 10'000);
+            CloseHandle(daemon_handle);
+            if (terminated != WAIT_OBJECT_0)
+                result = {{"ok", false}, {"error", "daemon process did not exit after stop"}};
+            else {
+                const auto status = client_request(*context, "status", "stop-status");
+                if (status.value("ok", false) && !status.value("running", false))
+                    result = status;
+            }
+        }
+#else
         if (was_running || !result.value("ok", false)) {
             const auto deadline = Clock::now() + std::chrono::seconds(2);
             while (Clock::now() < deadline) {
@@ -6728,7 +6761,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
-        result["stopped"] = was_running;
+#endif
+        result["stopped"] = was_running && result.value("ok", false);
     } else if (action == "request") {
         const auto request_id = parsed.value("requestId", std::string{});
         const auto method = parsed.value("method", std::string{});
