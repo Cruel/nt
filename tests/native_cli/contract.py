@@ -10,8 +10,7 @@ import tempfile
 
 binary, source = map(Path, sys.argv[1:3])
 source = source.resolve()
-help_text = (source / 'editor/src/cli/static-contracts.ts').read_text().split(
-    'export const NOVELTEA_CLI_HELP = `', 1)[1].split('`;', 1)[0]
+help_text = (source / 'tools/editor_tool/native_cli_help.txt').read_text()
 version = (source / 'VERSION').read_text().strip()
 
 with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
