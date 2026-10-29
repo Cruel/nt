@@ -150,6 +150,9 @@ jobs:
       - name: Build renderer required by native production certification
         run: pnpm -C editor exec vp build
 
+      - name: Build Electron bundles required by native production certification
+        run: pnpm -C editor exec vp pack
+
       - name: Certify NovelTea host CLI
         run: pnpm -C editor run noveltea:certify -- --cli-only
 
