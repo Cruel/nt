@@ -29,11 +29,11 @@ int main(int argc, char** argv)
         return 74;
     }
 
-    // Only this development executable supplies a build-tree root; the shipped library stays relocatable.
+    // Only this development executable supplies a build-tree root; the shipped library stays
+    // relocatable.
     if (std::strcmp(argv[1], "font-coverage") == 0) {
         auto parsed = nlohmann::json::parse(request.begin(), request.end(), nullptr, false);
-        if (parsed.is_object() &&
-            (!parsed.contains("systemRoot") || parsed["systemRoot"] == "")) {
+        if (parsed.is_object() && (!parsed.contains("systemRoot") || parsed["systemRoot"] == "")) {
             parsed["systemRoot"] = NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT;
             const auto text = parsed.dump();
             request.assign(text.begin(), text.end());
@@ -42,7 +42,7 @@ int main(int argc, char** argv)
 
     const auto* operation = reinterpret_cast<const std::uint8_t*>(argv[1]);
     const auto* response_path = reinterpret_cast<const std::uint8_t*>(argv[3]);
-    noveltea_tooling_invoke_to_file(operation, std::strlen(argv[1]), request.data(),
-                                   request.size(), response_path, std::strlen(argv[3]));
+    noveltea_tooling_invoke_to_file(operation, std::strlen(argv[1]), request.data(), request.size(),
+                                    response_path, std::strlen(argv[3]));
     return 0;
 }
