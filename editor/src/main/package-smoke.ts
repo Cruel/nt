@@ -151,7 +151,10 @@ async function characterizeProductionThumbnailProtocol(
       projectName: 'Package Smoke Thumbnail',
       projectDirectory: projectRoot,
     });
-    if (!created.success || !created.projectFilePath) return false;
+    if (!created.success || !created.projectFilePath) {
+      console.error('[package-smoke:thumbnail] Native Project creation rejected:', created);
+      return false;
+    }
     const sourceDirectory = path.join(projectRoot, 'assets', 'images');
     const sourcePath = path.join(sourceDirectory, 'source.png');
     await fs.promises.mkdir(sourceDirectory, { recursive: true });
@@ -180,8 +183,10 @@ async function characterizeProductionThumbnailProtocol(
       imported.success !== true ||
       !asset?.assetId ||
       asset.projectRelativePath !== 'assets/images/source.png'
-    )
+    ) {
+      console.error('[package-smoke:thumbnail] Native Asset import rejected:', imported);
       return false;
+    }
     const assetId = asset.assetId;
     const openedLiteral = JSON.stringify(projectRoot);
     const source = {
@@ -263,11 +268,12 @@ async function characterizeProductionThumbnailProtocol(
       proof.width !== 3 ||
       proof.height !== 2
     ) {
+      console.error('[package-smoke:thumbnail] Renderer/IPC protocol readback failed:', proof);
       return false;
     }
     const response = await net.fetch(proof.first.url);
     const originalResponse = await net.fetch(proof.original!.url!);
-    return (
+    const valid =
       response.ok &&
       response.headers.get('content-type') === 'image/webp' &&
       response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
@@ -280,8 +286,10 @@ async function characterizeProductionThumbnailProtocol(
       response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
       response.headers.get('access-control-allow-origin') === '*' &&
       response.headers.get('x-content-type-options') === 'nosniff' &&
-      (await response.arrayBuffer()).byteLength > 0
-    );
+      (await response.arrayBuffer()).byteLength > 0;
+    if (!valid)
+      console.error('[package-smoke:thumbnail] Production protocol response validation failed.');
+    return valid;
   } finally {
     await fs.promises.rm(fixtureRoot, { recursive: true, force: true });
   }

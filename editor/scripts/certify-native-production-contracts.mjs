@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveProductionCertificationMode } from './native-production-qualification.mjs';
 
 // Preserve `noveltea:certify` as the public build/release entrypoint while
 // qualifying the *ordinary installed native production* executable. Never
@@ -23,7 +24,7 @@ const executable = path.resolve(
             : 'linux/noveltea',
       ),
 );
-const cliOnly = argv.includes('--cli-only') || !process.env.NOVELTEA_AUTHORING_NODE_ADDON;
+const cliOnly = resolveProductionCertificationMode(argv, process.env.NOVELTEA_AUTHORING_NODE_ADDON);
 if (argv.some((argument) => argument !== '--cli-only'))
   throw new Error('Usage: noveltea:certify [installed-cli] [--cli-only]');
 const result = spawnSync(

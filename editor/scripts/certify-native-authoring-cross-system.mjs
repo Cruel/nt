@@ -2,10 +2,10 @@
 // share clean disk evidence without sharing resident/dirty Project authority.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
-import os from 'node:os';
+import { mkdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { createCertificationRoot } from './certification-temp-root.mjs';
 import { editorRoot } from './editor-distribution-lib.mjs';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
@@ -49,9 +49,7 @@ if (production || candidate) {
 const require = createRequire(path.join(editorRoot, 'package.json'));
 const electron = require('electron');
 const temporaryHome =
-  production || candidate
-    ? await mkdtemp(path.join(os.tmpdir(), 'noveltea-522-cross-system-home-'))
-    : null;
+  production || candidate ? await createCertificationRoot('noveltea-522-cross-system-home-') : null;
 if (temporaryHome)
   await mkdir(path.join(temporaryHome, 'runtime'), { mode: 0o700, recursive: true });
 const run = spawnSync(

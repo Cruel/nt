@@ -29,7 +29,8 @@ export async function importNativeDesktopProject(
       );
     }
     const destination = path.resolve(input.destination);
-    const raw = await invoke('native-project-import', {
+    const raw = await invoke('native-project-commands', {
+      action: 'project-import',
       bundlePath: path.resolve(bundlePath),
       destination,
       projectName: input.projectName,

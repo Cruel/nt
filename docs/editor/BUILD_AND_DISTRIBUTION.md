@@ -61,11 +61,11 @@ pnpm package:smoke
 
 Build-only compiled-Project/golden/platform-fixture entrypoints now emit to
 `editor/dist-build-tools` and are **not staged** inside `dist-electron`.
-The normal shipped Node CLI remains legacy until #521; candidate-only
-`NOVELTEA_CLI_BUILD_NATIVE_CANDIDATE=1` pack produces a SHA-bound
-native-forwarding Node witness. See
-[the native cutover handoff](NATIVE_CLI_CUTOVER_HANDOFF.md) for the
-explicit root/producer map, candidate checks and required production switch.
+The shipped `noveltea` CLI is the direct C++ executable from #551. ScriptC,
+QuickJS, the former Node reference CLI and candidate-only forwarding build are
+not production entrypoints. Editor main/preload/renderer and build-only schema
+generation still use JavaScript/TypeScript. See [CLI](CLI.md) and the
+[production qualification ledger](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md).
 
 Vite+ owns renderer development/build, Vitest, Oxlint, Oxfmt, the cacheable task graph, and the
 main/preload/Node-tool executable bundles. `tsc --noEmit` remains an explicit independent check.
@@ -135,16 +135,15 @@ stage/
 verification rejects a missing or unsupported identity/version instead of treating an older stage as
 current.
 
-The native Project authoring addon is a **host-only, certification-only** Node-API module. Before
+The native Project authoring addon is a **production editor host-only** Node-API module. Before
 staging, build it with `node editor/scripts/build-native-authoring-addon.mjs --addon-only`, then set
 `NOVELTEA_AUTHORING_NODE_ADDON` to `build/native-authoring-host/noveltea-authoring-node.node`.
 The builder obtains checksum-checked headers and (on Windows) the import library matching the exact
 lockfile Electron version through pinned node-gyp, and compiles pinned host-only libfyaml/jsoncons.
 Staging requires the addon, copies its exact bytes into the separate `resources/authoring` closure,
 and verifies its contents and resource hash on relocation. electron-builder includes that closure
-outside ASAR so a future production worker can load it by absolute resource path. This does **not**
-activate the native authoring worker in production or introduce a TypeScript/C++ fallback; the
-native worker remains a parallel certification path pending migration cutover.
+outside ASAR so the production editor worker can load it by absolute resource path. The editor
+does not fall back to the retired TypeScript Project authority.
 
 The `native-authoring-hosts` CI matrix builds and certifies the addon and real Project sessions on
 Linux x64, Windows x64, and macOS arm64. It runs the existing watcher, reconciliation, conflict,

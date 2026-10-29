@@ -151,7 +151,7 @@ jobs:
         run: pnpm -C editor exec vp build
 
       - name: Certify NovelTea host CLI
-        run: pnpm -C editor run noveltea:certify
+        run: pnpm -C editor run noveltea:certify -- --cli-only
 
       - name: Build direct C++ Linux platform-export CLI
         run: cmake --build --preset linux-authoring-release --target noveltea-native-cli
@@ -314,7 +314,7 @@ jobs:
       - name: Build renderer required by native production certification
         run: pnpm -C editor exec vp build
       - name: Certify Windows CLI
-        run: pnpm -C editor run noveltea:certify
+        run: pnpm -C editor run noveltea:certify -- --cli-only
       - name: Stage standalone Windows CLI
         shell: pwsh
         run: |
@@ -1825,6 +1825,9 @@ jobs:
       - name: Build native editor certification tool bundle
         run: pnpm -C editor exec vp pack
 
+      - name: Build native production renderer for host certification
+        run: pnpm -C editor exec vp build
+
       # Catch host-loader defects (such as missing Windows Electron
       # delay-load hook) before running the slower editor/CLI differential.
       - name: Certify Windows Electron native-addon worker loading
@@ -1848,13 +1851,10 @@ jobs:
           node editor/scripts/certify-native-cli-platform.mjs $cli
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Certify native editor and installed CLI cross-system authority
-        shell: pwsh
+      - name: Certify full native production lifecycle and editor/CLI authority
         env:
           NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
-        run: |
-          node editor/scripts/certify-native-authoring-cross-system.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: pnpm -C editor run noveltea:certify -- "${{ github.workspace }}/${{ matrix.cli_executable }}"
 
       - name: Build and verify native editor artifacts
         shell: pwsh

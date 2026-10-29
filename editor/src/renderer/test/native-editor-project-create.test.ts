@@ -16,8 +16,9 @@ describe('native editor Project Create candidate', () => {
   it('uses only the native Project operation, returning its exact physical identity', async () => {
     const destination = path.resolve(tmpdir(), 'candidate-create-contract');
     const call = async (operation: string, request: unknown) => {
-      expect(operation).toBe('native-project-create');
+      expect(operation).toBe('native-project-commands');
       expect(request).toEqual({
+        action: 'project-create',
         projectRoot: destination,
         name: 'My Project',
       });
@@ -57,8 +58,9 @@ describe('native editor Project Create candidate', () => {
       projectName: 'Confirmed Import',
     };
     const imported = await importNativeDesktopProject(request, async (op, body) => {
-      expect(op).toBe('native-project-import');
+      expect(op).toBe('native-project-commands');
       expect(body).toEqual({
+        action: 'project-import',
         bundlePath: '/source/portable.ntproject',
         destination,
         projectName: 'Confirmed Import',

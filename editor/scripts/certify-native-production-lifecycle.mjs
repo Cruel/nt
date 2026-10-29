@@ -2,10 +2,10 @@
 // every emitted editor JS root, never a CLI scripting island.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createCertificationRoot } from './certification-temp-root.mjs';
 import { verifyNativeProductionClosure } from './native-production-closure.mjs';
 import {
   assertInstalledNativeCliBuild,
@@ -73,7 +73,7 @@ assert.deepEqual(
   `Native ${candidateMode ? 'candidate' : 'production'} provenance is incomplete:\n${violations.join('\n')}`,
 );
 
-const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-522-production-'));
+const scratch = await createCertificationRoot('noveltea-522-production-');
 const home = path.join(scratch, 'home');
 const environment = isolatedProductionEnvironment(process.env, home);
 const project = path.join(scratch, 'feature-lab');
@@ -207,6 +207,35 @@ try {
     included.push(collection);
   }
   assert.ok(included.length >= 14, 'Feature Lab record-family inventory unexpectedly shrank.');
+  // Feature Lab intentionally lacks some source families (currently Maps).
+  // Certify their real public create/inspect/source-read path in an independent
+  // disposable Project instead of reporting an incomplete family inventory as
+  // if the CLI had passed every family.
+  if (missing.length > 0) {
+    const supplemental = path.join(scratch, 'supplemental-record-families');
+    expectSuccess(
+      run(null, ['project', 'create', supplemental, '--name', 'Supplemental Families']),
+      'supplemental Project creation',
+    );
+    for (const collection of missing) {
+      const id = `certification-${collection}`;
+      expectSuccess(
+        run(supplemental, ['entity', 'create', collection, id]),
+        `supplemental ${collection} create`,
+      );
+      const inspected = expectSuccess(
+        run(supplemental, ['entity', 'inspect', collection, id]),
+        `supplemental ${collection} inspect`,
+      );
+      assert.equal(inspected.record?.id, id);
+      included.push(collection);
+    }
+  }
+  assert.deepEqual(
+    included.sort(),
+    authoringCollectionKeys,
+    'Native production CLI did not exercise every generated record family.',
+  );
 
   const archive = path.join(scratch, 'feature-lab.ntproject');
   expectSuccess(

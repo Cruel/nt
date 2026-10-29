@@ -21,6 +21,18 @@ export async function assertProductionInputs(cli, env = process.env) {
   assert.ok((await stat(cli).catch(() => null))?.isFile(), `Missing installed CLI: ${cli}`);
 }
 
+/** A missing addon must never silently downgrade the production gate to a
+ * CLI-only smoke. Release builder jobs may deliberately select that subset;
+ * host integration jobs must provide the real addon. */
+export function resolveProductionCertificationMode(argv, addon) {
+  const cliOnly = argv.includes('--cli-only');
+  assert.ok(
+    cliOnly || addon,
+    'Production qualification requires NOVELTEA_AUTHORING_NODE_ADDON; pass --cli-only explicitly for the CLI-only subset.',
+  );
+  return cliOnly;
+}
+
 /** Resolve the exact checked-out source, including inside CI containers whose
  * checkout is owned by a different UID. Trust only this repository directory,
  * never every Git repository on the runner. */
@@ -61,11 +73,30 @@ export async function assertInstalledNativeCliBuild(cli) {
     'Incorrect installed CLI build provenance.',
   );
   assert.equal(binding.runtime, 'direct-cxx', 'Installed CLI must use the native C++ runtime.');
+  const bytes = await readFile(cli);
   assert.equal(
     binding.executableSha256,
-    hash(await readFile(cli)),
+    hash(bytes),
     'Installed CLI executable differs from the built executable.',
   );
+  // The build record is not proof of a direct native executable: also inspect
+  // its actual bytes, including stripped binaries and relocated release inputs.
+  const nativeMagic =
+    (bytes[0] === 0x7f && bytes.subarray(1, 4).toString() === 'ELF') ||
+    (bytes[0] === 0x4d && bytes[1] === 0x5a) ||
+    ['feedfacf', 'cffaedfe'].includes(bytes.subarray(0, 4).toString('hex'));
+  assert.ok(nativeMagic, 'Installed CLI is not an ELF, PE, or Mach-O native executable.');
+  for (const symbol of [
+    'scr_island_lre_opaque',
+    'JS_RunGC',
+    'JS_SetGCThreshold',
+    'noveltea_tooling_scriptc_',
+  ])
+    assert.equal(
+      bytes.includes(Buffer.from(symbol)),
+      false,
+      `Retired CLI runtime symbol: ${symbol}`,
+    );
   const runner = path.join(
     path.dirname(cli),
     path.extname(cli).toLowerCase() === '.exe'

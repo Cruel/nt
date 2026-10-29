@@ -864,14 +864,15 @@ destroying the previous worker. Close revokes all candidate and active native
 workers, and all native command, text, Save, Test and export IPC calls continue
 to validate the active session ID and working revision.
 
-Candidate `CREATE_PROJECT` uses the private `native-project-create` editor
-bridge operation, which dispatches a single native `project-create`
+Production `CREATE_PROJECT` uses the private `native-project-commands` editor
+bridge operation with action `project-create`, which dispatches one native
 transaction with an absolute destination and returns its native identity.
 The UI then opens the created Project normally via candidate `OPEN_PROJECT`.
 No TypeScript Workspace creator, validator or YAML writer is invoked by this
 candidate path. The internal bridge extension does not change the public
 CLI/daemon production routing.
-`COMPLETE_PROJECT_IMPORT` similarly uses `native-project-import`; it reuses
+`COMPLETE_PROJECT_IMPORT` similarly uses the same native bridge with action
+`project-import`; it reuses
 the desktop handoff's bounded HTTPS/SHA-256 download but delegates archive
 validation, source containment, exact file revisions and destination publication
 to the native transaction. A confirmed display-name override is applied to
