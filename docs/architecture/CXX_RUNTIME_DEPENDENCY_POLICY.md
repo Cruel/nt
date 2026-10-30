@@ -170,6 +170,36 @@ The current approved example is the embedded shaderc/compiler closure linked onl
 host `noveltea` CLI. The Linux link audit rejects host-tool archives in `noveltea-player`. A tool
 becoming runtime-linked automatically voids the exemption and requires full admission review.
 
+### Native Project schema certification (#475)
+
+`tools/project_authoring/` is an additional host-only exemption. Its static
+`noveltea_project_authoring_contracts` library and `noveltea-schema-certify` executable use jsoncons
+1.10.0 (Boost Software License 1.0), pinned to commit
+`d273865feb0d7e35a757c805dc4d1d9320eb6b72` and archive SHA-256
+`698f41f9f3bd1bdb3127c0548139bb3b68c379fae452c514aec9f0cf92e82b5b` in that directory's CMake
+file. jsoncons is header-only, with no transitive C++ archives. The normal host exception/RTTI model
+is intentional; schema compilation, malformed JSON, and unexpected validation failures are caught at
+`validate_record` and returned as diagnostics. No target links the engine, no install/package rule
+exists, and the directory rejects cross-compilation. No objects or headers enter native/Web/Android
+players or export templates, so player binary-size impact is zero. Linux standalone compilation,
+malformed-input self-tests, and native/Zod differential tests certify the foundation; Windows/macOS
+integration and distribution remain gates for the later host-packaging/cutover tickets. See
+[NATIVE_AUTHORING_CONTRACTS.md](NATIVE_AUTHORING_CONTRACTS.md).
+
+### Native YAML round-trip certification (#476)
+
+`noveltea_project_authoring_yaml` and the `noveltea-yaml-certify` host executable use libfyaml
+1.0.0-beta2 (MIT license), pinned to commit `7a0d93e17b7e694c45ffb1d726665030cf0cb4ed`.
+The pinned C source and its portable/transitively selected BLAKE3 objects compile into
+`fyaml_static`. Unused generic, reflection, Python, upstream CLI, shared library and test
+targets are excluded. The new codec uses jsoncons only inside its private C++ translation unit
+and native certification executable; neither dependency is exposed in a public header.
+`tools/project_authoring/` still rejects non-host builds, has no runtime link or install rule,
+and retains a zero player-size impact. It uses recoverable C parser/document lifetimes and the
+host-only exception boundary to reject invalid YAML/edit batches. Linux CTest and the native vs.
+TypeScript Room fixture tests certify the slice; Windows/macOS CI and final packaging gates
+remain requirements before authoritative cutover.
+
 ## Admission gate
 
 Any pull request or implementation that adds or materially upgrades a shipped C++ dependency must add

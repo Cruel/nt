@@ -1,4 +1,3 @@
-import { buildAuthoringStructuralDependencyGraph } from '../authoring-dependency-graph';
 import type {
   AuthoringDependencyEdge,
   AuthoringDependencyGraph,
@@ -21,16 +20,30 @@ export interface ReferenceIndex {
   byTarget: Map<string, ReferenceUsage[]>;
 }
 
-function compatibilityKind(edge: AuthoringDependencyEdge): ReferenceUsageKind | null {
+function compatibilityKind(
+  edge: AuthoringDependencyEdge,
+  nativeRoles: boolean,
+): ReferenceUsageKind | null {
   if (edge.role === 'entrypoint') return 'entrypoint';
   if (edge.role === 'flow-target') return 'flow-target';
   if (edge.role === 'variable-ref') return 'variable-ref';
+  // Native edge roles already carry the reference classification; their
+  // originating JSON path need not end in a legacy /$ref representation.
+  if (
+    nativeRoles &&
+    edge.role !== 'source-recognized-reference' &&
+    edge.role !== 'lua-possible-reference'
+  )
+    return 'explicit-ref';
   return edge.sourcePath.endsWith('/$ref') ? 'explicit-ref' : null;
 }
 
-function projectCompatibilityUsage(edge: AuthoringDependencyEdge): ReferenceUsage | null {
+function projectCompatibilityUsage(
+  edge: AuthoringDependencyEdge,
+  nativeRoles: boolean,
+): ReferenceUsage | null {
   if (!edge.facets.includes('reference-integrity') || edge.target.kind !== 'record') return null;
-  const kind = compatibilityKind(edge);
+  const kind = compatibilityKind(edge, nativeRoles);
   if (!kind) return null;
 
   if (edge.source.kind === 'record') {
@@ -108,13 +121,14 @@ export function referenceTargetKey(target: ReferenceTarget): string {
 export function buildReferenceIndexFromGraph(
   project: AuthoringProject,
   graph: AuthoringDependencyGraph,
+  nativeRoles = false,
 ): ReferenceIndex {
   const graphEdges: AuthoringDependencyEdge[] = [];
   for (const [, edge] of graph.edgesById) graphEdges.push(edge);
   const usages = legacyUsageOrder(
     project,
     graphEdges
-      .map(projectCompatibilityUsage)
+      .map((edge) => projectCompatibilityUsage(edge, nativeRoles))
       .filter((usage): usage is ReferenceUsage => usage !== null),
   );
   const byTarget = new Map<string, ReferenceUsage[]>();
@@ -125,10 +139,6 @@ export function buildReferenceIndexFromGraph(
     byTarget.set(key, group);
   }
   return { usages, byTarget };
-}
-
-export function buildReferenceIndex(project: AuthoringProject): ReferenceIndex {
-  return buildReferenceIndexFromGraph(project, buildAuthoringStructuralDependencyGraph(project));
 }
 
 export function findUsages(index: ReferenceIndex, target: ReferenceTarget): ReferenceUsage[] {

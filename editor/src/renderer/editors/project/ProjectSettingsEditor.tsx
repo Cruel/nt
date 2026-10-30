@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
+import { useCommandStore } from '@/commands/command-store';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -8,8 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { ColorField } from '@/components/ui/color-field';
-import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import {
   Dialog,
   DialogDescription,
@@ -20,83 +18,22 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
-import { usePreferencesStore } from '@/stores/preferences-store';
-import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
-import { listComfyUiWorkflowLibrary } from '@/comfyui/comfyui-service';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { projectForEditor } from '@/project/project-for-editor';
 import { useProjectStore } from '@/project/project-store';
-import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
-import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import {
-  audioPurposeValues,
-  type AudioPurpose,
-  type ProjectAudioSettings,
-} from '../../../shared/project-schema/authoring-audio';
-import {
-  getSystemLayoutSetting,
-  isSystemLayoutCompatible,
-  systemLayoutRoleValues,
-  type SystemLayoutRole,
-} from '../../../shared/project-schema/authoring-layouts';
-import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  defaultInteractableInstanceData,
-  parseInteractableData,
-} from '../../../shared/project-schema/authoring-interactables';
-import {
-  PROJECT_INVENTORY_ID,
-  PROJECT_INVENTORY_LABEL,
-  projectInventoryRef,
-} from '../../../shared/project-schema/authoring-inventories';
-import { decodeAuthoringProject } from '../../../shared/project-schema/decode-authoring-project';
-import { stripEditorProjectState } from '../../../shared/project-schema/editor-project-state';
-import {
-  assetMemoryBuiltinPresetValues,
-  resolveAssetMemoryPolicy,
-  type AssetMemoryPolicyDefinition,
-  type AssetMemoryBuiltinPreset,
-} from '../../../shared/project-schema/platform-export-contracts';
-import {
-  deriveProjectDisplayGeometry,
-  projectSettingsForEditing,
-  systemCursorNames,
-  validateProjectSettingsAuthoringState,
-  type ProjectAccessibilityScalePolicy,
-  type ProjectAppSettings,
-  type ProjectDisplaySettings,
-  type ProjectCursorSettings,
-  type SystemCursorName,
-} from '../../../shared/project-schema/authoring-project-settings';
-import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
-import {
-  defaultInteractionProgram,
-  type InteractionProgram,
-} from '../../../shared/project-schema/authoring-interaction-programs';
-import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
-import { AssetPreview } from '../assets/AssetPreview';
+import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
+import { usePreferencesStore } from '@/stores/preferences-store';
+import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
   collectPendingInputDiagnostics,
   usePendingInputStore,
 } from '@/workbench/pending-input-store';
-import { buildComfyUiWorkflowsTab, type WorkbenchEditorProps } from '@/workbench/editor-registry';
-import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import {
-  AppWindow,
-  BadgeInfo,
-  Blocks,
-  Gauge,
-  Image,
-  MousePointer2,
-  Plus,
-  Trash2,
-  LayoutTemplate,
-  MonitorCog,
-  ShieldCheck,
-  Sparkles,
-  Volume2,
-} from 'lucide-react';
+  navigateToWorkbenchTarget,
+  registerWorkbenchTargetHandler,
+} from '@/workbench/workbench-navigation';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -111,6 +48,70 @@ import {
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import {
+  AppWindow,
+  BadgeInfo,
+  Blocks,
+  Gauge,
+  Image,
+  LayoutTemplate,
+  MonitorCog,
+  MousePointer2,
+  Plus,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Volume2,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import {
+  audioPurposeValues,
+  type AudioPurpose,
+  type ProjectAudioSettings,
+} from '../../../shared/project-schema/authoring-audio';
+import {
+  defaultInteractableInstanceData,
+  parseInteractableData,
+} from '../../../shared/project-schema/authoring-interactables';
+import {
+  defaultInteractionProgram,
+  type InteractionProgram,
+} from '../../../shared/project-schema/authoring-interaction-programs';
+import {
+  PROJECT_INVENTORY_ID,
+  PROJECT_INVENTORY_LABEL,
+  projectInventoryRef,
+} from '../../../shared/project-schema/authoring-inventories';
+import {
+  getSystemLayoutSetting,
+  isSystemLayoutCompatible,
+  systemLayoutRoleValues,
+  type SystemLayoutRole,
+} from '../../../shared/project-schema/authoring-layouts';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  deriveProjectDisplayGeometry,
+  projectSettingsForEditing,
+  systemCursorNames,
+  type ProjectAccessibilityScalePolicy,
+  type ProjectAppSettings,
+  type ProjectCursorSettings,
+  type ProjectDisplaySettings,
+  type SystemCursorName,
+} from '../../../shared/project-schema/authoring-project-settings';
+import {
+  assetMemoryBuiltinPresetValues,
+  resolveAssetMemoryPolicy,
+  type AssetMemoryBuiltinPreset,
+  type AssetMemoryPolicyDefinition,
+} from '../../../shared/project-schema/platform-export-contracts';
+import { MAX_REFERENCE_RESOLUTION_DIMENSION } from '../../../shared/project-schema/project-display-contract';
+import { AssetPreview } from '../assets/AssetPreview';
+import { InteractionProgramEditor } from '../interactions/InteractionProgramEditor';
 
 const PROJECT_SETTINGS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.project-settings';
 
@@ -338,8 +339,9 @@ function pathsOverlap(left: string, right: string) {
   return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
-function commandSucceeded(result: ReturnType<typeof runProjectCommand>) {
-  return !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
+async function commandSucceeded(resultPromise: ReturnType<typeof runProjectCommand>) {
+  const result = await resultPromise;
+  return result.ok && !result.diagnostics.some((diagnostic) => diagnostic.severity === 'error');
 }
 
 function cursorTargetSelection(target: ProjectCursorSettings['defaults']['hotspot']) {
@@ -402,7 +404,7 @@ interface PendingNumberInputProps {
   value: number | undefined;
   optional?: boolean;
   invalid: boolean;
-  onCommit: (value: number | undefined) => boolean;
+  onCommit: (value: number | undefined) => boolean | Promise<boolean>;
 }
 
 function PendingNumberInput({
@@ -427,23 +429,33 @@ function PendingNumberInput({
       value={rawValue}
       aria-invalid={invalid || Boolean(pending)}
       data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[path]}
-      onChange={(event) => {
+      onChange={async (event) => {
         const raw = event.currentTarget.value;
-        if (optional && raw === '') {
-          if (onCommit(undefined)) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-          return;
-        }
-        if (/^[+-]?\d+$/.test(raw)) {
-          const parsed = Number(raw);
-          if (Number.isSafeInteger(parsed) && onCommit(parsed)) {
-            clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-            return;
-          }
-        }
         setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path, {
           value: raw,
           diagnosticCode: 'editor.pending-input.number.invalid',
         });
+        if (optional && raw === '') {
+          if (await onCommit(undefined)) {
+            const latest =
+              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
+                path
+              ];
+            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+          }
+          return;
+        }
+        if (/^[+-]?\d+$/.test(raw)) {
+          const parsed = Number(raw);
+          if (Number.isSafeInteger(parsed) && (await onCommit(parsed))) {
+            const latest =
+              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
+                path
+              ];
+            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+            return;
+          }
+        }
       }}
     />
   );
@@ -454,7 +466,7 @@ interface PendingDecimalInputProps {
   path: string;
   value: number;
   invalid: boolean;
-  onCommit: (value: number) => boolean;
+  onCommit: (value: number) => boolean | Promise<boolean>;
 }
 
 function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDecimalInputProps) {
@@ -472,19 +484,23 @@ function PendingDecimalInput({ id, path, value, invalid, onCommit }: PendingDeci
       value={rawValue}
       aria-invalid={invalid || Boolean(pending)}
       data-workbench-anchor={PROJECT_SETTINGS_FIELD_ANCHORS[path]}
-      onChange={(event) => {
+      onChange={async (event) => {
         const raw = event.currentTarget.value;
-        if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
-          const parsed = Number(raw);
-          if (Number.isFinite(parsed) && onCommit(parsed)) {
-            clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
-            return;
-          }
-        }
         setPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path, {
           value: raw,
           diagnosticCode: 'editor.pending-input.number.invalid',
         });
+        if (/^[+-]?(?:\d+|\d+\.\d+|\.\d+)$/.test(raw)) {
+          const parsed = Number(raw);
+          if (Number.isFinite(parsed) && (await onCommit(parsed))) {
+            const latest =
+              usePendingInputStore.getState().entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID]?.[
+                path
+              ];
+            if (latest?.value === raw) clearPendingInput(PROJECT_SETTINGS_SAVE_UNIT_ID, path);
+            return;
+          }
+        }
       }}
     />
   );
@@ -540,7 +556,7 @@ function nextInventoryInstanceId(project: AuthoringProject, definitionId: string
 }
 
 function runProjectCommand(type: string, payload: unknown, label: string) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type,
     label,
     payload,
@@ -590,7 +606,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
     });
     instance.id = instanceId;
     instance.quantity = quantity;
-    runProjectCommand(
+    void runProjectCommand(
       'project.addAtPath',
       { path: `/interactableInstances/${instanceId}`, value: instance },
       `Add ${selected.record.label} to Inventory`,
@@ -634,7 +650,7 @@ function ProjectInventoryContentsEditor({ project }: { project: AuthoringProject
                         const next = Number(event.currentTarget.value);
                         if (!Number.isSafeInteger(next) || next <= 0) return;
                         const clamped = Math.min(next, data.stackLimit ?? Number.MAX_SAFE_INTEGER);
-                        runProjectCommand(
+                        void runProjectCommand(
                           'project.replaceAtPath',
                           {
                             path: `/interactableInstances/${instance.id}/quantity`,
@@ -748,7 +764,7 @@ function AssetMemoryPoliciesEditor({ project }: { project: AuthoringProject }) {
   }, [policies, selectedPolicy, selectedPolicyId]);
 
   function replacePolicies(next: AssetMemoryPolicyDefinition[], label: string) {
-    runProjectCommand(
+    void runProjectCommand(
       'project.replaceAtPath',
       { path: '/export/assetMemoryPolicies', value: next },
       label,
@@ -1097,14 +1113,12 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const developerMode = usePreferencesStore((state) => state.developerMode);
-  const decodedProject = useMemo(
-    () =>
-      projectDocument ? decodeAuthoringProject(stripEditorProjectState(projectDocument)) : null,
-    [projectDocument],
+  const nativeSession = useProjectStore((state) => state.nativeSession);
+  const nativeDiagnostics = useNativeProjectDiagnostics();
+  const project = useMemo(
+    () => projectForEditor(projectDocument, nativeSession),
+    [projectDocument, nativeSession],
   );
-  const project: AuthoringProject | null = decodedProject?.project
-    ? (projectDocument as AuthoringProject)
-    : null;
   const settings = useMemo(() => (project ? projectSettingsForEditing(project) : null), [project]);
   const pendingInputEntries = usePendingInputStore(
     (state) => state.entriesBySaveUnitId[PROJECT_SETTINGS_SAVE_UNIT_ID],
@@ -1118,10 +1132,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       }),
     [pendingInputEntries],
   );
-  const projectSettingsDiagnostics = useMemo(
-    () => (project ? validateProjectSettingsAuthoringState(project) : []),
-    [project],
-  );
+  const projectSettingsDiagnostics = useMemo(() => nativeDiagnostics, [nativeDiagnostics]);
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const entrypointItems = useMemo(
     () =>
@@ -1513,7 +1524,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
-  function renameNamedCursor(fromId: string, toId: string) {
+  async function renameNamedCursor(fromId: string, toId: string) {
     const normalized = toId.trim();
     if (normalized === fromId) return true;
     const result = runProjectCommand(
@@ -1521,7 +1532,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       { fromId, toId: normalized },
       t('projectSettings.cursors.renameCommand', { id: fromId }),
     );
-    if (commandSucceeded(result)) {
+    if (await commandSucceeded(result)) {
       if (testingCursorId === fromId) setTestingCursorId(normalized);
       setCursorIdDrafts((drafts) => {
         const next = { ...drafts };
@@ -1534,7 +1545,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     return false;
   }
 
-  function removeNamedCursor(index: number, force = false) {
+  async function removeNamedCursor(index: number, force = false) {
     const removed = currentSettings.cursors.named[index];
     if (!removed) return false;
     const result = runProjectCommand(
@@ -1547,13 +1558,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         { id: removed.id },
       ),
     );
-    const succeeded = commandSucceeded(result);
+    const succeeded = await commandSucceeded(result);
     if (succeeded) {
       if (testingCursorId === removed.id) setTestingCursorId(null);
       if (pendingCursorForceDeleteId === removed.id) setPendingCursorForceDeleteId(null);
     } else if (
       !force &&
-      result.diagnostics.some(
+      (await result).diagnostics.some(
         (diagnostic) =>
           diagnostic.severity === 'error' && diagnostic.message.includes('Force Delete'),
       )
@@ -1847,7 +1858,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                   onChange={(event) => {
                     const assetId = event.currentTarget.value;
                     if (assetId && !projectFontStack.some((ref) => ref.$ref.id === assetId))
-                      setProjectFontStack([...projectFontStack.map((ref) => ref.$ref.id), assetId]);
+                      void setProjectFontStack([
+                        ...projectFontStack.map((ref) => ref.$ref.id),
+                        assetId,
+                      ]);
                     event.currentTarget.value = '';
                   }}
                 >
@@ -1876,7 +1890,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                         onClick={() => {
                           const ids = projectFontStack.map((entry) => entry.$ref.id);
                           [ids[index - 1], ids[index]] = [ids[index]!, ids[index - 1]!];
-                          setProjectFontStack(ids);
+                          void setProjectFontStack(ids);
                         }}
                         aria-label={`Move ${ref.$ref.id} earlier`}
                       >
@@ -1891,7 +1905,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                         onClick={() => {
                           const ids = projectFontStack.map((entry) => entry.$ref.id);
                           [ids[index], ids[index + 1]] = [ids[index + 1]!, ids[index]!];
-                          setProjectFontStack(ids);
+                          void setProjectFontStack(ids);
                         }}
                         aria-label={`Move ${ref.$ref.id} later`}
                       >
@@ -2838,7 +2852,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     onBlur={(event) => {
                       const displayName = event.currentTarget.value.trim() || undefined;
                       if (displayName === notice.displayName) return;
-                      setDistributionNotices(
+                      void setDistributionNotices(
                         settings.distributionNotices.map((item, position) =>
                           position === index ? { ...item, displayName } : item,
                         ),
@@ -2912,9 +2926,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     !current.document
                   )
                     return;
-                  const decoded = decodeAuthoringProject(stripEditorProjectState(current.document));
-                  if (!decoded.project) return;
-                  const notices = projectSettingsForEditing(decoded.project).distributionNotices;
+                  const currentProject = projectForEditor(current.document);
+                  if (!currentProject) return;
+                  const notices = projectSettingsForEditing(currentProject).distributionNotices;
                   if (notices.some((notice) => notice.path === relativePath)) return;
                   if (!inspected.exists || inspected.noticeError) {
                     setNoticeValidationError(
@@ -2925,7 +2939,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     return;
                   }
                   setNoticeValidationError(null);
-                  if (setDistributionNotices([...notices, { path: relativePath }]))
+                  if (await setDistributionNotices([...notices, { path: relativePath }]))
                     setNoticePathDraft('');
                 }}
               >
@@ -3124,7 +3138,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             item.collection === 'scenes' ||
             item.collection === 'dialogues'
           ) {
-            setEntrypoint({
+            void setEntrypoint({
               kind: item.collection.slice(0, -1) as 'room' | 'scene' | 'dialogue',
               id: item.entityId,
             });
@@ -3141,7 +3155,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         selectedId={`record:scripts:${project.bootstrapModule.$ref.id}`}
         onSelect={(item) => {
           if (item.collection !== 'scripts' || !item.entityId) return;
-          runProjectCommand(
+          void runProjectCommand(
             'project.setBootstrapModule',
             { scriptId: item.entityId },
             'Set Bootstrap Module',
@@ -3169,7 +3183,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
         }
         onSelect={(item) => {
           if (!systemLayoutSelectorRole || !item.entityId) return;
-          setSystemLayout(systemLayoutSelectorRole, item.entityId);
+          void setSystemLayout(systemLayoutSelectorRole, item.entityId);
         }}
         onOpenChange={(open) => setSystemLayoutSelectorRole(open ? systemLayoutSelectorRole : null)}
       />
@@ -3200,7 +3214,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 const index = currentSettings.cursors.named.findIndex(
                   (cursor) => cursor.id === pendingCursorForceDeleteId,
                 );
-                if (index >= 0) removeNamedCursor(index, true);
+                if (index >= 0) void removeNamedCursor(index, true);
               }}
             >
               {t('projectSettings.cursors.forceDelete')}
@@ -3253,10 +3267,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
             <Button
               type="button"
               disabled={!resolutionDialogValid}
-              onClick={() => {
+              onClick={async () => {
                 if (
                   resolutionDialogValid &&
-                  setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight)
+                  (await setReferenceResolution(parsedResolutionWidth, parsedResolutionHeight))
                 )
                   setResolutionDialogOpen(false);
               }}

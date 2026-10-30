@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { TestSuiteEditor } from '@/editors/tests/TestSuiteEditor';
@@ -26,6 +27,14 @@ beforeEach(() => {
   useWorkspaceStore.getState().setStatusMessage('');
   useBottomPanelStore.getState().setActivePanelId('problems');
   usePendingInputStore.setState({ entriesBySaveUnitId: {} });
+  Object.defineProperty(window.noveltea, 'nativeProjectTestReadiness', {
+    configurable: true,
+    value: vi.fn(async () => ({ runnable: true, reason: 'runnable', diagnostics: [] })),
+  });
+  Object.defineProperty(window.noveltea, 'nativeProjectRunSuite', {
+    configurable: true,
+    value: vi.fn(),
+  });
   vi.mocked(window.noveltea.runPlaybackSuite).mockReset();
   vi.mocked(window.noveltea.runPlaybackTest).mockClear();
 });
@@ -33,13 +42,8 @@ beforeEach(() => {
 describe('TestSuiteEditor', () => {
   it('runs the whole suite once and renders native passed, failed, blocked, and error statuses', async () => {
     const project = projectWithTests();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-      projectSessionId: 'project-session',
-    });
-    const runPlaybackSuite = vi.mocked(window.noveltea.runPlaybackSuite);
+    admitNativeRendererCommandFixture(project, 'project-session');
+    const runPlaybackSuite = vi.mocked(window.noveltea.nativeProjectRunSuite);
     runPlaybackSuite.mockResolvedValue({
       ok: true,
       success: false,
@@ -86,7 +90,7 @@ describe('TestSuiteEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run All' }));
 
     await waitFor(() => expect(runPlaybackSuite).toHaveBeenCalledOnce());
-    expect(runPlaybackSuite).toHaveBeenCalledWith('project-session', project, {});
+    expect(runPlaybackSuite).toHaveBeenCalledWith('project-session', 0);
     expect(vi.mocked(window.noveltea.runPlaybackTest)).not.toHaveBeenCalled();
 
     expect(
@@ -102,13 +106,8 @@ describe('TestSuiteEditor', () => {
 
   it('opens an executed suite entry in the existing playback report panel', async () => {
     const project = projectWithTests();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-      projectSessionId: 'project-session',
-    });
-    vi.mocked(window.noveltea.runPlaybackSuite).mockResolvedValue({
+    admitNativeRendererCommandFixture(project, 'project-session');
+    vi.mocked(window.noveltea.nativeProjectRunSuite).mockResolvedValue({
       ok: true,
       success: true,
       diagnostics: [],

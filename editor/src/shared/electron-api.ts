@@ -73,6 +73,103 @@ interface NovelTeaElectronApiContract {
   onProjectImportRequested(callback: () => void): () => void;
   openProject(projectPath: string): Promise<OpenProjectResponse>;
   closeActiveProject(): Promise<void>;
+  /** Revisioned native working Project mutation. Only enabled in the explicit
+   * editor cutover certification mode; never a direct filesystem write. */
+  nativeProjectPatch(
+    projectSessionId: string,
+    expectedRevision: number,
+    patches: import('../renderer/project/json-patch').JsonPatchOperation[],
+    layoutCopySources?: Record<string, string>,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  /** Revisioned native logical Save. The main-owned worker resolves physical
+   * owners and performs the complete transactional source write. */
+  nativeProjectSaveUnit(
+    projectSessionId: string,
+    expectedRevision: number,
+    saveUnitIds: string | string[],
+    options: {
+      keepMine?: boolean;
+      comments?: 'keep' | 'remove' | 'cancel' | 'perEdit';
+      textPaths?: string[];
+      textContents?: Record<string, string>;
+      structuralPathsByOwner?: Record<string, string[]>;
+      assetTransition?: import('./editor-tooling').ProjectWorkspaceCommitOptions['assetTransition'];
+    },
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectSaveText(
+    projectSessionId: string,
+    expectedRevision: number,
+    projectRelativePath: string,
+    diskRevision: string,
+    text: string,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectStageText(
+    projectSessionId: string,
+    expectedRevision: number,
+    projectRelativePath: string,
+    diskRevision: string,
+    text: string,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectValidate(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<ValidationResponse>;
+  nativeProjectSemanticGraph(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<import('../main/services/native-authoring-worker-contract').NativeSemanticGraph>;
+  nativeProjectReconcile(
+    projectSessionId: string,
+    expectedRevision: number,
+    owner: string,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectUseDiskUnit(
+    projectSessionId: string,
+    expectedRevision: number,
+    saveUnitId: string,
+  ): Promise<
+    import('../main/services/native-authoring-worker-contract').NativeAuthoringPatchResult
+  >;
+  nativeProjectPrepareRuntime(
+    projectSessionId: string,
+    expectedRevision: number,
+    shaderVariant: import('./shader-variants').ShaderVariant,
+  ): Promise<import('./editor-runtime-cache').EditorRuntimePreparationResult>;
+  nativeProjectTestReadiness(
+    projectSessionId: string,
+    expectedRevision: number,
+    testId: string,
+  ): Promise<import('./project-schema/test-playback-projection').TestRunReadiness>;
+  nativeProjectRunTest(
+    projectSessionId: string,
+    expectedRevision: number,
+    testId: string,
+  ): Promise<import('./editor-tooling').PlaybackReportResponse>;
+  nativeProjectRunSuite(
+    projectSessionId: string,
+    expectedRevision: number,
+  ): Promise<import('./editor-tooling').PlaybackReportResponse>;
+  nativeProjectPrepareExport(
+    projectSessionId: string,
+    expectedRevision: number,
+    mode: 'runtime' | 'platform',
+    profileId?: string,
+  ): Promise<import('./runtime-artifact-preparation').PrepareRuntimeArtifactResult>;
+  nativeProjectExportPackage(
+    projectSessionId: string,
+    expectedRevision: number,
+    outputPath: string,
+  ): Promise<PackageExportResponse>;
   validateProject(
     projectSessionId: string,
     project: unknown,
@@ -377,7 +474,7 @@ import type {
   ProjectAssetFileOperationResponse,
   ProjectAssetTrashMove,
 } from './project-asset-audit';
-import type { ProjectWorkspaceWatchEvent } from './project-workspace-watch';
+import type { ProjectWorkspaceWatchEvent } from './project-watch-events';
 import type { ProjectOriginalAssetUrlResponse } from './project-original-asset';
 import type {
   CreateProjectRequest,

@@ -1,6 +1,6 @@
 import { PackageExportDialog } from '@/export/PackageExportDialog';
 import { useProjectStore } from '@/project/project-store';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
@@ -8,7 +8,7 @@ export function PlatformExportEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const projectRoot = useProjectStore((state) => state.projectPath);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const closeTab = useWorkbenchStore((state) => state.closeTab);
   const groupId = useWorkbenchStore(
     (state) =>

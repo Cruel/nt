@@ -1,12 +1,7 @@
-import { AuthoringDependencyGraphService } from './authoring-dependency-graph-service';
-import { useProjectStore } from './project-store';
 import { useSyncExternalStore } from 'react';
-
-export const authoringDependencyGraphService = new AuthoringDependencyGraphService({
-  getProjectSessionId: () => useProjectStore.getState().projectSessionId,
-  getScriptSourcePaths: () => useProjectStore.getState().scriptSourcePaths,
-  readProjectTextSources: (request) => window.noveltea.readProjectTextSources(request),
-});
+import { useCommandStore } from '../commands/command-store';
+import { useProjectStore } from './project-store';
+import { nativeRendererGraphService } from './native-authoring-graph-runtime';
 
 let unsubscribe: (() => void) | null = null;
 
@@ -16,35 +11,33 @@ export function isAuthoringDependencyGraphServiceStarted(): boolean {
 
 export function startAuthoringDependencyGraphService(): () => void {
   if (unsubscribe) return unsubscribe;
-  let lastPublication = useProjectStore.getState().lastMutationPublication;
-  unsubscribe = useProjectStore.subscribe((state) => {
-    if (!state.lastMutationPublication || state.lastMutationPublication === lastPublication) return;
-    lastPublication = state.lastMutationPublication;
-    void authoringDependencyGraphService.publish(state.lastMutationPublication);
-  });
-  if (lastPublication) void authoringDependencyGraphService.publish(lastPublication);
-  return () => {
-    unsubscribe?.();
+  const synchronize = () => nativeRendererGraphService.synchronize();
+  const unsubscribeProject = useProjectStore.subscribe(synchronize);
+  const unsubscribeCommands = useCommandStore.subscribe(synchronize);
+  synchronize();
+  unsubscribe = () => {
+    unsubscribeProject();
+    unsubscribeCommands();
     unsubscribe = null;
   };
+  return unsubscribe;
 }
 
 export function refreshAuthoringDependencyGraphProjectSources() {
-  const publication = useProjectStore.getState().lastMutationPublication;
-  return publication
-    ? authoringDependencyGraphService.refreshProjectSources(publication)
-    : Promise.resolve(null);
+  return nativeRendererGraphService.refresh();
 }
 
 export function useCurrentAuthoringDependencyGraphSnapshot() {
-  const projectInstanceId = useProjectStore((state) => state.projectInstanceId);
-  const projectRevision = useProjectStore((state) => state.projectRevision);
+  useCommandStore((state) => state.nativeWorkingRevision);
+  useProjectStore((state) => state.projectRevision);
   useSyncExternalStore(
-    (listener) => authoringDependencyGraphService.subscribe(listener),
-    () => authoringDependencyGraphService.state(),
-    () => authoringDependencyGraphService.state(),
+    nativeRendererGraphService.subscribe,
+    nativeRendererGraphService.state,
+    nativeRendererGraphService.state,
   );
-  return projectInstanceId
-    ? authoringDependencyGraphService.currentSnapshot(projectInstanceId, projectRevision)
-    : null;
+  return nativeRendererGraphService.currentSnapshot();
+}
+
+export function currentAuthoringGraphSnapshot() {
+  return nativeRendererGraphService.currentSnapshot();
 }

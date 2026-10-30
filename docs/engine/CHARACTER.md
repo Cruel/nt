@@ -71,6 +71,18 @@ editor/src/renderer/editors/characters/CharacterEditor.tsx
 editor/src/renderer/project/character-operations.ts
 ```
 
+The certification-only native Project session (`tools/project_authoring/`) now exercises Character
+and Archetype sparse YAML normalization through the generated TypeScript schema contracts,
+local Profile/Pose/layer/Expression/Gesture invariants, scoped cross-record references, and
+same-kind Archetype inheritance resolution. It preserves Character-local `initialWorldState`,
+reports invalid working records without persisting them, and verifies nested transactional
+Save/reopen against the Feature Lab fixtures. This is a parallel validation seam, not an
+editor/daemon cutover or a new authoring format; the TypeScript implementation remains the
+production authority until the explicit cutover.
+Asset and Animation operations that are not yet implemented natively remain invalid for their
+own resource certification; Character reference checks can inspect their explicit source
+identity and kind without overriding that validation outcome.
+
 The current editor schema keeps immutable Character identity, dialogue presentation, Presentation
 Profiles, ordered layer declarations, profile-local Poses, semantic Expressions, optional Appearances,
 idle definitions, defaults, owner-local Inventories, and the initial Room/Unplaced world Location in

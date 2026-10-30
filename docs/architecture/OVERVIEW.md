@@ -11,6 +11,13 @@ Use this entrypoint before changing top-level engine/framework architecture, sub
 - `docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md` maps every current authoring collection to its authoring, compiled, mutable, or tooling disposition and fixes cross-component, startup, continuation, Trait/Property, Lua-yield, and save-safe-point relationships.
 - `docs/architecture/COMPILED_PROJECT_WIRE.md` defines the strict TypeScript-owned
   `noveltea.compiled.project` Format V1 contract consumed by the editor publisher and native decoder.
+- `docs/architecture/NATIVE_AUTHORING_CONTRACTS.md` describes the generated Zod/native schema
+  contracts, stable semantic operation registrations, and certification-only host validation boundary.
+- `docs/architecture/certifications/NATIVE_AUTHORING_CUTOVER_READINESS.md` is the active #520
+  acceptance matrix and exact #521 coordinated retirement/switch plan (not a completed cutover).
+- `docs/architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md` is the
+  #522 post-retirement host/runtime acceptance procedure and evidence ledger; its production
+  checks cannot pass before #521 removes old authoring authority.
 - `docs/architecture/AUTHORING_COMPILER.md` describes the pure staged authoring compiler and its
   deterministic diagnostic/publication rules.
 - `docs/architecture/JSON_BOUNDARY_POLICY.md` defines the permanent JSON serialization boundary,

@@ -28,19 +28,10 @@ describe('test commands', () => {
     });
   });
 
-  it('patches valid test data and rejects error diagnostics', () => {
+  it('produces undoable Test patch intents; native admission validates steps', () => {
     const project = createAuthoringProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
     let state = createInitialCommandBusState(toJsonValue(project));
-
-    const invalid = defaultTestData('Smoke');
-    invalid.steps = [{ ...defaultTestStep('load'), saveSlot: { slotId: '' } }];
-    expect(
-      executeCommand(state, {
-        type: 'test.replaceData',
-        payload: { testId: 'smoke', data: invalid },
-      }).ok,
-    ).toBe(false);
 
     const next = defaultTestData('Smoke');
     next.displayName = 'Smoke Edited';

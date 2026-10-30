@@ -124,8 +124,21 @@ void create_cache(const std::filesystem::path& root)
     write_text(root / "project.yaml", project);
     write_text(root / "records/tests/smoke.yaml", test);
 
+    // A cache hit must prove a genuinely engine-decodable compiled wire, not
+    // the incomplete schema-only placeholder that older probe tests accepted.
+    const auto compiled_text =
+        read_text(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                  "editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json");
+    REQUIRE(compiled_text.has_value());
+    const auto compiled = Json::parse(*compiled_text);
     const std::string artifact =
-        R"({"schema":"noveltea.prepared-runtime-artifact","compiledProject":{"schema":"noveltea.compiled.project"}})";
+        Json{{"schema", "noveltea.prepared-runtime-artifact"},
+             {"compiledProject", compiled},
+             {"gameplayJson", compiled.dump()},
+             {"fileEntries", Json::array()},
+             {"packageOptions",
+              {{"fileEntries", Json::array()}, {"requiredShaderBinaryPaths", Json::array()}}}}
+            .dump();
     const std::string catalog =
         R"({"schema":"noveltea.runtime-test-catalog","entries":[{"id":"smoke","status":"runnable","runner":"runtime","spec":{}}]})";
     const std::string generation = "11111111-1111-4111-8111-111111111111";

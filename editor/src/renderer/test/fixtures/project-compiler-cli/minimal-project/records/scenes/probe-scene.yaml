@@ -1,0 +1,21 @@
+id: probe-scene
+label: Probe Scene
+data:
+  displayName: Probe Scene
+  stage:
+    kind: inherited
+  events:
+    - id: brief-wait
+      type: wait
+      label: Brief Wait
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      waitKind: duration
+      durationMs: 10
+      skippable: false
+  terminal:
+    kind: return
+    outcome: null

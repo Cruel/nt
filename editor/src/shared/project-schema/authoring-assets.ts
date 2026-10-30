@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import type { AuthoringRecordBase } from './authoring-project';
 import { withSchemaDocumentation } from './schema-documentation';
 
@@ -78,11 +79,17 @@ export function isSafeProjectAttachmentPath(value: string): boolean {
 
 export const assetAttachmentSchema = z
   .object({
-    path: z
-      .string()
-      .refine(isSafeProjectAttachmentPath, 'Attachment must be a portable Project-contained path.'),
+    path: nativeOperation(
+      'asset.attachment-path',
+      z
+        .string()
+        .refine(
+          isSafeProjectAttachmentPath,
+          'Attachment must be a portable Project-contained path.',
+        ),
+    ),
     purpose: z.enum(assetAttachmentPurposeValues),
-    displayName: z.string().trim().min(1).max(256).optional(),
+    displayName: nativeOperation('string.trim', z.string().trim()).min(1).max(256).optional(),
     sourceBaselineHash: z
       .string()
       .regex(/^sha256:[0-9a-f]{64}$/u)
@@ -97,55 +104,58 @@ export const assetAttachmentSchema = z
 export type AssetAttachment = z.infer<typeof assetAttachmentSchema>;
 
 export const assetDataSchema = withSchemaDocumentation(
-  z
-    .object({
-      kind: z.enum(assetKindValues),
-      source: assetSourceSchema,
-      attachments: z.array(assetAttachmentSchema).optional(),
-      aliases: z.array(z.string()).default([]),
-      sampling: z.enum(imageSamplingValues).optional(),
-      mimeType: z.string().optional(),
-      extension: z.string().optional(),
-      byteSize: z.number().nonnegative().optional(),
-      contentHash: z.string().optional(),
-      importedAt: z.string().optional(),
-      originalName: z.string().optional(),
-      originalPath: z.string().optional(),
-      imageMetadata: imageAssetMetadataSchema.nullable(),
-      preview: z
-        .object({
-          thumbnailRevision: z.string().optional(),
-          durationSeconds: z.number().nonnegative().optional(),
-        })
-        .strict()
-        .optional(),
-    })
-    .strict()
-    .superRefine((asset, context) => {
-      const used = new Set<string>();
-      (asset.attachments ?? []).forEach((attachment, index) => {
-        // Paths are canonical POSIX Project-relative names; one physical file has one purpose per Asset.
-        if (used.has(attachment.path))
+  nativeOperation(
+    'asset.validate',
+    z
+      .object({
+        kind: z.enum(assetKindValues),
+        source: assetSourceSchema,
+        attachments: z.array(assetAttachmentSchema).optional(),
+        aliases: z.array(z.string()).default([]),
+        sampling: z.enum(imageSamplingValues).optional(),
+        mimeType: z.string().optional(),
+        extension: z.string().optional(),
+        byteSize: z.number().nonnegative().optional(),
+        contentHash: z.string().optional(),
+        importedAt: z.string().optional(),
+        originalName: z.string().optional(),
+        originalPath: z.string().optional(),
+        imageMetadata: imageAssetMetadataSchema.nullable(),
+        preview: z
+          .object({
+            thumbnailRevision: z.string().optional(),
+            durationSeconds: z.number().nonnegative().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .superRefine((asset, context) => {
+        const used = new Set<string>();
+        (asset.attachments ?? []).forEach((attachment, index) => {
+          // Paths are canonical POSIX Project-relative names; one physical file has one purpose per Asset.
+          if (used.has(attachment.path))
+            context.addIssue({
+              code: 'custom',
+              path: ['attachments', index, 'path'],
+              message: 'Attachment file is already associated with this Asset.',
+            });
+          used.add(attachment.path);
+        });
+        if (asset.kind === 'image' && asset.imageMetadata === null)
           context.addIssue({
             code: 'custom',
-            path: ['attachments', index, 'path'],
-            message: 'Attachment file is already associated with this Asset.',
+            path: ['imageMetadata'],
+            message: 'Image metadata is required.',
           });
-        used.add(attachment.path);
-      });
-      if (asset.kind === 'image' && asset.imageMetadata === null)
-        context.addIssue({
-          code: 'custom',
-          path: ['imageMetadata'],
-          message: 'Image metadata is required.',
-        });
-      if (asset.kind !== 'image' && asset.imageMetadata !== null)
-        context.addIssue({
-          code: 'custom',
-          path: ['imageMetadata'],
-          message: 'Only image assets may have image metadata.',
-        });
-    }),
+        if (asset.kind !== 'image' && asset.imageMetadata !== null)
+          context.addIssue({
+            code: 'custom',
+            path: ['imageMetadata'],
+            message: 'Only image assets may have image metadata.',
+          });
+      }),
+  ),
   {
     constraints: [
       'Image Assets require a non-null imageMetadata object.',

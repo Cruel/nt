@@ -147,8 +147,24 @@ jobs:
       - name: Build NovelTea host CLI
         run: pnpm -C editor run noveltea:build
 
+      - name: Build renderer required by native production certification
+        run: pnpm -C editor exec vp build
+
+      - name: Build Electron bundles required by native production certification
+        run: pnpm -C editor exec vp pack
+
       - name: Certify NovelTea host CLI
-        run: pnpm -C editor run noveltea:certify
+        run: pnpm -C editor run noveltea:certify -- --cli-only
+
+      - name: Build direct C++ Linux platform-export CLI
+        run: cmake --build --preset linux-authoring-release --target noveltea-native-cli
+
+      - name: Upload direct C++ Linux platform-export CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/linux-authoring-release/tools/editor_tool/native-cli
+          if-no-files-found: error
 
       - name: Audit Linux authoring ABI floor
         run: |
@@ -230,22 +246,15 @@ jobs:
         run: |
           if (!(Test-Path "$env:VCPKG_ROOT/.git")) { git clone https://github.com/microsoft/vcpkg "$env:VCPKG_ROOT" }
           & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat"
-      - name: Set up Zig for ScriptC Windows target
-        uses: vercel-labs/setup-zig@v1
-        with:
-          version: 0.16.0
       - name: Verify Windows GNU CLI tools
         shell: pwsh
         run: |
           gcc --version
           g++ --version
           llvm-strip --version
-          zig version
       - name: Build Windows CLI
         env:
           VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
-          SCRIPTC_CC: zigcc
-          SCRIPTC_TARGET: x86_64-windows-gnu
         run: pnpm -C editor run noveltea:build
       - name: Upload Windows CLI build
         uses: actions/upload-artifact@v7
@@ -303,10 +312,12 @@ jobs:
       - name: Verify PE inspection tool
         shell: pwsh
         run: Get-Command dumpbin | Out-Null
-      - name: Build Node reference bundle
+      - name: Build native production bundles
         run: pnpm -C editor exec vp pack
+      - name: Build renderer required by native production certification
+        run: pnpm -C editor exec vp build
       - name: Certify Windows CLI
-        run: pnpm -C editor run noveltea:certify
+        run: pnpm -C editor run noveltea:certify -- --cli-only
       - name: Stage standalone Windows CLI
         shell: pwsh
         run: |
@@ -331,6 +342,82 @@ jobs:
         with:
           name: noveltea-cli-windows-release-dist
           path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-windows-x64.zip
+          if-no-files-found: error
+
+  macos-cli:
+    name: Build macOS host CLI (arm64)
+    runs-on: macos-26
+    needs: release-metadata
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install macOS build tools
+        run: brew install ninja ccache
+      - name: Cache shared vcpkg SDK and binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/vcpkg
+            .cache/vcpkg-binary
+          key: macos-26-arm64-vcpkg-common-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/vcpkg-triplets/**') }}
+          restore-keys: |
+            macos-26-arm64-vcpkg-common-
+      - name: Cache macOS authoring vcpkg installed
+        uses: actions/cache@v5
+        with:
+          path: build/macos-authoring-release/vcpkg_installed
+          key: macos-26-arm64-vcpkg-installed-macos-authoring-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/vcpkg-triplets/arm64-osx-authoring-noveltea.cmake') }}
+          restore-keys: |
+            macos-26-arm64-vcpkg-installed-macos-authoring-release-
+      - name: Bootstrap vcpkg
+        shell: bash
+        run: |
+          if [[ ! -d "$VCPKG_ROOT/.git" ]]; then git clone https://github.com/microsoft/vcpkg "$VCPKG_ROOT"; fi
+          "$VCPKG_ROOT/bootstrap-vcpkg.sh"
+      - name: Cache macOS authoring compiler objects
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: macOS-arm64-ccache-macos-authoring-release-${{ github.sha }}
+          restore-keys: |
+            macOS-arm64-ccache-macos-authoring-release-
+            macOS-arm64-ccache-
+      - name: Build NovelTea macOS host CLI
+        run: pnpm -C editor run noveltea:build
+      # The release executable is now the same direct C++ exporter certified
+      # at the native CMake target. No second, scripting-backed host is built.
+      - name: Audit macOS host CLI deployment target
+        shell: bash
+        run: |
+          set -euo pipefail
+          minos="$(otool -l build/cli/macos/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
+          test "$minos" = "14.0"
+          native_minos="$(otool -l build/macos-authoring-release/tools/editor_tool/native-cli/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
+          test "$native_minos" = "14.0"
+      - name: Upload NovelTea macOS host CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-host-cli-macos-arm64
+          path: build/cli/macos
+          if-no-files-found: error
+      - name: Upload native C++ macOS export certification CLI
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-release-native-cli-macos-arm64
+          path: build/macos-authoring-release/tools/editor_tool/native-cli/
           if-no-files-found: error
 
   desktop-hosts:
@@ -412,6 +499,19 @@ jobs:
           xvfb: "true"
           extra-packages: weston libgl1-mesa-dri x11-utils strace
 
+      # The Windows native CLI generates its Agent Kit during CMake build and
+      # imports editor TypeScript packages. Dependencies must precede CMake.
+      - name: Set up pnpm for desktop export and native tooling
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node.js for desktop export and native tooling
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Install root workspace dependencies for desktop export and native tooling
+        run: pnpm install --frozen-lockfile
+
       - name: Install macOS packages
         if: runner.os == 'macOS'
         run: brew install ninja ccache
@@ -448,15 +548,6 @@ jobs:
           key: ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake') }}
           restore-keys: |
             ${{ matrix.runner }}-${{ matrix.arch }}-vcpkg-installed-${{ matrix.preset }}-
-
-      - name: Cache macOS authoring vcpkg installed
-        if: matrix.platform == 'macos'
-        uses: actions/cache@v5
-        with:
-          path: build/macos-authoring-release/vcpkg_installed
-          key: macos-26-arm64-vcpkg-installed-macos-authoring-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'CMakePresets.json', 'cmake/NovelTeaLua.cmake', 'cmake/vcpkg-triplets/arm64-osx-authoring-noveltea.cmake') }}
-          restore-keys: |
-            macos-26-arm64-vcpkg-installed-macos-authoring-release-
 
       - name: Bootstrap vcpkg
         if: runner.os != 'Linux'
@@ -498,6 +589,17 @@ jobs:
       - name: Make NovelTea host CLI executable
         if: matrix.platform == 'linux'
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
+
+      - name: Download direct C++ Linux platform-export CLI
+        if: matrix.platform == 'linux'
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/native-export-cli-linux
+
+      - name: Make direct C++ Linux platform-export CLI executable
+        if: matrix.platform == 'linux'
+        run: chmod +x build/native-export-cli-linux/noveltea build/native-export-cli-linux/noveltea-ui-test-runner
 
       - name: Cache ccache
         if: runner.os != 'Windows'
@@ -574,7 +676,7 @@ jobs:
             -DVCPKG_HOST_TRIPLET=${{ matrix.host_triplet }} `
             @ccacheArgs
           $targets = @("noveltea-player", "cxx-policy")
-          if ("${{ matrix.platform }}" -eq "windows") { $targets += "noveltea-tooling-bridge" }
+          if ("${{ matrix.platform }}" -eq "windows") { $targets += "noveltea-tooling-bridge"; $targets += "noveltea-native-cli" }
           cmake --build --preset ${{ matrix.preset }} --target @targets
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -616,35 +718,14 @@ jobs:
         shell: pwsh
         run: cmake -DNOVELTEA_TEMPLATE_PRESET=${{ matrix.preset }} -DNOVELTEA_TEMPLATE_PLATFORM=${{ matrix.platform }} -DNOVELTEA_TEMPLATE_ARCH=${{ matrix.arch }} -DNOVELTEA_TEMPLATE_VARIANT=${{ matrix.variant }} -DNOVELTEA_RELEASE_TAG="$env:RELEASE_TAG" -P cmake/PackageNovelTeaPlayerTemplate.cmake
 
-      - name: Set up pnpm for desktop export smoke
-        uses: pnpm/action-setup@v6
-
-      - name: Set up Node.js for desktop export smoke
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-
-      - name: Install root workspace dependencies for desktop export smoke
-        run: pnpm install --frozen-lockfile
-
-      - name: Build NovelTea macOS host CLI
+      - name: Upload macOS player template for independent certification
         if: matrix.platform == 'macos'
-        run: pnpm -C editor run noveltea:build
-
-      - name: Audit macOS host CLI deployment target
-        if: matrix.platform == 'macos'
-        shell: bash
-        run: |
-          set -euo pipefail
-          minos="$(otool -l build/cli/macos/noveltea | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
-          test "$minos" = "14.0"
-
-      - name: Upload NovelTea macOS host CLI
-        if: matrix.platform == 'macos' && matrix.variant == 'release'
         uses: actions/upload-artifact@v7
         with:
-          name: noveltea-release-host-cli-macos-arm64
-          path: build/cli/macos
+          name: noveltea-release-macos-player-build-${{ matrix.variant }}
+          path: |
+            dist/*
+            build/${{ matrix.preset }}/runtime-assets/project/projects/runtime_presentation_package.ntpkg
           if-no-files-found: error
 
       - name: Install appimagetool for Linux export smoke
@@ -654,6 +735,20 @@ jobs:
             -o "$RUNNER_TEMP/appimagetool.AppImage" \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x "$RUNNER_TEMP/appimagetool.AppImage"
+
+      - name: Export and launch real Linux portable and AppImage players with native C++ CLI
+        if: matrix.platform == 'linux'
+        env:
+          NOVELTEA_LINUX_APPIMAGE_TOOL: ${{ runner.temp }}/appimagetool.AppImage
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+          NOVELTEA_PLAYER_HEADLESS_ERRORS: '1'
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-${{ matrix.variant }}-fixture-evidence.json
+        run: |
+          xvfb-run -a python3 tests/native_cli/linux_release_smoke.py \
+            "$PWD/build/native-export-cli-linux/noveltea" \
+            "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-linux-x64-${{ matrix.variant }}.tar.gz" \
+            "$PWD" \
+            "$PWD/dist/noveltea-native-linux-release-certification.json"
 
       - name: Finalize and launch Windows portable export
         if: runner.os == 'Windows'
@@ -671,7 +766,25 @@ jobs:
           NOVELTEA_PLAYER_HEADLESS_ERRORS: "1"
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}\build\${{ matrix.preset }}\tools\editor_tool\noveltea-tooling-bridge.exe
           NOVELTEA_LICENSE_VIEWER_RUNNER: ${{ github.workspace }}\build\${{ matrix.preset }}\tools\editor_tool\noveltea-ui-test-runner.exe
-        run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+        run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+
+      - name: Install pinned software OpenGL for Windows player launch
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/setup-windows-software-opengl.ps1
+
+      - name: Export and launch real Windows player through native C++ CLI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-windows-${{ matrix.variant }}-fixture-evidence.json
+        run: |
+          python tests/native_cli/windows_release_smoke.py `
+            "${{ github.workspace }}/build/${{ matrix.preset }}/tools/editor_tool/native-cli/noveltea.exe" `
+            "${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-windows-x64-${{ matrix.variant }}.zip" `
+            "${{ github.workspace }}" `
+            "${{ github.workspace }}/dist/noveltea-native-windows-release-certification.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Finalize and launch Linux portable export on X11
         if: matrix.platform == 'linux'
@@ -688,7 +801,7 @@ jobs:
           NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-linux-${{ matrix.variant }}-fixture-evidence.json
           NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/noveltea-native-smoke-linux-x11-${{ matrix.variant }}.json
           NOVELTEA_CLI: ${{ github.workspace }}/build/cli/linux/noveltea
-        run: xvfb-run -a pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+        run: xvfb-run -a pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
 
       - name: Finalize and launch Linux portable export on Wayland
         if: matrix.platform == 'linux'
@@ -716,22 +829,8 @@ jobs:
           test -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" || { cat "$RUNNER_TEMP/weston.log"; exit 1; }
           pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
 
-      - name: Finalize and launch macOS app bundle export
-        if: matrix.platform == 'macos'
-        working-directory: editor
-        env:
-          NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-${{ matrix.variant }}.tar.gz
-          NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/${{ matrix.preset }}/runtime-assets/project/projects/runtime_presentation_package.ntpkg
-          NOVELTEA_CANONICAL_EXPORT_TARGET: macos
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-${{ matrix.variant }}.tar.gz
-          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-macos
-          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/Platform Export Acceptance-${{ matrix.variant }}.app
-          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-macos-${{ matrix.variant }}-fixture-evidence.json
-          NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/noveltea-native-smoke-macos-arm64-${{ matrix.variant }}.json
-          NOVELTEA_CLI: ${{ github.workspace }}/build/cli/macos/noveltea
-        run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
-
       - name: Generate desktop platform certification report
+        if: matrix.platform != 'macos'
         shell: pwsh
         run: |
           $archive = Get-ChildItem "dist/noveltea-player-template-*-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}.*" | Where-Object { $_.Name -notmatch 'symbols' } | Select-Object -First 1
@@ -758,14 +857,141 @@ jobs:
           node scripts/platform-certification.mjs verify --archive $archive.FullName --report $report
 
       - name: Attest player template archives
+        if: matrix.platform != 'macos'
         uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/noveltea-player-template-*
 
       - name: Upload desktop host release artifacts
+        if: matrix.platform != 'macos'
         uses: actions/upload-artifact@v7
         with:
           name: noveltea-desktop-host-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.variant }}-dist
+          path: dist/*
+          if-no-files-found: error
+
+  macos-certify:
+    name: Certify macOS player and CLI (arm64-${{ matrix.variant }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: release
+            preset: macos-release
+          - variant: devtools
+            preset: macos-release-devtools
+    runs-on: macos-26
+    needs: [release-metadata, desktop-hosts, macos-cli]
+    # A Windows/Linux desktop failure must not suppress independent macOS
+    # certification; the macOS player artifact is required below.
+    if: ${{ !cancelled() && needs.macos-cli.result == 'success' }}
+    env:
+      RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+      NOVELTEA_NATIVE_TEST_BUILD_FLAVOR: release
+      NOVELTEA_NATIVE_TEST_PLAYER_VARIANT: ${{ matrix.variant == 'devtools' && 'devtools' || 'standard' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download macOS player template and runtime fixture
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-macos-player-build-${{ matrix.variant }}
+          path: .
+      - name: Download macOS host CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-host-cli-macos-arm64
+          path: build/cli/macos
+      - name: Download native C++ macOS export certification CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-native-cli-macos-arm64
+          path: build/cli/macos-native
+      - name: Verify macOS build artifacts and executable bits
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "dist/noveltea-player-template-${RELEASE_TAG}-macos-arm64-${{ matrix.variant }}.tar.gz"
+          test -f build/${{ matrix.preset }}/runtime-assets/project/projects/runtime_presentation_package.ntpkg
+          test -f dist/noveltea-dependency-audit-macos-arm64-${{ matrix.variant }}.json
+          test -f build/cli/macos/noveltea
+          test -f build/cli/macos-native/noveltea
+          test -f build/cli/macos-native/noveltea-ui-test-runner
+          test -f build/cli/macos-native/assets/system/fonts/LiberationSans.ttf
+          chmod +x build/cli/macos/noveltea build/cli/macos/noveltea-ui-test-runner
+          chmod +x build/cli/macos-native/noveltea build/cli/macos-native/noveltea-ui-test-runner
+      - name: Finalize and launch macOS app bundle export
+        working-directory: editor
+        env:
+          NOVELTEA_MACOS_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-${{ matrix.variant }}.tar.gz
+          NOVELTEA_MACOS_RUNTIME_PACKAGE: ${{ github.workspace }}/build/${{ matrix.preset }}/runtime-assets/project/projects/runtime_presentation_package.ntpkg
+          NOVELTEA_CANONICAL_EXPORT_TARGET: macos
+          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-macos-arm64-${{ matrix.variant }}.tar.gz
+          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-macos
+          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/Platform Export Acceptance.app
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-macos-fixture-evidence.json
+          NOVELTEA_NATIVE_SMOKE_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/noveltea-native-smoke-macos-arm64.json
+          NOVELTEA_CLI: ${{ github.workspace }}/build/cli/macos/noveltea
+        run: pnpm exec vp test run src/renderer/test/platform-staging-service.test.ts src/renderer/test/platform-export-acceptance-fixture.test.ts
+      - name: Certify native C++ macOS exporter with release template and actual app launch
+        shell: bash
+        env:
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-macos-fixture-evidence.json
+        run: |
+          set -euo pipefail
+          python3 tests/native_cli/macos_release_smoke.py \
+            "$PWD/build/cli/macos-native/noveltea" \
+            "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-macos-arm64-${{ matrix.variant }}.tar.gz" \
+            "$PWD" \
+            "$PWD/dist/noveltea-native-macos-release-certification.json"
+      - name: Upload native macOS export/launch qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-native-macos-export-${{ env.RELEASE_TAG }}-${{ matrix.variant }}
+          path: dist/noveltea-native-macos-release-certification.json
+          if-no-files-found: warn
+      - name: Generate macOS platform certification report
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="dist/noveltea-player-template-${RELEASE_TAG}-macos-arm64-${{ matrix.variant }}.tar.gz"
+          results="dist/noveltea-certification-results-macos-arm64-${{ matrix.variant }}.json"
+          node scripts/platform-certification-results.mjs \
+            --archive "$archive" \
+            --canonical-evidence dist/canonical-macos-fixture-evidence.json \
+            --dependency-audit dist/noveltea-dependency-audit-macos-arm64-${{ matrix.variant }}.json \
+            --smoke dist/noveltea-native-smoke-macos-arm64.json \
+            --output "$results"
+          report="dist/noveltea-platform-certification-macos-arm64-${{ matrix.variant }}.json"
+          node scripts/platform-certification.mjs create \
+            --archive "$archive" \
+            --fixture editor/src/shared/project-schema/platform-export-acceptance-fixture.ts \
+            --results "$results" --output "$report" --source-revision "$GITHUB_SHA"
+          node scripts/platform-certification.mjs verify --archive "$archive" --report "$report"
+      - name: Attest macOS player template archives
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/noveltea-player-template-*
+      - name: Upload macOS desktop host release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-desktop-host-macos-arm64-${{ matrix.variant }}-dist
           path: dist/*
           if-no-files-found: error
 
@@ -881,67 +1107,52 @@ jobs:
       - name: Make NovelTea host CLI executable
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
-      - name: Validate canonical export fixture for Web certification
-        working-directory: editor
-        env:
-          NOVELTEA_CANONICAL_EXPORT_TARGET: web
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-threads-release.zip
-          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web
-          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-export
-          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-fixture-evidence.json
+      - name: Download direct native C++ platform export CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/native-export-cli-linux
+
+      - name: Make direct native platform export CLI executable
+        run: chmod +x build/native-export-cli-linux/noveltea
+
+      - name: Validate maintained platform export acceptance fixture
+        run: pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts
+
+      - name: Certify native CLI Web publication with real release templates
         run: |
-          pnpm exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+          threads_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-threads-release.zip' -print -quit)
+          single_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-release.zip' -print -quit)
+          test -n "$threads_archive" && test -n "$single_archive"
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT="$PWD/dist/canonical-web-fixture-evidence.json" \
+          python3 tests/native_cli/web_release_smoke.py \
+            build/native-export-cli-linux/noveltea "$threads_archive" "$PWD" "$PWD/dist/native-web-threads" threaded /
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT="$PWD/dist/canonical-web-nested-fixture-evidence.json" \
+          python3 tests/native_cli/web_release_smoke.py \
+            build/native-export-cli-linux/noveltea "$threads_archive" "$PWD" "$PWD/dist/native-web-threads-nested" threaded /nested/game/
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT="$PWD/dist/canonical-web-single-fixture-evidence.json" \
+          python3 tests/native_cli/web_release_smoke.py \
+            build/native-export-cli-linux/noveltea "$single_archive" "$PWD" "$PWD/dist/native-web-single" single /
+          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT="$PWD/dist/canonical-web-single-nested-fixture-evidence.json" \
+          python3 tests/native_cli/web_release_smoke.py \
+            build/native-export-cli-linux/noveltea "$single_archive" "$PWD" "$PWD/dist/native-web-single-nested" single /nested/game/
 
-      - name: Export canonical fixture at nested Web base path
-        working-directory: editor
-        env:
-          NOVELTEA_CANONICAL_EXPORT_TARGET: web
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-threads-release.zip
-          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web-nested
-          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-nested-export
-          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-nested-fixture-evidence.json
-          NOVELTEA_WEB_BASE_PATH: /nested/game/
-        run: pnpm exec vp test run src/renderer/test/platform-export-canonical-integration.test.ts
-
-      - name: Validate canonical single-threaded Web export fixture
-        working-directory: editor
-        env:
-          NOVELTEA_CANONICAL_EXPORT_TARGET: web
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-release.zip
-          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web-single
-          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-single-export
-          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-single-fixture-evidence.json
-          NOVELTEA_WEB_THREADED: "false"
-        run: pnpm exec vp test run src/renderer/test/platform-export-canonical-integration.test.ts
-
-      - name: Export canonical single-threaded fixture at nested Web base path
-        working-directory: editor
-        env:
-          NOVELTEA_CANONICAL_EXPORT_TARGET: web
-          NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE: ${{ github.workspace }}/dist/noveltea-player-template-${{ env.RELEASE_TAG }}-web-wasm32-release.zip
-          NOVELTEA_CANONICAL_INTEGRATION_ROOT: ${{ runner.temp }}/noveltea-canonical-web-single-nested
-          NOVELTEA_CANONICAL_EXPORT_OUTPUT: ${{ github.workspace }}/dist/canonical-web-single-nested-export
-          NOVELTEA_CANONICAL_EVIDENCE_OUTPUT: ${{ github.workspace }}/dist/canonical-web-single-nested-fixture-evidence.json
-          NOVELTEA_WEB_BASE_PATH: /nested/game/
-          NOVELTEA_WEB_THREADED: "false"
-        run: pnpm exec vp test run src/renderer/test/platform-export-canonical-integration.test.ts
-
-      - name: Certify finalized Web exports in Chromium
+      - name: Boot and verify native CLI Web exports in Chromium
         run: |
           pnpm exec playwright install --with-deps chromium
           pnpm web:certify-export \
-            --case threads-root:/:dist/canonical-web-export \
-            --case threads-nested:/nested/game/:dist/canonical-web-nested-export \
-            --output dist/noveltea-web-browser-certification-threads.json
+            --case threads-root:/:dist/native-web-threads \
+            --case threads-nested:/nested/game/:dist/native-web-threads-nested \
+            --output dist/noveltea-native-web-browser-certification-threads.json
           pnpm web:certify-export \
-            --case single-root:/:dist/canonical-web-single-export \
-            --case single-nested:/nested/game/:dist/canonical-web-single-nested-export \
-            --output dist/noveltea-web-browser-certification-single.json
+            --case single-root:/:dist/native-web-single \
+            --case single-nested:/nested/game/:dist/native-web-single-nested \
+            --output dist/noveltea-native-web-browser-certification-single.json
 
       - name: Generate Web platform certification reports
         run: |
-          threads_browser=dist/noveltea-web-browser-certification-threads.json
-          single_browser=dist/noveltea-web-browser-certification-single.json
+          threads_browser=dist/noveltea-native-web-browser-certification-threads.json
+          single_browser=dist/noveltea-native-web-browser-certification-single.json
 
           threads_archive=$(find dist -maxdepth 1 -name 'noveltea-player-template-*-web-wasm32-threads-release.zip' -print -quit)
           test -n "$threads_archive"
@@ -972,7 +1183,6 @@ jobs:
           node scripts/platform-certification.mjs verify --archive "$single_archive" --report "$single_report"
 
       - name: Canonical Web developer-template export coverage
-        working-directory: editor
         env:
           NOVELTEA_CANONICAL_BUILD_FLAVOR: release
           NOVELTEA_CANONICAL_PLAYER_VARIANT: devtools
@@ -996,12 +1206,13 @@ jobs:
                 extra_base="/nested/game/"
                 nested_suffix="-nested"
               fi
-              NOVELTEA_CANONICAL_TEMPLATE_ARCHIVE="${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-web-wasm32${suffix}-devtools.zip" \
-              NOVELTEA_CANONICAL_INTEGRATION_ROOT="${{ runner.temp }}/noveltea-canonical-${label}-${placement}" \
-              NOVELTEA_CANONICAL_EXPORT_OUTPUT="${{ github.workspace }}/dist/canonical-${label}${nested_suffix}-export" \
-              NOVELTEA_CANONICAL_EVIDENCE_OUTPUT="${{ github.workspace }}/dist/canonical-${label}${nested_suffix}-fixture-evidence.json" \
-              NOVELTEA_WEB_BASE_PATH="$extra_base" NOVELTEA_WEB_THREADED="$threaded" \
-                pnpm exec vp test run src/renderer/test/platform-export-canonical-integration.test.ts
+              mode=single
+              if [[ "$threaded" == true ]]; then mode=threaded; fi
+              NOVELTEA_CANONICAL_EVIDENCE_OUTPUT="$PWD/dist/canonical-${label}${nested_suffix}-fixture-evidence.json" \
+                python3 tests/native_cli/web_release_smoke.py \
+                  "$PWD/build/cli/linux/noveltea" \
+                  "$PWD/dist/noveltea-player-template-${RELEASE_TAG}-web-wasm32${suffix}-devtools.zip" \
+                  "$PWD" "$PWD/dist/canonical-${label}${nested_suffix}-export" "$mode" "$extra_base"
             done
           done
 
@@ -1289,6 +1500,15 @@ jobs:
       - name: Make NovelTea host CLI executable
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
+      - name: Download direct native C++ Android export CLI
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-release-native-cli-linux-x64
+          path: build/native-export-cli-linux
+
+      - name: Make direct native Android export CLI executable
+        run: chmod +x build/native-export-cli-linux/noveltea
+
       - name: Export and inspect release APK plus AAB through public CLI
         env:
           NOVELTEA_ANDROID_ABI: arm64-v8a
@@ -1308,14 +1528,18 @@ jobs:
           fixture_root="$RUNNER_TEMP/noveltea-android-release-fixture"
           pnpm -C editor run android:fixture -- --root "$fixture_root" --abi arm64-v8a --flavor release --artifact both
           export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry-arm64"
-          "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" --force
-          "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export \
+          "${{ github.workspace }}/build/native-export-cli-linux/noveltea" --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" --force
+          "${{ github.workspace }}/build/native-export-cli-linux/noveltea" --project "$fixture_root" --json platform export \
             --profile canonical-android-release \
             --output "${{ github.workspace }}/dist/android-release-fixture" \
             --config "$config" \
             --allow-untrusted-template \
             --allow-localization-warnings
-          pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+          node scripts/native-canonical-export-evidence.mjs \
+            --archive "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-release.tar.gz" \
+            --project "$fixture_root" \
+            --export "${{ github.workspace }}/dist/android-release-fixture" \
+            --evidence "${{ github.workspace }}/dist/canonical-android-arm64-fixture-evidence.json"
 
       - name: Export and inspect x86_64 debug APK through public CLI
         env:
@@ -1336,14 +1560,18 @@ jobs:
           fixture_root="$RUNNER_TEMP/noveltea-android-debug-fixture"
           pnpm -C editor run android:fixture -- --root "$fixture_root" --abi x86_64 --flavor debug --artifact apk
           export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUNNER_TEMP/noveltea-template-registry-x64"
-          "${{ github.workspace }}/build/cli/linux/noveltea" --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" --force
-          "${{ github.workspace }}/build/cli/linux/noveltea" --project "$fixture_root" --json platform export \
+          "${{ github.workspace }}/build/native-export-cli-linux/noveltea" --json platform template install "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" --force
+          "${{ github.workspace }}/build/native-export-cli-linux/noveltea" --project "$fixture_root" --json platform export \
             --profile canonical-android-debug \
             --output "${{ github.workspace }}/dist/android-debug-fixture" \
             --config "$config" \
             --allow-untrusted-template \
             --allow-localization-warnings
-          pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
+          node scripts/native-canonical-export-evidence.mjs \
+            --archive "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-x86_64-debug.tar.gz" \
+            --project "$fixture_root" \
+            --export "${{ github.workspace }}/dist/android-debug-fixture" \
+            --evidence "${{ github.workspace }}/dist/canonical-android-x86_64-fixture-evidence.json"
 
       - name: Export and inspect optimized ARM64 developer APK plus AAB through public CLI
         env:
@@ -1371,7 +1599,11 @@ jobs:
             --profile canonical-android-release \
             --output "${{ github.workspace }}/dist/android-arm64-devtools-fixture" \
             --config "$config" --allow-untrusted-template --allow-localization-warnings
-          pnpm -C editor exec vp test run src/renderer/test/platform-export-canonical-integration.test.ts
+          node scripts/native-canonical-export-evidence.mjs \
+            --archive "${{ github.workspace }}/dist/noveltea-player-template-${RELEASE_TAG}-android-arm64-v8a-devtools.tar.gz" \
+            --project "$fixture_root" \
+            --export "${{ github.workspace }}/dist/android-arm64-devtools-fixture" \
+            --evidence "${{ github.workspace }}/dist/canonical-android-arm64-devtools-fixture-evidence.json"
 
       - name: Generate Android platform certification reports
         run: |
@@ -1431,7 +1663,7 @@ jobs:
   desktop-editor:
     name: Desktop editor (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    needs: [release-metadata, web, desktop-hosts, windows-cli]
+    needs: [release-metadata, web, desktop-hosts, windows-cli, macos-cli]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
     timeout-minutes: 90
@@ -1507,6 +1739,66 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Set up MSVC for native Project authoring
+        if: runner.os == 'Windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
+
+      - name: Install macOS Ninja for native Project authoring
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Build native Project authoring Electron addon
+        if: runner.os != 'Linux'
+        run: node editor/scripts/build-native-authoring-addon.mjs --addon-only
+
+      - name: Audit native macOS Project authoring minimum
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          addon="build/native-authoring-host/noveltea-authoring-node.node"
+          minos="$(otool -l "$addon" | awk '$1 == "cmd" && $2 == "LC_BUILD_VERSION" { build=1; next } build && $1 == "minos" { print $2; exit }')"
+          test "$minos" = "14.0"
+
+      - name: Prepare version-matched Linux Electron Node-API headers
+        if: runner.os == 'Linux'
+        run: node editor/scripts/build-native-authoring-addon.mjs --headers-only
+
+      - name: Build Linux authoring addon at the supported ABI floor
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --tag noveltea-linux-authoring-abi --file .github/containers/linux-player-glibc228.Dockerfile .
+          electron_version="$(node -p "require('./editor/node_modules/electron/package.json').version")"
+          mkdir -p .cache/container-home .cache/ccache
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --workdir /workspace \
+            --env HOME=/workspace/.cache/container-home \
+            --env ELECTRON_VERSION="$electron_version" \
+            --env CCACHE_DIR=/workspace/.cache/ccache \
+            noveltea-linux-authoring-abi \
+            bash -lc '
+              set -euo pipefail
+              # The login shell may replace the incoming ccache environment.
+              # Keep the compiler cache inside the writable mounted checkout.
+              export CCACHE_DIR=/workspace/.cache/ccache
+              test -w "$CCACHE_DIR"
+              cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+                -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
+                -DNOVELTEA_NODE_API_INCLUDE_DIR="/workspace/build/electron-authoring-headers/$ELECTRON_VERSION/include/node" \
+                "-DCMAKE_MODULE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
+              cmake --build build/native-authoring-host --target noveltea-authoring-node
+              cmake -DNOVELTEA_BINARY=/workspace/build/native-authoring-host/noveltea-authoring-node.node \
+                -DNOVELTEA_MAX_GLIBC_VERSION=2.36 -DNOVELTEA_MAX_GLIBCXX_VERSION=3.4.30 \
+                -P cmake/AuditNovelTeaLinuxCompatibility.cmake
+            '
+
       - name: Download NovelTea host CLI
         uses: actions/download-artifact@v7
         with:
@@ -1521,10 +1813,56 @@ jobs:
             "${{ matrix.cli_path }}/noveltea-ui-test-runner" \
             "${{ matrix.cli_path }}/tools/ffmpeg/bin/ffmpeg"
 
+      - name: Certify standalone native CLI disk Project validation on this host
+        run: node editor/scripts/certify-native-daemon-validation.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
+
+      - name: Certify native CLI command inventory on this host
+        run: node editor/scripts/certify-native-cli-inventory.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}"
+
+      - name: Certify native CLI record inspection parity on this host
+        run: node editor/scripts/certify-native-cli-commands.mjs "${{ github.workspace }}/${{ matrix.cli_executable }}" tests/projects/feature-lab
+
+      # Pack the editor's native-operation integration and development forwarder
+      # before the host integration certification. No TypeScript CLI oracle is built.
+      - name: Build native editor certification tool bundle
+        run: pnpm -C editor exec vp pack
+
+      - name: Build native production renderer for host certification
+        run: pnpm -C editor exec vp build
+
+      # Catch host-loader defects (such as missing Windows Electron
+      # delay-load hook) before running the slower editor/CLI differential.
+      - name: Certify Windows Electron native-addon worker loading
+        if: runner.os == 'Windows'
+        run: node editor/scripts/certify-native-authoring-electron-loader.mjs "${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node"
+
+      - name: Certify native CLI candidate commands on this host
+        shell: pwsh
+        run: |
+          $cli = "${{ github.workspace }}/${{ matrix.cli_executable }}"
+          node editor/scripts/certify-native-cli-project-routing.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-cli-lifecycle.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-cli-transport.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-cli-tests.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-cli-package.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node editor/scripts/certify-native-cli-platform.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Certify full native production lifecycle and editor/CLI authority
+        env:
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
+        run: pnpm -C editor run noveltea:certify -- "${{ github.workspace }}/${{ matrix.cli_executable }}"
+
       - name: Build and verify native editor artifacts
         shell: pwsh
         env:
           NOVELTEA_CLI_PATH: ${{ github.workspace }}/${{ matrix.cli_executable }}
+          NOVELTEA_AUTHORING_NODE_ADDON: ${{ github.workspace }}/build/native-authoring-host/noveltea-authoring-node.node
         run: pnpm -C editor run artifact -- --release-tag "$env:RELEASE_TAG"
 
       - name: Audit packaged Linux authoring ABI floor
@@ -1576,7 +1914,7 @@ jobs:
     name: Qualify exact release inventory
     runs-on: ubuntu-24.04
     needs:
-      [release-metadata, desktop-hosts, web, android, desktop-editor, windows-cli, release-examples]
+      [release-metadata, desktop-hosts, macos-certify, web, android, desktop-editor, windows-cli, release-examples]
     env:
       RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
     timeout-minutes: 15

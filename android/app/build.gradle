@@ -26,6 +26,10 @@ android {
 
     def ciVersionCode = generatedValue("novelteaVersionCode", "1").toInteger()
     def ciVersionName = generatedValue("novelteaVersionName", "0.0.0-template")
+    def generatedMinSdk = generatedValue("novelteaMinSdk", "24").toInteger()
+    if (generatedMinSdk < 24 || generatedMinSdk > compileSdk) {
+        throw new GradleException("novelteaMinSdk must be between Android API 24 and compileSdk.")
+    }
     def generatedApplicationId = generatedValue("novelteaApplicationId", "org.noveltea.player.template")
     def generatedAbi = generatedValue("novelteaAbi", "arm64-v8a")
     def enableNovelTeaThreads = providers.gradleProperty("novelteaEnableThreads")
@@ -69,7 +73,7 @@ android {
 
     defaultConfig {
         applicationId generatedApplicationId
-        minSdk 24
+        minSdk generatedMinSdk
         targetSdk 35
         versionCode ciVersionCode
         versionName ciVersionName

@@ -5,6 +5,7 @@ import {
   searchRecords,
   searchReferences,
 } from '../../shared/project-search/project-search-helpers';
+import { admittedSearchReferenceFixture } from '../test-support/native-reference-search-fixture';
 
 function project() {
   const next = createAuthoringProject();
@@ -75,6 +76,7 @@ describe('project search helpers', () => {
   it('searches stable references through the shared result model', () => {
     const response = searchReferences(project(), {
       referencesTo: [{ collection: 'rooms', id: 'classroom' }],
+      referenceIndex: admittedSearchReferenceFixture(),
     });
     expect(ids(response)).toEqual(['record:scenes:opening']);
     expect(response.results[0]?.matches).toEqual(
@@ -98,6 +100,7 @@ describe('project search helpers', () => {
     const response = searchReferences(project(), {
       referencesTo: [{ collection: 'assets', id: 'logo' }],
       aliases: ['sarah_portrait'],
+      referenceIndex: admittedSearchReferenceFixture(),
     });
     expect(ids(response)).toEqual(['record:scenes:opening']);
     expect(response.results[0]?.matches).toEqual(

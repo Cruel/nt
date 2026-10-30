@@ -17,14 +17,8 @@ import {
   inferAssetKindFromExtension,
   sanitizeAssetFilename,
 } from '../../shared/project-schema/authoring-assets';
-import {
-  PROJECT_WORKSPACE_ABSENT_REVISION,
-  type ProjectWorkspaceExpectedRevision,
-} from '../../shared/project-workspace/project-workspace-transaction';
-import {
-  readProjectAssetFileRevision,
-  writeProjectAssetFileTransaction,
-} from './project-asset-file-transaction';
+import type { ProjectSourceExpectedRevision } from '../../shared/project-source-files';
+import { readProjectAssetFileRevision } from './project-asset-file-revision';
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
@@ -92,9 +86,11 @@ async function copyAssetIntoProject(
   sourcePath: string,
   replacement?: Readonly<{
     path: string;
-    expectedRevision: ProjectWorkspaceExpectedRevision;
+    expectedRevision: ProjectSourceExpectedRevision;
   }>,
   assertAuthority?: () => void,
+  stageAsset?: (projectRelativePath: string, bytes: Uint8Array) => Promise<void>,
+  reservedPaths?: Set<string>,
 ): Promise<ImportedAssetMetadata> {
   const projectRoot = projectRootFromFile(projectFilePath);
   const sourceAbsolute = path.resolve(sourcePath);
@@ -111,22 +107,47 @@ async function copyAssetIntoProject(
   const targetFilename = replacement
     ? path.basename(replacement.path)
     : sanitizeAssetFilename(path.basename(sourceAbsolute));
-  const destination = replacement
+  let destination = replacement
     ? path.join(targetDirectory, targetFilename)
     : await uniqueDestination(targetDirectory, targetFilename);
+  if (!replacement && reservedPaths) {
+    const parsed = path.parse(targetFilename);
+    for (
+      let suffix = 2;
+      reservedPaths.has(slashPath(path.relative(projectRoot, destination)));
+      suffix++
+    )
+      destination = await uniqueDestination(
+        targetDirectory,
+        `${parsed.name}-${suffix}${parsed.ext}`,
+      );
+    reservedPaths.add(slashPath(path.relative(projectRoot, destination)));
+  }
   // Validate before the write transaction: a header-plausible but undecodable file
   // must not become a registered runtime Asset through the file picker either.
   if (kind === 'audio' || kind === 'video') await validateImportedAudioVideo(sourceAbsolute, kind);
   if (kind === 'font') await validateImportedFont(sourceAbsolute, extension);
   const bytes = await fs.readFile(sourceAbsolute);
+  const imageMetadata =
+    kind === 'image'
+      ? await sharp(bytes, { failOn: 'error' })
+          .metadata()
+          .then((metadata) => {
+            if (!metadata.width || !metadata.height)
+              throw new Error('Image dimensions could not be determined.');
+            if (metadata.width > 65535 || metadata.height > 65535)
+              throw new Error('Image dimensions must not exceed 65535 pixels.');
+            return {
+              width: metadata.width,
+              height: metadata.height,
+              hasAlpha: metadata.hasAlpha,
+              orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
+            };
+          })
+      : null;
   assertAuthority?.();
-  await writeProjectAssetFileTransaction(
-    projectRoot,
-    slashPath(path.relative(projectRoot, destination)),
-    bytes,
-    replacement ? 'asset reimport' : 'asset import',
-    replacement?.expectedRevision ?? PROJECT_WORKSPACE_ABSENT_REVISION,
-  );
+  if (!stageAsset) throw new Error('Asset import requires the admitted native Project session.');
+  await stageAsset(slashPath(path.relative(projectRoot, destination)), bytes);
   const contentHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
   const common = {
     originalPath: sourceAbsolute,
@@ -139,20 +160,7 @@ async function copyAssetIntoProject(
     importedAt: new Date().toISOString(),
   };
   if (kind !== 'image') return { ...common, kind, imageMetadata: null };
-  const imageMetadata = await sharp(bytes, { failOn: 'error' })
-    .metadata()
-    .then((metadata) => {
-      if (!metadata.width || !metadata.height)
-        throw new Error('Image dimensions could not be determined.');
-      if (metadata.width > 65535 || metadata.height > 65535)
-        throw new Error('Image dimensions must not exceed 65535 pixels.');
-      return {
-        width: metadata.width,
-        height: metadata.height,
-        hasAlpha: metadata.hasAlpha,
-        orientation: (metadata.orientation ?? 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
-      };
-    });
+  if (!imageMetadata) throw new Error('Image metadata is unavailable.');
   return { ...common, kind, imageMetadata };
 }
 
@@ -161,6 +169,8 @@ export async function importAssets(
   projectFilePath: string,
   options: AssetImportOptions = {},
   assertAuthority?: () => void,
+  stageAsset?: (projectRelativePath: string, bytes: Uint8Array) => Promise<void>,
+  discardStaged?: (paths: string[]) => Promise<void>,
 ): Promise<AssetImportResponse> {
   if (!owner)
     return {
@@ -209,14 +219,24 @@ export async function importAssets(
       result.filePaths,
       options.animation.frameDurationMs,
       assertAuthority,
+      stageAsset,
+      discardStaged,
     );
   const assets: ImportedAssetMetadata[] = [];
   const diagnostics: AssetImportResponse['diagnostics'] = [];
+  const reservedPaths = new Set<string>();
   for (const filePath of result.filePaths) {
     try {
       assertAuthority?.();
       assets.push(
-        await copyAssetIntoProject(projectFilePath, filePath, undefined, assertAuthority),
+        await copyAssetIntoProject(
+          projectFilePath,
+          filePath,
+          undefined,
+          assertAuthority,
+          stageAsset,
+          reservedPaths,
+        ),
       );
     } catch (error) {
       diagnostics.push({
@@ -239,6 +259,7 @@ export async function reimportAsset(
   projectFilePath: string,
   projectRelativePath: string,
   assertAuthority?: () => void,
+  stageAsset?: (projectRelativePath: string, bytes: Uint8Array) => Promise<void>,
 ): Promise<AssetReimportResponse> {
   if (!owner)
     return { ok: false, success: false, diagnostics: [], error: 'No editor window is available.' };
@@ -251,7 +272,7 @@ export async function reimportAsset(
     };
   assertAuthority?.();
   const projectRoot = projectRootFromFile(projectFilePath);
-  let replacementExpectedRevision: ProjectWorkspaceExpectedRevision;
+  let replacementExpectedRevision: ProjectSourceExpectedRevision;
   try {
     replacementExpectedRevision = await readProjectAssetFileRevision(
       projectRoot,
@@ -278,11 +299,14 @@ export async function reimportAsset(
     const asset = await copyAssetIntoProject(
       projectFilePath,
       result.filePaths[0],
-      {
-        path: projectRelativePath,
-        expectedRevision: replacementExpectedRevision,
-      },
+      stageAsset
+        ? undefined
+        : {
+            path: projectRelativePath,
+            expectedRevision: replacementExpectedRevision,
+          },
       assertAuthority,
+      stageAsset,
     );
     return { ok: true, success: true, asset, diagnostics: [] };
   } catch (error) {

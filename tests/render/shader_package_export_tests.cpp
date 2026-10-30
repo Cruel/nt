@@ -3,6 +3,7 @@
 #include <nlohmann/json.hpp>
 
 #include <noveltea/core/package_export.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 #include <noveltea/render/material.hpp>
 #include <noveltea/render/material_codec.hpp>
 #include <noveltea/render/shader_manifest.hpp>
@@ -114,6 +115,26 @@ void write_required_shader_bins(const std::filesystem::path& root,
     }
 }
 
+void pin_required_shader_hashes(nlohmann::json& metadata)
+{
+    constexpr std::string_view prefix = "project:/";
+    for (auto& [name, shader] : metadata.at("shaders").items()) {
+        (void)name;
+        for (auto& [stage_name, stage] : shader.at("stages").items()) {
+            (void)stage_name;
+            for (auto& [variant, compiled] : stage.at("compiled").items()) {
+                (void)variant;
+                const auto logical_path = compiled.at("runtimePath").get<std::string>();
+                REQUIRE(std::string_view(logical_path).starts_with(prefix));
+                const auto bytes = "shader-bytes:" + logical_path.substr(prefix.size());
+                compiled["byteHash"] = "sha256:" + noveltea::core::sha256_hex(std::as_bytes(
+                                                       std::span(bytes.data(), bytes.size())));
+                compiled["byteSize"] = bytes.size();
+            }
+        }
+    }
+}
+
 nlohmann::json make_project()
 {
     std::ifstream fixture(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
@@ -148,7 +169,8 @@ std::map<std::string, std::vector<std::byte>> read_package_entries(std::span<con
 
 TEST_CASE("ProjectPackageWriter exports runtime shader material metadata and required variants")
 {
-    const nlohmann::json metadata = make_material_metadata();
+    nlohmann::json metadata = make_material_metadata();
+    pin_required_shader_hashes(metadata);
     const auto parsed = parse_shader_material_project_json_value(metadata);
     REQUIRE(parsed.project.has_value());
     REQUIRE_FALSE(parsed.has_errors());
@@ -228,6 +250,7 @@ TEST_CASE("ProjectPackageWriter exports required derived source-program shader b
              {"byteSize", std::uint64_t{1}},
          })},
     });
+    pin_required_shader_hashes(metadata);
     const auto parsed = parse_shader_material_project_json_value(metadata);
     for (const auto& diagnostic : parsed.diagnostics)
         UNSCOPED_INFO(diagnostic.path << ": " << diagnostic.message);

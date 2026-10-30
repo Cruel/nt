@@ -1,0 +1,7 @@
+#pragma once
+#include <string_view>
+
+namespace noveltea::cli {
+inline constexpr std::string_view media_pin_version = "@NOVELTEA_NATIVE_FFMPEG_VERSION@";
+inline constexpr std::string_view media_pin_release = "@NOVELTEA_NATIVE_FFMPEG_RELEASE@";
+} // namespace noveltea::cli

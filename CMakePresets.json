@@ -72,15 +72,17 @@
         },
         {
             "name": "linux-sanitize",
-            "displayName": "Linux ASan + UBSan",
-            "description": "Native robustness build with parser fuzz smoke targets",
+            "displayName": "Linux optimized ASan + UBSan",
+            "description": "Instrumented native robustness with optimized code and Debug assertions",
             "inherits": "linux-debug",
             "binaryDir": "${sourceDir}/build/linux-sanitize",
             "cacheVariables": {
                 "VCPKG_INSTALLED_DIR": "${sourceDir}/build/linux-sanitize/vcpkg_installed",
                 "NOVELTEA_ENABLE_SANITIZERS": "ON",
                 "NOVELTEA_BUILD_FUZZERS": "ON",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+                "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
+                "CMAKE_C_FLAGS_DEBUG": "-O1 -g1",
+                "CMAKE_CXX_FLAGS_DEBUG": "-O1 -g1"
             }
         },
         {

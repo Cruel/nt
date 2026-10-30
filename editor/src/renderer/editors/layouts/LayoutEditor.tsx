@@ -1,25 +1,24 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { z } from 'zod';
-import { useTranslation } from 'react-i18next';
-import { EditorPreviewSplit } from '@/components/editor-preview-split';
-import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
+import { useCommandStore } from '@/commands/command-store';
 import { resolveEditorPreviewSplitOrientation } from '@/components/editor-preview-layout';
+import { EditorPreviewSplit } from '@/components/editor-preview-split';
+import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
+import { SourceEditor } from '@/components/source/SourceEditor';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { LuaExplicitFallbackEditor } from '@/components/lua-explicit-fallback-editor';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { SourceEditor } from '@/components/source/SourceEditor';
-import { useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS, recordSaveUnitId } from '@/project/save-unit-registry';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { useProjectStore } from '@/project/project-store';
+import { MUTATION_SURFACE_ATTRIBUTIONS, recordSaveUnitId } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import {
   captureScrollViewState,
   captureSourceEditorViewStates,
@@ -34,9 +33,10 @@ import {
   type SourceEditorViewStates,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
-import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { z } from 'zod';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import {
   defaultLayoutData,
   getSystemLayoutSetting,
@@ -49,16 +49,14 @@ import {
   layoutTargetValues,
   parseLayoutData,
   resolveLayoutScalePolicy,
-  validateLayoutData,
   type LayoutAssetRef,
   type LayoutContractData,
   type LayoutData,
   type LayoutSourceData,
 } from '../../../shared/project-schema/authoring-layouts';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { parseScriptModuleData } from '../../../shared/project-schema/authoring-script-modules';
 
 function assetRef(assetId: string): LayoutAssetRef {
@@ -154,7 +152,7 @@ function parseLayoutEditorTabState(
 }
 
 function updateLayout(layoutId: string, next: LayoutData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type: 'layout.replaceData',
     label,
     payload: { layoutId, data: next },
@@ -222,10 +220,10 @@ function DependencySelector({
 export function LayoutEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const layoutId = tab.resource?.entityId;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = layoutId && project ? project.layouts[layoutId] : null;
   const parsedData = useMemo(() => parseLayoutData(record?.data), [record?.data]);
   const fallbackData = useMemo(
@@ -291,10 +289,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     ),
   );
 
-  const validationDiagnostics = useMemo(
-    () => (project && record && layoutId ? validateLayoutData(project, layoutId, record) : []),
-    [layoutId, project, record],
-  );
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/layouts/${layoutId}`);
+  const validationDiagnostics = nativeDiagnostics;
   const diagnosticItems = useMemo(
     () =>
       validationDiagnostics.map((item) => ({
@@ -371,9 +367,10 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     projectSettingsFromProject(activeProject).display,
   );
   function commit(next: LayoutData, label = 'Update layout') {
-    const result = updateLayout(activeLayoutId, next, label);
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    setMessage(failure?.message ?? null);
+    void updateLayout(activeLayoutId, next, label).then((result) => {
+      const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      setMessage(failure?.message ?? null);
+    });
   }
 
   function setSourceMode(which: 'rml' | 'rcss', sourceMode: LayoutSourceData['sourceMode']) {
@@ -420,8 +417,8 @@ export function LayoutEditor({ tab }: WorkbenchEditorProps) {
     commit({ ...data, sampleState: parsed.value }, 'Update layout sample state');
   }
 
-  function setTitleSystemLayout(layoutId: string | null) {
-    const result = executeCommand({
+  async function setTitleSystemLayout(layoutId: string | null) {
+    const result = await executeCommand({
       type: 'project.setSystemLayout',
       label: layoutId ? `Set title system layout ${layoutId}` : 'Clear title system layout',
       payload: { role: 'title', layoutId },

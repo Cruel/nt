@@ -1,16 +1,13 @@
+import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { useProjectStore } from '@/project/project-store';
-import { buildRecoveryFileOwnershipHints } from '@/project/project-save-request';
 import {
   buildEditorProjectStateSnapshot,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../shared/project-schema/authoring-project-settings';
-import { runtimeExportProfileForPlatform } from '../../shared/project-schema/authoring-export';
 import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
-import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
 import type {
   PlatformExportProfile,
   PlatformStageRequest,
@@ -21,7 +18,7 @@ import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
   createPlatformExportValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 import {
   emptyPackageExportResult,
   usePackageExportStore,
@@ -31,10 +28,6 @@ import {
   runPackageExportWorkflow,
   type RunPackageExportWorkflowOptions,
 } from './package-export-workflow';
-import {
-  rendererRuntimeArtifactPaths,
-  rendererShaderCompilerAdapter,
-} from './runtime-artifact-adapters';
 
 function platformStageDiagnostics(result: PlatformStageResult) {
   return collectProjectValidationDiagnostics(
@@ -147,12 +140,7 @@ async function recordSuccessfulExportIdentity(
   const result = await window.noveltea.saveProjectEditorMetadata(
     projectState.projectSessionId,
     editorState,
-    buildRecoveryFileOwnershipHints({
-      recovery: editorState.recovery,
-      baselineDocument: projectState.savedDocument!,
-      candidateDocument: projectState.document!,
-      baselineScriptSourcePaths: projectState.scriptSourcePaths,
-    }),
+    {},
   );
   if (!result.success) {
     return createPlatformExportValidationDiagnostic({
@@ -203,59 +191,30 @@ export async function runProjectPlatformExportWorkflow(
         ],
       };
     } else {
-      const runtimeProfile = runtimeExportProfileForPlatform(
-        request.project as AuthoringProject,
-        profile.target,
-        profile.localization,
-      );
-      const prepared = await prepareRuntimeArtifact({
-        project: request.project as AuthoringProject,
-        projectRoot: request.projectRoot,
-        profile: runtimeProfile,
-        intent: 'platform-export',
-        shaderCompiler: rendererShaderCompilerAdapter,
-        paths: rendererRuntimeArtifactPaths,
-        onStage: (stage) => {
-          store.setStage(stage);
-          workspace.setStatusMessage(
-            stage === 'compiling-project'
-              ? 'Building current runtime package data'
-              : 'Compiling required shader variants',
-          );
-        },
-      });
-      if (prepared.status !== 'prepared') {
+      const projectSessionId = useProjectStore.getState().projectSessionId;
+      if (!projectSessionId)
+        throw new Error('Native platform export requires an active Project session.');
+      const { projectPath: _projectPath, projectRoot: _projectRoot, ...ipcRequest } = request;
+      try {
+        staged = await window.noveltea.exportProjectToPlatform(projectSessionId, {
+          ...ipcRequest,
+          preparedRuntimeArtifact: undefined,
+        });
+      } catch (error) {
         staged = {
           ok: false,
           success: false,
-          cancelled: prepared.status === 'cancelled',
-          operationId: request.operationId ?? 'platform-export',
-          diagnostics: prepared.diagnostics,
+          cancelled: false,
+          operationId: request.operationId ?? 'native-platform-export',
+          diagnostics: [
+            createPlatformExportValidationDiagnostic({
+              code: 'platform-export.native-admission-failed',
+              severity: 'error',
+              path: '/project',
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          ],
         };
-      } else {
-        const projectSessionId = useProjectStore.getState().projectSessionId;
-        if (!projectSessionId) {
-          staged = {
-            ok: false,
-            success: false,
-            cancelled: false,
-            operationId: request.operationId ?? 'platform-export',
-            diagnostics: [
-              createPlatformExportValidationDiagnostic({
-                code: 'platform-export.active-project-session-required',
-                severity: 'error',
-                path: '/project',
-                message: 'Platform export requires the active saved Project session.',
-              }),
-            ],
-          };
-        } else {
-          const { projectPath: _projectPath, projectRoot: _projectRoot, ...ipcRequest } = request;
-          staged = await window.noveltea.exportProjectToPlatform(projectSessionId, {
-            ...ipcRequest,
-            preparedRuntimeArtifact: prepared.artifact,
-          });
-        }
       }
     }
   } finally {

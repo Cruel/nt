@@ -5,9 +5,9 @@ import { DiagnosticList, type EditorDiagnosticItem } from '@/diagnostics/Diagnos
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePackageExportStore, type PackageExportWorkflowResult } from './package-export-store';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
-import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 
 function isProjectValidationDiagnostic(value: unknown): value is ProjectValidationDiagnostic {
   if (!value || typeof value !== 'object') return false;
@@ -89,7 +89,7 @@ function ManifestSummary({ result }: { result: PackageExportWorkflowResult }) {
 
 function Diagnostics({ result }: { result: PackageExportWorkflowResult }) {
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   if (
     result.diagnostics.length === 0 &&
     result.validationDiagnostics.length === 0 &&

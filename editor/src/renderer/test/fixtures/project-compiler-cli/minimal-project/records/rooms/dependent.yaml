@@ -1,0 +1,22 @@
+id: dependent
+label: Dependent Room
+data:
+  displayName: Dependent Room
+  description:
+    source:
+      kind: inline
+      text: A second Room with an explicit dependency on Start.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        'y': 540
+  exits:
+    - id: back-to-start
+      label: Return to Start
+      direction: west
+      target: start

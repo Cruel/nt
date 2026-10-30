@@ -1,7 +1,7 @@
 import type { JsonPatchOperation } from '@/project/json-patch';
 import type { EntityOperationResult } from './entity-operations';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import {
   parseRoomData,
   type RoomData,
@@ -45,7 +45,7 @@ export function updateRoomHotspots(
   roomId: string,
   update: (data: RoomData) => RoomData | null,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const data = resolvedRoomData(document, roomId);
   if (!data)
@@ -60,7 +60,7 @@ export function updateInteractableHotspots(
   interactableId: string,
   update: (data: InteractableData) => InteractableData | null,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const data = resolvedInteractableData(document, interactableId);
   if (!data)
@@ -112,7 +112,7 @@ export function renameHotspot(
   hotspotId: string,
   nextId: string,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const patches: JsonPatchOperation[] = [];
   if (kind === 'room') {
@@ -176,7 +176,7 @@ export function setInteractableHotspotMode(
   interactableId: string,
   kind: 'none' | 'visual-alpha' | 'custom',
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const data = resolvedInteractableData(document, interactableId);
   if (!data) return { patches: [], diagnostics: [error('Interactable record is invalid.')] };

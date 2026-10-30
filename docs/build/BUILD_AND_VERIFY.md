@@ -50,6 +50,13 @@ fallback when it is absent, for example:
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-12}"
 ```
 
+## Native authoring schema certification
+
+The certification-only host build, Node-free C++ build commands, generator freshness check, and
+native/Zod differential test invocation are documented in
+[Native Project schema contracts](../architecture/NATIVE_AUTHORING_CONTRACTS.md#verification).
+It is separate from player/runtime verification and does not change production Project authority.
+
 ## Initial Command Set
 
 Repository-local shader compilation uses the standalone `noveltea` host CLI. On the currently
@@ -154,29 +161,20 @@ changed to compensate for missing engine resources. An explicit native font-cove
 different root. Standalone distributions continue to resolve `assets/system` beside their executable.
 Fallback-font failures identify the logical font Asset and selected system root.
 
-## Compile a Project Without the Editor
+## Verify Native Project Compilation Without the Editor
 
-Compile a saved project into canonical Compiled Project Format V1 gameplay JSON from the repository root:
-
-```sh
-pnpm project:compile -- \
-  --project path/to/project.json \
-  --output path/to/compiled-project.json
-```
-
-The editor-local equivalent is:
+The standalone native `noveltea` CLI compiles the current on-disk Project as part of Runtime Package
+export. The old Node-only `project:compile` command and its `dist-build-tools` compiler are retired;
+do not use them as CI verification or expect standalone compiled-project JSON from the public CLI.
 
 ```sh
-cd editor
-pnpm project:compile -- \
-  --project path/to/project.json \
-  --output path/to/compiled-project.json
+noveltea --no-daemon --project path/to/project package export --output /tmp/game.ntpkg
+unzip -t /tmp/game.ntpkg
 ```
 
-This is a Node-only test/CI command. It uses the same `publishCompiledArtifact` boundary as editor
-preview and runtime export, writes exact canonical bytes atomically, and does not create a runtime
-package or platform application. Add `--json` for a machine-readable report. Exit codes `2`, `3`,
-`4`, and `5` distinguish argument, input, compiler, and output failures respectively.
+The native cold-compilation differential certification, including the complete Compiled Project
+wire, is described in `docs/runtime/certifications/NATIVE_COMPILED_PROJECT.md`. The Build workflow's
+Electron job also checks native compilation and Runtime Package export against its minimal fixture.
 
 Export a saved editor project through `noveltea platform export`. Install the immutable player
 template first with `noveltea platform template install`, and generate local toolchain/signing
@@ -184,10 +182,16 @@ configuration with `noveltea platform config init` or the Android environment he
 Use `pnpm android:export-config -- --output <file>` to generate the Android exporter local-toolchain
 configuration from `ANDROID_SDK_ROOT`/`ANDROID_HOME` and `JAVA_HOME`. Shader compilation is provided
 by the standalone `noveltea` host CLI and no external `shaderc` executable is configured for export.
-The ScriptC standalone host CLI is certified on Linux x64 and Windows x64. The Windows CLI builds its
-native tooling/FFI closure with the MinGW GNU ABI and ScriptC targets `x86_64-windows-gnu`; this is
-separate from the MSVC-built Windows desktop player/editor. Platform player jobs still consume shader
-assets precompiled once by the Linux shader-assets job (`NOVELTEA_COMPILE_SHADERS=OFF`).
+The standalone CLI is direct C++ on Linux x64, Windows x64 and macOS arm64. Build it with
+`pnpm -C editor run noveltea:build`; the command configures the native authoring CMake
+preset and stages the installed executable and UI Test runner under `build/cli/<platform>/`.
+Windows CLI builds use the MinGW GNU ABI, separate from the MSVC-built desktop player/editor.
+No ScriptC, QuickJS, Zig ScriptC target, or Node execution is required at runtime. The build
+emits `native-production-build.json` binding the exact native executables by SHA-256;
+`pnpm -C editor run noveltea:certify` checks the installed artifact and emitted editor bundles.
+Platform player jobs still consume shader assets precompiled by the Linux shader-assets job
+(`NOVELTEA_COMPILE_SHADERS=OFF`).
+
 The Android player defers SDL/bgfx initialization while its Activity is asleep or
 unfocused. When Android destroys/recreates the native surface on Home, lock/unlock,
 or rotation, the Engine suspends its normal frame path and rebinds a freshly
@@ -394,7 +398,18 @@ cd android
 
 Run the native robustness configuration after parser, filesystem, callback-boundary, or ownership
 changes. It enables ASan, UBSan, and deterministic smoke runs for the JSON, rich-text, package, and
-runtime-project fuzz harnesses:
+runtime-project fuzz harnesses. The sanitizer preset keeps Debug assertions but compiles with
+`-O1 -g1` to avoid multiplying JSON/schema traversal costs in unoptimized instrumented code.
+Only explicitly labeled `asan-smoke` authoring tests and `fuzz-smoke` parser tests run in this
+bounded CI lane; the ordinary native/coverage jobs retain exhaustive functional, Catch2 and
+differential certification:
+
+Native/Zod record differentials use `noveltea-project-session-certify --normalized-records
+<project-root> [family ...]` to normalize every requested record with **one native process**.
+The Node drivers still independently decode and compare each record against its Zod schema.
+This replaces a process launch per record (237 launches for the Feature Lab corpus), which
+was especially expensive under ASan/UBSan; targeted differential tests request only their
+own record families. The single-record certification modes remain available for diagnosis.
 
 ```sh
 cmake --preset linux-sanitize
@@ -402,7 +417,7 @@ cmake --build --preset linux-sanitize
 ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-  -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke|native_video_texture_smoke)'
+  -L '^(asan-smoke|fuzz-smoke)$' --parallel 2 --timeout 300
 ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 \
 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
 xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
@@ -411,8 +426,9 @@ xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
 
 CI and local verification run GPU/sandbox smoke executables, including native video texture smoke,
 in the separate ASan/UBSan pass above because Mesa/EGL may retain driver-owned allocations until
-process exit. Keep the `-E` and `-R` expressions identical so no excluded tests lose sanitizer
-coverage; do not disable leak detection for the engine and parser test suites.
+process exit. Keep the GPU test expression synchronized with the CI step. Never disable leak
+detection for the parser and native authoring smoke tests. To investigate a specific failure under
+ASan/UBSan beyond the bounded smoke lane, run its named CTest explicitly with `-R`.
 
 The sanitizer configuration builds native host tooling as well as the player/runtime graph so the
 shader compiler service and its embedded shaderc closure receive sanitizer coverage in the same
@@ -472,9 +488,10 @@ cooperative job deliberately shares the `linux-debug` installed tree path while 
 `linux-no-threads` binary writer. All jobs must regenerate dependencies on cache misses; caches are
 acceleration, not required job-to-job inputs.
 
-CI build and vcpkg concurrency is four. CTest retains serial execution because some GPU captures share
-an Xvfb display and lack serialization properties; parallel test execution requires auditing shared
-resources first. Local builds continue to honor the inherited limit described above. Linux desktop,
+CI build and vcpkg concurrency is four. The sanitizer's bounded, non-GPU smoke set uses two CTest
+workers; the GPU and comprehensive CTest lanes remain serial because some captures share an Xvfb
+display and lack serialization properties. Local builds continue to honor the inherited limit
+described above. Linux desktop,
 CLI, and cooperative builds retain 120-minute timeout headroom; sanitizer, Web, and Android builds
 retain 90 minutes, pending cold-cache measurements rather than assuming a warm cache.
 
@@ -497,6 +514,52 @@ commit for a non-publishing full-matrix qualification run; create the immutable 
 run succeeds. A separate manual `Windows CLI Diagnostics` workflow
 (`.github/workflows/windows-cli-diagnostics.yml`) reproduces CLI UI-runner failures under the
 release GNU toolchain with page heap and debugger capture, without publishing anything.
+
+### Re-certify previously built Release artifacts
+
+Use **Actions → Re-certify Build Artifacts** (`.github/workflows/recertify-artifacts.yml`)
+to rerun post-build checks without repeating the Release build. This workflow is
+**manual-only** and read-only with respect to Release artifacts: it neither publishes a
+release nor compiles the CLI/editor or rebuilds installer packages. Some CLI tests do
+create disposable Project export fixtures as part of certification.
+
+The default `latest` source resolves to the newest **completed** Release run containing
+at least one unexpired downloadable artifact in the requested scope, including failed
+Release runs. `sha` finds a Release run for a source commit (short or full hex SHA);
+`run` selects a specific GitHub Actions run ID. A commit is not an artifact: if multiple
+completed runs use the SHA, the newest run with matching available artifacts wins.
+Select `cli`, `editor`, or `all`. The resolver rejects incomplete/non-Release runs
+and cross-run/cross-SHA artifact metadata, then downloads from that run's immutable ID.
+Expired/missing artifacts are reported as **skipped**, never silently rebuilt.
+
+By default, the certification scripts come from the artifact-producing commit. The
+optional `test_ref` checks out a different script revision; the summary records both
+SHAs. The resolver and installer verifier run from the workflow revision so they also
+work with historical releases that predate this workflow.
+
+CLI re-certification reruns installed-binary native disk validation, command, Project
+routing, lifecycle, transport/error, Tests, and runtime package differential checks on
+Linux, Windows, and macOS. Editor re-certification checks the **downloaded final
+installer set**, platform filenames, file signatures, and SHA-256 on those hosts.
+This editor check is **not** equivalent to installing/launching the editor: packaged
+application smoke, platform export, and editor/CLI cross-system authority checks
+require installed applications or build-stage bundles that Release does not currently
+retain as downloadable artifacts. These remain full Release checks and are explicitly
+listed as excluded in the re-certification summaries. Runs that verify only some
+available artifacts are **partial evidence**, not release acceptance.
+
+Run `node --test scripts/recertify-release-artifacts.test.mjs` to test run selection,
+expired/inconsistent metadata rejection, and installer signatures offline. For a live
+resolver check use:
+
+```sh
+GH_TOKEN="$(gh auth token)" GITHUB_REPOSITORY=Cruel/nt \
+  node scripts/recertify-release-artifacts.mjs resolve \
+  --source run --run-id 39698985373 --scope all
+```
+
+GitHub Actions requires the workflow file to exist on the default branch before
+exposing its manual-dispatch button.
 
 The checked-in Android project is the immutable player-template source. It builds
 `noveltea-player`, not the sandbox, and requires one ABI per invocation:

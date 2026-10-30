@@ -6,19 +6,18 @@ import {
   type BrowserWindow as BrowserWindowType,
 } from 'electron';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import sharp from 'sharp';
 import type { CreateRaw } from 'sharp';
-import { assetDataFromImportMetadata } from '../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../shared/project-schema/authoring-project';
 import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
-import { checkMediaTools, openProject, prepareMedia } from './services/editor-tool-service';
-import { createProject, saveProjectContent } from './services/project-file-service';
-import { importUntrackedProjectAssets } from './services/project-asset-audit-service';
+import { checkMediaTools, prepareMedia } from './services/native-runtime-tool-service';
+import { createNativeEditorProject } from './services/native-editor-project-create';
+import { resolveNovelTeaCliPath } from '../shared/noveltea-cli-subprocess';
 import { characterizePackagedNodePty } from './services/terminal-package-smoke';
 
 export const PACKAGE_SMOKE_FLAG = '--noveltea-package-smoke';
@@ -148,12 +147,14 @@ async function characterizeProductionThumbnailProtocol(
   );
   try {
     const projectRoot = path.join(fixtureRoot, 'project');
-    const created = await createProject({
+    const created = await createNativeEditorProject({
       projectName: 'Package Smoke Thumbnail',
       projectDirectory: projectRoot,
     });
-    if (!created.success || !created.projectFilePath) return false;
-    const projectFilePath = created.projectFilePath;
+    if (!created.success || !created.projectFilePath) {
+      console.error('[package-smoke:thumbnail] Native Project creation rejected:', created);
+      return false;
+    }
     const sourceDirectory = path.join(projectRoot, 'assets', 'images');
     const sourcePath = path.join(sourceDirectory, 'source.png');
     await fs.promises.mkdir(sourceDirectory, { recursive: true });
@@ -168,34 +169,25 @@ async function characterizeProductionThumbnailProtocol(
       .png()
       .toBuffer();
     await fs.promises.writeFile(sourcePath, sourceBytes);
-    const imported = await importUntrackedProjectAssets(projectFilePath, [
-      'assets/images/source.png',
-    ]);
-    const opened = await openProject(projectRoot);
-    const openedWorkspaceRevision = opened._workspaceSnapshot?.workspaceRevision;
-    if (
-      !imported.success ||
-      !imported.assets?.[0] ||
-      !opened.success ||
-      !openedWorkspaceRevision ||
-      !opened.editorState ||
-      !isAuthoringProject(opened.contentProject)
-    )
-      return false;
-    const assetId = 'package-smoke-image';
-    opened.contentProject.assets[assetId] = {
-      id: assetId,
-      label: 'Package Smoke Image',
-      data: assetDataFromImportMetadata(imported.assets[0]),
-    };
-    const saved = await saveProjectContent(
-      projectRoot,
-      openedWorkspaceRevision,
-      opened.contentProject,
-      opened.editorState,
-      opened.scriptSourcePaths ?? {},
+    const { stdout } = await promisify(execFile)(
+      resolveNovelTeaCliPath(),
+      ['--no-daemon', '--json', '--project', projectRoot, 'asset', 'import', sourcePath],
+      { cwd: process.resourcesPath, encoding: 'utf8', windowsHide: true },
     );
-    if (!saved.success) return false;
+    const imported = JSON.parse(stdout) as {
+      success?: boolean;
+      assets?: Array<{ assetId?: string; projectRelativePath?: string }>;
+    };
+    const asset = imported.assets?.[0];
+    if (
+      imported.success !== true ||
+      !asset?.assetId ||
+      asset.projectRelativePath !== 'assets/images/source.png'
+    ) {
+      console.error('[package-smoke:thumbnail] Native Asset import rejected:', imported);
+      return false;
+    }
+    const assetId = asset.assetId;
     const openedLiteral = JSON.stringify(projectRoot);
     const source = {
       projectRelativePath: 'assets/images/source.png',
@@ -276,11 +268,12 @@ async function characterizeProductionThumbnailProtocol(
       proof.width !== 3 ||
       proof.height !== 2
     ) {
+      console.error('[package-smoke:thumbnail] Renderer/IPC protocol readback failed:', proof);
       return false;
     }
     const response = await net.fetch(proof.first.url);
     const originalResponse = await net.fetch(proof.original!.url!);
-    return (
+    const valid =
       response.ok &&
       response.headers.get('content-type') === 'image/webp' &&
       response.headers.get('cache-control') === 'public, max-age=31536000, immutable' &&
@@ -293,8 +286,10 @@ async function characterizeProductionThumbnailProtocol(
       response.headers.get('cross-origin-resource-policy') === 'cross-origin' &&
       response.headers.get('access-control-allow-origin') === '*' &&
       response.headers.get('x-content-type-options') === 'nosniff' &&
-      (await response.arrayBuffer()).byteLength > 0
-    );
+      (await response.arrayBuffer()).byteLength > 0;
+    if (!valid)
+      console.error('[package-smoke:thumbnail] Production protocol response validation failed.');
+    return valid;
   } finally {
     await fs.promises.rm(fixtureRoot, { recursive: true, force: true });
   }

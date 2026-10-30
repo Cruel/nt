@@ -13,10 +13,12 @@ import { getTabDirtyState } from '@/workbench/dirty-state';
 import { selectPendingSaveUnitIds, usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildEditorProjectStateSnapshot,
+  adoptNativeRecoveredProject,
   reconstructEditorProject,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
@@ -25,6 +27,58 @@ beforeEach(() => {
 });
 
 describe('project recovery reconstruction', () => {
+  it('adopts the native acknowledged working content instead of stale local recovery patches', () => {
+    const saved = createAuthoringProject({ id: 'native-recovery', name: 'Saved' });
+    const disk = toJsonValue(stripEditorProjectState(saved));
+    const staleMetadata = {
+      ...emptyEditorProjectState(),
+      recovery: {
+        sequence: 3,
+        saveUnitsById: {
+          'project:settings': {
+            sequence: 3,
+            patches: [{ op: 'replace' as const, path: '/project/name', value: 'Old pending copy' }],
+            affectedPaths: ['/project/name'],
+            pendingRawInputByPath: { '/project/name': { value: 'invalid pending form input' } },
+            atomicTransactionGroupIds: [],
+          },
+        },
+      },
+    };
+    const reconstructed = reconstructEditorProject(disk, disk, staleMetadata, []);
+    const recovered = adoptNativeRecoveredProject(
+      reconstructed,
+      toJsonValue({
+        ...saved,
+        project: { ...saved.project, name: 'Native accepted value' },
+      }),
+    );
+    expect((recovered.savedDocument as typeof saved).project.name).toBe('Saved');
+    expect((recovered.workingDocument as typeof saved).project.name).toBe('Native accepted value');
+    expect(recovered.editorState.recovery.saveUnitsById['project:settings']).toMatchObject({
+      patches: [{ op: 'replace', path: '/project/name', value: 'Native accepted value' }],
+      pendingRawInputByPath: { '/project/name': { value: 'invalid pending form input' } },
+    });
+  });
+
+  it('reinstates verified native conflicts even when the metadata write had not flushed', () => {
+    const saved = createAuthoringProject({ id: 'native-conflict', name: 'Saved' });
+    const disk = toJsonValue(stripEditorProjectState(saved));
+    const recovered = adoptNativeRecoveredProject(
+      reconstructEditorProject(disk, disk, emptyEditorProjectState(), []),
+      toJsonValue({ ...saved, project: { ...saved.project, name: 'Local' } }),
+      { project: { paths: ['/project/name'], revision: `sha256:${'d'.repeat(64)}` } },
+    );
+    expect(
+      recovered.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
+    ).toMatchObject({
+      conflictingPaths: ['/project/name'],
+      localValueByPath: { '/project/name': { exists: true, value: 'Local' } },
+      externalValueByPath: { '/project/name': { exists: true, value: 'Saved' } },
+      externalFileRevisions: { 'project.yaml': `sha256:${'d'.repeat(64)}` },
+    });
+  });
+
   it('replays save units by sequence and then stable save-unit ID', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     const content = toJsonValue(stripEditorProjectState(project));
@@ -264,18 +318,13 @@ describe('project recovery reconstruction', () => {
     );
   });
 
-  it('splits shared tag-registry mutations into an atomic project-tags recovery owner', () => {
+  it('splits shared tag-registry mutations into an atomic project-tags recovery owner', async () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      savedDocument: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     setLoadedEditorProjectState(project.editor);
 
-    const result = useCommandStore.getState().executeCommand({
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'entity.updateMetadata',
       label: 'Tag Hall',
       payload: { collection: 'rooms', entityId: 'hall', tags: ['Story'] },
@@ -297,17 +346,12 @@ describe('project recovery reconstruction', () => {
     expect(tagGroups).toEqual(recordGroups);
   });
 
-  it('keeps platform export profile edits in their dedicated save unit', () => {
+  it('keeps platform export profile edits in their dedicated save unit', async () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      savedDocument: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     setLoadedEditorProjectState(project.editor);
 
-    const result = useCommandStore.getState().executeCommand({
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'project.replaceAtPath',
       label: 'Update platform export profiles',
       payload: {
@@ -326,15 +370,11 @@ describe('project recovery reconstruction', () => {
     expect(recovery.saveUnitsById['project:settings']).toBeUndefined();
   });
 
-  it('serializes the same dirty command state deterministically', () => {
+  it('serializes the same dirty native-acknowledged state deterministically', async () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Saved' });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/project',
-      projectFilePath: '/project/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     setLoadedEditorProjectState(emptyEditorProjectState());
-    useCommandStore.getState().executeCommand({
+    await useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: 'Rename project',
       payload: [{ op: 'replace', path: '/project/name', value: 'Dirty' }],

@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { TagInput } from '@/components/tags/TagInput';
 import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { buildDefaultRecordTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
@@ -109,8 +110,8 @@ export function NewEntityWizardDialog({
   onOpenChange,
   onCreated,
 }: NewEntityWizardDialogProps) {
-  const executeCommand = useCommandStore((store) => store.executeCommand);
   const openTab = useWorkbenchStore((store) => store.openTab);
+  const [submitting, setSubmitting] = useState(false);
   const [collection, setCollection] = useState<AuthoringCollectionKey>(() => {
     if (initialCollection && isNewEntityWizardCollection(initialCollection))
       return initialCollection;
@@ -169,8 +170,8 @@ export function NewEntityWizardDialog({
     setError(null);
   }
 
-  function submit() {
-    if (!project) return;
+  async function submit() {
+    if (!project || submitting) return;
     const activeProject = project;
     const activeDraft = draft!;
     const entityId = activeDraft.basics.entityId.trim();
@@ -182,7 +183,6 @@ export function NewEntityWizardDialog({
       return;
     }
     const extra = definition.buildPayload({ project: activeProject, draft: activeDraft });
-    const commandStore = useCommandStore.getState();
     const setEntrypoint = collection === 'rooms' && activeDraft.options.setEntrypoint;
     const interactableArchetypeId =
       collection === 'interactables' &&
@@ -212,34 +212,24 @@ export function NewEntityWizardDialog({
       };
     }
     const useTransaction = Boolean(setEntrypoint || interactableArchetypeId);
-    if (useTransaction) {
-      commandStore.beginTransaction({
+    const requests: CommandRequest[] = [
+      {
+        type: 'entity.createRecord',
         label: `Create ${metadata.singularLabel}`,
+        payload: {
+          collection,
+          entityId,
+          label: label || undefined,
+          description: activeDraft.basics.description.trim() || undefined,
+          tags: activeDraft.basics.tags,
+          color: activeDraft.basics.color.trim() || null,
+          ...extra,
+        },
         ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
-      });
-    }
-    const result = executeCommand({
-      type: 'entity.createRecord',
-      label: `Create ${metadata.singularLabel}`,
-      payload: {
-        collection,
-        entityId,
-        label: label || undefined,
-        description: activeDraft.basics.description.trim() || undefined,
-        tags: activeDraft.basics.tags,
-        color: activeDraft.basics.color.trim() || null,
-        ...extra,
       },
-      ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
-    });
-    const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-    if (!result.ok || failure) {
-      if (useTransaction) commandStore.cancelTransaction();
-      setError(failure?.message ?? 'Create command failed.');
-      return;
-    }
+    ];
     if (interactableArchetypeId && effectiveInteractableData) {
-      const archetypeResult = executeCommand({
+      requests.push({
         type: 'gameplay-instance.setArchetype',
         label: 'Set Interactable archetype',
         payload: {
@@ -249,69 +239,62 @@ export function NewEntityWizardDialog({
         },
         ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       });
-      const archetypeFailure = archetypeResult.diagnostics.find(
-        (diagnostic) => diagnostic.severity === 'error',
-      );
-      if (!archetypeResult.ok || archetypeFailure) {
-        commandStore.cancelTransaction();
-        setError(archetypeFailure?.message ?? 'Setting the Interactable Archetype failed.');
-        return;
-      }
-      const presentationResult = executeCommand({
+      requests.push({
         type: 'interactable.replaceData',
         label: 'Set Interactable creation presentation',
         payload: { interactableId: entityId, data: effectiveInteractableData },
         ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       });
-      const presentationFailure = presentationResult.diagnostics.find(
-        (diagnostic) => diagnostic.severity === 'error',
-      );
-      if (!presentationResult.ok || presentationFailure) {
-        commandStore.cancelTransaction();
-        setError(presentationFailure?.message ?? 'Applying the Interactable presentation failed.');
-        return;
-      }
     }
     if (setEntrypoint) {
-      const entrypointResult = executeCommand({
+      requests.push({
         type: 'project.setEntrypoint',
         label: 'Set project entrypoint',
         payload: { target: { kind: 'room', id: entityId } },
         ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
       });
-      const entrypointFailure = entrypointResult.diagnostics.find(
-        (diagnostic) => diagnostic.severity === 'error',
-      );
-      if (!entrypointResult.ok || entrypointFailure) {
-        commandStore.cancelTransaction();
-        setError(entrypointFailure?.message ?? 'Setting the project entrypoint failed.');
+    }
+    setSubmitting(true);
+    try {
+      const commandStore = useCommandStore.getState();
+      const result = useTransaction
+        ? await commandStore.executeCommandBatchAsync(
+            {
+              label: `Create ${metadata.singularLabel}`,
+              ...MUTATION_SURFACE_ATTRIBUTIONS.newEntity,
+            },
+            requests,
+          )
+        : await commandStore.executeCommandAsync(requests[0]!);
+      const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (!result.ok || failure) {
+        setError(failure?.message ?? 'Create command failed.');
         return;
       }
+      const tab = buildDefaultRecordTab({
+        id: `${collection}:${entityId}`,
+        label: label || entityId,
+        type: metadata.nodeType,
+        collection,
+        entityId,
+      });
+      if (tab) openTab(tab);
+      onCreated?.({ collection, entityId });
+      onOpenChange(false);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Create command failed.');
+    } finally {
+      setSubmitting(false);
     }
-    if (useTransaction) {
-      const committed = commandStore.commitTransaction();
-      const commitFailure = committed.diagnostics.find(
-        (diagnostic) => diagnostic.severity === 'error',
-      );
-      if (!committed.ok || commitFailure) {
-        setError(commitFailure?.message ?? 'Creating the entity transaction failed.');
-        return;
-      }
-    }
-    const tab = buildDefaultRecordTab({
-      id: `${collection}:${entityId}`,
-      label: label || entityId,
-      type: metadata.nodeType,
-      collection,
-      entityId,
-    });
-    if (tab) openTab(tab);
-    onCreated?.({ collection, entityId });
-    onOpenChange(false);
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!submitting) onOpenChange(next);
+      }}
+    >
       <DialogPopup className="!flex h-[calc(100vh-4rem)] max-h-[52rem] !w-[calc(100vw-3rem)] !max-w-none sm:!max-w-6xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="border-b bg-muted/20 px-6 py-5 pr-12">
           <DialogTitle className="text-base font-semibold">New Entity Wizard</DialogTitle>
@@ -460,10 +443,13 @@ export function NewEntityWizardDialog({
           </div>
         </div>
         <DialogFooter className="border-t bg-muted/20 px-6 py-4">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" disabled={submitting} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={definition.supportLevel === 'external-flow'}>
+          <Button
+            onClick={submit}
+            disabled={submitting || definition.supportLevel === 'external-flow'}
+          >
             {definition.supportLevel === 'external-flow'
               ? 'Use asset import flow'
               : `Create ${metadata.singularLabel}`}

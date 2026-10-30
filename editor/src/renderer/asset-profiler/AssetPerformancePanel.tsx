@@ -17,16 +17,14 @@ import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigat
 import { createEditorFormatters } from '@/i18n/formatting';
 import { useProjectStore } from '@/project/project-store';
 import { PROJECT_SETTINGS_SAVE_UNIT_ID } from '@/project/save-unit-registry';
-import { compileAuthoringProject } from '../../shared/authoring-compiler';
+import { compileAuthoringProjectValue } from '../../shared/authoring-compiler-lowering';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   projectFlowPredictionIndexForTooling,
   type FlowPredictionToolingPoint,
 } from '../../shared/flow-prediction-tooling';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import type {
   PrefetchHintAttachment,
   PrefetchHintPoint,
@@ -312,8 +310,8 @@ function PredictionView() {
   const changes = useAssetProfilerStore((state) => state.changes);
   const profilerPayload = useAssetProfilerStore((state) => state.payload);
   const status = useAssetProfilerStore((state) => state.status);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [targetKind, setTargetKind] = useState<PrefetchTargetKind>('scene');
   const [targetId, setTargetId] = useState('');
   const [draftAttachment, setDraftAttachment] = useState<PrefetchHintAttachment | null>(null);
@@ -321,7 +319,7 @@ function PredictionView() {
   const [roomScope, setRoomScope] = useState<'entry-path' | 'resident'>('entry-path');
   const staticProjection = useMemo(() => {
     if (!project) return null;
-    const compiled = compileAuthoringProject(project);
+    const compiled = compileAuthoringProjectValue(project);
     if (!compiled.ok) return null;
     return projectFlowPredictionIndexForTooling(compiled.project.flowPrediction);
   }, [project]);
@@ -376,7 +374,7 @@ function PredictionView() {
       .filter((value): value is NonNullable<typeof value> => value !== null);
   }, [changes, project, staticProjection]);
 
-  const createHint = (target: PrefetchHintTarget, attachment: PrefetchHintAttachment) => {
+  const createHint = async (target: PrefetchHintTarget, attachment: PrefetchHintAttachment) => {
     if (!project) return;
     let ordinal = 1;
     let id = 'prefetch-hint';
@@ -384,23 +382,24 @@ function PredictionView() {
       ordinal += 1;
       id = `prefetch-hint-${ordinal}`;
     }
-    executeCommand({
+    const result = await executeCommand({
       type: 'project.addAtPath',
       label: t('assetProfiler.prediction.addHint'),
       payload: { path: `/prefetchHints/${id}`, value: { id, target, attachment } },
       originSaveUnitId: PROJECT_SETTINGS_SAVE_UNIT_ID,
       persistencePolicy: 'manual-save',
     });
+    return result.ok;
   };
 
-  const addHint = () => {
+  const addHint = async () => {
     if (!project || !targetId || !draftAttachment) return;
-    createHint(prefetchTarget(targetKind, targetId), draftAttachment);
-    setDraftAttachment(null);
+    if (await createHint(prefetchTarget(targetKind, targetId), draftAttachment))
+      setDraftAttachment(null);
   };
 
   const removeHint = (id: string) => {
-    executeCommand({
+    void executeCommand({
       type: 'project.removeAtPath',
       label: t('assetProfiler.prediction.removeHint'),
       payload: { path: `/prefetchHints/${id}` },
@@ -839,7 +838,7 @@ function IssuesView() {
   const setType = useAssetProfilerStore((state) => state.setIssueType);
   const toggleExpanded = useAssetProfilerStore((state) => state.toggleExpandedIssue);
   const document = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const issues = useMemo(
     () => deriveAssetProfilerIssues(changes, assetsByKey),
     [assetsByKey, changes],
@@ -1083,7 +1082,7 @@ function AssetsView() {
   const setSort = useAssetProfilerStore((store) => store.setAssetSort);
   const toggleExpanded = useAssetProfilerStore((store) => store.toggleExpandedAsset);
   const document = useProjectStore((store) => store.document);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const filtered = useMemo(
     () =>
       filterAndSortAssetProfilerEntries(

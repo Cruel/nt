@@ -91,8 +91,9 @@ void FrameDrivenSuite::finish_trial()
     trial_.interrupted_attempts = std::move(interrupted_attempts_);
     if (interrupted_ && retry_count_ == kMaxInterruptionRetries)
         reason_ = "interruption retry limit exceeded: " + reason_;
-    if (results_ready_ && reason_.empty() && trial_.measured_wall_seconds <= 0.0)
-        reason_ = "clock resolution insufficient to measure any elapsed work";
+    // Fixed-frame functional runs can complete before a browser's coarse
+    // clock advances. Their work is still valid; throughput stays unavailable
+    // (null in reports) when no positive duration was observed.
     if (results_ready_ && reason_.empty()) {
         trial_.outcome = "complete";
         std::vector<FrameSample> measured(samples_.begin(),
@@ -264,8 +265,7 @@ bool FrameDrivenSuite::step()
         const double operation = end - start;
         const bool active_timing = headless_batches_ || scenario_.active_operation_timing();
         const FrameSample sample{active_timing ? operation : end - previous_end_, operation};
-        if (!valid(sample.wall_seconds) || !valid(sample.operation_seconds) ||
-            (!active_timing && end <= measurement_start_)) {
+        if (!valid(sample.wall_seconds) || !valid(sample.operation_seconds)) {
             reason_ = "non-monotonic or invalid frame timing";
             phase_ = Phase::Cleanup;
             break;

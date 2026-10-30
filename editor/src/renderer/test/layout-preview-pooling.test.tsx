@@ -10,7 +10,7 @@ import {
   DEFAULT_EDITOR_PREVIEW_SPLIT_SYNC_SIZES,
   useEditorPreviewSplitSyncStore,
 } from '@/stores/editor-preview-split-sync-store';
-import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
+import { publishNativeViewGraphFixture } from '../test-support/native-renderer-graph-fixture';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { setTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import {
@@ -365,9 +365,7 @@ beforeEach(async () => {
     projectFilePath: '/mock/project.yaml',
     projectSessionId: '11111111-1111-4111-8111-111111111111',
   });
-  await authoringDependencyGraphService.publish(
-    useProjectStore.getState().lastMutationPublication!,
-  );
+  await publishNativeViewGraphFixture();
 });
 
 describe('LayoutEditor persistent layout preview', () => {

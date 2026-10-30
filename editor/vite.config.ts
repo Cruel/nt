@@ -6,7 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { TanStackRouterVite } from '@tanstack/router-plugin/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
-import { cliLazyModulePolicy, cliStartupPolicy } from './scripts/cli-startup-policy';
+import { nativeProductionProvenance } from './scripts/native-production-provenance';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../scripts/noveltea-version.mjs';
 
 const editorRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +77,7 @@ export default defineConfig({
     }),
     react(),
     tailwindcss(),
+    nativeProductionProvenance(editorRoot),
   ],
   resolve: {
     alias: {
@@ -265,9 +266,28 @@ export default defineConfig({
         input: ['src/shared/**/*', 'scripts/generate-authoring-graph-field-metadata.mjs'],
         output: [],
       },
+      'check:native-schema': {
+        command: 'node scripts/generate-native-schema.mjs --check',
+        cache: true,
+        input: [
+          'src/shared/**/*',
+          'scripts/native-schema/**/*',
+          'scripts/generate-native-schema.mjs',
+          'package.json',
+          '../pnpm-lock.yaml',
+          '../.node-version',
+          '../tools/project_authoring/generated/*',
+        ],
+        output: [],
+      },
       'check:all': {
         command: 'node -e "process.exit(0)"',
-        dependsOn: ['check:types', 'check:schema-version-policy:run', 'check:graph-field-metadata'],
+        dependsOn: [
+          'check:types',
+          'check:schema-version-policy:run',
+          'check:graph-field-metadata',
+          'check:native-schema',
+        ],
         cache: true,
         input: [],
         output: [],
@@ -288,9 +308,9 @@ export default defineConfig({
         cache: true,
         output: [
           'dist-electron/main/**',
+          'dist-electron/authoring-worker/**',
           'dist-electron/preload/**',
           'dist-electron/tools/**',
-          'dist-scriptc-island/**',
         ],
       },
       'validate:bundles': {
@@ -311,6 +331,7 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'electron-main',
+      plugins: [nativeProductionProvenance(editorRoot)],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: [
@@ -336,7 +357,20 @@ export default defineConfig({
     },
     {
       ...commonNodePack,
+      name: 'native-authoring-worker',
+      plugins: [nativeProductionProvenance(editorRoot)],
+      entry: { 'native-authoring-worker': 'src/main/services/native-authoring-worker.ts' },
+      format: 'cjs',
+      outDir: 'dist-electron/authoring-worker',
+      fixedExtension: true,
+      clean: true,
+      checks: { legacyCjs: false },
+      outputOptions: { codeSplitting: false },
+    },
+    {
+      ...commonNodePack,
       name: 'electron-preload',
+      plugins: [nativeProductionProvenance(editorRoot)],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: [],
@@ -352,53 +386,19 @@ export default defineConfig({
     {
       ...commonNodePack,
       name: 'node-tools',
-      plugins: [
-        cliStartupPolicy('Node CLI', path.join(editorRoot, 'scripts/noveltea.ts')),
-        cliLazyModulePolicy('Node application', path.join(editorRoot, 'src/cli/application.ts')),
-      ],
+      plugins: [nativeProductionProvenance(editorRoot)],
       deps: {
         ...commonNodePack.deps,
         onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],
       },
       entry: {
-        noveltea: 'scripts/noveltea.ts',
-        'project-compile': 'scripts/compile-project.ts',
-        'materialize-platform-export-fixture': 'scripts/materialize-platform-export-fixture.ts',
-        'generate-compiled-project-goldens': 'scripts/generate-compiled-project-goldens.ts',
+        noveltea: 'scripts/noveltea-native.ts',
       },
       format: 'esm',
       outDir: 'dist-electron/tools',
       fixedExtension: true,
       clean: true,
       outputOptions: { codeSplitting: true },
-    },
-    {
-      ...commonNodePack,
-      name: 'scriptc-island',
-      plugins: [
-        cliStartupPolicy(
-          'ScriptC island',
-          path.join(editorRoot, 'scripts/noveltea-scriptc-island.ts'),
-        ),
-        cliLazyModulePolicy('ScriptC application', path.join(editorRoot, 'src/cli/application.ts')),
-      ],
-      deps: {
-        ...commonNodePack.deps,
-        neverBundle: [
-          ...electronRuntimeExternals,
-          'noveltea-scriptc-agent-kit-source',
-          'noveltea-scriptc-comfyui-workflows',
-        ],
-        onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'yaml', 'zod'],
-      },
-      entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
-      format: 'esm',
-      outDir: 'dist-scriptc-island',
-      fixedExtension: true,
-      clean: true,
-      checks: { legacyCjs: false },
-      outputOptions: { codeSplitting: true },
-      sourcemap: false,
     },
   ],
 });

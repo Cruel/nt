@@ -35,6 +35,43 @@ use the closed `CompiledDiagnostic` shape with stable codes, source path, JSON p
 sort keys, and de-duplication. A compiled project and canonical JSON are published together only when
 no error diagnostic exists.
 
+## Staged native compiler parity
+
+As part of the native authoring/CLI cutover, `tools/project_authoring/native_authoring_resources.cpp`,
+`native_authoring_messages.cpp`, `native_authoring_shared.cpp`,
+`native_authoring_programs.cpp`, and `native_authoring_dialogue_interaction.cpp`
+now lower a **cold**, natively
+admitted Project into nonpublishable compiler projections. The shared projection covers declared
+Characters, Rooms, Interactable Definitions and Instances, Verbs, Interactions, Scenes and Dialogue
+metadata, Maps, Archetype effective configurations, Traits, Properties, Inventories, Layouts,
+Material interfaces, and runtime settings. It uses the same compiled Message-ID mapping as the
+resource and localized-text lowering. Material interface resolution reads the build-embedded native
+shader registry, not an independent runtime JSON catalog.
+The subsequent native program projection attaches Room lifecycle and exit-rejection
+Gameplay Commands (including effective Room Archetypes), ordered Scene Event instructions,
+Scene terminal continuations and nested Gameplay Commands. It reuses the same normalized
+Project and Message/Lua lowering, and resolves Material parameter types from the
+already-lowered shared Material interfaces rather than independently interpreting presets.
+The same Gameplay Command and Condition conversion is used by Dialogue/Interaction
+programs. Dialogue lowering includes stage/media slots, cue ordering, branching
+segments and edges, speaker identity, completion targets and numeric Message
+references. Interaction lowering includes selectors, rules, nullable offers,
+guards, Verb defaults and Project undefined behavior.
+
+`tests/native_cli/compiled_project_parity.py` compares these projections against the independent
+TypeScript reference compiler on cold native-admitted generations, including stable array ordering,
+nested declarations, inherited defaults, typed references, and malformed-input rejection.
+Room/Scene/Dialogue/Interaction parity covers the representative Feature Lab gameplay
+flows and cold small fixtures. The test also substitutes every native gameplay program into an otherwise reference-compiled
+document and independently decodes that mixed candidate through the native runtime decoder.
+The Feature Lab witness also exercises native-lowered Dialogue and Interaction
+through the real runtime executor, including a global Property mutation.
+The parity runner deliberately returns the staged structures under `native.shared`, **not** a
+complete `CompiledProjectWire`. Locale runtime metadata, prediction, production
+Save Contract, assembly and publication are separate stages. A
+passing staged projection does not authorize a runtime-cache publication or package/export path,
+and the TypeScript compiler remains the production compiler until the final native cutover.
+
 The compiler builds complete collection and nested-ID symbol tables and runs a semantic link pass over
 authored references. Before shared-definition lowering, declared Room, Character, and Interactable
 records resolve their optional same-kind Archetype chain plus explicit instance overrides. Character
@@ -159,7 +196,14 @@ Stable exit codes are:
 | `4` | Compiler diagnostics prevented publication |
 | `5` | Output conflict or output publication failure |
 
-`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project/` is the checked-in
-workspace-v1 process/CI fixture. Its output is compared byte-for-byte with the canonical minimal
-compiled-project golden; normal CI never regenerates either fixture implicitly.
-`pnpm goldens:compiled-project` regenerates both from the shared minimal authoring fixture.
+`editor/src/renderer/test/fixtures/project-compiler-cli/minimal-project/` is an existing
+small, valid workspace-v1 fixture used by native cold Runtime Package export and focused
+Project-session certifications. It intentionally includes several independently editable
+record families, a physical Asset, Layout companion files, dependent and unrelated Rooms,
+and a simple authored Test. Keep its original startup Room and bootstrap valid, but it
+does **not** require a particular number of records.
+
+The previous compiler golden-generation description is historical: the legacy generator
+is no longer present. TypeScript golden projects under
+`compiled-project-golden-projects.ts` are constructed independently; expanding this native
+fixture does not regenerate them. Feature Lab remains the full-corpus acceptance fixture.

@@ -24,7 +24,7 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import {
   parseVariableData,
   variableTypeValues,
@@ -100,8 +100,8 @@ function parseManagerState(value: unknown): PropertyManagerState | null {
 
 export function VariablesEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
@@ -171,8 +171,8 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     ),
   );
 
-  function run(command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>) {
-    const result = executeCommand({
+  async function run(command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>) {
+    const result = await executeCommand({
       ...command,
       originSaveUnitId: SAVE_UNIT_IDS.variableCollection,
       persistencePolicy: 'manual-save',
@@ -200,12 +200,13 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
-  function updateVariable(originalId: string, draft: VariableDraft) {
+  async function updateVariable(originalId: string, draft: VariableDraft) {
     const nextId = draft.id.trim();
     const parsed = dataFromDraft(draft);
     if (!parsed.ok) return parsed.message;
+    const changes: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>[] = [];
     if (nextId !== originalId) {
-      const renameFailure = run({
+      changes.push({
         type: 'entity.renameId',
         label: `Rename variable ${originalId}`,
         payload: {
@@ -215,9 +216,8 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
           label: draft.label.trim() || nextId,
         },
       });
-      if (renameFailure) return renameFailure;
     }
-    const metadataFailure = run({
+    changes.push({
       type: 'entity.updateMetadata',
       label: `Update variable ${nextId}`,
       payload: {
@@ -227,12 +227,27 @@ export function VariablesEditor({ tab }: WorkbenchEditorProps) {
         description: draft.description.trim() || undefined,
       },
     });
-    if (metadataFailure) return metadataFailure;
-    return run({
+    changes.push({
       type: 'variable.replaceData',
       label: `Update variable ${nextId}`,
       payload: { variableId: nextId, data: parsed.data },
     });
+    const result = await useCommandStore.getState().executeCommandBatchAsync(
+      {
+        label: `Update variable ${originalId}`,
+        originSaveUnitId: SAVE_UNIT_IDS.variableCollection,
+        persistencePolicy: 'manual-save',
+      },
+      changes.map((change) => ({
+        ...change,
+        originSaveUnitId: SAVE_UNIT_IDS.variableCollection,
+        persistencePolicy: 'manual-save',
+      })),
+    );
+    return (
+      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ??
+      (result.ok ? null : 'Command failed.')
+    );
   }
 
   if (!project)

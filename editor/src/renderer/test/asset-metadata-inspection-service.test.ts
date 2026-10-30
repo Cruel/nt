@@ -7,6 +7,30 @@ import { ActiveProjectSessionService } from '../../main/services/active-project-
 import { AssetMetadataInspectionService } from '../../main/services/asset-metadata-inspection-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
+// Asset metadata tests use a pre-admitted native-session capability fixture;
+// native schema admission is separately covered by actual worker/CLI tests.
+async function admitAssetFixture(
+  sessions: ActiveProjectSessionService,
+  projectFilePath: string,
+  _unused: undefined,
+  project: ReturnType<typeof createAuthoringProject>,
+): Promise<string> {
+  const generation = sessions.beginProjectActivation();
+  const id = await sessions.stageNativeProjectFile(projectFilePath, generation);
+  await sessions.acceptNativeProject(id, project);
+  sessions.commitStagedNativeProject(id, generation);
+  return id;
+}
+
+async function refreshAssetFixture(
+  sessions: ActiveProjectSessionService,
+  id: string,
+  _projectFilePath: string,
+  project: ReturnType<typeof createAuthoringProject>,
+): Promise<void> {
+  await sessions.acceptNativeProject(id, project);
+}
+
 const roots: string[] = [];
 const basePng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -236,7 +260,8 @@ describe('Project Asset embedded metadata inspection', () => {
     delete fixture.project.assets.generated!.data.byteSize;
     delete fixture.project.assets.generated!.data.contentHash;
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -258,7 +283,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = withPngText('ImageWidth', 'authored text', withPngText('prompt', prompt));
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -299,7 +325,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = Buffer.concat([basePng, malformedClaim, OPENAI_C2PA_ACTIONS]);
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -322,7 +349,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = Buffer.concat([basePng, OPENAI_C2PA_CLAIM, OPENAI_C2PA_ACTIONS]);
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -361,7 +389,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = Buffer.concat([basePng, GOOGLE_C2PA_CLAIM, GOOGLE_C2PA_ACTIONS]);
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -415,7 +444,8 @@ describe('Project Asset embedded metadata inspection', () => {
     Buffer.from('Unknown Media Service   ').copy(mutated, offset, 0, name.length);
     const fixture = tempProject(mutated);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -480,7 +510,8 @@ describe('Project Asset embedded metadata inspection', () => {
     );
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -542,7 +573,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = withPngText('prompt', JSON.stringify(graph));
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -574,7 +606,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = withPngText('workflow', JSON.stringify(workflowGraph));
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -607,7 +640,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = withPngText('prompt', JSON.stringify(graph));
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -638,7 +672,8 @@ describe('Project Asset embedded metadata inspection', () => {
     ]);
     const fixture = tempAudioProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -676,7 +711,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = mp3WithId3([id3v24TextFrame('TSSE', 'Encoder')]);
     const fixture = tempAudioProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -703,7 +739,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = mp3WithId3([valid, malformed]);
     const fixture = tempAudioProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -726,7 +763,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = mp3WithId3([id3v24TextFrame('TXXX', workflow, 'workflow')]);
     const fixture = tempAudioProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -758,7 +796,8 @@ describe('Project Asset embedded metadata inspection', () => {
     ]);
     const fixture = tempAudioProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -787,7 +826,8 @@ describe('Project Asset embedded metadata inspection', () => {
     ]);
     const fixture = tempAudioProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -819,7 +859,8 @@ describe('Project Asset embedded metadata inspection', () => {
       contentHash: digest(bytes),
     };
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -857,7 +898,8 @@ describe('Project Asset embedded metadata inspection', () => {
       contentHash: digest(bytes),
     };
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -891,7 +933,8 @@ describe('Project Asset embedded metadata inspection', () => {
       contentHash: digest(bytes),
     };
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -917,7 +960,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const bytes = withPngText('prompt', '{"prompt":"trusted"}');
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -950,7 +994,7 @@ describe('Project Asset embedded metadata inspection', () => {
       ...fixture.project.assets.generated!.data,
       source: { type: 'project-file', path: 'assets/images/../images/generated.png' },
     };
-    await sessions.refreshActiveProject(sessionId, fixture.projectFilePath, fixture.project);
+    await refreshAssetFixture(sessions, sessionId, fixture.projectFilePath, fixture.project);
     await expect(service.inspect(sessionId, 'generated')).resolves.toMatchObject({
       ok: false,
       code: 'invalid-source',
@@ -966,7 +1010,8 @@ describe('Project Asset embedded metadata inspection', () => {
       imageMetadata: null,
     };
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -985,7 +1030,8 @@ describe('Project Asset embedded metadata inspection', () => {
     const firstBytes = withPngText('prompt', '{"prompt":"first"}');
     const fixture = tempProject(firstBytes);
     const sessions = new ActiveProjectSessionService();
-    const sessionId = await sessions.activateProjectFile(
+    const sessionId = await admitAssetFixture(
+      sessions,
       fixture.projectFilePath,
       undefined,
       fixture.project,
@@ -1002,7 +1048,7 @@ describe('Project Asset embedded metadata inspection', () => {
       byteSize: secondBytes.byteLength,
       contentHash: digest(secondBytes),
     };
-    await sessions.refreshActiveProject(sessionId, fixture.projectFilePath, fixture.project);
+    await refreshAssetFixture(sessions, sessionId, fixture.projectFilePath, fixture.project);
 
     const second = await service.inspect(sessionId, 'generated');
     expect(second).toMatchObject({ ok: true, status: 'ready', contentHash: digest(secondBytes) });

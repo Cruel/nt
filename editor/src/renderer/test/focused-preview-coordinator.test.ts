@@ -7,6 +7,8 @@ import type {
 import type { EnginePreviewController } from '@/hooks/use-engine-preview';
 import type { PreviewHostLease } from '@/preview/preview-host-pool';
 import { FocusedPreviewFreshnessCoordinator } from '@/preview/focused-preview-coordinator';
+import { projectNativeGraphForRenderer } from '../project/native-authoring-graph-projection';
+import { nativeSemanticGraphSchema } from '../../main/services/native-authoring-worker-contract';
 
 const revision = `sha256:${'0'.repeat(64)}` as const;
 const adapterBuild = vi.hoisted(() => vi.fn());
@@ -115,6 +117,107 @@ afterEach(() => {
 });
 
 describe('FocusedPreviewFreshnessCoordinator', () => {
+  function nativeRoomGraph(projectRevision: number, assetId: string, generation = 1) {
+    const room = { kind: 'record' as const, collection: 'rooms', id: 'room-a' };
+    const asset = { kind: 'record' as const, collection: 'assets', id: assetId };
+    const graph = nativeSemanticGraphSchema.parse({
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      generation,
+      workingRevision: projectRevision,
+      complete: true,
+      incompleteOwners: [],
+      sourceRevisions: { 'project.yaml': `sha256:${'a'.repeat(64)}` },
+      textSourceRevisions: {},
+      nodes: [
+        { key: room, keyText: JSON.stringify(room), owningPath: '/rooms/room-a', label: 'Room A' },
+        {
+          key: asset,
+          keyText: JSON.stringify(asset),
+          owningPath: `/assets/${assetId}`,
+          label: assetId,
+        },
+      ],
+      edges: [
+        {
+          id: `room:${assetId}`,
+          source: room,
+          target: asset,
+          sourcePath: '/rooms/room-a/data/background/asset/$ref',
+          targetPath: `/assets/${assetId}`,
+          role: 'room-background',
+          facets: ['reference-integrity', 'preview-visual'],
+          targetImpactPaths: [`/assets/${assetId}/data/source/path`],
+          repair: { kind: 'set-null', path: '/rooms/room-a/data/background/asset' },
+        },
+      ],
+      occurrences: [],
+      diagnostics: [],
+    });
+    return projectNativeGraphForRenderer(graph, 'project-one', projectRevision);
+  }
+
+  it('invalidates native Room closure using both prior and new edges, but not unrelated Assets', async () => {
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const lease = createLease(vi.fn().mockResolvedValue(appliedResult));
+    const project = createAuthoringProject();
+    const original = nativeRoomGraph(1, 'old');
+    const rewired = nativeRoomGraph(2, 'new');
+    const submit = (
+      projectRevision: number,
+      graph: ReturnType<typeof nativeRoomGraph>,
+      previousGraph: ReturnType<typeof nativeRoomGraph> | null,
+      affectedPaths: string[],
+    ) => {
+      coordinator.submit({
+        project,
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        projectInstanceId: 'project-one',
+        projectRevision,
+        affectedPaths,
+        graph,
+        previousGraph,
+        sourceAnalysis: [],
+        root: { kind: 'room-preview', recordId: 'room-a' },
+        inputs: { displayPreference: { mode: 'project' } },
+        lease,
+      });
+    };
+    submit(1, original, null, ['/']);
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(1);
+    submit(2, rewired, original, ['/assets/other/data/source/path']);
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(1);
+    submit(2, rewired, original, ['/assets/old/data/source/path']);
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
+
+  it('rebuilds the focused native Room on physical source generation changes without Project edits', async () => {
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const lease = createLease(vi.fn().mockResolvedValue(appliedResult));
+    const project = createAuthoringProject();
+    const submit = (graph: ReturnType<typeof nativeRoomGraph>) =>
+      coordinator.submit({
+        project,
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        projectInstanceId: 'project-one',
+        projectRevision: 1,
+        affectedPaths: [],
+        graph,
+        sourceAnalysis: [],
+        root: { kind: 'room-preview', recordId: 'room-a' },
+        inputs: { displayPreference: { mode: 'project' } },
+        lease,
+      });
+    submit(nativeRoomGraph(1, 'old', 1));
+    await runNextFrame();
+    submit(nativeRoomGraph(1, 'old', 2));
+    await runNextFrame();
+    expect(adapterBuild).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
   it('reuses retained committed content and its native resolution after a coordinator remount', async () => {
     const applyFocusedEditorDocument = vi.fn().mockResolvedValue(appliedResult);
     const lease = createLease(

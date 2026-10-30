@@ -1,7 +1,7 @@
+import { dialog, shell, type BrowserWindow } from 'electron';
 import { createHash } from 'node:crypto';
 import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { dialog, shell, type BrowserWindow } from 'electron';
 import type {
   ProjectAttachmentFileInfo,
   ProjectAttachmentImportRequest,
@@ -12,7 +12,6 @@ import {
   isSafeProjectAttachmentPath,
   type AssetAttachmentPurpose,
 } from '../../shared/project-schema/authoring-assets';
-import { writeProjectAssetFilesTransaction } from './project-asset-file-transaction';
 
 const DEFAULT_DIRECTORIES: Record<AssetAttachmentPurpose, string> = {
   'distribution-notice': 'support/licenses',
@@ -155,6 +154,7 @@ export async function importProjectAttachmentFiles(
   root: string,
   request: Omit<ProjectAttachmentImportRequest, 'projectSessionId'>,
   assertAuthority?: () => void,
+  nativePublish?: (files: ReadonlyArray<{ path: string; bytes: Uint8Array }>) => Promise<void>,
 ): Promise<ProjectAttachmentImportResponse> {
   if (!owner) return { paths: [], reused: [], error: 'Editor window unavailable.' };
   const directory = request.destinationDirectory || DEFAULT_DIRECTORIES[request.purpose];
@@ -224,12 +224,12 @@ export async function importProjectAttachmentFiles(
         throw new Error('No available filename for attachment.');
     }
     assertAuthority?.();
-    if (planned.size)
-      await writeProjectAssetFilesTransaction(
-        root,
-        [...planned].map(([filePath, bytes]) => ({ path: filePath, bytes })),
-        'import Project attachments',
-      );
+    if (planned.size) {
+      const files = [...planned].map(([filePath, bytes]) => ({ path: filePath, bytes }));
+      if (!nativePublish)
+        throw new Error('Attachment import requires the admitted native Project session.');
+      await nativePublish(files);
+    }
     return { paths, reused };
   } catch (error) {
     return {

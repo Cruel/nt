@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { useProjectStore } from '@/project/project-store';
@@ -11,6 +11,7 @@ import {
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import type { AssetProfilerWireChange } from '../../shared/asset-profiler-protocol';
 import { assetProfilerEntry, assetProfilerFullPayload } from './fixtures/asset-profiler';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 function telemetry(
   sequence: string,
@@ -203,7 +204,7 @@ describe('AssetPerformancePanel', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers an explicit prefetch-hint action for a safely resolved opaque prediction miss', () => {
+  it('offers an explicit prefetch-hint action for a safely resolved opaque prediction miss', async () => {
     const project = createAuthoringProject();
     project.assets.dynamic = {
       id: 'dynamic',
@@ -224,7 +225,7 @@ describe('AssetPerformancePanel', () => {
     });
     project.rooms.hall = { id: 'hall', label: 'Hall', data: room };
     project.entrypoint = { kind: 'room', id: 'hall' };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const payload = assetProfilerFullPayload({ latestSequence: '1' });
     payload.retainedChanges = [
@@ -260,6 +261,11 @@ describe('AssetPerformancePanel', () => {
     expect(screen.getByText(/Automatic → flow-execution/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Add prefetch hint here' }));
 
+    await waitFor(() =>
+      expect(
+        Object.values((useProjectStore.getState().document as typeof project).prefetchHints),
+      ).toContainEqual(expect.objectContaining({ id: 'prefetch-hint' })),
+    );
     const updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
     if (!isAuthoringProject(updated)) return;
@@ -277,7 +283,7 @@ describe('AssetPerformancePanel', () => {
     });
   });
 
-  it('removes persisted author prefetch hints without editing derived prediction data', () => {
+  it('removes persisted author prefetch hints without editing derived prediction data', async () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Hall');
     project.rooms.hall = { id: 'hall', label: 'Hall', data: room };
@@ -291,7 +297,7 @@ describe('AssetPerformancePanel', () => {
         scope: 'resident',
       },
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     useAssetProfilerStore.getState().setSelectedView('prediction');
 
     render(<AssetPerformancePanel />);
@@ -299,6 +305,11 @@ describe('AssetPerformancePanel', () => {
     expect(screen.getByText(/author-hint/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
 
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof project).prefetchHints['author-hint'],
+      ).toBeUndefined(),
+    );
     const updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
     if (!isAuthoringProject(updated)) return;

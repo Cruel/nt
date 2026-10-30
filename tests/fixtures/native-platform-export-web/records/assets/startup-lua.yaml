@@ -1,0 +1,10 @@
+id: startup-lua
+label: startup-lua
+data:
+  kind: text
+  source:
+    type: project-file
+    path: assets/scripts/startup.lua
+  attachments: []
+  aliases: []
+  imageMetadata: null

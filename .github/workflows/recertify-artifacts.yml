@@ -1,0 +1,160 @@
+name: Re-certify Build Artifacts
+
+# Reuse finished Release-run binaries and installers without building, staging,
+# compiling, or repackaging. Failed Release runs can still have valid artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Artifact source"
+        type: choice
+        options: [latest, sha, run]
+        default: latest
+      commit_sha:
+        description: "Source commit (only with source=sha; short or full SHA)"
+        type: string
+        required: false
+      release_run_id:
+        description: "Release Actions run ID (only with source=run)"
+        type: string
+        required: false
+      scope:
+        description: "Existing artifacts to re-certify"
+        type: choice
+        options: [all, cli, editor]
+        default: all
+      test_ref:
+        description: "Optional newer test-script revision (blank = artifact's source commit)"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  resolve:
+    name: Resolve immutable Release artifacts
+    runs-on: ubuntu-24.04
+    outputs:
+      run_id: ${{ steps.resolve.outputs.run_id }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      artifacts: ${{ steps.resolve.outputs.artifacts }}
+      scope: ${{ steps.resolve.outputs.scope }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Resolve and verify producing run, source SHA, and artifact metadata
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_SOURCE: ${{ inputs.source }}
+          ARTIFACT_SHA: ${{ inputs.commit_sha }}
+          ARTIFACT_RUN_ID: ${{ inputs.release_run_id }}
+          ARTIFACT_SCOPE: ${{ inputs.scope }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/recertify-release-artifacts.mjs resolve \
+            --source "$ARTIFACT_SOURCE" --sha "$ARTIFACT_SHA" \
+            --run-id "$ARTIFACT_RUN_ID" --scope "$ARTIFACT_SCOPE"
+
+  recertify:
+    name: "${{ matrix.platform }} / ${{ matrix.kind }}"
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kind: cli, platform: linux-x64, runner: ubuntu-24.04, artifact: noveltea-release-host-cli-linux-x64, executable: noveltea }
+          - { kind: cli, platform: windows-x64, runner: windows-2025, artifact: noveltea-release-host-cli-windows-x64, executable: noveltea.exe }
+          - { kind: cli, platform: macos-arm64, runner: macos-26, artifact: noveltea-release-host-cli-macos-arm64, executable: noveltea }
+          - { kind: editor, platform: linux-x64, runner: ubuntu-24.04, artifact: noveltea-desktop-editor-linux-x64-release-dist, executable: '' }
+          - { kind: editor, platform: windows-x64, runner: windows-2025, artifact: noveltea-desktop-editor-windows-x64-release-dist, executable: '' }
+          - { kind: editor, platform: macos-arm64, runner: macos-26, artifact: noveltea-desktop-editor-macos-arm64-release-dist, executable: '' }
+    steps:
+      - name: Checkout immutable resolver and artifact verifier
+        uses: actions/checkout@v6
+        with:
+          path: harness
+      - name: Checkout selected certification scripts
+        uses: actions/checkout@v6
+        with:
+          path: source
+          ref: ${{ inputs.test_ref || needs.resolve.outputs.sha }}
+      - name: Set up Node.js (no dependency build)
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Record test revision and source artifact
+        shell: bash
+        env:
+          ORIGINAL_SHA: ${{ needs.resolve.outputs.sha }}
+          ORIGINAL_RUN: ${{ needs.resolve.outputs.run_id }}
+        run: |
+          echo "Artifact source commit: $ORIGINAL_SHA"
+          echo "Test script commit: $(git -C source rev-parse HEAD)"
+          {
+            echo "### ${{ matrix.platform }} / ${{ matrix.kind }}"
+            echo "Artifacts from Release run [$ORIGINAL_RUN](https://github.com/${{ github.repository }}/actions/runs/$ORIGINAL_RUN), source \`$ORIGINAL_SHA\`."
+            echo "Test scripts: \`$(git -C source rev-parse HEAD)\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Report unavailable or expired artifact
+        if: ${{ !contains(fromJSON(needs.resolve.outputs.artifacts), matrix.artifact) }}
+        shell: bash
+        run: |
+          echo "SKIPPED: ${{ matrix.artifact }} was not available in the selected run." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Download exact-run artifact (no rebuild)
+        if: ${{ contains(fromJSON(needs.resolve.outputs.artifacts), matrix.artifact) }}
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: downloaded
+          run-id: ${{ needs.resolve.outputs.run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+      - name: Certify installed CLI candidate and negative paths
+        if: ${{ matrix.kind == 'cli' && contains(fromJSON(needs.resolve.outputs.artifacts), matrix.artifact) }}
+        shell: pwsh
+        working-directory: source
+        run: |
+          $cli = Join-Path $env:GITHUB_WORKSPACE "downloaded/${{ matrix.executable }}"
+          if (!(Test-Path $cli)) { throw "Missing expected CLI executable: $cli" }
+          if ("$env:RUNNER_OS" -ne "Windows") { chmod +x $cli }
+          node editor/scripts/certify-native-cli-inventory.mjs $cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $certifications = @(
+            "certify-native-daemon-validation.mjs",
+            "certify-native-cli-commands.mjs",
+            "certify-native-cli-project-routing.mjs",
+            "certify-native-cli-lifecycle.mjs",
+            "certify-native-cli-transport.mjs",
+            "certify-native-cli-tests.mjs",
+            "certify-native-cli-package.mjs"
+          )
+          foreach ($script in $certifications) {
+            Write-Host "Re-certifying: $script"
+            if ($script -eq "certify-native-cli-transport.mjs") {
+              node "editor/scripts/$script" $cli
+            } else {
+              node "editor/scripts/$script" $cli tests/projects/feature-lab
+            }
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          "PASS: native CLI disk, command, routing, lifecycle, transport, tests and package differential checks." >> $env:GITHUB_STEP_SUMMARY
+      - name: Verify downloadable editor installers
+        if: ${{ matrix.kind == 'editor' && contains(fromJSON(needs.resolve.outputs.artifacts), matrix.artifact) }}
+        run: node harness/scripts/recertify-release-artifacts.mjs verify-editor --platform "${{ matrix.platform }}" --directory downloaded
+      - name: Declare checks which require unavailable build-stage outputs
+        if: ${{ contains(fromJSON(needs.resolve.outputs.artifacts), matrix.artifact) }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.kind }}" == cli ]]; then
+            echo "Not rerun: platform-export and editor↔CLI cross-system tests require editor build-stage bundles/native addon not uploaded as release artifacts." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Editor validation covers final distributable format, platform tuple, complete expected installer set, byte signatures, and SHA-256. Runtime/installed-app smoke requires a separately extracted installed application; no package is rebuilt here." >> "$GITHUB_STEP_SUMMARY"
+          fi

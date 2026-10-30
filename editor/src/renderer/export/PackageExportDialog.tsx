@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useCommandStore } from '@/commands/command-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,62 +10,62 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, Plus, Trash2 } from 'lucide-react';
-import { useCommandStore } from '@/commands/command-store';
 import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
+import { useProjectStore } from '@/project/project-store';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
 import { buildProjectSettingsTab, buildSettingsTab } from '@/workbench/editor-registry';
+import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
+import { Copy, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { localizationWarningDiagnostics } from '../../shared/export-localization-closure';
-import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   defaultPackageOutputFileName,
   runtimeExportProfileForPlatform,
   selectedExportProfile,
   type ExportProfileData,
 } from '../../shared/project-schema/authoring-export';
-import {
-  prepareRuntimeArtifact,
-  hasAuthoringShadersOrMaterials,
-  type RuntimeArtifactAssessment,
-} from '../../shared/runtime-artifact-preparation';
-import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
-import {
-  classifyProjectValidationDiagnostics,
-  type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
-import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
+import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { projectSettingsForEditing } from '../../shared/project-schema/authoring-project-settings';
+import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
 import { derivedPlatformCapabilities } from '../../shared/project-schema/platform-deployment';
 import {
-  defaultPlatformExportProfile,
-  resolveAssetMemoryPolicy,
   PLAYER_RUNTIME_API_VERSION,
+  defaultPlatformExportProfile,
   parsePlatformExportProfile,
   parseProjectPlatformExportSettings,
+  resolveAssetMemoryPolicy,
   userSigningProfileToExportSigningState,
-  type ExportPlatform,
   type AssetMemoryProfile,
+  type ExportPlatform,
   type PlatformExportProfile,
   type ProjectPlatformExportSettings,
   type UserExportConfig,
 } from '../../shared/project-schema/platform-export-contracts';
-import { COMPILED_PROJECT_FORMAT_VERSION } from '../../shared/project-schema/compiled-project';
-import { runPackageExportWorkflow } from './package-export-workflow';
+import {
+  classifyProjectValidationDiagnostics,
+  type ProjectValidationDiagnostic,
+} from '../../shared/project-schema/project-diagnostic-projection';
+import { evaluateTemplateCompatibility } from '../../shared/project-schema/template-compatibility';
+import {
+  hasAuthoringShadersOrMaterials,
+  type RuntimeArtifactAssessment,
+} from '../../shared/runtime-artifact-preparation';
+import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
 import { usePackageExportStore } from './package-export-store';
+import { runPackageExportWorkflow } from './package-export-workflow';
+import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
+import { evaluatePlatformExportReadiness } from './platform-export-readiness';
 import {
   cancelPlatformStageWorkflow,
   runProjectPlatformExportWorkflow,
 } from './platform-export-workflow';
-import { resolvePlatformExportDiagnosticTarget } from './platform-export-navigation';
-import { evaluatePlatformExportReadiness } from './platform-export-readiness';
-import { rendererRuntimeArtifactPaths } from './runtime-artifact-adapters';
 import { useTemplateRegistryStore } from './template-registry-store';
-import { hostPathDirname, joinHostPath } from '../host-filesystem-path';
 
 interface PackageExportDialogProps {
   open: boolean;
@@ -259,7 +258,7 @@ function formatMemoryMiB(bytes: number) {
 }
 
 function persistRuntimeProfile(_project: AuthoringProject, profile: ExportProfileData) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type: 'project.replaceAtPath',
     label: 'Update runtime export settings',
     payload: { path: '/export/runtime', value: profile },
@@ -271,7 +270,7 @@ function persistPlatformSettings(
   _project: AuthoringProject,
   settings: ProjectPlatformExportSettings,
 ) {
-  return useCommandStore.getState().executeCommand({
+  return useCommandStore.getState().executeCommandAsync({
     type: 'project.replaceAtPath',
     label: 'Update platform export profiles',
     payload: { path: '/export/profiles', value: settings.profiles },
@@ -423,6 +422,9 @@ export function PackageExportDialog({
     mode === 'platform' && platformRuntimeProfile ? platformRuntimeProfile : activeRuntimeProfile;
   const [preview, setPreview] = useState<RuntimeArtifactAssessment | null>(null);
   const [previewPending, setPreviewPending] = useState(false);
+  const [previewFailure, setPreviewFailure] = useState<string | null>(null);
+  const nativeRevision = useCommandStore((state) => state.nativeWorkingRevision);
+  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   useEffect(() => {
     let current = true;
     if (!project || !previewProfile) {
@@ -433,21 +435,47 @@ export function PackageExportDialog({
       };
     }
     setPreviewPending(true);
-    void prepareRuntimeArtifact({
-      project,
-      projectRoot,
-      profile: previewProfile,
-      intent: mode === 'platform' ? 'platform-preflight' : 'runtime-package-preflight',
-      paths: rendererRuntimeArtifactPaths,
-    }).then((result) => {
-      if (!current) return;
-      if (result.status !== 'cancelled') setPreview(result.assessment);
+    setPreviewFailure(null);
+
+    setPreview(null);
+    if (!projectSessionId || nativeRevision === null) {
+      setPreviewFailure('Native export readiness requires an active Project session.');
       setPreviewPending(false);
-    });
+      return () => {
+        current = false;
+      };
+    }
+    void window.noveltea
+      .nativeProjectPrepareExport(
+        projectSessionId,
+        nativeRevision,
+        mode,
+        mode === 'platform' ? (selectedPlatformProfile?.id ?? undefined) : undefined,
+      )
+      .then((result) => {
+        if (!current) return;
+        setPreview(result.status === 'cancelled' ? null : result.assessment);
+      })
+      .catch((error: unknown) => {
+        if (!current) return;
+        setPreview(null);
+        setPreviewFailure(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (current) setPreviewPending(false);
+      });
     return () => {
       current = false;
     };
-  }, [mode, project, projectRoot, previewProfile]);
+  }, [
+    mode,
+    project,
+    projectRoot,
+    previewProfile,
+    nativeRevision,
+    projectSessionId,
+    selectedPlatformProfile?.id,
+  ]);
 
   if (!project || !activeRuntimeProfile || !platformSettings) return null;
 
@@ -595,12 +623,13 @@ export function PackageExportDialog({
       ]
     : [];
 
-  function commitPlatformSettings(next: ProjectPlatformExportSettings) {
-    const result = persistPlatformSettings(currentProject, next);
+  async function commitPlatformSettings(next: ProjectPlatformExportSettings) {
+    const result = await persistPlatformSettings(currentProject, next);
     if (result.ok) setPlatformSettings(next);
+    return result.ok;
   }
 
-  function updateRuntimePackaging(patch: Partial<ExportProfileData>) {
+  async function updateRuntimePackaging(patch: Partial<ExportProfileData>) {
     const next = {
       ...currentRuntimeProfile,
       ...patch,
@@ -608,14 +637,14 @@ export function PackageExportDialog({
         ? { stripShaderSources: !patch.includeShaderSources }
         : {}),
     };
-    const result = persistRuntimeProfile(currentProject, next);
+    const result = await persistRuntimeProfile(currentProject, next);
     if (result.ok) setRuntimeProfile(next);
   }
 
   function updatePlatformPackaging(patch: Partial<PlatformExportProfile>) {
     if (!selectedPlatformProfile) return;
     const next = { ...selectedPlatformProfile, ...patch } as PlatformExportProfile;
-    commitPlatformSettings({
+    void commitPlatformSettings({
       ...currentPlatformSettings,
       profiles: currentPlatformSettings.profiles.map((item) =>
         item.id === selectedPlatformProfile.id ? next : item,
@@ -701,14 +730,14 @@ export function PackageExportDialog({
     );
   }
 
-  function finishProfileEditing() {
+  async function finishProfileEditing() {
     if (!profileDraft || !profileDraftNameIsValid()) return;
     if (profileEditMode === 'creating-config') {
       const next = {
         ...currentPlatformSettings,
         profiles: [...currentPlatformSettings.profiles, profileDraft],
       };
-      commitPlatformSettings(next);
+      if (!(await commitPlatformSettings(next))) return;
       setSelectedPlatformProfileId(profileDraft.id);
       setMode('platform');
       rememberSelectedProfile(profileDraft.id);
@@ -716,12 +745,15 @@ export function PackageExportDialog({
       setSelectedTemplateToken('');
       setSelectedSigningProfileId('');
     } else if (profileEditMode === 'editing') {
-      commitPlatformSettings({
-        ...currentPlatformSettings,
-        profiles: currentPlatformSettings.profiles.map((item) =>
-          item.id === profileDraft.id ? profileDraft : item,
-        ),
-      });
+      if (
+        !(await commitPlatformSettings({
+          ...currentPlatformSettings,
+          profiles: currentPlatformSettings.profiles.map((item) =>
+            item.id === profileDraft.id ? profileDraft : item,
+          ),
+        }))
+      )
+        return;
       setPlatformOutput(outputForProfile(profileDraft));
     }
     setProfileDraft(null);
@@ -733,7 +765,7 @@ export function PackageExportDialog({
     setProfileEditMode('none');
   }
 
-  function duplicateProfile() {
+  async function duplicateProfile() {
     if (!selectedPlatformProfile || profileEditMode !== 'none') return;
     const base = selectedPlatformProfile.label.replace(/ \(\d+\)$/u, '');
     const next = parsePlatformExportProfile({
@@ -741,10 +773,13 @@ export function PackageExportDialog({
       id: uniqueProfileId(selectedPlatformProfile.target),
       label: uniqueProfileLabel(base),
     });
-    commitPlatformSettings({
-      ...currentPlatformSettings,
-      profiles: [...currentPlatformSettings.profiles, next],
-    });
+    if (
+      !(await commitPlatformSettings({
+        ...currentPlatformSettings,
+        profiles: [...currentPlatformSettings.profiles, next],
+      }))
+    )
+      return;
     setSelectedPlatformProfileId(next.id);
     setMode('platform');
     rememberSelectedProfile(next.id);
@@ -753,7 +788,7 @@ export function PackageExportDialog({
     setSelectedSigningProfileId('');
   }
 
-  function deleteProfile() {
+  async function deleteProfile() {
     if (!selectedPlatformProfile || profileEditMode !== 'none') return;
     const key = localProfileKey(selectedPlatformProfile.id);
     const outputDirectories = { ...localState.profileOutputDirectories };
@@ -762,18 +797,12 @@ export function PackageExportDialog({
     delete outputDirectories[key];
     delete templateTokens[key];
     delete signingIds[key];
-    setExportPreferences({
-      profileOutputDirectories: outputDirectories,
-      profileTemplateTokens: templateTokens,
-      profileSigningProfileIds: signingIds,
-    });
-
     const profiles = currentPlatformSettings.profiles.filter(
       (item) => item.id !== selectedPlatformProfile.id,
     );
     if (profiles.length === 0) {
       const nextSettings = { ...currentPlatformSettings, profiles: [] };
-      const result = persistPlatformSettings(currentProject, nextSettings);
+      const result = await persistPlatformSettings(currentProject, nextSettings);
       if (!result.ok) return;
       setPlatformSettings(nextSettings);
       setSelectedPlatformProfileId(null);
@@ -784,11 +813,16 @@ export function PackageExportDialog({
       const selected = [...profiles].sort((a, b) =>
         a.label.localeCompare(b.label, undefined, { numeric: true }),
       )[0]!;
-      commitPlatformSettings({ ...currentPlatformSettings, profiles });
+      if (!(await commitPlatformSettings({ ...currentPlatformSettings, profiles }))) return;
       setSelectedPlatformProfileId(selected.id);
       rememberSelectedProfile(selected.id);
       setPlatformOutput(outputForProfile(selected));
     }
+    setExportPreferences({
+      profileOutputDirectories: outputDirectories,
+      profileTemplateTokens: templateTokens,
+      profileSigningProfileIds: signingIds,
+    });
     setTemplateDiagnostics([]);
     setSelectedTemplateToken('');
     setSelectedSigningProfileId('');
@@ -1379,7 +1413,7 @@ export function PackageExportDialog({
       ? activeRuntimeProfile.localization
       : (selectedPlatformProfile?.localization ?? null);
   const updateLocalizationPolicy = (localization: ExportProfileData['localization']) => {
-    if (mode === 'runtime') updateRuntimePackaging({ localization });
+    if (mode === 'runtime') void updateRuntimePackaging({ localization });
     else updatePlatformPackaging({ localization });
   };
   const localizationOptions = activeLocalizationPolicy ? (
@@ -1483,7 +1517,7 @@ export function PackageExportDialog({
           }
           onChange={(event) => {
             if (mode === 'runtime')
-              updateRuntimePackaging({ excludeUnusedAssets: event.currentTarget.checked });
+              void updateRuntimePackaging({ excludeUnusedAssets: event.currentTarget.checked });
             else updatePlatformPackaging({ excludeUnusedAssets: event.currentTarget.checked });
           }}
         />
@@ -1500,7 +1534,7 @@ export function PackageExportDialog({
             }
             onChange={(event) => {
               if (mode === 'runtime')
-                updateRuntimePackaging({ includeShaderSources: event.currentTarget.checked });
+                void updateRuntimePackaging({ includeShaderSources: event.currentTarget.checked });
               else updatePlatformPackaging({ includeShaderSources: event.currentTarget.checked });
             }}
           />
@@ -1731,6 +1765,14 @@ export function PackageExportDialog({
             </div>
           </div>
 
+          {previewFailure ? (
+            <div
+              role="alert"
+              className="rounded border border-destructive p-3 text-sm text-destructive"
+            >
+              {previewFailure}
+            </div>
+          ) : null}
           {mode === 'runtime' && runtimeDiagnostics.length > 0 ? (
             <DiagnosticPreview
               title={

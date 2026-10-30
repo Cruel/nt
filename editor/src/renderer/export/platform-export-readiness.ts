@@ -7,7 +7,7 @@ import {
   createPlatformExportValidationDiagnostic,
   projectValidationBlocksBoundary,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
+} from '../../shared/project-schema/project-diagnostic-projection';
 
 export interface PlatformExportCommonIdentity {
   displayName: string;

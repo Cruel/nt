@@ -480,7 +480,7 @@ export function InteractionEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !id || !record || !data)
     return <div className="p-4 text-sm text-muted-foreground">Interaction record not found.</div>;
   const commit = (next: InteractionData) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type: 'interaction.replaceData',
       label: 'Update interaction',
       payload: { interactionId: id, data: next },

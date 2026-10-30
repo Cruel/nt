@@ -39,6 +39,19 @@ additional layers separately.
 The deleted `buildAuthoringRuntimeExport`, `authoring-runtime-export.ts`, and
 `runtime-project.ts` are not compatibility APIs.
 
+## Downstream native tool transport
+
+`editor/src/main/services/native-runtime-tool-service.ts` owns compiled-runtime Test
+invocation, Runtime Package publication, and media-tool invocation. It does not read,
+validate, normalize, or prepare a Project. Package diagnostic classification remains
+post-publication presentation, not another admission gate. Native editor IPC and export
+callers establish the appropriate working/clean-disk authority before invoking these tools. Shader compilation remains in `native-shader-compiler-service.ts`.
+
+The pre-cutover `editor-tool-service.ts` contains only the legacy Project Open,
+validation, Test catalog, and Project-to-Test preparation routes. It is a retirement
+target, not an import surface for retained runtime tools. This separation does not
+switch ordinary editor or CLI Project ownership; that remains the atomic #521 boundary.
+
 ## Export Profiles
 
 The editor exposes one Export workbench tab. Its left sidebar pins the built-in Runtime Package
@@ -165,9 +178,10 @@ typed playback/UI-test execution only.
 For the standalone daemon CLI, Runtime Package publication is disposable-heavy work. The Project
 owner reconciles and pins one portable resident generation, then the one-job worker prepares/writes
 the package to a sibling staging path. External Asset bytes remain file-backed; their expected native
-file identity, size, and exact mtime (or fallback hash where exact mtime is unavailable) travel with
-the pinned snapshot. Immediately before replacing the requested `.ntpkg`, the worker verifies those
-expectations again. Input drift, cancellation, package failure, or worker failure never publishes the
+file identity, size, exact mtime, and captured content hash travel with the pinned snapshot. The
+native Project owner proves its generation again after hashing binary Assets. The worker verifies
+those expectations before publication, including when size and timestamp have not changed. Input
+drift, cancellation, package failure, or worker failure must never publish the
 staged file as the requested output. Final replacement is recorded as a recoverable output transaction
 covering the staged package, previous-output backup, final path, and accepted state before any rename
 can make the old package unavailable. Both the staging file and transaction record are registered with
@@ -176,6 +190,14 @@ the transaction and restores the previous complete package; if acceptance was al
 keeps the new package and removes obsolete backup/staging debris. Recovery therefore does not depend
 on the worker reaching a JavaScript `catch`/`finally`, and published final paths themselves are never
 registered as disposable files.
+
+Editable portable Project export (`project export`, `.ntproject`) is distinct from Runtime Package
+publication. A disposable worker uses the owner-pinned Project generation for authored sources and
+captures binary Asset hashes at the same authority boundary. The portable exporter reads its exact
+live source files into a staged archive, checks captured source revisions and pinned binary Asset
+identities/hashes before publishing, and refuses changed inputs without creating the requested
+bundle. Cancellation is monitored through snapshot hydration and checked before the final atomic
+move; its public interruption exit category is `130` rather than a successful export.
 
 ## Platform Export
 
@@ -195,8 +217,29 @@ Runtime Package publication. Existing platform staging remains the publication b
 package/platform artifacts are prepared and verified but before any staged artifact replaces its
 final destination, the CLI re-verifies the pinned external Asset identities/metadata. The live
 Project owner may advance while this work runs. `platform export --check` remains a write-free
-owner-short preflight. The successful-export identity written under `.noveltea/editor/state.json` is
+owner-short preflight. The accepted-export identity stored under `.noveltea/editor/` is
 machine/editor-local execution metadata rather than authored Project state.
+
+The isolated native lifecycle candidate (#517, enabled only by the native CLI
+certification switch until #506) uses `platform-export-preparation` to capture the
+complete native Project generation, exact authored source revisions, shader
+overlays, and runtime Asset references. It passes that admission to the same
+Prepared Runtime Artifact builder and platform orchestration service; no second
+Project source reader, platform compiler, or platform publisher is introduced.
+The non-publishing `--check` path uses the same selected profile, template,
+signing, trust, collision, localization and identity decisions, without shader
+compilation, package writing, or artifact activation. A cold CLI invocation
+reproves the native source generation, while a disposable daemon worker uses
+its already-pinned native and physical Asset evidence, including immediately
+before activation. Accepted identity metadata is written to its dedicated
+ignored sidecar, without replacing editor-owned recovery/draft state. An
+editor-local change during publication can be detected and reported without
+overwriting the editor state document.
+Native Runtime Package reachability excludes platform-assembly-only App icon
+and launch-image references, which the platform exporter processes separately.
+This keeps the native package input inventory aligned with the existing
+Runtime Package compiler and avoids including platform-only icon bytes in
+`.ntpkg`.
 
 The complete planned platform artifact set is activated through one recoverable publication record.
 That record covers the output directory plus every applicable archive, symbols archive, AppImage,
@@ -206,6 +249,76 @@ after the entire set is in place. Disposable-worker termination before acceptanc
 recovery to restore the previous complete set, while termination after acceptance retains the new set
 and removes transaction debris. A partially renamed mixture is therefore never treated as a completed
 platform export.
+
+The direct-native Windows staging candidate independently reads back the published directory and ZIP
+inventory, checks packaged bytes against staged inputs, and repeats the pinned Project generation,
+physical Asset, application icon, and verified-template proofs before committing its publication
+journal. SIGINT/SIGTERM cancellation checkpoints fail with exit status 130 while preserving the
+previous output. Native journal recovery first validates *all* members of a multi-artifact
+transaction before moving any of them: a missing prior backup with uncertain final-artifact
+provenance, a symlink, or a missing accepted artifact leaves the journal and remaining evidence for
+manual intervention instead of reporting recovery success. `platform export --check` inspects this
+journal without mutating output. These guarantees qualify direct-native Windows and Web publication
+on Linux. Target-specific Linux, macOS, and Android exporters and host-native Windows/macOS release
+testing remain separate certification work.
+
+Native Web export reuses the same admitted Project, verified template, physical Asset proof,
+localization gate, `essl-300` runtime preparation, and transactional directory-plus-ZIP publisher.
+The player template supplies `player.js`, `player.wasm`, and `player.data` and must declare the
+profile's matching `web-threads` or `web-single-threaded` feature. The exporter emits content-hashed
+download names (including `game.ntpkg`), a browser launch/resize shell, sized Web icons, PWA
+`manifest.webmanifest`, optional versioned offline service worker, `DEPLOYMENT.md` with hosting and
+cross-origin-isolation requirements, `player.json`, and `export-manifest.json`. The published directory
+and ZIP are read back before acceptance. `--check` performs the same admission and compatibility
+checks without writing files or recovering any previous publication journal.
+
+The release workflow certifies native Web exports using actual player template archives rather than
+only the existing TypeScript exporter: threaded/single-threaded players are exported for both `/` and
+`/nested/game/` using `tests/native_cli/web_release_smoke.py`, their ZIPs and manifests are checked,
+and the `pnpm web:certify-export` Chromium harness must observe the native player's ready marker,
+runtime-package fetch, and loaded license notices. The TypeScript production exporter remains in
+service until its separately scheduled cutover (#551).
+
+The direct-native publisher reserves a persistent sibling `.noveltea-publication.lock` with an
+exclusive OS-level file lock across recovery, staging, and journal acceptance. Other exporters and
+recoverers must obtain the same lock; an active publisher cannot be mistaken for an abandoned
+transaction. Output ancestors are checked for symlinks before any recovery mutation. Rollback intent
+is journaled durably before a backup is consumed, making recovery restartable after interruption of
+rollback itself. The private transaction journal has a strict current-build shape but **no independent
+`formatVersion`**. Windows publication also transactionally retires an old `-symbols.zip` when symbols
+are no longer requested. The persistent lock inode must not be unlinked while an export may be live.
+
+Read-only `--check` performs in-memory native compilation/localization evaluation and requires explicit
+acknowledgement for release localization warnings without creating runtime or output artifacts. Local
+export configuration is strictly validated; the standalone native CLI now loads the same shared
+`~/.noveltea/config.json` signing profiles and toolchain settings as the editor/native C++ CLI.
+An explicit `--config` overrides that user state; `--signing-profile <id>` resolves exactly one
+named matching-target signer, and bare `--sign` requires exactly one matching signer. Unknown,
+missing, and ambiguous signers have `platform.signing_profile_required` diagnostics rather than
+generic unsupported errors. The `templateRoots` field is parsed but does not override the installed
+template registry, matching the existing TypeScript headless CLI. Configured toolchain fields are
+retained for target-specific exporters; an unrelated Android/JDK toolchain setting must not prevent
+unsigned Windows/Web preflight. Native Windows export now executes its configured signing and
+independent verification commands using an argv-only host subprocess (no shell interpolation),
+expanding `{subject}`, `{executable}`, and `{stage}` placeholders. Signable DLLs are processed
+before the EXE, after PE resources have been finalized. Signed hashes are tracked in the
+distribution manifest and separate `SIGNING_REPORT.json`, with complete archive/publication
+readback and rollback on failure. A failed verification never replaces a previous output.
+macOS and Android signing remain owned by #567/#568 and fail explicitly until implemented.
+The common native staging boundary now receives the entire validated
+`PlatformResolvedExportSettings` (toolchains, target-keyed signer configuration and signing intent),
+not just an implicit unsigned choice. Target exporters use the resolved options without rereading
+machine/user settings. Unknown or incomplete signing configuration fails closed. The Windows
+`timestamped` report field is `true` only when the configured verifier is SignTool with `/tw`,
+successfully verifies each signed file, and emits no warning; other verifier commands report
+`null` rather than claiming unproven timestamp evidence. Signed release certification still
+requires a trusted signing identity and timestamp authority; synthetic signer tests are not
+evidence of an Authenticode-trusted release.
+The native CLI stores successful-export identity
+in the ignored `.noveltea/editor/platform-export-identity.json` sidecar instead of replacing the
+editor-owned `state.json` (which contains live recovery and draft data). On editor Open, the latest
+completed export identity is overlaid onto editor-local state; this avoids a read/rename race that
+could otherwise overwrite concurrent editor recovery updates.
 
 `platform export` produces the normal packaged artifact by default. Reusable signing configurations
 are machine-level NovelTea user settings shared by the editor and CLI, not project-profile fields.

@@ -157,7 +157,7 @@ import {
   type RoomPlacementData,
   type RoomPropData,
 } from '../../../shared/project-schema/authoring-rooms';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
@@ -696,7 +696,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const roomId = tab.resource?.entityId;
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const hookRegistryAnalysis = useMemo(
     () => (project && activeCategory === 'behavior' ? analyzeHookRegistry(project) : null),
     [activeCategory, project],
@@ -961,17 +961,40 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       ],
     ),
   );
+  const pendingSelectionRenames = useRef(new Map<string, string>());
   useEffect(() => {
     setRoomSelection((current) => {
-      const next = current.filter((item) => roomEditSelectionExists(data, item));
-      return next.length === current.length ? current : next;
+      const next = current.flatMap((item) => {
+        if (roomEditSelectionExists(data, item)) return [item];
+        const key = roomEditSelectionKey(item);
+        const nextId = pendingSelectionRenames.current.get(key);
+        if (!nextId) return [];
+        const renamed = { ...item, id: nextId };
+        return roomEditSelectionExists(data, renamed) ? [renamed] : [item];
+      });
+      return next.length === current.length &&
+        next.every(
+          (item, index) => roomEditSelectionKey(item) === roomEditSelectionKey(current[index]!),
+        )
+        ? current
+        : next;
     });
   }, [data]);
 
   useEffect(() => {
     setExpandedRoomSelectionKeys((current) => {
       const validSelectionKeys = new Set(roomSelection.map(roomEditSelectionKey));
-      const next = new Set([...current].filter((key) => validSelectionKeys.has(key)));
+      const next = new Set<string>();
+      for (const key of current) {
+        const renamedId = pendingSelectionRenames.current.get(key);
+        const renamedKey = renamedId ? key.slice(0, key.lastIndexOf(':') + 1) + renamedId : null;
+        if (renamedKey && validSelectionKeys.has(renamedKey)) next.add(renamedKey);
+        else if (validSelectionKeys.has(key)) next.add(key);
+      }
+      for (const [key, renamedId] of pendingSelectionRenames.current) {
+        const renamedKey = key.slice(0, key.lastIndexOf(':') + 1) + renamedId;
+        if (validSelectionKeys.has(renamedKey)) pendingSelectionRenames.current.delete(key);
+      }
       if (next.size === current.size && [...next].every((key) => current.has(key))) return current;
       return next;
     });
@@ -980,14 +1003,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const executeRoomSelectionDelete = useCallback(
     (selection: readonly RoomEditSelection[]) => {
       if (!roomId || selection.length === 0) return;
-      useCommandStore.getState().executeCommand({
-        type: 'room.deleteSelection',
-        label: t('roomEditor.compositionPane.deleteSelection'),
-        payload: { roomId, selection },
-        originSaveUnitId: recordSaveUnitId('rooms', roomId),
-        persistencePolicy: 'manual-save',
-      });
-      setRoomSelection([]);
+      void useCommandStore
+        .getState()
+        .executeCommandAsync({
+          type: 'room.deleteSelection',
+          label: t('roomEditor.compositionPane.deleteSelection'),
+          payload: { roomId, selection },
+          originSaveUnitId: recordSaveUnitId('rooms', roomId),
+          persistencePolicy: 'manual-save',
+        })
+        .then((result) => {
+          if (result.ok) setRoomSelection([]);
+        });
     },
     [roomId, t],
   );
@@ -1245,22 +1272,28 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     editorPreviewLayout,
     projectSettingsFromProject(project).display,
   );
-  const commit = (next: RoomData, label: string) =>
-    useCommandStore.getState().executeCommand({
+  const commit = (next: RoomData, label: string) => {
+    void useCommandStore.getState().executeCommandAsync({
       type: 'room.replaceData',
       label,
       payload: { roomId, data: next },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-  const executeRoomEditCommand = (type: string, label: string, payload: Record<string, unknown>) =>
-    useCommandStore.getState().executeCommand({
+  };
+  const executeRoomEditCommand = (
+    type: string,
+    label: string,
+    payload: Record<string, unknown>,
+  ) => {
+    void useCommandStore.getState().executeCommandAsync({
       type,
       label,
       payload: { roomId, ...payload },
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  };
   const bulkPresentationTargets = (() => {
     if (roomSelection.length < 2) return null;
     const targets = roomSelection.map(roomPresentationTargetForSelection);
@@ -1281,8 +1314,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const commitLocalProperties = (
     localProperties: OwnerLocalProperty[],
     change?: { kind: 'rename'; fromId: string; toId: string },
-  ) =>
-    useCommandStore.getState().executeCommand({
+  ) => {
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: `Update ${roomId} Properties`,
       payload: [
@@ -1303,8 +1336,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-  const commitPropertyTraitState = (state: OwnerPropertyTraitState) =>
-    useCommandStore.getState().executeCommand({
+  };
+  const commitPropertyTraitState = (state: OwnerPropertyTraitState) => {
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: `Update ${roomId} Trait Properties`,
       payload: [
@@ -1322,8 +1356,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  };
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
-    useCommandStore.getState().executeCommand({
+    useCommandStore.getState().executeCommandAsync({
       type,
       label,
       payload: { roomId, ...payload },
@@ -1695,8 +1730,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     instanceId: string,
     instance: (typeof project.interactableInstances)[string],
     change?: { kind: 'rename'; fromId: string; toId: string },
-  ) =>
-    useCommandStore.getState().executeCommand({
+  ) => {
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label: t('roomEditor.compositionPane.editor.updateInteractableInstanceProperties'),
       payload: [
@@ -1717,8 +1752,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-  const renameRoomHotspot = (hotspotId: string, nextId: string) => {
-    const result = executeHotspot(
+  };
+  const renameRoomHotspot = async (hotspotId: string, nextId: string) => {
+    const oldSelectionKey = roomEditSelectionKey({ kind: 'hotspot', id: hotspotId });
+    pendingSelectionRenames.current.set(oldSelectionKey, nextId);
+    const result = await executeHotspot(
       'room.renameHotspot',
       t('roomEditor.compositionPane.editor.renameRoomHotspot'),
       {
@@ -1726,7 +1764,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         nextId,
       },
     );
-    if (!result.ok) return;
+    if (!result.ok) {
+      pendingSelectionRenames.current.delete(oldSelectionKey);
+      return;
+    }
     const previousSelectionKey = roomEditSelectionKey({ kind: 'hotspot', id: hotspotId });
     const nextSelectionKey = roomEditSelectionKey({ kind: 'hotspot', id: nextId });
     setRoomSelection((current) =>
@@ -1749,10 +1790,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       return next;
     });
   };
-  const renameRoomPlacement = (placementId: string, requestedId: string) => {
+  const renameRoomPlacement = async (placementId: string, requestedId: string) => {
     const nextId = requestedId.trim();
     if (!nextId || nextId === placementId) return;
-    const result = useCommandStore.getState().executeCommand({
+    const placementKeys = (['placement', 'placement-layout'] as const).map((kind) =>
+      roomEditSelectionKey({ kind, id: placementId }),
+    );
+    for (const key of placementKeys) pendingSelectionRenames.current.set(key, nextId);
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'room.replaceData',
       label: t('roomEditor.compositionPane.editor.renamePlacement'),
       payload: {
@@ -1767,7 +1812,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-    if (!result.ok) return;
+    if (!result.ok) {
+      for (const key of placementKeys) pendingSelectionRenames.current.delete(key);
+      return;
+    }
     const remap = (selection: RoomEditSelection): RoomEditSelection =>
       (selection.kind === 'placement' || selection.kind === 'placement-layout') &&
       selection.id === placementId
@@ -3121,7 +3169,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         onRequestClose={(action) => {
           const transition = hotspotFocusTransitionRef.current;
           if (transition) transition.exit(action);
-          else action();
+          else void action();
         }}
         onDone={(selectedHotspotId) => {
           if (selectedHotspotId) {
@@ -3758,7 +3806,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                                         },
                                       ],
                                     };
-                                useCommandStore.getState().executeCommand({
+                                void useCommandStore.getState().executeCommandAsync({
                                   type: 'room.replaceData',
                                   label: mismatchedReturnExit
                                     ? 'Correct reciprocal room exit direction'
@@ -4365,7 +4413,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   )}
                   value={data.fallbackInteractablePlacementId}
                   onValueChange={(placementId) =>
-                    useCommandStore.getState().executeCommand({
+                    void useCommandStore.getState().executeCommandAsync({
                       type: 'room.setFallbackInteractablePlacement',
                       label: t(
                         'roomEditor.compositionPane.editor.setFallbackInteractablePlacement',

@@ -49,6 +49,7 @@ export function mergeCoverage(outputRoot) {
   // Read only frozen suite snapshots, never the live counters of the last suite.
   gcovr([
     '--add-tracefile', path.join(outputRoot, 'ctest/coverage.json'),
+    '--add-tracefile', path.join(outputRoot, 'ctest-cli/coverage.json'),
     '--add-tracefile', path.join(outputRoot, 'feature-lab/coverage.json'),
     ...reportOutputs(path.join(outputRoot, 'combined')),
   ]);

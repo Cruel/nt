@@ -45,7 +45,7 @@ import { useProjectStore } from '@/project/project-store';
 import {
   findAuthoringDependencyUsages,
   nestedNodeKey,
-} from '../../../shared/authoring-dependency-graph';
+} from '../../../shared/authoring-graph-queries';
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import {
   defaultInteractableData,
@@ -53,7 +53,7 @@ import {
   parseInteractableData,
   type InteractableData,
 } from '../../../shared/project-schema/authoring-interactables';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import {
   effectiveInteractableDefinitionProperties,
   effectiveInteractableInstanceProperties,
@@ -122,7 +122,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const interactableId = tab.resource?.entityId;
   const record = interactableId && project ? project.interactables[interactableId] : null;
   const effectiveRecord =
@@ -257,7 +257,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   if (!project || !record || !interactableId)
     return <div className="p-4 text-sm text-muted-foreground">Interactable record not found.</div>;
   const commit = (next: InteractableData, label: string) =>
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'interactable.replaceData',
       label,
       payload: { interactableId, data: next },
@@ -265,7 +265,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const executeHotspot = (type: string, label: string, payload: Record<string, unknown>) =>
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type,
       label,
       payload: { interactableId, ...payload },
@@ -273,7 +273,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const applyProjectPatches = (label: string, patches: Array<Record<string, unknown>>) =>
-    useCommandStore.getState().executeCommand({
+    void useCommandStore.getState().executeCommandAsync({
       type: 'project.applyPatch',
       label,
       payload: patches,

@@ -392,13 +392,30 @@ std::filesystem::path production_runtime_root()
         if (::lstat(candidate.c_str(), &info) == 0 && S_ISDIR(info.st_mode) &&
             info.st_uid == geteuid() && (info.st_mode & 0022) == 0) {
             const auto nested = candidate / "noveltea";
-            ensure_private_runtime_directory(nested);
-            return nested;
+            // The socket suffix is /daemon-<32 hex digits>.sock. A trusted
+            // XDG_RUNTIME_DIR can still be too long for the Unix socket ABI.
+            constexpr std::size_t socket_suffix_bytes =
+                sizeof("/daemon-") - 1 + 32 + sizeof(".sock") - 1;
+            if (nested.string().size() + socket_suffix_bytes < sizeof(sockaddr_un::sun_path)) {
+                ensure_private_runtime_directory(nested);
+                return nested;
+            }
         }
     }
+    // macOS TMPDIR commonly lives under /var/folders/<long randomized path>.
+    // Appending the broker's identity-bearing socket name can exceed
+    // sockaddr_un::sun_path even with no certification overrides. Use a short,
+    // per-UID private directory; ensure_private_runtime_directory rejects
+    // foreign-owned entries and symlinks before any socket is created.
+#if defined(__APPLE__)
+    const auto fallback =
+        std::filesystem::path("/tmp") /
+        ("noveltea-" + std::to_string(static_cast<unsigned long long>(geteuid())));
+#else
     const auto fallback =
         std::filesystem::temp_directory_path() /
         ("noveltea-" + std::to_string(static_cast<unsigned long long>(geteuid())));
+#endif
     ensure_private_runtime_directory(fallback);
     return fallback;
 }
@@ -2122,7 +2139,8 @@ public:
     Json cancel_active_disposable_for_tests(std::uint64_t worker_id, std::uint64_t token)
     {
         if (!context_.simulate_worker_processes_for_tests)
-            return error_json("simulated disposable cancellation is available only in scheduler tests");
+            return error_json(
+                "simulated disposable cancellation is available only in scheduler tests");
         std::scoped_lock lock(queue_mutex_);
         const auto active = active_.find(token);
         if (active == active_.end() || active->second.disposable_worker_id != worker_id)
@@ -3885,6 +3903,62 @@ private:
                         owner_request["publicationTransactionPath"].get<std::string>();
 #endif
                 }
+                // A Projectless ComfyUI run has no resident owner or Project
+                // generation to mutate. Its registered filesystem transaction
+                // can be activated and accepted by the broker itself; never
+                // grant this branch to an invocation carrying Project authority.
+                if (publication_transaction_path && owner_request.size() == 1) {
+                    bool projectless = false;
+                    const auto token = message_payload["token"].get<std::uint64_t>();
+                    const auto worker_id =
+                        message_payload["disposableWorkerId"].get<std::uint64_t>();
+                    {
+                        std::scoped_lock lock(queue_mutex_);
+                        const auto active = active_.find(token);
+                        const auto worker = disposable_workers_.find(worker_id);
+                        if (active != active_.end() &&
+                            active->second.disposable_worker_id == worker_id &&
+                            !active->second.cancelled &&
+                            active->second.pinned_project_root.empty() &&
+                            !active->second.pinned_generation &&
+                            active->second.payload.value("nativeDisposableKind", std::string{}) ==
+                                "comfyui" &&
+                            active->second.payload.value("ownerProjectRoot", Json(nullptr))
+                                .is_null() &&
+                            worker != disposable_workers_.end()) {
+                            const auto found = std::find(worker->second.staged_outputs.begin(),
+                                                         worker->second.staged_outputs.end(),
+                                                         *publication_transaction_path);
+                            if (found != worker->second.staged_outputs.end()) {
+                                worker->second.staged_outputs.erase(found);
+                                projectless = true;
+                            }
+                        }
+                    }
+                    if (projectless) {
+                        const bool activated =
+                            activate_publication_transaction(*publication_transaction_path);
+                        bool still_active = false;
+                        {
+                            std::scoped_lock lock(queue_mutex_);
+                            const auto active = active_.find(token);
+                            still_active = active != active_.end() &&
+                                           active->second.disposable_worker_id == worker_id &&
+                                           !active->second.cancelled;
+                        }
+                        const bool accepted =
+                            activated && still_active &&
+                            accept_publication_transaction(*publication_transaction_path);
+                        if (!accepted)
+                            (void)recover_publication_transaction(*publication_transaction_path);
+                        client->send(result_event_json(
+                            request_id, accepted,
+                            accepted ? Json{{"ok", true}, {"result", {{"ok", true}}}}.dump()
+                                     : "null",
+                            accepted ? "" : "Projectless ComfyUI publication failed"));
+                        continue;
+                    }
+                }
                 {
                     std::scoped_lock lock(queue_mutex_);
                     const auto token = message_payload["token"].get<std::uint64_t>();
@@ -3897,6 +3971,19 @@ private:
                         client->send(result_event_json(
                             request_id, false, "null",
                             "disposable owner mutation requires an active Project-bound request"));
+                        continue;
+                    }
+                    const auto owner_id =
+                        project_owner_by_root_.find(active->second.pinned_project_root);
+                    const auto owner = owner_id == project_owner_by_root_.end()
+                                           ? project_owners_.end()
+                                           : project_owners_.find(owner_id->second);
+                    if (owner == project_owners_.end() || owner->second.retiring ||
+                        !active->second.pinned_generation || !owner->second.active_generation ||
+                        *owner->second.active_generation != *active->second.pinned_generation) {
+                        client->send(result_event_json(
+                            request_id, false, "null",
+                            "ComfyUI Project owner generation changed before Asset publication"));
                         continue;
                     }
                     canonical_root = active->second.pinned_project_root;
@@ -4910,7 +4997,7 @@ Json cancel_local_active_disposable_for_tests(const Json& request)
         return {{"ok", false},
                 {"error", "simulated disposable cancellation requires workerId and token"}};
     return server->cancel_active_disposable_for_tests(request["workerId"].get<std::uint64_t>(),
-                                                       request["token"].get<std::uint64_t>());
+                                                      request["token"].get<std::uint64_t>());
 }
 
 bool parse_string_array(const Json& object, std::string_view field,
@@ -5547,8 +5634,10 @@ void terminate_child_process(ChildProcess& process)
         return;
     if (child_process_alive(process)) {
         (void)TerminateProcess(process.handle, 1);
-        (void)WaitForSingleObject(process.handle, 1000);
     }
+    // TerminateProcess initiates an asynchronous exit. Do not release the last tracked child
+    // handle (or report broker shutdown) while Windows can still have the executable mapped.
+    (void)WaitForSingleObject(process.handle, INFINITE);
     CloseHandle(process.handle);
     process.handle = nullptr;
     process.pid = 0;
@@ -6629,7 +6718,52 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
     else if (action == "stop") {
         const auto before_stop = client_request(*context, "status", "stop-status-before");
         const bool was_running = before_stop.value("running", false);
+#if defined(_WIN32)
+        HANDLE daemon_handle = nullptr;
+        if (was_running) {
+            if (!before_stop.contains("pid") || !before_stop["pid"].is_number_unsigned() ||
+                before_stop["pid"].get<std::uint64_t>() == 0 ||
+                before_stop["pid"].get<std::uint64_t>() > MAXDWORD)
+                return write_response({{"ok", false}, {"error", "daemon status has no valid PID"}},
+                                      response, response_capacity);
+            // Acquire the process handle before requesting stop: a named pipe can disappear
+            // before the broker exits, and a later PID lookup could refer to another process.
+            const auto daemon_pid = static_cast<DWORD>(before_stop["pid"].get<std::uint64_t>());
+            // Native broker tests run the server inside this process. Waiting for
+            // our own process to exit would deadlock every in-process stop.
+            if (daemon_pid != GetCurrentProcessId())
+                daemon_handle = OpenProcess(SYNCHRONIZE, FALSE, daemon_pid);
+            if (daemon_pid != GetCurrentProcessId() && !daemon_handle &&
+                GetLastError() != ERROR_INVALID_PARAMETER)
+                return write_response({{"ok", false},
+                                       {"error", "failed to open daemon process for shutdown wait"}},
+                                      response, response_capacity);
+        }
+#endif
         result = client_request(*context, "stop", "stop");
+#if defined(_WIN32)
+        if (daemon_handle) {
+            const auto terminated = WaitForSingleObject(daemon_handle, 10'000);
+            CloseHandle(daemon_handle);
+            if (terminated != WAIT_OBJECT_0)
+                result = {{"ok", false}, {"error", "daemon process did not exit after stop"}};
+            else {
+                const auto status = client_request(*context, "status", "stop-status");
+                if (status.value("ok", false) && !status.value("running", false))
+                    result = status;
+            }
+        } else if (was_running || !result.value("ok", false)) {
+            const auto deadline = Clock::now() + std::chrono::seconds(2);
+            while (Clock::now() < deadline) {
+                const auto status = client_request(*context, "status", "stop-status");
+                if (status.value("ok", false) && !status.value("running", false)) {
+                    result = status;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        }
+#else
         if (was_running || !result.value("ok", false)) {
             const auto deadline = Clock::now() + std::chrono::seconds(2);
             while (Clock::now() < deadline) {
@@ -6641,7 +6775,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
-        result["stopped"] = was_running;
+#endif
+        result["stopped"] = was_running && result.value("ok", false);
     } else if (action == "request") {
         const auto request_id = parsed.value("requestId", std::string{});
         const auto method = parsed.value("method", std::string{});

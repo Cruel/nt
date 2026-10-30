@@ -5,7 +5,7 @@ import type {
 } from './project-schema/authoring-localization';
 import { structuredMessages } from './authoring-structured-messages';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
-import type { AuthoringLuaSourceDescriptor } from './authoring-source-analysis';
+import type { AuthoringLuaSourceDescriptor } from './authoring-source-contracts';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
 import {
   localizationSourceKey,

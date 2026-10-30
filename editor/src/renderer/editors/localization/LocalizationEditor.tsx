@@ -1,6 +1,4 @@
-import { useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { useCommandStore } from '@/commands/command-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,9 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
-import { useProjectStore } from '@/project/project-store';
 import {
   canPromoteLocalMessage,
   demoteNamedMessageUsage,
@@ -24,6 +20,11 @@ import {
   promoteAndLinkLocalMessages,
   renameMessageValueReferencePatches,
 } from '@/project/localization-message-operations';
+import {
+  nativeProjectDiagnosticsReady,
+  useNativeProjectDiagnostics,
+} from '@/project/native-project-diagnostics';
+import { useProjectStore } from '@/project/project-store';
 import { recordSaveUnitId, SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { SaveUnitId } from '@/project/save-unit-types';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -31,20 +32,17 @@ import {
   useWorkbenchEditorTabState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { Plus, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   findAuthoringDependencyUsages,
   localizationMessageNodeKey,
-} from '../../../shared/authoring-dependency-graph';
+} from '../../../shared/authoring-graph-queries';
 import {
-  hasSubstantiveLocalizationWork,
-  namedMessageKeySchema,
-  type AuthoringMessage,
-  type LocalizationAssetTarget,
-  type LocalizationTranslation,
-} from '../../../shared/project-schema/authoring-localization';
-import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../../shared/project-schema/authoring-validation';
+  applyLocalizationReconciliation,
+  planLocalizationReconciliation,
+} from '../../../shared/authoring-localization-reconcile';
 import {
   createLocalizationTranslation,
   createUseSourceLocalizationTarget,
@@ -58,10 +56,15 @@ import {
   isLocalizableAssetKind,
   localizationAssetWorkflowView,
 } from '../../../shared/authoring-localized-assets';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import {
-  applyLocalizationReconciliation,
-  planLocalizationReconciliation,
-} from '../../../shared/authoring-localization-reconcile';
+  hasSubstantiveLocalizationWork,
+  namedMessageKeySchema,
+  type AuthoringMessage,
+  type LocalizationAssetTarget,
+  type LocalizationTranslation,
+} from '../../../shared/project-schema/authoring-localization';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { PSEUDO_PREVIEW_LOCALE } from '../../../shared/pseudo-localization';
 
 type Surface = 'overview' | 'translations' | 'assets' | 'languages' | 'messages' | 'reconciliation';
@@ -168,12 +171,14 @@ interface MessageView extends LocalizationMessageWorkflowView {
 export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const nativeDiagnostics = useNativeProjectDiagnostics();
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const [surface, setSurface] = useState<Surface>('overview');
   const [newLocale, setNewLocale] = useState('');
   const [localeError, setLocaleError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [creatingMessage, setCreatingMessage] = useState(false);
   const [messageDraft, setMessageDraft] = useState<MessageDraft>(emptyDraft);
   const [messageError, setMessageError] = useState<string | null>(null);
@@ -292,27 +297,28 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   const sourceChangeBlocked =
     localization.sourceLocaleLock !== null || hasSubstantiveLocalizationWork(localization);
   const reconciliationPlan = planLocalizationReconciliation(project);
-  const localizationValidationDiagnostics = validateAuthoringProject(project);
+  const localizationValidationDiagnostics = nativeDiagnostics;
 
-  function run(
+  async function run(
     label: string,
     patches: unknown[],
     originSaveUnitId: SaveUnitId = SAVE_UNIT_IDS.localization,
   ) {
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'project.applyPatch',
       label,
       payload: patches,
       originSaveUnitId,
       persistencePolicy: 'manual-save',
     });
-    return (
-      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? null
-    );
+    const failure =
+      result.diagnostics.find((diagnostic) => diagnostic.severity === 'error')?.message ?? null;
+    setMutationError(failure);
+    return failure;
   }
 
   function setPreviewLocale(locale: string | null) {
-    executeCommand({
+    void executeCommand({
       type: 'project.applyPatch',
       label: t('localizationEditor.commands.setPreviewLocale'),
       payload: [
@@ -327,7 +333,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     });
   }
 
-  function addLanguage() {
+  async function addLanguage() {
     const locale = canonicalLocale(newLocale);
     if (!locale) {
       setLocaleError(t('localizationEditor.errors.invalidLocale'));
@@ -337,7 +343,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       setLocaleError(t('localizationEditor.errors.localeExists', { locale }));
       return;
     }
-    const error = run(t('localizationEditor.commands.addLocale', { locale }), [
+    const error = await run(t('localizationEditor.commands.addLocale', { locale }), [
       {
         op: 'add',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}`,
@@ -373,12 +379,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
           value: null,
         });
     }
-    run(t('localizationEditor.commands.removeLocale', { locale }), patches);
+    void run(t('localizationEditor.commands.removeLocale', { locale }), patches);
   }
 
   function setSupported(locale: string, supported: boolean) {
     if (!supported && locale === localization.defaultLocale) return;
-    run(
+    void run(
       t(
         supported
           ? 'localizationEditor.commands.supportLocale'
@@ -397,20 +403,20 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
 
   function setDefaultLocale(locale: string) {
     if (!localization.locales[locale]?.supported) return;
-    run(t('localizationEditor.commands.setDefaultLocale', { locale }), [
+    void run(t('localizationEditor.commands.setDefaultLocale', { locale }), [
       { op: 'replace', path: '/localization/defaultLocale', value: locale },
     ]);
   }
 
   function setSourceLocale(locale: string) {
     if (sourceChangeBlocked || locale === localization.sourceLocale) return;
-    run(t('localizationEditor.commands.setSourceLocale', { locale }), [
+    void run(t('localizationEditor.commands.setSourceLocale', { locale }), [
       { op: 'replace', path: '/localization/sourceLocale', value: locale },
     ]);
   }
 
   function setParentLocale(locale: string, parentLocale: string | null) {
-    run(t('localizationEditor.commands.setParentLocale', { locale }), [
+    void run(t('localizationEditor.commands.setParentLocale', { locale }), [
       {
         op: 'replace',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}/parentLocale`,
@@ -420,7 +426,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   }
 
   function setLocaleFontStack(locale: string, assetIds: readonly string[] | null) {
-    run(t('localizationEditor.commands.setFontStack', { locale }), [
+    void run(t('localizationEditor.commands.setFontStack', { locale }), [
       {
         op: 'replace',
         path: `/localization/locales/${escapeJsonPointerToken(locale)}/fontStack`,
@@ -457,13 +463,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localeTargets?.[baseAssetId];
     if (target === null) {
       if (!existing) return;
-      run(t('localizationEditor.commands.clearLocalizedAsset', { asset: baseAssetId, locale }), [
-        { op: 'remove', path: `/localization/assets/${encodedLocale}/${encodedAsset}` },
-      ]);
+      void run(
+        t('localizationEditor.commands.clearLocalizedAsset', { asset: baseAssetId, locale }),
+        [{ op: 'remove', path: `/localization/assets/${encodedLocale}/${encodedAsset}` }],
+      );
       return;
     }
     if (!localeTargets) {
-      run(t('localizationEditor.commands.setLocalizedAsset', { asset: baseAssetId, locale }), [
+      void run(t('localizationEditor.commands.setLocalizedAsset', { asset: baseAssetId, locale }), [
         {
           op: 'add',
           path: `/localization/assets/${encodedLocale}`,
@@ -472,7 +479,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       ]);
       return;
     }
-    run(t('localizationEditor.commands.setLocalizedAsset', { asset: baseAssetId, locale }), [
+    void run(t('localizationEditor.commands.setLocalizedAsset', { asset: baseAssetId, locale }), [
       {
         op: existing ? 'replace' : 'add',
         path: `/localization/assets/${encodedLocale}/${encodedAsset}`,
@@ -485,7 +492,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     setMessageDraft((draft) => ({ ...draft, [field]: value }));
   }
 
-  function createNamedMessage() {
+  async function createNamedMessage() {
     const key = messageDraft.key.trim();
     const parsedKey = namedMessageKeySchema.safeParse(key);
     if (!parsedKey.success) {
@@ -506,7 +513,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     };
     if (messageDraft.context) value.context = messageDraft.context;
     if (messageDraft.translatorNote) value.translatorNote = messageDraft.translatorNote;
-    const error = run(t('localizationEditor.commands.createNamedMessage', { key }), [
+    const error = await run(t('localizationEditor.commands.createNamedMessage', { key }), [
       {
         op: 'add',
         path: `/localization/messages/${escapeJsonPointerToken(messageId)}`,
@@ -543,7 +550,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       field === 'key' && message.kind === 'named'
         ? renameMessageValueReferencePatches(project!, message.key, trimmed)
         : [];
-    run(
+    void run(
       t('localizationEditor.commands.updateMessage', { label: messageLabel(message, messageId) }),
       [
         ...referencePatches,
@@ -555,7 +562,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
-  function promoteMessage() {
+  async function promoteMessage() {
     if (!promotionDraft) return;
     const key = promotionDraft.key.trim();
     const parsed = namedMessageKeySchema.safeParse(key);
@@ -573,12 +580,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       setPromotionError(result.message);
       return;
     }
-    const error = run(t('localizationMessageReuse.commandLabel', { key }), [...result.patches]);
+    const error = await run(t('localizationMessageReuse.commandLabel', { key }), [
+      ...result.patches,
+    ]);
     setPromotionError(error);
     if (!error) setPromotionDraft(null);
   }
 
-  function demoteMessageUsage() {
+  async function demoteMessageUsage() {
     if (!demotionDraft) return;
     const usages = namedMessageUsages(project!, demotionDraft.messageId);
     const result = demoteNamedMessageUsage(
@@ -594,12 +603,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       setDemotionError(result.message);
       return;
     }
-    const error = run(t('localizationMessageReuse.demoteCommandLabel'), [...result.patches]);
+    const error = await run(t('localizationMessageReuse.demoteCommandLabel'), [...result.patches]);
     setDemotionError(error);
     if (!error) setDemotionDraft(null);
   }
 
-  function mergeMessage() {
+  async function mergeMessage() {
     if (!mergeDraft?.targetMessageId) return;
     const result = mergeMessageIntoNamed(
       project!,
@@ -611,7 +620,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       setMergeError(result.message);
       return;
     }
-    const error = run(t('localizationMessageReuse.mergeCommandLabel'), [...result.patches]);
+    const error = await run(t('localizationMessageReuse.mergeCommandLabel'), [...result.patches]);
     setMergeError(error);
     if (!error) setMergeDraft(null);
   }
@@ -628,7 +637,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       : recordMatch
         ? recordSaveUnitId(recordMatch[1]!, recordMatch[2]!)
         : SAVE_UNIT_IDS.localization;
-    run(
+    void run(
       t('localizationEditor.commands.updateSourceMessage', {
         label: messageLabel(view.message, view.id),
       }),
@@ -646,12 +655,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     const target = createUseSourceLocalizationTarget(view);
     if (!localeTranslations) {
-      run(t('localizationEditor.commands.useSource', { locale }), [
+      void run(t('localizationEditor.commands.useSource', { locale }), [
         { op: 'add', path: localePath, value: { [view.id]: target } },
       ]);
       return;
     }
-    run(t('localizationEditor.commands.useSource', { locale }), [
+    void run(t('localizationEditor.commands.useSource', { locale }), [
       { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: target },
     ]);
   }
@@ -670,12 +679,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     const target = structuredClone(effective.target);
     if (!localeTranslations) {
-      run(t('localizationEditor.commands.overrideInherited', { locale }), [
+      void run(t('localizationEditor.commands.overrideInherited', { locale }), [
         { op: 'add', path: localePath, value: { [view.id]: target } },
       ]);
       return;
     }
-    run(t('localizationEditor.commands.overrideInherited', { locale }), [
+    void run(t('localizationEditor.commands.overrideInherited', { locale }), [
       { op: 'add', path: messagePath, value: target },
     ]);
   }
@@ -689,7 +698,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const messagePath = `${localePath}/${escapeJsonPointerToken(view.id)}`;
     if (!value) {
       if (existing === undefined) return;
-      run(t('localizationEditor.commands.clearTranslation', { locale }), [
+      void run(t('localizationEditor.commands.clearTranslation', { locale }), [
         { op: 'remove', path: messagePath },
       ]);
       return;
@@ -700,12 +709,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     if (existing?.dialogueCues !== undefined)
       translation.dialogueCues = existing.dialogueCues.map((cue) => structuredClone(cue));
     if (!localeTranslations) {
-      run(t('localizationEditor.commands.translateMessage', { locale }), [
+      void run(t('localizationEditor.commands.translateMessage', { locale }), [
         { op: 'add', path: localePath, value: { [view.id]: translation } },
       ]);
       return;
     }
-    run(t('localizationEditor.commands.translateMessage', { locale }), [
+    void run(t('localizationEditor.commands.translateMessage', { locale }), [
       { op: existing === undefined ? 'add' : 'replace', path: messagePath, value: translation },
     ]);
   }
@@ -725,7 +734,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     if (cues[index]!.position[field] === value && existing.dialogueCues !== undefined) return;
     cues[index]!.position[field] = value;
     const path = `${translationRecordPath(locale, view.id)}/dialogueCues`;
-    run(t('localizationEditor.commands.placeDialogueCue', { locale }), [
+    void run(t('localizationEditor.commands.placeDialogueCue', { locale }), [
       { op: existing.dialogueCues === undefined ? 'add' : 'replace', path, value: cues },
     ]);
   }
@@ -758,7 +767,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localization.translations[locale]?.[view.id];
     if (!locale || !existing) return;
     const path = translationRecordPath(locale, view.id);
-    run(t('localizationEditor.commands.acceptTranslation', { locale }), [
+    void run(t('localizationEditor.commands.acceptTranslation', { locale }), [
       {
         op: 'replace',
         path: `${path}/sourceFingerprint`,
@@ -775,6 +784,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
   ) {
     const path = translationRecordPath(locale, view.id);
     return (
+      nativeProjectDiagnosticsReady() &&
       !translation.useSource &&
       translation.sourceFingerprint === view.sourceFingerprint &&
       dialogueCuesReviewable(view, translation) &&
@@ -789,7 +799,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const existing = localization.translations[locale]?.[view.id];
     if (!locale || !existing || !translationReviewable(view, locale, existing)) return;
     const path = translationRecordPath(locale, view.id);
-    run(t('localizationEditor.commands.reviewTranslation', { locale }), [
+    void run(t('localizationEditor.commands.reviewTranslation', { locale }), [
       {
         op: 'replace',
         path: `${path}/review`,
@@ -818,7 +828,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       ];
     });
     if (patches.length > 0)
-      run(t('localizationEditor.commands.reviewFiltered', { locale }), patches);
+      void run(t('localizationEditor.commands.reviewFiltered', { locale }), patches);
   }
 
   function setUsageNote(usageId: string, value: string) {
@@ -827,11 +837,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const note = value.trim();
     if (!note) {
       if (current !== undefined)
-        run(t('localizationEditor.commands.clearUsageNote'), [{ op: 'remove', path }]);
+        void run(t('localizationEditor.commands.clearUsageNote'), [{ op: 'remove', path }]);
       return;
     }
     if (current === note) return;
-    run(t('localizationEditor.commands.updateUsageNote'), [
+    void run(t('localizationEditor.commands.updateUsageNote'), [
       { op: current === undefined ? 'add' : 'replace', path, value: note },
     ]);
   }
@@ -842,18 +852,18 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
     const trimmed = value.trim();
     if (!trimmed) {
       if (current !== undefined)
-        run(t('localizationEditor.commands.clearDisplayName', { locale }), [
+        void run(t('localizationEditor.commands.clearDisplayName', { locale }), [
           { op: 'remove', path },
         ]);
       return;
     }
     if (current === trimmed) return;
-    run(t('localizationEditor.commands.setDisplayName', { locale }), [
+    void run(t('localizationEditor.commands.setDisplayName', { locale }), [
       { op: current === undefined ? 'add' : 'replace', path, value: trimmed },
     ]);
   }
 
-  function applyReconciliation() {
+  async function applyReconciliation() {
     const result = applyLocalizationReconciliation(
       project!,
       reconciliationPlan,
@@ -868,7 +878,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
       setReconciliationError(t('localizationReconciliation.decisionError'));
       return;
     }
-    const error = run(t('localizationReconciliation.commandLabel'), [
+    const error = await run(t('localizationReconciliation.commandLabel'), [
       {
         op: 'replace',
         path: '/localization/sourceMessageTracking',
@@ -1067,6 +1077,14 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {mutationError ? (
+        <p
+          role="alert"
+          className="border-b border-destructive/40 px-4 py-2 text-xs text-destructive"
+        >
+          {mutationError}
+        </p>
+      ) : null}
       <div className="border-b px-4 pt-4">
         <h2 className="text-lg font-semibold">{t('localizationEditor.title')}</h2>
         <p className="mb-3 text-xs text-muted-foreground">{t('localizationEditor.description')}</p>

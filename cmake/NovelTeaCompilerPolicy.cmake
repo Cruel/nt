@@ -67,6 +67,12 @@ function(noveltea_apply_policy_warnings target)
             # values read from validated std::optional branches.
             target_compile_options("${target}" PRIVATE -Wno-maybe-uninitialized)
         endif()
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOVELTEA_ENABLE_SANITIZERS)
+            # GCC 13 under -O1 + ASan/UBSan reports maybe-uninitialized in
+            # libstdc++'s std::regex automaton. Preserve the warning and
+            # -Werror for all other diagnostics; don't disable sanitizer checks.
+            target_compile_options("${target}" PRIVATE -Wno-error=maybe-uninitialized)
+        endif()
         if(EMSCRIPTEN)
             # Emscripten emits this toolchain-owned diagnostic whenever its SDL3
             # port is enabled. This is not a first-party source warning.

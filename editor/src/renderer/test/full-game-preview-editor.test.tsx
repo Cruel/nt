@@ -1,3 +1,5 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -8,6 +10,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
 import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -65,6 +68,7 @@ beforeEach(() => {
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
   usePendingInputStore.getState().resetPendingInputs();
   useAssetProfilerStore.getState().resetForEditorReload();
@@ -77,6 +81,88 @@ beforeEach(() => {
     url: 'http://127.0.0.1:5001/?sessionToken=test-token-2',
     origin: 'http://127.0.0.1:5001',
     sessionToken: 'test-token-2',
+  });
+  // The renderer consumes a main-owned native runtime artifact. Play/Devtools
+  // tests exercise host transport and stale fingerprint behavior; C++ and
+  // installed CLI tests independently certify the compiled artifact bytes.
+  Object.defineProperty(window.noveltea, 'nativeProjectPrepareRuntime', {
+    configurable: true,
+    value: vi.fn(async () => {
+      const document = useProjectStore.getState().document as Record<string, unknown> | null;
+      const content = document
+        ? Object.fromEntries(Object.entries(document).filter(([key]) => key !== 'editor'))
+        : {};
+      const fingerprint = `sha256:${createHash('sha256').update(JSON.stringify(content)).digest('hex')}`;
+      if (document && !document.entrypoint) {
+        return {
+          status: 'blocked' as const,
+          diagnostics: [
+            {
+              code: 'runtime.entrypoint.missing',
+              severity: 'error',
+              path: '/entrypoint',
+              message: 'Choose a gameplay entrypoint before running or packaging the project.',
+              boundaries: ['runtime-package'],
+              ownerPaths: ['/entrypoint'],
+            },
+          ],
+        };
+      }
+      const interactables =
+        (document?.interactables as
+          | Record<
+              string,
+              {
+                data?: { presentation?: { hotspots?: { kind?: string }; visual?: unknown } };
+              }
+            >
+          | undefined) ?? {};
+      if (
+        Object.values(interactables).some(
+          (record) =>
+            record?.data?.presentation?.hotspots?.kind === 'visual-alpha' &&
+            !record?.data?.presentation?.visual,
+        )
+      ) {
+        return {
+          status: 'blocked' as const,
+          diagnostics: [
+            {
+              code: 'runtime.hotspot.visual-missing',
+              severity: 'error',
+              path: '/interactables/new-interactable',
+              message: 'Alpha hotspot mode requires a Visual. Add a Visual or switch hotspot mode.',
+              boundaries: ['runtime-package'],
+              ownerPaths: ['/interactables/new-interactable'],
+            },
+          ],
+        };
+      }
+      return {
+        status: 'prepared' as const,
+        artifact: {
+          compiledProject: {
+            schema: 'noveltea.compiled.project',
+            entrypoint:
+              document?.entrypoint && typeof document.entrypoint === 'object'
+                ? {
+                    kind: 'room',
+                    room: { kind: 'room', id: (document.entrypoint as { id: string }).id },
+                  }
+                : null,
+            definitions: {
+              rooms: Object.values((document?.rooms as Record<string, unknown> | undefined) ?? {}),
+            },
+          },
+          fileEntries: [],
+          requiredShaderBinaryPaths: [],
+          packageOptions: { textEntries: [], shaderAssetRoot: null },
+          sourceFingerprint: fingerprint,
+          shaderMaterialMetadata: null,
+          diagnostics: [],
+        },
+      };
+    }),
   });
 });
 
@@ -384,6 +470,52 @@ async function postInputSnapshot(
 }
 
 describe('FullGamePreviewEditor', () => {
+  it('prepares Play through the exact-revision native Project without invoking legacy preparation', async () => {
+    const project = projectWithEntrypoint();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    useCommandStore.getState().resetCommandHistory();
+    useCommandStore.getState().enableNativeCommandMode(8);
+    const nativePrepare = vi.fn().mockResolvedValue({
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'native.runtime.prepare',
+          severity: 'error',
+          category: 'Native runtime preparation',
+          path: '/rooms/start',
+          message: 'Native working Room invalid',
+          boundaries: ['runtime-package'],
+          ownerPaths: ['/rooms/start'],
+        },
+      ],
+      buildContext: { kind: 'canonical', shaderVariant: 'glsl-330' },
+      cache: { scope: 'session-local', status: 'prepared' },
+    });
+    Object.defineProperty(window.noveltea, 'nativeProjectPrepareRuntime', {
+      configurable: true,
+      writable: true,
+      value: nativePrepare,
+    });
+    try {
+      await renderConnectedPreview();
+      await waitFor(() =>
+        expect(nativePrepare).toHaveBeenCalledWith(
+          '11111111-1111-4111-8111-111111111111',
+          8,
+          'glsl-330',
+        ),
+      );
+      expect(window.noveltea.prepareEditorRuntime).not.toHaveBeenCalled();
+    } finally {
+      Reflect.deleteProperty(window.noveltea, 'nativeProjectPrepareRuntime');
+    }
+  });
   it('connects the asset profiler when the open Play host advertises profiler support', async () => {
     await renderConnectedPreview(['asset-profiler-v1']);
 
@@ -438,7 +570,7 @@ describe('FullGamePreviewEditor', () => {
 
   it('requests and renders the shared Devtools Snapshot in the Play inspector', async () => {
     const user = userEvent.setup();
-    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
     const view = await renderConnectedPreview(['devtools-snapshot-v1', 'rmlui-debugger-v1']);
     await waitFor(() =>
       expect(latestRequest(view.editorPort, 'runtime-load-compiled-project')).toBeDefined(),
@@ -502,7 +634,7 @@ describe('FullGamePreviewEditor', () => {
   });
 
   it('reactivates visible Play and requests a runtime debug snapshot refresh', async () => {
-    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
     const view = await renderConnectedPreviewInPane(true);
     await waitFor(() =>
       expect(latestRequest(view.editorPort, 'runtime-load-compiled-project')).toBeDefined(),
@@ -550,14 +682,13 @@ describe('FullGamePreviewEditor', () => {
 
   it('loads the active authoring project into the runtime preview before debugging', async () => {
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
-      expect(window.noveltea.prepareEditorRuntime).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.anything(),
-        expect.anything(),
+      expect(window.noveltea.nativeProjectPrepareRuntime).toHaveBeenCalledWith(
+        '11111111-1111-4111-8111-111111111111',
+        0,
         'glsl-330',
       ),
     );
@@ -580,7 +711,7 @@ describe('FullGamePreviewEditor', () => {
 
   it('marks the Play session stale on runtime project edits without automatically reloading', async () => {
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -592,7 +723,7 @@ describe('FullGamePreviewEditor', () => {
     const edited = cloneProject(project);
     edited.project = { ...edited.project, name: 'Changed Project' };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+      admitNativeRendererCommandFixture(edited);
     });
 
     expect(
@@ -603,7 +734,7 @@ describe('FullGamePreviewEditor', () => {
 
   it('does not mark stale for authoring edits that do not change the runtime export', async () => {
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -618,7 +749,7 @@ describe('FullGamePreviewEditor', () => {
       explorer: { ...edited.editor.explorer, searchQuery: 'editor-only' },
     };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+      admitNativeRendererCommandFixture(edited);
     });
 
     await waitFor(() =>
@@ -632,7 +763,7 @@ describe('FullGamePreviewEditor', () => {
   it('explicitly reloads the latest runtime project and clears stale state', async () => {
     const user = userEvent.setup();
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -644,7 +775,7 @@ describe('FullGamePreviewEditor', () => {
     const edited = cloneProject(project);
     edited.project = { ...edited.project, name: 'Changed Project' };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+      admitNativeRendererCommandFixture(edited);
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
     expect(
@@ -670,7 +801,7 @@ describe('FullGamePreviewEditor', () => {
   it('retains the last runtime while blocked and reloads after correction without reopening', async () => {
     const user = userEvent.setup();
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -682,7 +813,7 @@ describe('FullGamePreviewEditor', () => {
     const blocked = cloneProject(project);
     blocked.entrypoint = null;
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+      admitNativeRendererCommandFixture(blocked);
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
 
@@ -704,7 +835,7 @@ describe('FullGamePreviewEditor', () => {
     const corrected = cloneProject(project);
     corrected.project = { ...corrected.project, name: 'Corrected Project' };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(corrected);
+      admitNativeRendererCommandFixture(corrected);
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
     await waitFor(() =>
@@ -727,7 +858,7 @@ describe('FullGamePreviewEditor', () => {
   it('automatically loads after initial blockers are fixed without showing a ready-to-load state', async () => {
     const blocked = projectWithEntrypoint();
     blocked.entrypoint = null;
-    useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+    admitNativeRendererCommandFixture(blocked);
 
     const view = await renderConnectedPreviewInPane(false);
     expect(await screen.findByLabelText('Play blockers')).toBeInTheDocument();
@@ -751,7 +882,7 @@ describe('FullGamePreviewEditor', () => {
     await resolveLatest(view.editorPort, view.previewPort, 'set-preview-activity');
 
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+      admitNativeRendererCommandFixture(projectWithEntrypoint());
       useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     });
     await waitFor(() =>
@@ -792,7 +923,7 @@ describe('FullGamePreviewEditor', () => {
 
   it('collapses duplicate Alpha hotspot blockers into one compact actionable icon', async () => {
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -812,7 +943,7 @@ describe('FullGamePreviewEditor', () => {
       data: interactable,
     };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(blocked);
+      admitNativeRendererCommandFixture(blocked);
     });
 
     expect(await screen.findByLabelText('Play blockers')).toBeInTheDocument();
@@ -828,7 +959,7 @@ describe('FullGamePreviewEditor', () => {
 
   it('uses recovery input changes in the Play freshness fingerprint', async () => {
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -863,7 +994,7 @@ describe('FullGamePreviewEditor', () => {
   it('warns when recording against a stale runtime snapshot', async () => {
     const user = userEvent.setup();
     const project = projectWithEntrypoint();
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
@@ -874,7 +1005,7 @@ describe('FullGamePreviewEditor', () => {
     const edited = cloneProject(project);
     edited.project = { ...edited.project, name: 'Changed Project' };
     await act(async () => {
-      useProjectStore.getState().loadUnsavedProjectDocument(edited);
+      admitNativeRendererCommandFixture(edited);
     });
     expect(
       await screen.findByText('Project changed since this Play session was loaded.'),
@@ -956,7 +1087,7 @@ describe('FullGamePreviewEditor', () => {
         },
       },
     ];
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const { editorPort } = await renderConnectedPreview();
 
     await user.selectOptions(screen.getByLabelText('Target'), 'web');
@@ -997,7 +1128,7 @@ describe('FullGamePreviewEditor', () => {
 
   it('requests a runtime debug snapshot after ready and completed runtime commands', async () => {
     const user = userEvent.setup();
-    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
       expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
@@ -1039,7 +1170,7 @@ describe('FullGamePreviewEditor', () => {
   });
 
   it('logs fast-forward stop diagnostics and uses the final snapshot', async () => {
-    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+    admitNativeRendererCommandFixture(projectWithEntrypoint());
     const { editorPort, previewPort } = await renderConnectedPreview();
     await waitFor(() =>
       expect(latestRequest(editorPort, 'runtime-load-compiled-project')).toBeDefined(),
@@ -1170,7 +1301,7 @@ describe('FullGamePreviewEditor', () => {
       label: 'Inspect',
       data: defaultVerbData('Inspect'),
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { previewPort } = await renderConnectedPreview();
     await act(async () => {
@@ -1312,7 +1443,7 @@ describe('FullGamePreviewEditor', () => {
       label: 'Delta Value',
       data: { kind: 'variable', type: 'number', nullable: false, value: 0, scope: 'global' },
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const { previewPort } = await renderConnectedPreview();
     await act(async () => {
@@ -1381,7 +1512,7 @@ describe('FullGamePreviewEditor', () => {
       label: 'Hidden object',
       data: defaultInteractableData('Hidden object'),
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     const { editorPort, previewPort } = await renderConnectedPreview();
 
     await postInputSnapshot(previewPort);

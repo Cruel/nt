@@ -1,7 +1,25 @@
-import { createFileRoute } from '@tanstack/react-router';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { Group, Panel, usePanelRef } from 'react-resizable-panels';
+import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
+import {
+  dismissAssetCandidates,
+  undisclosedAssetCandidates,
+} from '@/assets/asset-discovery-dismissals';
+import { useAssetTrashStore } from '@/assets/asset-trash-store';
+import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
+import {
+  useComfyUiGenerationStore,
+  type GeneratedImageRevision,
+} from '@/comfyui/comfyui-generation-store';
+import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
+import {
+  bestComfyUiErrorMessage,
+  cancelComfyUiJob,
+  editComfyUiImage,
+  generateComfyUiImage,
+  subscribeComfyUiProgress,
+} from '@/comfyui/comfyui-service';
+import { useComfyUiStore } from '@/comfyui/comfyui-store';
+import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
+import { PanelResizeSeparator } from '@/components/resize-separator';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,62 +30,62 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { PanelResizeSeparator } from '@/components/resize-separator';
-import { UntrackedAssetsDialog } from '@/assets/UntrackedAssetsDialog';
-import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
-import { useAssetTrashStore } from '@/assets/asset-trash-store';
-import { ComfyUiStatusIndicator } from '@/comfyui/ComfyUiStatusIndicator';
-import {
-  bestComfyUiErrorMessage,
-  cancelComfyUiJob,
-  editComfyUiImage,
-  generateComfyUiImage,
-  subscribeComfyUiProgress,
-} from '@/comfyui/comfyui-service';
-import {
-  useComfyUiGenerationStore,
-  type GeneratedImageRevision,
-} from '@/comfyui/comfyui-generation-store';
-import { useComfyUiQueueStore } from '@/comfyui/comfyui-queue-store';
-import { useComfyUiStore } from '@/comfyui/comfyui-store';
-import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
-import {
-  saveActiveSaveUnit,
-  saveAllSaveUnits,
-  saveConflictingSaveUnitKeepMine,
-  saveProjectAsCopy,
-  resolveExternalConflictUseDisk,
-  type ProjectSaveCoordinatorResult,
-} from '@/project/project-save-coordinator';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { mergeEditorValidationDiagnostics } from '@/diagnostics/validation-diagnostic-merge';
+import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { ProjectExternalConflictDialog } from '@/project/ProjectExternalConflictDialog';
+import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
+import { jsonValuesEqual, toJsonValue } from '@/project/json-value';
 import {
-  applyProjectMutationValues,
-  buildRecoveryFileOwnershipHints,
-} from '@/project/project-save-request';
+  nativeExternalOwnerPath,
+  nativeOwnersForChangedSources,
+  projectNativeExternalResult,
+} from '@/project/native-external-projection';
+import {
+  currentNativeProjectDiagnostics,
+  refreshNativeProjectDiagnostics,
+  useNativeProjectDiagnostics,
+} from '@/project/native-project-diagnostics';
 import {
   externalConflictDiagnostic,
   reconcileExternalProjectChange,
 } from '@/project/project-external-reconciliation';
-import { toJsonValue } from '@/project/json-value';
-import { refreshAuthoringDependencyGraphProjectSources } from '@/project/authoring-dependency-graph-runtime';
+import { projectForEditor as authoringProjectForEditor } from '@/project/project-for-editor';
+import { applyProjectMutationValues } from '@/project/project-mutation-values';
+import {
+  resolveExternalConflictUseDisk,
+  saveActiveSaveUnit,
+  saveAllSaveUnits,
+  saveConflictingSaveUnitKeepMine,
+  saveProjectAsCopy,
+  type ProjectSaveCoordinatorResult,
+} from '@/project/project-save-coordinator';
+import { flushNativeProjectSources, useProjectSourceStore } from '@/project/project-source-store';
 import { selectProjectDirty, useProjectStore } from '@/project/project-store';
-import { useProjectSourceStore } from '@/project/project-source-store';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
-import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { buildProjectTree, useWorkspaceStore } from '@/stores/workspace-store';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
-import { mergeEditorValidationDiagnostics } from '@/diagnostics/validation-diagnostic-merge';
 import { BottomPanel } from '@/workbench/BottomPanel';
-import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import { Workbench } from '@/workbench/Workbench';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useCloseGuardStore } from '@/workbench/close-guard-store';
 import {
   runDraftActions,
   selectDraftEntriesForTab,
   useDraftDirtyStore,
 } from '@/workbench/draft-dirty-store';
 import {
+  buildFullGamePreviewTab,
+  buildPlatformExportTab,
+  buildProjectSettingsTab,
+  buildTestDetailTabForRecord,
+} from '@/workbench/editor-registry';
+import {
+  collectPendingInputDiagnostics,
+  usePendingInputStore,
+} from '@/workbench/pending-input-store';
+import {
+  adoptNativeRecoveredProject,
   buildEditorProjectStateSnapshot,
   clearLocalEditorSessionSnapshot,
   editorProjectStateFromProject,
@@ -78,47 +96,37 @@ import {
   saveLocalEditorSessionSnapshot,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
-import {
-  collectPendingInputDiagnostics,
-  usePendingInputStore,
-} from '@/workbench/pending-input-store';
-import {
-  buildFullGamePreviewTab,
-  buildPlatformExportTab,
-  buildProjectSettingsTab,
-  buildTestDetailTabForRecord,
-} from '@/workbench/editor-registry';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { CommandPaletteDialog } from '@/workspace/CommandPaletteDialog';
 import { ImageThumbnailPrewarmCoordinator } from '@/workspace/image-thumbnail-prewarm';
+import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import {
   dispatchWorkspaceToolbarCommand,
   WORKSPACE_TOOLBAR_COMMAND_EVENT,
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
+import { createFileRoute } from '@tanstack/react-router';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Group, Panel, usePanelRef } from 'react-resizable-panels';
+import type { NativeAuthoringPatchResult } from '../../main/services/native-authoring-worker-contract';
+import type { ToolDiagnostic } from '../../shared/editor-tooling';
+import type {
+  ProjectAssetAuditFile,
+  ProjectAssetOrganizationAction,
+} from '../../shared/project-asset-audit';
+import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
 import {
   canonicalProjectPersistenceContentJson,
-  stripLocalEditorProjectState,
   type EditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
 import {
   authoringValidationSucceeded,
-  validateAuthoringProject,
-} from '../../shared/project-schema/authoring-validation';
-import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
-import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
-import type { ToolDiagnostic } from '../../shared/editor-tooling';
-import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
-import type { ProjectAssetOrganizationAction } from '../../shared/project-asset-audit';
-import {
-  dismissAssetCandidates,
-  undisclosedAssetCandidates,
-} from '@/assets/asset-discovery-dismissals';
-import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
-import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
+  createProjectValidationDiagnostic,
+} from '../../shared/project-schema/project-diagnostic-projection';
+import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
 
 export const Route = createFileRoute('/workspace')({
   component: WorkspacePage,
@@ -169,43 +177,12 @@ function metadataFlushFailureDiagnostics(
 function collectWorkspaceProjectDiagnostics(
   document: unknown,
   persistentDiagnostics: readonly ToolDiagnostic[] = [],
+  _nativeSession = useProjectStore.getState().nativeSession,
 ): ToolDiagnostic[] {
-  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(document));
-  const supplementalSettingsDiagnostics = decoded.project
-    ? validateProjectSettingsAuthoringState(decoded.project).filter(
-        (diagnostic) =>
-          !decoded.semanticDiagnostics.some(
-            (existing) =>
-              existing.path === diagnostic.path &&
-              existing.severity === diagnostic.severity &&
-              existing.message === diagnostic.message,
-          ),
-      )
-    : [];
-  const current = decoded.project
-    ? [
-        ...decoded.semanticDiagnostics,
-        ...validateAuthoringProject(decoded.project),
-        ...supplementalSettingsDiagnostics,
-      ]
-    : decoded.structuralDiagnostics;
-  const byKey = new Map<string, ToolDiagnostic>();
-  const pendingInputDiagnostics = collectPendingInputDiagnostics(usePendingInputStore.getState());
-  for (const diagnostic of [...persistentDiagnostics, ...current, ...pendingInputDiagnostics]) {
-    const key = [
-      diagnosticCode(diagnostic) ?? '',
-      diagnostic.path,
-      diagnostic.severity,
-      diagnostic.message,
-    ].join('\u0000');
-    byKey.set(key, diagnostic);
-  }
-  return [...byKey.values()];
-}
-
-function authoringProjectForEditor(value: unknown): AuthoringProject | null {
-  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(value));
-  return decoded.project ? (value as AuthoringProject) : null;
+  return mergeEditorValidationDiagnostics(
+    [...persistentDiagnostics, ...currentNativeProjectDiagnostics()],
+    collectPendingInputDiagnostics(usePendingInputStore.getState()),
+  );
 }
 
 function commandTouchedTests(paths: string[]) {
@@ -257,6 +234,7 @@ export function WorkspacePage() {
   >([]);
   const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const [externalConflictBusy, setExternalConflictBusy] = useState(false);
+  const [dismissedExternalConflict, setDismissedExternalConflict] = useState<string | null>(null);
   const lastObservedCommandId = useRef<string | null>(null);
   const didAttemptStartupRestore = useRef(false);
   const ignoredUntrackedAssetPaths = useRef<Set<string>>(new Set());
@@ -340,7 +318,7 @@ export function WorkspacePage() {
   const closeProjectTabs = useWorkbenchStore((state) => state.closeProjectTabs);
   const commandHistory = useCommandStore((state) => state.history);
   const undoCommand = useCommandStore((state) => state.undo);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const redoCommand = useCommandStore((state) => state.redo);
   const deletedAssetTrash = useAssetTrashStore((state) => state.deletedAssets);
   const forgetDeletedAsset = useAssetTrashStore((state) => state.forgetDeletedAsset);
@@ -357,6 +335,9 @@ export function WorkspacePage() {
       ? { saveUnitId: entry[0], conflict: entry[1].externalConflict }
       : null;
   }, [project]);
+  const externalConflictIdentity = externalConflict
+    ? `${externalConflict.saveUnitId}:${JSON.stringify(externalConflict.conflict.externalFileRevisions)}:${JSON.stringify(externalConflict.conflict.conflictingPaths)}`
+    : null;
 
   if (!imageThumbnailPrewarmRef.current) {
     imageThumbnailPrewarmRef.current = new ImageThumbnailPrewarmCoordinator();
@@ -423,12 +404,14 @@ export function WorkspacePage() {
     projectSessionId: string | null,
     scriptSourcePaths: Record<string, string> | undefined,
     diagnostics: ToolDiagnostic[],
+    nativeSession = false,
   ) {
     setProjectPath(projectPathValue);
     setProjectFilePath(projectFilePathValue);
     setProject(document);
     loadProjectDocument({
       document,
+      nativeSession,
       savedDocument,
       projectPath: projectPathValue,
       projectFilePath: projectFilePathValue,
@@ -629,12 +612,7 @@ export function WorkspacePage() {
     const result = await window.noveltea.saveProjectEditorMetadata(
       latestProjectSessionId,
       editorState,
-      buildRecoveryFileOwnershipHints({
-        recovery: editorState.recovery,
-        baselineDocument: latestSavedProject,
-        candidateDocument: latestProject,
-        baselineScriptSourcePaths: useProjectStore.getState().scriptSourcePaths,
-      }),
+      {},
     );
     if (!result.success) {
       const message = result.error ?? 'Editor recovery metadata save failed.';
@@ -738,7 +716,10 @@ export function WorkspacePage() {
   async function closeProject() {
     if (!(await flushProjectEditorMetadata('close-project'))) return;
     if (projectSessionId) await window.noveltea.stopProjectWorkspaceWatcher(projectSessionId);
-    if (projectSessionId) await window.noveltea.purgeProjectTrash(projectSessionId);
+    // Native Undo/Redo archives belong to the native journal; the legacy
+    // trash purge must not run when closing its certification session.
+    if (projectSessionId && useCommandStore.getState().nativeWorkingRevision === null)
+      await window.noveltea.purgeProjectTrash(projectSessionId);
     await cancelAndClearComfyUiProjectJobs(projectFilePath);
     await window.noveltea.closeActiveProject();
     refreshRecentProjectEntry(project, projectPath, projectFilePath);
@@ -807,7 +788,7 @@ export function WorkspacePage() {
         });
         return;
       }
-      const reconstructed = reconstructEditorProject(
+      let reconstructed = reconstructEditorProject(
         toJsonValue(loaded.savedContentProject ?? loaded.contentProject),
         toJsonValue(loaded.contentProject),
         loaded.editorState,
@@ -816,6 +797,24 @@ export function WorkspacePage() {
           currentFileRevisions: loaded.recoveryFileRevisions,
         },
       );
+      if (loaded.nativeWorkingRevision !== undefined && loaded.nativeRecoveredContentProject) {
+        reconstructed = adoptNativeRecoveredProject(
+          reconstructed,
+          toJsonValue(loaded.nativeRecoveredContentProject),
+          loaded.nativeRecoveredConflicts,
+        );
+      }
+      if (
+        loaded.nativeWorkingRevision !== undefined &&
+        !loaded.nativeRecoveredContentProject &&
+        !jsonValuesEqual(
+          toJsonValue(reconstructed.workingDocument),
+          toJsonValue(reconstructed.savedDocument),
+        )
+      )
+        throw new Error(
+          'Native edit certification cannot open a Project with unreplayed unsaved recovery. Reopen without native-edit certification to recover it.',
+        );
       externalSourceDiagnosticsRef.current = [];
       externalAssetDiagnosticsRef.current = [];
       persistentRecoveryDiagnosticsRef.current = [
@@ -825,6 +824,7 @@ export function WorkspacePage() {
       const diagnostics = collectWorkspaceProjectDiagnostics(
         reconstructed.workingDocument,
         persistentRecoveryDiagnosticsRef.current,
+        loaded.nativeWorkingRevision !== undefined,
       );
       closeProjectTabs();
       loadAuthoringDocument(
@@ -836,7 +836,10 @@ export function WorkspacePage() {
         loaded.projectSessionId ?? null,
         loaded.scriptSourcePaths,
         diagnostics,
+        loaded.nativeWorkingRevision !== undefined,
       );
+      if (loaded.nativeWorkingRevision !== undefined)
+        useCommandStore.getState().enableNativeCommandMode(loaded.nativeWorkingRevision);
       refreshRecentProjectEntry(
         reconstructed.workingDocument,
         loaded.projectPath,
@@ -859,7 +862,12 @@ export function WorkspacePage() {
       setProject(null);
       setDiagnostics([]);
       setPlaybackTests([]);
-      if (projectPathOverride) {
+      if (message.includes('Native Project') || message.includes('Native recovery')) {
+        setAlert({
+          title: 'Native project recovery requires attention',
+          message: `${message}\n\nUnsaved recovery files were preserved. Resolve any changed source on disk, or reopen without native-edit certification to inspect local recovery.`,
+        });
+      } else if (projectPathOverride) {
         removeRecentProject(projectPathOverride);
         setAlert({
           title: 'Unable to open project',
@@ -932,6 +940,72 @@ export function WorkspacePage() {
     clearComfyUiProjectQueue(projectFilePath);
   }, [clearComfyUiProjectQueue, projectFilePath]);
 
+  const publishNativeExternalResult = useCallback(
+    (result: NativeAuthoringPatchResult) => {
+      const state = useProjectStore.getState();
+      if (!state.document || !state.savedDocument || !state.projectSessionId)
+        throw new Error('Native reconciliation has no active editor Project.');
+      const snapshot = buildEditorProjectStateSnapshot();
+      const reconciled = projectNativeExternalResult({
+        saved: state.savedDocument,
+        working: state.document,
+        recovery: snapshot.recovery,
+        result,
+      });
+      const workingTracked = editorProjectStateFromProject(reconciled.working);
+      const savedTracked = editorProjectStateFromProject(reconciled.saved);
+      const workingEditorState: EditorProjectState = {
+        ...snapshot,
+        chapters: workingTracked.chapters,
+        tags: workingTracked.tags,
+        recordMetadata: workingTracked.recordMetadata,
+        recovery: reconciled.recovery,
+      };
+      const savedEditorState: EditorProjectState = {
+        ...snapshot,
+        chapters: savedTracked.chapters,
+        tags: savedTracked.tags,
+        recordMetadata: savedTracked.recordMetadata,
+        recovery: reconciled.recovery,
+      };
+      const working = mergeEditorProjectState(reconciled.working, workingEditorState);
+      const saved = mergeEditorProjectState(reconciled.saved, savedEditorState);
+      if (
+        !useProjectStore.getState().publishExternalReconciliation({
+          document: working,
+          savedDocument: saved,
+          scriptSourcePaths: state.scriptSourcePaths,
+          affectedPaths: reconciled.affectedPaths,
+        })
+      )
+        throw new Error('Native reconciliation produced an inadmissible editor Project.');
+      setLoadedEditorProjectState(workingEditorState);
+      externalSourceDiagnosticsRef.current = [];
+      setProject(working as AuthoringProject);
+      const conflicts = Object.entries(reconciled.recovery.saveUnitsById)
+        .filter(([, entry]) => entry.externalConflict)
+        .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!));
+      setDiagnostics(
+        collectWorkspaceProjectDiagnostics(working, [
+          ...persistentRecoveryDiagnosticsRef.current,
+          ...externalPhysicalSourceDiagnosticsRef.current,
+          ...externalAssetDiagnosticsRef.current,
+          ...conflicts,
+        ]),
+      );
+      if (conflicts.length) {
+        useBottomPanelStore.getState().setActivePanelId('problems');
+        setBottomPanelVisible(true);
+      }
+      setStatusMessage(
+        conflicts.length
+          ? 'External changes require conflict resolution'
+          : 'Reloaded external project changes',
+      );
+    },
+    [setBottomPanelVisible, setDiagnostics, setProject, setStatusMessage],
+  );
+
   useEffect(() => {
     const currentProjectFilePath = projectFilePath ?? null;
     if (lastAssetAuditProjectFilePath.current !== currentProjectFilePath) {
@@ -970,6 +1044,111 @@ export function WorkspacePage() {
         )
           return;
         const authoring = event.authoring;
+        if (useCommandStore.getState().nativeWorkingRevision !== null) {
+          if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
+            void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
+          const sourceDiagnosticUpdate =
+            (event.sourceChangedPaths?.length ?? 0) > 0 || event.sourceDiagnostics !== undefined;
+          const assetDiagnosticUpdate =
+            event.assetChangedPaths.length > 0 || event.assetDiagnostics !== undefined;
+          // An Asset's physical bytes can change without an authored source
+          // revision. The native graph/preview must refresh for that observer
+          // generation as well, rather than reusing its previous resource proof.
+          if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
+            void refreshAuthoringDependencyGraphProjectSources();
+          if (sourceDiagnosticUpdate)
+            externalPhysicalSourceDiagnosticsRef.current = [...(event.sourceDiagnostics ?? [])];
+          if (assetDiagnosticUpdate)
+            externalAssetDiagnosticsRef.current = [...(event.assetDiagnostics ?? [])];
+          if (sourceDiagnosticUpdate || assetDiagnosticUpdate) {
+            setDiagnostics(
+              collectWorkspaceProjectDiagnostics(latestProject, [
+                ...persistentRecoveryDiagnosticsRef.current,
+                ...externalSourceDiagnosticsRef.current,
+                ...externalPhysicalSourceDiagnosticsRef.current,
+                ...externalAssetDiagnosticsRef.current,
+                ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                  .filter(([, entry]) => entry.externalConflict)
+                  .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!)),
+              ]),
+            );
+            if (
+              externalPhysicalSourceDiagnosticsRef.current.length ||
+              externalAssetDiagnosticsRef.current.length
+            ) {
+              useBottomPanelStore.getState().setActivePanelId('problems');
+              setBottomPanelVisible(true);
+            }
+          }
+          const owners = nativeOwnersForChangedSources(event.authoringChangedPaths);
+          if (owners.length) {
+            void useCommandStore
+              .getState()
+              .reconcileNativeExternalAsync(owners, (result) => {
+                if (useProjectStore.getState().projectSessionId !== latestProjectSessionId)
+                  throw new Error('External reconciliation completed for a superseded Project.');
+                publishNativeExternalResult(result);
+              })
+              .then((result) => {
+                if (useProjectStore.getState().projectSessionId !== latestProjectSessionId) return;
+                if (!result.ok) {
+                  externalSourceDiagnosticsRef.current = [
+                    createProjectValidationDiagnostic({
+                      code: 'editor.native-external.reconciliation-failed',
+                      severity: 'error',
+                      category: 'External project source',
+                      path:
+                        nativeExternalOwnerPath(result.diagnostics[0]?.path ?? owners[0]!) || '/',
+                      message: result.diagnostics[0]?.message ?? 'Native reconciliation rejected.',
+                      boundaries: ['authoring'],
+                      ownerPaths: [
+                        nativeExternalOwnerPath(result.diagnostics[0]?.path ?? owners[0]!) || '/',
+                      ],
+                    }),
+                  ];
+                  setDiagnostics(
+                    collectWorkspaceProjectDiagnostics(useProjectStore.getState().document, [
+                      ...persistentRecoveryDiagnosticsRef.current,
+                      ...externalSourceDiagnosticsRef.current,
+                      ...externalPhysicalSourceDiagnosticsRef.current,
+                      ...externalAssetDiagnosticsRef.current,
+                      ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                        .filter(([, entry]) => entry.externalConflict)
+                        .map(([id, entry]) =>
+                          externalConflictDiagnostic(id, entry.externalConflict!),
+                        ),
+                    ]),
+                  );
+                  useBottomPanelStore.getState().setActivePanelId('problems');
+                  setBottomPanelVisible(true);
+                  setStatusMessage('External project changes require attention');
+                } else if (externalSourceDiagnosticsRef.current.length > 0) {
+                  externalSourceDiagnosticsRef.current = [];
+                  const current = useProjectStore.getState().document;
+                  if (current)
+                    setDiagnostics(
+                      collectWorkspaceProjectDiagnostics(current, [
+                        ...persistentRecoveryDiagnosticsRef.current,
+                        ...externalPhysicalSourceDiagnosticsRef.current,
+                        ...externalAssetDiagnosticsRef.current,
+                        ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+                          .filter(([, entry]) => entry.externalConflict)
+                          .map(([id, entry]) =>
+                            externalConflictDiagnostic(id, entry.externalConflict!),
+                          ),
+                      ]),
+                    );
+                }
+                if (result.ok && event.assetChangedPaths.length) {
+                  const current = useProjectStore.getState().document;
+                  if (current) void runAssetAudit(current as AuthoringProject);
+                }
+              });
+          } else if (event.assetChangedPaths.length) {
+            void runAssetAudit(latestProject);
+          }
+          return;
+        }
         if ((event.sourceChangedPaths?.length ?? 0) > 0 || event.assetChangedPaths.length > 0)
           void useProjectSourceStore.getState().reconcileExternal(latestProjectSessionId);
         if ((event.sourceChangedPaths?.length ?? 0) > 0)
@@ -1176,7 +1355,14 @@ export function WorkspacePage() {
           setStatusMessage(message);
         }
       }),
-    [runAssetAudit, setBottomPanelVisible, setDiagnostics, setProject, setStatusMessage],
+    [
+      publishNativeExternalResult,
+      runAssetAudit,
+      setBottomPanelVisible,
+      setDiagnostics,
+      setProject,
+      setStatusMessage,
+    ],
   );
 
   useEffect(() => {
@@ -1361,7 +1547,20 @@ export function WorkspacePage() {
     if (!externalConflict || externalConflictBusy) return;
     setExternalConflictBusy(true);
     try {
-      if (!resolveExternalConflictUseDisk(externalConflict.saveUnitId)) return;
+      if (useCommandStore.getState().nativeWorkingRevision !== null) {
+        const result = await useCommandStore
+          .getState()
+          .useNativeDiskUnitAsync(externalConflict.saveUnitId, (acknowledged) => {
+            usePendingInputStore
+              .getState()
+              .clearPendingInputsForSaveUnit(externalConflict.saveUnitId);
+            publishNativeExternalResult(acknowledged);
+          });
+        if (!result.ok) {
+          setStatusMessage(result.diagnostics[0]?.message ?? 'Native Use Disk failed');
+          return;
+        }
+      } else if (!resolveExternalConflictUseDisk(externalConflict.saveUnitId)) return;
       const latestProject = useProjectStore.getState().document;
       if (latestProject) {
         setProject(latestProject);
@@ -1369,6 +1568,11 @@ export function WorkspacePage() {
           collectWorkspaceProjectDiagnostics(latestProject, [
             ...persistentRecoveryDiagnosticsRef.current,
             ...externalSourceDiagnosticsRef.current,
+            ...externalPhysicalSourceDiagnosticsRef.current,
+            ...externalAssetDiagnosticsRef.current,
+            ...Object.entries(buildEditorProjectStateSnapshot().recovery.saveUnitsById)
+              .filter(([, entry]) => entry.externalConflict)
+              .map(([id, entry]) => externalConflictDiagnostic(id, entry.externalConflict!)),
           ]),
         );
       }
@@ -1380,6 +1584,7 @@ export function WorkspacePage() {
   }
 
   async function saveActiveProjectUnit() {
+    setDismissedExternalConflict(null);
     if (!project) return false;
     try {
       const workbench = useWorkbenchStore.getState();
@@ -1527,8 +1732,11 @@ export function WorkspacePage() {
     }
   }
 
-  function undoProjectCommand() {
-    const result = undoCommand();
+  async function undoProjectCommand() {
+    const result =
+      useCommandStore.getState().nativeWorkingRevision === null
+        ? undoCommand()
+        : await useCommandStore.getState().undoAsync();
     addTimelineEntry({
       source: 'command',
       message: result.projectChanged
@@ -1538,8 +1746,11 @@ export function WorkspacePage() {
     });
   }
 
-  function redoProjectCommand() {
-    const result = redoCommand();
+  async function redoProjectCommand() {
+    const result =
+      useCommandStore.getState().nativeWorkingRevision === null
+        ? redoCommand()
+        : await useCommandStore.getState().redoAsync();
     addTimelineEntry({
       source: 'command',
       message: result.projectChanged
@@ -1598,11 +1809,11 @@ export function WorkspacePage() {
       if (isTextInput) return;
       if (event.key.toLowerCase() === 'z') {
         event.preventDefault();
-        if (event.shiftKey) redoProjectCommand();
-        else undoProjectCommand();
+        if (event.shiftKey) void redoProjectCommand();
+        else void undoProjectCommand();
       } else if (event.key.toLowerCase() === 'y') {
         event.preventDefault();
-        redoProjectCommand();
+        void redoProjectCommand();
       }
     }
     function onBottomPanelShortcutCapture(event: KeyboardEvent) {
@@ -1655,6 +1866,7 @@ export function WorkspacePage() {
     setStatusMessage,
   ]);
 
+  const nativeProjectDiagnostics = useNativeProjectDiagnostics();
   useEffect(() => {
     if (!project) {
       setProject(null);
@@ -1665,7 +1877,7 @@ export function WorkspacePage() {
     setDiagnostics(
       collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current),
     );
-  }, [pendingInputEntries, project, setProject, setDiagnostics]);
+  }, [pendingInputEntries, project, setProject, setDiagnostics, nativeProjectDiagnostics]);
 
   useEffect(() => {
     if (!comfyUiConfig.enabled) return;
@@ -1678,32 +1890,59 @@ export function WorkspacePage() {
 
   async function validate() {
     if (!project || !projectSessionId) return;
-    const authority = saveDirty ? 'session-local' : 'disk-authoritative';
-    let diagnostics = saveDirty
-      ? collectWorkspaceProjectDiagnostics(project, persistentRecoveryDiagnosticsRef.current)
-      : [...persistentRecoveryDiagnosticsRef.current];
-    try {
-      const native = await window.noveltea.validateProject(projectSessionId, project, authority);
-      const nativeDiagnostics = saveDirty
-        ? native.diagnostics.filter((diagnostic) =>
-            diagnostic.code?.startsWith('localization.font_coverage'),
-          )
-        : native.diagnostics;
-      diagnostics = mergeEditorValidationDiagnostics(diagnostics, nativeDiagnostics);
-    } catch (error) {
-      if (!saveDirty)
-        diagnostics = collectWorkspaceProjectDiagnostics(
-          project,
-          persistentRecoveryDiagnosticsRef.current,
-        );
-      diagnostics.push({
-        code: 'localization.font_coverage.tool',
-        severity: 'error',
-        category: 'Localization font coverage',
-        path: '/localization',
-        message: error instanceof Error ? error.message : String(error),
-      });
+    const nativeMode = useCommandStore.getState().nativeWorkingRevision !== null;
+    let preparationFailure: string | null = null;
+    if (nativeMode) {
+      try {
+        await flushNativeProjectSources();
+      } catch (error) {
+        preparationFailure = error instanceof Error ? error.message : String(error);
+      }
     }
+    if (nativeMode) {
+      const instance = useProjectStore.getState().projectInstanceId;
+      await refreshNativeProjectDiagnostics(true);
+      if (
+        useProjectStore.getState().projectSessionId !== projectSessionId ||
+        useProjectStore.getState().projectInstanceId !== instance
+      )
+        return;
+      const diagnostics = collectWorkspaceProjectDiagnostics(
+        useProjectStore.getState().document,
+        persistentRecoveryDiagnosticsRef.current,
+      );
+      if (preparationFailure)
+        diagnostics.push({
+          code: 'editor.native-validation.failed',
+          severity: 'error',
+          path: '/',
+          category: 'Native authoring validation',
+          message: preparationFailure,
+        });
+      setDiagnostics(diagnostics);
+      addTimelineEntry({
+        source: 'validation',
+        message: authoringValidationSucceeded(diagnostics)
+          ? 'Validation passed'
+          : 'Validation reported issues',
+        detail: diagnostics,
+      });
+      return;
+    }
+    // Native admission is the only production authority. During an Open,
+    // close or failed recovery the editor may temporarily have a document but
+    // no acknowledged native revision; do not call the removed TS validator.
+    const diagnostics = collectWorkspaceProjectDiagnostics(
+      project,
+      persistentRecoveryDiagnosticsRef.current,
+    );
+    diagnostics.push({
+      code: 'editor.native-validation.unavailable',
+      severity: 'error',
+      category: 'Native authoring validation',
+      path: '/',
+      message: 'Native Project validation is unavailable until admission or recovery completes.',
+    });
     setDiagnostics(diagnostics);
     addTimelineEntry({
       source: 'validation',
@@ -1728,7 +1967,7 @@ export function WorkspacePage() {
       setAlert({ title: 'Asset import failed', message });
       return;
     }
-    const command = executeCommand({
+    const command = await executeCommand({
       type: 'asset.importFiles',
       label: `Import ${result.assets.length} untracked asset${result.assets.length === 1 ? '' : 's'}`,
       payload: { assets: result.assets, fileOrigin: 'existing-project-file' },
@@ -1823,7 +2062,7 @@ export function WorkspacePage() {
         }
         return;
       }
-      const command = executeCommand({
+      const command = await executeCommand({
         type: 'asset.importFiles',
         label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
         payload: { assets: result.assets, fileOrigin: 'copied-by-import' },
@@ -1851,7 +2090,7 @@ export function WorkspacePage() {
     }
   }
 
-  function runFirstTest() {
+  async function runFirstTest() {
     setLastPlaybackReport(null);
     const latestProject = useProjectStore.getState().document;
     const authoringProject = authoringProjectForEditor(latestProject);
@@ -1872,19 +2111,30 @@ export function WorkspacePage() {
       setStatusMessage('No playback tests are available.');
       return;
     }
-    void window.noveltea
-      .runPlaybackTest(projectSessionId, latestProject, tests[0]!.id, pendingInputEntries)
-      .then((result) => {
-        setLastPlaybackReport(result.report ?? result);
-        setStatusMessage(
-          result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
-        );
-        addTimelineEntry({
-          source: 'playback',
-          message: result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
-          detail: result,
-        });
+    try {
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      const result = await (nativeRevision !== null && projectSessionId
+        ? window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, tests[0]!.id)
+        : window.noveltea.runPlaybackTest(
+            projectSessionId,
+            latestProject,
+            tests[0]!.id,
+            pendingInputEntries,
+          ));
+      setLastPlaybackReport(result.report ?? result);
+      setStatusMessage(
+        result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
+      );
+      addTimelineEntry({
+        source: 'playback',
+        message: result.ok ? `Ran test ${tests[0]!.id}` : (result.error ?? 'Test run failed'),
+        detail: result,
       });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Test preparation failed.');
+    }
   }
 
   function exportRuntimePackage() {
@@ -1927,7 +2177,7 @@ export function WorkspacePage() {
           void importAssets();
           break;
         case 'run-first-test':
-          runFirstTest();
+          void runFirstTest();
           break;
         case 'export-package':
           exportRuntimePackage();
@@ -1942,10 +2192,10 @@ export function WorkspacePage() {
           openWorkbenchTab(buildFullGamePreviewTab());
           break;
         case 'undo':
-          undoProjectCommand();
+          void undoProjectCommand();
           break;
         case 'redo':
-          redoProjectCommand();
+          void redoProjectCommand();
           break;
         case 'save':
           void saveActiveProjectUnit();
@@ -2248,11 +2498,20 @@ export function WorkspacePage() {
         onMoveFile={moveUntrackedAsset}
       />
       <ProjectExternalConflictDialog
-        saveUnitId={externalConflict?.saveUnitId ?? null}
-        conflict={externalConflict?.conflict ?? null}
+        saveUnitId={
+          externalConflictIdentity !== dismissedExternalConflict
+            ? (externalConflict?.saveUnitId ?? null)
+            : null
+        }
+        conflict={
+          externalConflictIdentity !== dismissedExternalConflict
+            ? (externalConflict?.conflict ?? null)
+            : null
+        }
         busy={externalConflictBusy}
         onUseDisk={() => void handleUseDiskExternalConflict()}
         onKeepMine={() => void keepMineForExternalConflict()}
+        onCancel={() => setDismissedExternalConflict(externalConflictIdentity)}
       />
       <Dialog
         open={alert !== null}

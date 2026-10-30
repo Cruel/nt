@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { useCommandStore } from '@/commands/command-store';
@@ -26,14 +26,13 @@ import {
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
-import {
-  authoringDependencyGraphService,
-  startAuthoringDependencyGraphService,
-} from '@/project/authoring-dependency-graph-runtime';
+import { startAuthoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
+import { publishNativeViewGraphFixture } from '../test-support/native-renderer-graph-fixture';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
 function loadProject(project: AuthoringProject = createAuthoringProject()) {
-  useProjectStore.getState().loadUnsavedProjectDocument(project);
+  admitNativeRendererCommandFixture(project);
 }
 
 describe('ProjectExplorer', () => {
@@ -187,9 +186,11 @@ describe('ProjectExplorer', () => {
     });
     await user.click(await screen.findByText('Hide Empty Categories'));
 
-    expect(useProjectStore.getState().document).toMatchObject({
-      editor: { explorer: { hideEmptyCategories: true } },
-    });
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        editor: { explorer: { hideEmptyCategories: true } },
+      }),
+    );
     expect(await screen.findByText('Empty Content')).toBeInTheDocument();
   });
 
@@ -210,12 +211,14 @@ describe('ProjectExplorer', () => {
     await user.click(await screen.findByText('Hide Empty Categories'));
 
     expect(screen.getByPlaceholderText('Search project')).toHaveValue('needle');
-    expect(useProjectExplorerStore.getState()).toMatchObject({
-      searchQuery: 'needle',
-      showTagFilter: true,
-      filterTags: ['important'],
-      hideEmptyCategories: true,
-    });
+    await waitFor(() =>
+      expect(useProjectExplorerStore.getState()).toMatchObject({
+        searchQuery: 'needle',
+        showTagFilter: true,
+        filterTags: ['important'],
+        hideEmptyCategories: true,
+      }),
+    );
   });
 
   it('renders create command diagnostics for duplicate IDs', async () => {
@@ -246,12 +249,16 @@ describe('ProjectExplorer', () => {
     await user.type(labelInput, 'Silver Key');
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
 
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).interactables['silver-key'],
+      ).toMatchObject({
+        id: 'silver-key',
+        label: 'Silver Key',
+        data: { kind: 'interactable' },
+      }),
+    );
     const document = useProjectStore.getState().document as AuthoringProject;
-    expect(document.interactables['silver-key']).toMatchObject({
-      id: 'silver-key',
-      label: 'Silver Key',
-      data: { kind: 'interactable' },
-    });
     expect(document.interactableInstances['silver-key']).toBeUndefined();
     expect(
       useWorkbenchStore.getState().tabsById['tab:interactable-detail:interactables:silver-key'],
@@ -350,6 +357,8 @@ describe('ProjectExplorer', () => {
     await user.clear(labelInput);
     await user.type(labelInput, 'Silver Key');
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(useCommandStore.getState().history.activeTransaction).toBeNull();
 
     const document = useProjectStore.getState().document as AuthoringProject;
     expect(document.interactables['silver-key']).toMatchObject({
@@ -388,6 +397,11 @@ describe('ProjectExplorer', () => {
     await user.type(inheritedLabelInput, 'Brass Key');
     await user.click(screen.getByRole('button', { name: /create interactable/i }));
 
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as AuthoringProject).interactables['brass-key'],
+      ).toBeDefined(),
+    );
     const updatedDocument = useProjectStore.getState().document as AuthoringProject;
     const inherited = updatedDocument.interactables['brass-key']!;
     expect(inherited.archetypeOverrides).not.toHaveProperty('/data/presentation/visual');
@@ -421,8 +435,12 @@ describe('ProjectExplorer', () => {
     await user.click(screen.getByLabelText(/set as project entrypoint/i));
     await user.click(screen.getByRole('button', { name: /create room/i }));
 
-    const document = useProjectStore.getState().document as AuthoringProject;
-    expect(document.entrypoint).toEqual({ kind: 'room', id: 'entry-room' });
+    await waitFor(() =>
+      expect((useProjectStore.getState().document as AuthoringProject).entrypoint).toEqual({
+        kind: 'room',
+        id: 'entry-room',
+      }),
+    );
   });
 
   it('opens the wizard from the new-entity toolbar command used by Ctrl+N', async () => {
@@ -450,7 +468,24 @@ describe('ProjectExplorer', () => {
     loadProject(project);
     const publication = useProjectStore.getState().lastMutationPublication;
     if (!publication) throw new Error('Expected a project mutation publication.');
-    await authoringDependencyGraphService.publish(publication);
+    await publishNativeViewGraphFixture({
+      edges: [
+        {
+          id: 'native-explicit-lua:target',
+          source: { kind: 'record', collection: 'layouts', id: 'hud' },
+          target: { kind: 'record', collection: 'rooms', id: 'target' },
+          sourcePath: '/layouts/hud/data/script/additionalDependencies/targets/0',
+          targetPath: '/rooms/target',
+          role: 'lua-explicit-reference',
+          facets: ['tooling-reference', 'reference-integrity'],
+          targetImpactPaths: ['/rooms/target'],
+          repair: {
+            kind: 'blocked',
+            reason: 'Explicit Lua dependency fallback must be updated manually.',
+          },
+        },
+      ],
+    });
 
     render(<ProjectExplorer nodes={[]} />);
     await user.click(screen.getByRole('button', { name: /^rooms/i }));
@@ -476,28 +511,27 @@ describe('ProjectExplorer', () => {
     stopGraphService = startAuthoringDependencyGraphService();
     const project = createAuthoringProject();
     project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
-    const publication = useProjectStore.getState().lastMutationPublication;
-    if (!publication) throw new Error('Expected graph publication');
-    await authoringDependencyGraphService.publish(publication);
-    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
-      ok: false,
-      success: false,
-      commentConfirmationRequired: true,
-      commentConfirmationToken: 'a'.repeat(64),
-      commentImpacts: [
-        {
-          file: 'records/rooms/target.yaml',
-          path: '/label',
-          comment: ' author note',
-          kind: 'deleted',
-        },
-      ],
+    loadProject(project);
+    await publishNativeViewGraphFixture();
+    const baseSave = window.noveltea.nativeProjectSaveUnit;
+    Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
+      configurable: true,
+      value: vi.fn(async (...args: Parameters<typeof baseSave>) => {
+        if (args[3]?.comments === 'keep')
+          return {
+            accepted: false,
+            error: 'Deleting commented records requires explicit Remove Comments approval.',
+            commentImpacts: [
+              {
+                file: 'records/rooms/target.yaml',
+                path: '/label',
+                comment: ' author note',
+                kind: 'deleted' as const,
+              },
+            ],
+          } as Awaited<ReturnType<typeof baseSave>>;
+        return baseSave(...args);
+      }),
     });
     render(
       <>
@@ -539,6 +573,7 @@ describe('ProjectExplorer', () => {
     expect(useDraftDirtyStore.getState().entriesByKey['target-draft']).toMatchObject({
       dirty: true,
     });
-    expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+    expect(window.noveltea.nativeProjectSaveUnit).toHaveBeenCalledTimes(1);
+    expect(window.noveltea.saveProjectContent).not.toHaveBeenCalled();
   });
 });

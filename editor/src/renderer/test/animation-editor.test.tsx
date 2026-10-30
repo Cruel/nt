@@ -4,6 +4,7 @@ import { beforeEach, expect, it, vi } from 'vite-plus/test';
 import { AnimationEditor } from '@/editors/animations/AnimationEditor';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import {
   createAuthoringProject,
   isAuthoringProject,
@@ -33,11 +34,7 @@ beforeEach(() => {
       ],
     },
   };
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.yaml',
-  });
+  admitNativeRendererCommandFixture(project);
 });
 
 function spriteMotion(project: ReturnType<typeof createAuthoringProject>) {
@@ -61,11 +58,7 @@ it('adds a timed image frame to an empty manual Animation through the command bu
       imageMetadata: { width: 16, height: 16, hasAlpha: true, orientation: 1 },
     },
   };
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.yaml',
-  });
+  admitNativeRendererCommandFixture(project);
   render(
     <AnimationEditor
       tab={{
@@ -82,11 +75,13 @@ it('adds a timed image frame to an empty manual Animation through the command bu
     />,
   );
   await userEvent.click(screen.getByRole('button', { name: 'Add image frame' }));
-  const edited = useProjectStore.getState().document;
-  if (!isAuthoringProject(edited)) throw new Error('Expected Project');
-  expect(spriteMotion(edited).frames).toEqual([
-    { image: { $ref: { collection: 'assets', id: 'a' } }, durationMs: 100 },
-  ]);
+  await waitFor(() => {
+    const edited = useProjectStore.getState().document;
+    if (!isAuthoringProject(edited)) throw new Error('Expected Project');
+    expect(spriteMotion(edited).frames).toEqual([
+      { image: { $ref: { collection: 'assets', id: 'a' } }, durationMs: 100 },
+    ]);
+  });
 });
 
 it('scrubs, steps and restarts without editing durable Animation content, and edits markers with undo', async () => {
@@ -117,14 +112,16 @@ it('scrubs, steps and restarts without editing durable Animation content, and ed
   expect(screen.getByLabelText('Frame index')).toHaveTextContent('0 / 2');
   expect(JSON.stringify(useProjectStore.getState().document)).toBe(before);
   await user.click(screen.getByRole('button', { name: 'Add marker' }));
-  const document = useProjectStore.getState().document;
-  if (!isAuthoringProject(document)) throw new Error('Expected Project');
-  expect(document.animations.pulse!.data.motions[0]!.markers).toContainEqual({
-    id: 'marker',
-    timeMs: 0,
+  await waitFor(() => {
+    const document = useProjectStore.getState().document;
+    if (!isAuthoringProject(document)) throw new Error('Expected Project');
+    expect(document.animations.pulse!.data.motions[0]!.markers).toContainEqual({
+      id: 'marker',
+      timeMs: 0,
+    });
   });
-  act(() => {
-    useCommandStore.getState().undo();
+  await act(async () => {
+    await useCommandStore.getState().undoAsync();
   });
   expect(JSON.stringify(useProjectStore.getState().document)).toBe(before);
 });
@@ -164,16 +161,10 @@ it('shows short video capability notices with details in a tooltip, not on sprit
     video: { $ref: { collection: 'assets', id: 'video' } },
     markers: [],
   });
-  expect(
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-    }),
-  ).toBe(true);
+  admitNativeRendererCommandFixture(project);
   render(<AnimationEditor tab={tab} />);
   expect(screen.getByText('Hardware decoding may be unavailable')).toBeInTheDocument();
-  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByText('Video exceeds native playback limits')).toBeNull();
   expect(screen.queryByText(/minimum of 128×128/u)).toBeNull();
   const user = userEvent.setup();
   await user.hover(screen.getByRole('button', { name: 'Video playback details' }));
@@ -181,6 +172,12 @@ it('shows short video capability notices with details in a tooltip, not on sprit
 
   fireEvent.change(screen.getByLabelText('Canvas width'), { target: { value: '128' } });
   fireEvent.blur(screen.getByLabelText('Canvas width'));
+  await waitFor(() =>
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof createAuthoringProject>).animations
+        .pulse?.data.canvas.width,
+    ).toBe(128),
+  );
   fireEvent.change(screen.getByLabelText('Canvas height'), { target: { value: '128' } });
   fireEvent.blur(screen.getByLabelText('Canvas height'));
   await waitFor(() =>
@@ -189,14 +186,18 @@ it('shows short video capability notices with details in a tooltip, not on sprit
 
   fireEvent.change(screen.getByLabelText('Canvas width'), { target: { value: '129' } });
   fireEvent.blur(screen.getByLabelText('Canvas width'));
-  expect(screen.getByText('Hardware decoding may be unavailable')).toBeInTheDocument();
+  expect(await screen.findByText('Hardware decoding may be unavailable')).toBeInTheDocument();
   await user.hover(screen.getByRole('button', { name: 'Video playback details' }));
   expect(await screen.findByText(/odd dimensions unsupported/u)).toBeVisible();
 
   fireEvent.change(screen.getByLabelText('Canvas width'), { target: { value: '8193' } });
   fireEvent.blur(screen.getByLabelText('Canvas width'));
-  expect(screen.getByRole('alert')).toHaveTextContent('Video exceeds native playback limits');
-  expect(screen.queryByText('Hardware decoding may be unavailable')).toBeNull();
+  await waitFor(() =>
+    expect(screen.getByRole('alert')).toHaveTextContent('Video exceeds native playback limits'),
+  );
+  await waitFor(() =>
+    expect(screen.queryByText('Hardware decoding may be unavailable')).toBeNull(),
+  );
   await user.hover(screen.getByRole('button', { name: 'Video playback details' }));
   expect(await screen.findByText(/at most 8192 pixels per side/u)).toBeVisible();
 });
@@ -223,14 +224,7 @@ it('uses motion-relative video scrub, restart, and playback rather than independ
       markers: [],
     },
   ];
-  expect(
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: 'video-session',
-    }),
-  ).toBe(true);
+  admitNativeRendererCommandFixture(project, 'video-session');
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
     url: 'noveltea-asset://source/video-session/video',
@@ -286,14 +280,7 @@ it('confirms target FPS at authoring time before committing and preserves ration
       markers: [],
     },
   ];
-  expect(
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: 'video-session',
-    }),
-  ).toBe(true);
+  admitNativeRendererCommandFixture(project, 'video-session');
   vi.mocked(window.noveltea.probeVideoTimeline).mockResolvedValue({
     sampleTimesMs: Array.from({ length: 10 }, (_, index) => index * 100),
     endpointMs: 1000,
@@ -316,7 +303,7 @@ it('confirms target FPS at authoring time before committing and preserves ration
   );
   const sampling = screen.getByRole('combobox', { name: 'Video frame sampling' });
   await user.click(sampling);
-  await user.click(screen.getByRole('option', { name: 'Target FPS' }));
+  await user.click(await screen.findByRole('option', { name: 'Target FPS' }));
   expect(await screen.findByText('Apply target frame rate?')).toBeInTheDocument();
   expect(window.noveltea.probeVideoTimeline).toHaveBeenCalledWith('video-session', {
     assetId: 'video',
@@ -382,7 +369,9 @@ it('commits frame timing only after an integer duration is entered', async () =>
   const document = useProjectStore.getState().document;
   if (!isAuthoringProject(document)) throw new Error('Expected Project');
   expect(spriteMotion(document).frames[1]!.durationMs).toBe(80);
-  void act(() => useCommandStore.getState().undo());
+  await act(async () => {
+    await useCommandStore.getState().undoAsync();
+  });
   const restored = useProjectStore.getState().document;
   if (!isAuthoringProject(restored)) throw new Error('Expected Project');
   expect(spriteMotion(restored).frames[1]!.durationMs).toBe(100);

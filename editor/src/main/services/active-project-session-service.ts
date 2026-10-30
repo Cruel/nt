@@ -1,16 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { constants as fsConstants, promises as fs } from 'node:fs';
+import { promises as fs, constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import {
   isSafeProjectAssetPath,
-  parseAssetData,
+  type AssetData,
   type AssetKind,
 } from '../../shared/project-schema/authoring-assets';
-import {
-  parseAuthoringProject,
-  type AuthoringProject,
-} from '../../shared/project-schema/authoring-project';
-import { editorProjectStateSchema } from '../../shared/project-schema/editor-project-state';
+import { type AuthoringProject } from '../../shared/project-schema/authoring-project';
+import type {
+  ListProjectSourceFilesRequest,
+  ListProjectSourceFilesResponse,
+  ProjectSourceFile,
+} from '../../shared/project-source-files';
 import {
   isSha256Digest,
   PROJECT_TEXT_SOURCE_LIMITS,
@@ -19,26 +20,6 @@ import {
   type ReadProjectTextSourcesRequest,
   type ReadProjectTextSourcesResponse,
 } from '../../shared/project-text-sources';
-import type {
-  ListProjectSourceFilesRequest,
-  ListProjectSourceFilesResponse,
-  ProjectSourceFile,
-  ProjectSourceStructuralRequest,
-  ProjectSourceStructuralResponse,
-  ProjectSourceUsageRequest,
-  ProjectSourceUsageResponse,
-  ProjectSourceWriteRequest,
-  ProjectSourceWriteResponse,
-} from '../../shared/project-source-files';
-import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
-import type { LoadedProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
-import { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
-import {
-  mutateProjectSources,
-  projectSourceUsages,
-  recreatableProjectSourcePhysicalPath,
-  writeProjectSourceText,
-} from './project-source-file-service';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const readOnlyNoFollowFlags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0);
@@ -65,14 +46,23 @@ interface ActiveProjectSession {
   root: string;
   projectIdentity: { id: string; name: string } | null;
   assets: ReadonlyMap<string, ActiveProjectAssetAuthorization>;
-  workspace?: ActiveProjectWorkspaceSession;
+  nativeLayoutIds?: ReadonlySet<string>;
 }
 
-function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
-  const parsed: AuthoringProject = parseAuthoringProject(project);
+interface StagedNativeProjectSession {
+  session: ActiveProjectSession;
+  generation: number;
+  previousActiveSessionId: string | null;
+}
+
+/** The native Project worker already admitted the complete schema; extracting
+ * Asset authorizations must not run another whole-Project TypeScript validator. */
+function admittedAssetsFromProject(
+  parsed: AuthoringProject,
+): ReadonlyMap<string, ActiveProjectAssetAuthorization> {
   const assets = new Map<string, ActiveProjectAssetAuthorization>();
   for (const [assetId, record] of Object.entries(parsed.assets)) {
-    const data = parseAssetData(record.data);
+    const data = record.data as AssetData;
     if (data)
       assets.set(assetId, {
         assetId,
@@ -87,51 +77,65 @@ function admittedAssets(project: unknown): ReadonlyMap<string, ActiveProjectAsse
 
 export class ActiveProjectSessionService {
   private active: ActiveProjectSession | null = null;
+  private stagedNative: StagedNativeProjectSession | null = null;
   private projectActivationGeneration = 0;
 
   beginProjectActivation(): number {
     this.projectActivationGeneration += 1;
+    this.stagedNative = null;
     return this.projectActivationGeneration;
   }
 
-  async activateProjectFile(
+  /** Distinguish a superseded in-flight open from an active Project that has
+   * not yet been replaced by the newer open. The older opener must not close
+   * the newer user's session merely because its native admission failed. */
+  isProjectActivationCurrent(generation: number): boolean {
+    return generation === this.projectActivationGeneration;
+  }
+
+  /** Make an untrusted candidate root visible only to its private native
+   * admission worker. The incumbent (including unsaved working state and
+   * original worker) retains authority until a completed native admission
+   * is atomically promoted. Never share this staged ID with the renderer. */
+  async stageNativeProjectFile(
     projectFilePath: string,
-    expectedActivationGeneration?: number,
-    contentProject?: unknown,
-    workspace?: ActiveProjectWorkspaceSession,
+    expectedActivationGeneration: number,
   ): Promise<string> {
-    const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
-    const projectFileStat = await fs.stat(canonicalProjectFile);
-    if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
+    const manifest = await fs.realpath(path.resolve(projectFilePath));
+    const stats = await fs.stat(manifest);
+    if (!stats.isFile() || path.basename(manifest) !== 'project.yaml')
+      throw new Error('Native Project staging requires an ordinary project.yaml manifest.');
     this.assertProjectActivationCurrent(expectedActivationGeneration);
-    const canonicalRoot = path.dirname(canonicalProjectFile);
-    const parsedProject =
-      contentProject === undefined ? null : parseAuthoringProject(contentProject);
-    const assets = parsedProject === null ? new Map() : admittedAssets(parsedProject);
-    const workspaceProject = workspace?.project().project;
-    const identityProject = parsedProject?.project ?? workspaceProject;
-    const projectIdentity = identityProject
-      ? { id: identityProject.id, name: identityProject.name }
-      : null;
-    const current = this.active;
-    if (current?.root === canonicalRoot) {
-      this.active = {
-        ...current,
-        projectIdentity: projectIdentity ?? current.projectIdentity,
-        assets,
-        workspace: workspace ?? current.workspace,
-      };
-      return current.id;
-    }
+    const root = path.dirname(manifest);
+    // Reopening the same root admits an independent candidate against the
+    // durable dirty checkpoint. The incumbent remains usable until commit;
+    // an invalid or conflicted recovery cannot discard its unsaved state.
     const id = randomUUID();
-    this.active = {
-      id,
-      root: canonicalRoot,
-      projectIdentity,
-      assets,
-      ...(workspace ? { workspace } : {}),
+    this.stagedNative = {
+      session: { id, root, projectIdentity: null, assets: new Map() },
+      generation: expectedActivationGeneration,
+      previousActiveSessionId: this.active?.id ?? null,
     };
     return id;
+  }
+
+  commitStagedNativeProject(projectSessionId: string, expectedActivationGeneration: number): void {
+    const candidate = this.stagedNative;
+    this.assertProjectActivationCurrent(expectedActivationGeneration);
+    if (
+      !candidate ||
+      candidate.session.id !== projectSessionId ||
+      candidate.generation !== expectedActivationGeneration ||
+      candidate.previousActiveSessionId !== (this.active?.id ?? null) ||
+      !candidate.session.projectIdentity
+    )
+      throw new Error('Native Project candidate is not admitted or was superseded.');
+    this.active = candidate.session;
+    this.stagedNative = null;
+  }
+
+  discardStagedNativeProject(projectSessionId: string): void {
+    if (this.stagedNative?.session.id === projectSessionId) this.stagedNative = null;
   }
 
   currentSessionId(): string | null {
@@ -145,15 +149,17 @@ export class ActiveProjectSessionService {
   currentProjectIdentity(): { id: string; name: string } | null {
     const active = this.active;
     if (!active) return null;
-    const workspaceProject = active.workspace?.project().project;
-    const identity =
-      active.projectIdentity ??
-      (workspaceProject ? { id: workspaceProject.id, name: workspaceProject.name } : null);
+    const identity = active.projectIdentity;
     return identity ? { ...identity } : null;
   }
 
   requireActiveProjectRoot(projectSessionId: string): string {
-    const active = this.active;
+    const active =
+      this.active?.id === projectSessionId
+        ? this.active
+        : this.stagedNative?.session.id === projectSessionId
+          ? this.stagedNative.session
+          : null;
     if (!active || projectSessionId !== active.id) {
       throw new Error('Project session is stale or unknown.');
     }
@@ -161,23 +167,9 @@ export class ActiveProjectSessionService {
   }
 
   isCurrent(projectSessionId: string): boolean {
-    return this.active?.id === projectSessionId;
-  }
-
-  requireActiveWorkspace(projectSessionId: string): ActiveProjectWorkspaceSession {
-    const active = this.active;
-    if (!active || projectSessionId !== active.id)
-      throw new Error('Project session is stale or unknown.');
-    if (!active.workspace) throw new Error('Active Project session has no workspace state.');
-    return active.workspace;
-  }
-
-  refreshActiveWorkspaceAssets(projectSessionId: string): void {
-    const active = this.active;
-    if (!active || projectSessionId !== active.id)
-      throw new Error('Project session is stale or unknown.');
-    if (!active.workspace) throw new Error('Active Project session has no workspace state.');
-    this.active = { ...active, assets: admittedAssets(active.workspace.project()) };
+    return (
+      this.active?.id === projectSessionId || this.stagedNative?.session.id === projectSessionId
+    );
   }
 
   requireActiveAsset(
@@ -193,86 +185,33 @@ export class ActiveProjectSessionService {
     return { root: active.root, asset };
   }
 
-  async refreshActiveProject(
+  /** Publish a complete native-admitted Project identity and Asset capability
+   * set, without falling back to TypeScript workspace admission. */
+  async acceptNativeProject(
     projectSessionId: string,
-    projectFilePath: string,
-    contentProject?: unknown,
-  ): Promise<string> {
-    const active = this.active;
-    if (!active || projectSessionId !== active.id) {
+    nativeProject: AuthoringProject,
+  ): Promise<void> {
+    const staged = this.stagedNative?.session.id === projectSessionId;
+    const active = staged ? this.stagedNative!.session : this.active;
+    if (!active || active.id !== projectSessionId)
       throw new Error('Project session is stale or unknown.');
-    }
-    const canonicalProjectFile = await fs.realpath(path.resolve(projectFilePath));
-    const projectFileStat = await fs.stat(canonicalProjectFile);
-    if (!projectFileStat.isFile()) throw new Error('Project manifest is not a regular file.');
-    const canonicalRoot = path.dirname(canonicalProjectFile);
-    if (canonicalRoot !== active.root) {
-      throw new Error('Project result does not belong to the active Project session.');
-    }
-    const parsedProject =
-      contentProject === undefined ? null : parseAuthoringProject(contentProject);
-    const assets = parsedProject === null ? active.assets : admittedAssets(parsedProject);
-    if (this.active !== active) throw new Error('Project session is stale or unknown.');
-    if (parsedProject !== null) {
-      this.active = {
-        ...active,
-        assets,
-        projectIdentity: { id: parsedProject.project.id, name: parsedProject.project.name },
-      };
-    }
-    return active.id;
-  }
-
-  async attachToSuccessfulResult<
-    Result extends { ok?: boolean; success?: boolean; projectFilePath?: string },
-  >(result: Result, activationGeneration: number): Promise<Result & { projectSessionId?: string }> {
-    if (result.success !== true || result.ok === false) return result;
-    if (!result.projectFilePath) {
-      throw new Error('Successful Project lifecycle result omitted the Project manifest path.');
-    }
-    const raw = result as Record<string, unknown>;
-    const parsedEditor = editorProjectStateSchema.safeParse(raw.editorState);
-    const snapshot = raw._workspaceSnapshot as LoadedProjectWorkspaceSnapshot | undefined;
-    let workspace =
-      parsedEditor.success && snapshot
-        ? ActiveProjectWorkspaceSession.fromSnapshot(snapshot, parsedEditor.data)
-        : undefined;
-    if (!workspace) {
-      const root = path.dirname(path.resolve(result.projectFilePath));
-      const opened = await createNodeProjectWorkspaceService().open(root);
-      if (!opened.ok)
-        throw new Error(opened.diagnostics[0]?.message ?? 'Project workspace is invalid.');
-      workspace = ActiveProjectWorkspaceSession.fromOpened(opened);
-    }
-    const projectSessionId = await this.activateProjectFile(
-      result.projectFilePath,
-      activationGeneration,
-      'contentProject' in result ? result.contentProject : undefined,
-      workspace,
-    );
-    this.assertProjectActivationCurrent(activationGeneration);
-    const { _workspaceSnapshot: _privateWorkspaceSnapshot, ...publicResult } = raw;
-    return { ...publicResult, projectSessionId } as Result & { projectSessionId?: string };
-  }
-
-  async refreshSuccessfulSessionResult<
-    Result extends { ok?: boolean; success?: boolean; projectFilePath?: string },
-  >(projectSessionId: string, result: Result): Promise<Result & { projectSessionId?: string }> {
-    if (result.success !== true || result.ok === false) return result;
-    if (!result.projectFilePath) {
-      throw new Error('Successful Project persistence result omitted the Project manifest path.');
-    }
-    await this.refreshActiveProject(
-      projectSessionId,
-      result.projectFilePath,
-      'contentProject' in result ? result.contentProject : undefined,
-    );
-    return { ...result, projectSessionId };
+    const assets = admittedAssetsFromProject(nativeProject);
+    if ((staged ? this.stagedNative?.session : this.active) !== active)
+      throw new Error('Project session changed during native Asset authorization.');
+    const accepted = {
+      ...active,
+      assets,
+      nativeLayoutIds: new Set(Object.keys(nativeProject.layouts)),
+      projectIdentity: { id: nativeProject.project.id, name: nativeProject.project.name },
+    };
+    if (staged) this.stagedNative = { ...this.stagedNative!, session: accepted };
+    else this.active = accepted;
   }
 
   closeActiveProject(): void {
     this.projectActivationGeneration += 1;
     this.active = null;
+    this.stagedNative = null;
   }
 
   dispose(): void {
@@ -291,7 +230,12 @@ export class ActiveProjectSessionService {
   async listProjectSourceFiles(
     request: ListProjectSourceFilesRequest,
   ): Promise<ListProjectSourceFilesResponse> {
-    const active = this.active;
+    const active =
+      this.active?.id === request.projectSessionId
+        ? this.active
+        : this.stagedNative?.session.id === request.projectSessionId
+          ? this.stagedNative.session
+          : null;
     if (!active || request.projectSessionId !== active.id) {
       throw new Error('Project session is stale or unknown.');
     }
@@ -347,7 +291,14 @@ export class ActiveProjectSessionService {
     };
 
     await Promise.all([addTree('scripts'), addTree('shaders'), addTree('assets')]);
-    if (this.active !== active) throw new Error('Project session is stale or unknown.');
+    if (
+      (this.active?.id === request.projectSessionId
+        ? this.active
+        : this.stagedNative?.session.id === request.projectSessionId
+          ? this.stagedNative.session
+          : null) !== active
+    )
+      throw new Error('Project session is stale or unknown.');
 
     for (const [assetId, asset] of active.assets) {
       const current = files.get(asset.sourcePath);
@@ -358,21 +309,35 @@ export class ActiveProjectSessionService {
       });
     }
 
-    const snapshot = active.workspace?.snapshot();
-    if (snapshot) {
-      const canonical = new Set(snapshot.canonicalSourceFiles);
-      for (const [layoutId] of Object.entries(snapshot.project.layouts)) {
+    // The native candidate has no TypeScript Workspace snapshot. Derive
+    // layout source identities only from native-admitted Layout records and
+    // verify each physical file before exposing it to the source editor.
+    if (active.nativeLayoutIds) {
+      for (const layoutId of active.nativeLayoutIds) {
         for (const channel of ['rml', 'rcss', 'lua'] as const) {
-          const physicalPath = `records/layouts/${layoutId}/layout.${channel}`;
-          if (!canonical.has(physicalPath)) continue;
+          const relative = `records/layouts/${layoutId}/layout.${channel}`;
+          const absolute = path.join(active.root, relative);
+          let canonical: string;
+          try {
+            canonical = await fs.realpath(absolute);
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+            throw error;
+          }
+          if (path.relative(active.root, canonical) !== relative.split('/').join(path.sep))
+            throw new Error('Native Layout source identity escaped the active Project.');
+          const stats = await fs.stat(canonical);
+          if (!stats.isFile()) throw new Error('Native Layout source is not a regular file.');
           const displayPath = `layouts/${layoutId}/layout.${channel}`;
           files.set(displayPath, {
             id: displayPath,
             displayPath,
-            projectRelativePath: physicalPath,
+            projectRelativePath: relative,
             kind: `layout-${channel}`,
             text: true,
-            contentHash: snapshot.fileRevisions[physicalPath]?.contentHash,
+            contentHash: `sha256:${createHash('sha256')
+              .update(await fs.readFile(canonical))
+              .digest('hex')}`,
             layout: { id: layoutId, channel },
           });
         }
@@ -387,60 +352,6 @@ export class ActiveProjectSessionService {
       ),
       folders: Object.freeze([...folders].sort()),
     };
-  }
-
-  async projectSourceUsages(
-    request: ProjectSourceUsageRequest,
-  ): Promise<ProjectSourceUsageResponse> {
-    const active = this.active;
-    if (!active || request.projectSessionId !== active.id || !active.workspace)
-      throw new Error('Project session is stale or unknown.');
-    return {
-      usages: await projectSourceUsages(active.root, active.workspace.snapshot(), request.path),
-    };
-  }
-
-  async mutateProjectSources(
-    request: ProjectSourceStructuralRequest,
-  ): Promise<ProjectSourceStructuralResponse> {
-    const workspace = this.requireActiveWorkspace(request.projectSessionId);
-    const result = await mutateProjectSources(
-      workspace,
-      request.operation,
-      request.expectedRevisions,
-    );
-    if (result.success) this.refreshActiveWorkspaceAssets(request.projectSessionId);
-    return result;
-  }
-
-  async writeProjectSource(
-    request: ProjectSourceWriteRequest,
-  ): Promise<ProjectSourceWriteResponse> {
-    const workspace = this.requireActiveWorkspace(request.projectSessionId);
-    const listed = await this.listProjectSourceFiles({
-      projectSessionId: request.projectSessionId,
-    });
-    const source = listed.files.find((candidate) => candidate.id === request.sourceId);
-    const physicalPath =
-      source?.text === true
-        ? source.projectRelativePath
-        : request.expectedRevision === 'absent'
-          ? recreatableProjectSourcePhysicalPath(workspace.project(), request.sourceId)
-          : null;
-    if (!physicalPath)
-      return {
-        ok: false,
-        success: false,
-        sourceId: request.sourceId,
-        error: 'Source file is unavailable.',
-      };
-    return writeProjectSourceText(
-      workspace,
-      request.sourceId,
-      physicalPath,
-      request.expectedRevision,
-      request.text,
-    );
   }
 
   async read(request: ReadProjectTextSourcesRequest): Promise<ReadProjectTextSourcesResponse> {

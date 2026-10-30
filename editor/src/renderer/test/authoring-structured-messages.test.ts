@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  resolveStructuredMessageText,
-  structuredMessageForPath,
-  structuredMessages,
-} from '../../shared/authoring-structured-messages';
+import { structuredMessageForPath } from '../../shared/authoring-structured-messages';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { testTranslation } from './fixtures/localization-workflow';
 
 function projectWithRoom() {
   const project = createAuthoringProject({ id: 'structured-localization', name: 'Structured' });
@@ -54,44 +48,5 @@ describe('structured localization Messages', () => {
     reordered.rooms.foyer!.data.placements.reverse();
     const after = structuredMessageForPath(reordered, doorPath);
     expect(after?.id).toBe(before?.id);
-  });
-
-  it('discovers direct structured-file edits read-only using deterministic semantic identity', () => {
-    const project = projectWithRoom();
-    const directEdit = structuredClone(project);
-    directEdit.rooms.foyer!.data.description = inlineTextContent('Edited outside the editor.');
-    const beforeValidation = JSON.stringify(directEdit);
-
-    const discovered = structuredMessageForPath(directEdit, '/rooms/foyer/data/description');
-    expect(discovered).toMatchObject({ source: 'Edited outside the editor.' });
-    expect(validateAuthoringProject(directEdit)).not.toContainEqual(
-      expect.objectContaining({ code: 'localization.translation.message-missing' }),
-    );
-    expect(JSON.stringify(directEdit)).toBe(beforeValidation);
-    expect(discovered?.id).toBe(
-      structuredMessageForPath(project, '/rooms/foyer/data/description')?.id,
-    );
-  });
-
-  it('keeps ordinary record labels out of the Message model and permits sparse target translations', () => {
-    const project = projectWithRoom();
-    const messages = structuredMessages(project);
-    expect(messages.some((message) => message.source === 'Editor-only room label')).toBe(false);
-
-    const description = structuredMessageForPath(project, '/rooms/foyer/data/description');
-    expect(description).not.toBeNull();
-    if (!description) return;
-    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
-    project.localization.translations.fr = {
-      [description.id]: testTranslation('Un foyer tranquille.'),
-    };
-
-    expect(validateAuthoringProject(project)).not.toContainEqual(
-      expect.objectContaining({ code: 'localization.translation.message-missing' }),
-    );
-    expect(resolveStructuredMessageText(project, description, 'fr')).toEqual({
-      text: 'Un foyer tranquille.',
-      locale: 'fr',
-    });
   });
 });

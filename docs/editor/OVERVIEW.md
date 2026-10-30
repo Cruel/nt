@@ -29,8 +29,10 @@ their visible category and message must use plain, localizable product language 
 - `docs/editor/TECH_STACK.md` — editor dependency and component standards, shadcn/Base UI usage, forms, tables, source editing, preview, localization, and testing standards.
 - `docs/editor/CLI.md` — public standalone `noveltea` command, JSON, exit-code, discovery, and transaction contract.
 - `docs/editor/AGENT_KIT.md` — embedded/generated coding-agent guidance, schemas, versioning, and sync behavior.
-- `docs/editor/SCRIPTC_COMPATIBILITY.md` — standalone `noveltea` scriptc/QuickJS architecture,
-  host/native boundary, release pin, compatibility limits, and certification gate.
+- `docs/editor/SCRIPTC_COMPATIBILITY.md` — archived ScriptC/QuickJS architecture and retirement
+  notes; the current direct-C++ CLI contract is documented in `docs/editor/CLI.md`.
+- `docs/editor/NATIVE_CLI_CUTOVER_HANDOFF.md` — classified shipped/candidate/build-only CLI roots,
+  emitted provenance and exact #521 atomic switching/deletion/CI checklist.
 - `docs/editor/IMAGE_THUMBNAIL_CACHE.md` — permanent direct-image thumbnail cache contract,
   request/lifecycle behavior, clearing, fallbacks, and retained original-image consumers.
 - `docs/editor/TERMINAL.md` — embedded local Terminal ownership, trusted PTY creation, IPC lifecycle,
@@ -81,6 +83,8 @@ Direct image-asset thumbnails are not rendered-preview sessions. See
   local editor state, canonical paths, and cutover rules.
 - `docs/editor/project/ACTIVE_PROJECT_SESSION.md` — main-owned active-Project authority, opaque
   session lifecycle, revocation, and Project text-source reads.
+- `docs/editor/project/NATIVE_AUTHORING_WORKER.md` — opt-in Node-API Project session worker,
+  revisioned main-process transport, certification and native ownership boundaries.
 - `docs/editor/project/PROJECT_EXTERNAL_CHANGES_AND_CONFLICTS.md` — workspace watcher, revisions,
   three-way external reconciliation, conflict resolution, and transaction recovery.
 - `docs/editor/project/AUTHORING_DEPENDENCY_GRAPH.md` — pure structural graph ownership,

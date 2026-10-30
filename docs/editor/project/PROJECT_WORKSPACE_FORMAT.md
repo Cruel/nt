@@ -4,6 +4,26 @@ NovelTea projects use workspace v1. A project's identity is its root directory; 
 always `<project-root>/project.yaml`. Normal editor, compiler, preview, export, and workspace open
 paths accept no legacy monolithic project file or alternate manifest name.
 
+## Parallel native admission certification
+
+The host-only native authoring prototype (`tools/project_authoring/room_session.hpp`,
+`ProjectSession`) can now admit an existing workspace-v1 root and project manifest, validate and
+normalize the manifest using the generated native `WorkspaceManifest` contract, inventory its
+tracked YAML owners, distinguish freeform `scripts/`, `shaders/`, and `assets/` source paths from
+referenced Project notice/Asset attachment source paths, unrelated untracked files, and
+ignored `.noveltea/` and workflow state, and apply generic revisioned Project Settings/export
+edits to `project.yaml` without rewriting other files. It rejects retired JSON owners, missing
+required tracked fragments, invalid canonical record paths, malformed YAML, and invalid schema
+versions. Source-directory symlinks within the Project root are enumerated using their visible
+Project-relative paths; escapes and recursive directory cycles fail closed. The native fixture
+certification and TypeScript/Zod differential test exercise the
+admission and save/reopen boundary.
+
+This is a **certification-only parallel host path**, not an editor/CLI/project-open cutover.
+Traits, tracked editor metadata, complete contextual source validation, cross-record reference
+resolution, and crash-safe multi-owner transactional saves remain under subsequent #474 tickets.
+The production TypeScript workspace remains authoritative until the specified atomic cutover.
+
 ## Tracked source
 
 `project.yaml` has schema `noveltea.project.workspace` at version `1` and owns project identity,

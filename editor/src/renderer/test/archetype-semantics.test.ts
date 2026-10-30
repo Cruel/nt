@@ -27,8 +27,6 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
-import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 function addArchetype(
   project: AuthoringProject,
@@ -142,67 +140,6 @@ describe('Archetype authoring semantics', () => {
     });
   });
 
-  it('rejects cycles, cross-kind bases/attachments, multiple-base shapes, and state override paths', () => {
-    const cyclic = createAuthoringProject();
-    addArchetype(cyclic, 'one', 'room', { base: 'two' });
-    addArchetype(cyclic, 'two', 'room', { base: 'one' });
-    expect(validateAuthoringProject(cyclic).some((item) => item.message.includes('cyclic'))).toBe(
-      true,
-    );
-
-    const crossKindBase = createAuthoringProject();
-    addArchetype(crossKindBase, 'room-base', 'room');
-    addArchetype(crossKindBase, 'character-child', 'character', { base: 'room-base' });
-    expect(
-      validateAuthoringProject(crossKindBase).some((item) =>
-        item.message.includes('same gameplay-instance kind'),
-      ),
-    ).toBe(true);
-
-    const crossKindAttachment = createAuthoringProject();
-    addArchetype(crossKindAttachment, 'character-base', 'character');
-    crossKindAttachment.rooms.foyer = {
-      id: 'foyer',
-      label: 'Foyer',
-      data: defaultRoomData('Foyer'),
-      archetype: { $ref: { collection: 'archetypes', id: 'character-base' } },
-      archetypeOverrides: {},
-      traits: [],
-    };
-    expect(
-      validateAuthoringProject(crossKindAttachment).some((item) =>
-        item.message.includes('not a room Archetype'),
-      ),
-    ).toBe(true);
-
-    const invalidState = createAuthoringProject();
-    addArchetype(invalidState, 'hero-base', 'character', {
-      overrides: { '/data/initialWorldState/enabled': false },
-    });
-    expect(resolveArchetypeConfiguration(invalidState, 'hero-base')).toBeNull();
-    expect(
-      validateAuthoringProject(invalidState).some((item) =>
-        item.message.includes('cannot be inherited by a character Archetype'),
-      ),
-    ).toBe(true);
-
-    const invalidMultipleBase = createAuthoringProject() as unknown as Record<string, unknown>;
-    const archetypes = (invalidMultipleBase.archetypes ?? {}) as Record<string, unknown>;
-    archetypes.invalid = {
-      id: 'invalid',
-      label: 'Invalid',
-      data: {
-        kind: 'archetype',
-        instanceKind: 'room',
-        base: null,
-        bases: [],
-        overrides: {},
-      },
-    };
-    invalidMultipleBase.archetypes = archetypes;
-    expect(authoringProjectSchema.safeParse(invalidMultipleBase).success).toBe(false);
-  });
-
   it('clearing overrides reveals the Archetype and detaching materializes the effective configuration', () => {
     let project = createAuthoringProject();
     addArchetype(project, 'room-base', 'room', {
@@ -277,97 +214,6 @@ describe('Archetype authoring semantics', () => {
     expect(buildCharacterPreviewDocumentData(project, 'hero')).toMatchObject({
       displayName: 'Updated Archetype Hero',
     });
-  });
-
-  it('indexes instance and chain references to Archetypes for structural operations', () => {
-    const project = createAuthoringProject();
-    addArchetype(project, 'room-base', 'room');
-    addArchetype(project, 'room-child', 'room', { base: 'room-base' });
-    project.rooms.foyer = {
-      id: 'foyer',
-      label: 'Foyer',
-      data: defaultRoomData('Foyer'),
-      archetype: { $ref: { collection: 'archetypes', id: 'room-child' } },
-      archetypeOverrides: {},
-      traits: [],
-    };
-
-    const index = buildReferenceIndex(project);
-    expect(findUsages(index, { collection: 'archetypes', id: 'room-base' })).toEqual([
-      expect.objectContaining({
-        sourceCollection: 'archetypes',
-        sourceId: 'room-child',
-        kind: 'explicit-ref',
-      }),
-    ]);
-    expect(findUsages(index, { collection: 'archetypes', id: 'room-child' })).toEqual([
-      expect.objectContaining({
-        sourceCollection: 'rooms',
-        sourceId: 'foyer',
-        kind: 'explicit-ref',
-      }),
-    ]);
-  });
-
-  it('rejects the obsolete Property assignment namespace on unused Archetype configurations', () => {
-    const project = createAuthoringProject();
-    addArchetype(project, 'invalid-room', 'room', {
-      overrides: { '/properties/locked': 'not-a-boolean' },
-    });
-
-    expect(
-      validateAuthoringProject(project).some((item) =>
-        item.message.includes("Override path '/properties/locked' cannot be inherited"),
-      ),
-    ).toBe(true);
-  });
-
-  it('applies nested Feature Value/Default semantics inside Archetype configurations', () => {
-    const project = createAuthoringProject();
-    addArchetype(project, 'room-base', 'room', {
-      overrides: {
-        '/data/features': [
-          {
-            id: 'door',
-            label: 'Door',
-            traits: [],
-            localProperties: [],
-            defaultProperties: [
-              { id: 'locked', type: 'boolean', nullable: false, defaultValue: true },
-            ],
-            inventories: [],
-          },
-        ],
-      },
-    });
-    addArchetype(project, 'prop-base', 'interactable', {
-      overrides: {
-        '/data/features': [
-          {
-            id: 'surface',
-            label: 'Surface',
-            traits: [],
-            localProperties: [{ id: 'visible', type: 'boolean', nullable: false, value: true }],
-            defaultProperties: [],
-            inventories: [],
-          },
-        ],
-      },
-    });
-
-    const diagnostics = validateAuthoringProject(project);
-    expect(diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/archetypes/room-base/data/effectiveConfiguration/data/features/0/defaultProperties',
-          message: expect.stringContaining('Room Features are concrete'),
-        }),
-        expect.objectContaining({
-          path: '/archetypes/prop-base/data/effectiveConfiguration/data/features/0/localProperties',
-          message: expect.stringContaining('use Property Defaults'),
-        }),
-      ]),
-    );
   });
 
   it('routes hotspot and placement edits through effective Archetype configuration', () => {

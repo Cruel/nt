@@ -13,7 +13,6 @@ import {
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultSceneData } from '../../shared/project-schema/authoring-scenes';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import {
   parseDialogueCueMarkup,
   serializeDialogueCueMarkup,
@@ -430,20 +429,6 @@ describe('authoring dialogues schema', () => {
         expect.objectContaining({
           path: '/dialogues/intro/data/blocks/0/segments/0/cues/0/mutation/slotId',
           severity: 'error',
-        }),
-      ]),
-    );
-  });
-
-  it('reports Dialogue diagnostics through project validation', () => {
-    const project = createAuthoringProject();
-    project.dialogues.intro = { id: 'intro', label: 'Intro', data: defaultDialogueData('Intro') };
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          category: 'Dialogues',
-          path: '/dialogues/intro/data/blocks/0/segments/0/text',
-          severity: 'warning',
         }),
       ]),
     );

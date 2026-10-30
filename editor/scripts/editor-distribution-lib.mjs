@@ -65,6 +65,21 @@ export function assertCurrentEditorStageManifest(manifest) {
     );
   }
   if (!Array.isArray(manifest.files)) throw new Error('Stage manifest files must be an array.');
+  for (const [key, folder] of [
+    ['enginePreview', 'engine-preview'],
+    ['editorAssets', 'editor-assets'],
+    ['bin', 'bin'],
+    ['authoring', 'authoring'],
+  ]) {
+    const resource = manifest.resourceRoots?.[key];
+    if (
+      resource?.path !== `resources/${folder}` ||
+      typeof resource.sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/u.test(resource.sha256)
+    ) {
+      throw new Error(`Unsupported stage manifest resource root: ${key}.`);
+    }
+  }
   return manifest;
 }
 
@@ -403,6 +418,18 @@ async function copyPreview(destination) {
 }
 
 async function copyResources(resourcesRoot) {
+  const addonSource = process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim();
+  if (!addonSource || !(await pathExists(path.resolve(addonSource)))) {
+    throw new Error(
+      'Native authoring addon is required for editor distribution. Run node editor/scripts/build-native-authoring-addon.mjs and set NOVELTEA_AUTHORING_NODE_ADDON to the resulting .node file.',
+    );
+  }
+  const addonDestination = path.join(resourcesRoot, 'authoring', 'noveltea-authoring-node.node');
+  await mkdir(path.dirname(addonDestination), { recursive: true });
+  await cp(path.resolve(addonSource), addonDestination);
+  if ((await sha256File(path.resolve(addonSource))) !== (await sha256File(addonDestination))) {
+    throw new Error('Staged native authoring addon differs from the certified host binary.');
+  }
   const cliSource = resolveNovelTeaCliSource();
   if (!cliSource || !(await pathExists(cliSource))) {
     throw new Error(
@@ -712,12 +739,19 @@ export async function verifyStage(stageRoot, options = {}) {
   const metadata = await readJson(path.join(appRoot, 'package.json'));
   assertSafePackageMetadata(metadata);
 
+  const addonRoot = path.join(resourcesRoot, 'authoring');
+  const addonFile = 'noveltea-authoring-node.node';
+  if (
+    JSON.stringify(await readdir(addonRoot)) !== JSON.stringify([addonFile]) ||
+    !(await stat(path.join(addonRoot, addonFile))).isFile()
+  ) {
+    throw new Error('Staged native authoring addon closure must contain exactly one .node module.');
+  }
+
   for (const required of [
     'dist-electron/main/main.cjs',
     'dist-electron/preload/preload.cjs',
     'dist-electron/renderer/index.html',
-    'dist-electron/tools/project-compile.mjs',
-    'dist-electron/tools/generate-compiled-project-goldens.mjs',
   ]) {
     if (!(await pathExists(path.join(appRoot, required)))) {
       throw new Error(`Required staged application file is missing: ${required}`);
@@ -842,6 +876,12 @@ export async function verifyStage(stageRoot, options = {}) {
     ) {
       throw new Error('Native-tool resource-root hash mismatch.');
     }
+    if (
+      manifest.resourceRoots.authoring.sha256 !==
+      hashRecords(records.filter((record) => record.path.startsWith('resources/authoring/')))
+    ) {
+      throw new Error('Native authoring resource-root hash mismatch.');
+    }
   }
   if (runSharp) {
     await runSharpOperation(appRoot);
@@ -890,6 +930,12 @@ async function buildManifest(stageRoot, identity) {
       bin: {
         path: 'resources/bin',
         sha256: hashRecords(records.filter((record) => record.path.startsWith('resources/bin/'))),
+      },
+      authoring: {
+        path: 'resources/authoring',
+        sha256: hashRecords(
+          records.filter((record) => record.path.startsWith('resources/authoring/')),
+        ),
       },
     },
     relocationValidation: {

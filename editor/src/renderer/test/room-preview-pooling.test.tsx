@@ -4,7 +4,7 @@ import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
-import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
+import { publishNativeViewGraphFixture } from '../test-support/native-renderer-graph-fixture';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import {
   clearWorkbenchTabStates,
@@ -240,9 +240,7 @@ beforeEach(async () => {
     projectFilePath: '/mock/project.yaml',
     projectSessionId: '11111111-1111-4111-8111-111111111111',
   });
-  await authoringDependencyGraphService.publish(
-    useProjectStore.getState().lastMutationPublication!,
-  );
+  await publishNativeViewGraphFixture();
 });
 
 describe('RoomEditor persistent room preview', () => {

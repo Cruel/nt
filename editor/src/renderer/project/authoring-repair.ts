@@ -6,6 +6,11 @@ import type { AuthoringCollectionKey } from '../../shared/project-schema/authori
 import type { JsonPatchOperation } from './json-patch';
 import { parseJsonPointer, type JsonPointer } from './json-pointer';
 import type { JsonValue } from './json-value';
+import {
+  nativeGraphUsages,
+  requireNativeGraphPreflight,
+} from '../../main/services/native-semantic-graph-queries';
+import type { NativeRendererGraphSnapshot } from './native-authoring-graph-projection';
 
 export interface AuthoringRepairPreviewItem {
   edgeId: string;
@@ -237,7 +242,36 @@ export function generateAuthoringRepairPlan(input: {
   const patches: JsonPatchOperation[] = [];
   const preview: AuthoringRepairPreviewItem[] = [];
   const warnings: string[] = [];
-  const edges = authoringRepairEdgesForTarget(input.snapshot, input.target);
+  if ('nativeGraph' in input.snapshot) {
+    const native = (input.snapshot as NativeRendererGraphSnapshot).nativeGraph;
+    try {
+      requireNativeGraphPreflight(
+        native,
+        native.projectSessionId,
+        native.workingRevision,
+        native.generation,
+      );
+    } catch {
+      return { status: 'blocked', reason: 'Native graph evidence is incomplete.' };
+    }
+    const sources = nativeGraphUsages(native, input.target);
+    if (!input.force && sources.recognized.length > 0)
+      return {
+        status: 'blocked',
+        reason: 'Exact native source references require author review or Force Delete.',
+      };
+    if (sources.possible.length)
+      warnings.push(
+        `${sources.possible.length} possible source reference(s) require manual review.`,
+      );
+    if (input.force && sources.recognized.length)
+      warnings.push(
+        `${sources.recognized.length} exact source reference(s) remain after Force Delete.`,
+      );
+  }
+  const edges = authoringRepairEdgesForTarget(input.snapshot, input.target).filter(
+    (edge) => !edge.id.startsWith('native-source-occurrence:'),
+  );
   if (!input.force) {
     for (const edge of edges) {
       const replacementId = input.replacements?.[edge.id];

@@ -1,13 +1,14 @@
+import { analyzeManagedLuaLocalization } from './authoring-source-downstream';
 import {
-  analyzeManagedLuaLocalization,
   collectAuthoringLuaSources,
   type AuthoringLuaSourceDescriptor,
-} from './authoring-source-analysis';
+} from './authoring-native-lua-sources';
 import { packageMessageIds } from './authoring-message-lowering';
 import { resolveMessage } from './message-resolution';
 import { parseJsonPointer } from './json-pointer';
 import { cloneAuthoringProject, type AuthoringProject } from './project-schema/authoring-project';
 import {
+  compareMessagePatternCaseKeys,
   messagePlaceholderNames,
   type MessagePattern,
 } from './project-schema/authoring-localization';
@@ -504,7 +505,7 @@ function luaQuotedString(value: string): string {
 function luaMessagePattern(pattern: MessagePattern): string {
   if (pattern.kind === 'text') return `{kind="text",text=${luaQuotedString(pattern.text)}}`;
   const cases = Object.entries(pattern.cases)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareMessagePatternCaseKeys(left, right))
     .map(([key, branch]) => `[${luaQuotedString(key)}]=${luaMessagePattern(branch)}`)
     .join(',');
   return `{kind=${luaQuotedString(pattern.kind)},argument=${luaQuotedString(pattern.argument)},cases={${cases}}}`;

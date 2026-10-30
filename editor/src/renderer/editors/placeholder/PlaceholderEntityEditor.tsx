@@ -5,12 +5,12 @@ import {
   authoringCollectionMetadata,
   isAuthoringCollectionKey,
 } from '../../../shared/project-schema/authoring-collections';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 
 export function PlaceholderEntityEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const collection = isAuthoringCollectionKey(tab.resource?.collection)
     ? tab.resource.collection
     : null;

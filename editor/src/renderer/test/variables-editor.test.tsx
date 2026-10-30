@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vite-plus/test';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { VariablesEditor } from '@/editors/variables/VariablesEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -10,6 +10,7 @@ import {
 } from '../../shared/project-schema/authoring-project';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { captureWorkbenchTabState, clearWorkbenchTabStates } from '@/workbench/workbench-tab-state';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 beforeEach(() => {
   useCommandStore.getState().resetCommandHistory();
@@ -21,11 +22,7 @@ describe('VariablesEditor', () => {
   it('restores an unfinished creation draft after remount', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
     const tab = { id: 'tab:variables', title: 'Variables', editorType: 'variables' };
     const view = render(<VariablesEditor tab={tab} />);
     await user.click(screen.getByRole('button', { name: 'New variable' }));
@@ -45,11 +42,7 @@ describe('VariablesEditor', () => {
       label: 'has-key',
       data: defaultVariableData('boolean'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(
       <VariablesEditor
@@ -63,15 +56,17 @@ describe('VariablesEditor', () => {
     await user.type(screen.getByPlaceholderText('Uses the ID when empty'), 'Score');
     await user.click(screen.getByRole('button', { name: 'Create variable' }));
 
-    expect(useProjectStore.getState().document).toMatchObject({
-      variables: {
-        'has-key': { label: 'has-key' },
-        score: {
-          label: 'Score',
-          data: { kind: 'variable', type: 'boolean', nullable: false, value: false },
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        variables: {
+          'has-key': { label: 'has-key' },
+          score: {
+            label: 'Score',
+            data: { kind: 'variable', type: 'boolean', nullable: false, value: false },
+          },
         },
-      },
-    });
+      }),
+    );
   });
 
   it('edits existing variable metadata and enum values in the shared dialog', async () => {
@@ -83,11 +78,7 @@ describe('VariablesEditor', () => {
       description: '',
       data: { ...defaultVariableData('enum'), enumValues: ['default'], value: 'default' },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(
       <VariablesEditor
@@ -106,15 +97,17 @@ describe('VariablesEditor', () => {
     await user.type(enumValues, 'idle, active');
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    expect(useProjectStore.getState().document).toMatchObject({
-      variables: {
-        state: {
-          label: 'State Label',
-          description: 'Current state',
-          data: { type: 'enum', enumValues: ['idle', 'active'], value: 'idle' },
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        variables: {
+          state: {
+            label: 'State Label',
+            description: 'Current state',
+            data: { type: 'enum', enumValues: ['idle', 'active'], value: 'idle' },
+          },
         },
-      },
-    });
+      }),
+    );
   });
 
   it('removes enumValues when changing an enum variable to boolean', async () => {
@@ -129,11 +122,7 @@ describe('VariablesEditor', () => {
         value: 'first',
       },
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project);
 
     render(
       <VariablesEditor
@@ -146,12 +135,14 @@ describe('VariablesEditor', () => {
     await user.click(await screen.findByRole('option', { name: 'Boolean' }));
     await user.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    const document = useProjectStore.getState().document;
-    expect(isAuthoringProject(document)).toBe(true);
-    if (!isAuthoringProject(document)) throw new Error('Expected a project');
-    const variable = document.variables['enum-test'];
-    expect(variable?.data.type).toBe('boolean');
-    expect(variable?.data.enumValues).toBeUndefined();
+    await waitFor(() => {
+      const document = useProjectStore.getState().document;
+      expect(isAuthoringProject(document)).toBe(true);
+      if (!isAuthoringProject(document)) throw new Error('Expected a project');
+      const variable = document.variables['enum-test'];
+      expect(variable?.data.type).toBe('boolean');
+      expect(variable?.data.enumValues).toBeUndefined();
+    });
     expect(screen.getByText('Enum')).toBeInTheDocument();
   });
 });

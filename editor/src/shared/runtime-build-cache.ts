@@ -10,26 +10,27 @@ import {
   type PreparedRuntimeArtifact,
 } from './project-schema/prepared-runtime-artifact';
 import {
-  PROJECT_WORKSPACE_SCHEMA,
-  PROJECT_WORKSPACE_SCHEMA_VERSION,
-  assertProjectWorkspacePathContained,
-  assetSourcePaths,
-  compareProjectWorkspaceUnicodeCodePoints,
-  type LoadedProjectWorkspaceSnapshot,
-  type ProjectWorkspaceFileSystem,
-  type ProjectWorkspaceProcessLiveness,
-} from './project-workspace';
-import {
   captureProjectSourceInventory,
-  ProjectSourceInventoryError,
   projectSourceDiscoveryScopesEqual,
   projectSourceInventoriesEqual,
+  ProjectSourceInventoryError,
   type ProjectSourceDiscoveryScope,
   type ProjectSourceInventory,
 } from './project-source-inventory';
-import { sha256PrefixedUtf8 } from './web-crypto';
+import { assetSourcePaths } from './project-workspace/project-asset-source-paths';
+import type { LoadedProjectWorkspaceSnapshot } from './project-workspace/project-workspace-contracts';
+import {
+  PROJECT_WORKSPACE_SCHEMA,
+  PROJECT_WORKSPACE_SCHEMA_VERSION,
+} from './project-workspace/project-workspace-contracts';
+import {
+  assertProjectWorkspacePathContained,
+  type ProjectWorkspaceFileSystem,
+  type ProjectWorkspaceProcessLiveness,
+} from './project-workspace/project-workspace-file-system';
+import { compareProjectWorkspaceUnicodeCodePoints } from './project-workspace/workspace-codepoint-order';
 import { runtimeTestCatalogSchema, type RuntimeTestCatalog } from './runtime-test-catalog';
-import { validateAuthoringProject } from './project-schema/authoring-validation';
+import { sha256PrefixedUtf8 } from './web-crypto';
 
 export const RUNTIME_BUILD_CACHE_SCHEMA = 'noveltea.runtime-build-cache' as const;
 export const RUNTIME_BUILD_CACHE_ROOT = '.noveltea/cache/runtime' as const;
@@ -858,6 +859,12 @@ async function publishRuntimeBuildCache(
   host: RuntimeBuildCachePublicationHost,
   variant: string,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  admittedAuthoringDiagnostics?: readonly Readonly<{
+    code: string;
+    severity: 'error' | 'warning' | 'info';
+    path: string;
+    message: string;
+  }>[],
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   if (!fileSystem.readPathMetadata) return { published: false, reason: 'metadata-unavailable' };
 
@@ -881,7 +888,9 @@ async function publishRuntimeBuildCache(
   if (!sameInputSnapshot(expectedTestInputs, currentTestInputs))
     return { published: false, reason: 'test-inputs-changed-during-preparation' };
 
-  const authoringDiagnostics = validateAuthoringProject(currentSnapshot.project).map((item) => ({
+  if (!admittedAuthoringDiagnostics)
+    return { published: false, reason: 'native-authoring-admission-required' };
+  const authoringDiagnostics = admittedAuthoringDiagnostics.map((item) => ({
     code: item.code,
     severity: item.severity,
     path: item.path,
@@ -1029,6 +1038,12 @@ export function publishCanonicalRuntimeBuildCache(
   reusedArtifactText: string | undefined,
   host: RuntimeBuildCachePublicationHost,
   compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
+  admittedAuthoringDiagnostics?: readonly Readonly<{
+    code: string;
+    severity: 'error' | 'warning' | 'info';
+    path: string;
+    message: string;
+  }>[],
 ): Promise<Readonly<{ published: boolean; reason?: string }>> {
   return publishRuntimeBuildCache(
     fileSystem,
@@ -1042,33 +1057,6 @@ export function publishCanonicalRuntimeBuildCache(
     host,
     RUNTIME_BUILD_CACHE_CANONICAL_VARIANT,
     compilerIdentity,
-  );
-}
-
-export function publishRuntimeBuildCacheVariant(
-  fileSystem: ProjectWorkspaceFileSystem,
-  snapshot: LoadedProjectWorkspaceSnapshot,
-  currentSnapshot: LoadedProjectWorkspaceSnapshot,
-  artifact: PreparedRuntimeArtifact,
-  testCatalog: RuntimeTestCatalog,
-  expectedInputs: RuntimeBuildCacheInputSnapshot,
-  expectedTestInputs: RuntimeBuildCacheInputSnapshot,
-  reusedArtifactText: string | undefined,
-  host: RuntimeBuildCachePublicationHost,
-  variant: string,
-  compilerIdentity = RUNTIME_BUILD_CACHE_COMPILER_IDENTITY,
-): Promise<Readonly<{ published: boolean; reason?: string }>> {
-  return publishRuntimeBuildCache(
-    fileSystem,
-    snapshot,
-    currentSnapshot,
-    artifact,
-    testCatalog,
-    expectedInputs,
-    expectedTestInputs,
-    reusedArtifactText,
-    host,
-    variant,
-    compilerIdentity,
+    admittedAuthoringDiagnostics,
   );
 }

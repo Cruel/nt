@@ -19,7 +19,6 @@ import {
   parseComfyUiWorkflowDefinition,
   type ComfyUiWorkflowKey,
 } from '../shared/comfyui-workflows';
-import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import {
   assetAttachmentPurposeValues,
   isSafeProjectAssetPath,
@@ -208,6 +207,7 @@ export function createGuardedIpcRegistrar(options: {
   getOwner(): EditorWindow | null;
   documentPolicy: EditorDocumentPolicy;
   onInvocation?: (record: ToolingActivityRecord) => void;
+  beforeInvocation?: (channel: string) => void;
 }) {
   return {
     handle<Arguments extends unknown[], Result>(
@@ -229,6 +229,7 @@ export function createGuardedIpcRegistrar(options: {
         const id = `ipc-${++ipcInvocationSequence}`;
         const startedAt = Date.now();
         try {
+          options.beforeInvocation?.(channel);
           const result = await handler(...parsedArguments);
           options.onInvocation?.({
             id,
@@ -447,7 +448,9 @@ export const reimportAssetArgumentsSchema = z.tuple([
 
 export const auditProjectAssetsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  // The renderer may still send a display projection for API compatibility;
+  // only the main-owned native session supplies authoritative Project data.
+  z.unknown(),
 ]);
 
 export const projectAssetPathsArgumentsSchema = z.tuple([
@@ -457,7 +460,7 @@ export const projectAssetPathsArgumentsSchema = z.tuple([
 
 export const organizeUntrackedProjectAssetArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  z.unknown(),
   projectRelativePathSchema,
   z.enum(['support', 'correct-folder']),
 ]);
@@ -579,11 +582,272 @@ export const saveProjectEditorMetadataArgumentsSchema = z.tuple([
 ]);
 export const saveProjectCopyAsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  // Only editor-local state is extracted by Save Copy; Project files are
+  // copied from verified native saved sources, never serialized from here.
+  z.unknown(),
   z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
   scriptSourcePathsSchema,
 ]);
 export const projectSessionArgumentsSchema = z.tuple([projectSessionIdSchema]);
+
+/** Native cutover command IPC: edits are JSON-only, bounded and required to
+ * carry the working revision that the renderer based its command intent on.
+ * The worker still independently checks every pointer, owner and revision. */
+const nativeProjectPointerSchema = z
+  .string()
+  .min(2)
+  .max(2048)
+  .startsWith('/')
+  .refine(
+    (value) =>
+      value
+        .slice(1)
+        .split('/')
+        .every((segment) => /^(?:[^~]|~0|~1)*$/u.test(segment)),
+    'Native Project mutation paths must be canonical JSON Pointers.',
+  );
+const nativeProjectPatchSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('add'), path: nativeProjectPointerSchema, value: z.json() }).strict(),
+  z
+    .object({ op: z.literal('replace'), path: nativeProjectPointerSchema, value: z.json() })
+    .strict(),
+  z.object({ op: z.literal('remove'), path: nativeProjectPointerSchema }).strict(),
+]);
+export const nativeProjectPatchArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.array(nativeProjectPatchSchema).min(1).max(2100),
+  z
+    .record(
+      z.string().regex(/^layouts\/[a-z][a-z0-9-]*$/u),
+      z.string().regex(/^layouts\/[a-z][a-z0-9-]*$/u),
+    )
+    .optional(),
+]);
+/** Scoped native authoring Save; no renderer-supplied root or disk content. */
+export const nativeProjectSaveUnitArgumentsSchema = z
+  .tuple([
+    projectSessionIdSchema,
+    z.number().int().nonnegative(),
+    z.union([
+      z
+        .string()
+        .min(3)
+        .max(256)
+        .regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+      z
+        .array(
+          z
+            .string()
+            .min(3)
+            .max(256)
+            .regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+        )
+        .max(128),
+    ]),
+    z
+      .object({
+        keepMine: z.boolean().optional(),
+        comments: z.enum(['keep', 'remove', 'cancel', 'perEdit']).optional(),
+        structuralPathsByOwner: z
+          .record(
+            z
+              .string()
+              .regex(
+                /^(?:project|editor|traits|i18n\/(?:[a-z][a-z0-9-]*|(?:locales|assets)\/[a-zA-Z0-9-]+)\.yaml|[a-z]+\/[a-z][a-z0-9-]*)$/u,
+              ),
+            z.array(z.string().startsWith('/').max(512)).min(1).max(128),
+          )
+          .refine((owners) => Object.keys(owners).length <= 2100, 'Too many native Save owners.')
+          .optional(),
+        assetTransition: z
+          .discriminatedUnion('kind', [
+            z
+              .object({
+                kind: z.literal('publish'),
+                projectRelativePaths: z
+                  .array(
+                    projectRelativePathSchema.refine(
+                      (value) => value.startsWith('assets/') && isSafeProjectAssetPath(value),
+                    ),
+                  )
+                  .min(1)
+                  .max(2000),
+              })
+              .strict(),
+            z
+              .object({
+                kind: z.literal('trash'),
+                projectRelativePaths: z
+                  .array(
+                    projectRelativePathSchema.refine(
+                      (value) => value.startsWith('assets/') && isSafeProjectAssetPath(value),
+                    ),
+                  )
+                  .min(1)
+                  .max(2000),
+              })
+              .strict(),
+            z
+              .object({
+                kind: z.literal('restore'),
+                moves: z
+                  .array(
+                    z
+                      .object({
+                        projectRelativePath: projectRelativePathSchema.refine(
+                          (value) => value.startsWith('assets/') && isSafeProjectAssetPath(value),
+                        ),
+                        trashRelativePath: projectRelativePathSchema,
+                      })
+                      .strict()
+                      .refine((move) => {
+                        const prefix = '.noveltea/trash/assets/';
+                        const suffix = `/${move.projectRelativePath}`;
+                        if (
+                          !move.trashRelativePath.startsWith(prefix) ||
+                          !move.trashRelativePath.endsWith(suffix)
+                        )
+                          return false;
+                        const id = move.trashRelativePath.slice(prefix.length, -suffix.length);
+                        return id.length > 0 && !id.includes('/');
+                      }),
+                  )
+                  .min(1)
+                  .max(2000),
+              })
+              .strict(),
+          ])
+          .optional(),
+        textPaths: z
+          .array(
+            projectRelativePathSchema.refine(
+              (value) =>
+                /^(?:scripts|assets)\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:lua|rml|rcss)$/u.test(
+                  value,
+                ) || /^records\/layouts\/[a-z][a-z0-9-]*\/layout\.(?:lua|rml|rcss)$/u.test(value),
+              'Native mixed Save must target an admitted Lua/RML/RCSS source.',
+            ),
+          )
+          .min(1)
+          .max(128)
+          .optional(),
+        textContents: z
+          .record(
+            z.string(),
+            z.string().refine((value) => utf8ByteLength(value) <= 4 * 1024 * 1024),
+          )
+          .optional(),
+      })
+      .strict(),
+  ])
+  .refine(
+    ([, , owners, options]) =>
+      typeof owners === 'string' ||
+      owners.length > 0 ||
+      Boolean(options.textPaths?.length) ||
+      Boolean(options.structuralPathsByOwner && Object.keys(options.structuralPathsByOwner).length),
+    'Native Save must include a logical Save unit or staged text source.',
+  )
+  .refine(
+    ([, , owners, options]) =>
+      !options.structuralPathsByOwner ||
+      (Array.isArray(owners) && owners.length === 0 && !options.textPaths),
+    'Structural native Save uses an exclusive explicit owner selection.',
+  )
+  .refine(([, , , options]) => {
+    if (!options.textPaths?.length) return !options.textContents;
+    if (!options.textContents) return false;
+    const paths = Object.keys(options.textContents);
+    return (
+      paths.length === options.textPaths.length &&
+      paths.every((path) => options.textPaths!.includes(path)) &&
+      paths.reduce((count, path) => count + utf8ByteLength(options.textContents![path]!), 0) <=
+        16 * 1024 * 1024
+    );
+  }, 'Native mixed Save requires matching bounded staged source contents');
+export const nativeProjectSaveTextArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  projectRelativePathSchema.refine(
+    (value) =>
+      /^(?:scripts|assets)\/(?:[a-zA-Z0-9_.-]+\/)*[a-zA-Z0-9_.-]+\.(?:lua|rml|rcss)$/u.test(
+        value,
+      ) || /^records\/layouts\/[a-z][a-z0-9-]*\/layout\.(?:lua|rml|rcss)$/u.test(value),
+    'Native text Save must target an admitted Lua/RML/RCSS source.',
+  ),
+  z
+    .string()
+    .min(7)
+    .max(71)
+    .regex(/^sha256:[0-9a-f]{64}$/u),
+  z.string().refine((value) => utf8ByteLength(value) <= 4 * 1024 * 1024),
+]);
+export const nativeProjectValidateArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+]);
+export const nativeProjectReconcileArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.union([
+    z.literal('project'),
+    z.literal('editor'),
+    z.literal('traits'),
+    z.enum([
+      'i18n/project.yaml',
+      'i18n/messages.yaml',
+      'i18n/usage-notes.yaml',
+      'i18n/tracking.yaml',
+      'i18n/orphans.yaml',
+    ]),
+    z
+      .string()
+      .max(128)
+      .regex(/^i18n\/(?:locales|assets)\/[a-z][a-zA-Z0-9-]*\.yaml$/u),
+    z
+      .string()
+      .max(128)
+      .regex(
+        /^(?:animations|archetypes|assets|characters|dialogues|interactables|interactions|layouts|maps|materials|rooms|scenes|scripts|tests|variables|verbs|i18n)\/[a-z][a-z0-9-]*$/u,
+      ),
+  ]),
+]);
+export const nativeProjectUseDiskUnitArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z
+    .string()
+    .min(3)
+    .max(256)
+    .regex(/^[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*){1,2}$/u),
+]);
+export const nativeProjectPrepareRuntimeArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  shaderVariantSchema,
+]);
+export const nativeProjectRunTestArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z
+    .string()
+    .min(1)
+    .max(MAX_PLAYBACK_TEST_ID_LENGTH)
+    .regex(/^[a-z][a-z0-9-]*$/u),
+]);
+export const nativeProjectRunSuiteArgumentsSchema = nativeProjectValidateArgumentsSchema;
+export const nativeProjectPrepareExportArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.enum(['runtime', 'platform']),
+  z.union([z.string().min(1).max(MAX_EXPORT_IDENTIFIER_LENGTH), z.undefined()]),
+]);
+export const nativeProjectExportPackageArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  z.number().int().nonnegative(),
+  z.string().min(1).max(MAX_EXPORT_ARGUMENT_LENGTH),
+]);
 export const projectAssetIdentityArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.string().min(1).max(512),
@@ -704,29 +968,29 @@ const playbackSpecSchema = z
 
 export const validateProjectArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  z.unknown(),
   z.enum(['disk-authoritative', 'session-local']),
 ]);
-export const listPlaybackTestsArgumentsSchema = z.tuple([authoringProjectSchema]);
+export const listPlaybackTestsArgumentsSchema = z.tuple([z.unknown()]);
 const runtimeRecoveryFingerprintSchema = z.record(
   z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
   z.record(z.string().min(1).max(MAX_PROJECT_PATH_LENGTH), editorPendingRawInputSchema),
 );
 export const prepareEditorRuntimeArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  authoringProjectSchema,
+  z.unknown(),
   runtimeRecoveryFingerprintSchema,
   shaderVariantSchema,
 ]);
 export const runPlaybackTestArgumentsSchema = z.tuple([
   projectSessionIdSchema.nullable(),
-  authoringProjectSchema,
+  z.unknown(),
   z.string().min(1).max(MAX_PLAYBACK_TEST_ID_LENGTH),
   runtimeRecoveryFingerprintSchema.default({}),
 ]);
 export const runPlaybackSuiteArgumentsSchema = z.tuple([
   projectSessionIdSchema.nullable(),
-  authoringProjectSchema,
+  z.unknown(),
   runtimeRecoveryFingerprintSchema.default({}),
 ]);
 export const runPlaybackSpecArgumentsSchema = z.tuple([
@@ -921,7 +1185,7 @@ export const stagePlatformExportArgumentsSchema = z.tuple([
 
 const projectPlatformExportIpcRequestSchema = z
   .object({
-    project: authoringProjectSchema,
+    project: z.unknown(),
     profileId: boundedExportIdentifierSchema,
     outputDirectory: boundedExportStringSchema,
     operationId: boundedExportIdentifierSchema.optional(),

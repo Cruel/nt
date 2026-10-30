@@ -1,5 +1,16 @@
 # Project External Changes and Conflicts
 
+Native candidate lifecycle sessions use `NativeEditorObserverWatchService`
+instead of the legacy watcher documented in the historical sections below.
+Only one observer holds the current native `projectSessionId`; closing or
+replacing that session disposes its subscriptions, and late events retain the
+old session ID so renderer reconciliation discards them. The native worker
+retains exact source revisions, per-owner conflicts and dirty recovery; the
+main process does not reassemble a legacy Workspace after native observation.
+The old watcher remains in the ordinary production path until #521, not
+alongside an admitted native session. See the
+[native main authority ledger](../../architecture/certifications/NATIVE_EDITOR_MAIN_AUTHORITY_BOUNDARY.md).
+
 NovelTea projects are ordinary source trees, so the editor must coexist with file edits made by coding agents, source-control tools, and other editors. The project workspace watcher and reconciliation layer are the authority for those changes; there is no separate asset-only watcher and no whole-project content-fingerprint conflict gate.
 
 ## Watching and coherent publication
@@ -34,6 +45,32 @@ Independent records and independent logical owners inside the same physical file
 Foreground editor-owned saves do not wait for the workspace watcher's write-stability or quiet-period timers and do not call `ProjectWorkspaceService.open()` on the common active-session path. The session already owns the coherent disk baseline. Main applies the selected logical mutation in memory, derives the union of before/after physical targets, and the transaction layer freshly hashes only those target files for exact CAS immediately before replacement (and again before application as required by the transaction protocol). Post-commit source revisions for bytes NovelTea just wrote are derived from those already-known bytes and synchronously adopted into the session. The final recovery/local editor state is then written once. Chokidar's later event for a NovelTea-owned source compares the observed exact revision with the session's known post-write revision; a match is a no-op, while different bytes are a genuine subsequent external edit. Never reintroduce a full workspace open, directory walk, unrelated authoring-file hash, or Asset hash into ordinary Ctrl+S.
 
 ## Conflict state and resolution
+
+The admitted native editor route consumes watcher **path hints** rather than the
+legacy reassembled authoring document. It maps each changed tracked YAML path to
+its native physical owner, serializes revision-gated native reconciliation with
+ordinary editor commands, and publishes the worker's verified per-owner working
+source and saved baseline. Localization source fragments update only their owned
+logical localization keys. The editor recovery projection retains local patches
+and presents overlapping native conflict paths in the existing Problems panel
+and conflict dialog. The original TypeScript three-way merge remains available
+only for legacy sessions; it is not a native authoring authority.
+
+In an admitted session, **Use Disk** invokes native save-unit discard before the
+renderer adopts native snapshots. **Keep Mine** sends an explicit native Save
+override and remains subject to exact physical revision checks; **Cancel** closes
+the conflict dialog without discarding either side. Ordinary Save still refuses
+unresolved native conflicts, and the dialog can be reopened on the next Save.
+Conflicts and reconciliation errors do not cause an automatic legacy reload.
+An external deletion of a clean optional YAML owner removes the renderer's
+admitted record; a dirty owner instead retains its local value and publishes a
+whole-owner conflict with an `absent` disk revision. Ordinary native Save cannot
+recreate that record until Keep Mine explicitly authorizes the overwrite.
+Native YAML parse failures remain attributed to the physical owner and clear
+once that source becomes valid; external Lua/RML/RCSS diagnostics continue to
+use their source watcher path. For native scoped Save, comment-bearing record
+deletions require a review of every affected file before a single grouped
+Remove Comments approval is allowed to enter the revision-checked transaction.
 
 Overlapping changes preserve `B`, `L`, and `E` in ignored editor recovery state and block ordinary Save for that save unit. The conflict dialog identifies the affected unit and logical paths and offers:
 

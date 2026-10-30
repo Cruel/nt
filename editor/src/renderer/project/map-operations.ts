@@ -1,14 +1,14 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
-import { parseMapData, validateMapData } from '../../shared/project-schema/authoring-maps';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseMapData } from '../../shared/project-schema/authoring-maps';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 
 export function replaceMapDataPatches(
   document: unknown,
   payload: { mapId: string; data: unknown },
 ) {
   const path = buildJsonPointer(['maps', payload.mapId, 'data']);
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return {
       patches: [],
       diagnostics: [
@@ -32,14 +32,6 @@ export function replaceMapDataPatches(
     return {
       patches: [],
       diagnostics: [{ severity: 'error' as const, message: 'Map data is invalid.', path }],
-    };
-  const failure = validateMapData(document, payload.mapId, { ...record, data }).find(
-    (item) => item.severity === 'error',
-  );
-  if (failure)
-    return {
-      patches: [],
-      diagnostics: [{ severity: 'error' as const, message: failure.message, path: failure.path }],
     };
   return {
     patches: [{ op: 'replace' as const, path, value: toJsonValue(data) }],

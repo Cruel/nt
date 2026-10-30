@@ -22,8 +22,8 @@ The repository-root `VERSION` file is the sole authored NovelTea product version
 
 CMake reads `VERSION` before `project()`: `NOVELTEA_VERSION` retains the complete product version,
 while the numeric `MAJOR.MINOR.PATCH` core is supplied to CMake's `project(VERSION ...)` field. Vite+
-uses the same shared parser as release tooling and injects the value into editor and Node/ScriptC CLI
-bundles, while ScriptC release staging embeds it into the standalone host. Release editor staging
+uses the same shared parser as release tooling and injects the value into editor bundles; the
+native C++ standalone CLI embeds its pinned build identity during the CMake build. Release staging
 writes the canonical product version into packaged application metadata. Non-release staging,
 including ordinary local and CI builds, uses a derived development build identity instead: `1.0.0`
 becomes `1.0.0-dev.<revision>`, and an existing prerelease such as `1.1.0-rc.1` becomes
@@ -58,6 +58,14 @@ pnpm package:smoke
 `dev:skip-preview` requires that preview to already exist. From the root, prefix with `pnpm -C editor run`.
 
 ## Vite+ Toolchain
+
+Build-only compiled-Project/golden/platform-fixture entrypoints now emit to
+`editor/dist-build-tools` and are **not staged** inside `dist-electron`.
+The shipped `noveltea` CLI is the direct C++ executable from #551. ScriptC,
+QuickJS, the former Node reference CLI and candidate-only forwarding build are
+not production entrypoints. Editor main/preload/renderer and build-only schema
+generation still use JavaScript/TypeScript. See [CLI](CLI.md) and the
+[production qualification ledger](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md).
 
 Vite+ owns renderer development/build, Vitest, Oxlint, Oxfmt, the cacheable task graph, and the
 main/preload/Node-tool executable bundles. `tsc --noEmit` remains an explicit independent check.
@@ -117,6 +125,7 @@ stage/
   resources/
     engine-preview/
     editor-assets/
+    authoring/noveltea-authoring-node.node
     bin/
     tools/ffmpeg/
   stage-manifest.json
@@ -125,6 +134,27 @@ stage/
 `stage-manifest.json` uses the exact `noveltea.editor-stage-manifest` identity and version 1. Package
 verification rejects a missing or unsupported identity/version instead of treating an older stage as
 current.
+
+The native Project authoring addon is a **production editor host-only** Node-API module. Before
+staging, build it with `node editor/scripts/build-native-authoring-addon.mjs --addon-only`, then set
+`NOVELTEA_AUTHORING_NODE_ADDON` to `build/native-authoring-host/noveltea-authoring-node.node`.
+The builder obtains checksum-checked headers and (on Windows) the import library matching the exact
+lockfile Electron version through pinned node-gyp, and compiles pinned host-only libfyaml/jsoncons.
+Staging requires the addon, copies its exact bytes into the separate `resources/authoring` closure,
+and verifies its contents and resource hash on relocation. electron-builder includes that closure
+outside ASAR so the production editor worker can load it by absolute resource path. The editor
+does not fall back to the retired TypeScript Project authority.
+
+The `native-authoring-hosts` CI matrix builds and certifies the addon and real Project sessions on
+Linux x64, Windows x64, and macOS arm64. It runs the existing watcher, reconciliation, conflict,
+transaction, and revision tests against the host module, and launches the bundled worker under
+Electron's actual Node runtime to catch ABI/load failures. Release editor jobs build the matching
+native addon on the packaging host and require it in the produced application. For Linux releases,
+the source is compiled inside the pinned manylinux 2.28 compatibility image with a static GNU C++
+runtime and audited against the editor's glibc 2.36 / GLIBCXX 3.4.30 ceilings. This avoids raising
+the editor binary's compatibility floor to the Ubuntu runner's libc. macOS addons explicitly target
+macOS 14 and their Mach-O minimum is audited on the release runner. Players and exported packages
+never link or receive the authoring library.
 
 The application closure comes from the root lockfile through
 `pnpm -C editor --prod deploy`. The admitted top-level production dependencies are the exact `sharp`
@@ -148,8 +178,8 @@ The standalone `noveltea` CLI must be built for the release-admitted host or sup
 `NOVELTEA_CLI_PATH`. Normal staging refreshes the repository CLI automatically and copies it to
 `resources/bin/noveltea`; that directory contains no `noveltea-editor-tool` compatibility frontend
 and no sibling bgfx `shaderc` executable. Linux builds use the native host toolchain. Windows CLI
-builds use a dedicated MinGW GNU native-tooling/vcpkg closure plus ScriptC's
-`x86_64-windows-gnu` Zig target; the ordinary Windows desktop player/editor remains an independent
+builds use the dedicated MinGW GNU native-tooling/vcpkg closure; the ordinary Windows desktop
+player/editor remains an independent
 MSVC build. CLI certification rejects MinGW runtime DLL dependencies so the published executable
 remains relocatable. Shader compilation and raw shaderc forwarding use the statically linked native
 tooling inside `noveltea`. Packaged native operations resolve the installation-relative CLI and do
@@ -264,9 +294,9 @@ Tagged and manually qualified releases require Linux x64 and Windows x64 editor 
 authoring binaries are built in a digest-pinned Debian 12 container (glibc 2.36) and audited before
 the exact CLI bytes are published and embedded in the editor. The macOS editor and host CLI target
 macOS 14 even though exported macOS players target macOS 11. Linux players are built separately in a
-digest-pinned glibc 2.28 environment and statically link the GNU C++ runtime, so neither ScriptC nor
+digest-pinned glibc 2.28 environment and statically link the GNU C++ runtime, so neither the native CLI nor
 the editor build host can raise the game-runtime floor. Windows players target Windows 10 1809 while
-Windows authoring follows the broader upstream ScriptC Windows 10 contract. Release aggregation
+Windows authoring follows the MinGW native authoring host contract. Release aggregation
 rejects a missing or unexpected CLI, editor, or player-template platform artifact before a GitHub
 Release can be created.
 

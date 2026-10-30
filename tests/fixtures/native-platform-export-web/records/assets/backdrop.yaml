@@ -1,0 +1,15 @@
+id: backdrop
+label: backdrop
+data:
+  kind: image
+  source:
+    type: project-file
+    path: assets/images/backdrop.png
+  attachments: []
+  aliases: []
+  sampling: linear
+  imageMetadata:
+    width: 1024
+    height: 1024
+    hasAlpha: true
+    orientation: 1

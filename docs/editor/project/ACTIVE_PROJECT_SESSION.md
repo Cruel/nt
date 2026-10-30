@@ -6,6 +6,26 @@ The Electron main process owns the authority for the active Project. Renderer st
 opaque `projectSessionId`; it does not establish Project filesystem authority by sending a Project
 path back to the main process.
 
+## Native lifecycle preparation (#539)
+
+The pre-cutover native lifecycle certification path stages candidate Project
+roots, admits them through `NativeEditorProjectHandoff` and
+`NativeEditorSessionController`, then atomically commits the new
+`projectSessionId` only after native validation and recovery. An unsuccessful
+or superseded candidate does not release the incumbent native worker or its
+acknowledged dirty edits. Native Asset and Layout source capabilities are
+projected from admitted worker data; native mutation and external observation
+are owned by the native controller and `NativeEditorObserverWatchService`,
+not a second `ActiveProjectWorkspaceSession` or the old Chokidar watcher.
+
+In this certification mode, the main process arms the legacy Project authority
+tripwire: constructing the old Workspace reader, transaction writer or starting
+its watcher fails, including lazy or cache-miss paths. Native source planning
+and desktop bundle download/import have separate non-Workspace adapters.
+The regular production editor still takes the legacy route until the atomic
+#521 switch. See the [main-process authority matrix](../../architecture/certifications/NATIVE_EDITOR_MAIN_AUTHORITY_BOUNDARY.md)
+for each retained legacy-only caller and its deletion owner.
+
 ## Lifecycle
 
 A successful current-schema Project open or saved-Project creation canonicalizes the returned

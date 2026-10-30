@@ -18,7 +18,7 @@ import {
   resolveAssetMemoryPolicy,
   userSigningProfileToExportSigningState,
 } from '../../shared/project-schema/platform-export-contracts';
-import { classifyProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { classifyProjectValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 
 const sha = 'a'.repeat(64);
 describe('platform export contracts', () => {

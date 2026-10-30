@@ -1,0 +1,216 @@
+import { createHash } from 'node:crypto';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+
+// These modules implement the superseded Project authority, not transient UI
+// parsing or build-time schema generation. #521 must reconcile this inventory
+// whenever it splits an old mixed-purpose module before deleting it.
+const retiredAuthority = new Set([
+  'src/shared/project-workspace/project-workspace-service.ts',
+  'src/shared/project-workspace/node-project-workspace-service.ts',
+  'src/shared/project-workspace/resident-project-workspace-session.ts',
+  'src/shared/project-workspace/resident-project-workspace-service.ts',
+  'src/shared/project-workspace/project-workspace-source-codec.ts',
+  'src/shared/project-workspace/project-workspace-transaction.ts',
+  'src/shared/project-workspace-watch.ts',
+  'src/shared/authoring-dependency-graph.ts',
+  'src/shared/authoring-source-analysis.ts',
+  'src/shared/authoring-cache.ts',
+  'src/shared/project-schema/authoring-validation.ts',
+  'src/shared/project-schema/authoring-validation-contributions.ts',
+  'src/shared/project-schema/project-validation.ts',
+  'src/main/services/project-workspace-watcher-service.ts',
+  'src/cli/semantic-project.ts',
+  'src/cli/fmt-command.ts',
+  'src/cli/project-bundle-cli.ts',
+  'src/cli/application.ts',
+  'src/cli/compile-project-command.ts',
+  'src/shared/authoring-compiler.ts',
+  // Native editor sessions must not retain the second authoring validator,
+  // runtime-admission/cache owner or differential-only preview adapter under
+  // a different (formerly non-retired) module name.
+  'src/main/services/editor-authoring-validation-service.ts',
+  'src/main/services/editor-runtime-cache-service.ts',
+  'src/main/services/legacy-native-authoring-preview.ts',
+  'src/shared/legacy-runtime-artifact-preparation.ts',
+  'src/shared/legacy-runtime-build-cache.ts',
+  'scripts/noveltea.ts',
+  'scripts/compile-project.ts',
+  'scripts/materialize-platform-export-fixture.ts',
+  'scripts/generate-compiled-project-goldens.ts',
+]);
+
+// #551 retired every TypeScript CLI adapter, not just the old entrypoint.
+const isRetiredSource = (module) => module.startsWith('src/cli/') || retiredAuthority.has(module);
+
+const bundledExtensions = new Set(['.js', '.mjs', '.cjs']);
+
+function isPureForwarder(text) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .every(
+      (line) =>
+        /^import\s+(?:(?:[^;]*\s+from\s+)?["'][^"']+["'])\s*;?$/.test(line) ||
+        /^export\s+(?:\{[^}]*\}|\*\s+from\s+["'][^"']+["'])\s*;?$/.test(line),
+    );
+}
+
+function sourceModule(specifier) {
+  const normalized = specifier.replaceAll('\\', '/');
+  // Source maps may contain ../../src/..., ../../scripts/... or absolute
+  // checkout paths; compare only editor/src and editor/scripts ownership.
+  for (const segment of ['/src/', '/scripts/']) {
+    const index = normalized.lastIndexOf(segment);
+    if (index >= 0) return normalized.slice(index + 1);
+  }
+  return normalized.startsWith('src/') || normalized.startsWith('scripts/') ? normalized : null;
+}
+
+async function walk(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await walk(target)));
+    else if (entry.isFile() && bundledExtensions.has(path.extname(target))) files.push(target);
+  }
+  return files;
+}
+
+/**
+ * Verify the emitted module closure, not just the checked-in source tree.
+ * Every emitted JS chunk is inspected, including lazy chunks used only on
+ * static-cache misses or disposable heavy jobs. A missing build or missing
+ * provenance is an error rather than an implied clean native build.
+ */
+export async function verifyNativeProductionClosure(artifactRoots, options = {}) {
+  const violations = [];
+  const requireManifestRoots = new Set(options.requireManifestRoots ?? []);
+  for (const root of artifactRoots) {
+    let files;
+    try {
+      files = await walk(root);
+    } catch (error) {
+      violations.push(`missing production output ${root}: ${error.message}`);
+      continue;
+    }
+    if (files.length === 0) {
+      violations.push(`missing production output JS chunks in ${root}`);
+      continue;
+    }
+    let manifest = null;
+    try {
+      manifest = JSON.parse(
+        await readFile(path.join(root, 'native-production-provenance.json'), 'utf8'),
+      );
+      if (manifest.version !== 1 || !manifest.chunks || Array.isArray(manifest.chunks))
+        throw new Error('unsupported production module manifest');
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        violations.push(`invalid production module manifest in ${root}: ${error.message}`);
+        continue;
+      }
+      if (requireManifestRoots.has(root)) {
+        violations.push(`missing production module manifest in ${root}`);
+        continue;
+      }
+    }
+    const emitted = new Set(
+      files.map((file) => path.relative(root, file).split(path.sep).join('/')),
+    );
+    if (manifest)
+      for (const name of Object.keys(manifest.chunks))
+        if (!emitted.has(name)) violations.push(`stale manifest entry ${name} in ${root}`);
+    for (const file of files) {
+      const relative = path.relative(root, file).split(path.sep).join('/');
+      // A relative chunk name alone loses output-root provenance. The same
+      // module can appear in main, tools and the ScriptC island; keep every
+      // independent production root in the failure inventory.
+      const emittedIdentity = `${path.basename(root)}/${relative}`;
+      const text = await readFile(file, 'utf8');
+      if (manifest) {
+        const entry = manifest.chunks[relative];
+        if (!entry) {
+          violations.push(`missing manifest entry for ${emittedIdentity}`);
+          continue;
+        }
+        if (
+          !Array.isArray(entry.modules) ||
+          (entry.modules.length === 0 && !isPureForwarder(text)) ||
+          entry.modules.some((item) => typeof item !== 'string') ||
+          !/^[a-f0-9]{64}$/.test(entry.sha256)
+        ) {
+          violations.push(`invalid manifest entry for ${emittedIdentity}`);
+          continue;
+        }
+        if (createHash('sha256').update(text).digest('hex') !== entry.sha256)
+          violations.push(
+            `hash mismatch for ${emittedIdentity}; cannot trust emitted module provenance`,
+          );
+        for (const source of entry.modules) {
+          const module = sourceModule(source);
+          if (module && isRetiredSource(module))
+            violations.push(`${emittedIdentity} includes retired Project authority ${module}`);
+        }
+        // A forged module list must not conceal a retired module that is
+        // still exposed by the emitted code's source regions or source map.
+        const observed = new Set(
+          [...text.matchAll(/^\s*\/\/#region\s+([^\r\n]+)/gm)].map((match) => match[1]),
+        );
+        try {
+          const map = JSON.parse(await readFile(`${file}.map`, 'utf8'));
+          if (
+            !Array.isArray(map.sources) ||
+            map.sources.some((source) => typeof source !== 'string')
+          )
+            throw new Error('invalid source list');
+          for (const source of map.sources) observed.add(source);
+        } catch (error) {
+          if (error.code !== 'ENOENT')
+            violations.push(`invalid source map for ${emittedIdentity}: ${error.message}`);
+        }
+        const declared = new Set(entry.modules.map(sourceModule));
+        for (const source of observed) {
+          const module = sourceModule(source);
+          if (module && isRetiredSource(module) && !declared.has(module))
+            violations.push(`${emittedIdentity} hides emitted retired Project authority ${module}`);
+        }
+        continue;
+      }
+      const sources = new Set(
+        [...text.matchAll(/^\s*\/\/#region\s+([^\r\n]+)/gm)].map((match) => match[1]),
+      );
+      try {
+        const map = JSON.parse(await readFile(`${file}.map`, 'utf8'));
+        if (!Array.isArray(map.sources) || map.sources.some((item) => typeof item !== 'string'))
+          throw new Error('invalid source list');
+        for (const source of map.sources) sources.add(source);
+      } catch (error) {
+        if (error.code !== 'ENOENT') {
+          violations.push(`invalid source map for ${emittedIdentity}: ${error.message}`);
+          continue;
+        }
+      }
+      // The compiled file name is evidence for single-module chunks emitted
+      // without a map/region, but is not enough to prove an arbitrary bundle.
+      const basename = path.basename(file).replace(/\.(?:cjs|mjs|js)$/, '.ts');
+      const filenameMatches = [...retiredAuthority].filter(
+        (item) => path.basename(item) === basename,
+      );
+      if (filenameMatches.length) for (const match of filenameMatches) sources.add(match);
+      if (!sources.size && text.trim() && !isPureForwarder(text)) {
+        violations.push(
+          `no module provenance for ${emittedIdentity}; cannot certify production closure`,
+        );
+        continue;
+      }
+      for (const source of sources) {
+        const module = sourceModule(source);
+        if (module && isRetiredSource(module))
+          violations.push(`${emittedIdentity} includes retired Project authority ${module}`);
+      }
+    }
+  }
+  return [...new Set(violations)];
+}

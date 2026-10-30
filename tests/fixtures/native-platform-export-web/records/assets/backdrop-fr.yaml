@@ -1,0 +1,18 @@
+id: backdrop-fr
+label: French Backdrop
+data:
+  kind: image
+  source:
+    type: project-file
+    path: assets/images/backdrop-fr.png
+  attachments:
+    - path: support/licenses/localized-art.txt
+      purpose: distribution-notice
+      displayName: Localized Artwork
+  aliases: []
+  sampling: linear
+  imageMetadata:
+    width: 64
+    height: 64
+    hasAlpha: true
+    orientation: 1

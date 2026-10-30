@@ -19,6 +19,7 @@ import { targetFpsDuplicatesSource } from '../../shared/video-fps-duplicates';
 import { videoCanvasNotice } from '../../shared/native-video-playback-limits';
 import { prepareProjectOpaqueVideo } from '../../main/services/project-video-preparation-service';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
+import { admitNativeTestProject } from './native-admitted-project-fixture';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const version = 'ffmpeg version 9.0.1 Copyright FFmpeg';
@@ -610,9 +611,9 @@ describe('private media preparation tool', () => {
           imageMetadata: null,
         },
       };
-      const session = await sessions.activateProjectFile(
+      const session = await admitNativeTestProject(
+        sessions,
         path.join(root, 'project.yaml'),
-        undefined,
         project,
       );
       const request = {

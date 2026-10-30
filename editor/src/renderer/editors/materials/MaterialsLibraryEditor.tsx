@@ -15,13 +15,13 @@ import {
   type WorkbenchEditorProps,
 } from '@/workbench/editor-registry';
 import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 
 export function MaterialsLibraryEditor(_props: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const document = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const openTab = useWorkbenchStore((state) => state.openTab);
   const livePreviews = usePreferencesStore((state) => state.materialLibraryLivePreviews);
   const setLivePreviews = usePreferencesStore((state) => state.setMaterialLibraryLivePreviews);

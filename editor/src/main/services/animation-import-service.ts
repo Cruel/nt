@@ -8,7 +8,6 @@ import {
 } from '../../shared/project-schema/authoring-assets';
 import { prepareRasterAnimation } from './raster-animation-import';
 import { MAX_RASTER_IMPORT_FRAMES } from './raster-import-limits';
-import { writeProjectAssetFilesTransaction } from './project-asset-file-transaction';
 
 const MAX_SOURCE_BYTES = 128 * 1024 * 1024;
 
@@ -17,7 +16,10 @@ export async function importAnimationFiles(
   sourcePaths: string[],
   frameDurationMs: number,
   assertAuthority: () => void = () => {},
+  stageAsset?: (path: string, bytes: Uint8Array) => Promise<void>,
+  discardStaged?: (paths: string[]) => Promise<void>,
 ): Promise<AssetImportResponse> {
+  const staged: string[] = [];
   try {
     assertAuthority();
     if (!sourcePaths.length || sourcePaths.length > MAX_RASTER_IMPORT_FRAMES)
@@ -93,7 +95,13 @@ export async function importAnimationFiles(
       });
     }
     assertAuthority();
-    await writeProjectAssetFilesTransaction(projectRoot, files, 'Animation import');
+    if (stageAsset) {
+      for (const file of files) {
+        assertAuthority();
+        await stageAsset(file.path, file.bytes);
+        staged.push(file.path);
+      }
+    } else throw new Error('Animation import requires the admitted native Project session.');
     return {
       ok: true,
       success: true,
@@ -112,6 +120,19 @@ export async function importAnimationFiles(
       },
     };
   } catch (error) {
+    if (staged.length && discardStaged) {
+      try {
+        await discardStaged(staged);
+      } catch (cleanupError) {
+        return {
+          ok: false,
+          success: false,
+          assets: [],
+          diagnostics: [],
+          error: `Animation import failed and staged cleanup was rejected: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        };
+      }
+    }
     return {
       ok: false,
       success: false,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { entityIdSchema } from './authoring-common';
 import {
   assetRefSchema,
@@ -25,7 +26,7 @@ export const mapLocationSchema = strict({
   regions: z.array(mapPolygonSchema),
   label: textContentSchema.nullable(),
   icon: assetRefSchema.nullable(),
-  style: z.string().trim().min(1).nullable(),
+  style: nativeOperation('string.trim', z.string().trim()).min(1).nullable(),
   labelAnchor: mapPointSchema.nullable(),
   connectionAnchor: mapPointSchema.nullable(),
   visibility: conditionSchema,
@@ -39,7 +40,7 @@ export const mapConnectionSchema = withSchemaDocumentation(
     exits: z.array(roomExitRefSchema).min(1).max(2),
     label: textContentSchema.nullable(),
     icon: assetRefSchema.nullable(),
-    style: z.string().trim().min(1).nullable(),
+    style: nativeOperation('string.trim', z.string().trim()).min(1).nullable(),
     visibility: conditionSchema,
     logicalOrder: z.number().int(),
     path: z.array(mapPointSchema),

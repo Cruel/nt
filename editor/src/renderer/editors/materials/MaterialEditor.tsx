@@ -44,10 +44,8 @@ import {
   materialPresets,
   type MaterialPresetId,
 } from '../../../shared/project-schema/authoring-material-presets';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { materialContractRegistry } from '../../../shared/project-schema/material-contract-registry.generated';
 import {
   isUniformValueCompatible,
@@ -64,7 +62,7 @@ import {
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 
 function updateMaterial(materialId: string, next: MaterialData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'material.replaceData',
     label,
     payload: { materialId, data: next },
@@ -268,7 +266,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const projectDocument = useProjectStore((state) => state.document);
   const materialId = tab.resource?.entityId;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = materialId && project ? project.materials[materialId] : null;
   const parsedData = parseMaterialData(record?.data);
   const data = parsedData ?? defaultMaterialData(record?.label ?? materialId ?? 'Material');

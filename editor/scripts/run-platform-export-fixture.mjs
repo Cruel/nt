@@ -3,17 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const result = spawnSync('pnpm', ['exec', 'vp', 'pack'], {
-  cwd: editorRoot,
-  stdio: 'inherit',
-});
-if (result.status !== 0) process.exit(result.status ?? 1);
-const tool = path.join(
-  editorRoot,
-  'dist-electron',
-  'tools',
-  'materialize-platform-export-fixture.mjs',
-);
+// The old build-only TypeScript Project fixture generator was retired with
+// native authoring. Never require dist-build-tools or republish that oracle.
+const tool = path.join(editorRoot, 'scripts/materialize-native-platform-export-fixture.mjs');
 const forwardedArgs = process.argv.slice(2);
 const targetIndex = forwardedArgs.indexOf('--target');
 const target = targetIndex >= 0 ? forwardedArgs[targetIndex + 1] : 'android';
@@ -24,6 +16,7 @@ const fixtureArgs = forwardedArgs.includes('--root')
       path.resolve(editorRoot, '..', 'build', 'platform-export-fixtures', target),
       ...forwardedArgs,
     ];
+if (targetIndex < 0) fixtureArgs.push('--target', target);
 const run = spawnSync(process.execPath, [tool, ...fixtureArgs], {
   cwd: process.cwd(),
   stdio: 'inherit',

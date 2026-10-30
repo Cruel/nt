@@ -10,6 +10,8 @@ import {
   isAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 describe('authoritative project publication', () => {
   beforeEach(() => {
@@ -17,10 +19,10 @@ describe('authoritative project publication', () => {
     useCommandStore.getState().resetCommandHistory();
   });
 
-  it('rejects structurally invalid project-file candidates atomically', () => {
+  it('rejects a non-object projection atomically; semantic admission belongs to native', () => {
     expect(
       useProjectStore.getState().loadProjectDocument({
-        document: { schema: 'noveltea.authoring.project', rooms: [] },
+        document: [],
         projectPath: '/mock',
         projectFilePath: '/mock/game.json',
       }),
@@ -35,18 +37,16 @@ describe('authoritative project publication', () => {
     });
   });
 
-  it('publishes immutable exact old/new documents and monotonic revisions', () => {
-    expect(
-      useProjectStore
-        .getState()
-        .loadUnsavedProjectDocument({ rooms: { foyer: { label: 'Foyer' } } }),
-    ).toBe(true);
+  it('publishes immutable native-acknowledged old/new documents and monotonic revisions', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    admitNativeRendererCommandFixture(project);
     const load = useProjectStore.getState();
     expect(load.projectRevision).toBe(1);
     expect(load.lastMutationPublication?.changeSet.kind).toBe('load');
     const firstProject = load.admittedProject;
 
-    const result = useCommandStore.getState().executeCommand({
+    const result = await useCommandStore.getState().executeCommandAsync({
       type: 'project.replaceAtPath',
       payload: { path: '/rooms/foyer/label', value: 'Hall' },
       originSaveUnitId: 'record:rooms:foyer',
@@ -105,32 +105,27 @@ describe('authoritative project publication', () => {
     });
   });
 
-  it('merges an auto-committed Material shader copy without discarding unrelated dirty Material edits', () => {
+  it('merges an auto-committed Material shader copy without discarding unrelated dirty Material edits', async () => {
     const project = createAuthoringProject();
     project.materials.panel = {
       id: 'panel',
       label: 'Panel',
       data: defaultMaterialData('Panel', 'postprocess-tint'),
     };
-    expect(
-      useProjectStore.getState().loadProjectDocument({
-        document: project,
-        savedDocument: project,
-        projectPath: '/mock',
-        projectFilePath: '/mock/project.yaml',
-      }),
-    ).toBe(true);
+    admitNativeRendererCommandFixture(project);
     const edited = {
       ...defaultMaterialData('Panel', 'postprocess-tint'),
       parameters: { u_tint: { value: [0.2, 0.3, 0.4, 1] as [number, number, number, number] } },
     };
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'material.replaceData',
-        payload: { materialId: 'panel', data: edited },
-        originSaveUnitId: 'record:materials:panel',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'material.replaceData',
+          payload: { materialId: 'panel', data: edited },
+          originSaveUnitId: 'record:materials:panel',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
 
     expect(
@@ -154,48 +149,44 @@ describe('authoritative project publication', () => {
     });
   });
 
-  it("publishes each transaction step with only that step's exact affected paths", () => {
-    expect(
-      useProjectStore.getState().loadUnsavedProjectDocument({
-        rooms: { foyer: { label: 'Foyer', description: 'Before' } },
-      }),
-    ).toBe(true);
-    useCommandStore.getState().beginTransaction({
-      label: 'Edit room metadata',
-      originSaveUnitId: 'record:rooms:foyer',
-      persistencePolicy: 'manual-save',
-    });
+  it('publishes each native-acknowledged command with exact affected paths', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    admitNativeRendererCommandFixture(project);
 
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'project.replaceAtPath',
-        payload: { path: '/rooms/foyer/label', value: 'Hall' },
-        originSaveUnitId: 'record:rooms:foyer',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.replaceAtPath',
+          payload: { path: '/rooms/foyer/label', value: 'Hall' },
+          originSaveUnitId: 'record:rooms:foyer',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
     expect(useProjectStore.getState().lastMutationPublication?.changeSet).toMatchObject({
-      kind: 'transaction-step',
+      kind: 'command',
       projectRevision: 2,
       affectedPaths: ['/rooms/foyer/label'],
     });
 
     expect(
-      useCommandStore.getState().executeCommand({
-        type: 'project.replaceAtPath',
-        payload: { path: '/rooms/foyer/description', value: 'After' },
-        originSaveUnitId: 'record:rooms:foyer',
-        persistencePolicy: 'manual-save',
-      }).ok,
+      (
+        await useCommandStore.getState().executeCommandAsync({
+          type: 'project.replaceAtPath',
+          payload: { path: '/rooms/foyer/data/displayName', value: 'After' },
+          originSaveUnitId: 'record:rooms:foyer',
+          persistencePolicy: 'manual-save',
+        })
+      ).ok,
     ).toBe(true);
     const beforeCommit = useProjectStore.getState().lastMutationPublication;
     expect(beforeCommit?.changeSet).toMatchObject({
-      kind: 'transaction-step',
+      kind: 'command',
       projectRevision: 3,
-      affectedPaths: ['/rooms/foyer/description'],
+      affectedPaths: ['/rooms/foyer/data/displayName'],
     });
 
-    expect(useCommandStore.getState().commitTransaction().ok).toBe(true);
     expect(useProjectStore.getState().projectRevision).toBe(3);
     expect(useProjectStore.getState().lastMutationPublication).toBe(beforeCommit);
   });

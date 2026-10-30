@@ -1,0 +1,13 @@
+id: body-font
+label: body-font
+data:
+  kind: font
+  source:
+    type: project-file
+    path: assets/fonts/body.ttf
+  attachments:
+    - path: support/licenses/shared-font.txt
+      purpose: distribution-notice
+      displayName: Shared Font License
+  aliases: []
+  imageMetadata: null

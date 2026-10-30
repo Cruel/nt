@@ -1,20 +1,29 @@
 #include "tooling_native_c.h"
+#include "tooling_native_project_sync.hpp"
 
 #include <noveltea/core/player_bootstrap.hpp>
+#include <noveltea/core/shader_binary_integrity.hpp>
+#include <noveltea/core/compiled_project_codec.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cerrno>
 #include <cctype>
+#include <chrono>
+#include <cstdlib>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <random>
 #include <set>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -22,6 +31,11 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -99,6 +113,8 @@ std::string sha256_prefixed(std::string_view text)
     return "sha256:" +
            noveltea::core::sha256_hex(std::as_bytes(std::span(text.data(), text.size())));
 }
+
+bool pinned_package_inputs_current(const std::filesystem::path& root, const Json& artifact);
 
 bool contained_by_root(const std::filesystem::path& root, const std::filesystem::path& path)
 {
@@ -574,10 +590,34 @@ Json probe(const Json& request)
         *parsed_artifact_schema != kPreparedArtifactSchema ||
         !artifact.contains("compiledProject") || !artifact["compiledProject"].is_object())
         return response("unusable", "artifact-invalid");
+    if (!pinned_package_inputs_current(root, artifact))
+        return response("stale", "physical-inputs-changed-or-unpinned");
+    // A valid digest only proves the cache file is intact. The compiled wire
+    // must still be engine-decodable and identical to the package's gameplay
+    // text, including when a damaged generation was deliberately rehashed.
+    if (!artifact.contains("gameplayJson") || !artifact["gameplayJson"].is_string())
+        return response("unusable", "compiled-project-invalid");
+    const auto wire = Json::parse(artifact["gameplayJson"].get<std::string>(), nullptr, false);
+    if (wire.is_discarded() || wire != artifact["compiledProject"] ||
+        !noveltea::core::decode_compiled_project(wire, "native-runtime-cache-probe"))
+        return response("unusable", "compiled-project-invalid");
 
     auto result = response("hit", "current-runtime-generation-valid");
     result["artifact"] = artifact;
     result["diagnostics"] = manifest["authoringDiagnostics"];
+    // These revisions were verified against the compiled gameplay generation.
+    // A caller refreshing only the Test catalog must pin them, not ask the
+    // publisher to stamp old gameplay with newer filesystem revisions.
+    result["runtimeInputs"] = manifest["inputs"];
+    result["runtimeInputPaths"] = Json::array();
+    for (const auto& entry : manifest["inputs"])
+        result["runtimeInputPaths"].push_back(entry["path"]);
+    const auto discovered_tests = test_files(root);
+    if (discovered_tests) {
+        result["testInputPaths"] = Json::array();
+        for (const auto& path : *discovered_tests)
+            result["testInputPaths"].push_back(path);
+    }
     const auto catalog_result = [&result](std::string status, std::string reason) -> Json {
         result["testCatalogStatus"] = std::move(status);
         result["testCatalogReason"] = std::move(reason);
@@ -776,7 +816,7 @@ Json probe_authoring(const Json& request)
                       {"extensions", Json::array({".lua"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "shaders"},
-                      {"extensions", Json::array({".sc"})},
+                      {"extensions", Json::array({".sc", ".sh", ".inc", ".glsl", ".h"})},
                       {"excludedPrefixes", Json::array()}}});
     if (canonical_discovery_scopes(manifest["discoveryScopes"]) !=
         canonical_discovery_scopes(scopes))
@@ -822,6 +862,477 @@ Json probe_authoring(const Json& request)
     return result;
 }
 
+// The runtime cache has a native reader but its original producer lives in
+// TypeScript. This publisher is deliberately independent of the CLI frontend:
+// it accepts only already compiled artifacts, derives physical inventories
+// itself, and commits the generation pointer last.
+std::optional<Json> collect_cache_inputs(const std::filesystem::path& root, const Json& paths)
+{
+    if (!paths.is_array())
+        return std::nullopt;
+    Json inputs = Json::array();
+    std::string previous;
+    for (const auto& item : paths) {
+        if (!item.is_string())
+            return std::nullopt;
+        const auto relative = item.get<std::string>();
+        if (!safe_relative(relative) || (!previous.empty() && relative <= previous))
+            return std::nullopt;
+        previous = relative;
+        const auto metadata = current_metadata_entry(
+            root, Json{{"path", relative}, {"byteSize", 0U}, {"mtimeNanoseconds", ""}});
+        if (!metadata)
+            return std::nullopt;
+        inputs.push_back(*metadata);
+    }
+    return inputs;
+}
+
+bool unchanged_cache_inputs(const std::filesystem::path& root, const Json& inputs)
+{
+    for (const auto& entry : inputs)
+        if (!metadata_matches(root, entry))
+            return false;
+    return true;
+}
+
+bool contained_physical_inputs(const std::filesystem::path& root, const Json& artifact)
+{
+    const auto& options = artifact.at("packageOptions");
+    if (!options.contains("fileEntries") || !options["fileEntries"].is_array())
+        return false;
+    const auto check_files = [&](const Json& entries) {
+        if (!entries.is_array())
+            return false;
+        for (const auto& entry : entries) {
+            if (!entry.is_object() || !entry.contains("source") || !entry["source"].is_string())
+                return false;
+            const auto source = filesystem_path_from_utf8(entry["source"].get<std::string>());
+            std::error_code error;
+            if (source.empty() || !source.is_absolute() || !contained_by_root(root, source) ||
+                std::filesystem::is_symlink(std::filesystem::symlink_status(source, error)) ||
+                error || !std::filesystem::is_regular_file(source, error) || error)
+                return false;
+        }
+        return true;
+    };
+    if (!check_files(options["fileEntries"]) ||
+        (artifact.contains("fileEntries") && !check_files(artifact["fileEntries"])))
+        return false;
+    const auto confined_root = [&](const Json& value) {
+        if (!value.is_string())
+            return false;
+        const auto path = filesystem_path_from_utf8(value.get<std::string>());
+        return !path.empty() && path.is_absolute() && contained_by_root(root, path);
+    };
+    if (options.contains("shaderAssetRoot") && !confined_root(options["shaderAssetRoot"]))
+        return false;
+    if (options.contains("assetRoots")) {
+        if (!options["assetRoots"].is_array())
+            return false;
+        for (const auto& entry : options["assetRoots"])
+            if (!entry.is_object() || !entry.contains("root") || !confined_root(entry["root"]))
+                return false;
+    }
+    return true;
+}
+
+// A cache manifest digest proves only the JSON artifact. Physical files are
+// mutable independently of authored records and must be re-proven on every hit.
+bool pinned_package_inputs_current(const std::filesystem::path& root, const Json& artifact)
+{
+    if (!artifact.contains("packageOptions") || !artifact["packageOptions"].is_object() ||
+        !artifact["packageOptions"].contains("fileEntries") || !artifact.contains("fileEntries"))
+        return false;
+    const auto check = [&](const Json& entries) {
+        if (!entries.is_array())
+            return false;
+        for (const auto& entry : entries) {
+            if (!entry.is_object() || !entry.contains("source") || !entry["source"].is_string() ||
+                !entry.contains("expectedSha256") || !entry["expectedSha256"].is_string())
+                return false;
+            const auto expected = entry["expectedSha256"].get<std::string>();
+            if (expected.size() != 71 || !expected.starts_with("sha256:") ||
+                !std::all_of(expected.begin() + 7, expected.end(), [](char ch) {
+                    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+                }))
+                return false;
+            const auto path = filesystem_path_from_utf8(entry["source"].get<std::string>());
+            if (!path.is_absolute() || !contained_by_root(root, path))
+                return false;
+            const auto relative = path.lexically_relative(root);
+            if (!safe_relative(filesystem_path_to_utf8(relative)))
+                return false;
+            auto cursor = root;
+            std::error_code error;
+            for (const auto& component : relative) {
+                cursor /= component;
+                if (std::filesystem::is_symlink(std::filesystem::symlink_status(cursor, error)) ||
+                    error)
+                    return false;
+            }
+            if (!std::filesystem::is_regular_file(path, error) || error ||
+                std::filesystem::file_size(path, error) > 512ull * 1024 * 1024 || error)
+                return false;
+            const auto bytes = read_text(path);
+            if (!bytes || sha256_prefixed(*bytes) != expected)
+                return false;
+        }
+        return true;
+    };
+    if (!check(artifact["fileEntries"]) || !check(artifact["packageOptions"]["fileEntries"]))
+        return false;
+    const auto& options = artifact["packageOptions"];
+    std::set<std::string> required;
+    if (!options.contains("requiredShaderBinaryPaths") ||
+        !options["requiredShaderBinaryPaths"].is_array())
+        return false;
+    for (const auto& item : options["requiredShaderBinaryPaths"]) {
+        if (!item.is_string())
+            return false;
+        required.insert(item.get<std::string>());
+    }
+    if (required.empty())
+        return noveltea::core::shader_binary_revisions(
+                   options.value("shaderMaterialMetadata", Json(nullptr)), required)
+            .has_value();
+    if (!options.contains("shaderAssetRoot") || !options["shaderAssetRoot"].is_string())
+        return false;
+    const auto shader_root =
+        filesystem_path_from_utf8(options["shaderAssetRoot"].get<std::string>());
+    if (!shader_root.is_absolute() || !contained_by_root(root, shader_root))
+        return false;
+    return noveltea::core::shader_binary_files_current(
+        options.value("shaderMaterialMetadata", Json(nullptr)), required, shader_root);
+}
+
+std::string new_generation_id()
+{
+    std::array<unsigned char, 16> bytes{};
+    std::random_device random;
+    for (auto& byte : bytes)
+        byte = static_cast<unsigned char>(random());
+    bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0f) | 0x40);
+    bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3f) | 0x80);
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(36);
+    for (std::size_t index = 0; index < bytes.size(); ++index) {
+        if (index == 4 || index == 6 || index == 8 || index == 10)
+            result.push_back('-');
+        result.push_back(digits[bytes[index] >> 4]);
+        result.push_back(digits[bytes[index] & 15]);
+    }
+    return result;
+}
+
+// Writing each generation file durably before installing the pointer prevents
+// an interrupted publication from exposing a partially created generation.
+bool write_durable_file(const std::filesystem::path& path, std::string_view bytes)
+{
+#if defined(_WIN32)
+    HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+        return false;
+    bool success = true;
+    for (std::size_t offset = 0; offset < bytes.size() && success;) {
+        DWORD written = 0;
+        const DWORD size =
+            static_cast<DWORD>(std::min<std::size_t>(bytes.size() - offset, 1 << 20));
+        success =
+            WriteFile(handle, bytes.data() + offset, size, &written, nullptr) != 0 && written != 0;
+        offset += written;
+    }
+    success = success && FlushFileBuffers(handle) != 0;
+    success = CloseHandle(handle) != 0 && success;
+    return success;
+#else
+    const auto fd = open(path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0)
+        return false;
+    bool success = true;
+    for (std::size_t offset = 0; offset < bytes.size();) {
+        const auto count = write(fd, bytes.data() + offset, bytes.size() - offset);
+        if (count <= 0) {
+            success = false;
+            break;
+        }
+        offset += static_cast<std::size_t>(count);
+    }
+    success = success && fsync(fd) == 0;
+    success = close(fd) == 0 && success;
+    return success;
+#endif
+}
+
+bool flush_directory(const std::filesystem::path& path)
+{
+#if defined(_WIN32)
+    (void)path;
+    return true;
+#else
+    const auto fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (fd < 0)
+        return false;
+    const bool success = fsync(fd) == 0;
+    close(fd);
+    return success;
+#endif
+}
+
+// A process-scoped OS lock serializes writers across CLI processes. The lock
+// inode is intentionally permanent: unlinking it on release would allow two
+// writers to hold different locks for the same cache. The OS releases a held
+// lock on process termination, including after a crash or cancellation.
+class RuntimePublicationLock {
+public:
+    RuntimePublicationLock() = default;
+    RuntimePublicationLock(const RuntimePublicationLock&) = delete;
+    RuntimePublicationLock& operator=(const RuntimePublicationLock&) = delete;
+
+    bool acquire(const std::filesystem::path& path)
+    {
+#if defined(_WIN32)
+        handle_ =
+            CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle_ == INVALID_HANDLE_VALUE)
+            return false;
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (!GetFileInformationByHandle(handle_, &info) ||
+            (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+            GetFileType(handle_) != FILE_TYPE_DISK)
+            return false;
+        acquired_ = LockFileEx(handle_, LOCKFILE_EXCLUSIVE_LOCK, 0, 1, 0, &overlapped_) != 0;
+        return acquired_;
+#else
+        descriptor_ = open(path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (descriptor_ < 0)
+            return false;
+        struct stat status {};
+        if (fstat(descriptor_, &status) != 0 || !S_ISREG(status.st_mode))
+            return false;
+        int result;
+        do {
+            result = flock(descriptor_, LOCK_EX);
+        } while (result != 0 && errno == EINTR);
+        return result == 0;
+#endif
+    }
+
+    ~RuntimePublicationLock()
+    {
+#if defined(_WIN32)
+        if (handle_ != INVALID_HANDLE_VALUE) {
+            if (acquired_)
+                UnlockFileEx(handle_, 0, 1, 0, &overlapped_);
+            CloseHandle(handle_);
+        }
+#else
+        if (descriptor_ >= 0) {
+            flock(descriptor_, LOCK_UN);
+            close(descriptor_);
+        }
+#endif
+    }
+
+private:
+#if defined(_WIN32)
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+    OVERLAPPED overlapped_{};
+    bool acquired_ = false;
+#else
+    int descriptor_ = -1;
+#endif
+};
+
+Json publish_runtime(const Json& request)
+{
+    const auto fail = [](std::string reason) {
+        return Json{{"ok", false}, {"published", false}, {"reason", std::move(reason)}};
+    };
+    const auto root_text = string_field(request, "projectRoot");
+    const auto identity = string_field(request, "compilerIdentity");
+    if (!root_text || !identity || identity->empty() || !request.contains("artifact") ||
+        !request.contains("catalog") || !request.contains("runtimeInputPaths") ||
+        !request.contains("testInputPaths") || !request.contains("authoringDiagnostics") ||
+        !request.contains("expectedRuntimeInputs") || !request.contains("expectedTestInputs"))
+        return fail("publication-request-invalid");
+    if (request.contains("cancelled") && !request["cancelled"].is_boolean())
+        return fail("publication-request-invalid");
+    if (request.value("cancelled", false))
+        return fail("publication-cancelled");
+    const auto& artifact = request["artifact"];
+    const auto& catalog = request["catalog"];
+    const auto& diagnostics = request["authoringDiagnostics"];
+    if (!artifact.is_object() || string_field(artifact, "schema") != kPreparedArtifactSchema ||
+        !artifact.contains("compiledProject") || !artifact["compiledProject"].is_object() ||
+        string_field(artifact["compiledProject"], "schema") != kCompiledProjectSchema ||
+        integer_field(artifact["compiledProject"], "schemaVersion") != kCompiledProjectVersion ||
+        !catalog_shape_valid(catalog) || !authoring_diagnostics_shape_valid(diagnostics))
+        return fail("publication-artifact-invalid");
+    if (!artifact.contains("gameplayJson") || !artifact["gameplayJson"].is_string() ||
+        !artifact.contains("packageOptions") || !artifact["packageOptions"].is_object() ||
+        !artifact.contains("sourceFingerprint") || !artifact["sourceFingerprint"].is_string())
+        return fail("publication-artifact-invalid");
+    const auto gameplay = Json::parse(artifact["gameplayJson"].get<std::string>(), nullptr, false);
+    if (gameplay.is_discarded() || gameplay != artifact["compiledProject"] ||
+        !noveltea::core::decode_compiled_project(gameplay, "native-runtime-cache"))
+        return fail("publication-compiled-project-invalid");
+    const auto root = filesystem_path_from_utf8(*root_text);
+    std::error_code error;
+    const auto root_status = std::filesystem::symlink_status(root, error);
+    if (error || std::filesystem::is_symlink(root_status) ||
+        !std::filesystem::is_directory(root_status) || !authoring_workspace_settled(root))
+        return fail("workspace-unsettled");
+    const auto generation_proof = [&]() {
+        const auto expected = string_field(request, "expectedSourceGeneration");
+        return !request.contains("expectedSourceGeneration") ||
+               (expected && native_project_source_generation_is_current(root, *expected));
+    };
+    if (!generation_proof())
+        return fail("source-generation-changed");
+    if (!contained_physical_inputs(root, artifact))
+        return fail("compiled-artifact-physical-inputs-invalid");
+    if (!pinned_package_inputs_current(root, artifact))
+        return fail("physical-inputs-changed-or-unpinned");
+    auto runtime_inputs = collect_cache_inputs(root, request["runtimeInputPaths"]);
+    auto test_inputs = collect_cache_inputs(root, request["testInputPaths"]);
+    if (!runtime_inputs || !test_inputs)
+        return fail("input-inspection-failed");
+    if (*runtime_inputs != request["expectedRuntimeInputs"] ||
+        *test_inputs != request["expectedTestInputs"])
+        return fail("prepared-inputs-changed");
+    std::set<std::string> runtime_paths, test_paths;
+    for (const auto& item : *runtime_inputs)
+        runtime_paths.insert(item.at("path").get<std::string>());
+    for (const auto& item : *test_inputs)
+        test_paths.insert(item.at("path").get<std::string>());
+    if (!runtime_paths.contains("project.yaml") || runtime_paths.contains("editor.yaml"))
+        return fail("input-membership-invalid");
+    for (const auto& path : runtime_paths)
+        if (path.starts_with("records/tests/"))
+            return fail("input-membership-invalid");
+    const Json scopes =
+        Json::array({{{"root", "records"},
+                      {"extensions", Json::array({".yaml", ".json", ".lua", ".rcss", ".rml"})},
+                      {"excludedPrefixes", Json::array({"records/tests/"})}},
+                     {{"root", "scripts"},
+                      {"extensions", Json::array({".lua"})},
+                      {"excludedPrefixes", Json::array()}},
+                     {{"root", "i18n"},
+                      {"extensions", Json::array({".yaml", ".json"})},
+                      {"excludedPrefixes", Json::array()}}});
+    if (!discovery_matches(root, scopes, runtime_paths) || test_files(root) != test_paths)
+        return fail("discovery-inputs-changed");
+
+    const auto cache_root = root / ".noveltea/cache/runtime";
+    const auto generations = cache_root / "generations";
+    if (!contained_by_root(root, generations))
+        return fail("cache-root-escapes-project");
+    std::filesystem::create_directories(generations, error);
+    if (error)
+        return fail("cache-directory-unavailable");
+    for (const auto& folder :
+         {root / ".noveltea", root / ".noveltea/cache", cache_root, generations}) {
+        const auto status = std::filesystem::symlink_status(folder, error);
+        if (error || std::filesystem::is_symlink(status) || !std::filesystem::is_directory(status))
+            return fail("cache-directory-unsafe");
+    }
+    RuntimePublicationLock lock;
+    if (!lock.acquire(cache_root / ".publish.lock"))
+        return fail("cache-publication-lock-unavailable");
+    const auto current_path = cache_root / "current";
+    std::string old_pointer;
+    const auto old_status = std::filesystem::symlink_status(current_path, error);
+    if (!error) {
+        if (std::filesystem::is_symlink(old_status) ||
+            !std::filesystem::is_regular_file(old_status))
+            return fail("cache-pointer-unsafe");
+        const auto content = read_text(current_path);
+        if (!content)
+            return fail("cache-pointer-unreadable");
+        old_pointer = *content;
+    } else if (error != std::errc::no_such_file_or_directory) {
+        return fail("cache-pointer-unreadable");
+    }
+    const auto generation = new_generation_id();
+    const auto directory = generations / generation;
+    if (!std::filesystem::create_directory(directory, error) || error)
+        return fail("cache-generation-unavailable");
+    bool published = false;
+    const auto cleanup = [&]() {
+        if (!published) {
+            std::error_code ignored;
+            std::filesystem::remove_all(directory, ignored);
+        }
+    };
+    const auto artifact_text = artifact.dump() + "\n";
+    const auto catalog_text = catalog.dump() + "\n";
+    const Json manifest{
+        {"schema", kCacheSchema},
+        {"variant", "canonical-runtime"},
+        {"compilerIdentity", *identity},
+        {"projectWorkspace", {{"schema", kWorkspaceSchema}, {"formatVersion", kWorkspaceVersion}}},
+        {"compiledProject",
+         {{"schema", kCompiledProjectSchema}, {"formatVersion", kCompiledProjectVersion}}},
+        {"preparedArtifactSchema", kPreparedArtifactSchema},
+        {"discoveryScopes", scopes},
+        {"authoringDiagnostics", diagnostics},
+        {"inputs", *runtime_inputs},
+        {"artifactFile", "artifact.json"},
+        {"artifactSha256", sha256_prefixed(artifact_text)},
+        {"testCatalog",
+         {{"inputs", *test_inputs},
+          {"catalogFile", "tests.json"},
+          {"catalogSha256", sha256_prefixed(catalog_text)}}}};
+    if (!write_durable_file(directory / "artifact.json", artifact_text) ||
+        !write_durable_file(directory / "tests.json", catalog_text) ||
+        !write_durable_file(directory / "manifest.json", manifest.dump() + "\n") ||
+        !flush_directory(directory) || !flush_directory(generations)) {
+        cleanup();
+        return fail("cache-publication-failed");
+    }
+    // Acceptance-only crash window: a child process can be killed after all
+    // generation files are durable but before the incumbent pointer changes.
+    if (const char* injected = std::getenv("NOVELTEA_TEST_PAUSE_CACHE_COMMIT");
+        injected && std::string_view(injected) == "1")
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+    // One last input and pointer revision check after constructing the
+    // generation. A failed check leaves only disposable orphan files.
+    const auto latest_pointer = read_text(current_path);
+    if (!generation_proof() || !pinned_package_inputs_current(root, artifact) ||
+        !unchanged_cache_inputs(root, *runtime_inputs) ||
+        !unchanged_cache_inputs(root, *test_inputs) || !authoring_workspace_settled(root) ||
+        !discovery_matches(root, scopes, runtime_paths) || test_files(root) != test_paths ||
+        latest_pointer.value_or("") != old_pointer) {
+        cleanup();
+        return fail("inputs-changed-during-preparation");
+    }
+    const auto staged_pointer = cache_root / ("current.tmp-" + generation);
+    if (!write_durable_file(staged_pointer, generation + "\n")) {
+        cleanup();
+        return fail("cache-publication-failed");
+    }
+#if defined(_WIN32)
+    const bool renamed = MoveFileExW(staged_pointer.c_str(), current_path.c_str(),
+                                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+#else
+    std::filesystem::rename(staged_pointer, current_path, error);
+    const bool renamed = !error;
+#endif
+    if (!renamed) {
+        std::filesystem::remove(staged_pointer, error);
+        cleanup();
+        return fail("cache-publication-failed");
+    }
+    published = true;
+    (void)flush_directory(cache_root);
+    return Json{{"ok", true}, {"published", true}, {"generation", generation}};
+}
+
 } // namespace
 
 extern "C" std::uint64_t
@@ -852,4 +1363,33 @@ extern "C" std::uint64_t noveltea_tooling_probe_runtime_cache_json(const std::ui
     return write_response(parsed.is_discarded() ? response("unusable", "probe-request-invalid")
                                                 : probe(parsed),
                           response_buffer, response_capacity);
+}
+
+extern "C" std::uint64_t
+noveltea_tooling_publish_runtime_cache_json(const std::uint8_t* request, std::uint64_t request_size,
+                                            std::uint8_t* response_buffer,
+                                            std::uint64_t response_capacity)
+{
+    // Unlike read-only C ABI functions this operation publishes files. Never
+    // perform the side effect during a buffer-size probe and then repeat it
+    // when the caller resubmits with a larger output buffer.
+    if (response_buffer == nullptr || response_capacity < 4096)
+        return 4096;
+    const auto input = request == nullptr
+                           ? std::string_view{}
+                           : std::string_view(reinterpret_cast<const char*>(request),
+                                              static_cast<std::size_t>(request_size));
+    const auto parsed = Json::parse(input, nullptr, false);
+    try {
+        return write_response(parsed.is_discarded()
+                                  ? Json{{"ok", false},
+                                         {"published", false},
+                                         {"reason", "publication-request-invalid"}}
+                                  : publish_runtime(parsed),
+                              response_buffer, response_capacity);
+    } catch (const std::exception&) {
+        return write_response(
+            {{"ok", false}, {"published", false}, {"reason", "cache-publication-failed"}},
+            response_buffer, response_capacity);
+    }
 }

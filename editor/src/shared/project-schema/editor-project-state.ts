@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import {
   createProjectValidationDiagnostic,
   type ProjectValidationDiagnostic,
-} from './project-validation';
+} from './project-diagnostic-projection';
 
 export const EDITOR_PROJECT_STATE_SCHEMA = 'noveltea.editor.project-state' as const;
 
@@ -190,9 +191,12 @@ function isCanonicalContentPointer(value: string): boolean {
     .every((segment) => !segment.includes('~') || /^(?:[^~]|~0|~1)*$/.test(segment));
 }
 
-export const editorRecoveryJsonPointerSchema = z
-  .string()
-  .refine(isCanonicalContentPointer, 'Recovery paths must be canonical content JSON pointers.');
+export const editorRecoveryJsonPointerSchema = nativeOperation(
+  'editor.recovery-pointer',
+  z
+    .string()
+    .refine(isCanonicalContentPointer, 'Recovery paths must be canonical content JSON pointers.'),
+);
 
 const jsonSerializableValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -306,7 +310,10 @@ export const editorProjectStateSchema = z
     recovery: editorRecoveryStateSchema.default({ sequence: 0, saveUnitsById: {} }),
     sourceRecoveryById: z.record(z.string().min(1), editorSourceRecoveryEntrySchema).default({}),
     lastSuccessfulPlatformExportIdentity: lastSuccessfulPlatformExportIdentitySchema.optional(),
-    previewLocale: z.string().trim().min(1).nullable().default(null),
+    previewLocale: nativeOperation('string.trim', z.string().trim())
+      .min(1)
+      .nullable()
+      .default(null),
     workbench: editorWorkbenchStateSchema.optional(),
     explorer: editorExplorerStateSchema.default(emptyEditorExplorerState()),
     chapters: editorChaptersStateSchema.default(emptyEditorChaptersState()),

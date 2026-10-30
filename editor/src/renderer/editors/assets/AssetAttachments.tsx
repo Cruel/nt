@@ -21,10 +21,8 @@ import {
   type AssetAttachment,
   type AssetAttachmentPurpose,
 } from '../../../shared/project-schema/authoring-assets';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import type {
   ProjectAttachmentFileInfo,
   ProjectAttachmentInspection,
@@ -39,7 +37,7 @@ interface Props {
 export function AssetAttachments({ assetId, project, projectSessionId }: Props) {
   const { t, i18n } = useTranslation('workspace');
   const format = createEditorFormatters(i18n.language);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const assetData = useMemo(
     () => parseAssetData(project.assets[assetId]?.data),
@@ -176,7 +174,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       return;
     }
     const assetHash = await freshAssetRevision();
-    apply(
+    await apply(
       [assetId],
       {
         kind: 'replace',
@@ -190,15 +188,18 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
     );
   }
 
-  function apply(
+  async function apply(
     ids: string[],
     change: { kind: 'add' | 'remove' | 'replace'; attachment: AssetAttachment; priorPath?: string },
     label: string,
     assetRevisionsById: Readonly<Record<string, string>> = {},
-  ): boolean {
+  ): Promise<boolean> {
     try {
       const current = useProjectStore.getState();
-      if (current.projectSessionId !== projectSessionId || !isAuthoringProject(current.document)) {
+      if (
+        current.projectSessionId !== projectSessionId ||
+        !isAuthoringProjectView(current.document)
+      ) {
         setStatus(t('assetAttachments.sessionChanged'));
         return false;
       }
@@ -207,7 +208,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
         setStatus(t('assetAttachments.alreadyAttached'));
         return false;
       }
-      const result = executeCommand({
+      const result = await executeCommand({
         type: 'project.applyPatch',
         label,
         payload: patches,
@@ -247,7 +248,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
     }
     const assetHash = purpose === 'authoring-source' ? await freshAssetRevision() : undefined;
     if (
-      apply(
+      await apply(
         [assetId],
         {
           kind: 'add',
@@ -293,7 +294,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       if (
         latest.projectSessionId !== projectSessionId ||
         latest.projectInstanceId !== initialProjectInstanceId ||
-        !isAuthoringProject(latest.document)
+        !isAuthoringProjectView(latest.document)
       ) {
         setStatus(t('assetAttachments.sessionChanged'));
         return;
@@ -332,7 +333,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
             ...(assetHash ? { assetBaselineHash: assetHash } : {}),
           })),
         ];
-        const response = executeCommand({
+        const response = await executeCommand({
           type: 'project.applyPatch',
           label: t('assetAttachments.importFiles'),
           payload: [
@@ -374,7 +375,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       return;
     }
     if (
-      apply(
+      await apply(
         [assetId],
         {
           kind: 'replace',
@@ -417,8 +418,8 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       return;
     }
     if (
-      !isAuthoringProject(saved) ||
-      !isAuthoringProject(store.document) ||
+      !isAuthoringProjectView(saved) ||
+      !isAuthoringProjectView(store.document) ||
       Object.entries(store.document.assets).some(([id, asset]) => {
         const current = parseAssetData(asset.data);
         const baseline = parseAssetData(saved.assets[id]?.data);
@@ -450,6 +451,8 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
         if (useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap))
           useCommandStore.getState().invalidateHistoryAfterCommittedFileMove();
       }
+      if (result.nativeWorkingRevision !== undefined)
+        useCommandStore.getState().enableNativeCommandMode(result.nativeWorkingRevision);
       setMovePath(null);
       setMoveValue('');
       setStatus(t('assetAttachments.updated'));
@@ -492,7 +495,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       return;
     }
     const liveProject = useProjectStore.getState().document;
-    if (!isAuthoringProject(liveProject)) return;
+    if (!isAuthoringProjectView(liveProject)) return;
     const assetRevisionsById = Object.fromEntries(
       (
         await Promise.all(
@@ -509,7 +512,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       ).filter((value): value is readonly [string, `sha256:${string}`] => value !== null),
     );
     if (
-      apply(
+      await apply(
         shareTargets,
         {
           kind: 'add',
@@ -662,7 +665,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                             return;
                           }
                         }
-                        apply(
+                        void apply(
                           [assetId],
                           {
                             kind: 'replace',
@@ -735,7 +738,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                       size="sm"
                       variant="outline"
                       onClick={() =>
-                        apply(
+                        void apply(
                           [assetId],
                           { kind: 'remove', attachment: item },
                           t('assetAttachments.history.remove'),
@@ -769,7 +772,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                       variant="outline"
                       onClick={() => {
                         const name = (nameEdits[item.path] ?? item.displayName ?? '').trim();
-                        apply(
+                        void apply(
                           [assetId],
                           {
                             kind: 'replace',

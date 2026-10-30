@@ -15,8 +15,6 @@ import type {
   CommandRequest,
   CommandTransactionRequest,
 } from '@/commands/command-types';
-import { buildAuthoringStructuralDependencyGraph } from '../../shared/authoring-dependency-graph';
-import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
 import type { JsonValue } from '@/project/json-value';
 
 export {
@@ -29,22 +27,10 @@ export {
 };
 
 function withCurrentGraph(state: CommandBusState): CommandBusState {
-  if (state.document === null) return state;
-  const project = authoringProjectSchema.safeParse(state.document);
-  if (!project.success) return state;
-  const projectInstanceId = state.projectInstanceId ?? 'test:command-bus';
-  const projectRevision = state.projectRevision ?? 1;
-  return {
-    ...state,
-    projectInstanceId,
-    projectRevision,
-    graphSnapshot: {
-      projectInstanceId,
-      projectRevision,
-      graphRevision: projectRevision,
-      graph: buildAuthoringStructuralDependencyGraph(project.data),
-    },
-  };
+  // Pure patch-intent command tests do not own a Project semantic graph.
+  // Reference-sensitive rename/delete behaviors are exercised separately
+  // through admitted, revision-matched native graph fixtures.
+  return state;
 }
 
 export function createInitialCommandBusState(

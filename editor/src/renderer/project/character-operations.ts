@@ -1,13 +1,10 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
-import {
-  parseCharacterData,
-  validateCharacterData,
-} from '../../shared/project-schema/authoring-characters';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { JsonPatchOperation } from './json-patch';
+import { parseCharacterData } from '../../shared/project-schema/authoring-characters';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { overridesForGameplayInstanceEdit } from './archetype-operations';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
+import type { JsonPatchOperation } from './json-patch';
 
 export interface ReplaceCharacterDataPayload {
   characterId: string;
@@ -30,7 +27,7 @@ export function replaceCharacterDataPatches(
   document: unknown,
   payload: ReplaceCharacterDataPayload,
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const record = document.characters[payload.characterId];
   if (!record)
@@ -46,9 +43,6 @@ export function replaceCharacterDataPatches(
       patches: [],
       diagnostics: [error('Character data is invalid.', pathForCharacterData(payload.characterId))],
     };
-  const diagnostics = validateCharacterData(document, payload.characterId, { ...record, data });
-  const failure = diagnostics.find((item) => item.severity === 'error');
-  if (failure) return { patches: [], diagnostics: [error(failure.message, failure.path)] };
   const overrides = overridesForGameplayInstanceEdit(document, 'characters', payload.characterId, {
     ...record,
     data,

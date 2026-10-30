@@ -31,6 +31,17 @@ parsing and handler execution, and rejection detail must not include request val
 
 ## Runtime request admission
 
+In native lifecycle certification, guarded IPC additionally rejects
+incompatible legacy content-Save, Project-validation, preparation and playback
+channels before invoking their main-process services. Native patch/Save,
+reconciliation, Test and runtime-preparation IPCs require an admitted active
+native session and its expected working revision. These checks preserve the
+normal sender/frame authentication and exact argument schemas; native failure
+never falls through to legacy writer handlers. The ordinary editor's
+production selection remains unchanged pending #521. The per-handler
+retirement ledger is in
+`docs/architecture/certifications/NATIVE_EDITOR_MAIN_AUTHORITY_BOUNDARY.md`.
+
 A guarded registration receives IPC arguments as `unknown[]` and declares one exact runtime parser.
 Parsing failure rejects with the stable `invalid-request` boundary code before its service runs.
 Strict objects reject unknown keys, tuples reject missing or additional positional arguments, and

@@ -30,7 +30,7 @@ type TransitionPhase = 'entering' | 'focused' | 'exiting';
 type StoppableAnimation = { stop: () => void; then: PromiseLike<unknown>['then'] };
 
 export interface FocusTransitionOverlayHandle {
-  exit: (onComplete: () => boolean) => void;
+  exit: (onComplete: () => boolean | Promise<boolean>) => void;
 }
 
 interface Props {
@@ -241,7 +241,7 @@ export const FocusTransitionOverlay = forwardRef<FocusTransitionOverlayHandle, P
           const destinationScreen =
             destinationPresentationGetterRef.current?.() ?? destinationPresentationRef.current;
           if (!sourceScreen || !destinationScreen) {
-            onComplete();
+            void onComplete();
             return;
           }
 
@@ -254,7 +254,7 @@ export const FocusTransitionOverlay = forwardRef<FocusTransitionOverlayHandle, P
             '[data-focus-transition-destination]',
           );
           if (!backdrop || !transitionImage || !destination) {
-            onComplete();
+            void onComplete();
             return;
           }
 
@@ -282,7 +282,12 @@ export const FocusTransitionOverlay = forwardRef<FocusTransitionOverlayHandle, P
             destination.style.opacity = '0';
             transitionImage.style.opacity = '0';
             backdrop.style.opacity = '0';
-            if (!onComplete()) restoreFocused();
+            void Promise.resolve(onComplete()).then(
+              (accepted) => {
+                if (!accepted) restoreFocused();
+              },
+              () => restoreFocused(),
+            );
             return;
           }
 
@@ -329,7 +334,11 @@ export const FocusTransitionOverlay = forwardRef<FocusTransitionOverlayHandle, P
             if (!mountedRef.current) return;
 
             activeAnimationsRef.current = [];
-            if (!onComplete()) restoreFocused();
+            try {
+              if (!(await onComplete())) restoreFocused();
+            } catch {
+              restoreFocused();
+            }
           };
           void run();
         },

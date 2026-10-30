@@ -90,6 +90,86 @@ const api: NovelTeaElectronApi = {
   },
   openProject: (projectPath: string) => invokeGuarded(IPC_CHANNELS.OPEN_PROJECT, projectPath),
   closeActiveProject: () => invokeGuarded(IPC_CHANNELS.CLOSE_ACTIVE_PROJECT),
+  nativeProjectPatch: (projectSessionId, expectedRevision, patches, layoutCopySources) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_PATCH,
+      projectSessionId,
+      expectedRevision,
+      patches,
+      layoutCopySources,
+    ),
+  nativeProjectSaveUnit: (projectSessionId, expectedRevision, saveUnitIds, options) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_SAVE_UNIT,
+      projectSessionId,
+      expectedRevision,
+      saveUnitIds,
+      options,
+    ),
+  nativeProjectSaveText: (projectSessionId, expectedRevision, path, diskRevision, text) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_SAVE_TEXT,
+      projectSessionId,
+      expectedRevision,
+      path,
+      diskRevision,
+      text,
+    ),
+  nativeProjectStageText: (projectSessionId, expectedRevision, path, diskRevision, text) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_STAGE_TEXT,
+      projectSessionId,
+      expectedRevision,
+      path,
+      diskRevision,
+      text,
+    ),
+  nativeProjectValidate: (projectSessionId, expectedRevision) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_VALIDATE, projectSessionId, expectedRevision),
+  nativeProjectSemanticGraph: (projectSessionId, expectedRevision) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_SEMANTIC_GRAPH, projectSessionId, expectedRevision),
+  nativeProjectReconcile: (projectSessionId, expectedRevision, owner) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RECONCILE, projectSessionId, expectedRevision, owner),
+  nativeProjectUseDiskUnit: (projectSessionId, expectedRevision, saveUnitId) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_USE_DISK_UNIT,
+      projectSessionId,
+      expectedRevision,
+      saveUnitId,
+    ),
+  nativeProjectPrepareRuntime: (projectSessionId, expectedRevision, shaderVariant) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_PREPARE_RUNTIME,
+      projectSessionId,
+      expectedRevision,
+      shaderVariant,
+    ),
+  nativeProjectTestReadiness: (projectSessionId, expectedRevision, testId) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_TEST_READINESS,
+      projectSessionId,
+      expectedRevision,
+      testId,
+    ),
+  nativeProjectRunTest: (projectSessionId, expectedRevision, testId) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_TEST, projectSessionId, expectedRevision, testId),
+  nativeProjectRunSuite: (projectSessionId, expectedRevision) =>
+    invokeGuarded(IPC_CHANNELS.NATIVE_PROJECT_RUN_SUITE, projectSessionId, expectedRevision),
+  nativeProjectPrepareExport: (projectSessionId, expectedRevision, mode, profileId) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_PREPARE_EXPORT,
+      projectSessionId,
+      expectedRevision,
+      mode,
+      profileId,
+    ),
+  nativeProjectExportPackage: (projectSessionId, expectedRevision, outputPath) =>
+    invokeGuarded(
+      IPC_CHANNELS.NATIVE_PROJECT_EXPORT_PACKAGE,
+      projectSessionId,
+      expectedRevision,
+      outputPath,
+    ),
   validateProject: (
     projectSessionId: string,
     project: unknown,

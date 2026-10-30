@@ -22,6 +22,7 @@ import { defaultDialogueData } from '../../shared/project-schema/authoring-dialo
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
 vi.mock('@/components/source/SourceEditor', () => ({
   SourceEditor: ({
@@ -129,8 +130,8 @@ function currentRoomNavigationTransition() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useCommandStore.getState().resetCommandHistory();
   useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
   usePendingInputStore.getState().resetPendingInputs();
@@ -139,15 +140,54 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('displays native settings diagnostics while preserving pending numeric input without legacy validation', async () => {
+    admitNativeRendererCommandFixture(project(), 'native-settings');
+    useCommandStore.getState().enableNativeCommandMode(2);
+    const settings = await import('../../shared/project-schema/authoring-project-settings');
+    const poison = () => {
+      throw new Error('Legacy Settings authority invoked');
+    };
+    const validate = vi
+      .spyOn(settings, 'validateProjectSettingsAuthoringState')
+      .mockImplementation(poison);
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: vi.fn().mockResolvedValue({
+        ok: true,
+        success: false,
+        diagnostics: [
+          {
+            code: 'native.settings.version',
+            severity: 'error',
+            path: '/project/version',
+            message: 'Native version diagnostic',
+          },
+        ],
+      }),
+    });
+    const view = render(<ProjectSettingsEditor tab={tab} />);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true'),
+    );
+    selectProjectSettingsCategory('Display');
+    fireEvent.change(screen.getByLabelText('UI scale minimum'), { target: { value: '1.' } });
+    expect(screen.getByLabelText('UI scale minimum')).toHaveValue('1.');
+    expect(
+      buildEditorProjectStateSnapshot().recovery.saveUnitsById['project:settings']
+        ?.pendingRawInputByPath,
+    ).toMatchObject({ '/settings/accessibility/uiScale/minimum': { value: '1.' } });
+    expect(useProjectStore.getState().document).toMatchObject({
+      settings: { accessibility: { uiScale: { minimum: 1 } } },
+    });
+    expect(validate).not.toHaveBeenCalled();
+    view.unmount();
+    validate.mockRestore();
+    Reflect.deleteProperty(window.noveltea, 'nativeProjectValidate');
+  });
   it('merges asynchronously verified notices into current Project settings without restoring removed entries', async () => {
     const source = project();
     source.settings.distributionNotices = [{ path: 'support/licenses/old.txt' }];
-    useProjectStore.getState().loadProjectDocument({
-      document: source,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-      projectSessionId: 'project-a',
-    });
+    admitNativeRendererCommandFixture(source, 'project-a');
     let finishInspection!: (value: { path: string; exists: boolean }) => void;
     vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
       () =>
@@ -177,12 +217,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('discards an inspected notice when the Project instance changes before completion', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-      projectSessionId: 'project-a',
-    });
+    admitNativeRendererCommandFixture(project(), 'project-a');
     let finishInspection!: (value: { path: string; exists: boolean }) => void;
     vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
       () =>
@@ -196,14 +231,7 @@ describe('ProjectSettingsEditor', () => {
       target: { value: 'support/licenses/stale.txt' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Add notice' }));
-    await act(() =>
-      useProjectStore.getState().loadProjectDocument({
-        document: project(),
-        projectPath: '/other',
-        projectFilePath: '/other/project.yaml',
-        projectSessionId: 'project-b',
-      }),
-    );
+    await act(() => admitNativeRendererCommandFixture(project(), 'project-b'));
     await act(async () => {
       finishInspection({ path: 'support/licenses/stale.txt', exists: true });
     });
@@ -222,11 +250,7 @@ describe('ProjectSettingsEditor', () => {
     profile.label = 'Android Release';
     profile.assetMemory = { kind: 'policy', policyId: 'mobile' };
     source.export.profiles = [profile];
-    useProjectStore.getState().loadProjectDocument({
-      document: source,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(source);
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Asset Memory');
 
@@ -254,11 +278,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('restores the selected category on the first remount render', () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Display');
 
@@ -276,11 +296,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('selects the owning category for a project settings target', () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
 
     act(() => {
@@ -298,11 +314,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('authors Project cursor defaults and named cursor definitions', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
 
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Cursors');
@@ -337,11 +349,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('authors semantic Purpose mixing and Voice ducking from the Audio category', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Audio');
 
@@ -364,6 +372,12 @@ describe('ProjectSettingsEditor', () => {
     );
 
     fireEvent.click(screen.getByRole('switch', { name: 'Enabled' }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as ReturnType<typeof project>).settings.audio
+          .voiceDucking.enabled,
+      ).toBe(true),
+    );
     fireEvent.change(screen.getByLabelText('Music gain while Voice is active'), {
       target: { value: '0.3' },
     });
@@ -383,11 +397,7 @@ describe('ProjectSettingsEditor', () => {
       color: '#112233',
       skippable: true,
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: nextProject,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(nextProject);
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Transitions');
 
@@ -440,11 +450,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('writes metadata, entrypoint, and startup script directly through focused commands', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
 
     expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
@@ -483,22 +489,42 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('keeps representable semantic errors authoritative and visible through field diagnostics', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
+    admitNativeRendererCommandFixture(project());
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: vi.fn(async (_session: string, revision: number) => ({
+        ok: true,
+        success: true,
+        diagnostics:
+          revision === 0
+            ? []
+            : [
+                '/project/version',
+                '/settings/app/versionName',
+                '/settings/app/shortName',
+                '/settings/app/themeColor',
+              ].map((path) => ({
+                code: 'native.settings.invalid',
+                severity: 'error' as const,
+                path,
+                message: 'Native settings validation failed.',
+              })),
+      })),
     });
     render(<ProjectSettingsEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Version'), { target: { value: '' } });
-    expect(screen.getByLabelText('Version')).toHaveValue('');
+    await waitFor(() => expect(screen.getByLabelText('Version')).toHaveValue(''));
     await waitFor(() =>
       expect(screen.getByLabelText('Version')).toHaveAttribute('aria-invalid', 'true'),
     );
     selectProjectSettingsCategory('App Identity');
     fireEvent.change(screen.getByLabelText('Version name'), { target: { value: '' } });
+    await waitFor(() => expect(screen.getByLabelText('Version name')).toHaveValue(''));
     fireEvent.change(screen.getByLabelText('Short name'), { target: { value: 'Temporary' } });
+    await waitFor(() => expect(screen.getByLabelText('Short name')).toHaveValue('Temporary'));
     fireEvent.change(screen.getByLabelText('Short name'), { target: { value: '' } });
+    await waitFor(() => expect(screen.getByLabelText('Short name')).toHaveValue(''));
     fireEvent.change(screen.getByLabelText('Theme color'), { target: { value: 'not-a-color' } });
 
     expect(screen.getByLabelText('Version name')).toHaveValue('');
@@ -516,10 +542,24 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('preserves exact pending numeric text through recovery and clears it on a valid commit', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
+    admitNativeRendererCommandFixture(project());
+    Object.defineProperty(window.noveltea, 'nativeProjectValidate', {
+      configurable: true,
+      value: vi.fn(async (_session: string, revision: number) => ({
+        ok: true,
+        success: true,
+        diagnostics:
+          revision >= 2
+            ? [
+                {
+                  code: 'native.settings.range',
+                  severity: 'error' as const,
+                  path: '/settings/accessibility/uiScale/minimum',
+                  message: 'Minimum UI scale exceeds maximum.',
+                },
+              ]
+            : [],
+      })),
     });
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Display');
@@ -580,11 +620,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('changes reference resolution only after explicit valid confirmation', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Display');
 
@@ -627,8 +663,8 @@ describe('ProjectSettingsEditor', () => {
       originSaveUnitId: 'project:settings',
       persistencePolicy: 'manual-save',
     });
-    act(() => {
-      useCommandStore.getState().undo();
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
     });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -638,11 +674,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('uses standard Undo and Redo and survives editor remounts without a whole-form draft', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Project title'), {
@@ -657,12 +689,12 @@ describe('ProjectSettingsEditor', () => {
     render(<ProjectSettingsEditor tab={tab} />);
     expect(screen.getByLabelText('Project title')).toHaveValue('Authoritative Title');
 
-    act(() => {
-      useCommandStore.getState().undo();
+    await act(async () => {
+      await useCommandStore.getState().undoAsync();
     });
     await waitFor(() => expect(screen.getByLabelText('Project title')).toHaveValue('Old Title'));
-    act(() => {
-      useCommandStore.getState().redo();
+    await act(async () => {
+      await useCommandStore.getState().redoAsync();
     });
     await waitFor(() =>
       expect(screen.getByLabelText('Project title')).toHaveValue('Authoritative Title'),
@@ -670,11 +702,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('chooses non-room project entrypoints and clears them through the selector immediately', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
 
     fireEvent.click(screen.getByText('No entrypoint'));
@@ -704,11 +732,7 @@ describe('ProjectSettingsEditor', () => {
       label: 'Stateful UI',
       data: defaultLayoutData('Stateful UI', 'document'),
     };
-    useProjectStore.getState().loadProjectDocument({
-      document,
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(document);
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Runtime');
     fireEvent.click(screen.getByText('Built-in title screen'));
@@ -718,11 +742,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('updates runtime defaults, title screen, and icon settings', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Runtime');
 
@@ -764,11 +784,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('authors starting contents for the single default Inventory', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Runtime');
 
@@ -809,11 +825,7 @@ describe('ProjectSettingsEditor', () => {
   });
 
   it('keeps ComfyUI connection settings out of project settings', async () => {
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Integrations');
 
@@ -881,11 +893,7 @@ describe('ProjectSettingsEditor', () => {
         failedVerificationCount: 0,
       },
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project(),
-      projectPath: '/mock',
-      projectFilePath: '/mock/project.yaml',
-    });
+    admitNativeRendererCommandFixture(project());
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Integrations');
 

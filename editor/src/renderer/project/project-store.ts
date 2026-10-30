@@ -17,6 +17,7 @@ import {
 } from './project-publication';
 
 interface ProjectStoreState {
+  nativeSession: boolean;
   document: JsonValue | null;
   admittedProject: StructurallyAdmittedAuthoringProject | null;
   savedDocument: JsonValue | null;
@@ -222,6 +223,7 @@ function remapProjectSourcePaths(
 }
 
 export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
+  nativeSession: false,
   document: null,
   admittedProject: null,
   savedDocument: null,
@@ -237,17 +239,19 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   lastSaveError: null,
   loadProjectDocument: ({
     document,
+    nativeSession = false,
     savedDocument,
     projectPath,
     projectFilePath,
     projectSessionId = null,
     scriptSourcePaths = {},
   }) => {
-    const admitted = admitProjectCandidate(document);
+    const admitted = admitProjectCandidate(document, nativeSession);
     if (!admitted) return false;
     const projectInstanceId = createProjectInstanceId();
     const projectRevision = 1;
     set({
+      nativeSession,
       document: admitted.document,
       admittedProject: admitted.project,
       savedDocument: normalizeDocument(savedDocument === undefined ? document : savedDocument),
@@ -280,6 +284,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       document: admitted.document,
       admittedProject: admitted.project,
       savedDocument: null,
+      nativeSession: false,
       projectInstanceId,
       projectRevision,
       lastMutationPublication: createMutationPublication({
@@ -302,6 +307,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   },
   clearProject: () =>
     set({
+      nativeSession: false,
       document: null,
       admittedProject: null,
       savedDocument: null,
@@ -318,7 +324,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     }),
   replaceDocumentFromCommand: (document, historyCursor, mutation) => {
     const state = get();
-    const admitted = admitProjectCandidate(document);
+    const admitted = admitProjectCandidate(document, state.nativeSession);
     if (!admitted || !state.projectInstanceId || !state.admittedProject) return false;
     const contentEqual = jsonValuesEqual(
       stripLocalEditorProjectState(state.document),
@@ -349,7 +355,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   },
   publishExternalReconciliation: (payload) => {
     const state = get();
-    const admitted = admitProjectCandidate(payload.document);
+    const admitted = admitProjectCandidate(payload.document, state.nativeSession);
     if (!admitted || !state.projectInstanceId || !state.admittedProject) return false;
     const projectRevision = state.projectRevision + 1;
     set({
@@ -376,8 +382,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     if (!state.document || !state.projectInstanceId || !state.admittedProject) return false;
     const working = remapProjectSourcePaths(state.document, pathRemap);
     const saved = remapProjectSourcePaths(state.savedDocument, pathRemap);
-    const admittedWorking = admitProjectCandidate(working);
-    const admittedSaved = saved ? admitProjectCandidate(saved) : null;
+    const admittedWorking = admitProjectCandidate(working, state.nativeSession);
+    const admittedSaved = saved ? admitProjectCandidate(saved, state.nativeSession) : null;
     if (!admittedWorking || (saved && !admittedSaved)) return false;
     const changed = !jsonValuesEqual(state.document, admittedWorking.document);
     const projectRevision = changed ? state.projectRevision + 1 : state.projectRevision;
@@ -413,8 +419,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
     if (!state.document || !state.projectInstanceId || !state.admittedProject) return false;
     const working = applyMaterialShaderCopy(state.document, materialId, stage, path);
     const saved = applyMaterialShaderCopy(state.savedDocument, materialId, stage, path);
-    const admittedWorking = admitProjectCandidate(working);
-    const admittedSaved = saved ? admitProjectCandidate(saved) : null;
+    const admittedWorking = admitProjectCandidate(working, state.nativeSession);
+    const admittedSaved = saved ? admitProjectCandidate(saved, state.nativeSession) : null;
     if (!admittedWorking || (saved && !admittedSaved)) return false;
     const changed = !jsonValuesEqual(state.document, admittedWorking.document);
     const projectRevision = changed ? state.projectRevision + 1 : state.projectRevision;

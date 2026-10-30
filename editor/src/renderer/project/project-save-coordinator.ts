@@ -1,23 +1,18 @@
-import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
-import type { JsonPointer } from './json-pointer';
-import { cloneJsonValue, jsonValuesEqual, type JsonValue } from './json-value';
-import {
-  resolveSaveUnitForTab,
-  sourceIdFromSaveUnitId,
-  sourceSaveUnitId,
-} from './save-unit-registry';
-import type { SaveUnitId } from './save-unit-types';
-import { useProjectStore } from './project-store';
-import { useProjectSourceStore } from './project-source-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { usePendingInputStore } from '@/workbench/pending-input-store';
 import { useCommandStore } from '@/commands/command-store';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
 import {
   buildEditorProjectStateSnapshot,
   editorProjectStateFromProject,
   mergeEditorProjectState,
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import type {
+  ProjectContentSaveResponse,
+  SaveProjectResponse,
+  ToolDiagnostic,
+} from '../../shared/editor-tooling';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import type {
   EditorProjectState,
   EditorRecoverySaveUnit,
@@ -27,28 +22,28 @@ import {
   stripEditorProjectState,
   stripLocalEditorProjectState,
 } from '../../shared/project-schema/editor-project-state';
-import { decodeAuthoringProject } from '../../shared/project-schema/decode-authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { validateProjectSettingsAuthoringState } from '../../shared/project-schema/authoring-project-settings';
 import {
-  collectProjectValidationDiagnostics,
   createProjectValidationDiagnostic,
-  projectValidationDiagnosticKey,
   type ProjectValidationDiagnostic,
-} from '../../shared/project-schema/project-validation';
-import type {
-  ProjectContentSaveResponse,
-  SaveProjectResponse,
-  ToolDiagnostic,
-} from '../../shared/editor-tooling';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
-import {
-  diffJsonDocuments,
-  reconcileExternalProjectChange,
-} from './project-external-reconciliation';
+} from '../../shared/project-schema/project-diagnostic-projection';
+import { applyJsonPatch, type JsonPatchOperation } from './json-patch';
+import type { JsonPointer } from './json-pointer';
+import { cloneJsonValue, jsonValuesEqual, type JsonValue } from './json-value';
+import { projectNativeExternalResult } from './native-external-projection';
+import { confirmProjectComments } from './project-comment-confirmation';
 import { rebaseRecoveryOverlays } from './project-recovery-rebase';
-import { applyProjectMutationValues, buildProjectContentSaveRequest } from './project-save-request';
-import { saveProjectContentWithComments } from './save-project-content-with-comments';
+import {
+  acknowledgeNativeSavedSources,
+  flushNativeProjectSources,
+  useProjectSourceStore,
+} from './project-source-store';
+import { useProjectStore } from './project-store';
+import {
+  resolveSaveUnitForTab,
+  sourceIdFromSaveUnitId,
+  sourceSaveUnitId,
+} from './save-unit-registry';
+import type { SaveUnitId } from './save-unit-types';
 
 export type ProjectSaveCoordinatorStatus =
   | 'saved'
@@ -68,46 +63,8 @@ export interface ProjectSaveCoordinatorResult {
   response?: SaveProjectResponse | ProjectContentSaveResponse;
 }
 
-interface SaveComponent {
-  ids: SaveUnitId[];
-  entries: Array<[SaveUnitId, EditorRecoverySaveUnit]>;
-  paths: JsonPointer[];
-}
-
-function pathOverlaps(left: string, right: string): boolean {
-  if (left === '/' || right === '/') return true;
-  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
-}
-
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
-}
-
-function authoringDiagnostics(document: JsonValue): ProjectValidationDiagnostic[] {
-  const decoded = decodeAuthoringProject(stripLocalEditorProjectState(document));
-  if (!decoded.project) return collectProjectValidationDiagnostics(decoded.structuralDiagnostics);
-  const supplementalSettingsDiagnostics = validateProjectSettingsAuthoringState(
-    decoded.project,
-  ).filter(
-    (diagnostic) =>
-      !decoded.semanticDiagnostics.some(
-        (existing) =>
-          existing.path === diagnostic.path &&
-          existing.severity === diagnostic.severity &&
-          existing.message === diagnostic.message,
-      ),
-  );
-  return collectProjectValidationDiagnostics(
-    decoded.semanticDiagnostics,
-    validateAuthoringProject(decoded.project),
-    supplementalSettingsDiagnostics,
-  );
-}
-
-function authoringErrors(diagnostics: readonly ProjectValidationDiagnostic[]) {
-  return diagnostics.filter(
-    (diagnostic) => diagnostic.severity === 'error' && diagnostic.boundaries.includes('authoring'),
-  );
 }
 
 function orderedEntries(
@@ -138,30 +95,6 @@ function componentPaths(entries: Array<[SaveUnitId, EditorRecoverySaveUnit]>): J
   return uniqueSorted(entries.flatMap(([, entry]) => entry.affectedPaths)) as JsonPointer[];
 }
 
-function diagnosticOwnedByPaths(
-  diagnostic: ProjectValidationDiagnostic,
-  paths: readonly JsonPointer[],
-): boolean {
-  return diagnostic.ownerPaths.some((ownerPath) =>
-    paths.some((path) => pathOverlaps(ownerPath, path)),
-  );
-}
-
-function selectedBlockingDiagnostics(
-  baselineDiagnostics: readonly ProjectValidationDiagnostic[],
-  candidateDiagnostics: readonly ProjectValidationDiagnostic[],
-  selectedPaths: readonly JsonPointer[],
-): ProjectValidationDiagnostic[] {
-  const baselineKeys = new Set(
-    authoringErrors(baselineDiagnostics).map(projectValidationDiagnosticKey),
-  );
-  return authoringErrors(candidateDiagnostics).filter(
-    (diagnostic) =>
-      diagnosticOwnedByPaths(diagnostic, selectedPaths) ||
-      !baselineKeys.has(projectValidationDiagnosticKey(diagnostic)),
-  );
-}
-
 function pendingInputDiagnostic(saveUnitId: SaveUnitId, path: string): ProjectValidationDiagnostic {
   return createProjectValidationDiagnostic({
     code: 'editor.save.pending-input',
@@ -189,24 +122,6 @@ function externalConflictSaveDiagnostic(
     message: `External changes conflict with unsaved edits in '${saveUnitId}'. Choose Use Disk or Keep Mine before saving this item.`,
     boundaries: ['authoring'],
     ownerPaths: conflict.conflictingPaths.length > 0 ? conflict.conflictingPaths : [path],
-  });
-}
-
-function dependencyDiagnostic(
-  activeSaveUnitId: SaveUnitId,
-  dependencyIds: readonly SaveUnitId[],
-  recovery: EditorRecoveryState,
-): ProjectValidationDiagnostic {
-  const firstDependency = dependencyIds[0]!;
-  const ownerPath = recovery.saveUnitsById[firstDependency]?.affectedPaths[0] ?? '/';
-  return createProjectValidationDiagnostic({
-    code: 'editor.save.dependency-dirty',
-    severity: 'error',
-    category: 'Project save',
-    path: ownerPath,
-    message: `Saving '${activeSaveUnitId}' requires unsaved ${dependencyIds.length === 1 ? 'dependency' : 'dependencies'} ${dependencyIds.join(', ')}. Save the dependency first or use Save All.`,
-    boundaries: ['authoring'],
-    ownerPaths: [ownerPath],
   });
 }
 
@@ -253,31 +168,6 @@ function atomicClosure(recovery: EditorRecoveryState, initialId: SaveUnitId): Se
   return selected;
 }
 
-function dirtyDependencyIds(
-  savedDocument: JsonValue,
-  recovery: EditorRecoveryState,
-  selectedIds: ReadonlySet<SaveUnitId>,
-  blocking: readonly ProjectValidationDiagnostic[],
-): SaveUnitId[] {
-  if (blocking.length === 0) return [];
-  const blockingKeys = new Set(blocking.map(projectValidationDiagnosticKey));
-  const dependencies: SaveUnitId[] = [];
-  for (const saveUnitId of Object.keys(recovery.saveUnitsById).sort()) {
-    if (selectedIds.has(saveUnitId)) continue;
-    try {
-      const withDependency = new Set([...selectedIds, saveUnitId]);
-      const diagnostics = authoringDiagnostics(
-        buildCandidateForSaveUnitIds(savedDocument, recovery, withDependency),
-      );
-      const keys = new Set(authoringErrors(diagnostics).map(projectValidationDiagnosticKey));
-      if ([...blockingKeys].some((key) => !keys.has(key))) dependencies.push(saveUnitId);
-    } catch {
-      // A dependency candidate that cannot apply cannot make the active candidate safe.
-    }
-  }
-  return dependencies;
-}
-
 function editorStateForContentCandidate(
   snapshot: EditorProjectState,
   candidateContent: JsonValue,
@@ -293,150 +183,202 @@ function editorStateForContentCandidate(
   };
 }
 
-async function commitSelectedSaveUnits(
+/** Native certification Save never calls the legacy TypeScript workspace
+ * writer. It updates only the acknowledged logical unit's saved baseline and
+ * retains unrelated recovery overlays. Multi-unit atomic groups must be sent
+ * through one native transaction, not split into partially saved commands. */
+async function commitSelectedNativeSaveUnits(
   selectedIds: Set<SaveUnitId>,
   snapshot: EditorProjectState,
   candidateContent: JsonValue,
+  sourceIds: readonly string[] = [],
+  keepMine = false,
 ): Promise<ProjectSaveCoordinatorResult> {
-  const projectState = useProjectStore.getState();
-  const currentDocument = projectState.document;
-  const projectFilePath = projectState.projectFilePath;
-  const projectSessionId = projectState.projectSessionId;
-  if (!currentDocument || !projectState.savedDocument || !projectFilePath || !projectSessionId) {
+  const current = useProjectStore.getState();
+  const remaining = uniqueSorted([
+    ...Object.keys(snapshot.recovery.saveUnitsById),
+    ...sourceIds.map((id) => sourceSaveUnitId(id)),
+  ]);
+  if (selectedIds.size === 0 && sourceIds.length === 0) {
     return {
       success: false,
-      status: 'failed',
-      diagnostics: [],
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.native-save.atomic-group-unavailable',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: 'Native Save requires at least one logical Save unit.',
+        },
+      ],
       savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById),
+      remainingDirtySaveUnitIds: remaining,
     };
   }
-
-  const rebasedRecovery = rebaseRecoveryOverlays(
-    snapshot.recovery,
-    candidateContent,
-    currentDocument,
-    selectedIds,
-  );
-  const editorStateForWrite = editorStateForContentCandidate(
-    snapshot,
-    candidateContent,
-    rebasedRecovery,
-  );
-  const selectedChangedPaths = diffJsonDocuments(
-    stripLocalEditorProjectState(projectState.savedDocument) as JsonValue,
-    candidateContent,
-  ).map((patch) => patch.path);
-  useProjectStore.getState().setSaving(true);
-  const { response, cancelled } = await saveProjectContentWithComments(
-    projectSessionId,
-    buildProjectContentSaveRequest({
-      baselineDocument: projectState.savedDocument,
-      candidateDocument: candidateContent,
-      recovery: rebasedRecovery,
-      saveUnitIds: [...selectedIds].sort(),
-      affectedPaths: selectedChangedPaths as JsonPointer[],
-      operationLabel: 'editor save',
-      baselineScriptSourcePaths: projectState.scriptSourcePaths,
+  const saveUnitIds = [...selectedIds].sort();
+  const sourceBuffers = useProjectSourceStore.getState().buffersById;
+  const submittedSources = Object.fromEntries(
+    sourceIds.map((id) => {
+      const buffer = sourceBuffers[id];
+      if (!buffer?.dirty || buffer.conflict)
+        throw new Error(`Native mixed Save requires a cleanly staged dirty source: ${id}`);
+      return [id, { text: buffer.text, baseContentHash: buffer.baseContentHash }];
     }),
-    editorStateForWrite,
   );
-  if (cancelled) {
-    useProjectStore.getState().setSaving(false);
-    return {
-      success: false,
-      status: 'cancelled',
-      diagnostics: [],
-      savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-    };
-  }
-  if (!response.success) {
-    useProjectStore.getState().setSaveError(response.error ?? 'Project save failed.');
-    return {
-      success: false,
-      status: 'failed',
-      diagnostics: response.diagnostics ?? [],
-      savedSaveUnitIds: [],
-      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-      response,
-    };
-  }
-
-  const authoritativeEditorState = response.editorState ?? editorStateForWrite;
-  const discoveredExternal = response.externalValueByPath ?? {};
-  const authoritativeContent =
-    Object.keys(discoveredExternal).length > 0
-      ? applyProjectMutationValues(candidateContent, discoveredExternal)
-      : candidateContent;
-  const authoritativeDiskDocument = mergeEditorProjectState(
-    authoritativeContent,
-    authoritativeEditorState,
-  );
-  const authoritativeFileRevisions = response.fileRevisions ?? {};
-  const postSave = reconcileExternalProjectChange({
-    baseDocument: projectState.savedDocument,
-    localDocument: currentDocument,
-    externalDocument: authoritativeDiskDocument,
-    recovery: authoritativeEditorState.recovery,
-    externalFileRevisions: authoritativeFileRevisions,
-  });
-  const workingEditorState = editorStateForContentCandidate(
-    authoritativeEditorState,
-    postSave.workingDocument,
-    postSave.recovery,
-  );
-  const savedEditorState = editorStateForContentCandidate(
-    authoritativeEditorState,
-    postSave.savedDocument,
-    postSave.recovery,
-  );
-  const workingDocument = mergeEditorProjectState(postSave.workingDocument, workingEditorState);
-  const savedDocument = mergeEditorProjectState(postSave.savedDocument, savedEditorState);
-  const workingContentChanged = !jsonValuesEqual(
-    stripLocalEditorProjectState(currentDocument) as JsonValue,
-    stripLocalEditorProjectState(workingDocument) as JsonValue,
-  );
-  if (workingContentChanged) {
-    const published = useProjectStore.getState().publishExternalReconciliation({
-      document: workingDocument,
-      savedDocument,
-      scriptSourcePaths: response.scriptSourcePaths ?? projectState.scriptSourcePaths,
-      affectedPaths: postSave.externalChangedPaths,
-    });
-    if (!published) {
-      useProjectStore.getState().setSaveError('Saved workspace could not be published.');
+  const acknowledged = {
+    remainingDirtySaveUnitIds: null as string[] | null,
+    externalConflictDiagnostics: [] as ProjectValidationDiagnostic[],
+  };
+  let comments: 'keep' | 'remove' = 'keep';
+  let submitted: Awaited<
+    ReturnType<ReturnType<typeof useCommandStore.getState>['saveNativeUnitAsync']>
+  >;
+  for (let attempt = 0; ; attempt += 1) {
+    submitted = await useCommandStore.getState().saveNativeUnitAsync(
+      saveUnitIds.length === 1 ? saveUnitIds[0]! : saveUnitIds,
+      current.projectRevision,
+      {
+        comments,
+        ...(keepMine ? { keepMine: true } : {}),
+        ...(sourceIds.length
+          ? {
+              textPaths: [...sourceIds],
+              textContents: Object.fromEntries(
+                Object.entries(submittedSources).map(([id, source]) => [id, source.text]),
+              ),
+            }
+          : {}),
+      },
+      (saved) => {
+        const latest = useProjectStore.getState();
+        if (
+          !latest.document ||
+          latest.projectInstanceId !== current.projectInstanceId ||
+          latest.projectRevision !== current.projectRevision
+        )
+          throw new Error('Native Save was accepted after the editor Project changed.');
+        // An exact-CAS native Save may incorporate a disjoint external edit in
+        // the same physical owner. Its saved/working source is authoritative;
+        // the renderer's pre-Save candidate is not a valid disk projection then.
+        const authoritative = saved.affectedRecords?.length
+          ? projectNativeExternalResult({
+              saved: latest.savedDocument!,
+              working: latest.document,
+              recovery: snapshot.recovery,
+              result: saved,
+            })
+          : null;
+        const savedContent = authoritative?.saved ?? candidateContent;
+        const workingContent = authoritative?.working ?? latest.document;
+        const rebased = rebaseRecoveryOverlays(
+          authoritative?.recovery ?? snapshot.recovery,
+          savedContent,
+          workingContent,
+          selectedIds,
+        );
+        acknowledged.externalConflictDiagnostics = Object.entries(rebased.saveUnitsById)
+          .filter(([, entry]) => entry.externalConflict)
+          .map(([id, entry]) => externalConflictSaveDiagnostic(id, entry));
+        const savedEditorState = editorStateForContentCandidate(snapshot, savedContent, rebased);
+        const workingEditorState = editorStateForContentCandidate(
+          snapshot,
+          workingContent,
+          rebased,
+        );
+        if (sourceIds.length)
+          acknowledgeNativeSavedSources(
+            latest.projectSessionId!,
+            submittedSources,
+            saved.textSourceDiskRevisions ?? {},
+          );
+        const persisted = mergeEditorProjectState(savedContent, savedEditorState);
+        const projected = mergeEditorProjectState(workingContent, workingEditorState);
+        if (
+          authoritative &&
+          !jsonValuesEqual(
+            stripLocalEditorProjectState(latest.document),
+            stripLocalEditorProjectState(workingContent),
+          )
+        ) {
+          if (
+            !useProjectStore.getState().publishExternalReconciliation({
+              document: projected,
+              savedDocument: persisted,
+              scriptSourcePaths: latest.scriptSourcePaths,
+              affectedPaths: authoritative.affectedPaths,
+            })
+          )
+            throw new Error('Native Save produced an inadmissible external editor projection.');
+        } else {
+          useProjectStore.getState().markSaved({ document: persisted });
+        }
+        setLoadedEditorProjectState(workingEditorState);
+        useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
+        acknowledged.remainingDirtySaveUnitIds = uniqueSorted([
+          ...Object.keys(rebased.saveUnitsById),
+          ...Object.entries(useProjectSourceStore.getState().buffersById)
+            .filter(([, buffer]) => buffer.dirty)
+            .map(([id]) => sourceSaveUnitId(id)),
+        ]);
+      },
+    );
+    if (submitted.ok || !submitted.commentImpacts?.length || attempt >= 3) break;
+    const decision = await confirmProjectComments(submitted.commentImpacts, 'Save Project');
+    if (decision === 'cancel') {
       return {
         success: false,
-        status: 'failed',
-        diagnostics: response.diagnostics ?? [],
+        status: 'cancelled',
+        diagnostics: [],
         savedSaveUnitIds: [],
-        remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-        response,
+        remainingDirtySaveUnitIds: remaining,
       };
     }
-    useProjectStore.getState().setSaving(false);
-  } else {
-    useProjectStore.getState().markSaved({
-      document: savedDocument,
-      projectPath: response.projectPath,
-      projectFilePath: response.projectFilePath,
-      scriptSourcePaths: response.scriptSourcePaths ?? projectState.scriptSourcePaths,
-    });
+    if (decision === 'keep') break;
+    comments = 'remove';
   }
-  setLoadedEditorProjectState(workingEditorState);
-  useProjectStore.getState().markEditorMetadataPersisted(workingEditorState);
-  const conflictDiagnostics = Object.entries(postSave.recovery.saveUnitsById)
-    .filter(([, entry]) => entry.externalConflict)
-    .map(([saveUnitId, entry]) => externalConflictSaveDiagnostic(saveUnitId, entry));
-  const diagnostics = [...(response.diagnostics ?? []), ...conflictDiagnostics];
+  if (!submitted.ok) {
+    return {
+      success: false,
+      status: 'failed',
+      diagnostics: submitted.diagnostics.map((diagnostic) => ({
+        code: diagnostic.code ?? 'editor.native-save.rejected',
+        severity: diagnostic.severity,
+        category: 'Project save',
+        path: diagnostic.path ?? '/',
+        message: diagnostic.message,
+      })),
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: remaining,
+    };
+  }
+  if (acknowledged.remainingDirtySaveUnitIds === null) {
+    return {
+      success: false,
+      status: 'failed',
+      diagnostics: [
+        {
+          code: 'editor.native-save.superseded',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: 'Native Save was accepted but its editor baseline was not acknowledged.',
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: remaining,
+    };
+  }
+  const remainingDirtySaveUnitIds = acknowledged.remainingDirtySaveUnitIds;
   return {
     success: true,
-    status: Object.keys(postSave.recovery.saveUnitsById).length > 0 ? 'partially-saved' : 'saved',
-    diagnostics,
-    savedSaveUnitIds: [...selectedIds].sort(),
-    remainingDirtySaveUnitIds: Object.keys(postSave.recovery.saveUnitsById).sort(),
-    response,
+    status: remainingDirtySaveUnitIds.length ? 'partially-saved' : 'saved',
+    diagnostics: acknowledged.externalConflictDiagnostics,
+    savedSaveUnitIds: uniqueSorted([
+      ...saveUnitIds,
+      ...sourceIds.map((id) => sourceSaveUnitId(id)),
+    ]),
+    remainingDirtySaveUnitIds,
   };
 }
 
@@ -558,45 +500,21 @@ export async function saveActiveSaveUnit(
   }
 
   try {
-    const baselineDiagnostics = authoringDiagnostics(projectState.savedDocument);
     const candidateContent = buildCandidateForSaveUnitIds(
       projectState.savedDocument,
       snapshot.recovery,
       selectedIds,
     );
-    const candidateDiagnostics = authoringDiagnostics(candidateContent);
-    const blocking = selectedBlockingDiagnostics(
-      baselineDiagnostics,
-      candidateDiagnostics,
-      selectedPaths,
+    // The native Save operation owns scoped semantic admission and dependent
+    // record validation. Do not consult the obsolete TypeScript validator or
+    // infer dependencies from a second interpretation of the saved Project.
+    return await commitSelectedNativeSaveUnits(
+      selectedIds,
+      snapshot,
+      candidateContent,
+      [],
+      options.allowExternalConflict ?? false,
     );
-    if (blocking.length > 0) {
-      const dependencies = dirtyDependencyIds(
-        projectState.savedDocument,
-        snapshot.recovery,
-        selectedIds,
-        blocking,
-      );
-      if (dependencies.length > 0) {
-        const diagnostic = dependencyDiagnostic(saveUnitId, dependencies, snapshot.recovery);
-        return {
-          success: false,
-          status: 'blocked',
-          diagnostics: [diagnostic, ...blocking],
-          savedSaveUnitIds: [],
-          remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-          dependencySaveUnitIds: dependencies,
-        };
-      }
-      return {
-        success: false,
-        status: 'blocked',
-        diagnostics: blocking,
-        savedSaveUnitIds: [],
-        remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-      };
-    }
-    return await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
   } catch (error) {
     const diagnostic = createProjectValidationDiagnostic({
       code: 'editor.save.candidate-failed',
@@ -617,163 +535,6 @@ export async function saveActiveSaveUnit(
   }
 }
 
-function atomicComponents(recovery: EditorRecoveryState): SaveComponent[] {
-  const ids = Object.keys(recovery.saveUnitsById).sort();
-  const parent = new Map(ids.map((id) => [id, id]));
-  const find = (id: string): string => {
-    const current = parent.get(id)!;
-    if (current === id) return id;
-    const root = find(current);
-    parent.set(id, root);
-    return root;
-  };
-  const union = (left: string, right: string) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot === rightRoot) return;
-    parent.set(
-      leftRoot < rightRoot ? rightRoot : leftRoot,
-      leftRoot < rightRoot ? leftRoot : rightRoot,
-    );
-  };
-  const ownerByGroup = new Map<string, string>();
-  for (const id of ids) {
-    for (const groupId of recovery.saveUnitsById[id]!.atomicTransactionGroupIds) {
-      const owner = ownerByGroup.get(groupId);
-      if (owner) union(owner, id);
-      else ownerByGroup.set(groupId, id);
-    }
-  }
-  const byRoot = new Map<string, string[]>();
-  for (const id of ids) {
-    const root = find(id);
-    byRoot.set(root, [...(byRoot.get(root) ?? []), id]);
-  }
-  return [...byRoot.values()]
-    .map((componentIds) => {
-      const sortedIds = componentIds.sort();
-      const entries = sortedIds.map(
-        (id) => [id, recovery.saveUnitsById[id]!] as [SaveUnitId, EditorRecoverySaveUnit],
-      );
-      return { ids: sortedIds, entries, paths: componentPaths(entries) };
-    })
-    .sort((left, right) => left.ids[0]!.localeCompare(right.ids[0]!));
-}
-
-function componentForDiagnostic(
-  diagnostic: ProjectValidationDiagnostic,
-  components: readonly SaveComponent[],
-): SaveComponent[] {
-  return components.filter((component) => diagnosticOwnedByPaths(diagnostic, component.paths));
-}
-
-function mergeSaveComponents(components: readonly SaveComponent[]): SaveComponent {
-  const ids = uniqueSorted(components.flatMap((component) => component.ids));
-  const entries = components
-    .flatMap((component) => component.entries)
-    .sort(
-      ([leftId, left], [rightId, right]) =>
-        left.sequence - right.sequence || leftId.localeCompare(rightId),
-    );
-  return { ids, entries, paths: componentPaths(entries) };
-}
-
-function connectSaveComponents(
-  components: readonly SaveComponent[],
-  edges: ReadonlyArray<readonly [SaveComponent, SaveComponent]>,
-): SaveComponent[] {
-  const indexByComponent = new Map(components.map((component, index) => [component, index]));
-  const parent = components.map((_, index) => index);
-  const find = (index: number): number => {
-    const current = parent[index]!;
-    if (current === index) return index;
-    const root = find(current);
-    parent[index] = root;
-    return root;
-  };
-  const union = (left: number, right: number) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot !== rightRoot)
-      parent[Math.max(leftRoot, rightRoot)] = Math.min(leftRoot, rightRoot);
-  };
-  for (const [left, right] of edges) {
-    const leftIndex = indexByComponent.get(left);
-    const rightIndex = indexByComponent.get(right);
-    if (leftIndex !== undefined && rightIndex !== undefined) union(leftIndex, rightIndex);
-  }
-  const groups = new Map<number, SaveComponent[]>();
-  components.forEach((component, index) => {
-    const root = find(index);
-    groups.set(root, [...(groups.get(root) ?? []), component]);
-  });
-  return [...groups.values()]
-    .map(mergeSaveComponents)
-    .sort((left, right) => left.ids[0]!.localeCompare(right.ids[0]!));
-}
-
-function sourceSaveDiagnostic(sourceId: string): ToolDiagnostic {
-  return {
-    code: 'editor.source-save.failed',
-    severity: 'error',
-    path: sourceId,
-    category: 'Project save',
-    message: useProjectSourceStore.getState().error ?? `Source '${sourceId}' could not be saved.`,
-  };
-}
-
-async function saveAllDirtySourceUnits(): Promise<{
-  saved: SaveUnitId[];
-  remaining: SaveUnitId[];
-  diagnostics: ToolDiagnostic[];
-}> {
-  const sourceStore = useProjectSourceStore.getState();
-  const dirtySourceIds = Object.entries(sourceStore.buffersById)
-    .filter(([, buffer]) => buffer.dirty)
-    .map(([sourceId]) => sourceId)
-    .sort();
-  const saved: SaveUnitId[] = [];
-  const diagnostics: ToolDiagnostic[] = [];
-  for (const sourceId of dirtySourceIds) {
-    if (await useProjectSourceStore.getState().save(sourceId))
-      saved.push(sourceSaveUnitId(sourceId));
-    else diagnostics.push(sourceSaveDiagnostic(sourceId));
-  }
-  const remaining = Object.entries(useProjectSourceStore.getState().buffersById)
-    .filter(([, buffer]) => buffer.dirty)
-    .map(([sourceId]) => sourceSaveUnitId(sourceId))
-    .sort();
-  return { saved, remaining, diagnostics };
-}
-
-function mergeSourceSaveResult(
-  result: ProjectSaveCoordinatorResult,
-  sourceResult: Awaited<ReturnType<typeof saveAllDirtySourceUnits>>,
-): ProjectSaveCoordinatorResult {
-  const savedSaveUnitIds = uniqueSorted([...sourceResult.saved, ...result.savedSaveUnitIds]);
-  const remainingDirtySaveUnitIds = uniqueSorted([
-    ...sourceResult.remaining,
-    ...result.remainingDirtySaveUnitIds,
-  ]);
-  let status = result.status;
-  const sourceFailed = sourceResult.diagnostics.length > 0;
-  let success = result.success && !sourceFailed;
-  if (sourceResult.saved.length > 0 && result.status === 'nothing-to-save') status = 'saved';
-  if (savedSaveUnitIds.length > 0 && remainingDirtySaveUnitIds.length > 0)
-    status = 'partially-saved';
-  if (sourceFailed && savedSaveUnitIds.length === 0 && result.status === 'nothing-to-save')
-    status = 'failed';
-  if (status === 'partially-saved') success = true;
-  return {
-    ...result,
-    success,
-    status,
-    diagnostics: [...result.diagnostics, ...sourceResult.diagnostics],
-    savedSaveUnitIds,
-    remainingDirtySaveUnitIds,
-  };
-}
-
 export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> {
   const projectState = useProjectStore.getState();
   if (!projectState.document || !projectState.savedDocument || !projectState.projectFilePath) {
@@ -785,209 +546,87 @@ export async function saveAllSaveUnits(): Promise<ProjectSaveCoordinatorResult> 
       remainingDirtySaveUnitIds: [],
     };
   }
-  const sourceResult = await saveAllDirtySourceUnits();
-  const snapshot = buildEditorProjectStateSnapshot();
-  let components = atomicComponents(snapshot.recovery);
-  if (components.length === 0) {
-    return mergeSourceSaveResult(
-      {
-        success: true,
-        status: 'nothing-to-save',
-        diagnostics: [],
-        savedSaveUnitIds: [],
-        remainingDirtySaveUnitIds: [],
-      },
-      sourceResult,
-    );
-  }
 
-  const blockedDiagnostics: ProjectValidationDiagnostic[] = [];
-  components = components.filter((component) => {
-    const blocked = component.entries.flatMap(([saveUnitId, entry]) => [
-      ...(entry.externalConflict ? [externalConflictSaveDiagnostic(saveUnitId, entry)] : []),
-      ...Object.keys(entry.pendingRawInputByPath).map((path) =>
-        pendingInputDiagnostic(component.ids[0]!, path),
-      ),
+  // Never mix a native working Project Save with the retired source-buffer
+  // writer or split a linked Save All into independently committed units.
+  const sourceIds = Object.entries(useProjectSourceStore.getState().buffersById)
+    .filter(([, buffer]) => buffer.dirty)
+    .map(([id]) => id);
+  const dirtySources = sourceIds.map((id) => sourceSaveUnitId(id));
+  const dirtyRecords = Object.keys(buildEditorProjectStateSnapshot().recovery.saveUnitsById);
+  const all = uniqueSorted([...dirtySources, ...dirtyRecords]);
+  if (all.length === 0)
+    return {
+      success: true,
+      status: 'nothing-to-save',
+      diagnostics: [],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: [],
+    };
+  try {
+    if (sourceIds.length) await flushNativeProjectSources();
+  } catch (error) {
+    return {
+      success: false,
+      status: 'blocked',
+      diagnostics: [
+        {
+          code: 'editor.native-save-all.stage-rejected',
+          severity: 'error',
+          category: 'Project save',
+          path: '/',
+          message: error instanceof Error ? error.message : 'Native source staging failed.',
+        },
+      ],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: all,
+    };
+  }
+  {
+    const snapshot = buildEditorProjectStateSnapshot();
+    const ids = new Set(dirtyRecords);
+    const entries = orderedEntries(snapshot.recovery, ids);
+    const failures = entries.flatMap(([id, entry]) => [
+      ...(entry.externalConflict ? [externalConflictSaveDiagnostic(id, entry)] : []),
+      ...Object.keys(entry.pendingRawInputByPath).map((path) => pendingInputDiagnostic(id, path)),
     ]);
-    blockedDiagnostics.push(...blocked);
-    return blocked.length === 0;
-  });
-
-  const baselineDiagnostics = authoringDiagnostics(projectState.savedDocument);
-  const componentBySaveUnitId = new Map(
-    components.flatMap((component) =>
-      component.ids.map((saveUnitId) => [saveUnitId, component] as const),
-    ),
-  );
-  const dependencyEdges: Array<readonly [SaveComponent, SaveComponent]> = [];
-  const rejectedComponents = new Set<SaveComponent>();
-  for (const component of components) {
-    const selectedIds = new Set(component.ids);
-    try {
-      const candidate = buildCandidateForSaveUnitIds(
-        projectState.savedDocument,
-        snapshot.recovery,
-        selectedIds,
-      );
-      const blocking = selectedBlockingDiagnostics(
-        baselineDiagnostics,
-        authoringDiagnostics(candidate),
-        component.paths,
-      );
-      if (blocking.length > 0) {
-        const dependencies = dirtyDependencyIds(
-          projectState.savedDocument,
-          snapshot.recovery,
-          selectedIds,
-          blocking,
-        );
-        const dependencyComponents = [
-          ...new Set(
-            dependencies
-              .map((saveUnitId) => componentBySaveUnitId.get(saveUnitId))
-              .filter((dependency): dependency is SaveComponent => Boolean(dependency)),
-          ),
-        ];
-        if (dependencies.length === 0 || dependencyComponents.length === 0) {
-          rejectedComponents.add(component);
-          blockedDiagnostics.push(...blocking);
-        } else {
-          dependencyComponents.forEach((dependency) =>
-            dependencyEdges.push([component, dependency]),
-          );
-        }
-      }
-    } catch (error) {
-      rejectedComponents.add(component);
-      blockedDiagnostics.push(
-        createProjectValidationDiagnostic({
-          code: 'editor.save-all.component-failed',
-          severity: 'error',
-          category: 'Project save',
-          path: component.paths[0] ?? '/',
-          message:
-            error instanceof Error ? error.message : 'A Save All component could not be built.',
-          boundaries: ['authoring'],
-          ownerPaths: component.paths.length > 0 ? component.paths : ['/'],
-        }),
-      );
-    }
-  }
-
-  const activeAtomicComponents = components.filter(
-    (component) => !rejectedComponents.has(component),
-  );
-  const connectedComponents = connectSaveComponents(
-    activeAtomicComponents,
-    dependencyEdges.filter(
-      ([left, right]) => !rejectedComponents.has(left) && !rejectedComponents.has(right),
-    ),
-  );
-  const validConnectedComponents: SaveComponent[] = [];
-  for (const component of connectedComponents) {
-    const selectedIds = new Set(component.ids);
-    try {
-      const candidate = buildCandidateForSaveUnitIds(
-        projectState.savedDocument,
-        snapshot.recovery,
-        selectedIds,
-      );
-      const blocking = selectedBlockingDiagnostics(
-        baselineDiagnostics,
-        authoringDiagnostics(candidate),
-        component.paths,
-      );
-      if (blocking.length === 0) validConnectedComponents.push(component);
-      else blockedDiagnostics.push(...blocking);
-    } catch (error) {
-      blockedDiagnostics.push(
-        createProjectValidationDiagnostic({
-          code: 'editor.save-all.connected-component-failed',
-          severity: 'error',
-          category: 'Project save',
-          path: component.paths[0] ?? '/',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'A connected Save All component could not be built.',
-          boundaries: ['authoring'],
-          ownerPaths: component.paths.length > 0 ? component.paths : ['/'],
-        }),
-      );
-    }
-  }
-
-  let selected = validConnectedComponents;
-  let candidateContent: JsonValue | null = null;
-  while (selected.length > 0) {
-    const selectedIds = new Set(selected.flatMap((component) => component.ids));
-    candidateContent = buildCandidateForSaveUnitIds(
-      projectState.savedDocument,
-      snapshot.recovery,
-      selectedIds,
-    );
-    const candidateErrors = selectedBlockingDiagnostics(
-      baselineDiagnostics,
-      authoringDiagnostics(candidateContent),
-      selected.flatMap((component) => component.paths),
-    );
-    if (candidateErrors.length === 0) break;
-    const implicated = new Set<SaveComponent>();
-    for (const diagnostic of candidateErrors) {
-      const owners = componentForDiagnostic(diagnostic, selected);
-      if (owners.length === 0) {
-        const implementationDiagnostic = createProjectValidationDiagnostic({
-          code: 'editor.save-all.unattributed-error',
-          severity: 'error',
-          category: 'Project save',
-          path: diagnostic.path,
-          message:
-            'Save All produced a new authoring error that could not be attributed to a selected save component. No content was written.',
-          boundaries: ['authoring'],
-          ownerPaths: diagnostic.ownerPaths,
-        });
-        return mergeSourceSaveResult(
-          {
-            success: false,
-            status: 'failed',
-            diagnostics: [implementationDiagnostic, diagnostic],
-            savedSaveUnitIds: [],
-            remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-          },
-          sourceResult,
-        );
-      }
-      owners.forEach((component) => implicated.add(component));
-      blockedDiagnostics.push(diagnostic);
-    }
-    selected = selected.filter((component) => !implicated.has(component));
-    candidateContent = null;
-  }
-
-  if (selected.length === 0 || !candidateContent) {
-    return mergeSourceSaveResult(
-      {
+    if (failures.length > 0)
+      return {
         success: false,
         status: 'blocked',
-        diagnostics: collectProjectValidationDiagnostics(blockedDiagnostics),
+        diagnostics: failures,
         savedSaveUnitIds: [],
-        remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
-      },
-      sourceResult,
-    );
+        remainingDirtySaveUnitIds: all,
+      };
+    try {
+      const candidate = buildCandidateForSaveUnitIds(
+        projectState.savedDocument,
+        snapshot.recovery,
+        ids,
+      );
+      // The native Project owner validates the staged, revision-bound Save
+      // atomically. Revalidating the candidate with the retired TypeScript
+      // Project engine would introduce a second, potentially contradictory
+      // semantic authority and could reject a native-valid Save.
+      return commitSelectedNativeSaveUnits(ids, snapshot, candidate, sourceIds);
+    } catch (error) {
+      return {
+        success: false,
+        status: 'failed',
+        diagnostics: [
+          {
+            code: 'editor.native-save-all.candidate',
+            severity: 'error',
+            category: 'Project save',
+            path: '/',
+            message: error instanceof Error ? error.message : 'Native Save All candidate failed.',
+          },
+        ],
+        savedSaveUnitIds: [],
+        remainingDirtySaveUnitIds: all,
+      };
+    }
   }
-  const selectedIds = new Set(selected.flatMap((component) => component.ids));
-  const result = await commitSelectedSaveUnits(selectedIds, snapshot, candidateContent);
-  return mergeSourceSaveResult(
-    {
-      ...result,
-      diagnostics: collectProjectValidationDiagnostics([
-        ...(result.diagnostics as ProjectValidationDiagnostic[]),
-        ...blockedDiagnostics,
-      ]),
-    },
-    sourceResult,
-  );
 }
 
 export async function saveConflictingSaveUnitKeepMine(

@@ -68,6 +68,8 @@ import {
   validBounds,
 } from '@/project/hotspot-operations';
 import { generateAuthoringRepairPlan, recordTarget } from '@/project/authoring-repair';
+import { nativeRenameReferencePatches } from '@/project/native-rename-references';
+import type { NativeRendererGraphSnapshot } from '@/project/native-authoring-graph-projection';
 import { replaceSceneDataPatches } from '@/project/scene-operations';
 import {
   preflightGraphCommand,
@@ -111,7 +113,7 @@ import {
   setHiddenCollectionsPatches,
 } from '@/project/project-chapters-operations';
 import type { CommandDiagnostic, CommandHandler, CommandHandlerResult } from './command-types';
-import { authoringProjectSchema } from '../../shared/project-schema/authoring-project';
+import { projectForEditor } from '@/project/project-for-editor';
 import { gameplayInstanceKindValues } from '../../shared/project-schema/authoring-archetypes';
 import {
   cursorNamedIdSchema,
@@ -171,14 +173,14 @@ const EMPTY_REFERENCE_INDEX: ReferenceIndex = {
   byTarget: new Map(),
 };
 
-function commandReferenceIndex(
+function legacyCommandReferenceIndex(
   document: JsonValue,
   graphSnapshot: Parameters<typeof preflightGraphCommand>[0]['snapshot'],
 ): ReferenceIndex {
   if (!graphSnapshot) return EMPTY_REFERENCE_INDEX;
-  const project = authoringProjectSchema.safeParse(document);
-  return project.success
-    ? buildReferenceIndexFromGraph(project.data, graphSnapshot.graph)
+  const project = projectForEditor(document);
+  return project
+    ? buildReferenceIndexFromGraph(project, graphSnapshot.graph)
     : EMPTY_REFERENCE_INDEX;
 }
 
@@ -712,6 +714,7 @@ const assetReimportSchema = z.object({
   assetId: entityIdSchema,
   asset: importedAssetMetadataSchema,
   sourceRevisions: z.record(z.string(), z.string().regex(/^sha256:[0-9a-f]{64}$/u)).optional(),
+  fileOrigin: z.literal('copied-by-import').optional(),
 });
 const assetDeleteSchema = z.object({ assetId: entityIdSchema, force: z.boolean().optional() });
 const materialReplaceDataSchema = z.object({ materialId: entityIdSchema, data: z.unknown() });
@@ -1114,18 +1117,40 @@ export const entityRenameIdCommand: CommandHandler = ({
       const sourceRewrites = exactSourceRewritePatches(document, preflight, parsed.toId);
       if (sourceRewrites.diagnostics?.some((diagnostic) => diagnostic.severity === 'error'))
         return sourceRewrites;
+      const native =
+        graphSnapshot && 'nativeGraph' in graphSnapshot
+          ? (graphSnapshot as NativeRendererGraphSnapshot).nativeGraph
+          : null;
+      const nativeReferences = native
+        ? nativeRenameReferencePatches(
+            toJsonValue(document),
+            native,
+            { collection: parsed.collection as never, id: parsed.fromId },
+            parsed.toId,
+          )
+        : null;
+      if (nativeReferences && !nativeReferences.ok)
+        return { patches: [], diagnostics: [error(nativeReferences.reason)] };
       const renamed = renameEntityIdPatches(
         applyJsonPatch(toJsonValue(document), sourceRewrites.patches).document,
         parsed as never,
-        commandReferenceIndex(document, graphSnapshot ?? null),
+        native
+          ? EMPTY_REFERENCE_INDEX
+          : legacyCommandReferenceIndex(document, graphSnapshot ?? null),
+        native !== null,
       );
       return preflightWarningsResult(
         {
           ...renamed,
-          patches: [...sourceRewrites.patches, ...renamed.patches],
+          patches: [
+            ...sourceRewrites.patches,
+            ...renamed.patches,
+            ...(nativeReferences?.ok ? nativeReferences.patches : []),
+          ],
           affectedPaths: [
             ...(sourceRewrites.affectedPaths ?? []),
             ...(renamed.affectedPaths ?? []),
+            ...(nativeReferences?.ok ? nativeReferences.patches.map((patch) => patch.path) : []),
           ],
         },
         preflight,
@@ -1141,9 +1166,9 @@ export const projectRenameNamedCursorCommand: CommandHandler = ({
   projectRevision,
 }) =>
   parseEntityCommand(renameNamedCursorSchema, payload, (parsed) => {
-    const project = authoringProjectSchema.safeParse(document);
-    if (!project.success)
-      return { patches: [], diagnostics: [error('Project document is invalid.')] };
+    const project = projectForEditor(document);
+    if (!project)
+      return { patches: [], diagnostics: [error('No native Project view is available.')] };
     if (parsed.fromId === parsed.toId)
       return {
         patches: [],
@@ -1159,7 +1184,7 @@ export const projectRenameNamedCursorCommand: CommandHandler = ({
         patches: [],
         diagnostics: [error(`Cursor ID '${parsed.toId}' is reserved by NovelTea.`)],
       };
-    const cursorIndex = project.data.settings.cursors.named.findIndex(
+    const cursorIndex = project.settings.cursors.named.findIndex(
       (cursor) => cursor.id === parsed.fromId,
     );
     if (cursorIndex < 0)
@@ -1167,7 +1192,7 @@ export const projectRenameNamedCursorCommand: CommandHandler = ({
         patches: [],
         diagnostics: [error(`Named cursor '${parsed.fromId}' does not exist.`)],
       };
-    if (project.data.settings.cursors.named.some((cursor) => cursor.id === parsed.toId))
+    if (project.settings.cursors.named.some((cursor) => cursor.id === parsed.toId))
       return {
         patches: [],
         diagnostics: [error(`Named cursor '${parsed.toId}' already exists.`)],
@@ -1219,10 +1244,10 @@ export const projectDeleteNamedCursorCommand: CommandHandler = ({
   projectRevision,
 }) =>
   parseEntityCommand(deleteNamedCursorSchema, payload, (parsed) => {
-    const project = authoringProjectSchema.safeParse(document);
-    if (!project.success)
-      return { patches: [], diagnostics: [error('Project document is invalid.')] };
-    const cursorIndex = project.data.settings.cursors.named.findIndex(
+    const project = projectForEditor(document);
+    if (!project)
+      return { patches: [], diagnostics: [error('No native Project view is available.')] };
+    const cursorIndex = project.settings.cursors.named.findIndex(
       (cursor) => cursor.id === parsed.cursorId,
     );
     if (cursorIndex < 0)

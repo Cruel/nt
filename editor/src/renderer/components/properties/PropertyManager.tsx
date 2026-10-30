@@ -33,9 +33,11 @@ export function newPropertyManagerState(): PropertyManagerState {
 export interface PropertyManagerTraitModel {
   attached: readonly PropertyManagerTraitAttachment[];
   available: readonly PropertyManagerTraitChoice[];
-  onAttach: (traitId: string) => string | null | void;
-  onDetach: (traitId: string) => string | null | void;
+  onAttach: (traitId: string) => PropertyManagerActionResult;
+  onDetach: (traitId: string) => PropertyManagerActionResult;
 }
+
+export type PropertyManagerActionResult = string | null | void | Promise<string | null | void>;
 
 export interface PropertyManagerProps {
   title?: string;
@@ -54,13 +56,13 @@ export interface PropertyManagerProps {
   editDescription?: (row?: PropertyManagerRow) => string | undefined;
   descriptionPlaceholder?: string;
   newDraft?: () => TypedPropertyDraft;
-  onCreate?: (draft: TypedPropertyDraft) => string | null | void;
-  onEdit?: (row: PropertyManagerRow, draft: TypedPropertyDraft) => string | null | void;
-  onSetValue?: (row: PropertyManagerRow, draft: TypedPropertyDraft) => string | null | void;
-  onReset?: (row: PropertyManagerRow) => string | null | void;
-  onDelete?: (row: PropertyManagerRow) => string | null | void;
+  onCreate?: (draft: TypedPropertyDraft) => PropertyManagerActionResult;
+  onEdit?: (row: PropertyManagerRow, draft: TypedPropertyDraft) => PropertyManagerActionResult;
+  onSetValue?: (row: PropertyManagerRow, draft: TypedPropertyDraft) => PropertyManagerActionResult;
+  onReset?: (row: PropertyManagerRow) => PropertyManagerActionResult;
+  onDelete?: (row: PropertyManagerRow) => PropertyManagerActionResult;
   deleteMessage?: (row: PropertyManagerRow) => string;
-  onMove?: (row: PropertyManagerRow, direction: 'up' | 'down') => string | null | void;
+  onMove?: (row: PropertyManagerRow, direction: 'up' | 'down') => PropertyManagerActionResult;
   onShowUsages?: (row: PropertyManagerRow) => void;
   traits?: PropertyManagerTraitModel;
   compact?: boolean;
@@ -80,6 +82,7 @@ export function PropertyManager(props: PropertyManagerProps) {
   const { t } = useTranslation('workspace');
   const [internalState, setInternalState] = useState<PropertyManagerState>(newPropertyManagerState);
   const [message, setMessage] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const state = props.state ?? internalState;
   const setState = (next: PropertyManagerState) => {
     if (props.onStateChange) props.onStateChange(next);
@@ -129,34 +132,43 @@ export function PropertyManager(props: PropertyManagerProps) {
     setMessage(null);
     updateState({ deleteId: null });
   };
-  const submit = () => {
+  const submit = async () => {
     const editing = state.editing;
-    if (!editing) return;
-    const failure =
-      editing.kind === 'create'
-        ? resultMessage(props.onCreate?.(editing.draft))
-        : editing.mode === 'schema'
-          ? resultMessage(
-              editingRow
-                ? props.onEdit?.(editingRow, editing.draft)
-                : t('propertyManager.errors.propertyMissing'),
-            )
-          : resultMessage(
-              editingRow
-                ? props.onSetValue?.(editingRow, editing.draft)
-                : t('propertyManager.errors.propertyMissing'),
-            );
-    if (failure) {
-      setMessage(failure);
-      return;
+    if (!editing || pending) return;
+    setPending(true);
+    try {
+      const failure = resultMessage(
+        await (editing.kind === 'create'
+          ? props.onCreate?.(editing.draft)
+          : editing.mode === 'schema'
+            ? editingRow
+              ? props.onEdit?.(editingRow, editing.draft)
+              : t('propertyManager.errors.propertyMissing')
+            : editingRow
+              ? props.onSetValue?.(editingRow, editing.draft)
+              : t('propertyManager.errors.propertyMissing')),
+      );
+      if (failure) setMessage(failure);
+      else closeEditing();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Property change failed.');
+    } finally {
+      setPending(false);
     }
-    closeEditing();
   };
-  const perform = (action: () => string | null | void) => {
-    const failure = resultMessage(action());
-    if (failure) setMessage(failure);
-    else setMessage(null);
-    return !failure;
+  const perform = async (action: () => PropertyManagerActionResult) => {
+    if (pending) return false;
+    setPending(true);
+    try {
+      const failure = resultMessage(await action());
+      setMessage(failure);
+      return !failure;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Property change failed.');
+      return false;
+    } finally {
+      setPending(false);
+    }
   };
 
   const editing = state.editing;
@@ -211,9 +223,13 @@ export function PropertyManager(props: PropertyManagerProps) {
           selectedId={state.traitId}
           onSelectedIdChange={(traitId) => updateState({ traitId })}
           onAttach={(traitId) => {
-            if (perform(() => props.traits!.onAttach(traitId))) updateState({ traitId: '' });
+            void perform(() => props.traits!.onAttach(traitId)).then((ok) => {
+              if (ok) updateState({ traitId: '' });
+            });
           }}
-          onDetach={(traitId) => perform(() => props.traits!.onDetach(traitId))}
+          onDetach={(traitId) => {
+            void perform(() => props.traits!.onDetach(traitId));
+          }}
           compact={props.compact}
         />
       ) : null}
@@ -225,11 +241,15 @@ export function PropertyManager(props: PropertyManagerProps) {
         emptyLabel={props.emptyLabel}
         emptyAction={props.rows.length === 0 ? addButton : undefined}
         onEdit={openRow}
-        onReset={(row) => perform(() => props.onReset?.(row))}
+        onReset={(row) => {
+          void perform(() => props.onReset?.(row));
+        }}
         onDelete={openDelete}
         onMove={
           props.onMove
-            ? (row, direction) => perform(() => props.onMove!(row, direction))
+            ? (row, direction) => {
+                void perform(() => props.onMove!(row, direction));
+              }
             : undefined
         }
         onShowUsages={props.onShowUsages}
@@ -254,17 +274,20 @@ export function PropertyManager(props: PropertyManagerProps) {
           valueOptional={props.valueOptional}
           descriptionPlaceholder={props.descriptionPlaceholder}
           message={message}
+          pending={pending}
           onDraftChange={(draft) =>
             updateState({
               editing: editing.kind === 'create' ? { ...editing, draft } : { ...editing, draft },
             })
           }
-          onOpenChange={(open) => !open && closeEditing()}
-          onSubmit={submit}
+          onOpenChange={(open) => !open && !pending && closeEditing()}
+          onSubmit={() => {
+            void submit();
+          }}
         />
       ) : null}
 
-      <Dialog open={deleteRow !== null} onOpenChange={(open) => !open && closeDelete()}>
+      <Dialog open={deleteRow !== null} onOpenChange={(open) => !open && !pending && closeDelete()}>
         <DialogPopup className="w-[min(520px,calc(100vw-2rem))]">
           <DialogTitle>{t('propertyManager.delete.title')}</DialogTitle>
           <DialogDescription>
@@ -280,14 +303,15 @@ export function PropertyManager(props: PropertyManagerProps) {
           </DialogDescription>
           {message ? <p className="text-xs text-destructive">{message}</p> : null}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={closeDelete}>
+            <Button variant="ghost" disabled={pending} onClick={closeDelete}>
               {t('propertyManager.actions.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={() => {
+              disabled={pending}
+              onClick={async () => {
                 if (!deleteRow) return;
-                if (perform(() => props.onDelete?.(deleteRow))) closeDelete();
+                if (await perform(() => props.onDelete?.(deleteRow))) closeDelete();
               }}
             >
               {t('propertyManager.delete.action')}

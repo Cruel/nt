@@ -1,6 +1,19 @@
-# scriptc CLI Compatibility
+# Retired ScriptC CLI Compatibility (Historical)
 
-NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.2.8. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
+> **Retired by #551.** This document is an archival record of the old
+> ScriptC/QuickJS standalone CLI. It does not describe the shipped product,
+> its active build, support requirements, package dependencies or certification.
+> The current CLI executes direct C++ with native daemon owners and workers.
+> See [CLI.md](CLI.md) and [BUILD_AND_DISTRIBUTION.md](BUILD_AND_DISTRIBUTION.md)
+> for current instructions. No ScriptC package, QuickJS runtime or ScriptC
+> compiler is used in the release.
+
+## Historical architecture (before #551)
+
+The former standalone `noveltea` CLI was built with pinned `scriptc` 0.2.8.
+Its release architecture used the compiler's dynamic tier for TypeScript
+authoring and a small compiled host for native capabilities. The following
+sections document that retired implementation for migration archaeology.
 
 ## ScriptC compiler investigations (0.2.8)
 

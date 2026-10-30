@@ -7,7 +7,7 @@ import {
   defaultPlatformExportProfile,
   type ExportPlatform,
 } from '../../shared/project-schema/platform-export-contracts';
-import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { evaluatePlatformExportReadiness } from '@/export/platform-export-readiness';
 
 function project() {

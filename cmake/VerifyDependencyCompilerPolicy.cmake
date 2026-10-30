@@ -56,14 +56,17 @@ foreach(index RANGE 0 ${last_command})
         endif()
     endforeach()
 
-    # editor_tool is host/build tooling, not part of the shipped player/runtime graph. It embeds
-    # upstream shaderc and is intentionally allowed to use the host C++ exception/RTTI model.
-    if(source MATCHES "/tools/editor_tool/")
-        set(is_first_party FALSE)
-    endif()
-
     string(JSON command GET "${commands}" ${index} command)
     string(JSON output GET "${commands}" ${index} output)
+
+    # Host compiler/schema tooling and the PE resource/platform-publication
+    # host-tool certifications (including Android Gradle/APK fixtures) are
+    # isolated from players and use the host
+    # exception/RTTI model.
+    if(source MATCHES "/tools/(editor_tool|project_authoring)/" OR
+       output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication|macos-export|android-export)-certify\\.dir[/\\]")
+        set(is_first_party FALSE)
+    endif()
     if(is_first_party)
         math(EXPR found_first_party_commands "${found_first_party_commands} + 1")
         foreach(required IN LISTS required_compiler_flags)

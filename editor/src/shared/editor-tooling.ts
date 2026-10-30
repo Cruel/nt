@@ -23,7 +23,7 @@ export interface OpenProjectResponse {
   contentProject?: unknown;
   savedContentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
-  repairs?: import('./project-schema/decode-authoring-project').AuthoringEnumRepair[];
+  repairs?: never[];
   recoveryFileRevisions?: Record<string, `sha256:${string}` | 'absent'>;
   scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
@@ -31,6 +31,11 @@ export interface OpenProjectResponse {
   projectPath: string;
   projectFilePath: string;
   projectSessionId?: string;
+  /** Present only in explicit native-edit certification launches. */
+  nativeWorkingRevision?: number;
+  /** Native-only acknowledged working content restored from a local replay checkpoint. */
+  nativeRecoveredContentProject?: unknown;
+  nativeRecoveredConflicts?: Record<string, { paths: string[]; revision: string }>;
 }
 
 export interface SaveProjectEditorMetadataResponse {
@@ -192,7 +197,7 @@ export interface ShaderCompileResponse {
 }
 
 export interface SaveProjectResponse {
-  commentImpacts?: readonly import('./project-workspace/project-workspace-service').ProjectWorkspaceCommentImpact[];
+  commentImpacts?: readonly import('./project-workspace/project-workspace-contracts').ProjectWorkspaceCommentImpact[];
   deletedSourceTexts?: Readonly<Record<string, string>>;
   ok: boolean;
   success: boolean;
@@ -224,13 +229,15 @@ export interface ProjectContentSaveRequest {
   structural?: boolean;
   assetTransition?:
     | { kind: 'trash'; projectRelativePaths: string[] }
-    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] };
+    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] }
+    | { kind: 'publish'; projectRelativePaths: string[] }
+    | { kind: 'move'; moves: Array<{ fromPath: string; toPath: string }> };
 }
 
 export interface ProjectContentSaveResponse {
   commentConfirmationRequired?: boolean;
   commentConfirmationToken?: string;
-  commentImpacts?: readonly import('./project-workspace/project-workspace-service').ProjectWorkspaceCommentImpact[];
+  commentImpacts?: readonly import('./project-workspace/project-workspace-contracts').ProjectWorkspaceCommentImpact[];
   deletedSourceTexts?: Readonly<Record<string, string>>;
   ok: boolean;
   success: boolean;
@@ -259,7 +266,9 @@ export interface ProjectWorkspaceCommitOptions {
   structural?: boolean;
   assetTransition?:
     | { kind: 'trash'; projectRelativePaths: string[] }
-    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] };
+    | { kind: 'restore'; moves: import('./project-asset-audit').ProjectAssetTrashMove[] }
+    | { kind: 'publish'; projectRelativePaths: string[] }
+    | { kind: 'move'; moves: Array<{ fromPath: string; toPath: string }> };
 }
 
 export interface CreateProjectRequest {

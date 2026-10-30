@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeCheck } from './native-schema-operations';
 import { entityIdSchema } from './authoring-common';
 import {
   inventoryOwnerSchema,
@@ -11,7 +12,7 @@ const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 export const inventoryDefinitionSchema = strict({
   id: entityIdSchema,
-  label: z.string().check(z.trim(), z.minLength(1)),
+  label: z.string().check(nativeCheck('string.trim', z.trim()), z.minLength(1)),
 });
 
 export type InventoryDefinitionData = z.infer<typeof inventoryDefinitionSchema>;

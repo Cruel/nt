@@ -18,7 +18,7 @@ import {
   type AuthoringWebGlBackendFactory,
   type AuthoringWebGlScheduler,
 } from '@/authoring-renderer/authoring-webgl-renderer';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import {
   MaterialPreviewProjectResources,
   materialPreviewDefaultDecodeImage,
@@ -68,7 +68,7 @@ export function MaterialPreviewProjectProvider({ children }: { children: ReactNo
     });
   }
   const resources = resourcesRef.current;
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const shaderSourceRevision = shaderSources
     .map((file) => `${file.id}:${file.contentHash ?? 'absent'}`)
     .sort()

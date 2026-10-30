@@ -1,0 +1,790 @@
+#include "tooling_native_c.h"
+
+#include "../project_authoring/room_session.hpp"
+#include "../project_authoring/yaml_codec.hpp"
+#include "tooling_native_project_fmt.hpp"
+#include "tooling_native_project_localization.hpp"
+#include "tooling_native_project_sync.hpp"
+#include "tooling_native_project_bundle.hpp"
+#include "tooling_native_project_entity.hpp"
+#include "tooling_native_project_asset.hpp"
+#include "tooling_native_project_create.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <mutex>
+#include <regex>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace {
+using Json = nlohmann::json;
+using namespace noveltea::authoring;
+
+Json provenance(const Json& effective, const Json* explicit_source)
+{
+    if (effective.is_array()) {
+        if (effective.empty())
+            return explicit_source ? "explicit" : "default";
+        Json result = Json::array();
+        for (std::size_t i = 0; i < effective.size(); ++i) {
+            const Json* authored =
+                explicit_source && explicit_source->is_array() && i < explicit_source->size()
+                    ? &(*explicit_source)[i]
+                    : nullptr;
+            result.push_back(provenance(effective[i], authored));
+        }
+        return result;
+    }
+    if (effective.is_object()) {
+        if (effective.empty())
+            return explicit_source ? "explicit" : "default";
+        Json result = Json::object();
+        for (auto it = effective.begin(); it != effective.end(); ++it) {
+            // The source shorthand for a typed reference or Condition carries
+            // one explicit scalar, not a physically present nested mapping.
+            if (explicit_source && explicit_source->is_string() &&
+                (it.key() == "$ref" || (it.key() == "kind" && it.value() == "always"))) {
+                result[it.key()] = "explicit";
+                continue;
+            }
+            const Json* authored = explicit_source && explicit_source->is_object() &&
+                                           explicit_source->contains(it.key())
+                                       ? &explicit_source->at(it.key())
+                                       : nullptr;
+            result[it.key()] = provenance(it.value(), authored);
+        }
+        return result;
+    }
+    return explicit_source ? "explicit" : "default";
+}
+
+Json failure(std::string error) { return {{"ok", false}, {"error", std::move(error)}}; }
+
+// The native-admitted Project owns the runtime Asset reference closure. The heavy
+// runtime worker must not rebuild an authoring dependency graph by rereading Lua or Layout sources.
+void collect_runtime_asset_references(const Json& value, const std::string& path,
+                                      std::set<std::string>& ids)
+{
+    if (value.is_array()) {
+        for (std::size_t i = 0; i < value.size(); ++i)
+            collect_runtime_asset_references(value[i], path + "/" + std::to_string(i), ids);
+        return;
+    }
+    if (!value.is_object())
+        return;
+    const auto reference = value.find("$ref");
+    if (reference != value.end() && reference->is_object() &&
+        reference->value("collection", Json{}) == "assets" && reference->contains("id") &&
+        reference->at("id").is_string())
+        ids.insert(reference->at("id").get<std::string>());
+    if (value.value("kind", Json{}) == "record" && value.value("collection", Json{}) == "assets" &&
+        value.contains("id") && value.at("id").is_string())
+        ids.insert(value.at("id").get<std::string>());
+    for (auto it = value.begin(); it != value.end(); ++it) {
+        const auto child_path = path + "/" + it.key();
+        // Tests and editor views are tooling-only and never contribute Runtime
+        // Package Asset reachability. The existing runtime compiler strips both.
+        if ((path.empty() && (it.key() == "tests" || it.key() == "editor")) ||
+            child_path.starts_with("/tests/") || child_path.starts_with("/editor/"))
+            continue;
+        // App icon and launch art are platform-assembly inputs, not gameplay
+        // Runtime Package dependencies. The existing platform stager reads
+        // them independently, so including them here changes .ntpkg contents.
+        if (child_path == "/settings/app/icon" || child_path == "/settings/app/launchImage")
+            continue;
+        // Localization-owned Assets are resolved by the separate export locale closure.
+        if (child_path.starts_with("/localization/assets/") ||
+            (child_path.starts_with("/localization/locales/") &&
+             child_path.find("/fontStack") != std::string::npos))
+            continue;
+        collect_runtime_asset_references(it.value(), child_path, ids);
+    }
+}
+
+bool mutating_request(const Json& request)
+{
+    const auto action =
+        request.is_object() && request.contains("action") && request.at("action").is_string()
+            ? request.at("action").get<std::string>()
+            : std::string{};
+    const auto boolean_flag = [&](std::string_view key, bool default_value) {
+        return request.is_object() && request.contains(std::string(key)) &&
+                       request.at(std::string(key)).is_boolean()
+                   ? request.at(std::string(key)).get<bool>()
+                   : default_value;
+    };
+    return action == "project-create" || action == "project-import" || action == "project-export" ||
+           ((action == "asset-import" || action == "comfyui-assets") &&
+            !boolean_flag("dryRun", true)) ||
+           (action == "scoped-edit" && !boolean_flag("dryRun", true)) ||
+           ((action == "fmt-strip-defaults" || action == "fmt") && !boolean_flag("check", true)) ||
+           ((action == "localization-targets" || action == "localization-sync" ||
+             action == "localization-reconcile" || action == "entity-create" ||
+             action == "entity-rename" || action == "entity-delete") &&
+            !boolean_flag("dryRun", true));
+}
+
+// The existing daemon executes a single Project-owner process per root.
+// Retain native source/revision and semantic caches inside that process;
+// never share dirty editor state or create a second watcher/daemon.
+struct NativeCliOwner {
+    std::mutex mutex;
+    std::filesystem::path root;
+    std::unique_ptr<ProjectSession> session;
+};
+
+NativeCliOwner& native_cli_owner()
+{
+    static NativeCliOwner owner;
+    return owner;
+}
+
+Json operate(const Json& request)
+{
+    if (!request.is_object() || !request.contains("action") || !request.at("action").is_string())
+        return failure("Native CLI Project action must be a string.");
+    if (request.at("action") == "project-import")
+        return native_project_bundle(request, nullptr, {});
+    if (request.at("action") == "project-create")
+        return native_project_create(request);
+    if (!request.is_object() || !request.contains("projectRoot") ||
+        !request["projectRoot"].is_string())
+        return failure("Native CLI Project operation requires projectRoot.");
+    // Construct paths from UTF-8 explicitly: Windows' narrow path constructor
+    // otherwise uses the process code page and can select a different Project.
+    const auto root_utf8 = request["projectRoot"].get<std::string>();
+    const auto requested = std::filesystem::path(std::u8string(root_utf8.begin(), root_utf8.end()));
+    if (!requested.is_absolute())
+        return failure("Native CLI Project operation requires an absolute root.");
+    const auto root = std::filesystem::canonical(requested);
+    const auto action = request.at("action").get<std::string>();
+    if (action == "project-diagnostic-locations") {
+        if (!request.contains("expectedSourceGeneration") ||
+            !request.at("expectedSourceGeneration").is_string() || !request.contains("paths") ||
+            !request.at("paths").is_array())
+            return failure("Native diagnostic locations require a source generation and paths.");
+        if (!native_project_source_generation_is_current(
+                root, request.at("expectedSourceGeneration").get<std::string>()))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed before diagnostic locations."}};
+        Json located = Json::array();
+        for (const auto& item : request.at("paths")) {
+            if (!item.is_string())
+                return failure("Native diagnostic location path must be a string.");
+            const auto pointer = item.get<std::string>();
+            std::string relative = "project.yaml";
+            std::string local = pointer;
+            if (!pointer.empty() && pointer.front() == '/') {
+                const auto first_end = pointer.find('/', 1);
+                const auto family = pointer.substr(1, first_end - 1);
+                if (family == "editor") {
+                    relative = "editor.yaml";
+                    local = first_end == std::string::npos ? "" : pointer.substr(first_end);
+                } else if (family == "traits") {
+                    relative = "traits.yaml";
+                    local = first_end == std::string::npos ? "" : pointer.substr(first_end);
+                } else if (family == "localization") {
+                    relative = "i18n/project.yaml";
+                    local = first_end == std::string::npos ? "" : pointer.substr(first_end);
+                } else if (first_end != std::string::npos) {
+                    const auto id_end = pointer.find('/', first_end + 1);
+                    const auto id = pointer.substr(first_end + 1, id_end - first_end - 1);
+                    // Source identities are derived from known Project record
+                    // paths, never arbitrary relative locations from callers.
+                    if (!family.empty() && !id.empty() &&
+                        std::all_of(family.begin(), family.end(),
+                                    [](unsigned char c) { return std::isalnum(c) || c == '-'; }) &&
+                        std::all_of(id.begin(), id.end(), [](unsigned char c) {
+                            return std::isalnum(c) || c == '-' || c == '_';
+                        })) {
+                        const auto candidate = "records/" + family + "/" + id + ".yaml";
+                        if (std::filesystem::is_regular_file(root / candidate)) {
+                            relative = candidate;
+                            local = id_end == std::string::npos ? "" : pointer.substr(id_end);
+                        }
+                    }
+                }
+            }
+            Json position{{"sourceUrl", "project:/" + relative}};
+            const auto source = root / relative;
+            if (!std::filesystem::is_symlink(source) && std::filesystem::is_regular_file(source) &&
+                std::filesystem::file_size(source) < 8 * 1024 * 1024) {
+                std::ifstream input(source, std::ios::binary);
+                std::string bytes{std::istreambuf_iterator<char>{input},
+                                  std::istreambuf_iterator<char>{}};
+                if (input && !input.bad()) {
+                    const auto opened = open_yaml_source(bytes);
+                    if (opened.accepted) {
+                        auto nearest = local;
+                        for (;;) {
+                            const auto found =
+                                std::find_if(opened.locations.begin(), opened.locations.end(),
+                                             [&](const auto& loc) { return loc.path == nearest; });
+                            if (found != opened.locations.end() && found->line) {
+                                position["line"] = found->line;
+                                position["column"] = found->column;
+                                break;
+                            }
+                            if (nearest.empty())
+                                break;
+                            const auto slash = nearest.rfind('/');
+                            nearest = slash == std::string::npos ? "" : nearest.substr(0, slash);
+                        }
+                    }
+                }
+            }
+            if (!position.contains("line")) {
+                position["line"] = 1;
+                position["column"] = 1;
+            }
+            located.push_back(std::move(position));
+        }
+        if (!native_project_source_generation_is_current(
+                root, request.at("expectedSourceGeneration").get<std::string>()))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during diagnostic source lookup."}};
+        return {{"ok", true}, {"locations", std::move(located)}};
+    }
+    if (action == "project-validate") {
+        const auto serialized =
+            Json{{"projectRoot", root_utf8},
+                 {"action", "validate"},
+                 {"includeFontCoverageInputs", request.value("includeFontCoverageInputs", false)}}
+                .dump();
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(serialized.data());
+        // Validation retains a warm owner cache. A length probe would execute
+        // it twice and change the published cold/warm generation between the
+        // calls, just as a mutation probe could execute a write twice.
+        std::string response(16 * 1024 * 1024, '\0');
+        const auto required = noveltea_tooling_native_disk_project_validation_json(
+            bytes, serialized.size(), reinterpret_cast<std::uint8_t*>(response.data()),
+            response.size());
+        if (required > response.size())
+            return failure("Native disk validation result exceeds the command response limit.");
+        response.resize(required);
+        return Json::parse(response);
+    }
+    if (action == "source-generation-proof") {
+        if (!request.contains("expectedSourceGeneration") ||
+            !request.at("expectedSourceGeneration").is_string())
+            return failure("Source proof requires an expected source generation.");
+        if (!native_project_source_generation_is_current(
+                root, request.at("expectedSourceGeneration").get<std::string>()))
+            return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        return {{"ok", true}};
+    }
+    if (action == "workspace-preflight" || action == "platform-profiles-preparation")
+        return native_project_workspace_preflight(root, action == "workspace-preflight",
+                                                  action == "platform-profiles-preparation");
+    if (action == "asset-audit")
+        return native_project_asset_audit(root);
+    if (action == "project-export" && request.contains("pinnedProject")) {
+        const auto safety = native_project_disk_safety(root);
+        if (!safety.value("ok", false))
+            return safety;
+        return native_project_bundle(request, nullptr, root);
+    }
+    auto admission = native_project_workspace_preflight(root);
+    if (!admission.value("ok", false)) {
+        const bool dry_run =
+            request.value("dryRun", false) ||
+            ((action == "fmt" || action == "fmt-strip-defaults") && request.value("check", false));
+        const bool recovery_pending = admission.contains("diagnostics") &&
+                                      !admission.at("diagnostics").empty() &&
+                                      admission.at("diagnostics").at(0).value("code", "") ==
+                                          "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT";
+        if (dry_run || !recovery_pending)
+            return admission;
+        const auto recovered = YamlTransactionService(root).recover();
+        if (!recovered.accepted)
+            return {
+                {"ok", false},
+                {"exitCode", 5},
+                {"error", recovered.error},
+                {"diagnostics",
+                 Json::array({{{"code", recovered.error.find("WORKSPACE_BUSY") != std::string::npos
+                                            ? "WORKSPACE_BUSY"
+                                            : "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT"},
+                               {"path", "/.noveltea/transactions"},
+                               {"severity", "error"},
+                               {"message", recovered.error}}})}};
+        if (const auto import_error = native_project_asset_recover(root))
+            return {
+                {"ok", false},
+                {"exitCode", 5},
+                {"diagnostics", Json::array({{{"code", "WORKSPACE_TRANSACTION_RECOVERY_CONFLICT"},
+                                              {"path", "/.noveltea/asset-import-staging"},
+                                              {"severity", "error"},
+                                              {"message", *import_error}}})}};
+        admission = native_project_workspace_preflight(root);
+        if (!admission.value("ok", false))
+            return admission;
+    }
+    auto& owner = native_cli_owner();
+    std::scoped_lock owner_lock(owner.mutex);
+    if (owner.root != root) {
+        owner.session.reset();
+        owner.root = root;
+    }
+    if ((action == "asset-import" || action == "comfyui-assets") &&
+        (!request.contains("dryRun") || request.at("dryRun") == false)) {
+        if (const auto recovery_error = native_project_asset_recover(root))
+            return failure("Native Asset import recovery: " + *recovery_error);
+    }
+    if (owner.session) {
+        const auto observed = owner.session->observe_sources();
+        // The CLI owns only clean disk state. Open record editors must not
+        // retain old source baselines after an external or transactional write.
+        if (observed.full_rescan || !observed.authoritative || !observed.delta.changed.empty() ||
+            !observed.delta.added.empty() || !observed.delta.removed.empty())
+            owner.session.reset();
+    }
+    std::string error;
+    const bool reused_owner = owner.session != nullptr;
+    if (!owner.session)
+        owner.session = ProjectSession::open(root, error);
+    auto* session = owner.session.get();
+    if (!session) {
+        if (action == "entity-inspect" && request.contains("collection") &&
+            request.at("collection").is_string() && request.contains("id") &&
+            request.at("id").is_string()) {
+            const auto collection = request.at("collection").get<std::string>();
+            const auto id = request.at("id").get<std::string>();
+            auto record = RoomSession::open_record(root, collection, id, error);
+            if (record && record->snapshot().valid) {
+                const auto snapshot = record->snapshot();
+                const auto normalized = Json::parse(snapshot.normalized_json);
+                Json fields{{"collection", collection}, {"id", id}, {"record", normalized}};
+                if (request.value("provenance", false)) {
+                    const auto source = Json::parse(snapshot.source_json);
+                    fields["provenance"] = provenance(normalized, &source);
+                }
+                return {{"ok", true},
+                        {"fields", fields},
+                        {"sourceRevision", snapshot.disk_source_revision},
+                        {"nativeOwnerReused", false},
+                        {"cliDiagnostics", Json::array()}};
+            }
+        }
+        constexpr std::string_view malformed_prefix = "Invalid record YAML: ";
+        if (error.starts_with(malformed_prefix)) {
+            const auto source = error.substr(malformed_prefix.size());
+            // An independently opened record editor may report its semantic
+            // owner (rooms/id) instead of the tracked on-disk YAML source.
+            // Public CLI admission failures always point at the actual file.
+            std::string source_path = source;
+            if (!source.starts_with("records/") && action == "entity-inspect" &&
+                request.contains("collection") && request.at("collection").is_string() &&
+                request.contains("id") && request.at("id").is_string()) {
+                const auto collection = request.at("collection").get<std::string>();
+                const auto id = request.at("id").get<std::string>();
+                source_path = collection == "layouts"
+                                  ? "records/layouts/" + id + "/layout.yaml"
+                                  : "records/" + collection + "/" + id + ".yaml";
+            }
+            return {{"ok", false},
+                    {"error", "Record is malformed."},
+                    {"exitCode", 3},
+                    {"diagnostics", Json::array({{{"code", "WORKSPACE_SOURCE_READ"},
+                                                  {"severity", "error"},
+                                                  {"path", "/" + source_path},
+                                                  {"message", "Record is malformed."}}})}};
+        }
+        if (action == "project-export")
+            return {{"ok", false}, {"error", error}, {"kind", "invalid-project"}};
+        return failure(error);
+    }
+
+    struct DiskSessionReset {
+        NativeCliOwner& owner;
+        bool active;
+        ~DiskSessionReset()
+        {
+            // A writer may have changed disk or left an uncommitted working patch.
+            // Neither state may leak into the next disk-authoritative command.
+            if (active)
+                owner.session.reset();
+        }
+    } disk_session_reset{owner, action == "scoped-edit" || mutating_request(request)};
+
+    // Capture before validation so a disk race cannot attach newer source bytes
+    // to an effective Project assembled from an earlier generation.
+    const bool complete_runtime_preparation = action == "shader-preparation" ||
+                                              action == "runtime-package-preparation" ||
+                                              action == "platform-export-preparation";
+    const auto preparation_generation = complete_runtime_preparation
+                                            ? native_project_source_generation(*session, root)
+                                            : std::string{};
+
+    // The public CLI reports authoring warnings gathered during workspace
+    // admission even when the requested operation itself succeeds. Preserve
+    // them at the same pre-mutation generation, rather than reconstructing
+    // Project semantics in the ScriptC transport layer.
+    Json authoring_diagnostics = Json::array();
+    const auto validation = session->validate_project();
+    for (const auto& diagnostic : validation.diagnostics) {
+        // This is an editor-side authoring explanation, not a public CLI
+        // diagnostic. Match the disk-validation CLI projection policy.
+        const bool blocked_test_semantic = diagnostic.severity == "error" &&
+                                           diagnostic.path.starts_with("/tests/") &&
+                                           diagnostic.code == "authoring.test.steps-required";
+        if ((diagnostic.severity == "error" && !blocked_test_semantic) ||
+            diagnostic.code == "authoring.interaction.selector-conditional")
+            continue;
+        // Public CLI diagnostics retain the established schema-family code
+        // even where the native spatial validator has a shorter internal ID.
+        const auto code = diagnostic.code == "room.description.empty"
+                              ? "authoring.rooms.rooms.record.data.description"
+                          : diagnostic.code == "layout.source" &&
+                                  diagnostic.path.ends_with("/data/rml/sourceText") &&
+                                  diagnostic.severity == "warning"
+                              ? "authoring.layouts.layouts.record.data.rml.sourcetext"
+                          : diagnostic.code == "authoring.test.preview-step"
+                              ? "authoring.tests.tests.record.data.preview.selectedstepid"
+                          : blocked_test_semantic ? "authoring.tests.tests.record.data.steps"
+                                                  : diagnostic.code.c_str();
+        authoring_diagnostics.push_back({{"code", code},
+                                         {"path", diagnostic.path},
+                                         {"severity", diagnostic.severity},
+                                         {"message", diagnostic.message}});
+    }
+    const auto effective = Json::parse(session->snapshot().normalized_json, nullptr, false);
+    if (effective.is_object() && effective.contains("project") &&
+        effective.at("project").is_object() && effective.at("project").contains("version") &&
+        effective.at("project").at("version").is_string()) {
+        const auto version =
+            trim_ecmascript(effective.at("project").at("version").get<std::string>());
+        static const std::regex semver(R"(^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$)");
+        if (!version.empty() && !std::regex_match(version, semver))
+            authoring_diagnostics.push_back(
+                {{"code", "authoring.project.version.semver-recommended"},
+                 {"path", "/project/version"},
+                 {"severity", "warning"},
+                 {"message", "Project version should use a semver-like value such as 0.1.0."}});
+    }
+    if (validation.valid && effective.is_object() &&
+        (!effective.contains("entrypoint") || effective.at("entrypoint").is_null())) {
+        authoring_diagnostics.push_back({{"code", "authoring.entrypoint.missing"},
+                                         {"severity", "warning"},
+                                         {"path", "/entrypoint"},
+                                         {"message", "No project entrypoint is configured yet."}});
+    }
+    const auto with_diagnostics = [&](Json result) -> Json {
+        if (result.is_object()) {
+            result["cliDiagnostics"] = authoring_diagnostics;
+            result["nativeOwnerReused"] = reused_owner;
+        }
+        return result;
+    };
+
+    if (action == "comfyui-admission") {
+        if (!validation.valid)
+            return with_diagnostics({{"ok", false},
+                                     {"kind", "invalid"},
+                                     {"error", "Native Project authoring admission failed."}});
+        const auto generation = native_project_source_generation(*session, root);
+        if (!native_project_source_generation_is_current(root, generation))
+            return with_diagnostics(
+                {{"ok", false},
+                 {"kind", "conflict"},
+                 {"error", "Project sources changed during ComfyUI admission."}});
+        return with_diagnostics({{"ok", true}, {"sourceGeneration", generation}});
+    }
+
+    if (complete_runtime_preparation) {
+        const auto prepared =
+            session->prepare_complete_working(session->snapshot().working_revision);
+        if (!prepared.accepted) {
+            auto result = with_diagnostics(failure(prepared.error));
+            result["projectDiagnostics"] = Json::array();
+            for (const auto& diagnostic : prepared.diagnostics)
+                result["projectDiagnostics"].push_back({{"code", diagnostic.code},
+                                                        {"path", diagnostic.path},
+                                                        {"severity", diagnostic.severity},
+                                                        {"message", diagnostic.message}});
+            return result;
+        }
+        Json overlays = Json::object();
+        Json source_revisions = Json::object();
+        for (const auto& [relative, revision] : prepared.source_revisions) {
+            source_revisions[relative] = revision;
+            if (!relative.starts_with("shaders/"))
+                continue;
+            const auto source = root / relative;
+            if (std::filesystem::is_symlink(source) || !std::filesystem::is_regular_file(source))
+                return failure("Unsafe native shader source: " + relative);
+            std::ifstream input(source, std::ios::binary);
+            if (!input)
+                return failure("Cannot read native shader source: " + relative);
+            std::string bytes{std::istreambuf_iterator<char>{input},
+                              std::istreambuf_iterator<char>{}};
+            if (input.bad())
+                return failure("Cannot finish native shader source: " + relative);
+            if (exact_source_revision(bytes) != revision)
+                return {{"ok", false},
+                        {"kind", "conflict"},
+                        {"error", "Shader source changed: " + relative}};
+            overlays[relative] = std::move(bytes);
+        }
+        if (!native_project_source_generation_is_current(root, preparation_generation))
+            return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        // Capture the complete editable export inventory at owner admission. A pinned
+        // worker may hash/copy these physical inputs, but must never readmit a newer Project.
+        const auto prepared_project = Json::parse(prepared.complete_project_json);
+        // Test-only semantic errors belong in the authored catalog as blocked
+        // entries. Source inventory still uses the native portable collector,
+        // but must not revalidate the already admitted gameplay generation as
+        // a normal (fully runnable) portable Project export.
+        const auto portable = native_project_bundle(
+            {{"action", "test-source-preparation"}, {"admittedProject", prepared_project}}, session,
+            root);
+        if (!portable.value("ok", false))
+            return portable;
+        for (const auto& [path, revision] : portable.at("sourceRevisions").items())
+            source_revisions[path] = revision;
+        if (!native_project_source_generation_is_current(root, preparation_generation))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during portable capture."}};
+        std::set<std::string> referenced_assets;
+        collect_runtime_asset_references(prepared_project, "", referenced_assets);
+        // Lua audio APIs select Music, Ambience and one-shot Assets by string ID.
+        // Those IDs are not typed $refs, so static reachability alone would
+        // prune playable audio and break a cold Runtime Package/Test run.
+        // Conservatively retain audio while still pruning unused static media.
+        if (prepared_project.contains("assets") && prepared_project.at("assets").is_object()) {
+            for (const auto& [id, record] : prepared_project.at("assets").items()) {
+                if (record.is_object() && record.contains("data") &&
+                    record.at("data").is_object() &&
+                    record.at("data").value("kind", std::string{}) == "audio")
+                    referenced_assets.insert(id);
+            }
+        }
+        Json result{{"ok", true},
+                    {"project", prepared_project},
+                    {"sourceGeneration", preparation_generation},
+                    {"sourceRevisions", source_revisions},
+                    {"sourceOverlays", std::move(overlays)},
+                    {"referencedAssetIds", referenced_assets}};
+        if (action == "runtime-package-preparation" || action == "platform-export-preparation") {
+            if (!prepared_project.contains("export") ||
+                !prepared_project.at("export").is_object() ||
+                !prepared_project.at("export").contains("runtime") ||
+                !prepared_project.at("export").at("runtime").is_object() ||
+                prepared_project.at("export").at("runtime").value("kind", std::string{}) !=
+                    "runtime")
+                return failure(
+                    "Cannot prepare Runtime Package without a valid native runtime profile.");
+            const auto& profile = prepared_project.at("export").at("runtime");
+            if (action == "runtime-package-preparation" && request.contains("profileId") &&
+                (!request.at("profileId").is_string() ||
+                 request.at("profileId") != profile.at("id")))
+                return failure(
+                    "Runtime Package profile is not the selected Project runtime profile.");
+            Json source_paths = Json::array();
+            for (const auto& [relative, _] : source_revisions.items())
+                source_paths.push_back(relative);
+            result["sourcePaths"] = std::move(source_paths);
+            result["profile"] = profile;
+            Json effective_materials = Json::object();
+            const auto materials = prepared_project.value("materials", Json::object());
+            for (const auto& [id, _] : materials.items()) {
+                const auto inspected = session->inspect_record("materials/" + id);
+                if (!inspected.accepted)
+                    return failure("Cannot inspect native Material for runtime: " + id + ": " +
+                                   inspected.error);
+                const auto resolved = session->material_compiler_effective(id);
+                if (!resolved)
+                    return failure("Cannot resolve native Material for runtime: " + id);
+                effective_materials[id] = Json::parse(*resolved);
+            }
+            result["materialEffectiveInputs"] = std::move(effective_materials);
+            result["projectIdentity"] = prepared_project.at("project");
+            result["runtimeIntent"] = action == "platform-export-preparation"
+                                          ? "platform-export"
+                                          : "runtime-package-export";
+        }
+        return with_diagnostics(std::move(result));
+    }
+
+    if (action == "asset-import" || action == "comfyui-assets")
+        return with_diagnostics(native_project_asset_import(request, *session, root));
+
+    if (action == "entity-inspect") {
+        if (!request.contains("collection") || !request.at("collection").is_string() ||
+            !request.contains("id") || !request.at("id").is_string() ||
+            (request.contains("provenance") && !request.at("provenance").is_boolean()))
+            return failure("Invalid native CLI record identity or provenance flag.");
+        const auto collection = request.at("collection").get<std::string>();
+        const auto id = request.at("id").get<std::string>();
+        const auto owner = collection + "/" + id;
+        const auto inspected = session->inspect_record(owner);
+        if (!inspected.accepted) {
+            const auto relative = collection == "layouts"
+                                      ? "records/layouts/" + id + "/layout.yaml"
+                                      : "records/" + collection + "/" + id + ".yaml";
+            if (!std::filesystem::exists(root / relative))
+                return with_diagnostics(
+                    {{"ok", false}, {"kind", "not-found"}, {"error", "Record does not exist."}});
+            return with_diagnostics(failure(inspected.error));
+        }
+        const auto snapshots = session->record_snapshots();
+        const auto found = snapshots.find(owner);
+        if (found == snapshots.end() || !found->second.valid)
+            return failure("Native record inspection is invalid.");
+        Json record = Json::parse(found->second.normalized_json);
+        Json fields{{"collection", collection}, {"id", id}, {"record", record}};
+        if (request.value("provenance", false)) {
+            const Json source = Json::parse(found->second.source_json);
+            fields["provenance"] = provenance(record, &source);
+        }
+        return with_diagnostics({{"ok", true},
+                                 {"fields", std::move(fields)},
+                                 {"sourceRevision", found->second.disk_source_revision}});
+    }
+
+    if (action == "scoped-edit") {
+        if (!request.contains("patches") || !request.at("patches").is_array())
+            return failure("Scoped edit requires a patch array.");
+        std::vector<RoomPatch> patches;
+        for (const auto& item : request.at("patches")) {
+            if (!item.is_object() || !item.contains("path") || !item.at("path").is_string() ||
+                !item.contains("op") || !item.at("op").is_string() ||
+                (item.contains("comments") && !item.at("comments").is_string()))
+                return failure("Malformed native CLI patch.");
+            const auto operation = item.at("op").get<std::string>();
+            RoomPatch patch;
+            patch.operation = operation == "add"       ? RoomPatch::Operation::Add
+                              : operation == "replace" ? RoomPatch::Operation::Replace
+                              : operation == "remove"
+                                  ? RoomPatch::Operation::Remove
+                                  : throw std::runtime_error("Unknown patch operation.");
+            patch.path = item.at("path").get<std::string>();
+            if (patch.operation != RoomPatch::Operation::Remove) {
+                if (!item.contains("value"))
+                    return failure("Native CLI patch value is missing.");
+                patch.value_json = item.at("value").dump();
+            }
+            patch.comments = item.value("comments", std::string("keep")) == "remove"
+                                 ? YamlCommentDisposition::Remove
+                                 : YamlCommentDisposition::Keep;
+            patches.push_back(std::move(patch));
+        }
+        std::map<std::string, std::string> preconditions;
+        if (request.contains("diskPreconditions")) {
+            if (!request.at("diskPreconditions").is_object())
+                return failure("Native disk preconditions must be a mapping.");
+            for (const auto& [_, value] : request.at("diskPreconditions").items())
+                if (!value.is_string())
+                    return failure("Native disk precondition revision must be a string.");
+            preconditions =
+                request.at("diskPreconditions").get<std::map<std::string, std::string>>();
+        }
+        if ((request.contains("dryRun") && !request.at("dryRun").is_boolean()) ||
+            (request.contains("expectedWorkingRevision") &&
+             !request.at("expectedWorkingRevision").is_number_unsigned()) ||
+            (request.contains("commentDecision") && !request.at("commentDecision").is_string()))
+            return failure("Invalid native CLI edit options.");
+        const bool dry_run = request.value("dryRun", true);
+        if (!dry_run && !request.contains("expectedWorkingRevision"))
+            return failure("Native CLI commit requires an expected working revision.");
+        const auto before = session->snapshot();
+        const auto expected = request.value("expectedWorkingRevision", before.working_revision);
+        const auto patched = session->patch(expected, patches, preconditions);
+        if (!patched.accepted)
+            return failure(patched.error);
+        Json result{{"ok", true},
+                    {"dryRun", dry_run},
+                    {"workingRevision", patched.snapshot.working_revision},
+                    {"affectedOwners", patched.affected_records},
+                    {"valid", patched.snapshot.valid}};
+        if (!dry_run && !patched.affected_records.empty()) {
+            for (const auto& owner : patched.affected_records)
+                if (!preconditions.contains(owner))
+                    return failure("Native CLI commit requires exact disk precondition for " +
+                                   owner);
+            const auto decision = request.value("commentDecision", std::string("keep"));
+            const auto comments = decision == "keep"       ? TransactionDecision::KeepComments
+                                  : decision == "remove"   ? TransactionDecision::RemoveComments
+                                  : decision == "per-edit" ? TransactionDecision::UseEditDecisions
+                                                           : TransactionDecision::Cancel;
+            const auto saved = session->save_owners(patched.snapshot.working_revision,
+                                                    patched.affected_records, false, comments);
+            if (!saved.accepted)
+                return failure(saved.error);
+            result["savedOwners"] = saved.affected_records;
+            result["workingRevision"] = saved.snapshot.working_revision;
+        }
+        return result;
+    }
+
+    if (action == "fmt-strip-defaults")
+        return with_diagnostics(native_project_strip_defaults(request, *session, root));
+    if (action == "fmt")
+        return with_diagnostics(native_project_format(request, *session, root));
+    if (action == "localization-targets")
+        return with_diagnostics(native_project_localization(request, *session, root));
+    if (action == "localization-view")
+        return with_diagnostics(native_project_localization_view(request, *session));
+    if (action == "localization-sync")
+        return with_diagnostics(native_project_localization_sync(request, *session, root));
+    if (action == "localization-reconcile")
+        return with_diagnostics(native_project_localization_reconcile(request, *session, root));
+    if (action == "entity-create" || action == "entity-rename" || action == "entity-delete")
+        return with_diagnostics(native_project_entity(request, *session, root));
+    if (action == "entity-usages")
+        return with_diagnostics(native_project_entity_usages(request, *session, root));
+    if (action == "project-export" || action == "export-preparation" ||
+        action == "runtime-package-preparation" || action == "platform-export-preparation")
+        return native_project_bundle(request, session, root);
+
+    return failure("Unknown native CLI Project operation.");
+}
+} // namespace
+
+extern "C" std::uint64_t
+noveltea_tooling_native_project_commands_json(const std::uint8_t* request,
+                                              std::uint64_t request_size, std::uint8_t* response,
+                                              std::uint64_t response_capacity)
+{
+    std::string serialized;
+    try {
+        if (!request && request_size != 0)
+            throw std::runtime_error("Native CLI Project request is absent.");
+        const auto parsed = Json::parse(std::string_view(reinterpret_cast<const char*>(request),
+                                                         static_cast<std::size_t>(request_size)),
+                                        nullptr, false);
+        if (parsed.is_discarded())
+            serialized = failure("Malformed native CLI Project JSON request.").dump();
+        else {
+            // The native API may be used by a two-pass C caller. Such a size
+            // probe must never execute a filesystem mutation on its first
+            // call or execute with a buffer too small for the result.
+            if (mutating_request(parsed) && (!response || response_capacity < 8 * 1024 * 1024))
+                serialized = failure("Mutating native Project commands require a preallocated "
+                                     "8 MiB response buffer; probing is forbidden.")
+                                 .dump();
+            else
+                serialized = operate(parsed).dump();
+        }
+    } catch (const std::exception& error) {
+        serialized = failure(error.what()).dump();
+    }
+    const auto required = static_cast<std::uint64_t>(serialized.size());
+    if (response && response_capacity >= required)
+        std::memcpy(response, serialized.data(), serialized.size());
+    return required;
+}

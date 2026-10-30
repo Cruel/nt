@@ -1,6 +1,48 @@
 # NovelTea CLI
 
-NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing the shared TypeScript authoring/workspace implementation in an embedded QuickJS-ng island plus a narrow statically linked host/native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
+> **Current architecture (#551):** The installed `noveltea` CLI is a direct
+> C++ executable. ScriptC, QuickJS, the embedded TypeScript island, and the
+> scripting host/FFI bridge have been retired. The editor still uses TypeScript
+> and build-time Zod schemas; authoring, broker owners and disposable CLI
+> workers execute native commands. The earlier candidate and ScriptC runtime
+> records are in the [migration archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
+
+NovelTea ships one public headless executable: `noveltea`. It is a natively
+compiled C++ binary including Project authoring, daemon, shader, package,
+platform, Agent Kit, ComfyUI and Test command families. The editor invokes
+this installed binary for headless operations. The old
+`noveltea-editor-tool`, ScriptC host and separately distributed bgfx
+`shaderc` executable are retired.
+
+## Current direct-C++ release and verification (#551)
+
+Use `pnpm -C editor run noveltea:build` to build the native CLI for the
+host, producing `build/cli/linux/noveltea`, `build/cli/windows/noveltea.exe`
+or `build/cli/macos/noveltea`. The binary includes its UI Test runner, assets,
+private FFmpeg tools and an SHA-256 build proof. Installed production checks
+run through `pnpm -C editor run noveltea:certify`, including relocation,
+CLI JSON/exit-code goldens, daemon/worker lifecycle, ComfyUI, platform,
+package, and cross-system authoring assertions. Electron emitted-module
+provenance is checked separately. The Node `noveltea-native.ts` entrypoint
+is a development-only forwarder to an installed, authenticated C++ binary.
+Neither the public CLI nor resident workers require Node at runtime.
+Editor-only native tooling calls use the same installed executable through
+the private `__editor-native <operation>` entry point: bounded JSON stdin,
+native operation dispatch and JSON stdout. This is not part of the 39-path
+public CLI inventory and does not start a ScriptC host or JavaScript runtime.
+
+## Completed migration history
+
+The pre-#551 direct-C++ candidate, partial compiler parity, native mutation trials,
+ScriptC/QuickJS cutover gates, and dated certification notes are preserved in the
+[Native CLI cutover archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
+Those candidate-only switches and historical acceptance states are not supported
+production operation. The current 39-path public command contract is verified by
+`node editor/scripts/certify-native-cli-inventory.mjs`, sourcing the canonical C++ help
+contract at `tools/editor_tool/native_cli_help.txt`. The obsolete `editor/src/cli`
+TypeScript command engine and its differential CI oracle are retired; Electron
+TypeScript UI and build-time Agent Kit/schema generation remain supported. Production qualification
+runs `pnpm -C editor run noveltea:certify` with the real native authoring addon.
 
 ## Private media-tool diagnosis
 
@@ -23,7 +65,7 @@ The `fmt --strip-defaults` option compacts declared omission defaults in
 records (including Layout metadata other than its required source selectors) and in eligible Project manifest,
 editor organization, and localization owners while preserving annotated
 explicit values. `--check` reports opportunities without writing; the
-candidate must validate as semantically equivalent before any commit.
+native authoring validates semantic equivalence before any commit.
 `entity inspect --provenance` distinguishes omitted and explicitly authored
 empty collections as well as scalar shorthand and nested fields. Entity
 renames return informational diagnostics for surviving distinct-token mentions
@@ -173,102 +215,29 @@ editor-owned Project authority, then hands a private temporary local image to th
 bytes must be uploaded. The workflow manager retains image-specific automatic inference, while its strict current manual
 manifest editor can author or repair arbitrary named generic contracts and future classifications.
 
-## Resident daemon lifecycle
+## Native daemon lifecycle
 
-The standalone executable contains a native per-user daemon broker. The broker is keyed by the exact NovelTea build identity plus the independently versioned Daemon Protocol compatibility boundary. While NovelTea is unreleased that boundary remains development version `1`; incompatible development changes replace V1 atomically rather than incrementing it. Different build/protocol identities use different endpoints and may coexist. Linux uses a user-private Unix-domain socket under the platform runtime directory when suitable, with a private NovelTea fallback directory; the runtime directory is restricted to the current user and the socket is mode `0600`. Windows uses a named pipe whose ACL grants access only to the current user. The same `noveltea` executable launches the private daemon mode; NovelTea does not install an operating-system service.
+The installed CLI defaults to a native C++ per-user broker for Project work.
+The broker uses one resident native owner per canonical Project root and
+one-job native disposable workers for heavy shader, Test, export and ComfyUI
+operations. The broker's protocol/build identity isolates incompatible
+instances; owners hold source-generation authority, while heavy jobs receive
+pinned snapshots and reject stale publication. CLI reads and transactional
+edits share this authority with the editor through physical disk revisions,
+not an in-process editor Project. Broker failure can fall back to local C++
+execution for replay-safe commands; uncertain mutations are never replayed.
 
-Daemon transport frames are bounded at 16 MiB, including completion results. Full authored-suite
-reports must travel intact through this same frame boundary; they are not truncated or retried as
-individual Tests to fit a smaller response limit. An oversized worker completion is delivered as an
-explicit transport-limit failure, not misreported as an unexpected worker exit.
+`noveltea daemon status` reports running state, protocol, build identity and
+process information. `noveltea daemon stop` drains the broker; no public
+`daemon start` command is required. `--no-daemon` or `NOVELTEA_NO_DAEMON=1`
+selects the native local execution path. Both execution paths accept the same
+stdin contracts: `test run-spec`, `test run-ui-spec` and
+`localization reconcile --apply` (one UTF-8 JSON value). See
+[production qualification](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md)
+for restart, cancellation, source-race and editor/CLI independence evidence.
 
-The native broker begins listening before any QuickJS worker is started. The broker process itself does not host an authoring island: QuickJS exists only in dedicated Project-owner workers, one-job disposable workers, or the explicit local no-daemon fallback. Its externally visible lifecycle states are `starting`, `ready`, `draining`, and `stopped`; clients may connect and queue while it is `starting`. Startup is arbitrated per user/build/protocol so concurrent cold callers converge on one daemon. Stale Unix endpoints are removed only while holding startup ownership and after independently proving the daemon lifetime lock is unowned; a failed connection alone never authorizes endpoint deletion.
-
-IPC uses bounded length-prefixed JSON frames shared by the Unix-socket and named-pipe transports. Requests carry request IDs, and the protocol admits stdout, stderr, progress, cancellation, and one final result event. Commands declared as streamed deliver their human stdout, stderr, and progress frames incrementally instead of replaying them only with the final result; JSON mode retains machine-readable output without injected human progress text. After the broker reaches `ready`, existing-Project reads and Project-affecting mutations are assigned to a dedicated long-lived ScriptC owner process for that canonical physical Project root, including opaque writes when a Project is explicitly named or discoverable. Project-independent QuickJS work is assigned to a one-job disposable worker and never executes inside the broker process. Each owner embeds its own QuickJS runtime, so unrelated active Projects do not serialize semantic work through one island. Caller cwd, environment, stdin when required, terminal metadata (TTY state plus terminal columns/rows when available), output mode, and replay-safety declaration travel with each request and are passed into the shared CLI command context. A single lightweight command-routing contract is evaluated before authoring initialization and declares static/native completion eligibility, one of the production daemon execution classes (`owner-short`, `owner-mutation`, or `disposable-heavy`) for a static miss, whether a static miss needs QuickJS, whether an existing Project is required, Project access/effect (`none`, read, transactional write, or opaque write), replay safety, stdin needs, and streamed-event/cancellation requirements. Bootstrap validation, standalone daemon dispatch, and resident Project handling all consume that contract rather than maintaining command-name routing tables. There is no `direct` resident execution class or shared broker QuickJS lane. The shared CLI receives cwd explicitly per request, and each ScriptC process applies caller environment only for the lifetime of that request, so caller context cannot leak across requests. The broker rejects new work during graceful drain, requests cancellation of queued or active work, retains daemon lifetime ownership until active requests settle, and does not complete shutdown while a registered Project transaction critical section is active. Project-owner idle eviction defaults to approximately five minutes and whole-daemon inactivity to approximately ten minutes; active or transaction-critical work is never treated as daemon inactivity. These are internal engineering defaults, not public user settings.
-
-Heavy authored-Test preparation, Project-backed ComfyUI generation, portable Project export, shader compilation, and output-producing Runtime Package/platform publication use the `disposable-heavy` daemon execution class. Complete native runtime/Test-cache hits still finish in the calling process before daemon dispatch. On a heavy miss/request, the Project owner performs only the short authoritative reconciliation/preparation pass and publishes the exact resident generation as an opaque portable snapshot. Native scheduling pins that `(session epoch, generation)` while the owner remains free to reconcile newer edits and service short reads or mutations. A warm unassigned ScriptC disposable worker receives only the generic pinned snapshot plus the small original command descriptor; it hydrates its immutable Project view directly from those bytes and never consumes owner-only authority/reconciliation metadata or reopens authored Project source files. Portable Project export retains its stricter bundle rule: its final source/Asset revision checks can reject publication if physical inputs change after the captured generation. Owner replacement is a separate path that combines the portable snapshot with the retained native authority metadata and then re-proves disk before resuming ownership. Large external Asset payloads stay file-backed in that snapshot and carry their expected physical identity, byte size, and exact mtime (or fallback content hash). Output workers write to temporary/staging destinations and re-check those pinned Asset expectations immediately before publication. Runtime Package and multi-artifact platform activation then use broker-registered recovery records that describe staging, previous-output backups, final paths, and acceptance. If a disposable process is terminated between rename steps, broker cleanup deterministically restores the previous complete set unless acceptance was already recorded, in which case it keeps the verified new set and removes recovery debris. Project-backed ComfyUI likewise keeps remote generation in the disposable worker and returns immutable staged Asset results to the live Project owner; only that owner re-proves authority and commits the authored Project transaction. For mixed filesystem-plus-Asset results, the prepared filesystem transaction is transferred with that owner mutation. The broker activates the staged filesystem set while the journal is still rollback-capable, then lets the live owner perform the authoritative Project mutation; owner success records filesystem acceptance and removes recovery debris, while owner rejection or loss rolls the filesystem set back. Final mixed acceptance is therefore coordinated outside the disposable worker rather than left to a post-commit JavaScript `finally`. The disposable worker does not re-admit live Project state after that owner commit. Asset drift, cancellation, command failure, or worker failure therefore cannot make a partial/stale result appear as an accepted publication. Disposable workers execute exactly one heavy job and retire.
-
-The portable resident snapshot and the separate owner-rehydration metadata are RAM-only documents
-nested inside the exact daemon build/Daemon Protocol identity. They have no independent numeric
-snapshot version or compatibility epoch. Producers and consumers move atomically with the daemon
-build, validate the complete current document shape, and reject incompatible retained RAM state rather
-than migrating, aliasing, or accepting a legacy shape. This is distinct from the public portable
-`.ntproject` bundle compatibility boundary.
-
-Project owners, disposable jobs, and warm standbys share one internal hard ScriptC-process admission budget. Starting and retiring workers continue to consume that budget until the child process has physically exited. Existing active owners and foreground Project admission/short owner work have priority over queued heavy work. A new Project uses free capacity when available; under pressure the scheduler may retire an inactive owner, but it never evicts an actively used owner merely to admit another Project. If no safe capacity exists, Project admission queues rather than spawning past the bound. The canonical Project-root reservation remains attached to a retiring owner until that process has exited, preventing replacement admission from creating two physically live owners for one Project. When capacity permits, the daemon keeps at least one warm unassigned disposable worker; consuming it triggers replenishment through the same global budget, and excess idle standbys expire back toward the baseline. Cooperative cancellation is attempted first, after which native scheduling may terminate only the disposable process; a disposable crash likewise fails only its request, releases the generation pin, and replenishes standby capacity without replacing the Project owner or daemon broker. `platform export --check` remains an owner-short, write-free preflight rather than disposable publication work. `daemon status` may expose additive engineering diagnostics for owners, disposable workers, queues, and current process occupancy in addition to its stable core fields. The admission bound and worker counts remain internal policy rather than user-configurable settings.
-
-Read-only commands that need an existing authoring Project use a daemon-resident disk-authoritative Project session inside that Project's dedicated owner worker, keyed by the Project's canonical physical root. Logical aliases and symlinks therefore converge on one owner and one semantic authority while command-visible paths remain relative to the caller's logical Project root. A resident session retains the last coherent immutable Project generation together with the in-memory parsed source, validation, dependency/source-analysis state, and indexes needed for change-scoped work. Those semantic products are RAM-only owner state; they are not authoring-cache persistence artifacts. Resident generations have a process-local session epoch plus monotonic generation counter; the identity advances without deriving a new whole-Project token. Physical freshness comes from the broker's native Project-authority observation: native code owns conservative source discovery/watcher recovery and returns compact added/changed/removed paths, while the owning QuickJS runtime consumes only that delta for ordinary reconciliation instead of independently enumerating the Project. While an owner is otherwise idle, native watcher dirtiness causes the owner to reconcile its resident session; only a real semantic delta or invalid changed generation refreshes the owner activity clock, so watcher noise cannot keep an owner alive indefinitely. QuickJS collection follows the same foreground-priority rule: owner runtimes use a high emergency automatic-GC trigger during active bursts, then perform full collection after a real idle interval only after the broker rechecks that no foreground request has arrived. Existing-source edits build a separate candidate generation from the coherent base, reread and parse only changed sources, invalidate the affected semantic dependency closure, prove the physical generation again, and promote atomically. Unchanged record/source state is structurally shared rather than cloned or canonically reprojected; source-revision state advances from the changed source set instead of sorting/stringifying the complete source inventory. Stable existing-source mutations also retain canonical source membership, save-unit ownership, script routing, validation indexes, Lua/source descriptor indexes, and analyzed dependency state, replacing only the affected entries; source/routing membership changes conservatively widen to reconstruction. Localization/font-coverage preparation carries the revision identity of the latest coverage-relevant generation, so a later presentation-only edit cannot make a product from before an intervening Message/locale/font/semantic change eligible again. Structural source-set changes such as additions or deletions conservatively widen reconciliation. Reused Layout records preserve their authored source selectors: hydration of Lua `none` as an empty local source must not manufacture a file-backed companion requirement during a later structural edit. If disk changes race candidate construction, the final native proof discards the candidate and retries from the coherent base; if a post-command proof consumes a native delta, the resident owner retains that delta for the retry so the advanced native manifest cannot hide stale semantic state. External Asset payload deltas are retained independently from semantic-source deltas for the same reason: even when a final read proof is the first operation to consume one, the owner must advance to a distinct authority generation before publishing another portable snapshot, so refreshed file-backed Asset expectations can never be attached to an already-published generation identity. The owner retains external Asset source-path membership as an indexed set and checks compact native deltas against that set directly; ordinary proofs do not rebuild a QuickJS Set proportional to total Asset count. Transactional mutations use the same owner boundary: the owner first proves that no new semantic delta appeared after mutation admission, constructs and semantically admits the exact projected generation before publication, commits through the normal Project transaction writer, then requires native authority plus exact changed-file revisions to prove that committed generation before promotion. A transaction failure or failed post-write proof never promotes the candidate or evicts the coherent owner; any committed-but-unproven disk delta remains pending for ordinary reconciliation, while a source race before commit returns an explicit revision conflict. Owner processes are evicted only while inactive, using an internal idle cutoff plus a bounded resident-worker pressure policy; eviction stops watcher coverage and the worker cleanly. The broker may retain the owner's latest portable snapshot and exact validation result under independent byte-bounded RAM policies; eviction discards acceleration only, and native authority retained solely for an evicted exact result is released unless a portable snapshot still requires its checkpoint. An unexpected owner-process exit fails only that Project's in-flight request, leaves the broker and other Project owners alive, and lets the next request rehydrate or cold-admit that Project. Malformed current disk state is retained as an invalid overlay over the last coherent generation, allowing a later correction to resume from that coherent base rather than reopening cold. Read commands may declare the semantic Project paths they require; an invalid overlay outside that dependency domain can continue against the coherent generation, while an invalid required source still blocks with its normal diagnostic. Scoped Project-preparation commands keep their narrow direct loading boundary but now capture resident physical authority before preparation and perform the same bounded final authority proof/retry before exposing a result. Portable Project export consumes the resident Project snapshot, while its existing exact source-revision check remains the final publication authority for the archive.
-
-`noveltea daemon status` and `noveltea daemon stop` are static/native diagnostics and do not require QuickJS. There is intentionally no public `daemon start`; the native broker exposes private startup arbitration to the standalone dispatch layer instead of requiring user-managed service startup. `noveltea --json daemon status` guarantees the stable core `running`, `state`, `build`, `protocol`, and `pid`; additional diagnostics may evolve. `daemon stop` is idempotent and performs graceful drain when a compatible daemon is running. For ordinary standalone invocations, complete static/native answers still win first; otherwise the client forwards to the compatible resident daemon by default. `--no-daemon` and `NOVELTEA_NO_DAEMON=1` keep the same static/native fast paths but force any remaining work through the canonical local QuickJS path. Failure to establish daemon acceleration within the bounded startup window falls back locally. Both resident and local QuickJS execution receive cooperative Ctrl+C/termination cancellation so a correctness-preserving fallback can perform command-specific cleanup before returning the interrupted result. A mid-request daemon failure is replayed locally only for requests declared read-only/idempotent; side-effecting requests fail rather than risk duplicate effects.
-
-Native functionality is exposed through the same executable for shader compilation, raw bgfx-compatible `noveltea shaderc ...` forwarding, raw bimg-compatible `noveltea texturec ...` forwarding, headless test/UI-test playback, and package export. `test run <test-id>` executes one authored Test, while bare `test run` executes the whole lowered authored suite through the shared native suite operation. Both reuse the disposable Project-local canonical runtime cache when its relevant persisted inputs, declared Asset sources, compiler identity, and runtime schema identities still match. The same generation also carries a lowered authored-test catalog with independent Test-source freshness, so a Test-only change can republish the catalog without rerunning canonical runtime preparation. Runnable catalog entries contain the native runner kind and lowered playback spec; blocked entries contain readiness diagnostics. Explicit single-test execution of a blocked entry fails because the requested Test did not run; suite execution records it as `blocked` without executing it and does not fail solely for blocked entries. Blocked and infrastructure-error suite entries preserve and surface their actionable readiness/execution diagnostics rather than replacing them with generic status text. Any `failed` or `error` suite entry makes the command exit nonzero; an empty or blocked-only suite succeeds. Suite JSON output preserves deterministic counts and ordered per-test `passed`/`failed`/`blocked`/`error` results, including complete playback reports for executed tests. In `--json` mode the command also includes a `runtimeCache` observation with runtime `status` (`hit`, `miss`, `stale`, or `unusable`) and reason plus `testCatalogStatus`/`testCatalogReason` when runtime reuse reached the catalog boundary; normal human output stays concise and silent about routine cache behavior. Cache persistence is never a prerequisite for playback. The cache is machine-local disposable build state: it is excluded from portable Project export, is not a cross-machine/cross-build compatibility artifact, and requires no user-facing clean or recovery workflow because incompatible or corrupt state simply falls back to canonical preparation. On the standalone ScriptC executable, the static host can conservatively admit a fresh canonical cache generation and execute all four test forms (`test run <id>`, bare `test run`, `test run-spec`, and `test run-ui-spec`) directly through native tooling without importing the QuickJS island. Authored single/suite execution requires both a fresh runtime artifact and Test catalog; stdin `run-spec`/`run-ui-spec` require only the runtime artifact, so Test-only staleness does not force QuickJS startup. The native probe validates cache identity, exact tracked-source mtime/size freshness, conservative source discovery, and artifact/catalog digests but does not parse authored Project/Test schema or hash authored source bytes during ordinary admission. A runtime miss, stale/unusable state, or conservative discovery uncertainty enters the resident daemon's disposable-heavy path when daemon acceleration is enabled: the owner reconciles and snapshots, then a generation-pinned one-job worker performs canonical preparation/playback. In that worker, cache admission is evaluated against the physical metadata carried by the pinned Project generation rather than newer live-disk metadata. Pinned runtime inputs include both canonical/declared Asset paths and all captured candidates in the runtime discovery scopes, including unreferenced Lua files; Test paths remain a separate inventory. Publication rechecks that same inventory against live disk and is declined without failing the command when it no longer matches the pinned inputs. `--no-daemon` retains the canonical local-island fallback. If native execution rejects an admitted cached payload, the host explicitly forces one canonical rebuild/retry through that fallback while leaving the published current generation intact until a replacement generation publishes successfully. Runtime Package export accepts `--allow-localization-warnings` as the explicit unattended acknowledgement for localization quality warnings, plus `--include-unused-assets` and `--include-shader-sources` as developer overrides of the normal pruning/source-stripping policy. The localization override is scoped: it does not bypass technical export errors. `noveltea --help` is authoritative for the installed version's exact syntax.
-
-Platform publication is a separate command family from Runtime Package creation:
-
-```text
-noveltea platform profiles
-noveltea platform export --output <path> [--profile <id>] [--template <id>@<build>]
-                         [--signing-profile <id>] [--config <file>] [--sign]
-                         [--allow-localization-warnings]
-                         [--include-unused-assets] [--include-shader-sources]
-                         [--check] [--force]
-                         [--allow-untrusted-template] [--allow-identity-change]
-noveltea platform template list
-noveltea platform template inspect <id>@<build>
-noveltea platform template install <archive> [--force]
-noveltea platform template remove <id>@<build> --force
-noveltea platform config init <path> [--force]
-```
-
-`platform profiles` prints the exact profile IDs accepted by `platform export`. The read-only query uses scoped Project preparation: it validates only Project identity plus export/profile settings, so malformed unrelated gameplay, localization, Project settings, or other authoring domains do not block profile inspection. Projects do not
-store a selected platform profile. Omitting `--profile` is accepted only when exactly one platform
-profile exists; when multiple profiles exist, pass `--profile <id>` explicitly. Template and config
-commands are installation-scoped and reject global `--project`; profiles and export use normal
-project discovery. Template identities use the exact copyable `<template-id>@<build-id>` form.
-Automatic resolution succeeds only when exactly one compatible installed template exists.
-
-`platform export --check` is write-free and evaluates the same profile, template, configuration,
-identity acknowledgement, and output-collision policy as publication. Existing export-owned
-artifacts require `--force`; symlink artifact paths are always refused. Locally sourced templates
-require `--allow-untrusted-template`. Human mode reports progress on stderr and the final result on
-stdout; `--json` preserves the single compact final-envelope contract without progress events.
-
-Platform export produces the normal packaged artifact by default. The editor-created profile is the
-portable target recipe; output path, installed-template choice, and signing identity are execution
-choices. `--signing-profile <id>` selects a reusable signing configuration from the shared NovelTea
-user export config and implies signing. Bare `--sign` is accepted when exactly one signing
-configuration exists for the selected target; otherwise the CLI requires an explicit ID. Results
-report whether signing was requested and applied. Publication/store upload is not supported.
-
-Localization quality warnings block unattended Runtime Package and platform publication unless
-`--allow-localization-warnings` is supplied. That flag acknowledges only localization quality
-warnings for the current export; technical validation, package, template, signing, and staging errors
-remain blocking. Unused assets are excluded by default using the same authoring dependency graph as
-the editor. `--include-unused-assets` disables that pruning for diagnostic/developer exports, and
-`--include-shader-sources` preserves authored shader sources that normal runtime packaging strips.
-The latter two are the headless equivalents of the Export pane's Developer Mode options.
-
-The editor and CLI share reusable machine-level state beneath the NovelTea user configuration root. Durable preferences,
-export configuration, and shared ComfyUI configuration are sections of `~/.noveltea/config.json`; user ComfyUI workflows
-and the disposable verification cache are under `~/.noveltea/comfyui/`.
-Export configuration contains toolchain paths plus named Windows, macOS, and Android signing configurations. Signing
-secrets remain explicit `env:NAME` references. `NOVELTEA_USER_CONFIG_ROOT` provides a hermetic override for the shared
-NovelTea user-config directory, including both export and ComfyUI catalog state, in CI. The optional `--config` file continues to use the
-`noveltea.editor-export-local-state` contract as an explicit per-command override; generate a safe,
-secret-free skeleton with `platform config init`. `--config` does not combine with
-`--signing-profile`.
-
-The editor and CLI also share the per-user template registry at `~/.noveltea/templates`;
-`NOVELTEA_TEMPLATE_REGISTRY_ROOT` provides a hermetic override for CI.
-
-The Node reference/editor-hosted command and Linux x64 and Windows x64 standalone scriptc
-commands are implemented. The public standalone CLI archive keeps the certified scriptc host together
-with any native support executables and system assets required by its command surface. Every standalone
-host binary remains subject to the cross-host certification gate in `SCRIPTC_COMPATIBILITY.md`.
-
-The standalone release keeps operating-system/native capabilities in a small statically compiled scriptc host and executes the shared authoring application in the embedded QuickJS-ng island. Stdin and process-liveness checks cross the host boundary explicitly; shader/runtime/package operations and image inspection cross the existing NovelTea native boundary. `agent sync` embeds the checked-in agent-kit source texts as build-time package data, and built-in ComfyUI manifests/API workflows are likewise embedded as immutable build-time package data. The release certification runs Node-reference-versus-ScriptC ComfyUI operations against a deterministic local fake server and separately proves relocated built-in discovery. See `SCRIPTC_COMPATIBILITY.md` for admitted host assumptions, including current OS-signal limitations.
-
-Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
+The retired QuickJS worker architecture, earlier performance notes and
+candidate-only routing are in the [migration archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
 
 ## Validation and Test verdicts
 
@@ -285,102 +254,24 @@ must not print success for a failed Test. Warning diagnostics alone do not fail 
 diagnostic expectation cannot turn a real runtime error into success. See the
 [authored-Test contract](../public/concepts/authored-tests.md) for supported warning-path witnesses.
 
-## Persistent validation cache
+## Native validation and runtime caches
 
-`validate` reports YAML source coordinates when a logical diagnostic can be attributed to
-an authored source field. `--json` preserves the stable diagnostic `code` and logical
-`path` while adding `sourceUrl`, `line`, and `column` where available; human-readable
-diagnostics display the same location. Missing sparse fields point to the nearest
-existing containing source field rather than to a fabricated location. Coordinates
-are refreshed from current source on validation cache hits, without making comment-only
-edits into semantic Project changes. Validation never edits the source.
+The native C++ Project owner retains exact physical source generations and
+scoped validation state in memory; unchanged source can reuse its current
+validation evidence across ordinary CLI requests. The disposable on-disk
+native clean-validation cache is a restart accelerator only: missing, invalid,
+incompatible or corrupt entries trigger fresh native reconciliation, never a
+legacy ScriptC fallback. Source and Asset changes must be re-proven before a
+cached result or heavy-output publication can be accepted.
 
-`validate` can reuse an unchanged exact disk-authoritative validation result from
-`.noveltea/cache/authoring/current.json`. This is deliberately a narrow restart accelerator, not a
-persisted semantic Project generation. The strict current contract contains only the Project root,
-the exact validation semantic key, the physical source/discovery manifest, and the structured
-validation result. It persists no parsed source, validation-check contribution, dependency graph,
-source-analysis product, portable Project snapshot, or resident generation identity. The cache has no
-independent compatibility version or migration path; an incompatible current shape is simply ignored.
-
-The semantic key explicitly binds every non-Project input that can affect validation: NovelTea/CLI
-build identity, Workspace and authoring schema identities, compiler/runtime identity, and the current
-validation profile/options/configuration contract. Project-controlled validation settings remain
-covered by the physical Project authority itself. A result is reusable only when both that semantic
-key and the exact physical authority match.
-
-Freshness uses the shared Project source-inventory mechanism also used by the runtime/Test cache:
-native physical file identity, exact byte size, and nanosecond mtime for canonical Workspace files
-(including Tests and editor state), declared Asset sources, and conservative candidates under
-`records/`, `scripts/`, and `i18n/`. Ordinary hits do not reread/hash authored source bytes. Unrelated
-README files do not invalidate. Pending transaction state prevents admission/publication. A same-path
-replacement with restored size/mtime is still rejected because its physical file identity changed.
-
-Standalone root-level or explicit-Project hits run entirely in the static/native tier, before QuickJS.
-The native probe shares metadata/discovery machinery with runtime-cache admission, verifies the
-current contract and semantic key, and returns diagnostics rather than implementing validation.
-Upward discovery, missing/stale/corrupt/incompatible state, unsafe paths, unavailable exact metadata,
-and other uncertainty use normal TypeScript validation. Publication is best-effort; unwritable cache
-state never changes freshly computed diagnostics. Native tooling failures are not memoized.
-
-Cached semantic errors, warnings, informational findings, locations, ordering, exit status, and human
-or JSON formatting retain ordinary validation semantics. There is no stale-generation partial semantic
-reuse path: a persistent exact miss enters canonical cold admission, while a live Project owner uses
-its RAM-resident incremental state. The daemon separately retains the latest exact validation result in
-native memory together with the exact native authority checkpoint that produced it. A retained result
-contains caller-independent structured validation data rather than already formatted output; the
-short-lived caller formats it with that invocation's logical Project root, so aliases may share one
-physical cache identity without leaking another caller's path. Every retained exact-result candidate,
-including one associated with a live owner, performs a fresh native batched physical observation and
-must exactly match its checkpoint before reuse. Watcher delivery can revoke or accelerate a proof but
-is never sufficient authority for a hit. Ownerless hits suspend watcher coverage again after the proof;
-an active owner may use the native hit only while it has no queued/active/reconciling or
-transaction-critical work, so the fast path never overtakes owner serialization. Retained exact results
-and their otherwise-unneeded dormant native authority are independently byte-bounded and LRU-evictable;
-eviction affects performance only.
-
-Non-resident validation captures source/Asset authority before semantic validation, verifies that
-source discovery contains no files outside the assembled snapshot and declared Assets, and preserves
-that baseline (including physical file identity) through publication. Later discovery must not attach
-new, unvalidated records to an old result. A changed baseline skips cache publication.
-
-After foreground validation is correct, optional exact-result publication is generation-tagged and
-best-effort. The TypeScript clean-editor/no-daemon producer starts publication without awaiting it; the
-resident daemon coalesces pending native publications and dispatches them only from its idle
-maintenance path after a short foreground quiet period. The filesystem write then runs as an
-unjoined self-contained best-effort task, so
-graceful drain and process termination never wait for optional persistence. Publication writes a
-private temporary file and atomically replaces `current.json` only after the new document is complete;
-process exit may therefore abandon an incomplete temporary file without damaging the previous valid
-cache. Foreground owner work never serializes or writes a semantic cache generation. Corrupt, stale,
-incompatible, missing, unsafe, or unwritable persistent state changes only performance and falls back
-to canonical resident/cold semantics.
-The daemon may create the missing `.noveltea/cache/authoring` directory hierarchy for this optional
-publication, but it refuses symlink or non-directory path components rather than following them.
-`NOVELTEA_CLI_TRACE=1` exposes standalone admission/fallback and island-import traces without adding
-routine cache fields to validation output; `NOVELTEA_CLI_VALIDATION_PROFILE=1` is an
-engineering/certification-only trace that emits phase timings and useful-work counts on stderr and does
-not alter normal validation output. `NOVELTEA_CLI_SCHEDULER_PROFILE=1` is the corresponding opt-in
-resident-scheduler diagnostic surface. It emits one machine-readable `[scheduler-profile]` record for
-daemon-routed commands, including the routing class, owner/exact-result/snapshot reuse, changed-path
-and native physical-observation counts, generation promotion, worker spawn/queue/retirement deltas,
-native boundary calls, retained snapshot bytes, and engineering-only owner/disposable process IDs.
-Disposable workers additionally emit `[worker-profile]` with pinned-snapshot read bytes and elapsed
-time. These records are stderr diagnostics only when explicitly enabled; normal public human/JSON
-output and `daemon status` remain unchanged.
-Clean saved editor validation uses this same disk-authoritative `validate` path, so an eligible editor
-validation may consume or publish the same exact result used by later CLI validation. The renderer marks
-validation session-local whenever Project content, draft state, or pending field input is dirty. The
-main process independently requires a coherent active Workspace whose persisted Project content matches
-the submitted Project, then captures the exact physical source inventory represented by that Workspace.
-The shared CLI/cache path may consume or publish only that captured authority; a physical source change
-before admission falls back to session-local validation instead of displaying diagnostics for a newer
-disk state. A mismatched or unreconciled save therefore validates in memory only; the previous clean
-exact result continues to describe disk until the active Workspace has reconciled the saved physical
-state. The cache retains the rich editor diagnostic form, including owner/navigation
-metadata, while the public CLI JSON envelope continues to expose its stable CLI diagnostic projection.
-Unsaved editor drafts never publish to the persistent authoring cache. The cache is disposable and
-excluded from portable Project bundles.
+Runtime and authored-Test caches are separate from editor dirty state. Native
+Test catalog entries have their own freshness checks; source changes invalidate
+the affected runtime or catalog evidence. Runtime Packages, editable Project
+bundles and game-player exports exclude disposable authoring cache state.
+See [native cache and source authority](project/NATIVE_AUTHORING_WORKER.md)
+and [production certification](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md)
+for the current detailed contracts. Retired ScriptC cache implementation
+notes are preserved in the [migration archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
 
 ## Machine-readable protocol
 
@@ -411,10 +302,12 @@ The CLI does not require Electron or an open editor. If an editor is open, its w
 
 ## Build and release
 
-The exact scriptc version and native ABI are pinned and certified against the Node reference
-implementation. Tagged releases publish `noveltea-<tag>-linux-x64.tar.gz` and
+The native C++ build identity, executable hash, UI Test runner hash and resource
+closure are checked against the actual installed binary, independent of the
+build-time JavaScript schema generator. Tagged releases publish `noveltea-<tag>-linux-x64.tar.gz` and
 `noveltea-<tag>-windows-x64.zip`, include both in `SHA256SUMS`, and attest their build provenance.
 Each archive contains the certified `noveltea` host plus the native UI-test runner and system assets
 needed by `run-ui-test`; host editors embed the same certified native-tool closure. Release packages
 contain no TypeScript source, first-party source maps, Node installation, sibling shaderc binary, or
-retired editor helper. See `SCRIPTC_COMPATIBILITY.md` and `BUILD_AND_DISTRIBUTION.md`.
+retired editor helper. See `BUILD_AND_DISTRIBUTION.md` and the
+[production qualification ledger](../architecture/certifications/NATIVE_AUTHORING_PRODUCTION_QUALIFICATION.md).

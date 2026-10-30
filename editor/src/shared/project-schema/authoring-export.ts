@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { shaderVariantValues, type ShaderVariant } from '../shader-variants';
 import type { AuthoringProject } from './authoring-project';
 
@@ -15,21 +16,24 @@ export const exportLocalizationQualityValues = [
 ] as const;
 export type ExportLocalizationQuality = (typeof exportLocalizationQualityValues)[number];
 
-export const exportLocalizationPolicySchema = z
-  .object({
-    locales: z.array(z.string().trim().min(1)).min(1),
-    defaultLocale: z.string().trim().min(1),
-    quality: z.enum(exportLocalizationQualityValues),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (!value.locales.includes(value.defaultLocale))
-      context.addIssue({
-        code: 'custom',
-        path: ['defaultLocale'],
-        message: 'Export default locale must be included in the export locale set.',
-      });
-  });
+export const exportLocalizationPolicySchema = nativeOperation(
+  'export.localization-policy',
+  z
+    .object({
+      locales: z.array(nativeOperation('string.trim', z.string().trim()).min(1)).min(1),
+      defaultLocale: nativeOperation('string.trim', z.string().trim()).min(1),
+      quality: z.enum(exportLocalizationQualityValues),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (!value.locales.includes(value.defaultLocale))
+        context.addIssue({
+          code: 'custom',
+          path: ['defaultLocale'],
+          message: 'Export default locale must be included in the export locale set.',
+        });
+    }),
+);
 
 export type ExportLocalizationPolicy = z.infer<typeof exportLocalizationPolicySchema>;
 

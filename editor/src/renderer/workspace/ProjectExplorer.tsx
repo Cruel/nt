@@ -1,5 +1,69 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useCommandStore } from '@/commands/command-store';
+import type { CommandRequest } from '@/commands/command-types';
+import { TagBadge } from '@/components/tags/TagBadge';
+import { TagInput } from '@/components/tags/TagInput';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
+import {
+  DropdownMenuCheckboxItem,
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { SearchInput } from '@/components/ui/search-input';
+import { Select, SelectItem } from '@/components/ui/select';
+import {
+  diagnosticCountsForCollection,
+  diagnosticSeverityForRecord,
+} from '@/diagnostics/project-diagnostic-severity';
+import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
+import { semanticUsagesForTarget } from '@/project/authoring-graph-consumers';
+import {
+  authoringRepairEdgesForTarget,
+  generateAuthoringRepairPlan,
+  recordTarget,
+} from '@/project/authoring-repair';
+import { referenceTargetFromEntity } from '@/project/entity-operations';
+import { useEntityUsagesStore } from '@/project/entity-usages-store';
+import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
+import { buildNativeProjectSearchIndex } from '@/project/native-project-search';
+import {
+  ProjectCommentReviewContents,
+  resolveProjectComments,
+  setInlineProjectCommentOwner,
+  usePendingProjectComments,
+} from '@/project/project-comment-confirmation';
+import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
+import { useProjectStore } from '@/project/project-store';
+import {
+  MUTATION_SURFACE_ATTRIBUTIONS,
+  recordSaveUnitId,
+  structuralSaveUnitId,
+} from '@/project/save-unit-registry';
+import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
+import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
+import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
+import { useDraftDirtyStore, type DraftDirtyEntry } from '@/workbench/draft-dirty-store';
+import {
+  buildAssetsEditorTab,
+  buildDefaultRecordTab,
+  buildImageGenerationTab,
+  buildLocalizationTab,
+  buildProjectChaptersTab,
+  buildProjectSettingsTab,
+  buildProjectSourceTab,
+  buildProjectTagsTab,
+  buildTestsEditorTab,
+  buildVariablesEditorTab,
+} from '@/workbench/editor-registry';
+import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import type { WorkbenchTab } from '@/workbench/workbench-types';
 import {
   ChevronDown,
   ChevronRight,
@@ -17,109 +81,45 @@ import {
   Trash2,
   WholeWord,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { TagBadge } from '@/components/tags/TagBadge';
-import { TagInput } from '@/components/tags/TagInput';
-import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { SearchInput } from '@/components/ui/search-input';
-import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
-import {
-  DropdownMenuCheckboxItem,
-  Menu,
-  MenuItem,
-  MenuPopup,
-  MenuSeparator,
-  MenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { useCommandStore } from '@/commands/command-store';
-import type { CommandRequest } from '@/commands/command-types';
-import {
-  diagnosticCountsForCollection,
-  diagnosticSeverityForRecord,
-} from '@/diagnostics/project-diagnostic-severity';
-import { useProjectStore } from '@/project/project-store';
-import {
-  ProjectCommentReviewContents,
-  resolveProjectComments,
-  setInlineProjectCommentOwner,
-  usePendingProjectComments,
-} from '@/project/project-comment-confirmation';
-import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
-import {
-  MUTATION_SURFACE_ATTRIBUTIONS,
-  recordSaveUnitId,
-  structuralSaveUnitId,
-} from '@/project/save-unit-registry';
-import { referenceTargetFromEntity } from '@/project/entity-operations';
-import { useEntityUsagesStore } from '@/project/entity-usages-store';
-import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
-import { semanticUsagesForTarget } from '@/project/authoring-graph-consumers';
-import {
-  authoringRepairEdgesForTarget,
-  generateAuthoringRepairPlan,
-  recordTarget,
-} from '@/project/authoring-repair';
-import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
-import { useWorkspaceStore, type AssetNode } from '@/stores/workspace-store';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
   authoringCollectionMetadata,
   type AuthoringCollectionKey,
 } from '../../shared/project-schema/authoring-collections';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
-  isAuthoringProject,
   type AuthoringProject,
   type AuthoringRecordBase,
 } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import {
   collectProjectTags,
   normalizeTagKey,
   recordEditorMetadata,
 } from '../../shared/project-schema/authoring-tags';
-import { searchProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-search';
-import { createProjectWorkspaceSnapshot } from '../../shared/project-workspace/project-workspace-service';
-import { editorProjectStateFromProject } from '@/workbench/project-editor-state';
-import {
-  buildAssetsEditorTab,
-  buildDefaultRecordTab,
-  buildImageGenerationTab,
-  buildLocalizationTab,
-  buildProjectChaptersTab,
-  buildProjectSettingsTab,
-  buildProjectSourceTab,
-  buildProjectTagsTab,
-  buildTestsEditorTab,
-  buildVariablesEditorTab,
-} from '@/workbench/editor-registry';
-import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { useDraftDirtyStore, type DraftDirtyEntry } from '@/workbench/draft-dirty-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
-import {
-  WORKSPACE_TOOLBAR_COMMAND_EVENT,
-  type WorkspaceToolbarCommandDetail,
-} from './workspace-toolbar-events';
-import { visualForCollection, chapterVisual, hiddenVisual } from './collection-visuals';
+import { searchProjectIndex } from '../../shared/project-search/project-search';
+import type { ProjectSourceUsage } from '../../shared/project-source-files';
+import { chapterVisual, hiddenVisual, visualForCollection } from './collection-visuals';
+import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
 import {
   buildProjectExplorerTree,
   collectiveCollectionSet,
   findProjectExplorerPlacementForTab,
   type ProjectExplorerNode,
 } from './project-explorer-tree';
-import { recordTargetKey, useProjectExplorerStore } from './project-explorer-store';
 import {
   buildProjectFilesTree,
   filterProjectFiles,
   projectFilesPlacementForSource,
   type ProjectFilesNode,
 } from './project-files-tree';
+import {
+  dispatchWorkspaceToolbarCommand,
+  WORKSPACE_TOOLBAR_COMMAND_EVENT,
+  type WorkspaceToolbarCommandDetail,
+} from './workspace-toolbar-events';
 import { RecentProjectsList } from './WorkspaceDashboard';
-import type { WorkbenchTab } from '@/workbench/workbench-types';
-import type { ProjectSourceUsage } from '../../shared/project-source-files';
-import { NewEntityWizardDialog } from '@/wizard/new-entity/NewEntityWizardDialog';
 
 type EntityAction = 'rename' | 'duplicate' | 'delete' | 'metadata';
 
@@ -194,7 +194,7 @@ function EntityOperationDialog({
   project: AuthoringProject | null;
   onClose: () => void;
 }) {
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const projectDocument = useProjectStore((store) => store.document);
   const projectInstanceId = useProjectStore((store) => store.projectInstanceId);
@@ -208,6 +208,7 @@ function EntityOperationDialog({
   const [forceDelete, setForceDelete] = useState(false);
   const [replacementByEdgeId, setReplacementByEdgeId] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [pendingDeleteCommandId, setPendingDeleteCommandId] = useState<string | null>(null);
   const discardedDrafts = useRef<readonly DraftDirtyEntry[]>([]);
   const commentConfirmation = usePendingProjectComments();
@@ -321,7 +322,8 @@ function EntityOperationDialog({
         })()
       : null;
 
-  function finish(result: ReturnType<typeof executeCommand>, success: () => void) {
+  async function finish(resultPromise: ReturnType<typeof executeCommand>, success: () => void) {
+    const result = await resultPromise;
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (!result.ok || failure) {
       setError(failure?.message ?? 'Command failed.');
@@ -378,88 +380,97 @@ function EntityOperationDialog({
     }
   }
 
-  function submit() {
-    const state = activeState;
-    if (state.action === 'rename' && state.entityId) {
-      const toId = id.trim();
-      finish(
-        executeCommand({
-          type: 'entity.renameId',
-          label: `Rename ${state.collection}/${state.entityId}`,
-          payload: {
-            collection: state.collection,
-            fromId: state.entityId,
-            toId,
-            label: label.trim() || undefined,
+  async function submit() {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const state = activeState;
+      if (state.action === 'rename' && state.entityId) {
+        const toId = id.trim();
+        await finish(
+          executeCommand({
+            type: 'entity.renameId',
+            label: `Rename ${state.collection}/${state.entityId}`,
+            payload: {
+              collection: state.collection,
+              fromId: state.entityId,
+              toId,
+              label: label.trim() || undefined,
+            },
+            originSaveUnitId: structuralSaveUnitId(state.collection),
+            persistencePolicy: 'auto-commit',
+          }),
+          () => {
+            const tab = tabFor(state.collection, toId, label.trim() || toId);
+            if (tab) openTab(tab);
           },
-          originSaveUnitId: structuralSaveUnitId(state.collection),
-          persistencePolicy: 'auto-commit',
-        }),
-        () => {
-          const tab = tabFor(state.collection, toId, label.trim() || toId);
-          if (tab) openTab(tab);
-        },
-      );
-    } else if (state.action === 'duplicate' && state.entityId) {
-      const targetId = id.trim();
-      finish(
-        executeCommand({
-          type: 'entity.duplicateRecord',
-          label: `Duplicate ${state.collection}/${state.entityId}`,
-          payload: {
-            collection: state.collection,
-            sourceId: state.entityId,
-            targetId,
-            label: label.trim() || undefined,
+        );
+      } else if (state.action === 'duplicate' && state.entityId) {
+        const targetId = id.trim();
+        await finish(
+          executeCommand({
+            type: 'entity.duplicateRecord',
+            label: `Duplicate ${state.collection}/${state.entityId}`,
+            payload: {
+              collection: state.collection,
+              sourceId: state.entityId,
+              targetId,
+              label: label.trim() || undefined,
+            },
+            originSaveUnitId: structuralSaveUnitId(state.collection),
+            persistencePolicy: 'auto-commit',
+          }),
+          () => {
+            const tab = tabFor(state.collection, targetId, label.trim() || targetId);
+            if (tab) openTab(tab);
           },
-          originSaveUnitId: structuralSaveUnitId(state.collection),
-          persistencePolicy: 'auto-commit',
-        }),
-        () => {
-          const tab = tabFor(state.collection, targetId, label.trim() || targetId);
-          if (tab) openTab(tab);
-        },
-      );
-    } else if (state.action === 'delete' && state.entityId) {
-      // A confirmed structural deletion owns this record. Drop local drafts first
-      // so their recovery overlay cannot recreate the removed record.
-      discardRecordDrafts(state.collection, state.entityId);
-      const result = executeCommand({
-        type: 'entity.deleteRecord',
-        label: `Delete ${state.collection}/${state.entityId}`,
-        payload: {
-          collection: state.collection,
-          entityId: state.entityId,
-          force: forceDelete,
-          replacements: replacementByEdgeId,
-        },
-        originSaveUnitId: structuralSaveUnitId(state.collection),
-        persistencePolicy: 'auto-commit',
-      });
-      const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
-      if (!result.ok || failure) {
-        restoreDiscardedDrafts();
-        setError(failure?.message ?? 'Command failed.');
-      } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
-      else onClose();
-    } else if (state.action === 'metadata' && state.entityId) {
-      finish(
-        executeCommand({
-          type: 'entity.updateMetadata',
-          label: `Update ${state.collection}/${state.entityId}`,
+        );
+      } else if (state.action === 'delete' && state.entityId) {
+        // A confirmed structural deletion owns this record. Drop local drafts first
+        // so their recovery overlay cannot recreate the removed record.
+        discardRecordDrafts(state.collection, state.entityId);
+        const result = await executeCommand({
+          type: 'entity.deleteRecord',
+          label: `Delete ${state.collection}/${state.entityId}`,
           payload: {
             collection: state.collection,
             entityId: state.entityId,
-            label: label.trim(),
-            description: description.trim() || undefined,
-            tags,
-            color: color.trim() || null,
+            force: forceDelete,
+            replacements: replacementByEdgeId,
           },
-          originSaveUnitId: recordSaveUnitId(state.collection, state.entityId),
-          persistencePolicy: 'manual-save',
-        }),
-        () => undefined,
-      );
+          originSaveUnitId: structuralSaveUnitId(state.collection),
+          persistencePolicy: 'auto-commit',
+        });
+        const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+        if (!result.ok || failure) {
+          restoreDiscardedDrafts();
+          setError(failure?.message ?? 'Command failed.');
+        } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
+        else onClose();
+      } else if (state.action === 'metadata' && state.entityId) {
+        await finish(
+          executeCommand({
+            type: 'entity.updateMetadata',
+            label: `Update ${state.collection}/${state.entityId}`,
+            payload: {
+              collection: state.collection,
+              entityId: state.entityId,
+              label: label.trim(),
+              description: description.trim() || undefined,
+              tags,
+              color: color.trim() || null,
+            },
+            originSaveUnitId: recordSaveUnitId(state.collection, state.entityId),
+            persistencePolicy: 'manual-save',
+          }),
+          () => undefined,
+        );
+      }
+    } catch (error) {
+      restoreDiscardedDrafts();
+      setError(error instanceof Error ? error.message : 'Command failed.');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -479,7 +490,7 @@ function EntityOperationDialog({
         if (open) return;
         // Escape/backdrop dismissal during an inline comment review must
         // resolve the pending save, not orphan a queued structural transaction.
-        if (pendingDeleteCommandId) {
+        if (submitting || pendingDeleteCommandId) {
           if (inlineDeleteComments) resolveProjectComments('cancel');
           return;
         }
@@ -653,19 +664,24 @@ function EntityOperationDialog({
           />
         ) : (
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={!!pendingDeleteCommandId}>
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              disabled={submitting || !!pendingDeleteCommandId}
+            >
               Cancel
             </Button>
             <Button
               variant={state.action === 'delete' ? 'destructive' : 'default'}
               onClick={submit}
               disabled={
-                state.action === 'delete' &&
-                (!!pendingDeleteCommandId ||
-                  !graphSnapshot ||
-                  (!forceDelete &&
-                    deleteRepairPlan !== null &&
-                    deleteRepairPlan.status !== 'ready'))
+                submitting ||
+                (state.action === 'delete' &&
+                  (!!pendingDeleteCommandId ||
+                    !graphSnapshot ||
+                    (!forceDelete &&
+                      deleteRepairPlan !== null &&
+                      deleteRepairPlan.status !== 'ready')))
               }
             >
               {pendingDeleteCommandId ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}
@@ -689,22 +705,23 @@ function ProjectHeading({ projectName }: { projectName: string }) {
   const setGroupUnassignedItems = useProjectExplorerStore((state) => state.setGroupUnassignedItems);
   const setHideEmptyCategories = useProjectExplorerStore((state) => state.setHideEmptyCategories);
   const setShowInfoOnHover = useProjectExplorerStore((state) => state.setShowInfoOnHover);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const { t } = useTranslation('workspace');
 
-  function setOption(payload: {
+  async function setOption(payload: {
     followActiveTab?: boolean;
     organizeByChapter?: boolean;
     groupUnassignedItems?: boolean;
     hideEmptyCategories?: boolean;
     showInfoOnHover?: boolean;
   }) {
-    executeCommand({
+    const result = await executeCommand({
       type: 'project.setExplorerOptions',
       label: 'Update explorer options',
       payload,
       ...MUTATION_SURFACE_ATTRIBUTIONS.explorerOptionsAndVisibility,
     });
+    if (!result.ok) return;
     if (payload.followActiveTab !== undefined) setFollowActiveTab(payload.followActiveTab);
     if (payload.organizeByChapter !== undefined) setOrganizeByChapter(payload.organizeByChapter);
     if (payload.groupUnassignedItems !== undefined)
@@ -898,7 +915,7 @@ function ExplorerContextMenu({
   const setActiveNodeId = useProjectExplorerStore((store) => store.setActiveNodeId);
   const projectFilePath = useProjectStore((store) => store.projectFilePath);
   const projectSessionId = useProjectStore((store) => store.projectSessionId);
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const setHiddenCollectionKeys = useProjectExplorerStore((store) => store.setHiddenCollectionKeys);
   const hiddenCollectionKeys = useProjectExplorerStore((store) => store.hiddenCollectionKeys);
   const chapters = useProjectExplorerStore((store) => store.chapters);
@@ -925,24 +942,24 @@ function ExplorerContextMenu({
     collectiveCollectionSet.has(collection) ||
     !node.entityId;
 
-  function run(
+  async function run(
     command: Omit<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'>,
     attribution: Pick<CommandRequest, 'originSaveUnitId' | 'persistencePolicy'> = {
       ...MUTATION_SURFACE_ATTRIBUTIONS.explorerOptionsAndVisibility,
     },
   ) {
-    const result = executeCommand({ ...command, ...attribution });
+    const result = await executeCommand({ ...command, ...attribution });
     const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
     if (failure) setStatusMessage(failure.message);
     return result.ok && !failure;
   }
 
-  function hideCollection(nextHidden: boolean) {
+  async function hideCollection(nextHidden: boolean) {
     const keys = nextHidden
       ? [...hiddenCollectionKeys, collection]
       : hiddenCollectionKeys.filter((key) => key !== collection);
     if (
-      run({
+      await run({
         type: 'project.setHiddenCollections',
         label: 'Update hidden categories',
         payload: { hiddenCollectionKeys: keys },
@@ -991,7 +1008,7 @@ function ExplorerContextMenu({
         showAlert({ title: 'Asset import failed', message });
       return;
     }
-    const applied = run(
+    const applied = await run(
       {
         type: 'asset.importFiles',
         label: animation
@@ -1017,15 +1034,16 @@ function ExplorerContextMenu({
 
   async function findNodeUsages() {
     if (!node.entityId) return;
+    if (!graphSnapshot) {
+      setStatusMessage('Native dependency graph is refreshing; Find Usages is not ready.');
+      return;
+    }
     const target = referenceTargetFromEntity({ collection, entityId: node.entityId });
     const record = activeProject[collection][node.entityId];
     const aliases =
       collection === 'assets' && record ? parseAssetData(record.data)?.aliases : undefined;
-    const searchResults = searchProjectWorkspaceSnapshot(
-      await createProjectWorkspaceSnapshot(
-        activeProject,
-        useProjectStore.getState().scriptSourcePaths,
-      ),
+    const searchResults = searchProjectIndex(
+      buildNativeProjectSearchIndex(activeProject, graphSnapshot!),
       {
         referencesTo: [target],
         aliases,
@@ -1203,7 +1221,7 @@ function ExplorerContextMenu({
           <button
             className={itemClass}
             onClick={() => {
-              hideCollection(!isHidden);
+              void hideCollection(!isHidden);
               onClose();
             }}
           >
@@ -1744,8 +1762,9 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
-  const scriptSourcePaths = useProjectStore((state) => state.scriptSourcePaths);
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
+  const nativeWorkingRevision = useCommandStore((state) => state.nativeWorkingRevision);
+  const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const expandedNodeIds = useProjectExplorerStore((state) => state.expandedNodeIds);
   const hiddenCollectionKeys = useProjectExplorerStore((state) => state.hiddenCollectionKeys);
   const followActiveTab = useProjectExplorerStore((state) => state.followActiveTab);
@@ -1869,24 +1888,10 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       showTagFilter,
     ],
   );
-  const [workspaceSnapshot, setWorkspaceSnapshot] = useState<Awaited<
-    ReturnType<typeof createProjectWorkspaceSnapshot>
-  > | null>(null);
-  useEffect(() => {
-    let active = true;
-    if (!project) {
-      setWorkspaceSnapshot(null);
-      return () => {
-        active = false;
-      };
-    }
-    void createProjectWorkspaceSnapshot(project, scriptSourcePaths).then((snapshot) => {
-      if (active) setWorkspaceSnapshot(snapshot);
-    });
-    return () => {
-      active = false;
-    };
-  }, [project, scriptSourcePaths]);
+  const workspaceSnapshot = useMemo(
+    () => (project && graphSnapshot ? buildNativeProjectSearchIndex(project, graphSnapshot) : null),
+    [project, graphSnapshot],
+  );
   const activeFilterTags = useMemo(
     () => (showTagFilter ? filterTags : []),
     [filterTags, showTagFilter],
@@ -1894,7 +1899,8 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const isFiltering = Boolean(searchQuery.trim()) || activeFilterTags.length > 0;
   const searchResponse = useMemo(() => {
     if (!workspaceSnapshot || !isFiltering) return null;
-    return searchProjectWorkspaceSnapshot(workspaceSnapshot, {
+    if (nativeWorkingRevision !== null && (!graphSnapshot || !project)) return null;
+    return searchProjectIndex(workspaceSnapshot, {
       text: searchQuery,
       tags: activeFilterTags,
       tagMode: 'all',
@@ -1902,7 +1908,16 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       threshold: exactMatch ? 0 : undefined,
       sort: { kind: 'label' },
     });
-  }, [activeFilterTags, exactMatch, isFiltering, searchQuery, workspaceSnapshot]);
+  }, [
+    activeFilterTags,
+    exactMatch,
+    graphSnapshot,
+    isFiltering,
+    nativeWorkingRevision,
+    project,
+    searchQuery,
+    workspaceSnapshot,
+  ]);
   const visibleRecordKeys = useMemo(() => {
     if (!searchResponse) return null;
     return new Set(

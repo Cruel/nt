@@ -257,6 +257,13 @@ Object.defineProperty(window, 'noveltea', {
       manifest: { format: 'noveltea.runtime-package', entries: [] },
       checksums: {},
     }),
+    nativeProjectPrepareExport: vi.fn().mockResolvedValue({ status: 'cancelled', diagnostics: [] }),
+    nativeProjectExportPackage: vi.fn().mockResolvedValue({
+      ok: true,
+      success: true,
+      diagnostics: [],
+      byteCount: 1,
+    }),
     stagePlatformExport: vi.fn().mockResolvedValue({
       ok: true,
       success: true,

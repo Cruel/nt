@@ -48,6 +48,49 @@ image generation.
 
 ## Headless Catalog Commands
 
+The standalone C++ CLI candidate implements `status`, `workflows`, `verify`, and `run` in
+`tools/editor_tool/native_cli_comfyui.cpp`. Built-in manifest and graph JSON are
+embedded by `editor/scripts/generate-native-comfyui-workflows.mjs` at build time;
+installed commands do not need the editor source checkout or a JavaScript runtime.
+User configuration and workflow packages retain the same on-disk locations and
+the Project boundary is admitted through the existing native Project authority.
+The installed native contract is exercised with a deterministic fake HTTP server
+by `tests/native_cli/comfyui.py` and `tests/native_cli/comfyui_run.py`
+(`ctest -R native_cli_comfyui`). The Linux/macOS
+HTTPS client currently requires the system `curl` executable; Windows uses WinHTTP.
+The candidate reads shared `~/.noveltea/config.json` using the editor's strict
+whole-document fallback rule: any invalid field discards the configuration rather
+than retaining a partially valid ComfyUI server setting. Verification cache
+`serverIdentity` values use the same canonical HTTP(S) origin, hostname, port,
+and path normalization as `comfyUiServerIdentity()` in the editor. Network JSON,
+cache files, and workflow packages use non-throwing parsers because native builds
+compile with `JSON_NOEXCEPTION=1`; malformed data must yield diagnostics, never
+abort the CLI process.
+
+The native `run` path resolves explicit IDs or configured dotted classification defaults,
+binds scalar and local image inputs, verifies the remote node contract, uploads local images
+only to literal loopback HTTP endpoints, submits and polls prompts, downloads bounded image
+outputs, and validates declared output cardinality before publication. Projectless invocations
+require filesystem output routing; Project runs publish unspecified routes through the native
+`comfyui-assets` Project transaction with an expected native source generation. For mixed
+filesystem and Project Asset outputs, the native Asset owner installs both under one existing
+Asset-import recovery journal. Exact committed YAML revisions determine whether to retain or
+roll back filesystem outputs after interruption. Installed tests exercise hard exits before
+file installation, after file installation but before YAML acceptance, and after YAML
+acceptance; ordinary exception rollback, source revision conflicts, image upload, malformed
+media, server execution errors, and SIGINT cancellation are also covered.
+
+This candidate currently runs directly in the native CLI process. Its Project Asset owner
+journal now recovers mixed filesystem/Asset publication across hard process exits. It has
+an optional C++ `ComfyUiExecutionHooks` adapter for disposable-worker integration: it registers
+never-created output paths before writing, delegates Asset publication to a pinned native
+Project owner, observes cancellation, and emits progress milestones. The native CLI does
+**not yet run as a broker-spawned disposable worker**: converting heavy native execution to
+the existing broker lifecycle and hydrating pinned immutable snapshots is explicitly #550
+(blocked by #548). Until #550 is implemented, direct standalone invocations can leave staged
+temporary files after hard exits *before* the owner journal is created; this is not equivalent
+to broker-owned cleanup. The ScriptC production CLI remains intact until the cutover.
+
 `noveltea comfyui workflows` lists the effective catalog in deterministic logical-ID order. It works outside a Project
 and adds project-local workflows when a Project is explicitly selected or discovered from the current directory.
 `noveltea comfyui workflows <id>` inspects the effective workflow selected by normal source precedence and reports its

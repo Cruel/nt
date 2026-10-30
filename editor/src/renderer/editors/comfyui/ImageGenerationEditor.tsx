@@ -31,7 +31,7 @@ import {
   defaultAssetIdFromFilename,
   parseAssetData,
 } from '../../../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 
 const EMPTY_REVISIONS: GeneratedImageRevision[] = [];
 
@@ -135,7 +135,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
   const project = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
   const comfyUiConfig = useComfyUiStore((state) => state.config);
   const comfyUiStatus = useComfyUiStore((state) => state.status);
   const revisions = useComfyUiGenerationStore(
@@ -299,7 +299,7 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     );
   }, [projectFilePath, queueJobsByPromptId, queueOrder]);
   const sourceAsset = useMemo(() => {
-    if (!initialSource.sourceAssetId || !isAuthoringProject(project)) return null;
+    if (!initialSource.sourceAssetId || !isAuthoringProjectView(project)) return null;
     const record = project.assets[initialSource.sourceAssetId];
     const data = parseAssetData(record?.data);
     if (!record || !data) return null;
@@ -622,9 +622,9 @@ export function ImageGenerationEditor({ tab }: WorkbenchEditorProps) {
     );
   }
 
-  function addRevisionAsset(revision: GeneratedImageRevision) {
+  async function addRevisionAsset(revision: GeneratedImageRevision) {
     if (revision.assetAddedAt) return;
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'asset.importFiles',
       label: 'Add generated image to assets',
       payload: { assets: [revision.asset], fileOrigin: 'generated-project-file' },

@@ -1,9 +1,41 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
-import { DebugReportExportButton } from './DebugReportExportButton';
-import type { DevtoolsSnapshot } from '../../../shared/preview-protocol';
-import { Group, Panel as ResizePanel } from 'react-resizable-panels';
+import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
+import { localizationTrackingFingerprint } from '../../../shared/localization-source-tracking';
+import { useAssetProfilerPolling } from '@/asset-profiler/use-asset-profiler-polling';
+import { useCommandStore } from '@/commands/command-store';
+import {
+  EnginePreview,
+  sanitizePreviewFpsCap,
+  type EnginePreviewControlsContext,
+} from '@/components/engine-preview';
+import { PanelResizeSeparator } from '@/components/resize-separator';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { SearchInput } from '@/components/ui/search-input';
+import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { flushNativeProjectSources } from '@/project/project-source-store';
+import { useProjectStore } from '@/project/project-store';
+import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+import {
+  buildDefaultRecordTab,
+  buildFullGamePreviewTab,
+  buildTestDetailTabForRecord,
+  type WorkbenchEditorProps,
+} from '@/workbench/editor-registry';
+import { usePendingInputStore } from '@/workbench/pending-input-store';
+import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import {
+  useWorkbenchEditorTabState,
+  useWorkbenchTabStateStore,
+  type WorkbenchTabStatePayload,
+} from '@/workbench/workbench-tab-state';
+import { visualForCollection } from '@/workspace/collection-visuals';
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
 import {
   AlertCircle,
   AlertTriangle,
@@ -28,64 +60,35 @@ import {
   ToggleLeft,
   X,
 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Group, Panel as ResizePanel } from 'react-resizable-panels';
 import {
-  EnginePreview,
-  sanitizePreviewFpsCap,
-  type EnginePreviewControlsContext,
-} from '@/components/engine-preview';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { SearchInput } from '@/components/ui/search-input';
-import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { PanelResizeSeparator } from '@/components/resize-separator';
-import { useProjectStore } from '@/project/project-store';
-import { useCommandStore } from '@/commands/command-store';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
-import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
-import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
+  analyzeConcreteInteractionResolution,
+  analyzeSubjectOffers,
+  type ResolverSubjectSnapshot,
+} from '../../../shared/interaction-resolver-analysis';
+import type { DevtoolsSnapshot } from '../../../shared/preview-protocol';
 import {
-  buildDefaultRecordTab,
-  buildFullGamePreviewTab,
-  buildTestDetailTabForRecord,
-  type WorkbenchEditorProps,
-} from '@/workbench/editor-registry';
-import { navigateToWorkbenchTarget } from '@/workbench/workbench-navigation';
-import { useAssetProfilerPolling } from '@/asset-profiler/use-asset-profiler-polling';
-import { useAssetProfilerStore } from '@/asset-profiler/asset-profiler-store';
-import { usePendingInputStore } from '@/workbench/pending-input-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { visualForCollection } from '@/workspace/collection-visuals';
-import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+  isRuntimeDebugCheckpointSnapshot,
+  RuntimeDebugCheckpointReadinessReason,
+  type EnginePreviewAssetMemoryTarget,
+  type PreviewInteractionSubject,
+  type PreviewToEditorMessage,
+  type RuntimeDebugCheckpointSnapshot,
+  type RuntimeDebugEntityRef,
+  type RuntimeDebugSnapshot,
+  type RuntimeFastForwardResult,
+} from '../../../shared/preview-protocol';
 import {
   authoringCollectionMetadata,
   isAuthoringCollectionKey,
 } from '../../../shared/project-schema/authoring-collections';
-import { selectedExportProfile } from '../../../shared/project-schema/authoring-export';
-import type { ShaderVariant } from '../../../shared/shader-variants';
 import {
-  assetMemoryProfileSchema,
-  resolveAssetMemoryPolicy,
-  type AssetMemoryProfile,
-} from '../../../shared/project-schema/platform-export-contracts';
-import {
-  isAuthoringProject,
   type AuthoringProject,
   type AuthoringRecordBase,
 } from '../../../shared/project-schema/authoring-project';
-import {
-  prepareRuntimeArtifact,
-  type PreparedRuntimeArtifact,
-} from '../../../shared/runtime-artifact-preparation';
-import { projectWithPreviewLocale } from '../../../shared/preview-locale';
-import { rendererRuntimeArtifactPaths } from '../../export/runtime-artifact-adapters';
-import {
-  collectProjectValidationDiagnostics,
-  projectValidationBlocksBoundary,
-  type ProjectValidationDiagnostic,
-} from '../../../shared/project-schema/project-validation';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { parseTestData } from '../../../shared/project-schema/authoring-tests';
 import {
   parseVariableData,
@@ -93,30 +96,23 @@ import {
   variableValueToText,
 } from '../../../shared/project-schema/authoring-variables';
 import {
+  assetMemoryProfileSchema,
+  resolveAssetMemoryPolicy,
+  type AssetMemoryProfile,
+} from '../../../shared/project-schema/platform-export-contracts';
+import {
+  collectProjectValidationDiagnostics,
+  projectValidationBlocksBoundary,
+  type ProjectValidationDiagnostic,
+} from '../../../shared/project-schema/project-diagnostic-projection';
+import {
   recordedTestDraftToTestData,
   type RecordedRuntimeInputKind,
 } from '../../../shared/project-schema/recorded-test-draft';
-import {
-  isRuntimeDebugCheckpointSnapshot,
-  RuntimeDebugCheckpointReadinessReason,
-  type RuntimeDebugCheckpointSnapshot,
-  type PreviewInteractionSubject,
-  type RuntimeDebugEntityRef,
-  type RuntimeDebugSnapshot,
-  type PreviewToEditorMessage,
-  type RuntimeFastForwardResult,
-  type EnginePreviewAssetMemoryTarget,
-} from '../../../shared/preview-protocol';
-import {
-  analyzeConcreteInteractionResolution,
-  analyzeSubjectOffers,
-  type ResolverSubjectSnapshot,
-} from '../../../shared/interaction-resolver-analysis';
-import {
-  useWorkbenchEditorTabState,
-  useWorkbenchTabStateStore,
-  type WorkbenchTabStatePayload,
-} from '@/workbench/workbench-tab-state';
+import { type PreparedRuntimeArtifact } from '../../../shared/runtime-artifact-preparation';
+import type { ShaderVariant } from '../../../shared/shader-variants';
+import { DebugReportExportButton } from './DebugReportExportButton';
+import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
 
 type FullGamePreviewMode = 'debug' | 'recording';
 type CompiledProjectFreshness = 'not-loaded' | 'fresh' | 'stale';
@@ -540,10 +536,34 @@ async function compiledProjectDiagnosticEntries(
     };
   }
   if (projectSessionId) {
-    const shared = await window.noveltea.prepareEditorRuntime(
+    const nativeMode = useCommandStore.getState().nativeWorkingRevision !== null;
+    if (nativeMode) {
+      try {
+        await flushNativeProjectSources();
+      } catch (error) {
+        return {
+          ok: false,
+          compiledProject: null,
+          shaderMaterialMetadata: null,
+          previewAssets: [],
+          noticeIndexText: undefined,
+          sourceFingerprint: null,
+          blockers: [],
+          entries: [
+            {
+              label: 'Native source staging failed',
+              detail: error instanceof Error ? error.message : String(error),
+              severity: 'error',
+            },
+          ],
+        };
+      }
+    }
+    const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+    if (nativeRevision === null) throw new Error('Native Project session is required for Play.');
+    const shared = await window.noveltea.nativeProjectPrepareRuntime(
       projectSessionId,
-      project,
-      recoveryFingerprint,
+      nativeRevision,
       activeShaderVariant,
     );
     if (shared.status === 'prepared') {
@@ -556,7 +576,12 @@ async function compiledProjectDiagnosticEntries(
         noticeIndexText: shared.artifact.packageOptions.textEntries.find(
           (entry) => entry.packagePath === 'licenses/index.json',
         )?.text,
-        sourceFingerprint: shared.artifact.sourceFingerprint,
+        sourceFingerprint:
+          recoveryFingerprint &&
+          typeof recoveryFingerprint === 'object' &&
+          Object.keys(recoveryFingerprint).length > 0
+            ? `${shared.artifact.sourceFingerprint}:pending:${localizationTrackingFingerprint(JSON.stringify(recoveryFingerprint))}`
+            : shared.artifact.sourceFingerprint,
         blockers: diagnostics.filter((diagnostic) =>
           projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
         ),
@@ -587,60 +612,17 @@ async function compiledProjectDiagnosticEntries(
     }
   }
 
-  const prepared = await prepareRuntimeArtifact({
-    project: projectWithPreviewLocale(project),
-    projectRoot: null,
-    profile: { ...selectedExportProfile(project), shaderVariants: [activeShaderVariant] },
-    intent: 'play',
-    recoveryFingerprint,
-    paths: rendererRuntimeArtifactPaths,
-  });
-  if (prepared.status === 'cancelled') {
-    return {
-      ok: false,
-      compiledProject: null,
-      shaderMaterialMetadata: null,
-      previewAssets: [],
-      noticeIndexText: undefined,
-      sourceFingerprint: null,
-      blockers: prepared.diagnostics.filter((diagnostic) =>
-        projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
-      ),
-      entries: prepared.diagnostics.map((diagnostic) => ({
-        label: diagnostic.message,
-        detail: diagnostic.path,
-        severity: diagnostic.severity,
-      })),
-    };
-  }
-  const exported = prepared.assessment;
-  const diagnostics = collectProjectValidationDiagnostics(exported.runtimeDiagnostics);
-  const entries = diagnostics.slice(0, 6).map((diagnostic) => ({
-    label: diagnostic.message,
-    detail: diagnostic.path,
-    severity: diagnostic.severity,
-  }));
   return {
-    ok: prepared.status === 'prepared',
-    compiledProject: exported.compiledProject ?? null,
-    shaderMaterialMetadata: exported.shaderMaterialMetadata ?? null,
-    previewAssets: [
-      ...exported.fileEntries.map((entry) => ({
-        sourcePath: entry.source,
-        runtimePath: entry.packagePath,
-      })),
-      ...previewNoticeAssetMappings(
-        exported.packageOptions.textEntries.find(
-          (entry) => entry.packagePath === 'licenses/index.json',
-        )?.text,
-      ),
+    ok: false,
+    compiledProject: null,
+    shaderMaterialMetadata: null,
+    previewAssets: [],
+    noticeIndexText: undefined,
+    sourceFingerprint: null,
+    blockers: [],
+    entries: [
+      { label: 'Native runtime preparation unavailable or cancelled', severity: 'error' as const },
     ],
-    noticeIndexText: exported.packageOptions.textEntries.find(
-      (entry) => entry.packagePath === 'licenses/index.json',
-    )?.text,
-    sourceFingerprint: exported.sourceFingerprint,
-    blockers: exported.runtimeBlockers,
-    entries,
   };
 }
 
@@ -2730,10 +2712,10 @@ export function FullGamePreviewEditor({
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const pendingInputEntries = usePendingInputStore((state) => state.entriesBySaveUnitId);
   const project = useMemo(
-    () => (isAuthoringProject(projectDocument) ? projectDocument : null),
+    () => (isAuthoringProjectView(projectDocument) ? projectDocument : null),
     [projectDocument],
   );
-  const executeCommand = useCommandStore((store) => store.executeCommand);
+  const executeCommand = useCommandStore((store) => store.executeCommandAsync);
   const openTab = useWorkbenchStore((store) => store.openTab);
   const restoredAssetMemory = (() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
@@ -3267,7 +3249,7 @@ export function FullGamePreviewEditor({
     replayActions(recorderDraft.actions, 'idle');
   }, [recorderDraft.actions, replayActions]);
 
-  const saveRecordingAsNewTest = useCallback(() => {
+  const saveRecordingAsNewTest = useCallback(async () => {
     const testId = nextRecordedTestId(project);
     const label = `Recorded Test ${new Date().toLocaleString()}`;
     const conversion = recordedTestDraftToTestData(recorderDraft, { label });
@@ -3277,7 +3259,7 @@ export function FullGamePreviewEditor({
       setRecorderDraft((current) => ({ ...current, saveError: message }));
       return;
     }
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'entity.createRecord',
       label: `Create recorded test ${testId}`,
       payload: { collection: 'tests', entityId: testId, label, data: conversion.data },
@@ -3302,7 +3284,7 @@ export function FullGamePreviewEditor({
     openTab(buildTestDetailTabForRecord(testId, label));
   }, [executeCommand, openTab, project, recorderDraft]);
 
-  const applyRecordingToExistingTest = useCallback(() => {
+  const applyRecordingToExistingTest = useCallback(async () => {
     const testId = normalizeTestId(targetTestId);
     if (!testId) {
       setRecorderDraft((current) => ({
@@ -3330,7 +3312,7 @@ export function FullGamePreviewEditor({
       setRecorderDraft((current) => ({ ...current, saveError: message }));
       return;
     }
-    const result = executeCommand({
+    const result = await executeCommand({
       type: 'test.replaceData',
       label: `Apply recording to ${testId}`,
       payload: { testId, data: conversion.data },

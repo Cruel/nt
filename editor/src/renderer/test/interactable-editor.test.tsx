@@ -1,3 +1,4 @@
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -133,12 +134,7 @@ describe('InteractableEditor', () => {
       ],
     };
     project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(project, '11111111-1111-4111-8111-111111111111');
     useHotspotFocusStore.getState().start({
       tabId: tab.id,
       ownerKind: 'interactable',
@@ -241,12 +237,7 @@ describe('InteractableEditor', () => {
       contentHash: `sha256:${'a'.repeat(64)}`,
       byteSize: 1234,
     });
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(project, '11111111-1111-4111-8111-111111111111');
 
     try {
       const view = renderEditor();
@@ -303,12 +294,7 @@ describe('InteractableEditor', () => {
       traits: [],
       data,
     };
-    useProjectStore.getState().loadProjectDocument({
-      document: project,
-      projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.yaml',
-      projectSessionId: '11111111-1111-4111-8111-111111111111',
-    });
+    admitNativeRendererCommandFixture(project, '11111111-1111-4111-8111-111111111111');
 
     const view = renderEditor();
     await Promise.resolve();
@@ -424,7 +410,7 @@ describe('InteractableEditor', () => {
         ],
       },
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
     renderEditor();
 
     await user.click(screen.getByRole('button', { name: /choose Interactable Visual/i }));
@@ -434,15 +420,17 @@ describe('InteractableEditor', () => {
     expect(screen.getByText('Door Sprite')).toBeInTheDocument();
     expect(screen.queryByText('Door Sound')).not.toBeInTheDocument();
     await user.click(screen.getByText('Door Loop'));
-    const changed = useProjectStore.getState().document;
-    expect(
-      isAuthoringProject(changed) &&
-        parseInteractableData(changed.interactables.door?.data)?.presentation.visual,
-    ).toEqual({
-      kind: 'animation',
-      animation: { $ref: { collection: 'animations', id: 'loop' } },
-      motionId: null,
-      playback: null,
+    await waitFor(() => {
+      const changed = useProjectStore.getState().document;
+      expect(
+        isAuthoringProject(changed) &&
+          parseInteractableData(changed.interactables.door?.data)?.presentation.visual,
+      ).toEqual({
+        kind: 'animation',
+        animation: { $ref: { collection: 'animations', id: 'loop' } },
+        motionId: null,
+        playback: null,
+      });
     });
     expect(screen.getByRole('combobox', { name: 'Animation motion' })).toBeInTheDocument();
   });
@@ -477,7 +465,7 @@ describe('InteractableEditor', () => {
       traits: [],
       data,
     };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     const view = renderEditor();
     expect(
@@ -501,7 +489,7 @@ describe('InteractableEditor', () => {
       ).toBe('alternate');
     });
 
-    expect(useCommandStore.getState().undo().ok).toBe(true);
+    expect((await useCommandStore.getState().undoAsync()).ok).toBe(true);
     const restored = useProjectStore.getState().document as ReturnType<
       typeof createAuthoringProject
     >;
@@ -535,7 +523,7 @@ describe('InteractableEditor', () => {
       'door-instance',
       'door',
     );
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    admitNativeRendererCommandFixture(project);
 
     renderEditor();
     expect(screen.getByText('Inherited from Definition')).toBeInTheDocument();

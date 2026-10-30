@@ -4,7 +4,6 @@ import {
   createAuthoringProject,
   isAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 
 describe('authoring infrastructure', () => {
@@ -60,19 +59,6 @@ describe('authoring infrastructure', () => {
     expect(isAuthoringProject(project)).toBe(true);
     expect(project.rooms.child).not.toHaveProperty('tags');
     expect(project.rooms.child.traits).toEqual(['tense-room']);
-  });
-
-  it('validates owner-local Property nullability and value types', () => {
-    const project = createAuthoringProject();
-    project.rooms.area = {
-      id: 'area',
-      label: 'Area',
-      localProperties: [{ id: 'map', label: 'Map', type: 'string', nullable: false, value: null }],
-      data: defaultRoomData('Area'),
-    };
-    expect(validateAuthoringProject(project)).toContainEqual(
-      expect.objectContaining({ path: '/rooms/area/localProperties/0/value' }),
-    );
   });
 
   it('uses globally scoped variable IDs and validates locale declarations', () => {

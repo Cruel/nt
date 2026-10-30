@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
+import { useCommandStore } from '@/commands/command-store';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import {
   GameplayCommandListEditor,
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
+import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,12 +18,17 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { useCommandStore } from '@/commands/command-store';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
-import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useOptionalMaterialPreviewProjectResources } from '@/material-preview/material-preview-provider';
+import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
 import { useProjectStore } from '@/project/project-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { useEffect, useState } from 'react';
+import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
+import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import {
   defaultSceneData,
   defaultSceneStep,
@@ -37,7 +42,6 @@ import {
   sceneSceneRef,
   sceneStepTypeValues,
   sceneVariableRef,
-  validateSceneData,
   type SceneConditionData,
   type SceneData,
   type SceneInputBinding,
@@ -47,19 +51,15 @@ import {
   type SceneTerminal,
   type SceneTransitionGroupChildData,
 } from '../../../shared/project-schema/authoring-scenes';
-import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
-import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
-import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import type {
   ShaderUniformData,
   ShaderUniformValue,
 } from '../../../shared/project-schema/authoring-shaders';
-import type { MaterialDerivedInterface } from '../../../shared/project-schema/shader-material-project';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import {
   buildScenePreviewDocumentData,
   scenePreviewRevision,
 } from '../../../shared/project-schema/scene-project';
+import type { MaterialDerivedInterface } from '../../../shared/project-schema/shader-material-project';
 
 function commitScene(
   sceneId: string,
@@ -67,7 +67,7 @@ function commitScene(
   label: string,
   semanticOwnerMoves?: { fromPrefix: string; toPrefix: string }[],
 ) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'scene.replaceData',
     label,
     payload: { sceneId, data, semanticOwnerMoves },
@@ -233,7 +233,7 @@ function materialUniforms(
   materialId: string,
   derivedInterface: MaterialDerivedInterface | null | undefined,
 ): ShaderUniformData[] {
-  if (!isAuthoringProject(project)) return [];
+  if (!isAuthoringProjectView(project)) return [];
   const material = resolveMaterialData(project, materialId).data;
   if (!material) return [];
   const uniforms = derivedInterface?.uniforms ?? material.preset.uniforms;
@@ -314,7 +314,7 @@ function parseUniformValue(
 
 export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(document) ? document : null;
+  const project = isAuthoringProjectView(document) ? document : null;
   const materialPreviewResources = useOptionalMaterialPreviewProjectResources();
   const [materialInterfaces, setMaterialInterfaces] = useState<
     Readonly<Record<string, MaterialDerivedInterface | null>>
@@ -326,10 +326,8 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
   const [scrubMs, setScrubMs] = useState(0);
   const [timelinePlaying, setTimelinePlaying] = useState(false);
   const selected = data.events.find((step) => step.id === selectedId) ?? data.events[0] ?? null;
-  const diagnostics = useMemo(
-    () => (project && record && sceneId ? validateSceneData(project, sceneId, record) : []),
-    [project, record, sceneId],
-  );
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/scenes/${sceneId}`);
+  const diagnostics = nativeDiagnostics;
   useEffect(() => {
     let active = true;
     if (!project || !materialPreviewResources) {

@@ -31,7 +31,7 @@ import {
   targetPathProjectValidationDiagnostic,
   validateTargetPaths,
 } from '../../shared/project-schema/target-path-portability';
-import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-diagnostic-projection';
 import { templateRootForToken, verifyTemplateToken } from './template-registry-service';
 import {
   createPlatformArchive,

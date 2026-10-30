@@ -19,6 +19,15 @@ separate certification workflow as described below.
 | Android debug/emulator | x86_64 | APK | OpenGL ES/Vulkan as declared by template; `essl-300` | Android JDK/SDK/NDK/Gradle required | min API 24; compile API 35 |
 
 The assembly-host column describes artifact mechanics, not standalone CLI release availability.
+Release certification now derives its canonical fixture evidence from the actual native C++
+platform exports (`scripts/native-canonical-export-evidence.mjs`), rather than from the retired
+renderer canonical-integration test. The verifier hashes the exported file inventory, binds
+the Runtime Package to the player configuration (or the Android native export report and APK),
+and verifies packaged Project license notices. The independent platform launch, browser,
+ABI, and Android artifact inspection checks remain mandatory. Android's native CLI publishes
+an artifact readback report rather than a desktop-style `export-manifest.json`; the evidence
+producer validates that report and its physical APK/AAB bytes.
+
 Verified template file modes are part of `template.json`. POSIX hosts verify extracted filesystem
 modes against those declarations; Windows hosts use the verified descriptor modes as authoritative
 because NTFS archive extraction cannot preserve POSIX permission bits. Staging carries those verified
@@ -40,6 +49,112 @@ digest-pinned Debian 12 container. This prevents GitHub-hosted runner image upgr
 raising either ABI floor. The standalone CLI is fully certified independently on Linux x64 and
 Windows x64; the macOS host CLI is built for and package-smoked with the macOS editor, while complete
 standalone CLI differential certification remains a separate admission gate.
+
+The native-authoritative platform-export candidate (#517) is also checked on
+the Linux installed CLI build, with an isolated, generated Web Project and
+template: `editor/scripts/certify-native-cli-platform.mjs`. This exercises
+the real native preparation and publication path alongside the legacy oracle,
+including cold and daemon preflight, retained output collision/force/symlink
+policy, template trust, and local application identity. The script reports
+explicitly that private certificate credentials are not provided, so passing
+does not claim real signing, Android SDK packaging, or macOS notarization.
+Those remain certified only by the appropriate target-specific release jobs.
+
+For #569's *post-cutover direct-C++* certification, the Linux Build job also
+runs `native-platform-command-differential.test.ts` with
+`NOVELTEA_NATIVE_CLI_BINARY` pointing to its built, installed standalone CLI.
+This runs the retained TypeScript platform command service and the real C++ CLI
+against independent template registries, comparing template lifecycle,
+corruption detection, diagnostics, and configuration results. Unlike the #517
+candidate differential, no ScriptC authority flag is used. This is a focused
+project-independent differential, **not** evidence of full five-target staging
+or published artifact parity. See
+`docs/architecture/certifications/NATIVE_PLATFORM_EXPORT_FINAL_GATE.md` for
+the remaining final-gate requirements and host-specific evidence limits.
+
+The Windows native C++ exporter certification is integrated into the existing
+Windows jobs instead of a parallel Windows workflow: `build.yml` builds
+`noveltea-native-cli` with MSVC, runs the native PE, publication, platform
+command and public-contract tests, and generates a current Windows template for
+an independent exported-player launch smoke, retaining JSON evidence; `release.yml` also builds the same C++ CLI alongside
+the release player and runs `tests/native_cli/windows_release_smoke.py` using
+the actual release Windows template. That smoke checks manifest/archive byte
+identity and starts the resulting executable from an unrelated working
+directory on the Windows host. Linux can run the same script with a trusted
+local template for cross-host assembly/readback, but only the Windows runner
+can certify launch. Synthetic per-binary signing/verification is exercised in
+the native CLI regression suite, while publicly trusted Authenticode signing,
+timestamp-chain validation, and production certificate credentials require
+separate signer/credential evidence (not included in CI fixtures).
+
+The direct C++ Linux exporter consumes the same verified template and pinned
+native runtime preparation as Windows and Web. It validates the actual x86_64
+ELF program-header/dynamic string-table closure against `linuxNeeded` and
+`linuxRpaths`, accepts only portable `$ORIGIN` library search paths, and
+checks that non-system NEEDED libraries are shipped in the template. Its
+directory contains the executable under `bin/`, adjacent `game.ntpkg` and
+`player.json`, a root launcher, hicolor icons and freedesktop `.desktop`
+metadata. It publishes a ZIP or deterministic tar.gz, with optional separate
+debug symbols; the opt-in AppImage uses an existing host-installed
+`appimagetool`, selectable via `NOVELTEA_LINUX_APPIMAGE_TOOL`. AppImage is
+not a new mandatory build dependency, and AppImage assembly is Linux-only.
+
+`tests/native_cli/platform.py` certifies Linux export with freshly built ELF
+and bundled native-library fixtures, independent-working-directory execution,
+unsafe/colliding outputs, and failure rollback. Release CI builds the direct
+C++ CLI and uses `tests/native_cli/linux_release_smoke.py` to install the actual
+release template and launch both its portable directory and optional AppImage
+under Xvfb, independently of the existing TypeScript exporter certification.
+CI emits `dist/noveltea-native-linux-release-certification.json` as separate
+native-export evidence. This does not replace the existing X11/Wayland release
+matrix or claim that AppImage building works without host tooling.
+
+The direct C++ macOS exporter (#567) assembles an arm64 `.app` from the verified
+template using `Contents/MacOS`, `Contents/Frameworks`, and `Contents/Resources`.
+It reads the actual arm64 Mach-O load commands, UUIDs, and portable dependency
+closure (including universal binaries), compares them with the template's
+certified metadata, and rejects missing/unsafe libraries and install names.
+The runtime package and `player.json` are in Resources, alongside a generated
+`AppIcon.icns`, bundle `Info.plist`, localization metadata, and mounted engine
+licenses. The distribution ZIP retains the `<Name>.app/` root, a separate
+`<Name>-symbols.zip` contains requested debug symbols, and
+`<Name>-export-manifest.json` records final bundle file hashes. The manifest
+is a *sidecar*, not a post-signing bundle resource, because changing any bundle
+resource after codesign invalidates the signature.
+
+Unsigned app/ZIP assembly and readback are cross-host. On macOS, `--sign`
+requires a locally configured macOS signing identity, uses the installed Apple
+`codesign` tool to sign nested dependencies before the hardened-runtime app,
+and verifies the sealed bundle. Configured notarization invokes the selected
+command and verifies ticket stapling with `xcrun stapler`. Opt-in `--dmg`
+uses macOS `hdiutil`; it is unavailable on other hosts. No third-party signer
+or DMG dependency is bundled. The signing report is a separate sidecar, and
+old symbols, DMG, and signing reports are retired transactionally when disabled
+in a later export. `native_cli_macos_export` runs real native staging/ZIP
+readback and Mach-O corruption tests on cross-host CI; the macOS release runner
+also executes `tests/native_cli/macos_release_smoke.py` with its real release
+template, checks direct executable and LaunchServices launch, and exercises
+ad-hoc codesign/verification. Production notarization and trusted-identity
+signing still require private credentials and are not claimed by this smoke.
+
+The native C++ Android exporter (#568) now assembles APK/AAB distributions from an
+installed, verified Android player template. It copies the immutable Gradle
+project, prebuilt native libraries, engine shaders, runtime assets and notices;
+generates the game bootstrap, manifest, portrait/landscape configuration,
+launcher icons and SDK/version/resource metadata; and invokes the pinned Gradle
+wrapper using a separately configured local JDK/SDK. A signed release requires
+an explicit local keystore/alias and `env:`-referenced signing secrets (never
+project-authored credentials). The exporter checks APK manifest identity,
+toolchain versions, native ABI closure, license bytes, signatures, alignment,
+runtime package hashes and AAB-to-universal-APK derivation before installing the
+complete artifact set with the same recoverable publication journal as other
+native exporters. Android tooling is mandatory for APK/AAB production, but no
+new Android runtime or build dependency is introduced by the C++ exporter.
+`native_cli_android_export` exercises cross-host staged Gradle behavior with
+hermetic fixtures and negative failure/rollback paths. The arm64 certification
+workflow independently inspects the real artifacts and boots two AAB-derived
+package revisions in the emulator. Publicly trusted release signing remains
+dependent on external private keystore credentials and is not claimed by CI.
 
 Current release automation uses Emscripten 6.0.0 and an Android set certified together: Gradle 8.9,
 Android Gradle Plugin 8.7.3, Java 17, API/target/compile SDK 35, build-tools 35.0.0,

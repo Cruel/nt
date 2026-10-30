@@ -1,7 +1,7 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import type { EntityOperationDiagnostic, EntityOperationResult } from './entity-operations';
 import { resolveGameplayInstanceRecord } from '../../shared/project-schema/authoring-archetypes';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import {
   defaultInteractableInstanceData,
@@ -70,7 +70,7 @@ function loadedRecords(
       interactable?: InteractableData;
     }
   | EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const roomRecord = document.rooms[roomId];
   const room = roomRecord
@@ -588,7 +588,7 @@ export function addRoomPresentationContentPatches(
 ): EntityOperationResult {
   const loaded = loadedRecords(document, payload.roomId);
   if ('patches' in loaded) return loaded;
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if ('point' in payload && payload.point) {
     if (
@@ -855,7 +855,7 @@ export function placeInteractablePatches(
 ): EntityOperationResult {
   const loaded = loadedRecords(document, payload.roomId, payload.interactableId);
   if ('patches' in loaded) return loaded;
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   if (!validBounds(payload.bounds))
     return { patches: [], diagnostics: [error('Room placement bounds are invalid.')] };
@@ -1012,7 +1012,7 @@ export function addInteractableOccurrencePatches(
 ): EntityOperationResult {
   const loaded = loadedRecords(document, payload.roomId);
   if ('patches' in loaded) return loaded;
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const instance = document.interactableInstances[payload.instanceId];
   if (!instance)
@@ -1061,7 +1061,7 @@ export function unplaceInteractableInstancePatches(
   document: unknown,
   payload: { instanceId: string },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const instance = document.interactableInstances[payload.instanceId];
   if (!instance)
@@ -1097,7 +1097,7 @@ export function destroyInteractableInstancePatches(
   document: unknown,
   payload: { instanceId: string },
 ): EntityOperationResult {
-  if (!isAuthoringProject(document))
+  if (!isAuthoringProjectView(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
   const instance = document.interactableInstances[payload.instanceId];
   if (!instance)

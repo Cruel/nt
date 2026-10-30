@@ -24,6 +24,10 @@ export async function prepareRuntimeArtifactForTest(
   const shaderOutputs = [...(options.shaderOutputs ?? [])];
   return prepareRuntimeArtifact({
     project,
+    // Test-only proof fixture: supply an intentionally conservative admitted
+    // Asset set rather than reimplementing native graph discovery in TS.
+    admittedRuntimeAssetReferences: Object.keys(project.assets),
+    admittedAuthoringDiagnostics: [],
     projectRoot: options.projectRoot ?? null,
     profile: options.profile,
     recoveryFingerprint: options.recoveryFingerprint,

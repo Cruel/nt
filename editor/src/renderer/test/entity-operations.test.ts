@@ -5,7 +5,6 @@ import {
   undoCommand,
   redoCommand,
 } from './command-test-utils';
-import { executeCommand as executeCommandCore } from '@/commands/command-bus';
 import { toJsonValue } from '@/project/json-value';
 import { inlineTextContent } from '../../shared/project-schema/authoring-flow';
 import {
@@ -21,7 +20,101 @@ import {
   structuredMessageId,
 } from '../../shared/authoring-structured-messages';
 import { testTranslation } from './fixtures/localization-workflow';
-import { buildAuthoringDependencyGraph } from '../../shared/authoring-dependency-graph';
+import { nativeViewRecordGraphSnapshotFixture } from '../test-support/native-renderer-graph-fixture';
+import type { NativeSemanticGraph } from '../../main/services/native-authoring-worker-contract';
+import type { CommandBusState } from '../commands/command-bus';
+
+function nativeGraphState(
+  project: ReturnType<typeof createAuthoringProject>,
+  extra?: { nodes?: NativeSemanticGraph['nodes']; edges?: NativeSemanticGraph['edges'] },
+) {
+  return {
+    ...createInitialCommandBusState(toJsonValue(project)),
+    graphSnapshot: nativeViewRecordGraphSnapshotFixture(project, extra),
+    projectInstanceId: 'project-instance',
+    projectRevision: 1,
+  };
+}
+
+function refreshNativeGraphState(state: CommandBusState) {
+  const project = state.document as ReturnType<typeof createAuthoringProject>;
+  return {
+    ...state,
+    graphSnapshot: nativeViewRecordGraphSnapshotFixture(project),
+    projectInstanceId: 'project-instance',
+    projectRevision: 1,
+  };
+}
+
+function nativeEntrypointEvidence(roomId: string) {
+  const entry = { kind: 'project-field' as const, path: '/entrypoint' };
+  return {
+    nodes: [
+      { key: entry, keyText: JSON.stringify(entry), owningPath: '/entrypoint', label: 'Entry' },
+    ],
+    edges: [
+      {
+        id: 'native-entrypoint-reference',
+        source: entry,
+        target: { kind: 'record' as const, collection: 'rooms', id: roomId },
+        sourcePath: '/entrypoint',
+        targetPath: `/rooms/${roomId}`,
+        role: 'entrypoint' as const,
+        facets: ['reference-integrity' as const, 'tooling-reference' as const],
+        targetImpactPaths: [`/rooms/${roomId}`],
+        repair: { kind: 'blocked' as const, reason: 'Native deletion requires explicit review.' },
+      },
+    ],
+  };
+}
+
+function nativeCursorEvidence() {
+  const target = { kind: 'project-field' as const, path: '/settings/cursors/named/0/id' };
+  const references = [
+    {
+      source: { kind: 'project-field' as const, path: '/settings/cursors/defaults/pointer/id' },
+      path: '/settings/cursors/defaults/pointer/id',
+      owner: '/settings/cursors/defaults/pointer/id',
+    },
+    {
+      source: { kind: 'record' as const, collection: 'rooms', id: 'foyer' },
+      path: '/rooms/foyer/data/hotspots/0/cursor/id',
+      owner: '/rooms/foyer',
+    },
+    {
+      source: { kind: 'record' as const, collection: 'interactables', id: 'key' },
+      path: '/interactables/key/data/presentation/cursor/id',
+      owner: '/interactables/key',
+    },
+    {
+      source: { kind: 'record' as const, collection: 'interactables', id: 'key' },
+      path: '/interactables/key/data/presentation/hotspots/hotspots/0/cursor/id',
+      owner: '/interactables/key',
+    },
+  ];
+  return {
+    nodes: [
+      { key: target, keyText: JSON.stringify(target), owningPath: target.path, label: 'Cursor' },
+      {
+        key: references[0]!.source,
+        keyText: JSON.stringify(references[0]!.source),
+        owningPath: references[0]!.owner,
+        label: 'Default pointer',
+      },
+    ],
+    edges: references.map(({ source, path }, index) => ({
+      id: `native-cursor-reference-${index}`,
+      source,
+      target,
+      sourcePath: path,
+      targetPath: target.path,
+      role: 'cursor-reference' as const,
+      facets: ['reference-integrity' as const, 'tooling-reference' as const],
+      targetImpactPaths: [target.path],
+      repair: { kind: 'blocked' as const, reason: 'Force delete requires review.' },
+    })),
+  };
+}
 
 function projectWithRooms() {
   const project = createAuthoringProject();
@@ -100,12 +193,12 @@ describe('authoring entity operations', () => {
   });
 
   it('renames IDs and rewrites entrypoint references transactionally', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
+    const state = nativeGraphState(projectWithRooms(), nativeEntrypointEvidence('foyer'));
     const result = executeCommand(state, {
       type: 'entity.renameId',
       payload: { collection: 'rooms', fromId: 'foyer', toId: 'entry-hall' },
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
     expect(result.state.document).toMatchObject({
       entrypoint: { kind: 'room', id: 'entry-hall' },
       rooms: { 'entry-hall': { id: 'entry-hall' }, hall: { id: 'hall' } },
@@ -113,8 +206,8 @@ describe('authoring entity operations', () => {
     expect(undoCommand(result.state).state.document).toEqual(state.document);
   });
 
-  it('renames named cursors across structured and inline RCSS references with undo support', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithCursorReferences()));
+  it('renames named cursors across native-admitted structured references, retaining physical RCSS', () => {
+    const state = nativeGraphState(projectWithCursorReferences(), nativeCursorEvidence());
     const result = executeCommand(state, {
       type: 'project.renameNamedCursor',
       payload: { fromId: 'inspect', toId: 'examine' },
@@ -133,215 +226,12 @@ describe('authoring entity operations', () => {
       kind: 'custom',
       hotspots: [expect.objectContaining({ cursor: { kind: 'named', id: 'examine' } })],
     });
-    expect(renamed.layouts.hud?.data.rcss.sourceText).toBe('#target { cursor: examine; }');
+    expect(renamed.layouts.hud?.data.rcss.sourceText).toBe('#target { cursor: inspect; }');
     expect(undoCommand(result.state).state.document).toEqual(state.document);
-  });
-
-  it('rewrites named cursor references embedded in RML styles', async () => {
-    const project = projectWithCursorReferences();
-    project.layouts.hud!.data.rml.sourceText = [
-      '<rml>',
-      '<head><style>#target { cursor: inspect; }</style></head>',
-      '<body style="cursor: inspect;"></body>',
-      '</rml>',
-    ].join('\n');
-    const initial = createInitialCommandBusState(toJsonValue(project));
-    const graph = await buildAuthoringDependencyGraph(project, {
-      mode: 'enabled',
-      sources: { entriesByAssetId: new Map() },
-    });
-    const projectRevision = initial.projectRevision ?? 1;
-    const state = {
-      ...initial,
-      projectRevision,
-      graphSnapshot: {
-        projectInstanceId: initial.projectInstanceId!,
-        projectRevision,
-        graphRevision: projectRevision,
-        graph,
-      },
-    };
-
-    const result = executeCommandCore(state, {
-      type: 'project.renameNamedCursor',
-      payload: { fromId: 'inspect', toId: 'examine' },
-      originSaveUnitId: 'test:save-unit',
-      persistencePolicy: 'manual-save',
-    });
-
-    expect(result.ok).toBe(true);
-    const renamed = authoringProjectSchema.parse(result.state.document);
-    expect(renamed.layouts.hud?.data.rml.sourceText).toContain('cursor: examine;');
-    expect(renamed.layouts.hud?.data.rml.sourceText.match(/cursor: examine;/g)).toHaveLength(2);
-    expect(renamed.layouts.hud?.data.rml.sourceText).not.toContain('cursor: inspect;');
-    expect(undoCommand(result.state).state.document).toEqual(state.document);
-  });
-
-  it('blocks named cursor refactors when an Asset-backed RCSS source must be edited manually', async () => {
-    const project = projectWithCursorReferences();
-    project.assets['cursor-style'] = {
-      id: 'cursor-style',
-      label: 'Cursor styles',
-      data: {
-        kind: 'data',
-        source: { type: 'project-file', path: 'ui/cursors.rcss' },
-        aliases: [],
-        extension: '.rcss',
-        contentHash: `sha256:${'a'.repeat(64)}`,
-        imageMetadata: null,
-      },
-    } as never;
-    project.layouts.hud!.data.rcss = {
-      sourceMode: 'asset',
-      sourceText: '',
-      sourceAsset: { $ref: { collection: 'assets', id: 'cursor-style' } },
-    };
-    const initial = createInitialCommandBusState(toJsonValue(project));
-    const graph = await buildAuthoringDependencyGraph(project, {
-      mode: 'enabled',
-      sources: {
-        entriesByAssetId: new Map([
-          [
-            'cursor-style',
-            {
-              status: 'ready',
-              assetId: 'cursor-style',
-              projectRelativePath: 'ui/cursors.rcss',
-              contentHash: `sha256:${'a'.repeat(64)}`,
-              text: '#target { cursor: inspect; }',
-              hadUtf8Bom: false,
-            },
-          ],
-        ]),
-      },
-    });
-    const projectRevision = initial.projectRevision ?? 1;
-    const state = {
-      ...initial,
-      projectRevision,
-      graphSnapshot: {
-        projectInstanceId: initial.projectInstanceId!,
-        projectRevision,
-        graphRevision: projectRevision,
-        graph,
-      },
-    };
-
-    const renamed = executeCommandCore(state, {
-      type: 'project.renameNamedCursor',
-      payload: { fromId: 'inspect', toId: 'examine' },
-      originSaveUnitId: 'test:save-unit',
-      persistencePolicy: 'manual-save',
-    });
-    expect(renamed.ok).toBe(false);
-    expect(renamed.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ severity: 'error', message: expect.stringContaining('source') }),
-      ]),
-    );
-
-    const deleted = executeCommandCore(state, {
-      type: 'project.deleteNamedCursor',
-      payload: { cursorId: 'inspect' },
-      originSaveUnitId: 'test:save-unit',
-      persistencePolicy: 'manual-save',
-    });
-    expect(deleted.ok).toBe(false);
-  });
-
-  it('rewrites literal Lua cursor names and reports computed cursor-name risk', async () => {
-    const project = projectWithCursorReferences();
-    project.layouts.hud!.data.lua.sourceText = [
-      'noveltea.presentation.cursor.set("inspect")',
-      'noveltea.presentation.cursor.set(cursor_name)',
-    ].join('\n');
-    const initial = createInitialCommandBusState(toJsonValue(project));
-    const graph = await buildAuthoringDependencyGraph(project, {
-      mode: 'enabled',
-      sources: { entriesByAssetId: new Map() },
-    });
-    const projectRevision = initial.projectRevision ?? 1;
-    const state = {
-      ...initial,
-      projectRevision,
-      graphSnapshot: {
-        projectInstanceId: initial.projectInstanceId!,
-        projectRevision,
-        graphRevision: projectRevision,
-        graph,
-      },
-    };
-
-    const result = executeCommandCore(state, {
-      type: 'project.renameNamedCursor',
-      payload: { fromId: 'inspect', toId: 'examine' },
-      originSaveUnitId: 'test:save-unit',
-      persistencePolicy: 'manual-save',
-    });
-
-    expect(result.ok).toBe(true);
-    const renamed = authoringProjectSchema.parse(result.state.document);
-    expect(renamed.layouts.hud?.data.lua.sourceText).toBe(
-      [
-        'noveltea.presentation.cursor.set("examine")',
-        'noveltea.presentation.cursor.set(cursor_name)',
-      ].join('\n'),
-    );
-    expect(
-      result.diagnostics.some(
-        (diagnostic) =>
-          diagnostic.severity === 'warning' &&
-          diagnostic.message.includes('computed Lua cursor-name usage'),
-      ),
-    ).toBe(true);
-    expect(undoCommand(result.state).state.document).toEqual(state.document);
-  });
-
-  it('keeps force-deleted literal Lua cursor usages diagnosable', async () => {
-    const project = projectWithCursorReferences();
-    project.layouts.hud!.data.lua.sourceText = 'noveltea . presentation . cursor . set("inspect")';
-    const initial = createInitialCommandBusState(toJsonValue(project));
-    const graph = await buildAuthoringDependencyGraph(project, {
-      mode: 'enabled',
-      sources: { entriesByAssetId: new Map() },
-    });
-    const projectRevision = initial.projectRevision ?? 1;
-    const state = {
-      ...initial,
-      projectRevision,
-      graphSnapshot: {
-        projectInstanceId: initial.projectInstanceId!,
-        projectRevision,
-        graphRevision: projectRevision,
-        graph,
-      },
-    };
-    const forced = executeCommandCore(state, {
-      type: 'project.deleteNamedCursor',
-      payload: { cursorId: 'inspect', force: true },
-      originSaveUnitId: 'test:save-unit',
-      persistencePolicy: 'manual-save',
-    });
-    expect(forced.ok).toBe(true);
-
-    const deleted = authoringProjectSchema.parse(forced.state.document);
-    const rebuilt = await buildAuthoringDependencyGraph(deleted, {
-      mode: 'enabled',
-      sources: { entriesByAssetId: new Map() },
-    });
-    expect(rebuilt.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: 'authoring.cursor.lua_named_missing',
-          path: '/layouts/hud/data/lua/sourceText',
-          message: expect.stringContaining("unknown cursor 'inspect'"),
-        }),
-      ]),
-    );
   });
 
   it('blocks referenced named-cursor deletion, while force delete leaves references untouched', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithCursorReferences()));
+    const state = nativeGraphState(projectWithCursorReferences(), nativeCursorEvidence());
     const blocked = executeCommand(state, {
       type: 'project.deleteNamedCursor',
       payload: { cursorId: 'inspect' },
@@ -381,7 +271,7 @@ describe('authoring entity operations', () => {
     project.localization.translations.fr = {
       [oldMessageId]: testTranslation('Un foyer tranquille.'),
     };
-    const state = createInitialCommandBusState(toJsonValue(project));
+    const state = nativeGraphState(project, nativeEntrypointEvidence('foyer'));
 
     const result = executeCommand(state, {
       type: 'entity.renameId',
@@ -435,7 +325,7 @@ describe('authoring entity operations', () => {
   });
 
   it('blocks referenced deletes unless forced', () => {
-    const state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
+    const state = nativeGraphState(projectWithRooms(), nativeEntrypointEvidence('foyer'));
     expect(
       executeCommand(state, {
         type: 'entity.deleteRecord',
@@ -473,23 +363,25 @@ describe('authoring entity operations', () => {
   });
 
   it('moves, copies, clears, and deletes editor metadata with its record', () => {
-    let state = createInitialCommandBusState(toJsonValue(projectWithRooms()));
-    state = executeCommand(state, {
-      type: 'entity.updateMetadata',
-      payload: {
-        collection: 'rooms',
-        entityId: 'hall',
-        tags: ['main'],
-        color: '#fff',
-        sortKey: '10',
-      },
-    }).state;
+    let state = nativeGraphState(projectWithRooms());
+    state = refreshNativeGraphState(
+      executeCommand(state, {
+        type: 'entity.updateMetadata',
+        payload: {
+          collection: 'rooms',
+          entityId: 'hall',
+          tags: ['main'],
+          color: '#fff',
+          sortKey: '10',
+        },
+      }).state,
+    );
 
     const renamed = executeCommand(state, {
       type: 'entity.renameId',
       payload: { collection: 'rooms', fromId: 'hall', toId: 'great-hall' },
     });
-    expect(renamed.ok).toBe(true);
+    expect(renamed.ok, JSON.stringify(renamed.diagnostics)).toBe(true);
     expect(renamed.state.document).toMatchObject({
       editor: {
         recordMetadata: {
@@ -502,7 +394,7 @@ describe('authoring entity operations', () => {
         .editor.recordMetadata.rooms,
     ).not.toHaveProperty('hall');
 
-    const duplicated = executeCommand(renamed.state, {
+    const duplicated = executeCommand(refreshNativeGraphState(renamed.state), {
       type: 'entity.duplicateRecord',
       payload: { collection: 'rooms', sourceId: 'great-hall', targetId: 'great-hall-copy' },
     });
@@ -515,7 +407,7 @@ describe('authoring entity operations', () => {
       },
     });
 
-    const cleared = executeCommand(duplicated.state, {
+    const cleared = executeCommand(refreshNativeGraphState(duplicated.state), {
       type: 'entity.updateMetadata',
       payload: { collection: 'rooms', entityId: 'great-hall-copy', color: null, sortKey: null },
     });
@@ -523,7 +415,7 @@ describe('authoring entity operations', () => {
       editor: { recordMetadata: { rooms: { 'great-hall-copy': { color: null, sortKey: null } } } },
     });
 
-    const deleted = executeCommand(cleared.state, {
+    const deleted = executeCommand(refreshNativeGraphState(cleared.state), {
       type: 'entity.deleteRecord',
       payload: { collection: 'rooms', entityId: 'great-hall-copy' },
     });

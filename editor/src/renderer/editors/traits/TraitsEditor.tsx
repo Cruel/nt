@@ -17,10 +17,8 @@ import { useProjectStore } from '@/project/project-store';
 import { SAVE_UNIT_IDS } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
-import {
-  isAuthoringProject,
-  type AuthoringProject,
-} from '../../../shared/project-schema/authoring-project';
+import { type AuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { parseInteractionData } from '../../../shared/project-schema/authoring-interactions';
 import {
   propertyOwnerKindValues,
@@ -443,8 +441,8 @@ function TraitMetadataFields({
 
 export function TraitsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [metadataId, setMetadataId] = useState<string | null>(null);
   const [metadataDraft, setMetadataDraft] = useState<TraitMetadataDraft | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -475,8 +473,8 @@ export function TraitsEditor({ tab }: WorkbenchEditorProps) {
   if (!project)
     return <div className="p-4 text-sm text-muted-foreground">No authoring project loaded.</div>;
 
-  const runPatches = (label: string, patches: JsonPatch[]) => {
-    const result = executeCommand({
+  const runPatches = async (label: string, patches: JsonPatch[]) => {
+    const result = await executeCommand({
       type: 'project.applyPatch',
       label,
       payload: patches,
@@ -516,7 +514,7 @@ export function TraitsEditor({ tab }: WorkbenchEditorProps) {
     setMessage(null);
   };
 
-  const saveMetadata = () => {
+  const saveMetadata = async () => {
     if (metadataId === null || !metadataDraft) return;
     const previous = metadataId ? project.traits[metadataId] : undefined;
     const parsed = traitFromMetadataDraft(metadataDraft, previous?.properties ?? []);
@@ -553,7 +551,7 @@ export function TraitsEditor({ tab }: WorkbenchEditorProps) {
         });
       patches.push(metadataPatch(parsed.id, metadataDraft.color));
     }
-    const failure = runPatches(
+    const failure = await runPatches(
       previous ? `Update Trait ${metadataId}` : `Create Trait ${parsed.id}`,
       patches,
     );
@@ -583,7 +581,7 @@ export function TraitsEditor({ tab }: WorkbenchEditorProps) {
     ]);
   };
 
-  const deleteTrait = () => {
+  const deleteTrait = async () => {
     if (!deleteId) return;
     const trait = project.traits[deleteId];
     if (!trait) return;
@@ -597,7 +595,7 @@ export function TraitsEditor({ tab }: WorkbenchEditorProps) {
         op: 'remove',
         path: `/editor/recordMetadata/traits/${escapeSegment(deleteId)}`,
       });
-    const failure = runPatches(`Delete Trait ${deleteId}`, patches);
+    const failure = await runPatches(`Delete Trait ${deleteId}`, patches);
     if (failure) {
       setMessage(failure);
       return;

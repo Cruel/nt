@@ -5,6 +5,7 @@ docs/build/*
 dist/
 editor/dist-electron/
 editor/dist-scriptc-island/
+editor/dist-scriptc-native-island/
 __pycache__/
 vcpkg_installed/
 imgui.ini

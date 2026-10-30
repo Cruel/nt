@@ -10,6 +10,7 @@ import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { buildSettingsTab } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import type {
   ComfyUiWorkflowDefinition,
@@ -112,12 +113,7 @@ function mockWorkflowList(
 
 beforeEach(() => {
   useProjectStore.getState().clearProject();
-  useProjectStore.getState().loadProjectDocument({
-    document: project(),
-    projectPath: '/mock/project',
-    projectFilePath: '/mock/project/game.json',
-    projectSessionId: '11111111-1111-4111-8111-111111111111',
-  });
+  admitNativeRendererCommandFixture(project());
   usePreferencesStore
     .getState()
     .setComfyUiConfig({ enabled: true, serverUrl: 'http://127.0.0.1:8000' });
@@ -233,7 +229,7 @@ describe('ImageGenerationEditor', () => {
     const job = queue.localJobsByPromptId[queue.order[0]!];
     expect(job?.kind).toBe('generate');
     expect(job?.request).toMatchObject({
-      projectFilePath: '/mock/project/game.json',
+      projectFilePath: '/mock/project/project.yaml',
       workflowKey: 'project:flux2-klein-text-to-image.manifest.json',
       prompt: 'a tea cup in a rainstorm',
     });
@@ -332,8 +328,10 @@ describe('ImageGenerationEditor', () => {
     await screen.findByText(/assets\/generated\/generated.png/);
     fireEvent.click(screen.getByRole('button', { name: 'Add revision to assets' }));
 
-    const revision = useComfyUiGenerationStore.getState().revisionsByTabId[tab.id]?.[0];
-    expect(revision?.assetAddedAt).toBeTruthy();
+    await waitFor(() => {
+      const revision = useComfyUiGenerationStore.getState().revisionsByTabId[tab.id]?.[0];
+      expect(revision?.assetAddedAt).toBeTruthy();
+    });
   });
 
   it('queues image edits using the selected staged revision path', async () => {

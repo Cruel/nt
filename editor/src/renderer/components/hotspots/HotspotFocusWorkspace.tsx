@@ -35,7 +35,7 @@ import {
 import { sampleHotspotMotionTrack } from '../../../shared/project-schema/authoring-hotspots';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isTextEntryKeyboardTarget } from '@/components/image-stage/keyboard-target';
@@ -58,7 +58,7 @@ interface Props {
   onDone?: (selectedHotspotId: string | null) => void;
   onImagePresentationChange?: (presentation: FocusTransitionImagePresentation | null) => void;
   onImageUrlChange?: (imageUrl: string | null) => void;
-  onRequestClose?: (action: () => boolean) => void;
+  onRequestClose?: (action: () => boolean | Promise<boolean>) => void;
 }
 
 export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Props>(
@@ -105,7 +105,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     const workspaceRef = useRef<HTMLDivElement | null>(null);
 
     const animation = useMemo(() => {
-      if (!session || session.ownerKind !== 'interactable' || !isAuthoringProject(project))
+      if (!session || session.ownerKind !== 'interactable' || !isAuthoringProjectView(project))
         return null;
       const record = project.interactables[session.ownerId];
       const interactable = record
@@ -336,9 +336,9 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
         ? [{ id: item.id, label: item.label, inputOrder: item.inputOrder, bounds }]
         : [];
     });
-    const requestClose = (action: () => boolean) => {
+    const requestClose = (action: () => boolean | Promise<boolean>) => {
       if (onRequestClose) onRequestClose(action);
-      else action();
+      else void action();
     };
     const nextId = () => {
       const ids = new Set(hotspots.map((item) => item.id));
@@ -633,8 +633,8 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
             size="sm"
             onClick={() => {
               const selectedHotspotId = session.selectedHotspotId;
-              requestClose(() => {
-                const committed = commit(tabId);
+              requestClose(async () => {
+                const committed = await commit(tabId);
                 if (committed) onDone?.(selectedHotspotId);
                 return committed;
               });

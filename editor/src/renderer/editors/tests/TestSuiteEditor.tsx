@@ -1,19 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useCommandStore } from '@/commands/command-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { getNativeTestRunReadiness } from '@/project/native-test-readiness';
+import { flushNativeProjectSources } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { usePendingInputStore } from '@/workbench/pending-input-store';
-import { useWorkbenchStore } from '@/workbench/workbench-store';
-import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  getAuthoringTestRunReadiness,
-  type TestRunReadiness,
-} from '../../../shared/project-schema/test-playback-project';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
+import { buildTestDetailTabForRecord } from '@/workbench/editor-registry';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
+import type { TestRunReadiness } from '../../../shared/project-schema/test-playback-projection';
 
 type SuiteStatus = 'passed' | 'failed' | 'blocked' | 'error';
 
@@ -103,7 +102,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const addTimelineEntry = useWorkspaceStore((state) => state.addTimelineEntry);
   const setBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const [tests, setTests] = useState<
     Array<{
       id: string;
@@ -128,7 +127,7 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
       Object.entries(project.tests).map(async ([id, record]) => ({
         id,
         record,
-        readiness: await getAuthoringTestRunReadiness(project, id),
+        readiness: await getNativeTestRunReadiness(id),
         label: record.label || id,
       })),
     ).then((next) => {
@@ -152,15 +151,22 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
 
   if (!project)
     return <div className="p-4 text-sm text-muted-foreground">{t('tests.openProject')}</div>;
-  const activeProject = project;
 
   async function runTest(testId: string) {
-    const result = await window.noveltea.runPlaybackTest(
-      projectSessionId,
-      activeProject,
-      testId,
-      usePendingInputStore.getState().entriesBySaveUnitId,
-    );
+    let result;
+    try {
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      if (nativeRevision === null || !projectSessionId)
+        throw new Error('No native Project is admitted.');
+      result = await window.noveltea.nativeProjectRunTest(projectSessionId, nativeRevision, testId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Native Test preparation failed.';
+      setLastPlaybackReport({ ok: false, success: false, error: message });
+      setStatusMessage(message);
+      return;
+    }
     setLastPlaybackReport(result.report ?? result);
     const message = result.ok
       ? t('tests.ranTest', { testId })
@@ -177,11 +183,12 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
   async function runAll() {
     setRunningSuite(true);
     try {
-      const result = await window.noveltea.runPlaybackSuite(
-        projectSessionId,
-        activeProject,
-        usePendingInputStore.getState().entriesBySaveUnitId,
-      );
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      if (nativeRevision === null || !projectSessionId)
+        throw new Error('No native Project is admitted.');
+      const result = await window.noveltea.nativeProjectRunSuite(projectSessionId, nativeRevision);
       const report = parseSuiteReport(result.report);
       setSuiteReport(report);
       const message = result.ok
@@ -191,6 +198,8 @@ export function TestSuiteEditor(_props: WorkbenchEditorProps) {
         : (result.error ?? t('tests.suiteFailed'));
       setStatusMessage(message);
       addTimelineEntry({ source: 'playback', message, detail: result });
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : 'Native Test suite failed.');
     } finally {
       setRunningSuite(false);
     }

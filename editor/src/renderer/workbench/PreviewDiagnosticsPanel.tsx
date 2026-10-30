@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { useProjectStore } from '@/project/project-store';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { previewTargetLabel } from '@/preview/preview-manager';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 
@@ -12,7 +12,7 @@ export function PreviewDiagnosticsPanel() {
   const diagnosticsById = usePreviewManagerStore((state) => state.diagnosticsById);
   const clearPreviewDiagnostics = usePreviewManagerStore((state) => state.clearPreviewDiagnostics);
   const projectDocument = useProjectStore((state) => state.document);
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const diagnostics = useMemo(
     () => diagnosticOrder.map((id) => diagnosticsById[id]).filter(Boolean),
     [diagnosticOrder, diagnosticsById],

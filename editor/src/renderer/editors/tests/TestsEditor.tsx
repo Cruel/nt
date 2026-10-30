@@ -1,49 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCommandStore } from '@/commands/command-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DiagnosticList } from '@/diagnostics/DiagnosticList';
-import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { useCommandStore } from '@/commands/command-store';
-import { recordSaveUnitId } from '@/project/save-unit-registry';
+import { DiagnosticList } from '@/diagnostics/DiagnosticList';
+import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { useNativeProjectDiagnostics } from '@/project/native-project-diagnostics';
+import { getNativeTestRunReadiness } from '@/project/native-test-readiness';
+import { flushNativeProjectSources } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
+import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { usePendingInputStore } from '@/workbench/pending-input-store';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { registerWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  defaultTestData,
-  defaultTestExpectation,
-  defaultTestStep,
-  parseTestData,
-  testCharacterSubject,
-  testFeatureSubject,
-  testExpectationTypeValues,
-  testInputTypeValues,
-  testInteractableSubject,
-  testVerbRef,
-  validateTestData,
-  type TestData,
-  type TestExpectationData,
-  type TestExpectationOperator,
-  type TestExpectationType,
-  type TestInputType,
-  type TestInteractionSubject,
-  type TestStepData,
-} from '../../../shared/project-schema/authoring-tests';
-import type { LayoutPersistableValue } from '../../../shared/project-schema/authoring-layouts';
-import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
-import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
-import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
-import {
-  getAuthoringTestRunReadiness,
-  type TestRunReadiness,
-} from '../../../shared/project-schema/test-playback-project';
 import {
   captureScrollViewState,
   isScrollViewState,
@@ -52,6 +24,32 @@ import {
   type ScrollViewState,
   type WorkbenchTabStatePayload,
 } from '@/workbench/workbench-tab-state';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
+import type { LayoutPersistableValue } from '../../../shared/project-schema/authoring-layouts';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
+import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
+import {
+  defaultTestData,
+  defaultTestExpectation,
+  defaultTestStep,
+  parseTestData,
+  testCharacterSubject,
+  testExpectationTypeValues,
+  testFeatureSubject,
+  testInputTypeValues,
+  testInteractableSubject,
+  testVerbRef,
+  type TestData,
+  type TestExpectationData,
+  type TestExpectationOperator,
+  type TestExpectationType,
+  type TestInputType,
+  type TestInteractionSubject,
+  type TestStepData,
+} from '../../../shared/project-schema/authoring-tests';
+import { parseVerbData } from '../../../shared/project-schema/authoring-verbs';
+import type { TestRunReadiness } from '../../../shared/project-schema/test-playback-projection';
 
 const TESTS_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.test';
 
@@ -121,7 +119,7 @@ function selectedStep(data: TestData) {
 }
 
 function commitTest(testId: string, next: TestData, label: string) {
-  return useCommandStore.getState().executeCommand({
+  void useCommandStore.getState().executeCommandAsync({
     type: 'test.replaceData',
     label,
     payload: { testId, data: next },
@@ -648,7 +646,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const testId = tab.resource?.entityId;
-  const project = isAuthoringProject(projectDocument) ? projectDocument : null;
+  const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const record = testId && project ? project.tests[testId] : null;
   const parsedData = parseTestData(record?.data);
   const data = parsedData ?? defaultTestData(record?.label ?? testId ?? 'Test');
@@ -657,10 +655,8 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
   const setStatusMessage = useWorkspaceStore((state) => state.setStatusMessage);
   const lastPlaybackReport = useWorkspaceStore((state) => state.lastPlaybackReport);
   const setBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
-  const diagnostics = useMemo(
-    () => (project && record && testId ? validateTestData(project, testId, record) : []),
-    [project, record, testId],
-  );
+  const nativeDiagnostics = useNativeProjectDiagnostics(`/tests/${testId}`);
+  const diagnostics = nativeDiagnostics;
   const [readiness, setReadiness] = useState<TestRunReadiness>({
     runnable: false,
     reason: 'not-runnable-invalid-test',
@@ -678,7 +674,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
         current = false;
       };
     }
-    void getAuthoringTestRunReadiness(project, testId).then((next) => {
+    void getNativeTestRunReadiness(testId).then((next) => {
       if (current) setReadiness(next);
     });
     return () => {
@@ -919,7 +915,7 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
 
   async function runCurrentTest() {
     setBottomPanel('test-playback');
-    const currentReadiness = await getAuthoringTestRunReadiness(activeProject, activeTestId);
+    const currentReadiness = await getNativeTestRunReadiness(activeTestId);
     setReadiness(currentReadiness);
     if (!currentReadiness.runnable) {
       const report = {
@@ -934,12 +930,24 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
       addTimelineEntry({ source: 'playback', message: 'Test is not runnable yet', detail: report });
       return;
     }
-    const result = await window.noveltea.runPlaybackTest(
-      projectSessionId,
-      activeProject,
-      activeTestId,
-      usePendingInputStore.getState().entriesBySaveUnitId,
-    );
+    let result;
+    try {
+      if (useCommandStore.getState().nativeWorkingRevision !== null)
+        await flushNativeProjectSources();
+      const nativeRevision = useCommandStore.getState().nativeWorkingRevision;
+      if (nativeRevision === null || !projectSessionId)
+        throw new Error('No native Project is admitted.');
+      result = await window.noveltea.nativeProjectRunTest(
+        projectSessionId,
+        nativeRevision,
+        activeTestId,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Native Test preparation failed.';
+      setStatusMessage(message);
+      setLastPlaybackReport({ ok: false, success: false, error: message });
+      return;
+    }
     setLastPlaybackReport(result.report ?? result);
     setStatusMessage(result.ok ? `Ran test ${activeTestId}` : (result.error ?? 'Test run failed'));
     addTimelineEntry({

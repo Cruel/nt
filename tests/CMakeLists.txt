@@ -398,6 +398,7 @@ endif()
 add_library(noveltea_runtime_cache_test_support STATIC
     "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_runtime_cache.cpp"
     "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_filesystem.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/editor_tool/tooling_native_project_generation.cpp"
     $<TARGET_OBJECTS:noveltea_player_bootstrap_test_support>
 )
 target_include_directories(noveltea_runtime_cache_test_support PUBLIC
@@ -408,6 +409,8 @@ target_compile_definitions(noveltea_runtime_cache_test_support PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
 )
 target_link_libraries(noveltea_runtime_cache_test_support PRIVATE
+    noveltea_project_authoring_session
+    noveltea_content
     nlohmann_json::nlohmann_json
     miniz::miniz
 )
@@ -421,10 +424,13 @@ target_include_directories(noveltea_runtime_cache_probe_tests PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/include"
 )
 target_compile_definitions(noveltea_runtime_cache_probe_tests PRIVATE
+    NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
 )
 target_link_libraries(noveltea_runtime_cache_probe_tests PRIVATE
     noveltea_runtime_cache_test_support
+    noveltea_project_authoring_session
+    noveltea_content
     nlohmann_json::nlohmann_json
     Catch2::Catch2WithMain
 )
@@ -442,7 +448,8 @@ if(TARGET noveltea_tooling_native)
             "-DWORK_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tooling-bridge-font-coverage"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tooling_bridge_font_coverage.cmake")
     add_executable(noveltea_tooling_tests
-        tooling/daemon_scriptc_adapter_tests.cpp
+        tooling/daemon_native_dispatch_tests.cpp
+        tooling/native_disk_project_validation_tests.cpp
         tooling/native_shader_compile_tests.cpp
         tooling/font_coverage_tests.cpp
         tooling/playback_expectation_tests.cpp

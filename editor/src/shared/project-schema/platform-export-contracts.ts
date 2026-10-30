@@ -1,11 +1,12 @@
 import { z } from 'zod';
+import { nativeCheck, nativeOperation } from './native-schema-operations';
 import { exportLocalizationPolicySchema } from './authoring-export';
 import { COMPILED_PROJECT_FORMAT_VERSION } from './compiled-project';
 import {
   preparedRuntimeArtifactSchema,
   type PreparedRuntimeArtifact,
 } from './prepared-runtime-artifact';
-import type { ProjectValidationDiagnostic } from './project-validation';
+import type { ProjectValidationDiagnostic } from './project-diagnostic-projection';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 export const PLAYER_CONFIG_FORMAT = 'noveltea.player-config' as const;
@@ -18,11 +19,13 @@ export const PLATFORM_EXPORT_MANIFEST_FORMAT = 'noveltea.platform-export-manifes
 export const TEMPLATE_REGISTRY_FORMAT = 'noveltea.template-registry' as const;
 export const TEMPLATE_REGISTRY_INDEX_FORMAT = 'noveltea.template-registry-index' as const;
 
-const trimmedNonEmptyStringSchema = z.string().check(z.trim(), z.minLength(1));
+const trimmedNonEmptyStringSchema = z
+  .string()
+  .check(nativeCheck('string.trim', z.trim()), z.minLength(1));
 export const signingSecretReferenceSchema = z
   .string()
   .check(
-    z.trim(),
+    nativeCheck('string.trim', z.trim()),
     z.regex(/^env:[A-Za-z_][A-Za-z0-9_]*$/, 'Signing secrets must use env:NAME references.'),
   );
 
@@ -756,40 +759,43 @@ const webProfileSchema = platformProfileBase
       .strict(),
   })
   .strict();
-const androidProfileSchema = platformProfileBase
-  .extend({
-    target: z.literal('android'),
-    architecture: z.enum(['arm64', 'x86_64']),
-    packageAccess: androidPackageAccessSchema,
-    android: z
-      .object({
-        artifact: androidArtifactKindSchema,
-        abi: androidAbiSchema,
-        minSdk: z.number().int().min(24),
-      })
-      .strict(),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    const expectedAbi = value.architecture === 'arm64' ? 'arm64-v8a' : 'x86_64';
-    if (value.android.abi !== expectedAbi)
-      context.addIssue({
-        code: 'custom',
-        path: ['android', 'abi'],
-        message: `Architecture '${value.architecture}' requires ABI '${expectedAbi}'.`,
-      });
-    if (
-      (value.android.artifact === 'aab' || value.android.artifact === 'both') &&
-      value.buildFlavor === 'release' &&
-      value.android.abi !== 'arm64-v8a'
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['android', 'abi'],
-        message: 'Release AAB exports require the arm64-v8a ABI.',
-      });
-    }
-  });
+const androidProfileSchema = nativeOperation(
+  'export.android-profile',
+  platformProfileBase
+    .extend({
+      target: z.literal('android'),
+      architecture: z.enum(['arm64', 'x86_64']),
+      packageAccess: androidPackageAccessSchema,
+      android: z
+        .object({
+          artifact: androidArtifactKindSchema,
+          abi: androidAbiSchema,
+          minSdk: z.number().int().min(24),
+        })
+        .strict(),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      const expectedAbi = value.architecture === 'arm64' ? 'arm64-v8a' : 'x86_64';
+      if (value.android.abi !== expectedAbi)
+        context.addIssue({
+          code: 'custom',
+          path: ['android', 'abi'],
+          message: `Architecture '${value.architecture}' requires ABI '${expectedAbi}'.`,
+        });
+      if (
+        (value.android.artifact === 'aab' || value.android.artifact === 'both') &&
+        value.buildFlavor === 'release' &&
+        value.android.abi !== 'arm64-v8a'
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['android', 'abi'],
+          message: 'Release AAB exports require the arm64-v8a ABI.',
+        });
+      }
+    }),
+);
 
 export const platformExportProfileSchema = z.discriminatedUnion('target', [
   desktopProfileSchema,
@@ -1271,6 +1277,7 @@ export interface PlatformStageResult {
       | 'dmg'
       | 'symbols'
       | 'signing-report'
+      | 'export-report'
       | 'apk'
       | 'aab'
       | 'apk-set';

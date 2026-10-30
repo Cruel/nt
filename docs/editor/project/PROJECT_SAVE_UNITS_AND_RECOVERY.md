@@ -81,6 +81,14 @@ field-level pending input in recovery metadata.
   tab-local dirty draft still requires resolution before that visual view can close. Closing the
   final dirty view uses the shared Save / Don't Save / Cancel dialog for the logical save unit.
 
+In native editor sessions, metadata-only persistence uses
+`main/services/project-editor-metadata-service.ts` directly. It validates only the editor-state
+contract and atomically writes ignored `.noveltea/editor/state.json`; it must not instantiate a
+TypeScript Project Workspace. As with native Open, linked recovery directories/documents are
+rejected, including links whose targets are inside the Project. Revoked session authority and
+unreadable existing state fail without replacing the recovery file. The writer never touches
+tracked Project files or the independently owned `native-dirty-state.json` checkpoint.
+
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
 For YAML owners, Save and Save All first perform a non-mutating source-aware comment preflight
 in main. Changed comments offer Save and keep, Save and remove, or Cancel; deletion offers Delete

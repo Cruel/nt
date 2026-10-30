@@ -21,7 +21,7 @@ uint64_t noveltea_tooling_validate_font_coverage_json(const uint8_t* request, ui
                                                       uint8_t* response,
                                                       uint64_t response_capacity);
 uint64_t noveltea_tooling_inspect_font_json(const uint8_t* request, uint64_t request_size,
-                                           uint8_t* response, uint64_t response_capacity);
+                                            uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_shaderc_json(const uint8_t* request, uint64_t request_size,
                                        uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_image_inspect_json(const uint8_t* request, uint64_t request_size,
@@ -29,7 +29,7 @@ uint64_t noveltea_tooling_image_inspect_json(const uint8_t* request, uint64_t re
 uint64_t noveltea_tooling_image_resize_png_json(const uint8_t* request, uint64_t request_size,
                                                 uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_encode_alpha_webp_json(const uint8_t* request, uint64_t request_size,
-                                                uint8_t* response, uint64_t response_capacity);
+                                                 uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_file_mode_json(const uint8_t* request, uint64_t request_size,
                                          uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_disk_space_json(const uint8_t* request, uint64_t request_size,
@@ -40,16 +40,22 @@ uint64_t noveltea_tooling_probe_authoring_cache_json(const uint8_t* request, uin
                                                      uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_probe_runtime_cache_json(const uint8_t* request, uint64_t request_size,
                                                    uint8_t* response, uint64_t response_capacity);
+uint64_t noveltea_tooling_publish_runtime_cache_json(const uint8_t* request, uint64_t request_size,
+                                                     uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_create_archive_json(const uint8_t* request, uint64_t request_size,
                                               uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_daemon_json(const uint8_t* request, uint64_t request_size,
                                       uint8_t* response, uint64_t response_capacity);
-void noveltea_tooling_scriptc_invoke_to_file(const uint8_t* operation, size_t operation_size,
-                                             const uint8_t* request, size_t request_size,
-                                             const uint8_t* response_path,
-                                             size_t response_path_size);
-void noveltea_tooling_scriptc_run_gc(void);
-void noveltea_tooling_scriptc_set_gc_threshold(uint32_t threshold_bytes);
+uint64_t noveltea_tooling_native_disk_project_validation_json(const uint8_t* request,
+                                                              uint64_t request_size,
+                                                              uint8_t* response,
+                                                              uint64_t response_capacity);
+uint64_t noveltea_tooling_native_project_commands_json(const uint8_t* request,
+                                                       uint64_t request_size, uint8_t* response,
+                                                       uint64_t response_capacity);
+void noveltea_tooling_invoke_to_file(const uint8_t* operation, size_t operation_size,
+                                     const uint8_t* request, size_t request_size,
+                                     const uint8_t* response_path, size_t response_path_size);
 int32_t noveltea_tooling_shaderc(int32_t argc, const char* const* argv);
 int32_t noveltea_tooling_texturec(int32_t argc, const char* const* argv);
 uint64_t noveltea_tooling_texturec_json(const uint8_t* request, uint64_t request_size,

@@ -16,7 +16,9 @@ target_include_directories(noveltea_shader_tooling PRIVATE
 target_compile_definitions(noveltea_shader_tooling PRIVATE
     NOVELTEA_HAS_EMBEDDED_SHADERC=1
     NOVELTEA_BGFX_VERSION_STRING="${NOVELTEA_BGFX_VERSION}"
-    BX_CONFIG_DEBUG=$<CONFIG:Debug>
+    # A Debug shaderc build emits BX_TRACE to stdout even for successful
+    # compiles, breaking the standalone CLI JSON protocol.
+    BX_CONFIG_DEBUG=0
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(MSVC)
     # bx requires the standards-conforming C++ language-version macro under MSVC.
@@ -45,13 +47,23 @@ noveltea_apply_policy_warnings(noveltea_text_tooling)
 add_library(noveltea_tooling_native STATIC
     tooling_daemon_broker.cpp
     tooling_daemon_broker.hpp
+    tooling_native_project_validation.cpp
+    tooling_native_project_commands.cpp
+    tooling_native_project_asset.cpp
+    tooling_native_asset_media.cpp
+    tooling_native_project_create.cpp
+    tooling_native_project_fmt.cpp
+    tooling_native_project_localization.cpp
+    tooling_native_project_sync.cpp
+    tooling_native_project_generation.cpp
+    tooling_native_project_entity.cpp
+    tooling_native_project_bundle.cpp
     tooling_project_authority.cpp
     tooling_project_authority.hpp
     tooling_native.cpp
     tooling_native.hpp
     tooling_native_c.h
-    tooling_native_scriptc.cpp
-    tooling_scriptc_gc.cpp
+    tooling_native_dispatch.cpp
     tooling_image.cpp
     tooling_alpha_encoder.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/media/animated_webp_alpha.cpp"
@@ -90,7 +102,8 @@ target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_script_lua
     noveltea_shader_tooling
     noveltea_text_tooling
-    PRIVATE noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz
+    PRIVATE noveltea_project_authoring_session
+            noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz
             noveltea_text_freetype)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(WIN32)
@@ -151,3 +164,319 @@ target_compile_definitions(noveltea-tooling-bridge PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)
+# The standalone release executable is direct C++; editor tooling remains a
+# separate native library for Electron and tests.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/native_cli_help.txt"
+    "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts"
+    "${CMAKE_SOURCE_DIR}/VERSION")
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/native_cli_help.txt" NOVELTEA_NATIVE_CLI_HELP)
+file(READ "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/authoring-collections.ts" _collections)
+string(REGEX MATCH "authoringCollectionKeys = \\[([^]]+)\\] as const" _collection_keys "${_collections}")
+if(NOT _collection_keys)
+    message(FATAL_ERROR "Cannot extract the canonical CLI collection keys")
+endif()
+string(REPLACE "'" "\"" NOVELTEA_NATIVE_CLI_COLLECTIONS "${CMAKE_MATCH_1}")
+# Runtime-cache admission must never guess the producer's compiler identity.
+# Clean Git builds can bind their identity to the commit; dirty standalone
+# builds cannot safely claim another executable's compiled-runtime cache.
+# Release builders can supply the exact pinned build identity explicitly.
+set(NOVELTEA_NATIVE_CLI_BUILD_IDENTITY "" CACHE STRING
+    "Exact build identity for native runtime cache acceptance")
+if(NOT NOVELTEA_NATIVE_CLI_BUILD_IDENTITY)
+    execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
+        OUTPUT_VARIABLE _native_cli_git_sha OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _native_cli_git_result ERROR_QUIET)
+    execute_process(COMMAND git -C "${CMAKE_SOURCE_DIR}" status --porcelain
+        OUTPUT_VARIABLE _native_cli_git_dirty OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _native_cli_git_status ERROR_QUIET)
+    if(_native_cli_git_result EQUAL 0 AND _native_cli_git_status EQUAL 0 AND NOT _native_cli_git_dirty)
+        set(NOVELTEA_NATIVE_CLI_BUILD_IDENTITY "git:${_native_cli_git_sha}")
+    endif()
+endif()
+if(NOVELTEA_NATIVE_CLI_BUILD_IDENTITY)
+    set(NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY
+        "${NOVELTEA_VERSION}:${NOVELTEA_NATIVE_CLI_BUILD_IDENTITY}")
+else()
+    set(NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY "")
+endif()
+configure_file(native_cli_contract.hpp.in native_cli_contract.hpp @ONLY)
+file(READ "${CMAKE_SOURCE_DIR}/editor/src/shared/media-tool-pin.json" _native_ffmpeg_pin_json)
+string(JSON NOVELTEA_NATIVE_FFMPEG_VERSION GET "${_native_ffmpeg_pin_json}" version)
+string(JSON NOVELTEA_NATIVE_FFMPEG_RELEASE GET "${_native_ffmpeg_pin_json}" release)
+configure_file(native_cli_media_pin.hpp.in native_cli_media_pin.hpp @ONLY)
+find_program(NOVELTEA_NATIVE_NODE_EXECUTABLE NAMES node REQUIRED)
+file(GLOB_RECURSE _native_agent_kit_sources CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/editor/agent-kit/*"
+    "${CMAKE_SOURCE_DIR}/docs/public/concepts/*"
+    "${CMAKE_SOURCE_DIR}/engine/assets/system/ui/*"
+    "${CMAKE_SOURCE_DIR}/editor/src/shared/project-schema/*.ts"
+    "${CMAKE_SOURCE_DIR}/editor/src/shared/project-workspace/*.ts")
+set(_native_agent_kit_header "${CMAKE_CURRENT_BINARY_DIR}/native_agent_kit_generated.hpp")
+add_custom_command(OUTPUT "${_native_agent_kit_header}"
+    COMMAND "${NOVELTEA_NATIVE_NODE_EXECUTABLE}" --disable-warning=ExperimentalWarning
+        --experimental-transform-types
+        "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-agent-kit.mjs"
+        "${_native_agent_kit_header}"
+    DEPENDS
+        "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-agent-kit.mjs"
+        "${CMAKE_SOURCE_DIR}/editor/scripts/native-agent-kit-loader.mjs"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/agent-kit/agent-kit.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/agent-kit/source.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/product-version.ts"
+        "${CMAKE_SOURCE_DIR}/editor/src/shared/schema-static-contracts.ts"
+        "${CMAKE_SOURCE_DIR}/editor/agent-kit-provenance.json"
+        "${CMAKE_SOURCE_DIR}/engine/material-contracts/material-contract-registry.json"
+        "${CMAKE_SOURCE_DIR}/VERSION"
+        ${_native_agent_kit_sources}
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/editor"
+    COMMENT "Embedding generated Agent Kit documentation in native CLI"
+    VERBATIM)
+file(GLOB _native_comfyui_workflows CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/editor/assets/comfyui/workflows/*.json")
+# Host-only authoring compilation / artifact serialization boundary; no JSON
+# DOM is linked into the shipped runtime.
+set(_native_project_compiler_codec_sources
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_compiled_project_save_contract.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_compiled_project.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_artifact.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_physical.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_media.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_runtime_materials.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_flow_prediction.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_resources.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_messages.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_shared.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_programs.cpp"
+    "${CMAKE_SOURCE_DIR}/tools/project_authoring/native_authoring_dialogue_interaction.cpp")
+set(_native_comfyui_header "${CMAKE_CURRENT_BINARY_DIR}/native_comfyui_workflows_generated.hpp")
+add_custom_command(OUTPUT "${_native_comfyui_header}"
+    COMMAND "${NOVELTEA_NATIVE_NODE_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-comfyui-workflows.mjs"
+        "${CMAKE_SOURCE_DIR}/editor/assets/comfyui/workflows"
+        "${_native_comfyui_header}"
+    DEPENDS "${CMAKE_SOURCE_DIR}/editor/scripts/generate-native-comfyui-workflows.mjs"
+        ${_native_comfyui_workflows}
+    VERBATIM)
+# PE resource editing must run on Linux/macOS as well as Windows. Prefer a
+# preinstalled LIEF package; otherwise use the pinned, PE-only upstream build.
+# This dependency belongs exclusively to the native host CLI, not the player.
+find_package(LIEF 0.17.3 CONFIG QUIET)
+if(NOT TARGET LIEF::LIEF)
+    include(FetchContent)
+    set(LIEF_TESTS OFF CACHE BOOL "" FORCE)
+    set(LIEF_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(LIEF_PYTHON_API OFF CACHE BOOL "" FORCE)
+    set(LIEF_C_API OFF CACHE BOOL "" FORCE)
+    set(LIEF_ELF OFF CACHE BOOL "" FORCE)
+    set(LIEF_MACHO OFF CACHE BOOL "" FORCE)
+    set(LIEF_DEX OFF CACHE BOOL "" FORCE)
+    set(LIEF_ART OFF CACHE BOOL "" FORCE)
+    set(LIEF_OAT OFF CACHE BOOL "" FORCE)
+    set(LIEF_VDEX OFF CACHE BOOL "" FORCE)
+    set(LIEF_PE ON CACHE BOOL "" FORCE)
+    set(LIEF_COFF ON CACHE BOOL "" FORCE)
+    set(LIEF_ENABLE_JSON OFF CACHE BOOL "" FORCE)
+    set(LIEF_LOGGING OFF CACHE BOOL "" FORCE)
+    set(LIEF_ASM OFF CACHE BOOL "" FORCE)
+    set(LIEF_DEBUG_INFO OFF CACHE BOOL "" FORCE)
+    set(LIEF_USE_CCACHE OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(noveltea_lief
+        URL https://codeload.github.com/lief-project/LIEF/tar.gz/03aca30b53db2f336b36f90843061bb3f840ff5a
+        URL_HASH SHA256=0bc8a8b25324c52146bc1671193cc43cfcf192366803faae8f3e4236d5246dc0
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(noveltea_lief)
+endif()
+
+# A separate target keeps the PE exporter testable without any Project broker,
+# editor, or host CLI routing. The player never links this library.
+add_library(noveltea_cli_windows_pe STATIC native_cli_windows_pe.cpp)
+target_include_directories(noveltea_cli_windows_pe PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(noveltea_cli_windows_pe PUBLIC LIEF::LIEF)
+if(WIN32)
+    # LIEF's X.509 helpers call inet_pton; MinGW needs Winsock explicitly.
+    # Propagate it to the native CLI and every PE-export certification target.
+    target_link_libraries(noveltea_cli_windows_pe PUBLIC ws2_32)
+endif()
+noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
+
+add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
+    native_cli.cpp native_cli_daemon.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
+    native_cli_platform.cpp native_cli_platform_stage.cpp
+    native_cli_comfyui_http.cpp
+    "${_native_comfyui_header}"
+    "${_native_agent_kit_header}" native_cli_test_catalog.cpp
+    ${_native_project_compiler_codec_sources})
+set_target_properties(noveltea-native-cli PROPERTIES
+    OUTPUT_NAME noveltea
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native-cli")
+target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tools/project_authoring")
+target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
+target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
+    nlohmann_json::nlohmann_json miniz::miniz noveltea_cli_windows_pe)
+if(WIN32)
+    target_link_libraries(noveltea-native-cli PRIVATE winhttp)
+endif()
+target_compile_definitions(noveltea-native-cli PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+noveltea_apply_policy_warnings(noveltea-native-cli)
+# Native font coverage resolves the same trusted system fonts as the installed
+# production CLI, without a launcher or source-tree absolute path dependency.
+add_custom_command(TARGET noveltea-native-cli POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_SOURCE_DIR}/engine/assets/system"
+        "$<TARGET_FILE_DIR:noveltea-native-cli>/assets/system"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "$<TARGET_FILE:noveltea-ui-test-runner>"
+        "$<TARGET_FILE_DIR:noveltea-native-cli>/$<TARGET_FILE_NAME:noveltea-ui-test-runner>"
+    COMMENT "Staging native CLI system font assets")
+if(BUILD_TESTING)
+    set_target_properties(noveltea-native-cli PROPERTIES EXCLUDE_FROM_ALL FALSE)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_executable(noveltea-cli-windows-pe-certify
+        "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_windows_pe_tests.cpp")
+    target_link_libraries(noveltea-cli-windows-pe-certify PRIVATE
+        noveltea_cli_windows_pe)
+    noveltea_apply_policy_warnings(noveltea-cli-windows-pe-certify)
+    add_test(NAME native_cli_windows_pe_resources
+        COMMAND noveltea-cli-windows-pe-certify)
+endif()
+if(BUILD_TESTING OR NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY)
+    add_executable(noveltea-cli-platform-publication-certify
+        "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_platform_publication_tests.cpp"
+        native_cli_platform_stage.cpp)
+    target_link_libraries(noveltea-cli-platform-publication-certify PRIVATE
+        noveltea_tooling_native noveltea_cli_windows_pe nlohmann_json::nlohmann_json miniz::miniz)
+    target_include_directories(noveltea-cli-platform-publication-certify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions(noveltea-cli-platform-publication-certify PRIVATE
+        ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+    noveltea_apply_policy_warnings(noveltea-cli-platform-publication-certify)
+    add_test(NAME native_cli_platform_publication
+        COMMAND noveltea-cli-platform-publication-certify)
+    add_executable(noveltea-cli-macos-export-certify
+        "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_macos_export_tests.cpp"
+        native_cli_platform_stage.cpp)
+    target_link_libraries(noveltea-cli-macos-export-certify PRIVATE
+        noveltea_tooling_native noveltea_cli_windows_pe nlohmann_json::nlohmann_json miniz::miniz)
+    target_include_directories(noveltea-cli-macos-export-certify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions(noveltea-cli-macos-export-certify PRIVATE
+        ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+    noveltea_apply_policy_warnings(noveltea-cli-macos-export-certify)
+    add_test(NAME native_cli_macos_export
+        COMMAND noveltea-cli-macos-export-certify)
+    add_executable(noveltea-cli-android-export-certify
+        "${CMAKE_SOURCE_DIR}/tests/tooling/native_cli_android_export_tests.cpp"
+        native_cli_platform_stage.cpp)
+    target_link_libraries(noveltea-cli-android-export-certify PRIVATE
+        noveltea_tooling_native noveltea_cli_windows_pe nlohmann_json::nlohmann_json miniz::miniz)
+    target_include_directories(noveltea-cli-android-export-certify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions(noveltea-cli-android-export-certify PRIVATE
+        ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+    noveltea_apply_policy_warnings(noveltea-cli-android-export-certify)
+    add_test(NAME native_cli_android_export
+        COMMAND noveltea-cli-android-export-certify)
+endif()
+if(BUILD_TESTING)
+    add_test(NAME native_cli_public_contract
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_production_regressions
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/production_regressions.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(native_cli_production_regressions PROPERTIES TIMEOUT 420)
+    add_test(NAME native_cli_daemon_owner
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/daemon_owner.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(native_cli_daemon_owner PROPERTIES TIMEOUT 420)
+    add_test(NAME native_cli_platform_commands
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/platform.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
+            "$<TARGET_FILE:noveltea-cli-windows-pe-certify>")
+    add_test(NAME native_cli_agent_tools
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/agent_tools.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_comfyui
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/comfyui.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_comfyui_run
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/comfyui_run.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_runtime_cache
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/runtime_cache.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
+            "--compiler-identity=${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
+    set_tests_properties(native_cli_runtime_cache PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME native_cli_cold_runtime
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/cold_runtime.py"
+            "$<TARGET_FILE:noveltea-native-cli>"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
+    set_tests_properties(native_cli_cold_runtime PROPERTIES SKIP_RETURN_CODE 77)
+    set(NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG "" CACHE FILEPATH
+        "Pinned NovelTea ffmpeg-r3 executable used to certify cold Feature Lab media")
+    if(NOT NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG)
+        if(WIN32)
+            set(_native_ffmpeg_name ffmpeg.exe)
+        else()
+            set(_native_ffmpeg_name ffmpeg)
+        endif()
+        set(_native_ffmpeg_candidate
+            "${CMAKE_SOURCE_DIR}/build/cli/linux/tools/ffmpeg/bin/${_native_ffmpeg_name}")
+        if(EXISTS "${_native_ffmpeg_candidate}")
+            set(NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG "${_native_ffmpeg_candidate}")
+        endif()
+    endif()
+    set(_native_cli_cold_player "")
+    if(NOVELTEA_BUILD_PLAYER)
+        set(_native_cli_cold_player "$<TARGET_FILE:noveltea-player>")
+    endif()
+    add_test(NAME native_cli_feature_lab_cold
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/feature_lab_cold.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}"
+            "${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}"
+            "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}"
+            "${_native_cli_cold_player}")
+    set_tests_properties(native_cli_feature_lab_cold PROPERTIES
+        SKIP_RETURN_CODE 77 TIMEOUT 900)
+    add_executable(noveltea-runtime-cache-publish-certify
+        tooling_runtime_cache_publish_certify.cpp
+        ${_native_project_compiler_codec_sources})
+    target_link_libraries(noveltea-runtime-cache-publish-certify PRIVATE
+        noveltea_tooling_native noveltea_script_lua noveltea_presentation nlohmann_json::nlohmann_json)
+    target_include_directories(noveltea-runtime-cache-publish-certify PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/tools/project_authoring"
+        "${CMAKE_SOURCE_DIR}/tests"
+        "${CMAKE_BINARY_DIR}/tools/project_authoring")
+    add_test(NAME native_runtime_cache_publish
+        COMMAND "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+    set_tests_properties(native_runtime_cache_publish PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME native_cli_shader_integrity
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/shader_integrity.py"
+            "$<TARGET_FILE:noveltea-native-cli>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${NOVELTEA_NATIVE_CLI_CERTIFY_FFMPEG}")
+    set_tests_properties(native_cli_shader_integrity PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+    add_test(NAME native_compiled_project_parity
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/compiled_project_parity.py"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_runtime_artifact_parity
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/runtime_artifact_parity.py"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_runtime_physical
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/runtime_physical.py"
+            "$<TARGET_FILE:noveltea-runtime-cache-publish-certify>"
+            "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+    set_tests_properties(native_runtime_physical PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
+add_executable(noveltea-cli-native-certify EXCLUDE_FROM_ALL tooling_native_project_commands_certify.cpp)
+target_link_libraries(noveltea-cli-native-certify PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea-cli-native-certify PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
+if(BUILD_TESTING)
+    add_test(NAME native_authoring_cli_commands
+        COMMAND noveltea-cli-native-certify "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+endif()

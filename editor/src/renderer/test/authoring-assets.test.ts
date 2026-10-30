@@ -7,7 +7,6 @@ import {
   validateAssetAlias,
 } from '../../shared/project-schema/authoring-assets';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
 
 describe('authoring asset schema helpers', () => {
   it('infers common asset kinds deterministically', () => {
@@ -35,7 +34,7 @@ describe('authoring asset schema helpers', () => {
     expect(isSafeProjectAssetPath('assets\\title.png')).toBe(false);
   });
 
-  it('validates aliases and asset records through project validation', () => {
+  it('validates Asset aliases and local record shape without a second Project validator', () => {
     expect(validateAssetAlias('ui.click')).toBeNull();
     expect(validateAssetAlias('Bad Alias')).toContain('Alias must');
     const project = createAuthoringProject();
@@ -50,9 +49,6 @@ describe('authoring asset schema helpers', () => {
       },
     };
     expect(parseAssetData(project.assets.click.data)?.kind).toBe('audio');
-    expect(
-      validateAuthoringProject(project).filter((diagnostic) => diagnostic.category === 'Assets'),
-    ).toEqual([]);
     project.assets.other = {
       id: 'other',
       label: 'Other',
@@ -63,15 +59,11 @@ describe('authoring asset schema helpers', () => {
         imageMetadata: null,
       },
     };
-    const diagnostics = validateAuthoringProject(project).filter(
-      (diagnostic) => diagnostic.category === 'Assets',
-    );
-    expect(
-      diagnostics.some((diagnostic) => diagnostic.message.includes('safe project-relative')),
-    ).toBe(true);
-    expect(diagnostics.some((diagnostic) => diagnostic.message.includes('already assigned'))).toBe(
-      true,
-    );
+    expect(isSafeProjectAssetPath(project.assets.other.data.source.path)).toBe(false);
+    // The local record codec preserves the raw path; native Project
+    // validation, independently certified in C++, rejects unsafe paths.
+    expect(parseAssetData(project.assets.other.data)?.source.path).toBe('../bad.mp3');
+    expect(validateAssetAlias(project.assets.click.data.aliases[0]!)).toBeNull();
   });
 
   it('requires explicit current image metadata at persisted boundaries', () => {

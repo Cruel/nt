@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { entityIdSchema } from './authoring-common';
 import { materialRefSchema } from './authoring-flow';
 import { assetTextureRefSchema } from './authoring-materials';
@@ -32,20 +33,23 @@ export const materialApplicationParameterSourceSchema = withSchemaDocumentation(
 );
 
 export const materialApplicationParameterOverrideSchema = withSchemaDocumentation(
-  strict({
-    type: z.enum(shaderUniformTypeValues),
-    source: materialApplicationParameterSourceSchema,
-  }).superRefine((override, context) => {
-    if (
-      override.source.kind === 'literal' &&
-      !isUniformValueCompatible(override.type, override.source.value)
-    )
-      context.addIssue({
-        code: 'custom',
-        path: ['source', 'value'],
-        message: `Literal value is incompatible with Material parameter type '${override.type}'.`,
-      });
-  }),
+  nativeOperation(
+    'material.application-parameter',
+    strict({
+      type: z.enum(shaderUniformTypeValues),
+      source: materialApplicationParameterSourceSchema,
+    }).superRefine((override, context) => {
+      if (
+        override.source.kind === 'literal' &&
+        !isUniformValueCompatible(override.type, override.source.value)
+      )
+        context.addIssue({
+          code: 'custom',
+          path: ['source', 'value'],
+          message: `Literal value is incompatible with Material parameter type '${override.type}'.`,
+        });
+    }),
+  ),
   { name: 'MaterialParameterOverride' },
 );
 

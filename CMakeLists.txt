@@ -117,6 +117,13 @@ if(NOVELTEA_BUILD_EDITOR_PREVIEW AND (NOVELTEA_BUILD_PLAYER OR NOVELTEA_BUILD_SA
         "NOVELTEA_BUILD_SANDBOX=OFF to exclude Dear ImGui from the preview")
 endif()
 option(NOVELTEA_BUILD_HOST_TOOLS "Build native editor and host-tool targets" ON)
+option(NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY
+    "Build cross-host native CLI export certification targets in production host-tool builds" OFF)
+if(NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY)
+    # Production CLI builds disable BUILD_TESTING. Register only the explicitly
+    # requested cross-host export CTests, without enabling the full test tree.
+    enable_testing()
+endif()
 option(NOVELTEA_BUILD_BENCHMARKS "Build reproducible release benchmark executables" OFF)
 option(NOVELTEA_BUILD_BENCHMARK_APP "Build the standalone SDL3/bgfx graphics benchmark (Linux/Android/Web)" OFF)
 option(NOVELTEA_FETCH_BGFX "Fetch/build the pinned bgfx/bx/bimg source bundle via FetchContent" ON)
@@ -563,6 +570,7 @@ noveltea_add_public_header_probes()
 add_dependencies(cxx-policy public-header-probes)
 
 if(NOVELTEA_BUILD_HOST_TOOLS AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_subdirectory(tools/project_authoring)
     add_subdirectory(tools/editor_tool)
     if(NOVELTEA_BUILD_BENCHMARKS)
         add_subdirectory(tools/benchmark)

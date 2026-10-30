@@ -46,17 +46,6 @@ if(NOT NOVELTEA_BGFX_SHADER_INCLUDE_DIR OR NOT EXISTS "${NOVELTEA_BGFX_SHADER_IN
     message(FATAL_ERROR "NOVELTEA_BGFX_SHADER_INCLUDE_DIR must contain bgfx_shader.sh: ${NOVELTEA_BGFX_SHADER_INCLUDE_DIR}")
 endif()
 
-function(_noveltea_json_string value out_var)
-    set(_value "${value}")
-    string(REPLACE "\\" "\\\\" _value "${_value}")
-    string(REPLACE "\"" "\\\"" _value "${_value}")
-    string(REPLACE "\n" "\\n" _value "${_value}")
-    string(REPLACE "\r" "\\r" _value "${_value}")
-    set(${out_var} "\"${_value}\"" PARENT_SCOPE)
-endfunction()
-
-set(_batch "[]")
-set(_batch_index 0)
 foreach(_variant IN LISTS NOVELTEA_SHADER_VARIANTS)
     noveltea_get_shader_variant(VARIANT "${_variant}" OUT_PLATFORM _platform OUT_PROFILE _profile)
     set(_out_dir "${NOVELTEA_SHADER_OUTPUT_ROOT}/shaders/bgfx/${_variant}")
@@ -87,37 +76,17 @@ foreach(_variant IN LISTS NOVELTEA_SHADER_VARIANTS)
                 -i "${NOVELTEA_SHADER_SOURCE_DIR}"
                 -i "${NOVELTEA_BGFX_SHADER_INCLUDE_DIR}")
             if(_noveltea_use_cli)
-                set(_command "[]")
-                set(_arg_index 0)
-                foreach(_arg IN LISTS _args)
-                    _noveltea_json_string("${_arg}" _json_arg)
-                    string(JSON _command SET "${_command}" ${_arg_index} "${_json_arg}")
-                    math(EXPR _arg_index "${_arg_index} + 1")
-                endforeach()
-                string(JSON _batch SET "${_batch}" ${_batch_index} "${_command}")
-                math(EXPR _batch_index "${_batch_index} + 1")
+                execute_process(
+                    COMMAND "${NOVELTEA_CLI_EXECUTABLE}" shaderc ${_args}
+                    RESULT_VARIABLE _result)
             else()
                 execute_process(
                     COMMAND "${NOVELTEA_SHADERC_EXECUTABLE}" ${_args}
                     RESULT_VARIABLE _result)
-                if(NOT _result EQUAL 0)
-                    message(FATAL_ERROR "shaderc failed for ${_source} (${_variant})")
-                endif()
+            endif()
+            if(NOT _result EQUAL 0)
+                message(FATAL_ERROR "shaderc failed for ${_source} (${_variant})")
             endif()
         endforeach()
     endforeach()
 endforeach()
-
-if(_noveltea_use_cli)
-    set(_batch_file "${NOVELTEA_SHADER_OUTPUT_ROOT}/.noveltea-shaderc-batch.json")
-    file(WRITE "${_batch_file}" "${_batch}\n")
-    execute_process(
-        COMMAND "${NOVELTEA_CLI_EXECUTABLE}" __shaderc-batch
-        INPUT_FILE "${_batch_file}"
-        RESULT_VARIABLE _result
-    )
-    file(REMOVE "${_batch_file}")
-    if(NOT _result EQUAL 0)
-        message(FATAL_ERROR "NovelTea shader batch compilation failed with exit code ${_result}")
-    endif()
-endif()

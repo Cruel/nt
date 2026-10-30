@@ -11,8 +11,6 @@ const nodeBuiltins = new Set(builtinModules.map((moduleName) => moduleName.repla
 const requiredOutputs = {
   main: path.join(outputRoot, 'main', 'main.cjs'),
   preload: path.join(outputRoot, 'preload', 'preload.cjs'),
-  compiler: path.join(outputRoot, 'tools', 'project-compile.mjs'),
-  goldens: path.join(outputRoot, 'tools', 'generate-compiled-project-goldens.mjs'),
 };
 
 function fail(message) {
@@ -102,8 +100,6 @@ function assertRuntimeImports(label, text, allowedPackages, format) {
 
 const mainText = await readRequiredFile('main', requiredOutputs.main);
 const preloadText = await readRequiredFile('preload', requiredOutputs.preload);
-const compilerText = await readRequiredFile('project compiler', requiredOutputs.compiler);
-const goldensText = await readRequiredFile('golden generator', requiredOutputs.goldens);
 
 if (!/require\(["']electron["']\)/.test(mainText)) {
   fail('main output does not preserve Electron as an external runtime module');
@@ -131,32 +127,38 @@ if (!/require\(["']electron["']\)/.test(preloadText)) {
 assertRuntimeImports('main', mainText, new Set(['electron', 'node-pty', 'sharp']), 'cjs');
 assertRuntimeImports('preload', preloadText, new Set(['electron']), 'cjs');
 
-await assertOnlyDeclaredFiles(path.join(outputRoot, 'main'), new Set(['main.cjs', 'main.cjs.map']));
+await assertOnlyDeclaredFiles(
+  path.join(outputRoot, 'main'),
+  new Set(['main.cjs', 'main.cjs.map', 'native-production-provenance.json']),
+);
 await assertOnlyDeclaredFiles(
   path.join(outputRoot, 'preload'),
-  new Set(['preload.cjs', 'preload.cjs.map']),
+  new Set(['preload.cjs', 'preload.cjs.map', 'native-production-provenance.json']),
 );
 
 for (const [label, text] of Object.entries({
   main: mainText,
   preload: preloadText,
-  compiler: compilerText,
-  goldens: goldensText,
 })) {
   assertNoCheckoutPaths(label, text);
 }
-assertNoForbiddenRuntimeImport('project compiler', compilerText);
-assertNoForbiddenRuntimeImport('golden generator', goldensText);
 
 const toolFiles = (await listFiles(path.join(outputRoot, 'tools'))).filter((filePath) =>
   filePath.endsWith('.mjs'),
 );
 const sharpRuntimeToolChunks = new Set([
   'runtime-artifact-preparation.mjs',
-  'materialize-platform-export-fixture.mjs',
   'platform-deployment.mjs',
   'platform-image-sharp-service.mjs',
 ]);
+for (const forbidden of [
+  'project-compile.mjs',
+  'materialize-platform-export-fixture.mjs',
+  'generate-compiled-project-goldens.mjs',
+]) {
+  if (toolFiles.some((file) => path.basename(file) === forbidden))
+    fail(`build-only producer leaked into distributed tools: ${forbidden}`);
+}
 for (const toolFile of toolFiles) {
   const text = await fs.readFile(toolFile, 'utf8');
   const label = path.relative(editorRoot, toolFile);

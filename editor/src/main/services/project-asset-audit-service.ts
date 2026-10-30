@@ -7,15 +7,12 @@ import type {
   ProjectAssetAuditResponse,
   ProjectAssetFileOperationResponse,
   ProjectAssetOrganizationAction,
-  ProjectAssetTrashMove,
 } from '../../shared/project-asset-audit';
 import {
   inferAssetKindFromExtension,
   parseAssetData,
 } from '../../shared/project-schema/authoring-assets';
-import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
-import { PROJECT_WORKSPACE_ABSENT_REVISION } from '../../shared/project-workspace/project-workspace-transaction';
-import { moveProjectAssetFileTransaction } from './project-asset-file-transaction';
+import { isAuthoringProjectView } from '../../shared/project-schema/authoring-project-view';
 import { validateImportedFont } from './font-import-validation-service';
 import { validateImportedAudioVideo } from './media-import-validation-service';
 
@@ -296,7 +293,7 @@ async function inspectUntrackedAssetFile(
 
 function referencedAssetPaths(project: unknown) {
   const paths = new Set<string>();
-  if (!isAuthoringProject(project)) return paths;
+  if (!isAuthoringProjectView(project)) return paths;
   for (const record of Object.values(project.assets)) {
     const data = parseAssetData(record.data);
     if (data?.source.path) paths.add(data.source.path);
@@ -349,35 +346,6 @@ async function metadataForExistingAsset(
       };
     });
   return { ...common, kind, imageMetadata };
-}
-
-async function trashPathFor(projectFilePath: string, projectRelativePath: string) {
-  const projectRoot = projectRootFromFile(projectFilePath);
-  const operationId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2)}`;
-  const trashRelativePath = slashPath(
-    path.join('.noveltea', 'trash', 'assets', operationId, projectRelativePath),
-  );
-  const absolute = path.resolve(projectRoot, trashRelativePath);
-  return { trashRelativePath, absolute };
-}
-
-async function moveAssetToTrash(
-  projectFilePath: string,
-  projectRelativePath: string,
-  assertAuthority?: () => void,
-) {
-  const safe = safeAssetRelativePath(projectFilePath, projectRelativePath);
-  if (!safe) throw new Error('Only files inside assets/ can be moved to project trash.');
-  const destination = await trashPathFor(projectFilePath, safe.relative);
-  assertAuthority?.();
-  await moveProjectAssetFileTransaction(
-    projectRootFromFile(projectFilePath),
-    safe.relative,
-    destination.trashRelativePath,
-    'asset trash',
-    PROJECT_WORKSPACE_ABSENT_REVISION,
-  );
-  return { projectRelativePath: safe.relative, trashRelativePath: destination.trashRelativePath };
 }
 
 export async function auditProjectAssets(
@@ -504,6 +472,7 @@ export async function organizeUntrackedProjectAsset(
   projectRelativePath: string,
   action: ProjectAssetOrganizationAction,
   assertAuthority?: () => void,
+  nativeMove?: (fromPath: string, toPath: string) => Promise<void>,
 ): Promise<ProjectAssetFileOperationResponse> {
   try {
     assertAuthority?.();
@@ -556,13 +525,9 @@ export async function organizeUntrackedProjectAsset(
       }
     }
     assertAuthority?.();
-    await moveProjectAssetFileTransaction(
-      safe.projectRoot,
-      safe.relative,
-      destinationRelativePath,
-      'organize untracked asset',
-      PROJECT_WORKSPACE_ABSENT_REVISION,
-    );
+    if (!nativeMove)
+      throw new Error('Asset organization requires the admitted native Project session.');
+    await nativeMove(safe.relative, destinationRelativePath);
     return { ok: true, success: true, diagnostics: [] };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Could not move untracked file.';
@@ -573,84 +538,6 @@ export async function organizeUntrackedProjectAsset(
       error: message,
     };
   }
-}
-
-export async function trashProjectAssetFiles(
-  projectFilePath: string,
-  projectRelativePaths: string[],
-  assertAuthority?: () => void,
-): Promise<ProjectAssetFileOperationResponse> {
-  const moved: NonNullable<ProjectAssetFileOperationResponse['moved']> = [];
-  const diagnostics: ProjectAssetFileOperationResponse['diagnostics'] = [];
-  for (const relativePath of projectRelativePaths) {
-    try {
-      assertAuthority?.();
-      moved.push(await moveAssetToTrash(projectFilePath, relativePath, assertAuthority));
-    } catch (error) {
-      diagnostics.push(
-        diagnostic(
-          relativePath,
-          error instanceof Error ? error.message : 'Failed to move asset to project trash.',
-        ),
-      );
-    }
-  }
-  return {
-    ok: diagnostics.every((item) => item.severity !== 'error'),
-    success: moved.length > 0,
-    moved,
-    diagnostics,
-    error: diagnostics.find((item) => item.severity === 'error')?.message,
-  };
-}
-
-export async function restoreProjectAssetFiles(
-  projectFilePath: string,
-  moves: ProjectAssetTrashMove[],
-  assertAuthority?: () => void,
-): Promise<ProjectAssetFileOperationResponse> {
-  const projectRoot = projectRootFromFile(projectFilePath);
-  const restored: ProjectAssetTrashMove[] = [];
-  const diagnostics: ProjectAssetFileOperationResponse['diagnostics'] = [];
-  for (const move of moves) {
-    try {
-      assertAuthority?.();
-      const sourceSafe = safeProjectRelativePath(projectFilePath, move.trashRelativePath);
-      const targetSafe = safeAssetRelativePath(projectFilePath, move.projectRelativePath);
-      if (!sourceSafe || !targetSafe) throw new Error('Restore path escapes the project.');
-      try {
-        await fs.access(targetSafe.absolute);
-        throw new Error(
-          'Cannot restore trashed asset because the original asset path is occupied.',
-        );
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-      }
-      assertAuthority?.();
-      await moveProjectAssetFileTransaction(
-        projectRoot,
-        move.trashRelativePath,
-        targetSafe.relative,
-        'asset restore',
-        PROJECT_WORKSPACE_ABSENT_REVISION,
-      );
-      restored.push(move);
-    } catch (error) {
-      diagnostics.push(
-        diagnostic(
-          move.projectRelativePath,
-          error instanceof Error ? error.message : 'Failed to restore project asset file.',
-        ),
-      );
-    }
-  }
-  return {
-    ok: diagnostics.every((item) => item.severity !== 'error'),
-    success: restored.length > 0,
-    restored,
-    diagnostics,
-    error: diagnostics.find((item) => item.severity === 'error')?.message,
-  };
 }
 
 export async function purgeProjectTrash(

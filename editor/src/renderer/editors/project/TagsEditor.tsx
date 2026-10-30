@@ -16,7 +16,7 @@ import {
   authoringCollectionMetadata,
   authoringCollectionKeys,
 } from '../../../shared/project-schema/authoring-collections';
-import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import { isAuthoringProjectView } from '../../../shared/project-schema/authoring-project-view';
 import {
   collectProjectTags,
   TAG_COLOR_POOL,
@@ -39,8 +39,8 @@ function collectionSummary(tag: ProjectTagSummary) {
 
 export function TagsEditor(_props: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
-  const executeCommand = useCommandStore((state) => state.executeCommand);
-  const project = isAuthoringProject(document) ? document : null;
+  const executeCommand = useCommandStore((state) => state.executeCommandAsync);
+  const project = isAuthoringProjectView(document) ? document : null;
   const tags = project
     ? collectProjectTags(project).sort((left, right) => left.name.localeCompare(right.name))
     : [];
@@ -54,7 +54,7 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
     );
 
   function setColor(tag: ProjectTagSummary, color: TagColor) {
-    executeCommand({
+    void executeCommand({
       type: 'project.setTagColor',
       label: `Set tag color ${tag.name}`,
       payload: { tag: tag.name, color },
@@ -65,7 +65,7 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
 
   function deleteUnusedTag(tag: ProjectTagSummary) {
     if (tag.count > 0 || !registryKeys.has(tag.key)) return;
-    executeCommand({
+    void executeCommand({
       type: 'project.removeAtPath',
       label: `Delete unused tag ${tag.name}`,
       payload: { path: `/editor/tags/records/${escapeJsonPointerToken(tag.key)}` },

@@ -1,4 +1,4 @@
-/** Exact-timeline, bounded-memory lossless WebP alpha assembly and ScriptC-safe encoding. */
+/** Exact-timeline, bounded-memory lossless WebP alpha assembly and encoding. */
 import { createHash } from 'node:crypto';
 import { mkdtemp, open, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -207,7 +207,7 @@ async function writeExact(file: ReadableFile, buffer: Buffer): Promise<void> {
   }
 }
 
-/** ScriptC and injected runners use bounded scratch files and the host-process bridge.
+/** Native and injected runners use bounded scratch files and FFmpeg invocation.
  * At most 96 MiB of uncompressed BGRA pages are staged, independent of video length.
  */
 export async function encodeAlphaMasksWithFfmpegFiles(

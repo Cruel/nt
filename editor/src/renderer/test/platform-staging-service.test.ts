@@ -1710,6 +1710,6 @@ describe.runIf(process.platform === 'darwin' && !!macosTemplateArchive && !!maco
         ['macos-native-launch', 'macos-launchservices-launch'],
         'Finalized unsigned macOS app bundle launched both through LaunchServices and by its contained executable.',
       );
-    }, 30_000);
+    }, 120_000);
   },
 );

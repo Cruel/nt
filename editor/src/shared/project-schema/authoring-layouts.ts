@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeCheck, nativeOperation } from './native-schema-operations';
 import { parseAssetData } from './authoring-assets';
 import { systemCursorNames } from './authoring-cursor-vocabulary';
 import { jsonValueSchema, layoutContractIdSchema } from './authoring-common';
@@ -142,14 +143,14 @@ export const layoutDependencyDataSchema = z
 export const layoutScriptDataSchema = z
   .object({
     enabled: z.boolean().default(true),
-    namespace: z.string().check(z.trim()).optional(),
+    namespace: z.string().check(nativeCheck('string.trim', z.trim())).optional(),
     additionalDependencies: defaultedLuaExplicitDependenciesSchema,
   })
   .strict();
 
 export const layoutMountDataSchema = z
   .object({
-    defaultParent: z.string().check(z.trim()).optional(),
+    defaultParent: z.string().check(nativeCheck('string.trim', z.trim())).optional(),
     scopedStyles: z.boolean().default(true),
   })
   .strict();
@@ -162,33 +163,36 @@ const layoutContractValueShapeSchema = z
   .strict();
 
 const layoutContractInputSchema = withSchemaDocumentation(
-  z
-    .object({
-      type: z.enum(layoutContractValueTypeValues),
-      nullable: z.boolean().default(false),
-      defaultValue: authoredRuntimeValueSchema.optional(),
-    })
-    .strict()
-    .superRefine((input, context) => {
-      if (input.defaultValue === undefined) return;
-      const value = input.defaultValue;
-      const valid =
-        value === null
-          ? input.nullable
-          : input.type === 'boolean'
-            ? typeof value === 'boolean'
-            : input.type === 'integer'
-              ? typeof value === 'number' && Number.isInteger(value)
-              : input.type === 'number'
-                ? typeof value === 'number'
-                : typeof value === 'string';
-      if (!valid)
-        context.addIssue({
-          code: 'custom',
-          path: ['defaultValue'],
-          message: 'Layout input defaultValue must match its declared type and nullability.',
-        });
-    }),
+  nativeOperation(
+    'layout.contract-input',
+    z
+      .object({
+        type: z.enum(layoutContractValueTypeValues),
+        nullable: z.boolean().default(false),
+        defaultValue: authoredRuntimeValueSchema.optional(),
+      })
+      .strict()
+      .superRefine((input, context) => {
+        if (input.defaultValue === undefined) return;
+        const value = input.defaultValue;
+        const valid =
+          value === null
+            ? input.nullable
+            : input.type === 'boolean'
+              ? typeof value === 'boolean'
+              : input.type === 'integer'
+                ? typeof value === 'number' && Number.isInteger(value)
+                : input.type === 'number'
+                  ? typeof value === 'number'
+                  : typeof value === 'string';
+        if (!valid)
+          context.addIssue({
+            code: 'custom',
+            path: ['defaultValue'],
+            message: 'Layout input defaultValue must match its declared type and nullability.',
+          });
+      }),
+  ),
   {
     constraints: ['Layout input defaultValue must match the declared type and nullability.'],
   },
@@ -232,53 +236,56 @@ export const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z
 export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = withSchemaDocumentation(
   z
     .lazy(() =>
-      z
-        .discriminatedUnion('type', [
-          z
-            .object({
-              type: z.enum(['boolean', 'integer', 'number', 'string']),
-              nullable: z.boolean().default(false),
-              defaultValue: layoutPersistableValueSchema.optional(),
-            })
-            .strict(),
-          z
-            .object({
-              type: z.literal('array'),
-              nullable: z.boolean().default(false),
-              items: layoutStateShapeSchema,
-              defaultValue: layoutPersistableValueSchema.optional(),
-            })
-            .strict(),
-          z
-            .object({
-              type: z.literal('object'),
-              nullable: z.boolean().default(false),
-              fields: z
-                .record(
-                  layoutContractIdSchema,
-                  z
-                    .object({
-                      required: z.boolean().default(true),
-                      shape: layoutStateShapeSchema,
-                    })
-                    .strict(),
-                )
-                .default({}),
-              defaultValue: layoutPersistableValueSchema.optional(),
-            })
-            .strict(),
-        ])
-        .superRefine((shape, context) => {
-          if (
-            shape.defaultValue !== undefined &&
-            !stateValueMatchesShape(shape, shape.defaultValue)
-          )
-            context.addIssue({
-              code: 'custom',
-              path: ['defaultValue'],
-              message: 'Layout state defaultValue must match its recursive State Shape.',
-            });
-        }),
+      nativeOperation(
+        'layout.state-shape',
+        z
+          .discriminatedUnion('type', [
+            z
+              .object({
+                type: z.enum(['boolean', 'integer', 'number', 'string']),
+                nullable: z.boolean().default(false),
+                defaultValue: layoutPersistableValueSchema.optional(),
+              })
+              .strict(),
+            z
+              .object({
+                type: z.literal('array'),
+                nullable: z.boolean().default(false),
+                items: layoutStateShapeSchema,
+                defaultValue: layoutPersistableValueSchema.optional(),
+              })
+              .strict(),
+            z
+              .object({
+                type: z.literal('object'),
+                nullable: z.boolean().default(false),
+                fields: z
+                  .record(
+                    layoutContractIdSchema,
+                    z
+                      .object({
+                        required: z.boolean().default(true),
+                        shape: layoutStateShapeSchema,
+                      })
+                      .strict(),
+                  )
+                  .default({}),
+                defaultValue: layoutPersistableValueSchema.optional(),
+              })
+              .strict(),
+          ])
+          .superRefine((shape, context) => {
+            if (
+              shape.defaultValue !== undefined &&
+              !stateValueMatchesShape(shape, shape.defaultValue)
+            )
+              context.addIssue({
+                code: 'custom',
+                path: ['defaultValue'],
+                message: 'Layout state defaultValue must match its recursive State Shape.',
+              });
+          }),
+      ),
     )
     .meta({ title: 'LayoutStateShape' }),
   {

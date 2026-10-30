@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   defaultVariableData,
   isVariableValueCompatible,
   parseEnumValuesText,
   parseVariableValueText,
-  variableRef,
 } from '../../shared/project-schema/authoring-variables';
-import { buildReferenceIndex, findUsages } from '../../shared/project-schema/authoring-references';
 
 describe('authoring variables schema', () => {
   it('provides typed defaults and compatibility checks', () => {
@@ -52,43 +48,5 @@ describe('authoring variables schema', () => {
       value: 'active',
     });
     expect(parseVariableValueText('enum', 'missing', ['idle', 'active']).ok).toBe(false);
-  });
-
-  it('validates variable data in authoring projects', () => {
-    const project = createAuthoringProject();
-    project.variables.score = {
-      id: 'score',
-      label: 'Score',
-      data: { kind: 'variable', type: 'integer', scope: 'global', nullable: false, value: 1.5 },
-    };
-
-    expect(validateAuthoringProject(project)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          path: '/variables/score/data/value',
-          category: 'Variables',
-        }),
-      ]),
-    );
-  });
-
-  it('indexes concise variable references', () => {
-    const project = createAuthoringProject();
-    project.variables['has-key'] = {
-      id: 'has-key',
-      label: 'Has Key',
-      data: defaultVariableData('boolean'),
-    };
-    project.scenes.intro = {
-      id: 'intro',
-      label: 'Intro',
-      data: { condition: variableRef('has-key') } as never,
-    };
-
-    expect(
-      findUsages(buildReferenceIndex(project), { collection: 'variables', id: 'has-key' }),
-    ).toEqual([
-      expect.objectContaining({ kind: 'variable-ref', path: '/scenes/intro/data/condition/$var' }),
-    ]);
   });
 });
