@@ -421,6 +421,9 @@ Json validate(std::string_view request_text)
         state.root = root;
     }
     auto captures_before = state.session ? state.session->source_capture_count() : 0;
+    auto record_hits_before = state.session ? state.session->localization_record_cache_hits() : 0;
+    auto source_hits_before =
+        state.session ? state.session->localization_source_path_cache_hits() : 0;
     if (state.session) {
         const auto observed = state.session->observe_sources();
         // The retained validator incrementally handles edits to existing
@@ -432,6 +435,8 @@ Json validate(std::string_view request_text)
             state.session.reset();
             // The replacement authority starts its scan count at zero.
             captures_before = 0;
+            record_hits_before = 0;
+            source_hits_before = 0;
         }
     }
     const bool warm = state.session != nullptr;
@@ -544,6 +549,10 @@ Json validate(std::string_view request_text)
         result["sourceGeneration"] = native_project_source_generation(*state.session, root, true);
     }
     result["work"]["sourceCaptures"] = state.session->source_capture_count() - captures_before;
+    result["work"]["localizationRecordsReused"] =
+        state.session->localization_record_cache_hits() - record_hits_before;
+    result["work"]["localizationSourcePathsReused"] =
+        state.session->localization_source_path_cache_hits() - source_hits_before;
     return result;
 }
 

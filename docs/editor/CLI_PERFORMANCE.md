@@ -492,6 +492,52 @@ The 200 ms Feature Lab investigative budget is **not yet met**. Full
 localization/font-input projection, portable-source preparation, and cache-hit
 shader preprocessing remain outside this slice.
 
+### Incremental localization projections and shared inline analysis
+
+After committing the exact source-authority optimization as `b23227a7`,
+localization preparation was profiled and optimized independently:
+
+- `native_project_localization_view` retains **per-record source messages,
+  named usages, presentation fingerprints, and guidance fingerprints** in
+  the resident Project session. A record's normalized JSON is its local
+  revision. Named Message key/ID bindings, structured Message ID overrides,
+  and cross-record Archetype/Trait/Variable inputs are included in the
+  dependency identity, so their edits invalidate affected projections. A
+  Room-label change rebuilds the changed Room contribution but reuses the
+  remaining records. The final translation/freshness projection still uses
+  the current target locale and current localized messages.
+- Native managed-source discovery separately retains the set of registered
+  inline Lua text paths for each normalized record. It does not reparse
+  hundreds of unchanged records to rediscover those fields.
+- Localization's inline Lua named-usage scan and Layout Lua/RML source
+  extraction now reuse `ProjectSession`'s exact-text source analysis.
+  Reindexing an unchanged inline source no longer discards its existing
+  lexical analysis. Changed source text reanalyzes from its new exact bytes;
+  RML sources not in the main Lua index have a separate exact-text cache.
+- The two redundant nested `validate_project()` calls in the internal
+  localization view/source-discovery path were already removed in the
+  source-authority optimization; they remain bypassed only for a prior,
+  same-owner validated snapshot, with a final physical-generation proof
+  performed by the outer validation.
+
+The same disposable daemon-backed Release driver reports these medians:
+
+| Project | Source-proof baseline | Localization optimized | Reduction |
+|---|---:|---:|---:|
+| Feature Lab | 743.19 ms | **691.71 ms** | 6.9% |
+| 1 Room | 14.94 ms | **14.17 ms** | 5.2% |
+| 101 Rooms | 66.93 ms | **52.93 ms** | 20.9% |
+| 501 Rooms | 282.97 ms | **209.19 ms** | 26.1% |
+
+The benchmark includes the original source-authority improvements, and
+changed-label speedups are not a substitute for correctness. Dedicated
+regression coverage checks that warm localization views are byte-identical
+to fresh Project views after unrelated and localization-relevant edits,
+that unchanged record/source-path projections are reused, and that altered
+inline Lua text receives a new lexical analysis. The 200 ms Feature Lab
+investigative budget remains unmet: portable-source preparation and
+shader-cache preprocessing are still independently expensive.
+
 ## Measured critical path (original baseline)
 
 Temporary `steady_clock` phase probes wrote to a separate file, not CLI stdout/stderr.

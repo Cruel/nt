@@ -333,13 +333,21 @@ std::vector<NativeLocalizationTrackingSource> current_sources(ProjectSession& se
     for (const auto& [owner, snapshot] : session.reconciliation_disk_record_snapshots()) {
         if (!snapshot.valid || snapshot.normalized_json.empty())
             continue;
+        if (const auto* cached =
+                session.cached_localization_source_paths(owner, snapshot.normalized_json)) {
+            registered_paths.insert(cached->begin(), cached->end());
+            continue;
+        }
         const auto slash = owner.find('/');
         if (slash == std::string::npos)
             continue;
         const auto family = owner.substr(0, slash);
         const auto id = owner.substr(slash + 1);
         const auto record = Json::parse(snapshot.normalized_json);
-        register_source_fields(family, id, field(record, "data"), registered_paths);
+        std::set<std::string> owner_paths;
+        register_source_fields(family, id, field(record, "data"), owner_paths);
+        session.store_localization_source_paths(owner, snapshot.normalized_json, owner_paths);
+        registered_paths.insert(owner_paths.begin(), owner_paths.end());
     }
     for (const auto& [physical, analysis] : session.source_analyses()) {
         if (!physical.starts_with("inline/") || !physical.ends_with(".lua"))
@@ -374,8 +382,9 @@ std::vector<NativeLocalizationTrackingSource> current_sources(ProjectSession& se
             if (lua.value("sourceMode", std::string{}) == "inline" && lua.contains("sourceText") &&
                 lua.at("sourceText").is_string()) {
                 const auto path = "/layouts/" + id + "/data/lua/sourceText";
-                const auto analysis = analyze_project_text("inline/" + path.substr(1) + ".lua",
-                                                           lua.at("sourceText").get<std::string>());
+                const auto& analysis = session.localization_inline_analysis(
+                    "inline/" + path.substr(1) + ".lua",
+                    lua.at("sourceText").get_ref<const std::string&>());
                 auto source = native_localization_tracking_source(analysis, "lua",
                                                                   "record:layouts:" + id, path);
                 const auto key = source_key(source);
@@ -390,8 +399,9 @@ std::vector<NativeLocalizationTrackingSource> current_sources(ProjectSession& se
             !rml.at("sourceText").is_string())
             continue;
         const auto path = "/layouts/" + id + "/data/rml/sourceText";
-        const auto analysis = analyze_project_text("inline/" + path.substr(1) + ".rml",
-                                                   rml.at("sourceText").get<std::string>());
+        const auto& analysis = session.localization_inline_analysis(
+            "inline/" + path.substr(1) + ".rml",
+            rml.at("sourceText").get_ref<const std::string&>());
         auto source =
             native_localization_tracking_source(analysis, "rml", "record:layouts:" + id, path);
         const auto key = source_key(source);

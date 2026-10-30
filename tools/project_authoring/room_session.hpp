@@ -250,6 +250,30 @@ public:
     save_text_sources(std::uint64_t revision, const std::vector<std::string>& paths,
                       const std::map<std::string, std::string>& disk_preconditions);
     const std::map<std::string, SourceAnalysis>& source_analyses() const;
+    // Shared exact-text analysis for localization-only inline sources, including
+    // Layout RML which is not part of the indexed Lua source inventory.
+    const SourceAnalysis& localization_inline_analysis(std::string_view path,
+                                                       std::string_view source) const;
+    // A localization view's per-owner output is a pure projection of the
+    // normalized record and the explicitly tracked cross-record dependencies.
+    // Keep only the most recent projection per owner in this resident session.
+    const std::string* cached_localization_record(std::string_view owner,
+                                                  std::string_view normalized,
+                                                  std::string_view dependencies) const;
+    void store_localization_record(std::string owner, std::string normalized,
+                                   std::string dependencies, std::string output) const;
+    const std::set<std::string>*
+    cached_localization_source_paths(std::string_view owner, std::string_view normalized) const;
+    void store_localization_source_paths(std::string owner, std::string normalized,
+                                         std::set<std::string> paths) const;
+    std::uint64_t localization_record_cache_hits() const noexcept
+    {
+        return localization_record_cache_hits_;
+    }
+    std::uint64_t localization_source_path_cache_hits() const noexcept
+    {
+        return localization_source_path_cache_hits_;
+    }
     const std::map<std::string, std::string>& text_source_overlays() const
     {
         return text_source_overlays_;
@@ -455,6 +479,20 @@ private:
     std::map<std::string, IndexedAsset> indexed_asset_sources_;
     std::map<std::string, std::set<std::string>> layout_declared_scripts_;
     mutable std::map<std::string, SourceAnalysis> text_analysis_cache_;
+    mutable std::map<std::string, SourceAnalysis> localization_inline_analysis_cache_;
+    struct LocalizationRecordCache {
+        std::string normalized;
+        std::string dependencies;
+        std::string output;
+    };
+    mutable std::map<std::string, LocalizationRecordCache> localization_record_cache_;
+    mutable std::uint64_t localization_record_cache_hits_ = 0;
+    struct LocalizationSourcePathsCache {
+        std::string normalized;
+        std::set<std::string> paths;
+    };
+    mutable std::map<std::string, LocalizationSourcePathsCache> localization_source_paths_cache_;
+    mutable std::uint64_t localization_source_path_cache_hits_ = 0;
     std::map<std::string, ValidationResult> material_compiler_results_;
     std::uint64_t working_revision_ = 0;
     // Full cross-record resolver analysis is immutable between Project edit

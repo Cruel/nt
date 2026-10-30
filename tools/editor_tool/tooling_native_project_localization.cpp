@@ -440,20 +440,22 @@ const Json* semantic_value(const Json& root, std::string_view pointer)
     return value;
 }
 
-void named_usages(const Json& value, const std::string& path,
+void named_usages(const Json& value, const std::string& path, ProjectSession& session,
                   const std::map<std::string, std::string>& keys,
                   std::map<std::string, std::set<std::string>>& usages)
 {
     if (value.is_array()) {
         for (std::size_t index = 0; index < value.size(); ++index)
-            named_usages(value.at(index), path + "/" + std::to_string(index), keys, usages);
+            named_usages(value.at(index), path + "/" + std::to_string(index), session, keys,
+                         usages);
         return;
     }
     if (!value.is_object()) {
         if (value.is_string() && (path.ends_with("/source") || path.ends_with("/lua/sourceText"))) {
             const auto text = value.get<std::string>();
             if (text.find("Text.msg") != std::string::npos) {
-                const auto analysis = analyze_project_text("inline.lua", text);
+                const auto& analysis =
+                    session.localization_inline_analysis("inline/" + path.substr(1) + ".lua", text);
                 if (!analysis.complete)
                     throw std::runtime_error("Incomplete named localization Lua source.");
                 for (const auto& message : analysis.messages) {
@@ -479,7 +481,7 @@ void named_usages(const Json& value, const std::string& path,
         return;
     }
     for (const auto& [key, child] : value.items())
-        named_usages(child, path + "/" + semantic_segment(key), keys, usages);
+        named_usages(child, path + "/" + semantic_segment(key), session, keys, usages);
 }
 
 Json resolved_translation(const Json& localization, std::string locale, const std::string& id)
@@ -635,6 +637,10 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
     std::map<std::string, std::string> named_keys;
     Json presentations = Json::object();
     Json guidance = Json::object();
+    auto* projected_messages = &messages;
+    auto* projected_usages = &usages;
+    auto* projected_presentations = &presentations;
+    auto* projected_guidance = &guidance;
     for (const auto& [id, source] : localization.at("messages").items()) {
         Json view{{"id", id}, {"kind", source.at("kind")}, {"source", source.at("source")}};
         if (source.value("kind", std::string{}) == "named") {
@@ -653,6 +659,28 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         messages[id] = std::move(view);
     }
     const auto record_snapshots = session.validated_disk_record_snapshots();
+    std::string record_dependencies = Json(named_keys).dump();
+    record_dependencies.push_back('\0');
+    record_dependencies.append(localization.at("structuredMessageIds").dump());
+    // Inherited Archetypes, Traits and Variables can change effective text
+    // without modifying the consumer's normalized record.
+    for (const auto& [owner, snapshot] : record_snapshots)
+        if (owner == "traits" || owner.starts_with("archetypes/") ||
+            owner.starts_with("variables/")) {
+            record_dependencies.append(owner).push_back('\0');
+            record_dependencies.append(snapshot.normalized_json).push_back('\0');
+        }
+    const auto merge_projection = [&](const Json& fragment) {
+        for (const auto& [id, message] : fragment.at("messages").items())
+            messages.insert_or_assign(id, message);
+        for (const auto& [id, paths] : fragment.at("usages").items())
+            for (const auto& path : paths)
+                usages[id].insert(path.get<std::string>());
+        for (const auto& [id, value] : fragment.at("presentations").items())
+            presentations[id] = value;
+        for (const auto& [id, value] : fragment.at("guidance").items())
+            guidance[id] = value;
+    };
     const auto add_structured = [&](const std::string& path, const std::string& source,
                                     const Json* location, const Json* parent = nullptr) {
         const auto identity = localization.at("structuredMessageIds")
@@ -687,10 +715,10 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         const auto fingerprint =
             fnv1a(std::string("semantic\0", 9) + semantic +
                   (text ? std::string(1, '\0') + cue_contract : std::string(3, '\0')));
-        messages[identity] = {{"id", identity},
-                              {"kind", "local"},
-                              {"source", source},
-                              {"sourceFingerprint", fingerprint}};
+        (*projected_messages)[identity] = {{"id", identity},
+                                           {"kind", "local"},
+                                           {"source", source},
+                                           {"sourceFingerprint", fingerprint}};
         std::string cue_presentation;
         if (parent && parent->is_object() && parent->contains("cues") &&
             parent->at("cues").is_array()) {
@@ -711,11 +739,12 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
                     cue_id + ":" + std::to_string(offset) + ":" + std::to_string(order);
             }
         }
-        presentations[identity] = fnv1a(std::string("presentation\0", 13) +
-                                        (text ? markup + '\0' + source + '\0' + cue_presentation
-                                              : source + std::string(2, '\0')));
-        guidance[identity] = fnv1a(std::string("guidance\0\0", 10));
-        usages[identity].insert(path);
+        (*projected_presentations)[identity] =
+            fnv1a(std::string("presentation\0", 13) +
+                  (text ? markup + '\0' + source + '\0' + cue_presentation
+                        : source + std::string(2, '\0')));
+        (*projected_guidance)[identity] = fnv1a(std::string("guidance\0\0", 10));
+        (*projected_usages)[identity].insert(path);
     };
     static const std::set<std::string> message_families{"characters",   "rooms",  "interactables",
                                                         "dialogues",    "scenes", "verbs",
@@ -733,31 +762,55 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         const auto slash = owner.find('/');
         if (slash == std::string::npos)
             continue;
+        if (const auto* cached = session.cached_localization_record(owner, snapshot.normalized_json,
+                                                                    record_dependencies)) {
+            merge_projection(Json::parse(*cached));
+            continue;
+        }
         const auto family = owner.substr(0, slash);
         const auto id = owner.substr(slash + 1);
+        std::map<std::string, Json> owner_messages;
+        std::map<std::string, std::set<std::string>> owner_usages;
+        Json owner_presentations = Json::object();
+        Json owner_guidance = Json::object();
+        projected_messages = &owner_messages;
+        projected_usages = &owner_usages;
+        projected_presentations = &owner_presentations;
+        projected_guidance = &owner_guidance;
         auto record = Json::parse(snapshot.normalized_json);
-        named_usages(record, "/" + owner, named_keys, usages);
-        if (!message_families.contains(family))
-            continue;
-        if (family == "rooms" || family == "characters" || family == "interactables") {
-            const auto resolved =
-                validate_archetype_owner(family, snapshot.normalized_json, resolve_record);
-            if (!resolved.accepted)
-                return failure("Native localization cannot resolve effective Archetype owner: " +
-                               owner);
-            if (!resolved.effective_json.empty())
-                record = Json::parse(resolved.effective_json);
-        }
-        for (const auto& [path, source] :
-             native_localization_effective_structured_sources(family, id, record.dump())) {
-            const auto* location = semantic_value(record, path.substr(owner.size() + 1));
-            const Json* parent = nullptr;
-            if (family == "dialogues" && path.ends_with("/text")) {
-                const auto from_owner = path.substr(owner.size() + 1);
-                parent = semantic_value(record, from_owner.substr(0, from_owner.size() - 5));
+        named_usages(record, "/" + owner, session, named_keys, owner_usages);
+        if (message_families.contains(family)) {
+            if (family == "rooms" || family == "characters" || family == "interactables") {
+                const auto resolved =
+                    validate_archetype_owner(family, snapshot.normalized_json, resolve_record);
+                if (!resolved.accepted)
+                    return failure(
+                        "Native localization cannot resolve effective Archetype owner: " + owner);
+                if (!resolved.effective_json.empty())
+                    record = Json::parse(resolved.effective_json);
             }
-            add_structured(path, source, location, parent);
+            for (const auto& [path, source] :
+                 native_localization_effective_structured_sources(family, id, record.dump())) {
+                const auto* location = semantic_value(record, path.substr(owner.size() + 1));
+                const Json* parent = nullptr;
+                if (family == "dialogues" && path.ends_with("/text")) {
+                    const auto from_owner = path.substr(owner.size() + 1);
+                    parent = semantic_value(record, from_owner.substr(0, from_owner.size() - 5));
+                }
+                add_structured(path, source, location, parent);
+            }
         }
+        const Json fragment{{"messages", owner_messages},
+                            {"usages", owner_usages},
+                            {"presentations", owner_presentations},
+                            {"guidance", owner_guidance}};
+        session.store_localization_record(owner, snapshot.normalized_json, record_dependencies,
+                                          fragment.dump());
+        merge_projection(fragment);
+        projected_messages = &messages;
+        projected_usages = &usages;
+        projected_presentations = &presentations;
+        projected_guidance = &guidance;
     }
     const auto& settings = project.at("settings").at("titleScreen");
     for (const auto* name : {"subtitle", "startLabel"}) {

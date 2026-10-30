@@ -1,4 +1,6 @@
 #include "tooling_native_c.h"
+#include "../../tools/editor_tool/tooling_native_project_localization.hpp"
+#include "../../tools/project_authoring/room_session.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -249,4 +251,59 @@ TEST_CASE("same-size binary Asset edits cannot reuse exact generation evidence",
     REQUIRE(changed["sourceGeneration"] != generation);
     REQUIRE(disk_validate(project.root, "validation-source-generation-proof",
                           {{"expectedSourceGeneration", generation}})["ok"] == false);
+}
+
+TEST_CASE("localization projections reuse unchanged records and refresh changed Message inputs",
+          "[native-disk-validation]")
+{
+    Copy project;
+    std::string error;
+    auto session = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(session != nullptr);
+    REQUIRE(session->validate_project().valid);
+    const Json request{{"locale", "fr"}};
+    const auto initial = native_project_localization_view(request, *session, true);
+    REQUIRE(initial.value("ok", false));
+    REQUIRE(native_project_localization_view(request, *session, true) == initial);
+    REQUIRE(session->localization_record_cache_hits() >= 200);
+    REQUIRE(session->localization_source_path_cache_hits() >= 200);
+
+    const auto room = project.root / "records/rooms/feature-lab-home.yaml";
+    auto contents = read(room);
+    const auto original_label = contents.find("label: Feature Lab Home");
+    REQUIRE(original_label != std::string::npos);
+    contents.replace(original_label, std::string("label: Feature Lab Home").size(),
+                     "label: Localization Cache Probe");
+    write(room, contents);
+    REQUIRE(session->validate_project().valid);
+    const auto hits = session->localization_record_cache_hits();
+    const auto unchanged = native_project_localization_view(request, *session, true);
+    REQUIRE(unchanged == initial);
+    REQUIRE(session->localization_record_cache_hits() >= hits + 200);
+
+    const auto previous_key = contents.find("key: feature_lab.empty");
+    REQUIRE(previous_key != std::string::npos);
+    contents.replace(previous_key, std::string("key: feature_lab.empty").size(), "key: lab.sample");
+    write(room, contents);
+    REQUIRE(session->validate_project().valid);
+    const auto changed = native_project_localization_view(request, *session, true);
+    REQUIRE(changed.value("ok", false));
+    REQUIRE(changed != initial);
+
+    // A fresh Project must produce the identical projection, not a stale
+    // cached usage/fingerprint from before the record's localization edit.
+    auto fresh = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(fresh != nullptr);
+    REQUIRE(fresh->validate_project().valid);
+    REQUIRE(native_project_localization_view(request, *fresh, true) == changed);
+
+    const auto& lua = session->localization_inline_analysis(
+        "inline/rooms/cache-probe/data/source.lua", "Text.msg('lab.read')");
+    const auto lua_revision = lua.source_revision;
+    REQUIRE(&lua == &session->localization_inline_analysis(
+                        "inline/rooms/cache-probe/data/source.lua", "Text.msg('lab.read')"));
+    REQUIRE(session
+                ->localization_inline_analysis("inline/rooms/cache-probe/data/source.lua",
+                                               "Text.msg('lab.sample')")
+                .source_revision != lua_revision);
 }

@@ -2883,6 +2883,59 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
     return text_analysis_cache_;
 }
 
+const SourceAnalysis& ProjectSession::localization_inline_analysis(std::string_view path,
+                                                                   std::string_view source) const
+{
+    const auto key = std::string(path);
+    if (const auto analyzed = text_analysis_cache_.find(key);
+        analyzed != text_analysis_cache_.end() && analyzed->second.source_text == source)
+        return analyzed->second;
+    const auto found = localization_inline_analysis_cache_.find(key);
+    if (found != localization_inline_analysis_cache_.end() && found->second.source_text == source)
+        return found->second;
+    return localization_inline_analysis_cache_
+        .insert_or_assign(key, analyze_project_text(key, source))
+        .first->second;
+}
+
+const std::string* ProjectSession::cached_localization_record(std::string_view owner,
+                                                              std::string_view normalized,
+                                                              std::string_view dependencies) const
+{
+    const auto found = localization_record_cache_.find(std::string(owner));
+    if (found == localization_record_cache_.end() || found->second.normalized != normalized ||
+        found->second.dependencies != dependencies)
+        return nullptr;
+    ++localization_record_cache_hits_;
+    return &found->second.output;
+}
+
+void ProjectSession::store_localization_record(std::string owner, std::string normalized,
+                                               std::string dependencies, std::string output) const
+{
+    localization_record_cache_.insert_or_assign(
+        std::move(owner),
+        LocalizationRecordCache{std::move(normalized), std::move(dependencies), std::move(output)});
+}
+
+const std::set<std::string>*
+ProjectSession::cached_localization_source_paths(std::string_view owner,
+                                                 std::string_view normalized) const
+{
+    const auto found = localization_source_paths_cache_.find(std::string(owner));
+    if (found == localization_source_paths_cache_.end() || found->second.normalized != normalized)
+        return nullptr;
+    ++localization_source_path_cache_hits_;
+    return &found->second.paths;
+}
+
+void ProjectSession::store_localization_source_paths(std::string owner, std::string normalized,
+                                                     std::set<std::string> paths) const
+{
+    localization_source_paths_cache_.insert_or_assign(
+        std::move(owner), LocalizationSourcePathsCache{std::move(normalized), std::move(paths)});
+}
+
 void ProjectSession::index_text_owner(std::string_view owner, std::string_view raw_json)
 {
     const auto key = std::string(owner);
@@ -2904,7 +2957,6 @@ void ProjectSession::index_text_owner(std::string_view owner, std::string_view r
         if (it->first.starts_with(inline_prefix)) {
             text_source_paths_.erase(it->first);
             inline_source_diagnostic_paths_.erase(it->first);
-            text_analysis_cache_.erase(it->first);
             it = inline_text_sources_.erase(it);
         } else
             ++it;
