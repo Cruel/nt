@@ -591,7 +591,8 @@ std::string native_source_message_identity(const Json& localization,
 }
 } // namespace
 
-Json native_project_localization_view(const Json& request, ProjectSession& session)
+Json native_project_localization_view(const Json& request, ProjectSession& session,
+                                      bool validated_preparation)
 {
     if (!request.contains("locale") || !request.at("locale").is_string() ||
         (request.contains("status") && !request.at("status").is_string()))
@@ -603,7 +604,12 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
         "human", "ai",      "imported", "unknown",  "attention"};
     if (!accepted.contains(status))
         return failure("Unknown localization view status filter.");
-    const auto verified = session.validate_project();
+    const auto cached = validated_preparation
+                            ? session.validated_snapshot_for_preparation()
+                            : std::optional<noveltea::authoring::RoomSessionSnapshot>{};
+    if (validated_preparation && !cached)
+        return failure("Localization preparation requires a validated source snapshot.");
+    const auto verified = cached ? *cached : session.validate_project();
     if (!verified.valid) {
         std::string reason = "Native localization view requires a valid disk Project.";
         for (const auto& diagnostic : verified.diagnostics) {
@@ -795,7 +801,7 @@ Json native_project_localization_view(const Json& request, ProjectSession& sessi
     // The read-only identity resolver must also expose unsynced occurrences.
     // Those use deterministic ephemeral IDs until an explicit sync commits
     // their tracking, without manufacturing an on-disk Message identity.
-    for (const auto& source : native_project_localization_sources(session)) {
+    for (const auto& source : native_project_localization_sources(session, validated_preparation)) {
         for (const auto& occurrence : source.occurrences) {
             if (occurrence.kind == "named")
                 continue;

@@ -258,24 +258,26 @@ Json operate(const Json& request)
                     {"error", "Project sources changed during diagnostic source lookup."}};
         return {{"ok", true}, {"locations", std::move(located)}};
     }
-    if (action == "project-validate") {
-        const auto serialized =
-            Json{{"projectRoot", root_utf8},
-                 {"action", "validate"},
-                 {"includeFontCoverageInputs", request.value("includeFontCoverageInputs", false)}}
-                .dump();
+    if (action == "project-validate" || action == "validation-source-generation-proof") {
+        auto validation_request = request;
+        validation_request["projectRoot"] = root_utf8;
+        validation_request["action"] =
+            action == "project-validate" ? "validate" : "source-generation-proof";
+        const auto serialized = validation_request.dump();
         const auto* bytes = reinterpret_cast<const std::uint8_t*>(serialized.data());
         // Validation retains a warm owner cache. A length probe would execute
         // it twice and change the published cold/warm generation between the
         // calls, just as a mutation probe could execute a write twice.
-        std::string response(16 * 1024 * 1024, '\0');
+        // The owner handles repeated validation/proof requests; retain the
+        // fixed single-dispatch response capacity instead of zeroing 16 MiB
+        // for every operation.
+        thread_local std::string response(16 * 1024 * 1024, '\0');
         const auto required = noveltea_tooling_native_disk_project_validation_json(
             bytes, serialized.size(), reinterpret_cast<std::uint8_t*>(response.data()),
             response.size());
         if (required > response.size())
             return failure("Native disk validation result exceeds the command response limit.");
-        response.resize(required);
-        return Json::parse(response);
+        return Json::parse(response.data(), response.data() + required);
     }
     if (action == "source-generation-proof") {
         if (!request.contains("expectedSourceGeneration") ||

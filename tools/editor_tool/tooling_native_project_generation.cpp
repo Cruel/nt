@@ -10,13 +10,14 @@
 #include <string>
 #include <string_view>
 
-using noveltea::authoring::ProjectSession;
 using noveltea::authoring::exact_source_revision;
+using noveltea::authoring::ProjectSession;
 
 // Keep the exact disk-generation proof available to the production CLI and to
 // the lightweight runtime-cache test seam without linking all editor tooling.
 std::string native_project_source_generation(const ProjectSession& session,
-                                             const std::filesystem::path& root)
+                                             const std::filesystem::path& root,
+                                             bool observed_at_entry)
 {
     std::string identity = "native-project-source-generation-v1";
     identity.push_back('\0');
@@ -33,6 +34,13 @@ std::string native_project_source_generation(const ProjectSession& session,
         } else {
             if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
                 throw std::runtime_error("Cannot verify native source generation: " + relative);
+            // An authoritative observation already read and hashed all text
+            // sources. Only binary Assets have physical (size/time) hints and
+            // still require a fresh byte-exact digest for generation proof.
+            if (observed_at_entry && !revision.starts_with("physical:")) {
+                identity.append(revision).push_back('\0');
+                continue;
+            }
             std::ifstream input(path, std::ios::binary);
             if (!input)
                 throw std::runtime_error("Cannot read tracked localization source.");

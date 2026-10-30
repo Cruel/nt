@@ -1398,7 +1398,7 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
     }
 }
 
-RoomSessionSnapshot ProjectSession::validate_project()
+RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
 {
     ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
     ScopedVerifiedProjectSources observed(*source_authority_);
@@ -1423,7 +1423,9 @@ RoomSessionSnapshot ProjectSession::validate_project()
     }
     // Physical observation is a proof, not merely an event hint. In particular,
     // a failed observation must never authorize an old semantic contribution.
-    const auto observation = observe_sources();
+    const auto observation =
+        observed_at_entry ? SourceObservation{.authoritative = true, .scoped_authority = true}
+                          : observe_sources();
     validation_work_ = {};
     validation_invalidated_owners_.clear();
     if (validation_snapshot_ &&

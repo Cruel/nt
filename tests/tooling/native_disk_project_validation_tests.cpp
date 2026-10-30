@@ -14,16 +14,21 @@
 namespace {
 using Json = nlohmann::json;
 
-Json disk_validate(const std::filesystem::path& project_root, std::string action = "validate")
+Json disk_validate(const std::filesystem::path& project_root, std::string action = "validate",
+                   Json fields = Json::object())
 {
-    const auto text =
-        Json{{"projectRoot", project_root.string()}, {"action", std::move(action)}}.dump();
+    const bool command =
+        action == "project-validate" || action == "validation-source-generation-proof";
+    fields["projectRoot"] = project_root.string();
+    fields["action"] = std::move(action);
+    const auto text = fields.dump();
     std::vector<std::uint8_t> bytes(16 * 1024 * 1024);
     // The native operation is stateful. A size probe followed by execution
     // would consume cold authority and incorrectly turn one invocation warm.
-    const auto count = noveltea_tooling_native_disk_project_validation_json(
-        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), bytes.data(),
-        bytes.size());
+    const auto invoke = command ? noveltea_tooling_native_project_commands_json
+                                : noveltea_tooling_native_disk_project_validation_json;
+    const auto count = invoke(reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+                              bytes.data(), bytes.size());
     REQUIRE(count > 0);
     REQUIRE(count <= bytes.size());
     return Json::parse(std::string(reinterpret_cast<const char*>(bytes.data()), count));
@@ -146,4 +151,102 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     REQUIRE(restarted["ok"] == true);
     REQUIRE(restarted["warm"] == false);
     REQUIRE(restarted["valid"] == true);
+}
+
+TEST_CASE("validation final proof reuses admission and rejects intervening disk changes",
+          "[native-disk-validation]")
+{
+    Copy project;
+    const auto room = project.root / "records/rooms/feature-lab-home.yaml";
+    const auto original = read(room);
+    const auto cold =
+        disk_validate(project.root, "project-validate", {{"includeFontCoverageInputs", true}});
+    REQUIRE(cold["valid"] == true);
+    auto edited = original;
+    const auto label = edited.find("label: Feature Lab Home");
+    REQUIRE(label != std::string::npos);
+    edited.replace(label, std::string("label: Feature Lab Home").size(), "label: Edited Home");
+    write(room, edited);
+    const auto changed =
+        disk_validate(project.root, "project-validate", {{"includeFontCoverageInputs", true}});
+    REQUIRE(changed["valid"] == true);
+    REQUIRE(changed["warm"] == true);
+    REQUIRE(changed["work"]["sessionAdmissions"] == cold["work"]["sessionAdmissions"]);
+    REQUIRE(changed["work"]["recheckedRecords"] == 1);
+    // An unrelated label edit must not admit a fresh Project or recursively
+    // multiply source scans through nested full Project preparation.
+    REQUIRE(changed["work"]["sourceCaptures"].get<std::uint64_t>() <= 5);
+    REQUIRE(changed["fontCoverageInputs"] == cold["fontCoverageInputs"]);
+    REQUIRE(changed["materialCompilerPrograms"] == cold["materialCompilerPrograms"]);
+    REQUIRE(changed["materialEffectiveInputs"] == cold["materialEffectiveInputs"]);
+    const auto proof = [&]() {
+        return disk_validate(project.root, "validation-source-generation-proof",
+                             {{"expectedSourceGeneration", changed.at("sourceGeneration")}});
+    };
+    const auto current = proof();
+    REQUIRE(current["ok"] == true);
+    REQUIRE(current["sessionAdmissions"] == cold["work"]["sessionAdmissions"]);
+
+    SECTION("same size Asset edit with restored timestamp")
+    {
+        const auto asset = project.root / "assets/images/ui-pattern.png";
+        auto bytes = read(asset);
+        REQUIRE(!bytes.empty());
+        const auto time = std::filesystem::last_write_time(asset);
+        bytes.back() ^= 1;
+        write(asset, bytes);
+        std::filesystem::last_write_time(asset, time);
+    }
+    SECTION("changed valid record") { write(room, original); }
+    SECTION("invalid record") { write(room, "not: [valid\n"); }
+    SECTION("removed record") { REQUIRE(std::filesystem::remove(room)); }
+    SECTION("added record")
+    {
+        write(project.root / "records/rooms/added.yaml", "id: added\nlabel: Added\n");
+    }
+    SECTION("pending transaction")
+    {
+        std::filesystem::create_directories(project.root / ".noveltea/transactions/pending");
+    }
+    SECTION("external Asset directory symlink with identical bytes")
+    {
+        std::filesystem::remove_all(project.root / "assets/images");
+        std::filesystem::create_directory_symlink(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                                                      "tests/projects/feature-lab/assets/images",
+                                                  project.root / "assets/images");
+    }
+    SECTION("external symlink")
+    {
+        REQUIRE(std::filesystem::remove(room));
+        std::filesystem::create_symlink(
+            std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                "tests/projects/feature-lab/records/rooms/feature-lab-home.yaml",
+            room);
+    }
+    REQUIRE(proof()["ok"] == false);
+}
+
+TEST_CASE("same-size binary Asset edits cannot reuse exact generation evidence",
+          "[native-disk-validation]")
+{
+    Copy project;
+    const auto first = disk_validate(project.root, "project-validate");
+    REQUIRE(first["ok"] == true);
+    REQUIRE(first["valid"] == true);
+    const auto generation = first.at("sourceGeneration");
+
+    const auto asset = project.root / "assets/images/ui-pattern.png";
+    const auto modified = std::filesystem::last_write_time(asset);
+    auto contents = read(asset);
+    REQUIRE(!contents.empty());
+    contents.back() ^= 1;
+    write(asset, contents);
+    std::filesystem::last_write_time(asset, modified);
+
+    const auto changed = disk_validate(project.root, "project-validate");
+    REQUIRE(changed["ok"] == true);
+    REQUIRE(changed["valid"] == true);
+    REQUIRE(changed["sourceGeneration"] != generation);
+    REQUIRE(disk_validate(project.root, "validation-source-generation-proof",
+                          {{"expectedSourceGeneration", generation}})["ok"] == false);
 }

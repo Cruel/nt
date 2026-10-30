@@ -247,7 +247,8 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
 }
 
 ProjectSession::WorkingPreparation
-ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id)
+ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id,
+                                         bool reuse_clean_validation)
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -257,7 +258,17 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
     }
     // Full validation supplies native normalized disk contributors for every
     // tracked record. It does not make uninspected owners editable or writable.
-    const auto validated = validate_project();
+    RoomSessionSnapshot validated;
+    if (reuse_clean_validation && test_id.empty() && validation_snapshot_ &&
+        validation_snapshot_->working_revision == expected_revision &&
+        validation_snapshot_->valid && !validation_pending_uncertain_ &&
+        validation_pending_source_revisions_.empty()) {
+        // A fresh post-assembly observation below rejects intervening edits.
+        // Do not rescan before assembling the same validated contributor set.
+        validated = *validation_snapshot_;
+    } else {
+        validated = validate_project();
+    }
     if (expected_revision != working_revision_) {
         prepared.working_revision = working_revision_;
         prepared.error = "Project source generation advanced during complete preparation.";

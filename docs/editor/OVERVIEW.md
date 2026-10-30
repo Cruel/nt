@@ -28,6 +28,8 @@ their visible category and message must use plain, localizable product language 
 - `docs/editor/AGENT_GUIDE.md` — editor-wide agent practices, workbench navigation, diagnostics, tab state, preview ownership, localization, UI components, and verification.
 - `docs/editor/TECH_STACK.md` — editor dependency and component standards, shadcn/Base UI usage, forms, tables, source editing, preview, localization, and testing standards.
 - `docs/editor/CLI.md` — public standalone `noveltea` command, JSON, exit-code, discovery, and transaction contract.
+- `docs/editor/CLI_PERFORMANCE.md` — native daemon validation profiling, reproducible size-scaling
+  measurements, repeated source-proof/preparation costs, and optimization follow-up constraints.
 - `docs/editor/AGENT_KIT.md` — embedded/generated coding-agent guidance, schemas, versioning, and sync behavior.
 - `docs/editor/SCRIPTC_COMPATIBILITY.md` — archived ScriptC/QuickJS architecture and retirement
   notes; the current direct-C++ CLI contract is documented in `docs/editor/CLI.md`.

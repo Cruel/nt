@@ -302,9 +302,15 @@ void register_source_fields(const std::string& family, const std::string& id, co
     }
 }
 
-std::vector<NativeLocalizationTrackingSource> current_sources(ProjectSession& session)
+std::vector<NativeLocalizationTrackingSource> current_sources(ProjectSession& session,
+                                                              bool validated_preparation = false)
 {
-    const auto validated = session.validate_project();
+    const auto cached = validated_preparation
+                            ? session.validated_snapshot_for_preparation()
+                            : std::optional<noveltea::authoring::RoomSessionSnapshot>{};
+    if (validated_preparation && !cached)
+        throw std::runtime_error("Localization preparation has no validated source snapshot.");
+    const auto validated = cached ? *cached : session.validate_project();
     if (!validated.valid) {
         std::string reason;
         for (const auto& diagnostic : validated.diagnostics) {
@@ -901,9 +907,9 @@ Json reconciliation_plan(const Json& original,
 } // namespace
 
 std::vector<NativeLocalizationTrackingSource>
-native_project_localization_sources(ProjectSession& session)
+native_project_localization_sources(ProjectSession& session, bool validated_preparation)
 {
-    return current_sources(session);
+    return current_sources(session, validated_preparation);
 }
 
 Json native_project_localization_sync(const Json& request, ProjectSession& session,

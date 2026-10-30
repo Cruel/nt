@@ -219,15 +219,34 @@ SourceAuthority::~SourceAuthority() = default;
 
 SourceAuthority::Capture SourceAuthority::capture() const
 {
+    ++source_capture_count_;
     Capture result;
     result.directories.insert(".");
     std::set<std::string> assets;
+    // Resolve each physical directory prefix once per capture. The same root
+    // and records/ prefixes otherwise go through weakly_canonical thousands
+    // of times. Leaf symlinks are still checked individually, and every
+    // cached prefix is reverified before the capture can be published.
+    std::map<std::filesystem::path, std::filesystem::path> verified_parents;
     const auto secure = [&](std::string_view path) {
         const std::filesystem::path relative{path};
         if (relative.empty() || relative.is_absolute() || relative != relative.lexically_normal() ||
-            *relative.begin() == ".." || !contained(canonical_root_, root_ / relative))
+            *relative.begin() == "..")
             throw std::runtime_error("Project source path escapes root: " + std::string(path));
-        return root_ / relative;
+        const auto parent = relative.parent_path();
+        if (!verified_parents.contains(parent)) {
+            const auto canonical = std::filesystem::weakly_canonical(root_ / parent);
+            const auto within = canonical.lexically_relative(canonical_root_);
+            if (within.empty() || within == ".." || *within.begin() == "..")
+                throw std::runtime_error("Project source path escapes root: " + std::string(path));
+            verified_parents.emplace(parent, canonical);
+        }
+        const auto absolute = root_ / relative;
+        const auto status = std::filesystem::symlink_status(absolute);
+        if (status.type() == std::filesystem::file_type::symlink &&
+            !contained(canonical_root_, absolute))
+            throw std::runtime_error("Project source path escapes root: " + std::string(path));
+        return absolute;
     };
     const auto add = [&](const std::string& relative, bool physical_asset = false) {
         const auto absolute = secure(relative);
@@ -492,6 +511,11 @@ SourceAuthority::Capture SourceAuthority::capture() const
                     {"project.yaml", "Distribution notice path is not contained in the Project."});
         }
     }
+    if (std::filesystem::canonical(root_) != canonical_root_)
+        throw std::runtime_error("Project root changed during physical observation.");
+    for (const auto& [parent, canonical] : verified_parents)
+        if (std::filesystem::weakly_canonical(root_ / parent) != canonical)
+            throw std::runtime_error("Project source directory changed during observation.");
     return result;
 }
 

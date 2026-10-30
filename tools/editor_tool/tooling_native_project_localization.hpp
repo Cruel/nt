@@ -17,7 +17,8 @@ nlohmann::json native_project_localization(const nlohmann::json& request,
                                            noveltea::authoring::ProjectSession& session,
                                            const std::filesystem::path& root);
 nlohmann::json native_project_localization_view(const nlohmann::json& request,
-                                                noveltea::authoring::ProjectSession& session);
+                                                noveltea::authoring::ProjectSession& session,
+                                                bool validated_preparation = false);
 
 // Pure authoring Message freshness contract shared by native localization
 // editing and cold runtime export diagnostics.

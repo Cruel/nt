@@ -194,14 +194,18 @@ public:
     // Complete certification-only Project validation. Unlike snapshot(), this
     // includes every tracked record, not just editor-admitted working owners.
     // Validation owners and their physical proofs stay resident across calls.
-    RoomSessionSnapshot validate_project();
+    // Only for a caller that just established an authoritative physical
+    // observation and will require a fresh post-validation observation.
+    RoomSessionSnapshot validate_project(bool observed_at_entry = false);
     // Portable exact-result cache shared by the opt-in editor worker and the
     // existing CLI Project owner; dirty working state is never published.
     struct CleanValidation {
         RoomSessionSnapshot snapshot;
         bool cache_hit = false;
     };
-    CleanValidation validate_clean_project();
+    // The native disk owner may have just observed the same source authority
+    // before entering this serialized validation call.
+    CleanValidation validate_clean_project(bool initially_observed = false);
     struct ValidationWork {
         std::size_t rechecked_records = 0;
         std::size_t retained_records = 0;
@@ -209,6 +213,16 @@ public:
         std::size_t retained_contributions = 0;
     };
     ValidationWork validation_work() const { return validation_work_; }
+    // An internal consumer of the same serialized certification request may
+    // reuse the resident semantic snapshot. The caller must subsequently
+    // prove physical authority before publishing its derived result.
+    std::optional<RoomSessionSnapshot> validated_snapshot_for_preparation() const
+    {
+        if (validation_pending_uncertain_ || !validation_pending_source_revisions_.empty() ||
+            source_authority_->uncertain())
+            return std::nullopt;
+        return validation_snapshot_;
+    }
     RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
                             const std::map<std::string, std::string>& disk_preconditions = {},
                             const std::map<std::string, std::string>& layout_copy_sources = {});
@@ -266,8 +280,12 @@ public:
     WorkingPreparation prepare_working(std::uint64_t expected_revision,
                                        std::string_view test_id = {},
                                        bool allow_invalid_test_semantics = false) const;
+    // A caller that just completed clean validation may reuse its resident
+    // snapshot; this still requires fresh physical observation on both sides
+    // of complete preparation and fails closed if authority has advanced.
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
-                                                std::string_view test_id = {});
+                                                std::string_view test_id = {},
+                                                bool reuse_clean_validation = false);
     // Read-only, revision-pinned semantic evidence from the resident native
     // Project. This deliberately does not require unrelated records to pass
     // semantic validation; incomplete owners are explicitly reported.
@@ -339,6 +357,10 @@ public:
     std::optional<std::map<std::string, std::string>> verified_source_revisions() const
     {
         return source_authority_->verified_revisions();
+    }
+    std::uint64_t source_capture_count() const noexcept
+    {
+        return source_authority_->source_capture_count();
     }
     // The observer's immutable, exactly hashed capture. Diagnostic projections
     // must consume these same bytes, not reopen files after observation.
