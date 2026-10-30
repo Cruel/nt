@@ -12,9 +12,10 @@ Run the native CLI cases with:
 ctest --test-dir build/linux-debug -R '^native_cli_|^native_compiled_project_parity$|^native_runtime_(artifact_parity|physical)$' --output-on-failure
 ```
 
-`narrative.py` exercises `noveltea narrative validate` outside a Project against
-pinned upstream positive/negative catalogs, diagnostics/locations, bounded typed
-state, and read-only filesystem behavior. Its generated expectations need no
+`narrative.py` exercises `noveltea narrative validate` and
+`noveltea narrative context` outside a Project against pinned upstream
+positive/negative catalogs, diagnostics/locations, bounded typed state,
+deterministic Context Manifest selection and read-only filesystem behavior. Its generated expectations need no
 Node or sibling checkout at test time. See
 [the contract refresh procedure](../../docs/editor/NARRATIVE_CLI.md#one-upstream-contract-reproducible-native-distribution).
 Run it alone with `ctest --test-dir build/linux-debug -R '^native_cli_narrative$' --output-on-failure`.

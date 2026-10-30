@@ -15,6 +15,9 @@ Commands:
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
   narrative validate <catalog-root>
+  narrative context <catalog-root> --kind <dialogue|event|character|puzzle|milestone|review>
+                    [--id <typed-id>]... [--position <narrative-position-id>]
+                    [--scope <focused|related>]
   fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
   localization sync [--dry-run]
   localization reconcile [--apply]

@@ -2821,6 +2821,64 @@ int run(const std::vector<std::string>& argv)
                          {"daemon", daemon}},
                         args.json, human);
         }
+        if (family == "narrative" && operation == "context") {
+            if (!args.project.empty() || args.command.size() < 5 || args.command[2].empty() ||
+                args.command[2].starts_with("--"))
+                return usage(args.json,
+                             "Expected narrative context <catalog-root> --kind <task-kind> "
+                             "[--id <typed-id>]... [--position <id>] [--scope <focused|related>]. "
+                             "--project is not supported.");
+            std::string kind, position, scope = "focused";
+            bool has_scope = false;
+            std::vector<std::string> ids;
+            for (std::size_t i = 3; i < args.command.size();) {
+                const auto& option = args.command[i++];
+                if (i == args.command.size() || args.command[i].starts_with("--"))
+                    return usage(args.json, "Context option '" + option + "' requires a value.");
+                const auto value = args.command[i++];
+                if (option == "--kind" && kind.empty())
+                    kind = value;
+                else if (option == "--position" && position.empty())
+                    position = value;
+                else if (option == "--scope" && !has_scope) {
+                    scope = value;
+                    has_scope = true;
+                } else if (option == "--id" && ids.size() < 16)
+                    ids.push_back(value);
+                else
+                    return usage(args.json,
+                                 "Unknown or repeated narrative context option '" + option + "'.");
+            }
+            if ((kind != "dialogue" && kind != "event" && kind != "character" && kind != "puzzle" &&
+                 kind != "milestone" && kind != "review") ||
+                (scope != "focused" && scope != "related") || (ids.empty() && position.empty()))
+                return usage(args.json, "Context requires a declared task kind, one or more "
+                                        "typed IDs or a Narrative Position, and a valid scope.");
+            auto manifest = narrative::context_manifest(native_path_from_utf8(args.command[2]),
+                                                        kind, ids, position, scope);
+            auto diagnostics = manifest.at("catalogDiagnostics");
+            for (const auto& unresolved : manifest["unresolved"]) {
+                if (unresolved["code"] != "invalid-target-id" &&
+                    unresolved["code"] != "invalid-position-id")
+                    continue;
+                diagnostics.push_back(diagnostic(
+                    unresolved["code"].get<std::string>(), "/",
+                    "Context target does not resolve uniquely to a canonical typed Story record: " +
+                        unresolved["id"].get<std::string>()));
+            }
+            for (auto& item : diagnostics)
+                if (item.contains("path"))
+                    item["sourceUrl"] = item.at("path");
+            const bool valid = diagnostics.empty();
+            manifest.erase("catalogDiagnostics");
+            return emit({{"success", valid},
+                         {"exitCode", valid ? 0 : 1},
+                         {"diagnostics", diagnostics},
+                         {"manifest", manifest}},
+                        args.json,
+                        valid ? "Narrative Context Manifest generated."
+                              : "Narrative context has invalid targets or catalog errors.");
+        }
         if (family == "narrative" && operation == "validate") {
             if (!args.project.empty() || args.command.size() != 3 || args.command[2].empty() ||
                 args.command[2].starts_with("--"))

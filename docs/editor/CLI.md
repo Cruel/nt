@@ -28,7 +28,7 @@ is a development-only forwarder to an installed, authenticated C++ binary.
 Neither the public CLI nor resident workers require Node at runtime.
 Editor-only native tooling calls use the same installed executable through
 the private `__editor-native <operation>` entry point: bounded JSON stdin,
-native operation dispatch and JSON stdout. This is not part of the 40-path
+native operation dispatch and JSON stdout. This is not part of the 41-path
 public CLI inventory and does not start a ScriptC host or JavaScript runtime.
 
 ## Completed migration history
@@ -37,7 +37,7 @@ The pre-#551 direct-C++ candidate, partial compiler parity, native mutation tria
 ScriptC/QuickJS cutover gates, and dated certification notes are preserved in the
 [Native CLI cutover archive](../archive/reports/NATIVE_CLI_CUTOVER_HISTORY.md).
 Those candidate-only switches and historical acceptance states are not supported
-production operation. The current 40-path public command contract is verified by
+production operation. The current 41-path public command contract is verified by
 `node editor/scripts/certify-native-cli-inventory.mjs`, sourcing the canonical C++ help
 contract at `tools/editor_tool/native_cli_help.txt`. The obsolete `editor/src/cli`
 TypeScript command engine and its differential CI oracle are retired; Electron
@@ -52,6 +52,12 @@ It emits source-located structural diagnostics and bounded narrative coverage;
 structural success does not prove completeness, engine behavior, or revision
 authorization. See [Narrative CLI](NARRATIVE_CLI.md) for the command, report,
 upstream contract ownership, partial/unverified semantics and refresh procedure.
+
+`noveltea [--json] narrative context <catalog-root> --kind <task-kind>
+--id <typed-id> [--position <narrative-position-id>] [--scope focused|related]`
+returns a deterministic, status-aware Context Manifest containing prioritized
+Markdown paths, source fingerprints and typed relationship evidence, not narrative
+prose. See [Narrative CLI](NARRATIVE_CLI.md#task-scoped-context-manifest).
 
 ## Private media-tool diagnosis
 
@@ -93,6 +99,7 @@ noveltea project export --output <bundle.ntproject>
 noveltea project import <bundle.ntproject> <destination-directory>
 noveltea validate
 noveltea narrative validate <catalog-root>
+noveltea narrative context <catalog-root> --kind dialogue --id <event-id> [--position <position-id>]
 noveltea entity inspect <collection> <id> [--provenance]
 noveltea fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
 noveltea localization sync [--dry-run]

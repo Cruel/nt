@@ -2,6 +2,7 @@
 #include "catalog_internal.hpp"
 #include "generated/contract.hpp"
 #include "../project_authoring/contracts.hpp"
+#include <noveltea/core/fingerprint.hpp>
 
 #include <libfyaml.h>
 #include <algorithm>
@@ -325,12 +326,12 @@ const Record* Catalog::find(const std::string& id) const
                                  [&](const Record& r) { return r.metadata["id"] == id; });
     return it == records.end() ? nullptr : &*it;
 }
-Json validate(const std::filesystem::path& root)
+Catalog read_catalog(const std::filesystem::path& root)
 {
     Catalog catalog;
     const auto contract = Json::parse(contract_source);
     const auto& schema = contract["record"];
-    Record root_record{".", {}, {}, {{"", {1, 1}}}};
+    Record root_record{".", {}, {}, {}, {{"", {1, 1}}}};
     std::vector<std::filesystem::path> paths;
     bool root_readable = true;
     try {
@@ -365,6 +366,7 @@ Json validate(const std::filesystem::path& root)
             catalog.report(record, "io", "Cannot read record as UTF-8 text.");
             continue;
         }
+        record.source_revision = core::xxh3_128_revision(source);
         const std::size_t metadata_start = source.starts_with("---\r\n") ? 5
                                            : source.starts_with("---\n") ? 4
                                                                          : 0;
@@ -439,7 +441,13 @@ Json validate(const std::filesystem::path& root)
             catalog.diagnostics.push_back(std::move(diagnostic));
         }
     }
+    return catalog;
+}
+Json validate(const std::filesystem::path& root)
+{
+    auto catalog = read_catalog(root);
     const auto coverage = analyze(catalog);
+    const auto contract = Json::parse(contract_source);
     Json records = Json::array();
     for (const auto& r : catalog.records)
         records.push_back({{"path", r.path}, {"metadata", r.metadata}, {"body", r.body}});

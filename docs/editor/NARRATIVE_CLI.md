@@ -60,6 +60,64 @@ Git-baseline protected-decision comparison and deterministic impact are follow-u
 Narrative Events and predicates are not engine Scene Events or gameplay Conditions.
 No engine linkage, project schema, compiler or runtime behavior is changed.
 
+## Task-scoped Context Manifest
+
+`noveltea [--json] narrative context <catalog-root> --kind <kind>`
+accepts one or more `--id <typed-id>` options and/or a
+`--position <narrative-position-id>` option, plus optional
+`--scope focused|related` (default: `focused`). The supported kinds are
+`dialogue`, `event`, `character`, `puzzle`, `milestone`, and `review`.
+At most 16 explicitly resolved IDs may be supplied per request. Both commands
+use the same pinned upstream contract, native Markdown parser, relationship
+index and structural analysis. Neither requires a Project, Git, daemon,
+compilation, network access or any source mutation.
+
+For example, to prepare the post-trial dialogue concerning Maya:
+
+```sh
+noveltea --json narrative context story --kind dialogue \
+  --id character.maya --id event.post-trial \
+  --position narrative-position.post-trial --scope related
+```
+
+The `manifest.files` array contains **paths, not narrative text**. Each
+entry has the stable `id`, root-relative `path`, exact source-byte
+`sourceRevision` (`xxh3-128:<hex>`), declared `status` and `completeness`,
+derived `dependency` (`resolved`, `incomplete` or `indeterminate`),
+`priority` (`direct`, `conditional`, `supplementary`) and
+`inclusions`. Each inclusion has a fixed `code` and a typed
+`sourceId`/`targetId` witness, plus the canonical source `pointer` for
+relationship edges. Codes include `requested-id`, `requested-position`,
+`position-event`, `event-participant`, `event-state-reference`,
+`chronological-predecessor`, `declared-prerequisite`,
+`character-relationship`, `content-at-event`, `puzzle-clue`,
+`puzzle-solution`, `milestone-realization` and `story-direction`.
+These describe **declared structural links**, not an LLM judgment of
+creative importance.
+
+Selection always includes explicitly requested records and the positioned
+Event, then one neighborhood of typed source/reference edges. The
+`related` scope permits only one additional hop from non-Arc sources,
+selectively avoiding broad transitive expansion from Characters, Arcs or
+chronology. `related` also supplies a supplementary Creative Direction.
+Results are stably ordered by priority then path, with a 128-file ceiling.
+`manifest.bounded` exposes the scope, cap and truncation. Task kind controls
+which relationship backlinks are included; it does not deduce target IDs from
+prose or claim that omitted records are irrelevant.
+
+`manifest.unresolved` reports unresolved references, partial artifacts and
+explicitly unverified conditions. Draft/proposed/approved/superseded status is
+reported as authored; the resolver never promotes a draft to approved canon.
+`coverageStatus` distinguishes structural assessment from indeterminate
+coverage. Catalog structural diagnostics and unresolved/ambiguous requested
+IDs produce exit code 1, returning available manifest evidence alongside
+diagnostics. Invalid command syntax or options produce exit code 2.
+A successful manifest is **not** permission to edit protected decisions or
+proof that a branch occurs in gameplay. Upstream source changes generate a
+different source fingerprint; consumers compare these with their already-loaded
+versions and read all missing/changed Markdown paths in one filesystem/tool
+batch. The CLI cannot inspect an agent's context and never returns prose.
+
 ## One upstream contract, reproducible native distribution
 
 `Cruel/noveltea-skills` owns the evolving experimental `schema: '0.1'` contract:

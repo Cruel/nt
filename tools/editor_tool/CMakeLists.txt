@@ -302,10 +302,11 @@ noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
 
 # Narrative parsing is a host-only consumer of the upstream catalog contract.
 add_library(noveltea_narrative STATIC
-    ../narrative/catalog.cpp ../narrative/progression.cpp)
+    ../narrative/catalog.cpp ../narrative/progression.cpp ../narrative/context_manifest.cpp)
 target_compile_features(noveltea_narrative PUBLIC cxx_std_20)
+target_include_directories(noveltea_narrative PRIVATE "${CMAKE_SOURCE_DIR}/engine/include")
 target_link_libraries(noveltea_narrative PRIVATE
-    fyaml_static noveltea_project_authoring_contracts nlohmann_json::nlohmann_json)
+    fyaml_static noveltea_project_authoring_contracts noveltea_xxhash nlohmann_json::nlohmann_json)
 noveltea_apply_policy_warnings(noveltea_narrative)
 
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include <filesystem>
 #include <map>
 #include <string>
 #include <vector>
@@ -15,6 +16,7 @@ struct Record {
     std::string path;
     Json metadata;
     std::string body;
+    std::string source_revision;
     std::map<std::string, Location> locations;
 };
 struct Catalog {
@@ -27,5 +29,6 @@ struct Catalog {
                 const std::string& pointer = "");
     const Record* find(const std::string& id) const;
 };
+Catalog read_catalog(const std::filesystem::path& root);
 Json analyze(Catalog& catalog);
 } // namespace noveltea::narrative
