@@ -47,6 +47,11 @@
     "noveltea_jsoncons": { "player": false },
     "noveltea_libfyaml": { "player": false },
     "noveltea_lief": { "player": false },
+    "noveltea_xxhash_source": {
+      "name": "xxHash",
+      "version": "c87183a77d67f7d37e3d2d1b7eaac5e7c695e4f0",
+      "paths": ["LICENSE"]
+    },
     "rmlui": { "name": "rmlui", "paths": ["LICENSE.txt"] },
     "rmlui_bgfx": { "player": false },
     "sheenbidi": { "version": "3.0.0" },

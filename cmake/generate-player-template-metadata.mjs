@@ -285,6 +285,7 @@ if (existsSync(deps)) {
     'bgfx.cmake', 'fast_float', 'freetype', 'harfbuzz', 'libpng',
     'libunibreak_src', 'lua_src', 'miniaudio', 'miniz', 'nlohmann_json',
     'rmlui', 'sheenbidi', 'sol2', 'twink', 'libwebm', 'libvpx',
+    'noveltea_xxhash_source',
   ]);
   if (android && devtools) androidRequired.add('imgui');
   const observed = new Set();
