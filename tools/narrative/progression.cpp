@@ -456,7 +456,9 @@ Json analyze(Catalog& catalog)
                 const auto path = "/steps/" + std::to_string(i) + "/branches/" + std::to_string(j);
                 unknown(b, path);
                 auto select = [&](const Observation& o) {
-                    return o.event == e["id"] && o.step == s["id"] && o.branch == b["id"];
+                    return o.event == e["id"].get<std::string>() &&
+                           o.step == s["id"].get<std::string>() &&
+                           o.branch == b["id"].get<std::string>();
                 };
                 const auto* proof = observe(definite, select);
                 const auto status = invalid ? "unverified"
@@ -555,9 +557,10 @@ Json analyze(Catalog& catalog)
         }
         if (m["type"] == "narrative-position") {
             auto selects = [&](const Observation& o) {
-                return o.event == m["event"] && o.at == m["at"] &&
+                return o.event == m["event"].get<std::string>() &&
+                       o.at == m["at"].get<std::string>() &&
                        (m["at"] != "step" || o.step == m.value("step", "")) &&
-                       (!m.contains("branch") || o.branch == m["branch"]);
+                       (!m.contains("branch") || o.branch == m["branch"].get<std::string>());
             };
             const auto* target = catalog.find(m["event"]);
             const bool incomplete = partial(m) || (target && partial(target->metadata));
