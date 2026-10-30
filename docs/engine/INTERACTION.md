@@ -70,6 +70,11 @@ Fallback is canonical and ordered: the selected Verb default program, then the o
 
 Interaction is not a Property or Trait owner. Runtime command matching and execution state belong to the Runtime Session rather than to the Interaction definition.
 
+A full Interaction record and its stable-ID rules may optionally carry typed
+Story `narrativeRefs` for authoring traceability. These never affect rule
+selection, Guards, Offers, execution or compiled gameplay. See
+[Project narrative traceability](PROJECT.md#optional-narrative-traceability-529).
+
 ## Features as subjects
 
 Features are owner-local semantic parts declared by Rooms or Interactables. An exact Feature subject therefore uses one of these identities:

@@ -73,6 +73,12 @@ selects an external developer/distro build explicitly. See [Media Tools](MEDIA_T
 configuration, packaging, and shared Editor/headless invocation ownership. This command does not
 add video playback or a Project media-transcoding policy.
 
+Strict non-Asset authoring records may contain optional `narrativeRefs` arrays of
+typed canonical Story IDs, as can nested Scene Events, Dialogue blocks/segments/edges
+and Interaction rules. These author-only references persist in YAML and portable
+exports, but have no runtime effect and do not require a Story root. See
+[Project narrative traceability](../engine/PROJECT.md#optional-narrative-traceability-529).
+
 ## Project discovery and direct editing
 
 A project is identified by its root directory and `<project-root>/project.yaml`. Use `--project <project-directory>` to select a project explicitly. Without it, the CLI walks upward from the current directory and stops at the first `project.yaml`. A malformed NovelTea manifest, wrong workspace identity, or unsupported workspace version is a terminal discovery error at that directory; discovery does not fall through to a parent project or accept a retired monolithic project file.

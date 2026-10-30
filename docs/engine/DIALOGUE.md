@@ -20,6 +20,10 @@ Character presentation occurrences and stable Media Slots represent Layout-posit
 channels. Their retained values belong to the Dialogue invocation, not to semantic Character state,
 Scene state, renderer state, or the Dialogue definition itself.
 
+Optional typed Story `narrativeRefs` may be placed on a Dialogue record,
+its stable-ID blocks, segments or edges; they survive authoring operations but
+are not part of the runtime conversation graph. See [Project narrative traceability](PROJECT.md#optional-narrative-traceability-529).
+
 ## Authoring structure
 
 The authoritative Dialogue authoring boundary lives in

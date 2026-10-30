@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { narrativeRefsField } from './authoring-narrative-references';
 import {
   assetRefSchema,
   characterRefSchema,
@@ -243,6 +244,7 @@ export const dialogueLineCueSchema = z.discriminatedUnion('kind', [
 ]);
 
 const lineSegmentSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('line'),
   speaker: dialogueCharacterRefSchema.nullable(),
@@ -256,6 +258,7 @@ const lineSegmentSchema = strict({
 });
 
 const runLuaSegmentSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('run-lua'),
   condition: dialogueConditionDataSchema.optional(),
@@ -269,6 +272,7 @@ const dialogueSceneInputBindingSchema = strict({
 });
 
 const callSceneSegmentSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('call-scene'),
   condition: dialogueConditionDataSchema.optional(),
@@ -278,6 +282,7 @@ const callSceneSegmentSchema = strict({
 });
 
 const handoffSegmentSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('handoff'),
   condition: dialogueConditionDataSchema.optional(),
@@ -285,6 +290,7 @@ const handoffSegmentSchema = strict({
 });
 
 const commentSegmentSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('comment'),
   text: z.string(),
@@ -299,6 +305,7 @@ export const dialogueSegmentDataSchema = z.discriminatedUnion('type', [
 ]);
 
 const sequenceBlockSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('sequence'),
   label: z.string().min(1, 'Block label is required.'),
@@ -307,12 +314,14 @@ const sequenceBlockSchema = strict({
 });
 
 const choiceBlockSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('choice'),
   label: z.string().min(1, 'Block label is required.'),
 });
 
 const redirectBlockSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('redirect'),
   label: z.string().min(1, 'Block label is required.'),
@@ -320,6 +329,7 @@ const redirectBlockSchema = strict({
 });
 
 const commentBlockSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   type: z.literal('comment'),
   label: z.string().min(1, 'Block label is required.'),
@@ -334,6 +344,7 @@ export const dialogueBlockDataSchema = z.discriminatedUnion('type', [
 ]);
 
 const nextEdgeSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   kind: z.literal('next'),
   fromBlockId: entityIdSchema,
@@ -341,6 +352,7 @@ const nextEdgeSchema = strict({
 });
 
 const choiceEdgeSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   kind: z.literal('choice'),
   fromBlockId: entityIdSchema,

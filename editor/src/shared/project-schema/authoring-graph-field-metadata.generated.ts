@@ -29,6 +29,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/animations/*/import/sources/*/originalName',
   '/animations/*/import/sources/*/path',
   '/animations/*/label',
+  '/animations/*/narrativeRefs/*',
   '/archetypes/*/data/base/$ref/collection',
   '/archetypes/*/data/base/$ref/id',
   '/archetypes/*/data/instanceKind',
@@ -38,6 +39,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/archetypes/*/description',
   '/archetypes/*/id',
   '/archetypes/*/label',
+  '/archetypes/*/narrativeRefs/*',
   '/assets/*/data/aliases/*',
   '/assets/*/data/attachments/*/assetBaselineHash',
   '/assets/*/data/attachments/*/displayName',
@@ -261,11 +263,13 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/characters/*/localProperties/*/type',
   '/characters/*/localProperties/*/value',
   '/characters/*/localProperties/*/value/$message',
+  '/characters/*/narrativeRefs/*',
   '/characters/*/traits/*',
   '/dialogues/*/data/blocks/*/defaultSpeaker/$ref/collection',
   '/dialogues/*/data/blocks/*/defaultSpeaker/$ref/id',
   '/dialogues/*/data/blocks/*/id',
   '/dialogues/*/data/blocks/*/label',
+  '/dialogues/*/data/blocks/*/narrativeRefs/*',
   '/dialogues/*/data/blocks/*/segments/*/autosaveSafePoint',
   '/dialogues/*/data/blocks/*/segments/*/condition/additionalDependencies/targets/*/collection',
   '/dialogues/*/data/blocks/*/segments/*/condition/additionalDependencies/targets/*/exitId',
@@ -706,6 +710,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/dialogues/*/data/blocks/*/segments/*/inputs/*/value',
   '/dialogues/*/data/blocks/*/segments/*/logged',
   '/dialogues/*/data/blocks/*/segments/*/mayYield',
+  '/dialogues/*/data/blocks/*/segments/*/narrativeRefs/*',
   '/dialogues/*/data/blocks/*/segments/*/payload',
   '/dialogues/*/data/blocks/*/segments/*/scene/$ref/collection',
   '/dialogues/*/data/blocks/*/segments/*/scene/$ref/id',
@@ -1138,6 +1143,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/dialogues/*/data/edges/*/label/source/source',
   '/dialogues/*/data/edges/*/label/source/text',
   '/dialogues/*/data/edges/*/logged',
+  '/dialogues/*/data/edges/*/narrativeRefs/*',
   '/dialogues/*/data/edges/*/toBlockId',
   '/dialogues/*/data/entryBlockId',
   '/dialogues/*/data/kind',
@@ -1172,6 +1178,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/dialogues/*/description',
   '/dialogues/*/id',
   '/dialogues/*/label',
+  '/dialogues/*/narrativeRefs/*',
   '/entrypoint/id',
   '/entrypoint/kind',
   '/export/assetMemoryPolicies/*/basePreset',
@@ -1626,6 +1633,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/interactables/*/description',
   '/interactables/*/id',
   '/interactables/*/label',
+  '/interactables/*/narrativeRefs/*',
   '/interactables/*/traits/*',
   '/interactions/*/data/kind',
   '/interactions/*/data/rules/*/guard/additionalDependencies/targets/*/collection',
@@ -1728,6 +1736,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/interactions/*/data/rules/*/guard/variable/$ref/collection',
   '/interactions/*/data/rules/*/guard/variable/$ref/id',
   '/interactions/*/data/rules/*/id',
+  '/interactions/*/data/rules/*/narrativeRefs/*',
   '/interactions/*/data/rules/*/offer/condition/additionalDependencies/targets/*/collection',
   '/interactions/*/data/rules/*/offer/condition/additionalDependencies/targets/*/exitId',
   '/interactions/*/data/rules/*/offer/condition/additionalDependencies/targets/*/id',
@@ -2141,6 +2150,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/interactions/*/description',
   '/interactions/*/id',
   '/interactions/*/label',
+  '/interactions/*/narrativeRefs/*',
   '/inventories/*/id',
   '/inventories/*/label',
   '/layouts/*/data/contract/inputs/*/defaultValue',
@@ -2216,6 +2226,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/layouts/*/description',
   '/layouts/*/id',
   '/layouts/*/label',
+  '/layouts/*/narrativeRefs/*',
   '/localization',
   '/maps/*/data/connections/*/exits/*/exit',
   '/maps/*/data/connections/*/exits/*/room',
@@ -2491,6 +2502,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/maps/*/description',
   '/maps/*/id',
   '/maps/*/label',
+  '/maps/*/narrativeRefs/*',
   '/materials/*/data/base/kind',
   '/materials/*/data/base/material/$ref/collection',
   '/materials/*/data/base/material/$ref/id',
@@ -2527,6 +2539,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/materials/*/description',
   '/materials/*/id',
   '/materials/*/label',
+  '/materials/*/narrativeRefs/*',
   '/prefetchHints/*/attachment/kind',
   '/prefetchHints/*/attachment/point/blockId',
   '/prefetchHints/*/attachment/point/cursor',
@@ -5681,6 +5694,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/rooms/*/localProperties/*/type',
   '/rooms/*/localProperties/*/value',
   '/rooms/*/localProperties/*/value/$message',
+  '/rooms/*/narrativeRefs/*',
   '/rooms/*/traits/*',
   '/scenes/*/data/displayName',
   '/scenes/*/data/events/*/action',
@@ -5980,6 +5994,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/scenes/*/data/events/*/materialApplication/textures/*/source/$ref/collection',
   '/scenes/*/data/events/*/materialApplication/textures/*/source/$ref/id',
   '/scenes/*/data/events/*/mayYield',
+  '/scenes/*/data/events/*/narrativeRefs/*',
   '/scenes/*/data/events/*/offset/x',
   '/scenes/*/data/events/*/offset/y',
   '/scenes/*/data/events/*/operations/*/coexist',
@@ -6896,6 +6911,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/scenes/*/description',
   '/scenes/*/id',
   '/scenes/*/label',
+  '/scenes/*/narrativeRefs/*',
   '/schema',
   '/scripts/*/data/kind',
   '/scripts/*/data/source/kind',
@@ -6904,6 +6920,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/scripts/*/description',
   '/scripts/*/id',
   '/scripts/*/label',
+  '/scripts/*/narrativeRefs/*',
   '/settings/accessibility/textScale/enabled',
   '/settings/accessibility/textScale/maximum',
   '/settings/accessibility/textScale/minimum',
@@ -7151,6 +7168,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/tests/*/description',
   '/tests/*/id',
   '/tests/*/label',
+  '/tests/*/narrativeRefs/*',
   '/traits/*/description',
   '/traits/*/id',
   '/traits/*/label',
@@ -7458,6 +7476,7 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/variables/*/description',
   '/variables/*/id',
   '/variables/*/label',
+  '/variables/*/narrativeRefs/*',
   '/verbs/*/data/actionText/markup',
   '/verbs/*/data/actionText/source/additionalDependencies/targets/*/collection',
   '/verbs/*/data/actionText/source/additionalDependencies/targets/*/exitId',
@@ -8045,133 +8064,134 @@ export const GRAPH_FIELD_PATHS: readonly string[] = Object.freeze([
   '/verbs/*/description',
   '/verbs/*/id',
   '/verbs/*/label',
+  '/verbs/*/narrativeRefs/*',
 ]);
 export const GRAPH_FIELD_EFFECT_CODES =
-  'ooooooooooooooooooooynnnnnnoooooooooonnnnnnnaaoooonannnnnnannyooooooooooooooooooooooooooooooooooooooonnonnnnnonooooooooo' +
-  'oooooooooooooooooooooooooooooooonnonnnnvoonoonoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooonyooooooooooooonnsssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooo' +
-  'oonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooonoooooonnooonsoonnssssss' +
-  'sssovsnnoonnoooonnsssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooonooooonnsssssssssovsnnoonoooooooooooonnoooooooooooooonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn' +
-  'nnnnnnnnnnnnnnnnnnnnnnoyopooooooooooooooooooooooooooooooooooooooooooooooooooooooonooooooooooooooooooooooonoooooooooooooo' +
+  'ooooooooooooooooooooynnnnnnonooooooooonnnnnnnnaaoooonannnnnnannyooooooooooooooooooooooooooooooooooooooonnonnnnnonooooooo' +
+  'oooooooooooooooooooooooooooooooooonnonnnnvoonoonoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooonyooooooooonoooonnnsssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooo' +
+  'oooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooonoooooonnnooonsoonns' +
+  'ssssssssovsnnoonnoooonnsssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooon' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooonooooonnsssssssssovsnnnoonoooooooooooonnoooooooooooooonnnnnnnnnnnnnnnnnnnnnnnnnn' +
+  'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnoyopooooooooooooooooooooooooooooooooooooooooooooooooooooooonooooooooooooooooooooooonooooooo' +
   'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
   'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonyoonooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooos' +
-  'oooooooooooooooooooooonoooooooooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooooooonsssssssssovsnoooooooo' +
-  'ooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooonoonnoooonooooooooooonooooonyooooooooooooooooooooo' +
-  'ooooooooooooooosoooonnnnsnnnoonnoonsnnnnsssssssssnnnnyoloooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonooooonsssssssssovsnoooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonoonsssssssssovsnnyooooonnooooooooooonnooooooooono' +
-  'onnnyooooooooooooooooooooooooooooooooooooonnnnnooooooooooonnooooooooooooooooosssssssssoooooooooooooooooooooooovooooooooo' +
-  'ooooooooooooooooooooooooooooonooooooooooooosooooooooonoononnononnsssssssssovsnonnnnnsssssssssoooooooooooooooooooooooovoo' +
-  'oooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonooooooooooooooooonnnnnnoooooooooooosssssssssooooooooooooooo' +
-  'ooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoononoooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oonnnnoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooon' +
-  'ooooooooooooosooooooooonooooononnooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'soooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooo' +
-  'oooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonyononooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooosooooooooooooonoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
   'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoo' +
-  'oooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooosssssssssoooooooooooooooooooooooonooooo' +
-  'ooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoosssssssssoooooooooooooooooooooooonoooooooooooooooooooooooooo' +
-  'oooooooooooonooooooooooooosooooooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoo' +
-  'oooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonooooonnnnnnonnssssss' +
-  'sssovsnooooooooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooo' +
-  'oooonooooooooooooooooononoooonyooooooooooooonssoooooooooooosssssssvnoooooooooooooooooooooooosooooooooooooooooooooooooooo' +
-  'ooooooooooonoooooooooooooooooooooooooonoonooooonnnooooooooooooooooooonnnnonnnnnnonosssssssssoooooooooooooooooooooooovooo' +
-  'ooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoooononoonnonnoooonoonoooooooooooooooonnnooooooooooooooooooo' +
-  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosoo' +
-  'ooooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooooonsssssssssovnnnoooooooooonooonnnnnoyopnnnoooooovsooooonyonnnnoooooo' +
-  'nnnnnnnnnnnnnnnooonnnnooooonnoonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooso' +
-  'ooooooooooonnooooonoooonnnoooooooooooooooooooooooooonnnnnnsnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnoooooooooooooooooooo' +
-  'oooooooonnnnnnoooonnnnoooonnnnnnooooooooooooooooooooooooooonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnononnnnnnnnnnnnnnnnn' +
-  'nnnnnnnnnnnnnnnnnnnnnsnnnoooooooooonooonnooooooooonoooooooooooonnnnyonoooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooosoooooooooooooooooooooonoooooooooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooooooonsssssssssovs' +
+  'nooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooonoonnoooonooooooooooonooooonyonoooooooooo' +
+  'ooooooooooooooooooooooooosoooonnnnsnnnoonnoonsnnnnsssssssssnnnnyonlooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonooooonsssssssssovsnooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooonoonsssssssssovsnnyonoooonnooooooooooon' +
+  'nooooooooonoonnnyonoooooooooooooooooooooooooooooooooooonnnnnooooooooooonnooooooooooooooooosssssssssooooooooooooooooooooo' +
+  'ooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoononnononnsssssssssovsnonnnnnsssssssssoooooooooooooo' +
+  'oooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonooooooooooooooooonnnnnnoooooooooooosssssssssoo' +
+  'oooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoononooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooonnnnooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooo' +
+  'oooooooooooonooooooooooooosooooooooonooooononnoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooosoooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosoo' +
   'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooonnonnnoyonsssssssssovsnnssssssssnoooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooooosooooooooooooonoo' +
-  'oooooooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooo' +
-  'oooooooooonooooooooooooooooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooooooosssssssssovssnooooooooooooo' +
-  'oooooooooooooonoooooooooooooooooooooooooooooooooooooooooooooooooooonnnnooooooooooooooooooooooooooooooooooooooooooooooooo' +
-  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooo' +
-  'onyo';
+  'ooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooosoooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooosssssssssooooooooooooooooo' +
+  'ooooooonoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoosssssssssoooooooooooooooooooooooonooooooooooooo' +
+  'ooooooooooooooooooooooooonooooooooooooosooooooooonoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooosoooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonooooonn' +
+  'nnnnonnsssssssssovsnooooooooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooonoooooo' +
+  'ooooooosooooooooonooooooooooooooooononoooonyooooooooonoooonssoooooooooooosssssssvnoooooooooooooooooooooooosooooooooooooo' +
+  'ooooooooooooooooooooooooonoooooooooooooooooooooooooonoonooooonnnooooooooooooooooooonnnnonnnnnnonosssssssssoooooooooooooo' +
+  'oooooooooovoooooooooooooooooooooooooooooooooooooonooooooooooooosooooooooonoooononoonnonnoooonoonoooooooooooooooonnnnoooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooosssssssssoooooooooooooooooooooooovoooooooooooooooooooooooooooooooooooooono' +
+  'oooooooooooosooooooooonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooosooooooooooooooooooooooooooooooooooooooooooooooooooooooonsssssssssovnnnoooooooooonooonnnnnoyopnnnoooooovsooo' +
+  'oonyonnnnoooooonnnnnnnnnnnnnnnooonnnnooooonnoonooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooosoooooooooooonnooooonoooonnnoooooooooooooooooooooooooonnnnnnnsnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnooo' +
+  'ooooooooooooooooooooooooonnnnnnoooonnnnoooonnnnnnooooooooooooooooooooooooooonnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnono' +
+  'nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnsnnnoooooooooonooonnooooooooonoooooooooooonnnnyonnoooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosoooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooooooooooooooonnonnnoyonnsssssssssovsnnssssssssnoooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooo' +
+  'oosooooooooooooonoooooooooooonoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo' +
+  'ooooooooooooosooooooooooooooonooooooooooooooooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooooooossssssss' +
+  'sovssnooooooooooooooooooooooooooonoooooooooooooooooooooooooooooooooooooooooooooooooooonnnnoooooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooosooooooooooooooooooooooooooo' +
+  'oooooooooooooooooooonyon';
 export const GENERATED_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> = Object.freeze({
-  animations: 'b87f3769',
-  archetypes: 'f71e0c56',
+  animations: 'bd5627ba',
+  archetypes: '20458452',
   assets: '9fba5e0e',
   bootstrapModule: 'd01eb484',
-  characters: 'f9ecb9ba',
-  dialogues: '81f2a616',
+  characters: '1351f59a',
+  dialogues: 'd2acb251',
   entrypoint: 'a61673d4',
   export: 'b86d4c62',
   interactableInstances: '991618e4',
-  interactables: 'ff0c08cf',
-  interactions: '8c02d069',
+  interactables: '94c34bb4',
+  interactions: '9b35360f',
   inventories: 'a8c38dae',
-  layouts: 'b9fb12f6',
+  layouts: '6907146b',
   localization: '3cedd4cb',
-  maps: '9d711bea',
-  materials: '60045c56',
+  maps: '3c378ed1',
+  materials: 'ebb95c76',
   prefetchHints: 'b985056c',
   project: 'da3be83d',
-  rooms: '3174ff65',
-  scenes: '6650b472',
+  rooms: '8508e63f',
+  scenes: 'eaa68340',
   schema: '63fb9bb9',
-  scripts: '278134b5',
+  scripts: 'c85b2d0d',
   settings: 'f5056147',
-  tests: 'ae849747',
+  tests: '2e161d16',
   traits: '371bbceb',
   undefinedInteractionProgram: 'da7c64b8',
-  variables: 'c5d1f73c',
-  verbs: 'ede9b385',
+  variables: 'b023a11b',
+  verbs: 'bdbff5bf',
 });
 export const REVIEWED_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> = Object.freeze({
-  animations: 'b87f3769',
-  archetypes: 'f71e0c56',
+  animations: 'bd5627ba',
+  archetypes: '20458452',
   assets: '9fba5e0e',
   bootstrapModule: 'd01eb484',
-  characters: 'f9ecb9ba',
-  dialogues: '81f2a616',
+  characters: '1351f59a',
+  dialogues: 'd2acb251',
   entrypoint: 'a61673d4',
   export: 'b86d4c62',
   interactableInstances: '991618e4',
-  interactables: 'ff0c08cf',
-  interactions: '8c02d069',
+  interactables: '94c34bb4',
+  interactions: '9b35360f',
   inventories: 'a8c38dae',
-  layouts: 'b9fb12f6',
+  layouts: '6907146b',
   localization: '3cedd4cb',
-  maps: '9d711bea',
-  materials: '60045c56',
+  maps: '3c378ed1',
+  materials: 'ebb95c76',
   prefetchHints: 'b985056c',
   project: 'da3be83d',
-  rooms: '3174ff65',
-  scenes: '6650b472',
+  rooms: '8508e63f',
+  scenes: 'eaa68340',
   schema: '63fb9bb9',
-  scripts: '278134b5',
+  scripts: 'c85b2d0d',
   settings: 'f5056147',
-  tests: 'ae849747',
+  tests: '2e161d16',
   traits: '371bbceb',
   undefinedInteractionProgram: 'da7c64b8',
-  variables: 'c5d1f73c',
-  verbs: 'ede9b385',
+  variables: 'b023a11b',
+  verbs: 'bdbff5bf',
 });

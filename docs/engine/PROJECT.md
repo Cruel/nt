@@ -34,6 +34,35 @@ vocabulary definitions and are not Property/Trait owners. Universal same-type ga
 retired. Categories, tags, record colors/order, notes, graph positions, selections, preview state, and
 workbench state remain editor-only.
 
+## Optional narrative traceability (#529)
+
+Non-Asset full authoring records may carry `narrativeRefs: [event.some-event, ...]`
+on their record wrapper. Scene program Events, Dialogue blocks, segments and
+edges, and Interaction rules may independently carry the same optional field.
+Each ID is a typed canonical Story catalog locator (`<story-type>.<kebab-case-slug>`);
+values are arrays of strings and must use a supported Story record type.
+An omitted list requires **no Story catalog** and does not change validation
+or gameplay. The references are many-to-many: one Story Event may map to
+several engine records/steps, and one engine element may map to several Story
+requirements. Nested links retain the existing engine subrecord `id` as their
+location anchor.
+
+The link boundary checks **shape only** in the strict editor and generated
+native authoring schemas. It deliberately does not assert that a Story path,
+specific record, implemented narrative choice, or Scene mapping exists. The
+separate `noveltea narrative validate/context/readiness` commands own Story
+catalog semantics. Engine Scene *Event operations* remain execution steps,
+not Story *Events*. Scene, Dialogue, Interaction, Room and Conditions keep
+their existing gameplay authority; narrative locations and World Entities do
+not imply mandatory bespoke Rooms, backgrounds or production assets.
+
+Tracked YAML, standard editor save/reopen, `noveltea fmt`, and portable
+Project export/import retain these optional fields. Both the native and
+TypeScript compiler lowering explicitly construct gameplay wire data rather
+than copying authoring-only references into the compiled runtime contract.
+This is authoring implementation intent, not gameplay data, user authorization,
+or a certificate of VN production feasibility.
+
 ## Startup and Settings
 
 Entrypoint is a strict Room, Scene, or Dialogue reference. The Project also names one Bootstrap Module by stable Script Module ID. Each fresh Project VM imports that module synchronously without gameplay-state authority; its initialization and any modules it explicitly imports must complete without yielding before the entrypoint starts. Typed settings include display/text,

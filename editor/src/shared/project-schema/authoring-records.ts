@@ -4,6 +4,7 @@ export { assetRecordSchema } from './authoring-asset-record';
 import { animationDataSchema } from './authoring-animations';
 import { archetypeDataSchema, archetypeRefSchema } from './authoring-archetypes';
 import { entityIdSchema, jsonValueSchema } from './authoring-common';
+import { narrativeRefsField } from './authoring-narrative-references';
 import { characterDataSchema } from './authoring-characters';
 import { interactableDataSchema } from './authoring-interactables';
 import { interactionDataSchema } from './authoring-interactions';
@@ -20,6 +21,7 @@ import { variableDataSchema } from './authoring-variables';
 import { verbDataSchema } from './authoring-verbs';
 
 const recordIdentityShape = {
+  ...narrativeRefsField,
   id: entityIdSchema,
   label: z.string().min(1, 'Record label is required.'),
   description: z.string().optional(),

@@ -16,6 +16,11 @@ controller.
 
 Scene is an immutable orchestration definition, not a stateful Property or Trait owner. Mutable Scene execution state belongs to each Scene frame/invocation in the Runtime Session.
 
+Optional typed Story `narrativeRefs` may be attached to the Scene record or
+an individual stable-ID Scene Event operation for authoring traceability; these
+are not gameplay predicates and never compile. A Scene Event operation is not
+a narrative Story Event. See [Project narrative traceability](PROJECT.md#optional-narrative-traceability-529).
+
 ## Program
 
 Current Scene authoring is an ordered sequence of stable semantic Events. The Event operation union is

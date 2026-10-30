@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
+import { narrativeRefsField } from './authoring-narrative-references';
 import { conditionSchema, verbRefSchema } from './authoring-flow';
 import type { FeatureRefData } from './authoring-features';
 import {
@@ -36,6 +37,7 @@ export const interactionOfferSchema = strict({
 
 export const interactionRuleSchema = withSchemaDocumentation(
   strict({
+    ...narrativeRefsField,
     id: entityIdSchema,
     verb: verbRefSchema,
     slots: withSchemaDocumentation(z.array(interactionSlotSelectorSchema), {

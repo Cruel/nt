@@ -249,6 +249,81 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     assert Path(imported['projectFilePath']).read_bytes() == (created / 'project.yaml').read_bytes()
     print('Native CLI physical mutation, lifecycle and validation contracts passed.')
 
+    # Native-only public authoring seam for #529: no Story catalog or runtime
+    # required. Links must survive sparse YAML admission, fmt and portable
+    # export/import, including stable nested Scene Event / Dialogue block IDs.
+    story_link_project = root / 'narrative-links'
+    envelope('project', 'create', str(story_link_project), '--name', 'Narrative Links')
+    linked = {}
+    for family in ('scenes', 'dialogues', 'interactions', 'rooms'):
+        record_id = 'story-' + family
+        envelope('--project', str(story_link_project), 'entity', 'create', family, record_id)
+        path = story_link_project / 'records' / family / (record_id + '.yaml')
+        original = path.read_text()
+        updated = 'narrativeRefs: [event.trial, milestone.permission-granted]\n' + original
+        nested = family in ('scenes', 'dialogues')
+        if nested:
+            updated, count = re.subn(r'(?m)^(    - id: [^\n]+\n)',
+                                     r'\1      narrativeRefs: [event.trial]\n',
+                                     updated, count=1)
+            assert count == 1, (family, original)
+        path.write_text(updated)
+        inspected = envelope('--project', str(story_link_project),
+                             'entity', 'inspect', family, record_id)['record']
+        assert inspected['narrativeRefs'] == ['event.trial', 'milestone.permission-granted']
+        if nested:
+            key = 'events' if family == 'scenes' else 'blocks'
+            assert inspected['data'][key][0]['narrativeRefs'] == ['event.trial']
+            assert inspected['data'][key][0]['id']
+        linked[family] = (record_id, inspected, path)
+        # A malformed authoring-only locator is an admission error, not
+        # silently accepted schema-free metadata or a runtime obligation.
+        path.write_text(updated.replace(
+            'narrativeRefs: [event.trial, milestone.permission-granted]',
+            'narrativeRefs: scene.not-a-story-kind', 1))
+        rejected = envelope('--project', str(story_link_project),
+                            'entity', 'inspect', family, record_id, code=3)
+        assert any(d['code'] == 'WORKSPACE_SOURCE_READ'
+                   for d in rejected['diagnostics']), rejected
+        path.write_text(updated)
+    envelope('--project', str(story_link_project), 'fmt', '--strip-defaults')
+    for family, (record_id, inspected, _) in linked.items():
+        reopened = envelope('--project', str(story_link_project),
+                            'entity', 'inspect', family, record_id)['record']
+        assert reopened == inspected, (family, reopened, inspected)
+    story_archive = root / 'narrative-links.ntproject'
+    envelope('--project', str(story_link_project), 'project', 'export',
+             '--output', str(story_archive))
+    story_import = root / 'narrative-links-imported'
+    envelope('project', 'import', str(story_archive), str(story_import))
+    for family, (record_id, inspected, _) in linked.items():
+        imported = envelope('--project', str(story_import),
+                            'entity', 'inspect', family, record_id)['record']
+        assert imported == inspected, (family, imported, inspected)
+    print('Native narrative references: schema rejection, nested identity, fmt, export/import passed.')
+
+    # Compare real native runtime packages, not just TypeScript compiler output.
+    # Distinct project source paths must never leak Story locators into gameplay.
+    with (story_link_project / 'project.yaml').open('a', encoding='utf-8') as manifest:
+        manifest.write('\nentrypoint:\n  kind: room\n  id: story-rooms\n')
+    unlinked = root / 'narrative-unlinked'
+    shutil.copytree(story_link_project, unlinked,
+                    ignore=shutil.ignore_patterns('.noveltea'))
+    for source_path in (unlinked / 'records').rglob('*.yaml'):
+        value = source_path.read_text()
+        value = re.sub(r'(?m)^\s*narrativeRefs: \[[^\n]*\]\n', '', value)
+        source_path.write_text(value)
+    linked_package = root / 'linked-game.ntpkg'
+    unlinked_package = root / 'unlinked-game.ntpkg'
+    for project_root, output in [(story_link_project, linked_package),
+                                 (unlinked, unlinked_package)]:
+        exported = envelope('--project', str(project_root), 'package', 'export',
+                            '--output', str(output), timeout=180)
+        assert exported['success'] and output.is_file()
+    assert linked_package.read_bytes() == unlinked_package.read_bytes(), (
+        'Author-only narrativeRefs changed the native compiled runtime package.')
+    print('Native compiled Runtime Package bytes unchanged by narrative-only references.')
+
     # Font coverage is a public validation contract, not only static YAML admission.
     coverage_root = root / 'font-coverage'
     envelope('project', 'create', str(coverage_root), '--name', 'Native Font Coverage')

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { narrativeRefsField } from './authoring-narrative-references';
 import { nativeOperation } from './native-schema-operations';
 import { parseAssetData } from './authoring-assets';
 import { entityIdSchema, layoutContractIdSchema } from './authoring-common';
@@ -162,6 +163,7 @@ const sceneRuntimeWorldOperationSchema = z.discriminatedUnion('kind', [
 ]);
 
 const commonRuntimeStep = {
+  ...narrativeRefsField,
   id: entityIdSchema,
   label: z.string().min(1),
   enabled: z.boolean().default(true),
@@ -512,6 +514,7 @@ const transitionGroupStepSchema = strict({
   children: z.array(transitionGroupChildSchema).min(1),
 });
 const commentStepSchema = strict({
+  ...narrativeRefsField,
   id: entityIdSchema,
   label: z.string().min(1),
   type: z.literal('comment'),
