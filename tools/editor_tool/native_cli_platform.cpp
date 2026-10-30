@@ -1426,7 +1426,23 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                         ? "No platform export profiles are configured."
                         : "Multiple platform export profiles are configured; pass "
                           "'--profile <id>'.");
-    const auto output = fs::absolute(native_path_from_utf8(options.output)).lexically_normal();
+    auto output = fs::absolute(native_path_from_utf8(options.output)).lexically_normal();
+#if defined(__APPLE__)
+    // /var and /tmp are OS-owned links to /private on macOS. Admit only those
+    // verified system aliases; never canonicalize the remaining path because
+    // user-controlled symlink parents must still fail publication validation.
+    const auto first = output.begin() == output.end() ? output.end() : std::next(output.begin());
+    if (first != output.end() && (*first == "var" || *first == "tmp")) {
+        const auto alias = output.root_path() / *first;
+        std::error_code error;
+        if (fs::is_symlink(fs::symlink_status(alias, error)) && !error) {
+            const auto canonical = fs::canonical(alias, error);
+            const auto expected = output.root_path() / "private" / *first;
+            if (!error && canonical == expected)
+                output = (canonical / output.lexically_relative(alias)).lexically_normal();
+        }
+    }
+#endif
     if (output.filename().empty())
         return fail("export.output_invalid", "/output", "Platform export output is invalid.");
 

@@ -126,6 +126,21 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
     arguments = ('--project', project, 'platform', 'export', '--profile',
                  'canonical-macos', '--template', token, '--output', output,
                  '--allow-untrusted-template', '--allow-localization-warnings')
+    # The system-owned /var alias is allowed, but a symlink below the trusted
+    # temporary root must still be rejected before preflight or publication.
+    real_parent = root / 'real-output-parent'
+    real_parent.mkdir()
+    linked_parent = root / 'linked-output-parent'
+    linked_parent.symlink_to(real_parent, target_is_directory=True)
+    unsafe_args = list(arguments)
+    unsafe_args[unsafe_args.index('--output') + 1] = linked_parent / 'unsafe.app'
+    refused = subprocess.run([str(cli), '--no-daemon', '--json',
+                              *map(str, unsafe_args), '--check'], cwd=root,
+                             env=environment, capture_output=True, text=True, timeout=240)
+    assert refused.returncode == 4 and not refused.stderr, refused
+    assert json.loads(refused.stdout)['diagnostics'][0]['code'] == (
+        'platform-output-symlink-forbidden'), refused.stdout
+    assert not (real_parent / 'unsafe.app').exists()
     assert invoke(*arguments, '--check')['success']
     assert not output.exists(), 'Read-only macOS export check published a bundle.'
     published = invoke(*arguments)
@@ -142,7 +157,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
         (item for item in published['artifacts'] if item['kind'] == 'manifest'), None)
     assert manifest_artifact is not None, published
     manifest_file = Path(manifest_artifact['path'])
-    assert manifest_file == root / 'Tea Fixture-export-manifest.json', manifest_artifact
+    # Platform publication resolves the verified macOS /var -> /private/var
+    # system alias while preserving rejection of user-controlled symlinks.
+    assert manifest_file.resolve() == (root / 'Tea Fixture-export-manifest.json').resolve(), (
+        manifest_artifact)
     assert manifest_file.is_file(), (manifest_artifact, sorted(p.name for p in root.iterdir()))
     manifest = json.loads(manifest_file.read_text())
     assert manifest['deployment']['target'] == 'macos'
