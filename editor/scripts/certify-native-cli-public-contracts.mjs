@@ -73,11 +73,14 @@ try {
   const help = spawnSync(cli, ['--help'], { env: environment, encoding: 'utf8', timeout: 30_000 });
   assert.ifError(help.error);
   assert.equal(help.status, 0);
-  assert.match(help.stdout, /^NovelTea headless CLI\n\nUsage:/);
-  assert.match(help.stdout, /\bcomfyui workflows\b/);
-  assert.match(help.stdout, /\bplatform export\b/);
+  // The Windows CRT translates the native CLI's LF help text to CRLF.
+  // Normalize presentation line endings, not the actual command output contract.
+  const helpText = help.stdout.replace(/\r\n/g, '\n');
+  assert.match(helpText, /^NovelTea headless CLI\n\nUsage:/);
+  assert.match(helpText, /\bcomfyui workflows\b/);
+  assert.match(helpText, /\bplatform export\b/);
   assert.equal(help.stderr, '');
-  assert.doesNotMatch(help.stdout, /__editor-native/);
+  assert.doesNotMatch(helpText, /__editor-native/);
   // The packaged Electron editor uses the same installed native CLI for its
   // private operations; this is not a public command in the 39-path inventory.
   const internal = (operation, payload) => {
