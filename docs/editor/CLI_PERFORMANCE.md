@@ -106,10 +106,30 @@ native-disk validation regression passed 425 assertions across seven cases.
 The relocated Release daemon-owner certification and six-stage native CLI
 performance gate passed. The editor check and full editor test suite passed
 (2,103 tests passed; 135 skipped), as did clang-format and Release/Debug
-build targets. This slice did not run Windows/macOS runtime
-verification, mount-namespace escape tests or an intentional concurrent
-symlink-swap stress harness; Linux revalidation and the existing
-cross-platform fallback are not proof of those untested configurations.
+build targets. The initial local certification did not exercise other host
+platforms or an intentional concurrent symlink-swap TOCTOU harness; the
+cross-host matrix and subsequent Linux stress tests are noted below.
+
+**Completion qualification:** The Linux mount-namespace fixture in
+`tests/native_cli/source_observation_mount.py` passed with an actual bind
+mount: a contained mounted Lua source was accepted, a symlink from the
+mounted directory to an outside file was rejected, and removal restored
+valid admission. Bind mounts themselves retain the preexisting lexical
+Project-root policy; this does not establish a new physical-filesystem
+boundary. The companion `source_observation_race.py` performed **276 source
+creates/deletes during three direct CLI validations**. All three ongoing
+observations rejected the continuously unstable source state; both settled
+membership states subsequently validated. The race harness asserts recovery
+and protocol consistency rather than requiring a machine-dependent number
+of rejected requests. Both scripts are wired into Linux host CLI CI; the
+mount test skips on Linux agents without user/mount namespace privileges.
+Native authoring host CI now also executes the complete Project-session and
+clean-cache-correctness certifications on Windows, macOS, and Linux. This
+adds cross-host execution coverage to the existing ordinary-source tests;
+Windows symlink creation remains guarded when permissions or native APIs
+do not support it. No claim is made that this stress harness atomically
+prevents all concurrent symlink-swap TOCTOU windows; that would require a
+separately designed descriptor-relative source-reading boundary.
 
 ### #573: eliminate per-Message translation DOM copies (2026-10-30)
 

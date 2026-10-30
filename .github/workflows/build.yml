@@ -151,6 +151,8 @@ jobs:
         run: node editor/scripts/build-native-authoring-addon.mjs
       - name: Certify real native Project operations and source transactions
         run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(contracts|yaml|room_session|room_map|yaml_transaction)$'
+      - name: Certify cross-platform source observation and clean-cache proofs
+        run: ctest --test-dir build/native-authoring-host --output-on-failure -R '^native_authoring_(project_session|clean_cache_correctness)$'
       - name: Bundle dedicated Project worker
         run: pnpm -C editor exec vp pack
       - name: Certify native worker session / external watcher / revision / recovery
@@ -543,6 +545,11 @@ jobs:
 
       - name: Benchmark native CLI Project admission and warm source revisions
         run: node editor/scripts/certify-native-cli-performance.mjs "$PWD/build/cli/linux/noveltea"
+
+      - name: Certify concurrent source membership and mount containment
+        run: |
+          python3 tests/native_cli/source_observation_race.py "$PWD/build/cli/linux/noveltea" "$PWD"
+          python3 tests/native_cli/source_observation_mount.py "$PWD/build/cli/linux/noveltea" "$PWD"
 
       - name: Certify native CLI platform preflight and publication parity
         run: node editor/scripts/certify-native-cli-platform.mjs "$PWD/build/cli/linux/noveltea"
