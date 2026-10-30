@@ -202,10 +202,20 @@ public:
     struct CleanValidation {
         RoomSessionSnapshot snapshot;
         bool cache_hit = false;
+        // Only populated for a valid public validation which defers clean-cache
+        // publication until its later independent preparation generation proof.
+        std::optional<std::map<std::string, std::string>> deferred_exact_revisions;
+        std::string deferred_resident_json;
     };
     // The native disk owner may have just observed the same source authority
     // before entering this serialized validation call.
-    CleanValidation validate_clean_project(bool initially_observed = false);
+    CleanValidation validate_clean_project(bool initially_observed = false,
+                                           bool defer_valid_publication = false);
+    // Accept only the same byte-exact path set as validation's pre-proof.
+    // The caller must obtain post-proof evidence after complete preparation.
+    bool
+    publish_deferred_clean_validation(const CleanValidation& validated,
+                                      const std::map<std::string, std::string>& post_revisions);
     struct ValidationWork {
         std::size_t rechecked_records = 0;
         std::size_t retained_records = 0;
@@ -388,6 +398,10 @@ public:
     std::optional<std::map<std::string, std::string>> verified_source_revisions() const
     {
         return source_authority_->verified_revisions();
+    }
+    const std::map<std::string, std::string>* verified_source_revisions_view() const noexcept
+    {
+        return source_authority_->verified_revisions_view();
     }
     std::uint64_t source_capture_count() const noexcept
     {

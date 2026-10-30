@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -15,6 +16,13 @@ namespace noveltea::authoring {
 
 // Common physical-byte identity used by the YAML session and source observer.
 std::string exact_source_revision(std::string_view bytes);
+
+// Opt-in, per-physical-read diagnostics. The caller supplies the proof phase;
+// this never authorizes digest reuse across separate observations.
+void trace_exact_asset_proof(std::string_view phase, std::string_view relative_path,
+                             std::size_t bytes) noexcept;
+void trace_source_proof_event(std::string_view phase, std::string_view event,
+                              std::size_t count = 1) noexcept;
 
 struct SourceDelta {
     std::vector<std::string> added;
@@ -76,6 +84,9 @@ public:
     std::vector<std::string> invalid_source_paths() const;
     // Only usable after a successful full observation; never a watcher-only proof.
     std::optional<std::map<std::string, std::string>> verified_revisions() const;
+    // Synchronous callers may inspect the immutable observed map without
+    // copying it. Never retain this pointer across observe()/writes.
+    const std::map<std::string, std::string>* verified_revisions_view() const noexcept;
     // Counts full physical scans (including retries) by this resident authority.
     std::uint64_t source_capture_count() const noexcept { return source_capture_count_; }
     // Physical Asset media changes do not change the Asset's YAML revision.

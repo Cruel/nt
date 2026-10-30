@@ -1643,6 +1643,50 @@ void certify_shader_preparation(const std::filesystem::path& source)
     require(!command(refreshed_proof).value("ok", false),
             "A newly discovered shader source revokes the captured generation.");
 }
+
+void certify_validation_exact_asset_boundary(const std::filesystem::path& source)
+{
+    Fixture fixture(source);
+    const auto root = fixture.root.string();
+    const auto validate = [&]() {
+        return disk_validate({{"action", "validate"}, {"projectRoot", root}});
+    };
+    for (const auto* relative : {"assets/images/girl_normal.webp", "assets/fonts/DejaVuSans.ttf",
+                                 "shaders/lab-grade.fs.sc"}) {
+        const auto asset = fixture.root / relative;
+        const auto original = read(asset);
+        const auto original_time = std::filesystem::last_write_time(asset);
+        require(!original.empty(), "Physical proof fixture contains a binary Asset");
+        const auto initial = validate();
+        require(initial.value("ok", false) && initial.value("valid", false) &&
+                    initial.contains("sourceGeneration"),
+                "The native validator publishes a source generation for its consumed inputs");
+        const auto proof = Json{{"action", "source-generation-proof"},
+                                {"projectRoot", root},
+                                {"expectedSourceGeneration", initial.at("sourceGeneration")}};
+        require(disk_validate(proof).value("ok", false),
+                "The native final proof accepts unchanged Project bytes");
+
+        auto overwritten = original;
+        overwritten[overwritten.size() / 2] ^= 1;
+        write(asset, overwritten);
+        std::filesystem::last_write_time(asset, original_time);
+        const auto conflict = disk_validate(proof);
+        require(!conflict.value("ok", true) && conflict.value("kind", std::string{}) == "conflict",
+                "An independently triggered post-preparation proof rejects a binary or shader "
+                "overwrite even when its size and mtime are restored");
+
+        write(asset, original);
+        std::filesystem::last_write_time(asset, original_time);
+        const auto recovered = validate();
+        require(recovered.value("ok", false) && recovered.value("valid", false) &&
+                    disk_validate({{"action", "source-generation-proof"},
+                                   {"projectRoot", root},
+                                   {"expectedSourceGeneration", recovered.at("sourceGeneration")}})
+                        .value("ok", false),
+                "After a rejected physical conflict, a new Project proof can be established");
+    }
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1686,6 +1730,7 @@ int main(int argc, char** argv)
         require(argc == 2, "Expected one Project fixture root.");
         certify(argv[1]);
         certify_shader_preparation(argv[1]);
+        certify_validation_exact_asset_boundary(argv[1]);
         std::cout << "Native CLI Project certification passed.\n";
         return 0;
     } catch (const std::exception& error) {

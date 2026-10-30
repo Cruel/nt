@@ -8,6 +8,8 @@
 #include <array>
 #include <chrono>
 #include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -22,6 +24,27 @@
 #endif
 
 namespace noveltea::authoring {
+
+void trace_exact_asset_proof(std::string_view phase, std::string_view relative_path,
+                             std::size_t bytes) noexcept
+{
+    static const bool enabled = std::getenv("NOVELTEA_NATIVE_PROOF_TRACE") != nullptr;
+    if (enabled)
+        std::fprintf(stderr, "[native-proof] phase=%.*s asset=%.*s bytes=%zu hashes=1 reads=1\n",
+                     static_cast<int>(phase.size()), phase.data(),
+                     static_cast<int>(relative_path.size()), relative_path.data(), bytes);
+}
+
+void trace_source_proof_event(std::string_view phase, std::string_view event,
+                              std::size_t count) noexcept
+{
+    static const bool enabled = std::getenv("NOVELTEA_NATIVE_PROOF_TRACE") != nullptr;
+    if (enabled)
+        std::fprintf(stderr, "[native-proof] phase=%.*s event=%.*s count=%zu\n",
+                     static_cast<int>(phase.size()), phase.data(), static_cast<int>(event.size()),
+                     event.data(), count);
+}
+
 namespace {
 thread_local const SourceAuthority* current_project_sources = nullptr;
 }
@@ -516,6 +539,7 @@ SourceAuthority::Capture SourceAuthority::capture() const
     for (const auto& [parent, canonical] : verified_parents)
         if (std::filesystem::weakly_canonical(root_ / parent) != canonical)
             throw std::runtime_error("Project source directory changed during observation.");
+    trace_source_proof_event("source-observation", "complete-capture");
     return result;
 }
 
@@ -607,9 +631,14 @@ std::vector<std::string> SourceAuthority::invalid_source_paths() const
 
 std::optional<std::map<std::string, std::string>> SourceAuthority::verified_revisions() const
 {
-    if (!initialized_ || uncertain_ || !invalid_sources_.empty())
-        return std::nullopt;
-    return baseline_;
+    if (const auto* view = verified_revisions_view())
+        return *view;
+    return std::nullopt;
+}
+
+const std::map<std::string, std::string>* SourceAuthority::verified_revisions_view() const noexcept
+{
+    return initialized_ && !uncertain_ && invalid_sources_.empty() ? &baseline_ : nullptr;
 }
 
 const VerifiedProjectSource* SourceAuthority::verified_source(std::string_view relative) const
@@ -684,6 +713,8 @@ SourceObservation SourceAuthority::observe()
         }
         if (!stable)
             throw std::runtime_error("Project changed continuously during physical observation.");
+        if (observation.full_rescan)
+            trace_source_proof_event("source-observation", "watcher-recovery");
         for (const auto& [path, revision] : captured.revisions) {
             const auto previous = baseline_.find(path);
             const auto prior = previous == baseline_.end() ? "absent" : previous->second;
@@ -722,6 +753,7 @@ SourceObservation SourceAuthority::observe()
         observation.watch_paths.assign(hinted_paths_.begin(), hinted_paths_.end());
         hinted_paths_.clear();
     } catch (const std::exception& e) {
+        trace_source_proof_event("source-observation", "conflict");
         uncertain_ = true;
         observation.full_rescan = true;
         observation.error = e.what();

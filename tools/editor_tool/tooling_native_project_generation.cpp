@@ -5,7 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
-#include <iterator>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -17,20 +17,26 @@ using noveltea::authoring::ProjectSession;
 // the lightweight runtime-cache test seam without linking all editor tooling.
 std::string native_project_source_generation(const ProjectSession& session,
                                              const std::filesystem::path& root,
-                                             bool observed_at_entry)
+                                             bool observed_at_entry, std::string_view proof_phase,
+                                             std::map<std::string, std::string>* exact_revisions)
 {
     std::string identity = "native-project-source-generation-v1";
     identity.push_back('\0');
+    std::size_t text_reuse_hits = 0;
     // Scoped authoritative membership is what defines the source generation;
     // unrelated unregistered Asset neighbors cannot advance it.
-    const auto revisions = session.verified_source_revisions();
+    const auto* revisions = session.verified_source_revisions_view();
     if (!revisions)
         throw std::runtime_error("Cannot verify an uncertain native source generation.");
+    if (exact_revisions)
+        exact_revisions->clear();
     for (const auto& [relative, revision] : *revisions) {
         const auto path = root / std::filesystem::path(relative);
         identity.append(relative).push_back('\0');
         if (revision == "absent") {
             identity.append("absent").push_back('\0');
+            if (exact_revisions)
+                exact_revisions->emplace(relative, "absent");
         } else {
             if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
                 throw std::runtime_error("Cannot verify native source generation: " + relative);
@@ -39,18 +45,32 @@ std::string native_project_source_generation(const ProjectSession& session,
             // still require a fresh byte-exact digest for generation proof.
             if (observed_at_entry && !revision.starts_with("physical:")) {
                 identity.append(revision).push_back('\0');
+                if (exact_revisions)
+                    exact_revisions->emplace(relative, revision);
+                ++text_reuse_hits;
                 continue;
             }
             std::ifstream input(path, std::ios::binary);
             if (!input)
                 throw std::runtime_error("Cannot read tracked localization source.");
-            const std::string bytes{std::istreambuf_iterator<char>(input),
-                                    std::istreambuf_iterator<char>()};
-            if (input.bad())
+            const auto size = std::filesystem::file_size(path);
+            if (size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+                throw std::runtime_error("Tracked source exceeds native digest capacity.");
+            std::string bytes(static_cast<std::size_t>(size), '\0');
+            if (!input.read(bytes.data(), static_cast<std::streamsize>(size)) ||
+                input.peek() != std::char_traits<char>::eof() ||
+                std::filesystem::file_size(path) != size)
                 throw std::runtime_error("Cannot finish localization source read.");
-            identity.append(exact_source_revision(bytes)).push_back('\0');
+            auto digest = exact_source_revision(bytes);
+            identity.append(digest).push_back('\0');
+            if (exact_revisions)
+                exact_revisions->emplace(relative, std::move(digest));
+            if (revision.starts_with("physical:"))
+                noveltea::authoring::trace_exact_asset_proof(proof_phase, relative, bytes.size());
         }
     }
+    if (text_reuse_hits)
+        noveltea::authoring::trace_source_proof_event(proof_phase, "text-reuse", text_reuse_hits);
     return exact_source_revision(identity);
 }
 

@@ -1789,6 +1789,11 @@ int project_read(const Arguments& args, std::string action)
     request["projectRoot"] = root_text;
     const auto response = native_request(request);
     if (action == "project-validate") {
+        if (!response.value("ok", false) && response.value("kind", std::string{}) == "conflict") {
+            const auto message =
+                response.value("error", std::string("Project sources changed during validation."));
+            return failure(args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/", message, message);
+        }
         if (!response.value("ok", false) &&
             response.value("error", std::string{})
                 .starts_with("Portable Project source is missing:")) {

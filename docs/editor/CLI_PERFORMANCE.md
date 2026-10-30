@@ -13,6 +13,130 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #572: exact Asset proof boundaries and diagnostics
+
+The native owner retains these distinct byte-exact SHA-256 checks on a successful
+changed-label public validation:
+
+1. Clean-validation pre-proof: checks the physical Asset bytes alongside the
+   exact text revisions captured at request admission.
+2. Preparation source generation: rehashes binary Assets **after** semantic
+   validation and complete Project/font/Material source preparation, and
+   binds those inputs to the public `sha256:` generation identity. Its exact
+   path/digest map is compared to the pre-proof and, only on a match, reused
+   to publish the durable clean cache. A standalone editor validation still
+   publishes with its own independent post-validation proof; it never trusts
+   metadata-only `physical:size:mtime` hints.
+3. Final public proof: independently rehashes the same Assets after external
+   font coverage and shader processing. Its pre/post physical observations
+   check source membership and containment. This second generation cannot
+   reuse preparation digests, even when size and mtime are unchanged.
+
+For a warm label edit, the standalone post-validation cache-publication
+digest pass is no longer needed by the public native owner: it is merged into
+the later preparation proof only while both checks are inside the same
+serialized request. On a clean-cache hit, the initial exact cache proof and
+the *final* exact proof remain separate, but an intermediate identical proof
+previously made between cache loading and contributor hydration is unnecessary:
+the final proof covers both activities before returning a cached result.
+The revision map is consumed through an observation-scoped read-only view
+rather than copied merely to iterate; it must not be retained across source
+observation.
+On a cache miss in the same request, the exact cache-admission map is also the
+pre-validation digest evidence; it does not need a second immediately adjacent
+binary pass. The independently re-observed post-preparation generation must
+still match that pre-validation map. Any uncertain/rejected cache hydration
+revokes this evidence and falls back to a full physical observation.
+Native generation uses bounded bulk reads rather than allocating its entire
+file one byte at a time. The resulting source generation string, SHA-256
+algorithm and durable clean-cache format remain unchanged.
+
+Set `NOVELTEA_NATIVE_PROOF_TRACE=1` **on the native owner process** for
+debugging. Its stderr reports `[native-proof]` records for each physical
+Asset read/hash (`phase`, `asset`, `bytes`, `hashes=1`, `reads=1`), each complete
+source capture, text SHA reuse within the immediately observed generation,
+and selected conflicts/recovery. Group records by phase and sum `bytes` to
+reconstruct the source-work timeline. Use `noveltea --no-daemon` to capture
+stderr directly: detached daemon-owner stderr may be redirected and is not
+guaranteed to appear in the client output. Ordinary Release requests do not emit
+these records; this opt-in trace is not a public CLI diagnostic or a cache.
+It does not authorize reusing digest evidence across external operations,
+between distinct requests, or after any uncertainty about source authority.
+
+#### Reproduced proof-work reduction (2026-10-29)
+
+On this Linux dev-lawdeep checkout, two successive local Release CLI builds
+were run against identical disposable Feature Lab copies. Each copy was first
+validated with `--no-daemon`, then the home Room's `label` was changed and a
+second direct validation ran with `NOVELTEA_NATIVE_PROOF_TRACE=1`. The earlier
+build included the post-preparation publication consolidation but still
+performed a separate second pre-proof after a cold cache miss. The later
+build reuses that already verified cache-admission proof:
+
+| Changed-label `--no-daemon` trace | Before final pre-proof reuse | After |
+|---|---:|---:|
+| Referenced physical binary Assets | 25 | 25 |
+| Byte-exact pre-proof passes | 2 | 1 |
+| Byte-exact preparation-generation passes | 1 | 1 |
+| Byte-exact final-generation passes | 1 | 1 |
+| Complete source captures | 7 | 7 |
+| Asset digest reads/hashes | 100 | 75 |
+| Asset bytes read/hashed | 35,604,788 | 26,703,591 |
+
+Each full pass reads 8,901,197 Asset bytes, including `ipag.ttf` (6,235,344),
+`DejaVuSans.ttf` (759,720), and `DejaVuSans-Bold.ttf` (708,920). The later
+generation phases each reuse 370 observed exact text revisions but **never**
+reuse a binary Asset digest across the shader/compiler boundary. This is a
+25% reduction in direct-route physical Asset digest work for this edit, not
+a 25% expected wall-clock reduction. On a resident warm owner, cache-admission
+is normally skipped; the pre, preparation and final passes remain independent.
+
+The final Release CLI was also measured using
+`python3 tests/native_cli/validation_performance.py build/cli/linux/noveltea .`
+with an isolated native daemon runtime and three changed-label validations
+per project, following cold and unchanged validations:
+
+| Project | Cold (ms) | Unchanged (ms) | Median changed label (ms) |
+|---|---:|---:|---:|
+| Feature Lab | 3,332.80 | 13.24 | **476.93** |
+| 1 Room | 106.41 | 5.83 | **14.18** |
+| 101 Rooms | 202.13 | 9.09 | **52.25** |
+| 501 Rooms | 632.09 | 22.01 | **204.02** |
+
+The earlier #572 ticket recorded ~522.2 ms for the Feature Lab changed-label
+median on `e1de9493`; this newer 476.93 ms observation is directionally lower,
+but the two measurements were not made as a controlled same-host A/B. The
+investigative Feature Lab target below 200 ms is still unmet and is not a CI
+acceptance threshold. The direct-route proof counters above *were* measured
+in matched before/after runs on the same checkout and machine.
+
+An independent **post-change resident daemon-owner CPU profile** sampled
+12 successive Feature Lab label edits using
+`perf record -e cycles:u -F 599 -p <owner-pid>` with the Release CLI and a
+disposable isolated native daemon. Its 3,068 samples had zero reported losses;
+the 12 edits had a 480.13 ms wall-time median (range 470.74–502.15 ms).
+`exact_source_revision()` still contributed **27.86%** of exclusive sampled
+user-mode cycles and `__memcmp_avx2_movbe` **5.85%**. This is remaining
+CPU work, not the performance savings from eliminating a duplicate pass.
+The earlier ticket's 29.52% SHA-256 profile used a different build/session,
+so those sample percentages are directional, not a controlled before/after
+CPU improvement claim. Source-authority fences and independent final physical
+digests remain potential optimization costs, not redundant work to remove.
+
+Regression qualification in this checkout: Linux Release CLI build and its
+relocation smoke, the Debug native Project-session certification, the Debug
+native CLI Project certification, `tests/native_cli/daemon_owner.py`, the
+six-stage `editor/scripts/certify-native-cli-performance.mjs`, and the
+1/101/501-Room and Feature Lab benchmark all passed. A disposable Feature Lab
+validation compared `--no-daemon` and daemon routes on unchanged and edited
+Room sources and observed equal public diagnostics and exit status. The added
+native certifications independently overwrite an image, a font, and a shader
+with original size/mtime retained between generation creation and final proof;
+all old-generation proofs reject, followed by successful recovery. The clean
+cache certification independently rejects an overwritten binary Asset with
+its original size/mtime restored. These checks exercise fixed source-boundary
+mutations rather than depending on scheduler-sensitive timing.
+
 ## Reproduction and build identity
 
 The measured installed executable was `build/cli/linux/noveltea`, SHA-256

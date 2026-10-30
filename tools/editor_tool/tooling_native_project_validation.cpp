@@ -409,10 +409,13 @@ Json validate(std::string_view request_text)
         // Bracket exact content hashing (including binary Assets) with retained
         // membership/containment observations. Watcher hints never certify bytes.
         if (!unchanged() ||
-            native_project_source_generation(*state.session, root, true) !=
+            native_project_source_generation(*state.session, root, true,
+                                             "validation-final-generation") !=
                 request.at("expectedSourceGeneration").get<std::string>() ||
-            !unchanged())
+            !unchanged()) {
+            noveltea::authoring::trace_source_proof_event("validation-final", "conflict");
             return conflict();
+        }
         return {{"ok", true}, {"sessionAdmissions", state.session_admissions}};
     }
     if (request.value("action", std::string("validate")) != "validate")
@@ -462,7 +465,7 @@ Json validate(std::string_view request_text)
         return response_for(*cold, false, {});
     }
     trace_native_validation("starting resident Project validation");
-    const auto validated = state.session->validate_clean_project(true);
+    const auto validated = state.session->validate_clean_project(true, true);
     trace_native_validation("resident Project validation returned");
     auto result = response_for(validated.snapshot, warm, state.session->validation_work());
     result["cacheHit"] = validated.cache_hit;
@@ -551,7 +554,14 @@ Json validate(std::string_view request_text)
         if (!final_observation.authoritative || !final_observation.unchanged ||
             final_observation.full_rescan)
             throw std::runtime_error("Project sources changed during validation preparation.");
-        result["sourceGeneration"] = native_project_source_generation(*state.session, root, true);
+        std::map<std::string, std::string> post_revisions;
+        result["sourceGeneration"] = native_project_source_generation(
+            *state.session, root, true, "validation-preparation-generation",
+            validated.deferred_exact_revisions ? &post_revisions : nullptr);
+        if (!state.session->publish_deferred_clean_validation(validated, post_revisions))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during validation preparation."}};
     }
     result["work"]["sourceCaptures"] = state.session->source_capture_count() - captures_before;
     result["work"]["localizationRecordsReused"] =

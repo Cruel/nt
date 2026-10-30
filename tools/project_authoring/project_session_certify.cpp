@@ -1921,6 +1921,21 @@ void clean_cache_correctness_roundtrip(const std::filesystem::path& fixture)
     auto imported = ProjectSession::open(temp.root, error);
     require(imported != nullptr && imported->validate_clean_project().cache_hit,
             "An independent clean host rehydrates verified native contributors");
+    // A replaced Asset can preserve both file size and timestamp. A separate
+    // reader must reject the clean cache even when watcher metadata is silent.
+    const auto asset_path = temp.root / "assets/images/girl_normal.webp";
+    const auto original_asset = read(asset_path);
+    const auto original_time = std::filesystem::last_write_time(asset_path);
+    require(!original_asset.empty(), "Fixture provides a physical binary Asset");
+    auto replaced_asset = original_asset;
+    replaced_asset[replaced_asset.size() / 2] ^= 1;
+    write(asset_path, replaced_asset);
+    std::filesystem::last_write_time(asset_path, original_time);
+    auto replaced_host = ProjectSession::open(temp.root, error);
+    require(replaced_host != nullptr && !replaced_host->validate_clean_project().cache_hit,
+            "Clean cache rejects same-size, timestamp-restored binary Asset changes");
+    write(asset_path, original_asset);
+    std::filesystem::last_write_time(asset_path, original_time);
     const auto room_path = temp.root / "records/rooms/dependent.yaml";
     const auto original = read(room_path);
     auto invalid = original;

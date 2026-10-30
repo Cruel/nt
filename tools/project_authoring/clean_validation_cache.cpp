@@ -108,18 +108,20 @@ bool transactions_settled(const fs::path& root)
 }
 
 std::optional<std::map<std::string, std::string>>
-exact_proof(const fs::path& root, const std::optional<std::map<std::string, std::string>>& observed)
+exact_proof(const fs::path& root, const std::map<std::string, std::string>* observed,
+            std::string_view phase)
 {
     if (!observed)
         return std::nullopt;
     auto revisions = *observed;
+    const auto canonical_root = fs::canonical(root);
     // SourceAuthority avoids hashing large binary Assets for ordinary watcher
     // polling. Clean result admission is stricter: no size+mtime-only proof.
     for (auto& [relative, revision] : revisions) {
         if (!revision.starts_with("physical:"))
             continue;
         const fs::path path = root / relative;
-        const auto contained = fs::weakly_canonical(path).lexically_relative(fs::canonical(root));
+        const auto contained = fs::weakly_canonical(path).lexically_relative(canonical_root);
         if (!fs::is_regular_file(path) || fs::is_symlink(fs::symlink_status(path)) ||
             contained.empty() || *contained.begin() == "..")
             return std::nullopt;
@@ -127,6 +129,7 @@ exact_proof(const fs::path& root, const std::optional<std::map<std::string, std:
         if (!bytes)
             return std::nullopt;
         revision = exact_source_revision(*bytes);
+        trace_exact_asset_proof(phase, relative, bytes->size());
     }
     return revisions;
 }
@@ -287,7 +290,8 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
 }
 } // namespace
 
-ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool initially_observed)
+ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool initially_observed,
+                                                                       bool defer_valid_publication)
 {
     const auto resident_state = [&]() -> Json {
         // A contributor bundle is optional acceleration, never the authority
@@ -454,8 +458,10 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
         }
         return true;
     };
-    const auto proof = [&](bool use_latest_observation =
-                               false) -> std::optional<std::map<std::string, std::string>> {
+    const auto proof =
+        [&](bool use_latest_observation = false,
+            std::string_view phase =
+                "cache-admission") -> std::optional<std::map<std::string, std::string>> {
         try {
             if (!transactions_settled(root_))
                 return std::nullopt;
@@ -463,10 +469,10 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                 const auto observation = observe_sources();
                 if (observation.full_rescan || !observation.authoritative)
                     return std::nullopt;
-            } else if (source_authority_->uncertain() || !source_authority_->verified_revisions()) {
+            } else if (!source_authority_->verified_revisions_view()) {
                 return std::nullopt;
             }
-            auto exact = exact_proof(root_, source_authority_->verified_revisions());
+            auto exact = exact_proof(root_, source_authority_->verified_revisions_view(), phase);
             return transactions_settled(root_) ? exact : std::nullopt;
         } catch (...) {
             // Cache IO and physical proof may fail independently of semantic
@@ -559,9 +565,14 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             }
         }
     }
+    std::optional<std::map<std::string, std::string>> cache_admission_evidence;
     if (clean() && !validation_pending_uncertain_ && !validation_snapshot_ &&
         validation_pending_source_revisions_.empty()) {
         if (const auto revisions = proof()) {
+            // This is the same pre-validation source boundary. Cache lookup
+            // itself cannot change tracked sources, and the independent
+            // post-preparation proof must still match these exact digests.
+            cache_admission_evidence = *revisions;
             if (auto cached = read_clean_cache(root_, *revisions, source_->snapshot())) {
                 std::map<std::string, std::string> presentation_sources;
                 for (const auto& [path, revision] : *revisions) {
@@ -576,23 +587,32 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     }
                     presentation_sources.emplace(path, *bytes);
                 }
-                if (proof() == revisions) {
-                    if (cached->resident.is_object()) {
-                        if (hydrate_resident(cached->resident, *revisions, cached->snapshot) &&
-                            proof() == revisions) {
-                            validation_work_ = {};
-                            return {std::move(cached->snapshot), true};
-                        }
-                    } else {
-                        // Inadmissible local YAML can retain its exact invalid
-                        // diagnostic result, but has no safe contributor bundle.
-                        imported_clean_validation_ = cached->snapshot;
-                        imported_clean_revisions_ = *revisions;
-                        imported_clean_sources_ = std::move(presentation_sources);
+                if (cached->resident.is_object()) {
+                    // Only the final independent proof is needed: it protects
+                    // both cache reading and contributor hydration. A proof
+                    // between those two operations hashes every Asset again
+                    // without protecting an additional publication boundary.
+                    if (hydrate_resident(cached->resident, *revisions, cached->snapshot) &&
+                        proof(false, "cache-final") == revisions) {
                         validation_work_ = {};
                         return {std::move(cached->snapshot), true};
                     }
+                } else if (proof(false, "cache-final") == revisions) {
+                    // Inadmissible local YAML can retain its exact invalid
+                    // diagnostic result, but has no safe contributor bundle.
+                    imported_clean_validation_ = cached->snapshot;
+                    imported_clean_revisions_ = *revisions;
+                    imported_clean_sources_ = std::move(presentation_sources);
+                    validation_work_ = {};
+                    return {std::move(cached->snapshot), true};
                 }
+                // Contributor hydration may have installed an optimistic
+                // snapshot before the last physical proof failed. Revoke it
+                // and force a fresh observation/rebuild on the miss path,
+                // including when an Asset changed without metadata changing.
+                source_authority_->coverage_lost();
+                validation_pending_uncertain_ = true;
+                trace_source_proof_event("cache-final", "fallback");
             }
         }
     }
@@ -602,15 +622,52 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     // Cache publication must match the exact generation observed before
     // validation, not merely two identical post-validation manifests.
     const auto validated_input =
-        clean() && !validation_pending_uncertain_ ? proof(initially_observed) : std::nullopt;
+        clean() && !validation_pending_uncertain_
+            ? (cache_admission_evidence ? std::move(cache_admission_evidence)
+                                        : proof(initially_observed, "validation-pre"))
+            : std::nullopt;
     auto snapshot = validate_project(validated_input.has_value());
     const bool completed = validation_snapshot_.has_value() &&
                            validation_snapshot_->working_revision == snapshot.working_revision &&
                            !validation_pending_uncertain_;
     // Rebuilt validation contributions have a final source observation.
     // Recompute exact binary Asset hashes at this boundary in every case.
-    if (clean() && completed && validated_input && proof(true) == validated_input)
-        publish_clean_cache(root_, *validated_input, snapshot, resident_state());
+    if (clean() && completed && validated_input) {
+        if (defer_valid_publication && snapshot.valid)
+            return {std::move(snapshot), false, std::move(validated_input),
+                    resident_state().to_string()};
+        if (proof(true, "validation-publication") == validated_input)
+            publish_clean_cache(root_, *validated_input, snapshot, resident_state());
+    }
     return {std::move(snapshot), false};
+}
+
+bool ProjectSession::publish_deferred_clean_validation(
+    const CleanValidation& validated, const std::map<std::string, std::string>& post_revisions)
+{
+    if (!validated.deferred_exact_revisions)
+        return true; // Reused cache evidence was independently proven earlier.
+    if (*validated.deferred_exact_revisions != post_revisions || !transactions_settled(root_) ||
+        validation_pending_uncertain_ || !validation_pending_source_revisions_.empty() ||
+        !validation_snapshot_ || !validated.snapshot.valid ||
+        validation_snapshot_->working_revision != validated.snapshot.working_revision ||
+        source_->snapshot().dirty || !shader_overlays_.empty() || !text_source_overlays_.empty()) {
+        trace_source_proof_event("validation-preparation-generation", "conflict");
+        source_authority_->coverage_lost();
+        validation_pending_uncertain_ = true;
+        return false;
+    }
+    for (const auto& [owner, record] : records_) {
+        (void)owner;
+        if (record->snapshot().dirty)
+            return false;
+    }
+    try {
+        publish_clean_cache(root_, post_revisions, validated.snapshot,
+                            Json::parse(validated.deferred_resident_json));
+    } catch (...) {
+        // A malformed optional cache must never make a validated Project fail.
+    }
+    return true;
 }
 } // namespace noveltea::authoring
