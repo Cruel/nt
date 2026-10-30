@@ -28,7 +28,9 @@ private:
 #endif
 };
 
-void validate_platform_publication_path(const std::filesystem::path& destination);
+// Preflight reports unsafe paths as data, never by throwing across a CLI boundary.
+std::optional<std::string>
+validate_platform_publication_path(const std::filesystem::path& destination);
 
 // Resolved, strict editor/user-local configuration for exactly one export
 // invocation. The caller selects a matching signer before constructing this

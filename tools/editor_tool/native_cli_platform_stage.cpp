@@ -211,17 +211,27 @@ fs::path journal_path(const fs::path& destination)
     return native_path_from_utf8(path_text(destination) + ".noveltea-publication-transaction.json");
 }
 
-void validate_parents(const fs::path& destination)
+std::optional<std::string> publication_parent_issue(const fs::path& destination)
 {
     if (!destination.is_absolute() || destination.filename().empty())
-        throw std::runtime_error("Platform publication destination must be an absolute file path.");
+        return "Platform publication destination must be an absolute file path.";
     for (auto parent = destination.parent_path(); !parent.empty(); parent = parent.parent_path()) {
-        const auto status = fs::symlink_status(parent);
+        std::error_code error;
+        const auto status = fs::symlink_status(parent, error);
+        if (error && error != std::errc::no_such_file_or_directory)
+            return "Cannot inspect platform output parent: " + path_text(parent);
         if (fs::is_symlink(status) || (fs::exists(status) && !fs::is_directory(status)))
-            throw std::runtime_error("Unsafe platform output parent: " + path_text(parent));
+            return "Unsafe platform output parent: " + path_text(parent);
         if (parent == parent.root_path())
             break;
     }
+    return std::nullopt;
+}
+
+void validate_parents(const fs::path& destination)
+{
+    if (const auto issue = publication_parent_issue(destination))
+        throw std::runtime_error(*issue);
 }
 
 std::vector<PublicationEntry> journal_entries(const fs::path& destination, const Json& journal)
@@ -3662,9 +3672,9 @@ validate_native_platform_export_settings(const PlatformResolvedExportSettings& s
     return std::nullopt;
 }
 
-void validate_platform_publication_path(const fs::path& destination)
+std::optional<std::string> validate_platform_publication_path(const fs::path& destination)
 {
-    validate_parents(destination);
+    return publication_parent_issue(destination);
 }
 
 PlatformPublicationLock::PlatformPublicationLock(const fs::path& destination)

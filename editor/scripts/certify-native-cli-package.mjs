@@ -34,7 +34,7 @@ const baseline = independentMode
       NOVELTEA_CLI_CERTIFICATION_POISON_LEGACY_WORKSPACE: '1',
     };
 
-function execute(project, args, noDaemon) {
+function execute(project, args, noDaemon, certifiedDaemon = false) {
   const run = spawnSync(
     cli,
     [...(noDaemon ? ['--no-daemon'] : []), '--json', '--project', project, ...args],
@@ -43,6 +43,7 @@ function execute(project, args, noDaemon) {
         ...baseline,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: daemonId,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRoot,
+        ...(certifiedDaemon ? { NOVELTEA_CLI_CERTIFICATION: '1' } : {}),
       },
       encoding: 'utf8',
       maxBuffer: 32 * 1024 * 1024,
@@ -137,6 +138,16 @@ try {
   // A disposable worker must not publish an older pinned Project over an
   // existing package after the resident owner observes an authored edit.
   const existing = path.join(root, 'default-daemon.ntpkg');
+  // The production comparisons above do not opt into certification routing.
+  // Warm the same isolated broker/worker pool used by the interlock below,
+  // rather than spending the marker deadline on cold Windows daemon startup.
+  const warmed = execute(
+    daemonProject,
+    ['package', 'export', '--allow-localization-warnings', '--output', existing],
+    false,
+    true,
+  );
+  assert.equal(warmed.success, true, JSON.stringify(warmed.diagnostics));
   const previousBytes = await readFile(existing);
   const marker = path.join(root, 'package-snapshot-pinned');
   const child = spawn(
@@ -185,10 +196,14 @@ try {
       if (child.exitCode !== null) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    assert.ok(pinned, `Package worker never pinned a generation: ${stderr}`);
+    assert.ok(
+      pinned,
+      `Package worker never pinned a generation (exit ${child.exitCode}, signal ${child.signalCode}):` +
+        `\nstdout: ${stdout}\nstderr: ${stderr}`,
+    );
     const room = path.join(daemonProject, 'records/rooms/active-text-finish.yaml');
     await writeFile(room, `${await readFile(room, 'utf8')}\n# changed after package pin\n`);
-    const promoted = execute(daemonProject, ['usages', 'rooms', 'active-text-finish'], false);
+    const promoted = execute(daemonProject, ['usages', 'rooms', 'active-text-finish'], false, true);
     assert.equal(promoted.exitCode, 0, JSON.stringify(promoted.diagnostics));
   } finally {
     await writeFile(`${marker}.release`, 'release');
@@ -217,6 +232,7 @@ try {
         ...baseline,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: daemonId,
         NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: daemonRoot,
+        NOVELTEA_CLI_CERTIFICATION: '1',
       },
       encoding: 'utf8',
       timeout: 10_000,

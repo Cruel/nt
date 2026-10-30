@@ -277,6 +277,11 @@ int main()
         std::error_code symlink_error;
         fs::create_directory_symlink(temp / "real", linked, symlink_error);
         if (!symlink_error) {
+            const auto issue = noveltea::cli::validate_platform_publication_path(linked / "dist");
+            require(issue && issue->find("Unsafe platform output parent") != std::string::npos,
+                    "Preflight must report linked output parents without throwing.");
+            require(!noveltea::cli::validate_platform_publication_path(temp / "safe-output"),
+                    "Preflight must accept an ordinary output parent.");
             try {
                 noveltea::cli::PlatformPublicationLock lock(linked / "dist");
                 require(false, "Linked-parent recovery unexpectedly acquired a lock.");

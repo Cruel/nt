@@ -1589,11 +1589,8 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
 
     // Validate the whole output path BEFORE either acquiring ownership or
     // attempting recovery. The reusable recovery entrypoint enforces this too.
-    try {
-        validate_platform_publication_path(output);
-    } catch (const std::exception& error) {
-        return fail("platform-output-symlink-forbidden", "/outputDirectory", error.what());
-    }
+    if (const auto issue = validate_platform_publication_path(output))
+        return fail("platform-output-symlink-forbidden", "/outputDirectory", *issue);
     std::unique_ptr<PlatformPublicationLock> publication_lock;
     if (!options.check) {
         try {
