@@ -262,3 +262,165 @@ Independent fictional occurrence.
                  ('--kind', 'dialogue', '--id', 'character.maya', '--kind', 'dialogue')]:
         assert context(maya, *args, code=2)['diagnostics'][0]['code'] == 'CLI_USAGE'
     print('Context Manifest selection, witnesses, bounded traversal, status, revisions and errors passed.')
+
+    def readiness(path, *options, code=0):
+        run = subprocess.run([str(binary), '--json', 'narrative', 'readiness', str(path),
+                              *options], cwd=root, env=env, capture_output=True, text=True)
+        assert run.returncode == code, (run.returncode, run.stdout, run.stderr)
+        assert not run.stderr, run.stderr
+        value = json.loads(run.stdout)
+        assert value['protocolVersion'] == 1 and value['success'] == (code == 0)
+        return value
+
+    expectations = [
+        ('01-foundation', ('passed', 'needs-work', 'needs-work', 'needs-work', 'needs-work')),
+        ('02-architecture', ('passed', 'passed', 'needs-work', 'needs-work', 'needs-work')),
+        ('03-events', ('passed', 'passed', 'passed', 'needs-work', 'needs-work')),
+        ('04-composition', ('passed', 'passed', 'passed', 'passed', 'unverified')),
+    ]
+    stages = ('foundation', 'architecture', 'interactive', 'composition', 'review')
+    for fixture, expected in expectations:
+        path = source / 'tests/fixtures/narrative/planning-stages' / fixture
+        value = readiness(path)['readiness']
+        actual = tuple(value['design']['stages'][stage]['minimum']
+                       for stage in stages)
+        assert actual == expected, (fixture, actual, expected)
+        assert value['enrichmentAllowed'] is True
+        assert value['qualitative']['status'] == 'not-assessed'
+        for stage in stages:
+            gate = value['design']['stages'][stage]
+            assert all(f['requirementId'] and f['code'] and f['status'] in ('satisfied', 'missing',
+                'blocked', 'unverified') for f in gate['findings'])
+            assert all('path' in f and 'line' in f and 'column' in f
+                       for f in gate['findings'])
+
+    # All-status structural success is not approved-canon readiness.
+    full = readiness(story, '--stage', 'composition')['readiness']
+    assert full['focus']['minimum'] == 'passed'
+    assert full['design']['stages']['review']['minimum'] == 'unverified'
+    assert full['approved']['stages']['foundation']['minimum'] == 'needs-work'
+    assert full['authorization']['status'] == 'not-assessed'
+    assert 'engine-playability' in full['qualitative']['unverified']
+    assert full['outstanding'] == []
+
+    # A later unfinished Milestone must not invalidate an independent
+    # earlier implementation cluster. Editing its prerequisite must.
+    staged = root / 'milestone-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/reference-story', staged)
+    new = staged / 'milestones/later-work.md'
+    new.write_text("""---
+schema: '0.1'
+type: milestone
+id: milestone.later-work
+title: The future opens
+status: draft
+completeness: partial
+decisions: []
+change: A later task is still being designed.
+arcs: [arc.earned-trust]
+fulfillment:
+  any_of: []
+---
+The later work is intentionally unfinished.
+""")
+    before = snapshot(staged)
+    stage_report = readiness(staged, '--stage', 'interactive',
+                             '--milestone', 'milestone.accept-investigation')['readiness']
+    assert stage_report['focus']['minimum'] == 'needs-work'
+    selected = stage_report['clusters'][0]
+    assert selected['id'] == 'milestone.accept-investigation'
+    assert selected['minimum'] == 'passed'
+    assert selected['bounded']['truncated'] is False
+    assert 'milestone.later-work' not in selected['recordIds']
+    assert 'milestone.accept-investigation' in selected['recordIds']
+    assert stage_report['outstanding'] and any(
+        f['id'] == 'milestone.later-work' and f['code'] == 'supply-relationship'
+        and f['requiredBy'] == 'interactive' for f in stage_report['outstanding'])
+    assert snapshot(staged) == before
+    assert readiness(staged, '--stage', 'interactive', '--milestone',
+                     'milestone.accept-investigation')['readiness'] == stage_report
+
+    change = staged / 'milestones/accept-investigation.md'
+    original = change.read_text()
+    change.write_text(original.replace(
+        'fulfillment:\n  any_of:\n    - [event.inspection-permitted]\n'
+        '    - [event.find-cut-strap, event.present-evidence]',
+        'completeness: partial\nfulfillment:\n  any_of: []'))
+    changed = readiness(staged, '--stage', 'interactive',
+                        '--milestone', 'milestone.accept-investigation')['readiness']
+    assert changed['clusters'][0]['minimum'] == 'needs-work'
+    assert any(f['code'] == 'milestone-fulfillment' and f['status'] == 'missing'
+               for f in changed['clusters'][0]['findings'])
+    assert any(f['id'] == 'milestone.accept-investigation' and
+               f['code'] == 'supply-relationship' for f in changed['outstanding'])
+
+    # Bounded dependency expansion must be explicit rather than silently
+    # declaring a truncated implementation handoff ready.
+    bounded = root / 'bounded-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/reference-story', bounded)
+    target = bounded / 'milestones/accept-investigation.md'
+    text = target.read_text()
+    start = text.index('fulfillment:\n')
+    end = text.index('---\n', start)
+    target.write_text(text[:start] + 'fulfillment:\n  any_of:\n'
+                      '    - [event.chain-0]\n' + text[end:])
+    for idx in range(7):
+        after = f'[event.chain-{idx + 1}]' if idx < 6 else '[]'
+        (bounded / f'events/chain-{idx}.md').write_text(f"""---
+schema: '0.1'
+type: event
+id: event.chain-{idx}
+title: Linked earlier requirement
+status: draft
+decisions: []
+participants: []
+arcs: [arc.stolen-warning]
+after: {after}
+consequences: [Advance the chain]
+prerequisites:
+  any_of:
+    - completed: []
+      not_completed: []
+steps: []
+---
+A declared predecessor.
+""")
+    bound = readiness(bounded, '--stage', 'interactive',
+                      '--milestone', 'milestone.accept-investigation')['readiness']['clusters'][0]
+    assert bound['bounded']['truncated'] is True
+    assert bound['minimum'] == 'unverified'
+    assert len(bound['recordIds']) <= 128
+
+    # Approved scope excludes unrelated draft/superseded records. Status is
+    # not inferred from draft structural reachability.
+    canon = root / 'approved-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/reference-story', canon)
+    direction = canon / 'creative-direction/last-bell.md'
+    direction.write_text(direction.read_text().replace('status: draft', 'status: approved'))
+    only = readiness(canon, '--view', 'approved', '--stage', 'foundation')['readiness']
+    assert only['focus']['minimum'] == 'passed'
+    assert only['approved']['stages']['architecture']['minimum'] == 'needs-work'
+    bad_draft = canon / 'events/horn-warning.md'
+    bad_draft.write_text(bad_draft.read_text().replace(
+        'event.question-ivo', 'event.does-not-exist'))
+    bad = readiness(canon, '--view', 'approved', '--stage', 'foundation', code=1)
+    assert any(d['code'] == 'broken-reference' for d in bad['diagnostics'])
+    assert bad['readiness']['focus']['minimum'] == 'passed'
+    assert bad['readiness']['design']['stages']['architecture']['minimum'] == 'needs-work'
+    assert any(f['code'] == 'broken-reference' and f['path'] == 'events/horn-warning.md'
+               and f['line'] > 1 and f['column'] > 0
+               for f in bad['readiness']['design']['stages']['architecture']['findings'])
+
+    missing = readiness(root / 'missing-root', code=1)
+    assert any(d['code'] == 'io' for d in missing['diagnostics'])
+    invalid = readiness(story, '--milestone', 'event.question-ivo', code=1)
+    assert invalid['diagnostics'][0]['code'] == 'invalid-milestone-id'
+    for args in [
+        ('--stage', 'fiction'), ('--view', 'all'),
+        ('--stage', 'interactive', '--stage', 'interactive'),
+        ('--milestone', 'milestone.accept-investigation', '--milestone', 'milestone.accept-investigation'),
+        ('--milestone',), ('--unknown', 'value'),
+    ]:
+        assert readiness(story, *args, code=2)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    assert readiness(story, '--project', str(root), code=2)['diagnostics'][0]['code'] == 'CLI_USAGE'
+    print('Native readiness: staged minimums, status scopes, focused cluster, changed prerequisite, and errors passed.')

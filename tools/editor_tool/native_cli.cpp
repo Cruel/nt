@@ -2821,6 +2821,62 @@ int run(const std::vector<std::string>& argv)
                          {"daemon", daemon}},
                         args.json, human);
         }
+        if (family == "narrative" && operation == "readiness") {
+            if (!args.project.empty() || args.command.size() < 3 || args.command[2].empty() ||
+                args.command[2].starts_with("--"))
+                return usage(args.json, "Expected narrative readiness <catalog-root> "
+                                        "[--stage <stage>] [--view <design|approved>] "
+                                        "[--milestone <milestone-id>]...; "
+                                        "--project is not supported.");
+            std::string stage = "interactive", view = "design";
+            bool selected_stage = false, selected_view = false;
+            std::vector<std::string> milestones;
+            for (std::size_t i = 3; i < args.command.size();) {
+                const auto& option = args.command[i++];
+                if (i == args.command.size() || args.command[i].starts_with("--"))
+                    return usage(args.json,
+                                 "Narrative readiness option '" + option + "' requires a value.");
+                const auto value = args.command[i++];
+                if (option == "--stage" && !selected_stage) {
+                    stage = value;
+                    selected_stage = true;
+                } else if (option == "--view" && !selected_view) {
+                    view = value;
+                    selected_view = true;
+                } else if (option == "--milestone" && milestones.size() < 16 &&
+                           std::find(milestones.begin(), milestones.end(), value) ==
+                               milestones.end())
+                    milestones.push_back(value);
+                else
+                    return usage(args.json, "Unknown or repeated narrative readiness option '" +
+                                                option + "'.");
+            }
+            if ((stage != "foundation" && stage != "architecture" && stage != "interactive" &&
+                 stage != "composition" && stage != "review") ||
+                (view != "design" && view != "approved"))
+                return usage(args.json, "Unknown narrative readiness stage or status view.");
+            auto report = narrative::readiness_report(native_path_from_utf8(args.command[2]), stage,
+                                                      view, milestones);
+            auto diagnostics = report.at("diagnostics");
+            for (const auto& cluster : report["clusters"])
+                if (cluster.value("diagnostic", "") == "invalid-milestone-id")
+                    diagnostics.push_back(diagnostic("invalid-milestone-id", "/",
+                                                     "Expected an existing unique Milestone ID: " +
+                                                         cluster["id"].get<std::string>()));
+            for (auto& item : diagnostics)
+                if (item.contains("path"))
+                    item["sourceUrl"] = item.at("path");
+            report.erase("diagnostics");
+            const bool valid = diagnostics.empty();
+            return emit({{"success", valid},
+                         {"exitCode", valid ? 0 : 1},
+                         {"diagnostics", diagnostics},
+                         {"readiness", report}},
+                        args.json,
+                        valid ? "Narrative readiness analyzed; inspect the declared minimum "
+                                "and unverified editorial/production obligations."
+                              : "Narrative readiness has invalid catalog input or target IDs.");
+        }
         if (family == "narrative" && operation == "context") {
             if (!args.project.empty() || args.command.size() < 5 || args.command[2].empty() ||
                 args.command[2].starts_with("--"))

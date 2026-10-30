@@ -12,4 +12,8 @@ nlohmann::ordered_json validate(const std::filesystem::path& root);
 nlohmann::ordered_json context_manifest(const std::filesystem::path& root, const std::string& kind,
                                         const std::vector<std::string>& ids,
                                         const std::string& position, const std::string& scope);
+// Status-scoped five-stage minimums and bounded Milestone implementation handoff.
+nlohmann::ordered_json readiness_report(const std::filesystem::path& root, const std::string& stage,
+                                        const std::string& view,
+                                        const std::vector<std::string>& milestones);
 } // namespace noveltea::narrative

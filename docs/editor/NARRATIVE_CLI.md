@@ -52,13 +52,94 @@ Narrative Position predicates retain `guaranteed`, `conditional`, `unavailable`,
 or `unverified`. Clue reachability proves only an opportunity for a linked
 content Event to precede a solution, not actual player presentation or fairness.
 
-All declared statuses participate in this structural coverage. This command does
-**not** yet expose upstream status-scoped stage readiness or planning checklists;
-`minimumProgress` is only the declared-Milestone reachability summary, not readiness.
+All declared statuses participate in this structural coverage. The `minimumProgress`
+field is only the declared-Milestone reachability summary, not a readiness gate.
+Use `narrative readiness` for status-scoped staged minimums and planning obligations.
 Git-baseline protected-decision comparison and deterministic impact are follow-up
 #535; this command accepts neither `--base` nor permission acknowledgements.
 Narrative Events and predicates are not engine Scene Events or gameplay Conditions.
 No engine linkage, project schema, compiler or runtime behavior is changed.
+
+## Native narrative readiness and Milestone handoff
+
+`noveltea [--json] narrative readiness <catalog-root>` computes deterministic
+Story minimum requirements from the same read-only canonical catalog and
+progression model as `narrative validate`. No NovelTea Project, game compilation,
+SQLite, Node, Git, daemon or source mutation is necessary. Options:
+
+- `--stage foundation|architecture|interactive|composition|review` selects the
+  focus gate, default `interactive`;
+- `--view design|approved` selects the focus status scope, default `design`;
+- repeated `--milestone <milestone-id>` (up to 16, unique) requests bounded
+  downstream implementation-handoff clusters.
+
+For example:
+
+```sh
+noveltea --json narrative readiness story --stage interactive \
+  --view design --milestone milestone.accept-investigation
+```
+
+The JSON envelope includes `readiness.design.stages` for
+proposed/draft/approved records excluding superseded, and
+`readiness.approved.stages` for approved records only. Each of the
+five stages contains `minimum` (`passed`, `needs-work`, `unverified`),
+`requirements`, current-stage `findings`, cumulative `blockingGaps`, and
+qualitative `unverified` categories. The selected stage/view appears again
+as `readiness.focus`.
+
+Each finding carries stable `requirementId`, `code`, `status` (`satisfied`, `missing`,
+`blocked`, `unverified`), `subjectId`, `requiredBy`, `message`,
+`witnesses` and canonical `path`/`pointer`/`line`/`column`.
+The `readiness.outstanding` array separately identifies partial-record
+obligations by ID, field, code, location and earliest due stage. It is derived
+from current Markdown metadata, not a stored checklist or a document-count
+proxy. Typical fixed finding codes include `creative-direction-required`,
+`arc-milestone-binding`, `milestone-fulfillment`,
+`milestone-alternative`, `event-access`, `event-branch`,
+`choice-outcome`, `puzzle-solution`, `puzzle-clue-access`,
+`position-continuity`, `event-authored-content` and `search-limit`.
+
+The native minimum policy follows the upstream experimental Story catalog:
+
+- `foundation`: one valid, completed Creative Direction;
+- `architecture`: an Arc and Milestone, with each Arc affected by a
+  Milestone; complete Milestones need a reachable fulfillment route, while
+  explicitly partial ones can defer route binding;
+- `interactive`: reachable declared Events, Milestone alternatives and
+  Event branches, realized Choice Point outcomes, Puzzle clue access and
+  solutions, verified classifications of Narrative Position state, and
+  resolved interactive-due planning obligations;
+- `composition`: each declared Event linked to completed Authored Content,
+  with composition-due obligations resolved;
+- `review`: always `unverified` at best; independent editorial quality,
+  agreed scope and the VN presentation/production envelope cannot be
+  automatically certified.
+
+A `passed` design minimum is not approved canon. Each status scope recomputes
+its own progression and detects missing cross-status dependencies. An
+unrelated draft/superseded Event does not invalidate approved-canon evidence.
+Unresolved typed dependencies, partial records and search-budget exhaustion
+never become affirmative proof.
+
+Requested `readiness.clusters` select each target Milestone plus bounded
+declarative Event prerequisites, references, linked Authored Content and
+related Puzzle dependencies. Cluster selection deliberately excludes arbitrary
+future Arc siblings; it exposes sorted `recordIds`, the selected stage
+minimum, findings and `bounded` parameters (at most 128 records and 6
+reference hops). Truncation is `unverified`, never `passed`. A later
+unfinished Milestone can block whole-Story interactive readiness without
+invalidating an earlier independent cluster; changing the earlier Milestone's
+own fulfillment requirement invalidates its handoff.
+
+Structural diagnostics and invalid target IDs produce exit code 1 while
+retaining available readiness evidence; CLI option errors produce 2. An
+incomplete but structurally valid catalog may return exit 0 with one or more
+`needs-work` gates. Callers must check the selected minimum, **not just the
+process exit code**. Neither a structurally reachable Story nor a ready
+cluster proves its gameplay staging, asset availability, cost, accessibility,
+or engine playability. Qualitative review is independent; do not invent
+production budgets, game component mappings, or authorization decisions.
 
 ## Task-scoped Context Manifest
 
