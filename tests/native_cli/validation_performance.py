@@ -72,5 +72,17 @@ with tempfile.TemporaryDirectory(prefix='nt-validation-performance-') as tempora
             print(json.dumps({'project': size, 'cold_ms': cold, 'unchanged_ms': unchanged,
                               'changed_ms': changed,
                               'median_changed_ms': statistics.median(changed)}), flush=True)
+            if size == 'feature-lab':
+                # A tracked Layout Lua edit exercises the same native public
+                # validation pipeline without changing any YAML owner.
+                lua = project / 'records/layouts/feature-lab-hud/layout.lua'
+                original_lua = lua.read_text()
+                lua_changed = []
+                for index in range(3):
+                    lua.write_text(original_lua + f'\n-- Validation bench {index}\n')
+                    lua_changed.append(validate())
+                print(json.dumps({'project': 'feature-lab-lua', 'changed_ms': lua_changed,
+                                  'median_changed_ms': statistics.median(lua_changed)}),
+                      flush=True)
     finally:
         invoke('daemon', 'stop')

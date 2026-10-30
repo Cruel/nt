@@ -372,7 +372,9 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
              {{"recheckedRecords", work.rechecked_records},
               {"retainedRecords", work.retained_records},
               {"recheckedContributions", work.rechecked_contributions},
-              {"retainedContributions", work.retained_contributions}}}};
+              {"retainedContributions", work.retained_contributions},
+              {"referenceIndexedRecords", work.reference_indexed_records},
+              {"localizationRebuilds", work.localization_rebuilds}}}};
 }
 
 Json validate(std::string_view request_text)
@@ -490,7 +492,7 @@ Json validate(std::string_view request_text)
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
         if (request.value("includeFontCoverageInputs", false)) {
             const auto prepared = state.session->prepare_complete_working(
-                state.session->working_revision(), {}, true);
+                state.session->working_revision(), {}, true, true);
             if (!prepared.accepted)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
                                          prepared.error);

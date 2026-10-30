@@ -222,6 +222,8 @@ public:
         std::size_t retained_records = 0;
         std::size_t rechecked_contributions = 0;
         std::size_t retained_contributions = 0;
+        std::size_t reference_indexed_records = 0;
+        std::size_t localization_rebuilds = 0;
     };
     ValidationWork validation_work() const { return validation_work_; }
     // An internal consumer of the same serialized certification request may
@@ -322,12 +324,15 @@ public:
                                        bool reuse_validated_snapshot = false) const;
     std::uint64_t working_revision() const noexcept { return working_revision_; }
     // A caller that just completed clean validation may reuse its resident
-    // snapshot; this still requires fresh physical observation on both sides
-    // of complete preparation and fails closed if authority has advanced.
+    // snapshot. By default complete preparation checks physical sources again;
+    // only a caller with its own mandatory post-preparation observation may
+    // defer that intermediate check and must reject a changed generation.
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
                                                 std::string_view test_id = {},
-                                                bool reuse_clean_validation = false);
+                                                bool reuse_clean_validation = false,
+                                                bool defer_final_observation = false);
     std::pair<std::size_t, std::size_t> complete_project_assembly_work() const;
+    std::size_t complete_project_snapshot_reads() const;
     // Read-only, revision-pinned semantic evidence from the resident native
     // Project. This deliberately does not require unrelated records to pass
     // semantic validation; incomplete owners are explicitly reported.
@@ -456,6 +461,9 @@ private:
     std::map<std::string, Diagnostic> validation_source_errors_;
     std::set<std::string> validation_source_paths_;
     std::optional<RoomSessionSnapshot> validation_snapshot_;
+    // Increases only when a new verified disk-validation contributor generation
+    // is published; repeated preparation of the same generation is unchanged.
+    std::uint64_t validation_generation_ = 0;
     // RAM-only source evidence for a verified imported exact-result generation.
     // The disk cache never persists parsed records or semantic contributions.
     std::optional<RoomSessionSnapshot> imported_clean_validation_;

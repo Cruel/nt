@@ -1726,7 +1726,12 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
                         presentation_only_updates.insert(owner);
                 }
             }
-            if (indexed_text_owner(owner))
+            // The disk edit changed only presentation metadata, not an inline
+            // source or a structured localization Message. Preserve its
+            // existing analyzed source index and localization generation.
+            if (indexed_text_owner(owner) &&
+                !(presentation_only_updates.contains(owner) &&
+                  (owner.starts_with("rooms/") || owner.starts_with("maps/"))))
                 index_text_owner(owner, admitted.source_json);
             if (owner.starts_with("assets/"))
                 reindex_asset_consumers(owner.substr(sizeof("assets/") - 1));
@@ -1799,6 +1804,13 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
         it = validation_normalized_records_.erase(it);
     }
     for (const auto& [owner, record] : validation_records_) {
+        // Retained owners already have an exact normalized reference index.
+        // Resolving their snapshots again can reread unrelated Layout companions
+        // and copy every normalized record on each single-source validation.
+        if (!validation_invalidated_owners_.contains(owner) &&
+            validation_normalized_records_.contains(owner))
+            continue;
+        ++validation_work_.reference_indexed_records;
         const auto normalized = record->snapshot().normalized_json;
         if (const auto existing = validation_normalized_records_.find(owner);
             existing != validation_normalized_records_.end() &&
@@ -2039,6 +2051,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
         return result;
     }
     validation_snapshot_ = result;
+    ++validation_generation_;
     validation_shader_overlays_ = shader_overlays_;
     validation_pending_source_revisions_.clear();
     validation_pending_asset_owners_.clear();
@@ -2713,8 +2726,11 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     }
     // The localization cache incorporates dirty tracked source fragments, so
     // Asset referential checks must consume this effective model, not disk YAML.
-    if (!localization_cache_)
+    if (!localization_cache_) {
+        if (validation_view_active_)
+            ++validation_work_.localization_rebuilds;
         localization_cache_ = validate_working_localization();
+    }
     // Asset-alias dependency checking is scoped to interested owners.
     if (manifest_dirty || std::any_of(records_.begin(), records_.end(), [](const auto& entry) {
             return entry.first.starts_with("assets/");
@@ -3249,7 +3265,54 @@ SourceObservation ProjectSession::observe_sources()
                    path.ends_with(".rml") || path.ends_with(".rcss");
         });
     };
-    if (!observed.authoritative || source_contributes(observed.delta.changed) ||
+    const auto presentation_only_source = [&](const std::string& path) {
+        // Only Room and Map top-level label/description edits qualify. Other
+        // record fields, companion text, malformed YAML and any missing
+        // revision evidence always invalidate the working localization model.
+        constexpr std::string_view rooms = "records/rooms/";
+        constexpr std::string_view maps = "records/maps/";
+        const bool room = path.starts_with(rooms);
+        const bool map = path.starts_with(maps);
+        if (!validation_snapshot_ || !validation_snapshot_->valid || (!room && !map) ||
+            !path.ends_with(".yaml"))
+            return false;
+        const auto prefix = room ? rooms : maps;
+        const auto id = path.substr(prefix.size(), path.size() - prefix.size() - 5);
+        if (!is_id(id))
+            return false;
+        const auto owner = std::string(room ? "rooms/" : "maps/") + id;
+        const auto previous = validation_records_.find(owner);
+        const auto observed_revision = observed.delta_revisions.find(path);
+        if (previous == validation_records_.end() ||
+            observed_revision == observed.delta_revisions.end())
+            return false;
+        try {
+            const auto bytes = read_bytes(root_ / path);
+            if (exact_source_revision(bytes) != observed_revision->second)
+                return false;
+            const auto parsed = open_yaml_source(bytes);
+            if (!parsed.accepted)
+                return false;
+            auto before = Json::parse(previous->second->snapshot().source_json);
+            auto after = Json::parse(parsed.source_json);
+            if (!before.is_object() || !after.is_object())
+                return false;
+            for (const auto* field : {"label", "description"}) {
+                before.erase(field);
+                after.erase(field);
+            }
+            return before == after;
+        } catch (...) {
+            return false;
+        }
+    };
+    const auto localization_changed = [&]() {
+        for (const auto& path : observed.delta.changed)
+            if (source_contributes({path}) && !presentation_only_source(path))
+                return true;
+        return false;
+    };
+    if (!observed.authoritative || localization_changed() ||
         source_contributes(observed.delta.added) || source_contributes(observed.delta.removed) ||
         changed_localization(observed.delta.changed) ||
         changed_localization(observed.delta.added) || changed_localization(observed.delta.removed))

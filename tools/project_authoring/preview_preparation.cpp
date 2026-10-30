@@ -20,6 +20,8 @@ struct ProjectSession::CompleteProjectCache {
     std::map<std::string, Contributor> contributors;
     std::size_t reused = 0;
     std::size_t projected = 0;
+    std::size_t snapshot_reads = 0;
+    std::uint64_t validation_generation = 0;
 };
 
 std::pair<std::size_t, std::size_t> ProjectSession::complete_project_assembly_work() const
@@ -27,6 +29,11 @@ std::pair<std::size_t, std::size_t> ProjectSession::complete_project_assembly_wo
     return complete_project_cache_
                ? std::make_pair(complete_project_cache_->reused, complete_project_cache_->projected)
                : std::make_pair(std::size_t{0}, std::size_t{0});
+}
+
+std::size_t ProjectSession::complete_project_snapshot_reads() const
+{
+    return complete_project_cache_ ? complete_project_cache_->snapshot_reads : 0;
 }
 
 namespace {
@@ -276,7 +283,8 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
 
 ProjectSession::WorkingPreparation
 ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id,
-                                         bool reuse_clean_validation)
+                                         bool reuse_clean_validation,
+                                         bool defer_final_observation)
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -332,6 +340,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             reuse_assembly ? complete_project_cache_ : std::make_shared<CompleteProjectCache>();
         cache->reused = 0;
         cache->projected = 0;
+        cache->snapshot_reads = 0;
         if (!reuse_assembly || cache->projected != 0) {
             cache->base_project_json = prepared.project_json;
             cache->override_json = prepared.record_overrides_json;
@@ -344,8 +353,12 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         // AuthoringProject contract), so downstream validation never needs to default it again.
         if (!complete.contains("prefetchHints"))
             complete.insert_or_assign("prefetchHints", Json::object());
-        const auto contributors = only_test_errors ? reconciliation_disk_record_snapshots()
-                                                   : validated_disk_record_snapshots();
+        // The complete assembly cache already owns the exact normalized/source
+        // contributors from the previous certified validation. Do not ask every
+        // unchanged RoomSession for another snapshot merely to compare the same
+        // two strings on each single-record edit. validate_project() records
+        // every owner whose effective contribution could have changed.
+        const auto& contributors = validation_records_;
         // The validated collection is the complete owner inventory. Remove
         // stale contributors on a structural deletion/replacement, even when
         // their record bytes were identical before the removal.
@@ -362,11 +375,19 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             }
             it = cache->contributors.erase(it);
         }
-        for (const auto& [owner, record] : contributors) {
+        for (const auto& [owner, session] : contributors) {
+            const auto retained = cache->contributors.find(owner);
+            if (reuse_assembly && retained != cache->contributors.end() &&
+                (cache->validation_generation == validation_generation_ ||
+                 !validation_invalidated_owners_.contains(owner))) {
+                ++cache->reused;
+                continue;
+            }
+            ++cache->snapshot_reads;
+            const auto record = session->snapshot();
             if ((!record.valid && !(only_test_errors && owner.starts_with("tests/"))) ||
                 record.normalized_json.empty())
                 throw std::runtime_error("Invalid native full-Project contributor: " + owner);
-            const auto retained = cache->contributors.find(owner);
             if (retained != cache->contributors.end() &&
                 retained->second.normalized_json == record.normalized_json &&
                 retained->second.source_json == record.source_json) {
@@ -417,7 +438,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
                         complete[family.key()].insert_or_assign(record.key(), record.value());
             }
         }
-        for (const auto& [owner, record] : contributors) {
+        for (const auto& [owner, session] : contributors) {
             std::string relative;
             if (owner == "editor")
                 relative = "editor.yaml";
@@ -432,16 +453,33 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
                 relative = family == "layouts" ? "records/layouts/" + id + "/layout.yaml"
                                                : "records/" + family + "/" + id + ".yaml";
             }
-            prepared.source_revisions.insert_or_assign(relative, record.disk_source_revision);
+            // Clean validation already pinned the exact admitted disk revision.
+            // Avoid another full RoomSession snapshot just to retrieve it.
+            if (const auto revision = validation_source_revisions_.find(relative);
+                revision != validation_source_revisions_.end())
+                prepared.source_revisions.insert_or_assign(relative, revision->second);
+            else {
+                ++cache->snapshot_reads;
+                prepared.source_revisions.insert_or_assign(
+                    relative, session->snapshot().disk_source_revision);
+            }
         }
         // No later external modification may turn validation's record evidence
         // into a stale, apparently complete working Project.
-        const auto observed = observe_sources();
-        if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority) ||
-            !observed.delta.changed.empty() || !observed.delta.added.empty() ||
-            !observed.delta.removed.empty())
-            throw std::runtime_error(
-                "Project source revision changed during complete preparation.");
+        // The native disk-validation owner performs its own authoritative
+        // observation after *all* downstream font, portable and Material
+        // preparation, before it can return success. That caller may defer
+        // this otherwise redundant intermediate scan. Every other consumer
+        // retains the immediate complete-preparation freshness fence.
+        if (!defer_final_observation) {
+            const auto observed = observe_sources();
+            if (observed.full_rescan ||
+                (!observed.authoritative && !observed.scoped_authority) ||
+                !observed.delta.changed.empty() || !observed.delta.added.empty() ||
+                !observed.delta.removed.empty())
+                throw std::runtime_error(
+                    "Project source revision changed during complete preparation.");
+        }
         const auto physical = source_authority_->verified_revisions();
         if (!physical)
             throw std::runtime_error("Cannot prove the complete native Project source manifest.");
@@ -453,6 +491,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         collect_runtime_asset_references(complete, "", runtime_assets);
         prepared.referenced_asset_ids = std::move(runtime_assets);
         prepared.complete_project_json = complete.to_string();
+        cache->validation_generation = validation_generation_;
         complete_project_cache_ = std::move(cache);
     } catch (const std::exception& error) {
         complete_project_cache_.reset();

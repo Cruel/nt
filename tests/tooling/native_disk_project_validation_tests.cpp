@@ -176,6 +176,12 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
     REQUIRE(changed["warm"] == true);
     REQUIRE(changed["work"]["sessionAdmissions"] == cold["work"]["sessionAdmissions"]);
     REQUIRE(changed["work"]["recheckedRecords"] == 1);
+    // Reference indexing must not ask every retained record for another
+    // normalized snapshot when just one Room's label changed.
+    REQUIRE(changed["work"]["referenceIndexedRecords"] == 1);
+    REQUIRE(changed["work"]["localizationRebuilds"] == 0);
+    REQUIRE(changed["diagnostics"] == cold["diagnostics"]);
+    REQUIRE(changed["cliDiagnostics"] == cold["cliDiagnostics"]);
     // An unrelated label edit must not admit a fresh Project or recursively
     // multiply source scans through nested full Project preparation.
     REQUIRE(changed["work"]["sourceCaptures"].get<std::uint64_t>() <= 5);
@@ -201,6 +207,19 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
         std::filesystem::last_write_time(asset, time);
     }
     SECTION("changed valid record") { write(room, original); }
+    SECTION("non-presentation Room edit invalidates the localization generation")
+    {
+        auto contents = read(room);
+        const auto display_name = contents.find("displayName: Feature Lab");
+        REQUIRE(display_name != std::string::npos);
+        contents.replace(display_name, std::string("displayName: Feature Lab").size(),
+                         "displayName: Changed Feature Lab");
+        write(room, contents);
+        const auto semantic =
+            disk_validate(project.root, "project-validate", {{"includeFontCoverageInputs", true}});
+        REQUIRE(semantic["valid"] == true);
+        REQUIRE(semantic["work"]["localizationRebuilds"] == 1);
+    }
     SECTION("invalid record") { write(room, "not: [valid\n"); }
     SECTION("removed record") { REQUIRE(std::filesystem::remove(room)); }
     SECTION("added record")
@@ -252,6 +271,7 @@ TEST_CASE("warm font coverage matches cold recomputation after a translation edi
 
     const auto changed = validate();
     REQUIRE(changed.value("valid", false));
+    REQUIRE(changed["work"]["localizationRebuilds"] == 1);
     REQUIRE(changed.at("fontCoverageInputs") != initial.at("fontCoverageInputs"));
     REQUIRE(changed.at("fontCoverageInputs").dump().find("Salut, {name} !") != std::string::npos);
 
@@ -393,11 +413,23 @@ TEST_CASE("complete Project assembly reuses unchanged contributors across an ext
     REQUIRE(cold.accepted);
     REQUIRE(session->complete_project_assembly_work().second >= 200);
     REQUIRE(session->complete_project_assembly_work().first == 0);
+    REQUIRE(session->complete_project_snapshot_reads() >= 200);
     const auto unchanged = prepare(*session);
     REQUIRE(unchanged.accepted);
     REQUIRE(unchanged.complete_project_json == cold.complete_project_json);
     REQUIRE(session->complete_project_assembly_work().second == 0);
     REQUIRE(session->complete_project_assembly_work().first >= 200);
+    REQUIRE(session->complete_project_snapshot_reads() == 0);
+
+    // The disk CLI has an explicit outer final source observation after all
+    // downstream preparation. Deferring only the redundant *intermediate*
+    // observation must not initiate another full source capture.
+    const auto captures_before = session->source_capture_count();
+    const auto deferred = session->prepare_complete_working(
+        session->working_revision(), {}, true, true);
+    REQUIRE(deferred.accepted);
+    REQUIRE(deferred.complete_project_json == unchanged.complete_project_json);
+    REQUIRE(session->source_capture_count() == captures_before);
 
     const auto path = project.root / "records/rooms/feature-lab-home.yaml";
     auto contents = read(path);
@@ -406,11 +438,15 @@ TEST_CASE("complete Project assembly reuses unchanged contributors across an ext
     contents.replace(before, std::string("label: Feature Lab Home").size(),
                      "label: Complete Project Cache Edit");
     write(path, contents);
+    // An edit following deferred preparation remains detectable by the
+    // caller's mandatory final authoritative observation.
+    REQUIRE_FALSE(session->observe_sources().unchanged);
     REQUIRE(session->validate_project().valid);
     const auto changed = prepare(*session);
     REQUIRE(changed.accepted);
     REQUIRE(session->complete_project_assembly_work().second == 1);
     REQUIRE(session->complete_project_assembly_work().first >= 200);
+    REQUIRE(session->complete_project_snapshot_reads() == 1);
     const auto parsed = Json::parse(changed.complete_project_json);
     REQUIRE(parsed["rooms"]["feature-lab-home"]["label"] == "Complete Project Cache Edit");
     REQUIRE(changed.complete_project_json != cold.complete_project_json);

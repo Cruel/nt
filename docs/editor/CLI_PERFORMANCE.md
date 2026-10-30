@@ -1279,3 +1279,111 @@ Re-run both Feature Lab and independent-Room scaling after each optimization sli
   graphical smoke checks were not run because no engine/editor behavior remains changed.
 - Next investigation can use the named boundaries above without relying on temporary logs or
   the original chat. No reduction in freshness/correctness guarantees is authorized by this report.
+
+## 2026-10-30 continuation: retained localization invalidation
+
+The native CLI still exhibited project-size-dependent latency after the earlier
+hashing, file-cache and YAML-cache changes. On this Linux Release host,
+`tests/native_cli/validation_performance.py` measured a median of approximately
+**349 ms** for one changed Feature Lab Room label and **192 ms** for a changed
+label in a synthetic 501-Room Project; unchanged requests took about 16 ms
+and 23 ms respectively. The driver uses disposable Projects and three distinct
+label edits, with resident daemon routing.
+
+Temporary opt-in wall-clock probes identified several distinct phases for the
+changed Feature Lab request: native validation ~220 ms; outer font coverage
+~17-28 ms, Material compiler/cache checks ~15-22 ms, and final source-generation
+proof ~33-34 ms. Within native validation, clean Project validation cost
+~65-70 ms; ~41 ms of that was `ProjectSession::snapshot()`. The snapshot's
+apparent Asset-alias validation block consumed ~35 ms, but more granular probes
+and an independently verified alias-cache hit demonstrated the time was spent
+**before** alias checking, in `validate_working_localization()`.
+
+Root cause: `ProjectSession::observe_sources()` revoked the entire localization
+cache whenever *any* `records/` YAML changed. The subsequently refreshed
+Room also called `index_text_owner()`, which reset localization again for
+any source-JSON change, even a top-level `label` edit. Both paths discarded
+a valid full-Project localization generation for presentation-only changes.
+
+The targeted fix recognizes a top-level label/description-only Room/Map edit
+using the retained admitted record, a newly decoded source and the **exact**
+revision from `SourceAuthority`. It preserves localization and text-source
+analysis only when all other decoded fields match. A malformed, missing,
+inexact, or non-presentation source change continues to invalidate both.
+Complete source observation and final generation proofs remain unchanged.
+The normalized-reference index also skips re-reading unchanged retained
+records. Work counters (`localizationRebuilds`,
+`referenceIndexedRecords`) now provide deterministic regression assertions
+instead of a flaky time limit.
+
+With instrumentation still enabled, median changed-label validation decreased
+from approximately **344 to 309 ms** for Feature Lab and **193 to 175 ms**
+for 501 independent Rooms. The localization rebuild phase itself disappeared
+from the changed-label critical path; these are small samples and should not
+be treated as hard performance budgets. The cold/unchanged paths remained
+approximately comparable.
+
+After removing all timing probes and rebuilding the Release executable,
+the repeat run measured **306.12 ms** for Feature Lab and **182.96 ms** for
+501 Rooms, versus the initial uninstrumented baselines of approximately
+**349 ms** and **192 ms**. The remaining linear growth is real; a scoped
+localization fix is not sufficient by itself.
+
+This solves **one** invalidation error, not incremental performance in general.
+The broader resident path still performs complete working-Project assembly
+(~24 ms on Feature Lab), portable source preparation (~33 ms), font input
+projection (~29 ms), Material preparation (~22 ms), initial/final physical
+observation and the outer compiler/final proof. Prioritize bounded,
+dependency-keyed preparation and reducing redundant physical reads, while
+continuing to reject byte-exact source races. The editor addon
+patch/save/Lua stage/save timings from the handoff were not remeasured here
+and remain a separate, open investigation.
+
+### Further continuation: cached complete-Project contributor snapshots
+
+The `prepare_complete_working` path previously called `snapshot()` on **every**
+validated record on every request even when its complete-Project assembly cache
+reused those contributors. It now reads cached normalized/source JSON directly
+for unchanged owners, and obtains existing exact record revisions from the
+clean validator's admitted revision table. A monotonic validation-generation
+counter prevents stale invalidation sets from forcing another full snapshot
+pass when complete preparation is requested repeatedly without revalidation.
+The test seam `complete_project_snapshot_reads()` confirms a cold Project
+requires full snapshots, an unchanged repeat requires **zero**, and a changed
+Room label requires **one**. Cold vs warm normalized complete Project content
+is compared in the native disk validation test.
+
+The change reduces actual repeated work but is **not** an end-to-end latency
+breakthrough. With Release CLI on the same host, the manual daemon benchmark
+measured median **311.15 ms** for a Feature Lab Room-label edit and **179.32 ms**
+for a 501-Room label edit (compared with 313.29/179.26 ms before this slice).
+An added Feature Lab Layout Lua comment-edit case measured **362.94 ms**. No
+hard speedup claim is warranted from these small samples. The Lua case uses
+three distinct comment edits of `records/layouts/feature-lab-hud/layout.lua`
+in a disposable copy, leaving source project data unchanged.
+
+Remaining validation performs several complete physical source observations
+and generation proofs and broad portable/font/material preparation. Further
+reductions require tracing these bounded phases and preserving the exact
+same-size/same-timestamp edit and containment-race guarantees. A per-owner
+snapshot count is a regression guard, not evidence the public CLI is fast.
+
+### Deferred intermediate observation in native public validation
+
+`prepare_complete_working()` normally performs an authoritative post-assembly
+source observation. The native public disk-validation caller additionally
+performs a later authoritative observation **after** preparing font inputs,
+portable source inputs, and Material compiler inputs, followed by its final
+exact source-generation proof. It now requests deferred intermediate
+observation; other preparation consumers retain their original immediate
+observation. Any physical change during preparation still prevents the native
+validation response from succeeding at the later mandatory fence.
+
+After rebuilding the Release CLI, the median Room-label edit fell from
+**311.15 to 292.40 ms** on Feature Lab; the 501-Room label edit measured
+**177.07 ms** (previously 179.32 ms), and the Feature Lab Layout Lua comment
+edit measured **356.70 ms** (previously 362.94 ms). The isolated gain is
+small and project-dependent. The native test directly checks that deferred
+preparation performs no further source capture and that a subsequent edit is
+detected by an authoritative observation. Broader scaling and the editor
+addon Save/patch stage remain unresolved.
