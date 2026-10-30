@@ -71,6 +71,7 @@ function authoritativeSource(
   const family = segments[0];
   let owner = 'project';
   let relative = pointer;
+  let recordOwner = false;
   if (family === 'localization') {
     const target = nativeLocalizationTarget(pointer);
     if (!target) throw new Error(`Unsupported native localization verification: ${pointer}`);
@@ -82,13 +83,17 @@ function authoritativeSource(
   } else if (family && recordFamilies.has(family) && segments.length >= 2) {
     owner = `${family}/${segments[1]}`;
     relative = buildJsonPointer(segments.slice(2));
+    recordOwner = true;
   }
   if (!acknowledged.affectedRecords.includes(owner))
     throw new Error(`Native mutation did not acknowledge the affected owner: ${owner}`);
   const candidate =
     owner === 'project'
       ? acknowledged.snapshot.source
-      : acknowledged.snapshot.recordSnapshots?.[owner]?.source;
+      : recordOwner
+        ? (acknowledged.snapshot.recordSnapshots?.[owner]?.normalized ??
+          acknowledged.snapshot.recordSnapshots?.[owner]?.source)
+        : acknowledged.snapshot.recordSnapshots?.[owner]?.source;
   if (!candidate || typeof candidate !== 'object')
     throw new Error(`Native mutation omitted the affected owner source: ${owner}`);
   return { owner, pointer: relative, source: candidate as JsonValue };
@@ -189,6 +194,18 @@ export async function confirmNativeCommand(
       },
       workingRevision,
     };
+  if (
+    acknowledged.snapshot.workingRevision === workingRevision &&
+    acknowledged.affectedRecords.length === 0
+  ) {
+    // The native source can recognize redundant edits that the renderer
+    // proposed as changes. Do not publish speculative history or poison this
+    // session for a successful, revision-preserving native no-op.
+    return {
+      result: { ok: true, diagnostics: [], projectChanged: false, state: original },
+      workingRevision,
+    };
+  }
   if (acknowledged.snapshot.workingRevision <= workingRevision)
     throw new Error('Accepted native mutation did not advance its working revision.');
   assertNativeProjection(proposed.document, patches, acknowledged);

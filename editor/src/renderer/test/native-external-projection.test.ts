@@ -65,6 +65,39 @@ const recovery = {
 };
 
 describe('native editor external projection (#509)', () => {
+  it('keeps native Room records effective after a clean watcher reconciliation', () => {
+    const sparseRoom = {
+      ...baseRoom,
+      data: { displayName: 'Updated on disk' },
+    };
+    const effectiveRoom = {
+      ...baseRoom,
+      data: { ...defaultRoomData('Hall'), displayName: 'Updated on disk' },
+    };
+    const acknowledged = result(sparseRoom, sparseRoom);
+    const record = acknowledged.snapshot.recordSnapshots!['rooms/hall']!;
+    record.normalized = effectiveRoom;
+    record.dirty = false;
+    const reconciled = projectNativeExternalResult({
+      saved: original as JsonValue,
+      working: original as JsonValue,
+      recovery: { sequence: 0, saveUnitsById: {} },
+      result: acknowledged,
+    });
+    expect((reconciled.working as typeof original).rooms.hall).toEqual(effectiveRoom);
+    expect((reconciled.saved as typeof original).rooms.hall).toEqual(effectiveRoom);
+    expect(reconciled.conflictingUnitIds).toEqual([]);
+
+    record.dirty = true;
+    const dirty = projectNativeExternalResult({
+      saved: original as JsonValue,
+      working: original as JsonValue,
+      recovery: { sequence: 0, saveUnitsById: {} },
+      result: acknowledged,
+    });
+    expect((dirty.working as typeof original).rooms.hall).toEqual(effectiveRoom);
+  });
+
   it('routes physical source notifications to one native owner and ignores unrelated files', () => {
     expect(
       nativeOwnersForChangedSources([

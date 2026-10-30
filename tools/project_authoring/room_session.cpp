@@ -126,6 +126,29 @@ bool indexed_text_owner(std::string_view owner)
     return false;
 }
 
+std::optional<std::string_view> inferred_record_kind(std::string_view family)
+{
+    static const std::map<std::string_view, std::string_view> kinds{
+        {"rooms", "room"},
+        {"maps", "map"},
+        {"characters", "character"},
+        {"archetypes", "archetype"},
+        {"scripts", "script-module"},
+        {"animations", "animation"},
+        {"materials", "material"},
+        {"interactables", "interactable"},
+        {"dialogues", "dialogue"},
+        {"scenes", "scene"},
+        {"verbs", "verb"},
+        {"interactions", "interaction"},
+        {"tests", "test"},
+        {"variables", "variable"},
+    };
+    if (const auto found = kinds.find(family); found != kinds.end())
+        return found->second;
+    return std::nullopt;
+}
+
 bool localization_record_owner(std::string_view owner)
 {
     // Character and Interactable records contain structured TextContent but
@@ -1071,18 +1094,57 @@ RoomSession::stage_new_record(const std::filesystem::path& project_root, std::st
                               : project_root / "records" / family / (id + ".yaml");
         if (std::filesystem::exists(path) || std::filesystem::is_symlink(path))
             throw std::runtime_error("Record source already exists: " + family + "/" + id);
-        const auto value = Json::parse(source_json);
+        auto value = Json::parse(source_json);
         if (!value.is_object() || !value.contains("id") || value.at("id") != id)
             throw std::runtime_error("New record ID must match its source filename.");
+        const auto logical_value = value;
+        bool converted_effective_record = false;
+        // Generic Project patches carry the editor's effective record. Physical
+        // workspace YAML omits inferred kinds and stores inline Layout text in
+        // companion files. Convert only at this new-owner boundary; the writer
+        // must never persist the editor-only representation as source YAML.
+        if (value.contains("data") && value.at("data").is_object()) {
+            auto& data = value.at("data");
+            if (family == "layouts") {
+                for (const char* channel : {"rml", "rcss", "lua"}) {
+                    if (!data.contains(channel) || !data.at(channel).is_object())
+                        continue;
+                    const auto selector = data.at(channel);
+                    if (!selector.contains("sourceMode") || selector.at("sourceMode") != "inline")
+                        continue;
+                    const auto content = selector.at("sourceText").as<std::string>();
+                    const bool none = std::string_view(channel) == "lua" && content.empty();
+                    if (auto existing = layout_companions.find(channel);
+                        existing != layout_companions.end()) {
+                        if (none || existing->second != content)
+                            throw std::runtime_error(
+                                "New Layout has conflicting inline and file source.");
+                    } else if (!none) {
+                        layout_companions.emplace(channel, content);
+                    }
+                    converted_effective_record = true;
+                    Json physical = Json::object();
+                    physical["sourceMode"] = none ? "none" : "file";
+                    data.insert_or_assign(channel, std::move(physical));
+                }
+            } else if (data.contains("kind") && family != "assets") {
+                data.erase("kind");
+                converted_effective_record = true;
+            }
+        }
         auto result = std::unique_ptr<RoomSession>(new RoomSession(path, id, "", "{}"));
         result->disk_revision_ = "absent";
-        result->working_json_ = std::move(source_json);
+        result->working_json_ = value.to_string();
         result->record_family_ = family;
         result->layout_companion_sources_ = std::move(layout_companions);
         result->is_map_ = family == "maps";
         if (family != "rooms" && family != "maps")
             result->validation_contract_ = record_contracts().at(family);
         const auto staged_snapshot = result->snapshot();
+        if (converted_effective_record && staged_snapshot.valid &&
+            jsoncons::json::parse(staged_snapshot.normalized_json) !=
+                jsoncons::json::parse(logical_value.to_string()))
+            throw std::runtime_error("New record source projection changes the requested value.");
         // Asset imports stage metadata before their source bytes are
         // published. This one attributable missing-file diagnostic is an
         // admissible dirty intermediate state; save_owners independently
@@ -1099,8 +1161,20 @@ RoomSession::stage_new_record(const std::filesystem::path& project_root, std::st
                             return diagnostic.severity != "error" ||
                                    diagnostic.code == "asset.source.missing";
                         });
-        if (!staged_snapshot.valid && !pending_asset_source)
-            throw std::runtime_error("Invalid new record source: " + family + "/" + id);
+        if (!staged_snapshot.valid && !pending_asset_source) {
+            std::string detail;
+            for (const auto& diagnostic : staged_snapshot.diagnostics) {
+                if (diagnostic.severity != "error")
+                    continue;
+                if (!detail.empty())
+                    detail += "; ";
+                detail += diagnostic.path + ": " + diagnostic.message;
+                if (detail.size() > 800)
+                    break;
+            }
+            throw std::runtime_error("Invalid new record source: " + family + "/" + id +
+                                     (detail.empty() ? "" : " (" + detail + ")"));
+        }
         error.clear();
         return result;
     } catch (const std::exception& exception) {
@@ -1826,10 +1900,13 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
         result.valid = false;
         result.diagnostics.push_back(issue);
     }
-    // Source analyses must also fail closed when a declared physical Lua/RML
-    // source is no longer part of the admitted source graph.
+    // Staged new Layouts own their companion text until the atomic Save
+    // publishes its physical files. Do not report these owned sources as
+    // missing merely because they have not been written to disk yet.
+    const auto staged_layout_sources = staged_layout_text_sources();
     for (const auto& [path, owners] : text_source_owners_) {
-        if (path.starts_with("inline/") || text_source_paths_.contains(path))
+        if (path.starts_with("inline/") || text_source_paths_.contains(path) ||
+            staged_layout_sources.contains(path))
             continue;
         for (const auto& owner : owners) {
             Diagnostic issue{source_diagnostic_owner(path, owner),
@@ -2857,8 +2934,23 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     return state;
 }
 
+std::map<std::string, std::string> ProjectSession::staged_layout_text_sources() const
+{
+    std::map<std::string, std::string> staged;
+    for (const auto& [owner, session] : records_) {
+        if (!owner.starts_with("layouts/") || session->disk_revision_ != "absent")
+            continue;
+        const auto directory = "records/" + owner + "/";
+        for (const auto& [extension, content] : session->layout_companion_sources_)
+            if (extension == "rml" || extension == "rcss" || extension == "lua")
+                staged.emplace(directory + "layout." + extension, content);
+    }
+    return staged;
+}
+
 const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() const
 {
+    const auto staged_sources = staged_layout_text_sources();
     for (const auto& path : text_source_paths_) {
         const auto overlay = text_source_overlays_.find(path);
         const auto inlined = inline_text_sources_.find(path);
@@ -2874,8 +2966,15 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
                                                                      : overlay->second;
         text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, source));
     }
+    for (const auto& [path, content] : staged_sources) {
+        const auto revision = exact_source_revision(content);
+        if (const auto cached = text_analysis_cache_.find(path);
+            cached != text_analysis_cache_.end() && cached->second.source_revision == revision)
+            continue;
+        text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, content));
+    }
     for (auto it = text_analysis_cache_.begin(); it != text_analysis_cache_.end();) {
-        if (!text_source_paths_.contains(it->first))
+        if (!text_source_paths_.contains(it->first) && !staged_sources.contains(it->first))
             it = text_analysis_cache_.erase(it);
         else
             ++it;
@@ -4621,9 +4720,17 @@ RoomSessionResult ProjectSession::save_owners(
                 return item.second->source_path().lexically_relative(root_).generic_string() ==
                        proposed.path;
             });
-            if (found == selected.end() ||
-                Json::parse(reopened.source_json) != projected.at(found->first))
-                throw std::runtime_error("Save projection differs from the working Project.");
+            if (found == selected.end())
+                throw std::runtime_error("Save projection contains an unexpected source.");
+            const auto actual = Json::parse(reopened.source_json);
+            std::vector<RoomPatch> differences;
+            json_delta(&actual, &projected.at(found->first), "", differences);
+            // YAML is a mapping, so its key order is nonsemantic. libfyaml
+            // may reorder fields when inserting a newly authored source key;
+            // ordered-json equality would incorrectly reject that Save.
+            if (!differences.empty())
+                throw std::runtime_error("Save projection differs from the working Project at " +
+                                         differences.front().path + ".");
         }
         const auto committed = writer.commit(prepared, comments);
         if (!committed.accepted) {
@@ -4699,11 +4806,25 @@ RoomSessionResult ProjectSession::save_owners(
                     source_authority_->coverage_lost();
             }
         }
-        for (const auto& target : prepared.targets)
-            if (target.path.starts_with("records/layouts/") &&
-                !target.path.ends_with("/layout.yaml") &&
-                !source_authority_->acknowledge_own_write(target.path, target.after_revision))
+        for (const auto& target : prepared.targets) {
+            if (!target.path.starts_with("records/layouts/") ||
+                !analyzable_text_path(target.path) || target.path.ends_with("/layout.yaml"))
+                continue;
+            // Own-write acknowledgment consumes the filesystem addition from
+            // the next observer delta. Admit these newly created sources into
+            // the live analysis inventory now, rather than waiting for a delta
+            // which will never be emitted for our own transaction.
+            if (target.after_revision == "absent") {
+                text_source_paths_.erase(target.path);
+                text_disk_revisions_.erase(target.path);
+            } else {
+                text_source_paths_.insert(target.path);
+                text_disk_revisions_.insert_or_assign(target.path, target.after_revision);
+            }
+            text_analysis_cache_.erase(target.path);
+            if (!source_authority_->acknowledge_own_write(target.path, target.after_revision))
                 source_authority_->coverage_lost();
+        }
         for (const auto& target : prepared.targets) {
             if (!selected_text.contains(target.path))
                 continue;
@@ -4877,7 +4998,17 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 // The remaining top-level paths must belong to the admitted
                 // manifest; a record-family edit must never become an unknown
                 // manifest field by accident.
-                if (!Json::parse(manifest->snapshot().source_json).contains(family))
+                const auto manifest_snapshot = manifest->snapshot();
+                // A sparse manifest can omit an optional top-level field
+                // (notably entrypoint), although the effective Project schema
+                // admits that field. Accept edits to such implicit fields but
+                // continue rejecting unknown top-level owners.
+                const bool source_field =
+                    Json::parse(manifest_snapshot.source_json).contains(family);
+                const bool inferred_field =
+                    manifest_snapshot.valid && !manifest_snapshot.normalized_json.empty() &&
+                    Json::parse(manifest_snapshot.normalized_json).contains(family);
+                if (!source_field && !inferred_field)
                     throw std::runtime_error("Unsupported native working Project owner.");
                 if (exact_source_revision(read_bytes(manifest->source_path())) !=
                     manifest->snapshot().disk_source_revision)
@@ -5067,6 +5198,17 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 const auto section = operation.path.substr(first + 1, end - first - 1);
                 if (section != "chapters" && section != "tags" && section != "recordMetadata")
                     throw std::runtime_error("Transient editor state is not tracked Project data.");
+            }
+            // An expanded editor projection can redundantly add the kind that
+            // workspace-v1 already infers from a record's physical family.
+            if (operation.path == "/" + owner + "/data/kind" && family != "assets" &&
+                family != "layouts" && family != "editor" && family != "traits") {
+                if (const auto expected = inferred_record_kind(family)) {
+                    if (operation.operation != RoomPatch::Operation::Add ||
+                        Json::parse(operation.value_json) != *expected)
+                        throw std::runtime_error("Cannot change an inferred record kind.");
+                    continue;
+                }
             }
             auto it = staged.find(owner);
             if (it == staged.end()) {
@@ -5402,7 +5544,37 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
             baseline_validation.accepted
                 ? std::optional<Json>{Json::parse(baseline_validation.effective_json)}
                 : std::nullopt;
-        for (const auto& operation : operations) {
+        // A RoomEditor whole-data replacement is an effective-model edit:
+        // its value contains schema defaults and the inferred data.kind.
+        // Diff effective-to-effective values and apply only changed fields to
+        // the sparse source, rather than persisting all inferred defaults.
+        // Keep generic/sparse data replacement behavior for other callers.
+        std::vector<RoomPatch> effective_changes;
+        bool projected_effective_data = false;
+        if (operations.size() == 1 &&
+            operations.front().operation == RoomPatch::Operation::Replace &&
+            operations.front().path == "/data") {
+            if (const auto expected = inferred_record_kind(record_family_)) {
+                const auto replacement = Json::parse(operations.front().value_json);
+                if (replacement.is_object() && replacement.contains("kind")) {
+                    if (replacement.at("kind") != *expected)
+                        throw std::runtime_error("Cannot change an inferred record kind.");
+                    const auto current = validate_source(next.to_string());
+                    if (current.accepted) {
+                        const auto effective = Json::parse(current.effective_json);
+                        if (auto previous = at_pointer(effective, "/data");
+                            previous && previous->is_object()) {
+                            json_delta(&*previous, &replacement, "/data", effective_changes);
+                            for (auto& change : effective_changes)
+                                change.comments = operations.front().comments;
+                            projected_effective_data = true;
+                        }
+                    }
+                }
+            }
+        }
+        const auto& concrete_operations = projected_effective_data ? effective_changes : operations;
+        for (const auto& operation : concrete_operations) {
             auto concrete = operation;
             concrete.path = resolve_id_pointer(next, operation.path);
             if (concrete.operation != RoomPatch::Operation::Remove && !is_editor_ && !is_project_) {
@@ -5448,6 +5620,21 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                 if (current_validation.accepted)
                     materialize_implicit_parents(
                         next, Json::parse(current_validation.effective_json), concrete, resolved);
+            }
+            // Whole-data editor commands carry the normalized discriminator,
+            // but physical record YAML must omit this inferred field. Project
+            // it to sparse source before applying or journaling the mutation.
+            // Keep nested kind fields (description, background, etc.) intact.
+            if (concrete.path == "/data" && concrete.operation != RoomPatch::Operation::Remove) {
+                if (const auto expected = inferred_record_kind(record_family_)) {
+                    auto replacement = Json::parse(concrete.value_json);
+                    if (replacement.is_object() && replacement.contains("kind")) {
+                        if (replacement.at("kind") != *expected)
+                            throw std::runtime_error("Cannot change an inferred record kind.");
+                        replacement.erase("kind");
+                        concrete.value_json = replacement.to_string();
+                    }
+                }
             }
             // Editor commands refer to normalized effective records. If an
             // optional source field is supplied by normalization, project a

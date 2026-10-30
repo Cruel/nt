@@ -344,6 +344,25 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined();
   });
 
+  it('can discard and close after a native no-op acknowledgment locked the session', async () => {
+    const user = userEvent.setup();
+    const native = await nativeDirtyRooms('New Foyer');
+    useCommandStore.setState({
+      nativeMutationFailure: 'Accepted native mutation did not advance its working revision.',
+    });
+    openTestTab();
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, tab.id));
+    await user.click(await screen.findByText("Don't Save"));
+    await waitFor(() => expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeUndefined());
+    expect(native.useDisk).toHaveBeenCalledWith('test-project-session', 1, 'record:rooms:foyer');
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { foyer: { label: 'Foyer' } },
+    });
+  });
+
   it('prompts for and discards a cross-path Instance change attributed to the Room save unit', async () => {
     const user = userEvent.setup();
     const project = authoringProjectWithRooms();

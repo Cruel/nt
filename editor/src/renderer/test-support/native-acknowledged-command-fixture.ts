@@ -38,6 +38,7 @@ export function admitNativeRendererCommandFixture(
 ) {
   let revision = 0;
   let document: JsonValue = toJsonValue(project);
+  const savedDocument = toJsonValue(project);
   const admitted = useProjectStore.getState().loadProjectDocument({
     document,
     savedDocument: document,
@@ -114,12 +115,14 @@ export function admitNativeRendererCommandFixture(
     };
   };
 
+  let lastPatchedPaths: string[] = [];
   const patch = vi.fn(async (id: string, expected: number, patches: JsonPatchOperation[]) => {
     if (id !== session || expected !== revision)
       throw new Error('Native fixture received a stale Project revision.');
     document = applyJsonPatch(document, patches).document;
+    lastPatchedPaths = patches.map((item) => item.path);
     revision++;
-    return acknowledgments(patches.map((item) => item.path));
+    return acknowledgments(lastPatchedPaths);
   });
   const save = vi.fn(
     async (
@@ -135,7 +138,9 @@ export function admitNativeRendererCommandFixture(
       // but has no reconciled owners. The editor constructs the saved projection
       // from the selected logical Save unit; reporting all owners here would
       // falsely claim unrelated dirty units were externally rewritten.
-      const acknowledgement = acknowledgments(['/project']);
+      const acknowledgement = acknowledgments(
+        options?.structuralPathsByOwner ? lastPatchedPaths : ['/project'],
+      );
       return options?.structuralPathsByOwner
         ? acknowledgement
         : { ...acknowledgement, affectedRecords: [] };
@@ -149,5 +154,39 @@ export function admitNativeRendererCommandFixture(
     configurable: true,
     value: save,
   });
-  return { patch, save, workingRevision: () => revision };
+  const useDisk = vi.fn(async (id: string, expected: number, saveUnitId: string) => {
+    if (id !== session || expected !== revision)
+      throw new Error('Native fixture received a stale Use Disk revision.');
+    const match = /^record:([^:]+):(.+)$/.exec(saveUnitId);
+    if (!match) throw new Error('Native fixture requires a record Save unit.');
+    const owner = `${match[1]}/${match[2]}`;
+    const pointer = `/${owner}`;
+    const original = getJsonAtPointer(savedDocument, pointer);
+    document = applyJsonPatch(document, [
+      { op: 'replace', path: pointer, value: original },
+    ]).document;
+    revision++;
+    const acknowledgement = acknowledgments([pointer]);
+    return {
+      ...acknowledgement,
+      affectedRecords: [owner],
+      snapshot: {
+        ...acknowledgement.snapshot,
+        recordSnapshots: {
+          [owner]: {
+            source: original,
+            normalized: original,
+            baseline: original,
+            diskSourceRevision: `sha256:${'0'.repeat(64)}`,
+            dirty: false,
+          },
+        },
+      },
+    };
+  });
+  Object.defineProperty(window.noveltea, 'nativeProjectUseDiskUnit', {
+    configurable: true,
+    value: useDisk,
+  });
+  return { patch, save, useDisk, workingRevision: () => revision };
 }

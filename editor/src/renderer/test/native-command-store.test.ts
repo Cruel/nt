@@ -886,6 +886,23 @@ describe('native-backed renderer commands', () => {
     expect(projectName()).toBe('Accepted');
   });
 
+  it('does not freeze native commands when a patch has no effective change', async () => {
+    const patch = vi
+      .spyOn(window.noveltea, 'nativeProjectPatch')
+      .mockResolvedValueOnce({ ...nativeAck('Saved Project', 0), affectedRecords: [] })
+      .mockResolvedValueOnce(nativeAck('Next Update', 1));
+    const redundant = await useCommandStore.getState().executeCommandAsync(request('Redundant'));
+    expect(redundant.ok).toBe(true);
+    expect(redundant.projectChanged).toBe(false);
+    expect(projectName()).toBe('Saved Project');
+    expect(useCommandStore.getState().nativeMutationFailure).toBeNull();
+    expect((await useCommandStore.getState().executeCommandAsync(request('Next Update'))).ok).toBe(
+      true,
+    );
+    expect(projectName()).toBe('Next Update');
+    expect(patch).toHaveBeenCalledTimes(2);
+  });
+
   it('freezes native editing after an inconsistent accepted acknowledgment', async () => {
     const patch = vi
       .spyOn(window.noveltea, 'nativeProjectPatch')

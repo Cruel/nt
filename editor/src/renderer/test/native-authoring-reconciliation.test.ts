@@ -4,7 +4,17 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import { NativeAuthoringSessionBridge } from '../../main/services/native-authoring-session-bridge';
 import { NativeAuthoringWorkingProject } from '../../main/services/native-authoring-working-project';
-import type { JsonValue } from '../project/json-value';
+import { toJsonValue, type JsonValue } from '../project/json-value';
+import { createDefaultAuthoringRecord } from '../project/entity-operations';
+import { assertNativeProjection } from '../commands/native-command-execution';
+import { replaceRoomDataPatches } from '../project/room-operations';
+import { setProjectEntrypointPatches } from '../project/project-settings-operations';
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseRoomData, roomDataSchema } from '../../shared/project-schema/authoring-rooms';
+import { applyJsonPatch } from '../project/json-patch';
+import { decodeStructuredYaml } from '../../shared/project-workspace/structured-yaml-source';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import type { AuthoringCollectionKey } from '../../shared/project-schema/authoring-collections';
 
 const addon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 const roomId = 'room-lifecycle-roundtrip';
@@ -68,6 +78,375 @@ afterEach(async ({ task }) => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('accepts the editor wizard defaults for new records across collection families', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const families: AuthoringCollectionKey[] = [
+      'layouts',
+      'rooms',
+      'variables',
+      'scripts',
+      'maps',
+      'materials',
+      'characters',
+      'dialogues',
+      'scenes',
+      'tests',
+      'verbs',
+      'interactions',
+      'archetypes',
+      'interactables',
+      'animations',
+    ];
+    const failures: string[] = [];
+    for (const collection of families) {
+      const id = `new-wizard-${collection}`;
+      const record = createDefaultAuthoringRecord(collection, id, {
+        label: 'New record',
+        ...(collection === 'layouts' ? { data: defaultLayoutData('New record', 'document') } : {}),
+      });
+      const patches = [
+        { op: 'add' as const, path: `/${collection}/${id}`, value: toJsonValue(record) },
+      ];
+      const result = await working.applyRevisionedPatches(
+        working.snapshot()!.workingRevision,
+        patches,
+      );
+      if (!result.accepted) {
+        failures.push(`${collection}: ${result.error}`);
+        continue;
+      }
+      try {
+        assertNativeProjection(toJsonValue({ [collection]: { [id]: record } }), patches, result);
+        const saved = await working.saveOwners([`${collection}/${id}`]);
+        if (!saved.accepted) failures.push(`${collection} save: ${saved.error}`);
+      } catch (error) {
+        failures.push(`${collection}: ${String(error)}`);
+      }
+    }
+    expect(failures).toEqual([]);
+    const invalidRoom = createDefaultAuthoringRecord('rooms', 'new-wizard-invalid-kind');
+    const invalid = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      {
+        op: 'add',
+        path: '/rooms/new-wizard-invalid-kind',
+        value: toJsonValue({
+          ...invalidRoom,
+          data: { ...(invalidRoom.data as Record<string, unknown>), kind: 'map' },
+        }),
+      },
+    ]);
+    expect(invalid.accepted).toBe(false);
+    expect(invalid.error).toContain('source projection changes the requested value');
+    const layout = path.join(root, 'records/layouts/new-wizard-layouts');
+    const layoutYaml = decodeStructuredYaml(
+      await readFile(path.join(layout, 'layout.yaml'), 'utf8'),
+    ) as { data: { rml: { sourceMode: string }; rcss: { sourceMode: string } } };
+    expect(layoutYaml.data.rml.sourceMode).toBe('file');
+    expect(layoutYaml.data.rcss.sourceMode).toBe('file');
+    expect(await readFile(path.join(layout, 'layout.rml'), 'utf8')).toContain('<rml');
+    expect(await readFile(path.join(layout, 'layout.rcss'), 'utf8')).not.toBe('');
+    const roomYaml = decodeStructuredYaml(
+      await readFile(path.join(root, 'records/rooms/new-wizard-rooms.yaml'), 'utf8'),
+    ) as { data: Record<string, unknown> };
+    expect(roomYaml.data).not.toHaveProperty('kind');
+    await working.reopenAndReplay('native-reconcile-test');
+    expect((await working.inspectRecord('layouts/new-wizard-layouts')).accepted).toBe(true);
+    expect((await working.inspectRecord('rooms/new-wizard-rooms')).accepted).toBe(true);
+    expect(
+      working.snapshot()?.recordSnapshots?.['layouts/new-wizard-layouts']?.normalized,
+    ).toMatchObject({ id: 'new-wizard-layouts' });
+    expect(
+      working.snapshot()?.recordSnapshots?.['rooms/new-wizard-rooms']?.normalized,
+    ).toMatchObject({ id: 'new-wizard-rooms' });
+  }, 120_000);
+  it('keeps newly staged and saved Layout companion text sources present in native validation', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const record = createDefaultAuthoringRecord('layouts', 'native-created-layout', {
+      label: 'New Layout',
+      data: defaultLayoutData('New Layout', 'document'),
+    });
+    const staged = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: '/layouts/native-created-layout', value: toJsonValue(record) },
+    ]);
+    expect(staged.accepted, staged.error).toBe(true);
+    const unresolved = (reply: Awaited<ReturnType<typeof working.validateWorking>>) =>
+      reply.diagnostics.filter(
+        (item) =>
+          item.code === 'authoring.lua.external_source_unresolved' &&
+          item.sourcePath?.includes('native-created-layout'),
+      );
+    const beforeSave = await working.validateWorking();
+    expect(unresolved(beforeSave)).toEqual([]);
+    const saved = await working.saveUnit('record:layouts:native-created-layout');
+    expect(saved.accepted, saved.error).toBe(true);
+    const afterSave = await working.validateWorking();
+    expect(unresolved(afterSave)).toEqual([]);
+    for (const channel of ['rml', 'rcss', 'lua']) {
+      expect(
+        await readFile(
+          path.join(root, 'records/layouts/native-created-layout', `layout.${channel}`),
+          'utf8',
+        ),
+      ).not.toBe('');
+    }
+    await working.reopenAndReplay('native-reconcile-test');
+    expect(unresolved(await working.validateWorking())).toEqual([]);
+    const removed = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'remove', path: '/layouts/native-created-layout' },
+    ]);
+    expect(removed.accepted, removed.error).toBe(true);
+    const deleted = await working.saveUnit('record:layouts:native-created-layout');
+    expect(deleted.accepted, deleted.error).toBe(true);
+    expect(unresolved(await working.validateWorking())).toEqual([]);
+    const data = defaultLayoutData('Invalid staging', 'document');
+    data.lua.sourceText = "Text.msg('nonexistent.staged.layout.message')";
+    const invalidLayout = createDefaultAuthoringRecord('layouts', 'invalid-staged-layout', {
+      label: 'Invalid staging',
+      data,
+    });
+    const second = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'add', path: '/layouts/invalid-staged-layout', value: toJsonValue(invalidLayout) },
+    ]);
+    expect(second.accepted, second.error).toBe(true);
+    expect((await working.validateWorking()).diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.localization.lua_named_message_missing',
+          sourcePath: 'records/layouts/invalid-staged-layout/layout.lua',
+        }),
+      ]),
+    );
+  }, 120_000);
+
+  it.skipIf(!process.env.NOVELTEA_RECOVERY_TEST_PROJECT)(
+    'can replay a copied user Project checkpoint without modifying the source',
+    async () => {
+      const original = process.env.NOVELTEA_RECOVERY_TEST_PROJECT!;
+      const root = await mkdtemp(path.join(tmpdir(), 'noveltea-real-recovery-'));
+      await cp(original, root, { recursive: true });
+      const checkpoint = JSON.parse(
+        await readFile(path.join(root, '.noveltea/editor/native-dirty-state.json'), 'utf8'),
+      ).checkpoint;
+      const bridge = new NativeAuthoringSessionBridge(
+        { requireActiveProjectRoot: () => root, isCurrent: () => true },
+        { addonPath: path.resolve(addon!), workerScript, pollIntervalMs: 0 },
+      );
+      cleanups.push(async () => {
+        await bridge.closeAndWait();
+        await rm(root, { recursive: true, force: true });
+      });
+      const working = new NativeAuthoringWorkingProject(bridge);
+      await working.open('native-reconcile-test');
+      await working.restoreDirtyCheckpoint('native-reconcile-test', checkpoint);
+      const prepared = await working.prepareCompleteWorking();
+      expect(prepared.accepted, prepared.error).toBe(true);
+      expect(prepared.completeProject).toBeDefined();
+      const inspected = await working.inspectRecord('rooms/new-room-2');
+      expect(inspected.accepted, inspected.error).toBe(true);
+      const record = inspected.snapshot.recordSnapshots?.['rooms/new-room-2']?.normalized as {
+        data: Record<string, unknown>;
+      };
+      expect(record.data.kind).toBe('room');
+      expect(roomDataSchema.safeParse(record.data)).toMatchObject({ success: true });
+      expect(parseRoomData(record.data)).not.toBeNull();
+      const edited = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+        {
+          op: 'replace',
+          path: '/rooms/new-room-2/data',
+          value: toJsonValue({ ...record.data, displayName: 'Changed again after recovery' }),
+        },
+      ]);
+      expect(edited.accepted, edited.error).toBe(true);
+      const editedData = edited.snapshot.recordSnapshots?.['rooms/new-room-2']?.normalized as {
+        data: Record<string, unknown>;
+      };
+      expect(editedData.data).toEqual({
+        ...record.data,
+        displayName: 'Changed again after recovery',
+      });
+      const proposed = toJsonValue({
+        ...createAuthoringProject(),
+        rooms: { 'new-room-2': record },
+      });
+      const roomEdits = replaceRoomDataPatches(proposed, {
+        roomId: 'new-room-2',
+        data: { ...record.data, displayName: 'Second UI name' },
+      });
+      expect(roomEdits.diagnostics ?? []).toEqual([]);
+      const proposal = applyJsonPatch(proposed, roomEdits.patches).document;
+      const acknowledged = await working.applyRevisionedPatches(
+        working.snapshot()!.workingRevision,
+        roomEdits.patches,
+      );
+      expect(acknowledged.accepted, acknowledged.error).toBe(true);
+      expect(
+        (
+          acknowledged.snapshot.recordSnapshots?.['rooms/new-room-2']?.normalized as
+            | { data: unknown }
+            | undefined
+        )?.data,
+      ).toEqual(
+        (proposal as { rooms: Record<string, { data: unknown }> }).rooms['new-room-2']?.data,
+      );
+      assertNativeProjection(proposal, roomEdits.patches, acknowledged);
+      const saved = await working.saveUnit('record:rooms:new-room-2');
+      expect(saved.accepted, saved.error).toBe(true);
+      const room = decodeStructuredYaml(
+        await readFile(path.join(root, 'records/rooms/new-room-2.yaml'), 'utf8'),
+      ) as { data: Record<string, unknown> };
+      expect(room.data).not.toHaveProperty('kind');
+      expect(room.data.displayName).toBe('Second UI name');
+      const reopened = await working.reopenAndReplay('native-reconcile-test');
+      expect(reopened.workingRevision).toBeGreaterThanOrEqual(0);
+      const verified = await working.inspectRecord('rooms/new-room-2');
+      expect(verified.accepted, verified.error).toBe(true);
+      expect(verified.snapshot.recordSnapshots?.['rooms/new-room-2']?.normalized).toMatchObject({
+        data: { displayName: 'Second UI name', kind: 'room' },
+      });
+      const entrypointPatches = setProjectEntrypointPatches(proposed, {
+        target: { kind: 'room', id: 'new-room-2' },
+      });
+      expect(entrypointPatches.diagnostics ?? []).toEqual([]);
+      const entrypointProposal = applyJsonPatch(proposed, entrypointPatches.patches).document;
+      const entrypointAck = await working.applyRevisionedPatches(
+        working.snapshot()!.workingRevision,
+        entrypointPatches.patches,
+      );
+      expect(entrypointAck.accepted, entrypointAck.error).toBe(true);
+      assertNativeProjection(entrypointProposal, entrypointPatches.patches, entrypointAck);
+      const entrypointSaved = await working.saveUnit('project:settings');
+      expect(entrypointSaved.accepted, entrypointSaved.error).toBe(true);
+      const manifest = decodeStructuredYaml(
+        await readFile(path.join(root, 'project.yaml'), 'utf8'),
+      ) as { entrypoint: { kind: string; id: string } };
+      expect(manifest.entrypoint).toEqual({ kind: 'room', id: 'new-room-2' });
+    },
+    120_000,
+  );
+  it('reopens an older native checkpoint containing an inferred Room kind', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    const room = 'room-lifecycle-roundtrip';
+    const baseline = working.snapshot()!.recordSnapshots?.[`rooms/${room}`];
+    expect(baseline).toBeDefined();
+    const recovered = await working.restoreDirtyCheckpoint('native-reconcile-test', {
+      batches: [
+        {
+          patches: [
+            { operation: 'replace', path: `/rooms/${room}/label`, value: 'Recovered Label' },
+            { operation: 'add', path: `/rooms/${room}/data/kind`, value: 'room' },
+          ],
+          diskPreconditions: { [`rooms/${room}`]: baseline!.diskSourceRevision },
+        },
+      ],
+      textSources: {},
+      conflicts: {},
+      pendingFields: {},
+    });
+    expect(recovered.workingRevision).toBeGreaterThan(0);
+    const inspected = await working.inspectRecord(`rooms/${room}`);
+    expect(inspected.accepted, inspected.error).toBe(true);
+    expect(inspected.snapshot.recordSnapshots?.[`rooms/${room}`]?.normalized).toMatchObject({
+      label: 'Recovered Label',
+    });
+    // RoomEditor dispatches room.replaceData, which replaces the *entire*
+    // normalized data object, including its inferred data.kind discriminator.
+    const effective = inspected.snapshot.recordSnapshots?.[`rooms/${room}`]?.normalized as {
+      data: Record<string, unknown>;
+    };
+    expect(effective.data.kind).toBe('room');
+    const edited = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      {
+        op: 'replace',
+        path: `/rooms/${room}/data`,
+        value: toJsonValue({ ...effective.data, displayName: 'Edited room name' }),
+      },
+    ]);
+    expect(edited.accepted, edited.error).toBe(true);
+    const saved = await working.saveUnit(`record:rooms:${room}`);
+    expect(saved.accepted, saved.error).toBe(true);
+    const diskRecord = decodeStructuredYaml(
+      await readFile(path.join(root, `records/rooms/${room}.yaml`), 'utf8'),
+    ) as { data: Record<string, unknown> };
+    expect(diskRecord.data).not.toHaveProperty('kind');
+    expect(diskRecord.data.displayName).toBe('Edited room name');
+    expect((diskRecord.data.description as { source: { kind: string } }).source.kind).toBe(
+      'inline',
+    );
+
+    const invalid = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      {
+        op: 'replace',
+        path: `/rooms/${room}/data`,
+        value: toJsonValue({ ...effective.data, kind: 'map' }),
+      },
+    ]);
+    expect(invalid.accepted).toBe(false);
+    expect(invalid.error).toContain('Cannot change an inferred record kind');
+  }, 120_000);
+  it('saves consecutive Room wizard creations with record metadata and permits undo', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      await bridge.closeAndWait();
+      await rm(root, { recursive: true, force: true });
+    });
+    for (const id of ['wizard-first', 'wizard-second']) {
+      const record = createDefaultAuthoringRecord('rooms', id, { label: id });
+      const first = id === 'wizard-first';
+      const patches = [
+        ...(first
+          ? [{ op: 'add' as const, path: '/editor/recordMetadata/rooms', value: toJsonValue({}) }]
+          : []),
+        {
+          op: 'add' as const,
+          path: `/editor/recordMetadata/rooms/${id}`,
+          value: toJsonValue({ tags: [], color: null }),
+        },
+        { op: 'add' as const, path: `/rooms/${id}`, value: toJsonValue(record) },
+      ];
+      const staged = await working.applyRevisionedPatches(
+        working.snapshot()!.workingRevision,
+        patches,
+      );
+      expect(staged.accepted, staged.error).toBe(true);
+      const saved = await working.saveOwners(['editor', `rooms/${id}`]);
+      expect(saved.accepted, saved.error).toBe(true);
+    }
+    const metadata = decodeStructuredYaml(
+      await readFile(path.join(root, 'editor.yaml'), 'utf8'),
+    ) as {
+      recordMetadata: { rooms: Record<string, unknown> };
+    };
+    expect(Object.keys(metadata.recordMetadata.rooms).sort()).toEqual([
+      'wizard-first',
+      'wizard-second',
+    ]);
+    const removed = await working.applyRevisionedPatches(working.snapshot()!.workingRevision, [
+      { op: 'remove', path: '/editor/recordMetadata/rooms/wizard-second' },
+      { op: 'remove', path: '/rooms/wizard-second' },
+    ]);
+    expect(removed.accepted, removed.error).toBe(true);
+    const undone = await working.saveOwners(['editor', 'rooms/wizard-second']);
+    expect(undone.accepted, undone.error).toBe(true);
+    const remaining = decodeStructuredYaml(
+      await readFile(path.join(root, 'editor.yaml'), 'utf8'),
+    ) as {
+      recordMetadata: { rooms: Record<string, unknown> };
+    };
+    expect(Object.keys(remaining.recordMetadata.rooms)).toEqual(['wizard-first']);
+    await expect(readFile(path.join(root, 'records/rooms/wizard-second.yaml'))).rejects.toThrow();
+  }, 120_000);
   it('creates, replaces, deletes, and replays whole locale YAML fragments atomically', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-native-locale-'));
     await cp(fixture, root, { recursive: true });

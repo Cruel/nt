@@ -429,6 +429,7 @@ private:
     }
     std::optional<std::string> resolved_material(std::string_view material_id) const;
     void index_text_owner(std::string_view owner, std::string_view raw_json);
+    std::map<std::string, std::string> staged_layout_text_sources() const;
     void reindex_asset_consumers(std::string_view asset_id);
     ValidationResult validate_working_localization() const;
     std::unique_ptr<RoomSession> source_;

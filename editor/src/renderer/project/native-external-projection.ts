@@ -14,6 +14,8 @@ import { isAuthoringCollectionKey } from '../../shared/project-schema/authoring-
 type Source = {
   source: unknown;
   baseline?: unknown;
+  normalized?: unknown;
+  dirty?: boolean;
   diskSourceRevision: string;
   conflictingPaths?: string[];
 };
@@ -182,8 +184,19 @@ export function projectNativeExternalResult(input: {
       owner === 'project' ? input.result.snapshot : input.result.snapshot.recordSnapshots?.[owner];
     if (state && state.baseline === undefined)
       throw new Error(`Native ${owner} reconciliation omitted its saved baseline.`);
-    saved = applySource(saved, owner, state?.baseline);
-    working = applySource(working, owner, state?.source);
+    // The native Room/record source is sparse YAML. Renderer editors and
+    // focused previews require its normalized native effective value instead;
+    // replacing a Room with source would erase its inferred data.kind.
+    const recordOwner = isAuthoringCollectionKey(owner.split('/')[0] ?? '');
+    const effective = recordOwner && state?.normalized != null ? state.normalized : state?.source;
+    saved = applySource(
+      saved,
+      owner,
+      recordOwner && state?.dirty === false && state.normalized != null
+        ? state.normalized
+        : state?.baseline,
+    );
+    working = applySource(working, owner, effective);
     if (state?.conflictingPaths?.length)
       nativeConflicts.push({
         owner,

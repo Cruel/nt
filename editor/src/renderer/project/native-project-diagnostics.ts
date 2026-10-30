@@ -28,6 +28,7 @@ function identity() {
 const EMPTY_DIAGNOSTICS: ToolDiagnostic[] = [];
 let requested = '';
 let diagnostics: ToolDiagnostic[] = [];
+let visibleSession: string | null = null;
 let completed = false;
 let generation = 0;
 let version = 0;
@@ -39,7 +40,13 @@ function notify() {
 }
 
 export function currentNativeProjectDiagnostics(): ToolDiagnostic[] {
-  return requested === JSON.stringify(identity()) ? diagnostics : EMPTY_DIAGNOSTICS;
+  const project = useProjectStore.getState();
+  const commands = useCommandStore.getState();
+  // A pending revision keeps the last completed findings. A fatal mutation
+  // instead shows its own diagnostic once refresh has observed the failure.
+  if (!project.nativeSession) return EMPTY_DIAGNOSTICS;
+  if (commands.nativeMutationFailure) return requested === 'null' ? diagnostics : EMPTY_DIAGNOSTICS;
+  return project.projectSessionId === visibleSession ? diagnostics : EMPTY_DIAGNOSTICS;
 }
 
 export function nativeProjectDiagnosticsReady(): boolean {
@@ -53,12 +60,17 @@ export function refreshNativeProjectDiagnostics(force = false): Promise<void> {
   if (!force && key === requested) return pending ?? Promise.resolve();
   requested = key;
   completed = false;
-  diagnostics = [];
+  if (!current || current.session !== visibleSession) {
+    if (useProjectStore.getState().projectSessionId !== visibleSession) {
+      diagnostics = [];
+      visibleSession = null;
+    }
+  }
   const token = ++generation;
   if (
     !current &&
     useProjectStore.getState().nativeSession &&
-    (force || useCommandStore.getState().nativeMutationFailure)
+    useCommandStore.getState().nativeMutationFailure
   ) {
     diagnostics = [
       {
@@ -82,6 +94,7 @@ export function refreshNativeProjectDiagnostics(force = false): Promise<void> {
     .then((reply) => {
       if (token !== generation || key !== JSON.stringify(identity())) return;
       diagnostics = reply.diagnostics;
+      visibleSession = current.session;
       completed = true;
       notify();
     })
@@ -96,6 +109,7 @@ export function refreshNativeProjectDiagnostics(force = false): Promise<void> {
           message: error instanceof Error ? error.message : String(error),
         },
       ];
+      visibleSession = current.session;
       notify();
     });
   return pending;
@@ -133,6 +147,7 @@ export function useNativeProjectDiagnostics(ownerPath?: string) {
         stop = null;
         requested = '';
         diagnostics = [];
+        visibleSession = null;
         generation++;
       }
     };

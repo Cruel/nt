@@ -184,6 +184,88 @@ describe('project Files navigation', () => {
     });
   });
 
+  it('refreshes Files inventory when navigating there after native record creation', async () => {
+    loadProject('project');
+    const layoutSource: ProjectSourceFile = {
+      id: 'layouts/new-layout/layout.rml',
+      displayPath: 'layouts/new-layout/layout.rml',
+      projectRelativePath: 'records/layouts/new-layout/layout.rml',
+      kind: 'layout-rml',
+      text: true,
+    };
+    let written = false;
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockImplementation(async () => ({
+      files: written ? [helperSource, layoutSource] : [helperSource],
+    }));
+    render(<ProjectExplorer nodes={[]} />);
+    await waitFor(() => expect(useProjectSourceStore.getState().files).toHaveLength(1));
+
+    // A structural auto-commit has published Layout companions while the
+    // source explorer was not visible.
+    written = true;
+    act(() => useProjectExplorerStore.getState().setNavigationMode('files'));
+    await waitFor(() =>
+      expect(useProjectSourceStore.getState().files.map((file) => file.id)).toContain(
+        layoutSource.id,
+      ),
+    );
+  });
+
+  it('updates an already open Files tree after native structural record creation and deletion', async () => {
+    const project = loadProject('files');
+    const layoutSource: ProjectSourceFile = {
+      id: 'layouts/new-layout/layout.rml',
+      displayPath: 'layouts/new-layout/layout.rml',
+      projectRelativePath: 'records/layouts/new-layout/layout.rml',
+      kind: 'layout-rml',
+      text: true,
+    };
+    let fileExists = false;
+    vi.mocked(window.noveltea.listProjectSourceFiles).mockImplementation(async () => ({
+      files: fileExists ? [helperSource, layoutSource] : [helperSource],
+    }));
+    render(<ProjectExplorer nodes={[]} />);
+    await waitFor(() => expect(useProjectSourceStore.getState().files).toHaveLength(1));
+
+    fileExists = true;
+    const updated = structuredClone(project);
+    updated.layouts['new-layout'] = {
+      id: 'new-layout',
+      label: 'New Layout',
+      data: defaultLayoutData('New Layout'),
+    };
+    act(() => {
+      expect(
+        useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(updated), 0, {
+          kind: 'command',
+          affectedPaths: ['/layouts/new-layout'],
+        }),
+      ).toBe(true);
+    });
+    await waitFor(() =>
+      expect(useProjectSourceStore.getState().files.map((file) => file.id)).toContain(
+        layoutSource.id,
+      ),
+    );
+
+    fileExists = false;
+    const removed = structuredClone(updated);
+    delete removed.layouts['new-layout'];
+    act(() => {
+      expect(
+        useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(removed), 0, {
+          kind: 'command',
+          affectedPaths: ['/layouts/new-layout'],
+        }),
+      ).toBe(true);
+    });
+    await waitFor(() =>
+      expect(useProjectSourceStore.getState().files.map((file) => file.id)).not.toContain(
+        layoutSource.id,
+      ),
+    );
+  });
+
   it('does not refresh source inventory for same-session Project document replacements', async () => {
     const sessionId = '11111111-1111-4111-8111-111111111111';
     const project = loadProject('project');
@@ -202,6 +284,34 @@ describe('project Files navigation', () => {
 
     expect(useProjectStore.getState().projectSessionId).toBe(sessionId);
     expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
+  it('never lets an older initial inventory overwrite a newer structural refresh', async () => {
+    const updatedSource: ProjectSourceFile = {
+      id: 'layouts/new-layout/layout.rml',
+      displayPath: 'layouts/new-layout/layout.rml',
+      projectRelativePath: 'records/layouts/new-layout/layout.rml',
+      kind: 'layout-rml',
+      text: true,
+    };
+    let resolveOld!: (value: { files: readonly ProjectSourceFile[] }) => void;
+    vi.mocked(window.noveltea.listProjectSourceFiles)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValue({ files: [helperSource, updatedSource] });
+
+    const initial = useProjectSourceStore.getState().refresh('source-inventory-race');
+    const next = useProjectSourceStore.getState().reconcileExternal('source-inventory-race');
+    await Promise.resolve();
+    resolveOld({ files: [helperSource] });
+    await Promise.all([initial, next]);
+    expect(useProjectSourceStore.getState().files.map((file) => file.id)).toContain(
+      updatedSource.id,
+    );
   });
 
   it('coalesces concurrent source refreshes onto the actual in-flight load', async () => {

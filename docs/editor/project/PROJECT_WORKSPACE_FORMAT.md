@@ -112,7 +112,10 @@ unchanged explicit fields through revision-safe selective saves.
 
 For canonical YAML owners, the shared workspace writer parses the current document and applies
 localized changes to its nodes. Unchanged fields retain their authored comments, explicit defaults,
-and mapping order. Sequence comments follow unique stable item IDs through reorder/insert; a
+and mapping order. The native comment-aware writer also inserts or removes entries in
+single-line, unannotated YAML flow mappings without rewriting their peers, allowing repeated
+record-metadata updates; annotated or multiline flow mappings still fail closed. Sequence comments
+follow unique stable item IDs through reorder/insert; a
 commented sequence without an unambiguous correspondence fails rather than attaching a note to a
 different item. An explicit record identity rename carries its original YAML source (and Layout
 companions) to the destination, including matching `editor.yaml` record-metadata annotations.
@@ -226,7 +229,11 @@ The persisted Layout YAML selectors use `sourceMode: "file"`, `sourceMode: "asse
 or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.yaml`. Layout Lua Asset
 sources are obsolete. Workspace assembly reads a `file` Layout companion into the semantic inline
 Layout source used by compiler/editor consumers while retaining the companion file as the authoritative
-physical source.
+physical source. During creation, the native working Project validates staged Layout
+companions before they exist on disk. An atomic Layout Save publishes the YAML and
+companions together, then admits the new physical text sources to the live native
+analysis inventory without waiting for a filesystem watcher event. Undo/deletion
+must revoke their source membership.
 
 Author-managed Lua and shader source use real Project source roots: Lua lives beneath `scripts/` and
 shader stages/includes/interface files live beneath `shaders/`. These freeform source trees are not

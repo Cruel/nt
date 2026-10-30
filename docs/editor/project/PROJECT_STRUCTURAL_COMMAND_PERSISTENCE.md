@@ -36,10 +36,11 @@ agent has changed comments since the original command. Duplication does not inhe
 The shared source preflight and grouped confirmation now apply to structural auto-commit/Undo/Redo
 as well as manual Save. Cancel rolls back the pending command/history transition without committing
 source or setting a save error. Main recomputes the impact/revision token before committing; stale
-approval cannot overwrite an agent edit made while the dialog was open. Explorer record deletion
-keeps its existing confirmation dialog open for the inline grouped YAML comment review and closes
-only when persistence succeeds or the user cancels. Other deletion flows close their dialog when
-they submit a command, so they do not overlap the global comment-confirmation surface.
+approval cannot overwrite an agent edit made while the dialog was open. Explorer record deletion awaits native structural command acknowledgment, which already proves
+physical persistence completed. The dialog then closes and obsolete record tabs are discarded;
+it does not wait for a separate legacy persistence-result event. YAML comment-impact approval
+uses the shared Project confirmation dialog while that transaction is pending. Cancellation or
+Save rejection keeps the record and restores editor drafts.
 
 ## Classified auto-commit mutations
 

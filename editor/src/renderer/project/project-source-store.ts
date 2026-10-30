@@ -227,6 +227,12 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
   reconcileExternal: async (projectSessionId) => {
     if (get().projectSessionId !== projectSessionId) return;
     try {
+      // An initial listing may still be reading its files when a native
+      // structural Save adds/removes sources. Fetch after that earlier read
+      // settles, or its stale result could overwrite the newer inventory.
+      const initial = sourceRefreshesBySession.get(projectSessionId);
+      if (initial) await initial;
+      if (get().projectSessionId !== projectSessionId) return;
       const loaded = await loadSourceSnapshot(projectSessionId);
       if (get().projectSessionId !== projectSessionId) return;
       set((state) => ({ ...mergeSnapshot(state, loaded, true), error: null }));

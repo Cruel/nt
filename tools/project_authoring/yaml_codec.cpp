@@ -565,6 +565,104 @@ const Json* json_at_path(const Json& root, const std::vector<std::string>& parts
     return current;
 }
 
+// Permit surgical edits to single-line flow mappings without changing the
+// spelling of any other entry. More complex or commented flow mappings stay
+// protected by the comment-aware preflight boundary.
+std::string edit_plain_flow_mapping(std::string_view source, fy_node* parent, fy_node_pair* pair,
+                                    std::string_view name, const std::optional<Json>& replacement)
+{
+    if (!parent || fy_node_get_style(parent) != FYNS_FLOW || contains_comment(parent) ||
+        has_physical_comment(source, parent, nullptr))
+        throw SourceFailure("Cannot safely edit an annotated YAML flow mapping.");
+    const auto start = mark_offset(fy_node_get_start_token(parent));
+    const auto end = mark_offset(fy_node_get_end_token(parent), true);
+    if (!start || !end || *end > source.size() || *end <= *start + 1 || source[*start] != '{' ||
+        source[*end - 1] != '}' ||
+        source.substr(*start, *end - *start).find_first_of("\r\n") != std::string_view::npos)
+        throw SourceFailure("Cannot safely edit a multiline YAML flow mapping.");
+
+    std::string result(source);
+    if (replacement) {
+        if (pair)
+            throw SourceFailure("YAML flow insertion target already exists.");
+        const auto inner = source.substr(*start + 1, *end - *start - 2);
+        const bool empty = inner.find_first_not_of(" \t") == std::string_view::npos;
+        result.insert(*end - 1, std::string(empty ? "" : ", ") + Json(name).to_string() + ": " +
+                                    emit_source_value(*replacement, nullptr));
+        return result;
+    }
+    if (!pair)
+        throw SourceFailure("YAML flow removal target does not exist.");
+
+    const auto key_begin = [&](fy_node_pair* entry) {
+        auto* key = fy_node_pair_key(entry);
+        auto pos = mark_offset(fy_node_get_start_token(key));
+        if (!pos)
+            throw SourceFailure("Cannot locate YAML flow mapping key.");
+        const auto style = fy_node_get_style(key);
+        const char quote = style == FYNS_DOUBLE_QUOTED   ? '"'
+                           : style == FYNS_SINGLE_QUOTED ? '\''
+                                                         : '\0';
+        if (quote && *pos > 0 && source[*pos - 1] == quote)
+            --*pos;
+        return *pos;
+    };
+    const auto value_end = [&](fy_node_pair* entry) {
+        auto* value = fy_node_pair_value(entry);
+        auto pos = mark_offset(fy_node_get_end_token(value), true);
+        if (!pos)
+            throw SourceFailure("Cannot locate YAML flow mapping value.");
+        const auto style = fy_node_get_style(value);
+        const char quote = style == FYNS_DOUBLE_QUOTED   ? '"'
+                           : style == FYNS_SINGLE_QUOTED ? '\''
+                                                         : '\0';
+        if (fy_node_is_scalar(value) && quote && *pos < source.size() && source[*pos] == quote)
+            ++*pos;
+        return *pos;
+    };
+    const auto separator = [&](std::size_t from, std::size_t to) {
+        if (from >= to || to > source.size())
+            throw SourceFailure("Cannot locate YAML flow entry separator.");
+        const auto comma = source.find(',', from);
+        if (comma == std::string_view::npos || comma >= to)
+            throw SourceFailure("Cannot locate YAML flow entry separator.");
+        for (auto i = from; i < to; ++i)
+            if (i != comma && source[i] != ' ' && source[i] != '\t')
+                throw SourceFailure("Cannot safely edit a complex YAML flow mapping.");
+        return comma;
+    };
+    void* cursor = nullptr;
+    fy_node_pair* previous = nullptr;
+    fy_node_pair* next = nullptr;
+    bool found = false;
+    while (auto* current = fy_node_mapping_iterate(parent, &cursor)) {
+        if (found) {
+            next = current;
+            break;
+        }
+        if (current == pair)
+            found = true;
+        else
+            previous = current;
+    }
+    if (!found)
+        throw SourceFailure("Cannot locate YAML flow entry.");
+    const auto from_key = key_begin(pair);
+    const auto through_value = value_end(pair);
+    if (from_key <= *start || through_value >= *end || from_key >= through_value)
+        throw SourceFailure("Invalid YAML flow entry span.");
+    if (previous) {
+        const auto comma = separator(value_end(previous), from_key);
+        result.erase(comma, through_value - comma);
+    } else if (next) {
+        const auto comma = separator(through_value, key_begin(next));
+        result.erase(from_key, comma + 1 - from_key);
+    } else {
+        result.erase(from_key, through_value - from_key);
+    }
+    return result;
+}
+
 std::string apply_one(std::string_view source, const YamlValueEdit& edit)
 {
     Parsed parsed(source);
@@ -594,7 +692,7 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         if (!parent || !fy_node_is_mapping(parent))
             throw SourceFailure("YAML edit path has no mapping owner: " + edit.path);
         if (fy_node_get_style(parent) == FYNS_FLOW)
-            throw SourceFailure("Cannot insert a YAML flow mapping field without rewriting peers.");
+            return edit_plain_flow_mapping(source, parent, nullptr, parts.back(), replacement);
         void* previous = nullptr;
         fy_node_pair* first = fy_node_mapping_iterate(parent, &previous);
         if (!first)
@@ -699,7 +797,9 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
             }
             return result;
         }
-        if (!pair || !parent || fy_node_get_style(parent) == FYNS_FLOW)
+        if (pair && parent && fy_node_get_style(parent) == FYNS_FLOW)
+            return edit_plain_flow_mapping(source, parent, pair, parts.back(), std::nullopt);
+        if (!pair || !parent)
             throw SourceFailure("Cannot safely remove a non-mapping YAML entry.");
         if (commented && edit.comments == YamlCommentDisposition::Keep)
             throw SourceFailure("Removing an annotated field requires Remove disposition.");
@@ -738,7 +838,7 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
     if (default_value && replacement == *default_value && pair &&
         (edit.comments == YamlCommentDisposition::Remove || !commented)) {
         if (parent && fy_node_get_style(parent) == FYNS_FLOW)
-            throw SourceFailure("Cannot omit a YAML flow mapping field without rewriting peers.");
+            return edit_plain_flow_mapping(source, parent, pair, parts.back(), std::nullopt);
         const auto key_at = mark_offset(fy_node_get_start_token(key));
         const auto last = mark_offset(fy_node_get_end_token(node), true);
         if (!key_at || !last || start_of_line(source, *key_at) != start_of_line(source, *last))

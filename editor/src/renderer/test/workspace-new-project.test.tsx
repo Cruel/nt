@@ -790,12 +790,18 @@ describe('WorkspacePage new project modal', () => {
     );
 
     render(<WorkspacePage />);
+    const overlay = screen.getByTestId('project-opening-overlay');
+    expect(overlay).toHaveClass('opacity-0', 'pointer-events-none', 'transition-none');
+    expect(overlay).toHaveAttribute('aria-hidden', 'true');
     dispatchOpenProject('/mock/large-story');
 
     const loading = screen.getByRole('status', { name: 'Loading project' });
+    expect(loading).toBe(overlay);
     expect(loading).toHaveTextContent('Loading...');
     expect(loading).toHaveClass('fixed', 'inset-0', 'z-[60]');
     expect(loading).toHaveClass('bg-black/45');
+    expect(loading).toHaveClass('transition-opacity', 'duration-200', 'delay-100', 'opacity-100');
+    expect(loading).toHaveAttribute('aria-hidden', 'false');
     expect(loading.querySelector('.animate-spin')).not.toBeNull();
     await waitFor(() =>
       expect(window.noveltea.openProject).toHaveBeenCalledWith('/mock/large-story'),
@@ -819,6 +825,8 @@ describe('WorkspacePage new project modal', () => {
     await waitFor(() =>
       expect(screen.queryByRole('status', { name: 'Loading project' })).not.toBeInTheDocument(),
     );
+    expect(overlay).toHaveClass('opacity-0', 'transition-none', 'pointer-events-none');
+    expect(overlay).toHaveAttribute('aria-hidden', 'true');
     expect(useProjectStore.getState().document).toMatchObject({
       project: { id: 'large-story' },
     });
@@ -843,6 +851,10 @@ describe('WorkspacePage new project modal', () => {
     await act(async () => failOpen(new Error('Could not open Project')));
     await waitFor(() =>
       expect(screen.queryByRole('status', { name: 'Loading project' })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('project-opening-overlay')).toHaveClass(
+      'opacity-0',
+      'transition-none',
     );
     expect(useWorkspaceStore.getState().statusMessage).toBe('Could not open Project');
   });
@@ -1041,6 +1053,33 @@ describe('WorkspacePage new project modal', () => {
       screen.getByText(
         'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
       ),
+    ).toBeInTheDocument();
+  });
+
+  it('reports native recovery failures without falsely labeling the Project format unsupported', async () => {
+    vi.mocked(window.noveltea.openProject).mockResolvedValue({
+      ok: true,
+      success: false,
+      projectPath: '/mock/recovery-project',
+      projectFilePath: '/mock/recovery-project/project.yaml',
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/',
+          message: 'Native Project replay conflict: cannot replay unsaved Room metadata.',
+          category: 'Native recovery',
+        },
+      ],
+    });
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/recovery-project/project.yaml');
+    expect(
+      await screen.findByRole('heading', { name: 'Unable to open Project' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        'Native Project replay conflict: cannot replay unsaved Room metadata.',
+      )[0],
     ).toBeInTheDocument();
   });
 

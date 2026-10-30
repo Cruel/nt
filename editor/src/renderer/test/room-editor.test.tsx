@@ -45,12 +45,12 @@ const tab: WorkbenchTab = {
     entityId: 'foyer',
   },
 };
-function renderEditor(strict = false) {
+function renderEditor(strict = false, editorTab: WorkbenchTab = tab) {
   const content = (
     <MaterialPreviewProjectProvider>
       <AuthoringWebGlGroupProvider>
         <div style={{ width: 800, height: 600 }}>
-          <RoomEditor tab={tab} />
+          <RoomEditor tab={editorTab} />
         </div>
       </AuthoringWebGlGroupProvider>
     </MaterialPreviewProjectProvider>
@@ -1849,6 +1849,45 @@ describe('RoomEditor', () => {
 
     expect(screen.getByRole('separator', { name: 'Resize room preview' })).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveClass('overflow-y-auto');
+  });
+  it('restores the selected sidebar category independently for each Room after navigating away', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    admitNativeRendererCommandFixture(project);
+    const hallTab: WorkbenchTab = {
+      ...tab,
+      id: 'tab:room-detail:rooms:hall',
+      title: 'Hall',
+      resource: {
+        kind: 'record',
+        stableId: 'record:rooms:hall',
+        collection: 'rooms',
+        entityId: 'hall',
+      },
+    };
+
+    const foyerView = renderEditor();
+    selectRoomCategory('General');
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    captureWorkbenchTabState(tab.id);
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      payload: { activeCategory: 'general', presentationMode: 'edit' },
+    });
+    foyerView.unmount();
+
+    const hallView = renderEditor(false, hallTab);
+    selectRoomCategory('Navigation');
+    expect(screen.getByRole('heading', { name: 'Navigation' })).toBeInTheDocument();
+    captureWorkbenchTabState(hallTab.id);
+    hallView.unmount();
+
+    const returnedFoyer = renderEditor();
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    returnedFoyer.unmount();
+
+    renderEditor(false, hallTab);
+    expect(screen.getByRole('heading', { name: 'Navigation' })).toBeInTheDocument();
   });
   it('persists the Room Edit and Preview mode independently from preview collapse', () => {
     const project = createAuthoringProject();

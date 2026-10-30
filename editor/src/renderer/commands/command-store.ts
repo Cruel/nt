@@ -837,7 +837,9 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
         revision === null ||
         get().nativeProjectSessionId !== session ||
         get().nativeProjectionRevision !== project.projectRevision ||
-        get().nativeMutationFailure
+        (get().nativeMutationFailure !== null &&
+          get().nativeMutationFailure !==
+            'Accepted native mutation did not advance its working revision.')
       )
         return nativeOnlyResult('Native Use Disk has a stale editor projection.');
       set({ nativeMutationPending: true });
@@ -878,6 +880,7 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
           nativeMutationPending: false,
           nativeWorkingRevision: result.snapshot.workingRevision,
           nativeProjectionRevision: useProjectStore.getState().projectRevision,
+          nativeMutationFailure: null,
           lastDiagnostics: [],
         });
         return { ok: true, projectChanged: true, diagnostics: [] };

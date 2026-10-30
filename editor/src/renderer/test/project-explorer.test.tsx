@@ -506,6 +506,43 @@ describe('ProjectExplorer', () => {
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
   });
 
+  it.each(['rooms', 'layouts'] as const)(
+    'closes the delete dialog when native %s auto-commit has already finished',
+    async (collection) => {
+      const user = userEvent.setup();
+      stopGraphService = startAuthoringDependencyGraphService();
+      const project = createAuthoringProject();
+      if (collection === 'rooms') {
+        project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+      } else {
+        project.layouts.target = {
+          id: 'target',
+          label: 'Target',
+          data: defaultLayoutData('Target'),
+        };
+      }
+      loadProject(project);
+      await publishNativeViewGraphFixture();
+      render(<ProjectExplorer nodes={[]} />);
+      await user.click(screen.getByRole('button', { name: new RegExp(`^${collection}`, 'i') }));
+      const target = screen.getByText('Target').closest('button');
+      if (!target) throw new Error('Expected target record in explorer.');
+      fireEvent.contextMenu(target);
+      await user.click(screen.getByRole('button', { name: /^delete$/i }));
+      expect(screen.getByText('No references point to this record.')).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /^delete$/i }));
+      await waitFor(() => expect(window.noveltea.nativeProjectSaveUnit).toHaveBeenCalled());
+      expect(useCommandStore.getState().lastDiagnostics).toEqual([]);
+      await waitFor(() =>
+        expect(
+          (useProjectStore.getState().document as AuthoringProject)[collection].target,
+        ).toBeUndefined(),
+      );
+      expect(window.noveltea.nativeProjectSaveUnit).toHaveBeenCalled();
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    },
+  );
+
   it('reviews attached YAML comments inside the existing record deletion dialog', async () => {
     const user = userEvent.setup();
     stopGraphService = startAuthoringDependencyGraphService();

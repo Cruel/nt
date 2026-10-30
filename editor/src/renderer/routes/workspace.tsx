@@ -784,11 +784,18 @@ export function WorkspacePage() {
         setLastPlaybackReport(null);
         setLastExportResult(null);
         setLastProjectPath(null);
-        setStatusMessage('Unsupported project schema');
+        const reason = loaded.diagnostics.find((entry) => entry.severity === 'error')?.message;
+        const unsupported = loaded.diagnostics.some((entry) =>
+          /unsupported.*(?:schema|format)|(?:schema|format).*unsupported/iu.test(entry.message),
+        );
+        setStatusMessage(
+          unsupported ? 'Unsupported project schema' : (reason ?? 'Project could not be opened'),
+        );
         setAlert({
-          title: 'Project format is not supported',
-          message:
-            'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.',
+          title: unsupported ? 'Project format is not supported' : 'Unable to open Project',
+          message: unsupported
+            ? 'This project was created with an older or unsupported NovelTea format and cannot be opened by this version of the editor.'
+            : (reason ?? 'The Project could not be admitted. Its source files were not changed.'),
         });
         return;
       }
@@ -2269,18 +2276,25 @@ export function WorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      {projectOpening ? (
-        <div
-          role="status"
-          aria-label="Loading project"
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-[1px]"
-        >
-          <div className="flex items-center gap-3 rounded-lg border bg-card px-6 py-4 text-sm font-medium text-card-foreground shadow-xl">
-            <LoaderCircle className="size-5 animate-spin" aria-hidden="true" />
-            <span>Loading...</span>
-          </div>
+      <div
+        data-testid="project-opening-overlay"
+        role={projectOpening ? 'status' : undefined}
+        aria-label={projectOpening ? 'Loading project' : undefined}
+        aria-hidden={!projectOpening}
+        className={`fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-[1px] ${
+          projectOpening
+            ? 'pointer-events-auto opacity-100 transition-opacity duration-200 delay-100 ease-in-out motion-reduce:transition-none'
+            : 'pointer-events-none opacity-0 transition-none'
+        }`}
+      >
+        <div className="flex items-center gap-3 rounded-lg border bg-card px-6 py-4 text-sm font-medium text-card-foreground shadow-xl">
+          <LoaderCircle
+            className="size-5 animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+          <span>Loading...</span>
         </div>
-      ) : null}
+      </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <Group

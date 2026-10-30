@@ -10,6 +10,7 @@
 using noveltea::authoring::edit_yaml_source;
 using noveltea::authoring::open_yaml_source;
 using noveltea::authoring::YamlCommentDisposition;
+using noveltea::authoring::YamlEditOperation;
 using noveltea::authoring::YamlValueEdit;
 
 namespace {
@@ -257,6 +258,49 @@ int main(int argc, char** argv)
                 stringTags.source_json ==
                     R"({"number":"123","boolean":"false","empty":"null","123":"typed key"})",
             "explicit !!str disables implicit scalar typing for values and mapping keys");
+    const std::string generated_flow =
+        "editor: # parent annotation retained\n"
+        "  recordMetadata: {\"rooms\":{\"first\":{\"tags\":[],\"color\":null}}}\n"
+        "other: {untouched: 2} # untouched annotation\n";
+    const auto flow_added = edit_yaml_source(
+        generated_flow, {{"/editor/recordMetadata/rooms/second", R"({"tags":[],"color":null})"}});
+    require(flow_added.accepted &&
+                flow_added.source.find(R"("first":{"tags":[],"color":null})") !=
+                    std::string::npos &&
+                flow_added.source.find("other: {untouched: 2} # untouched annotation") !=
+                    std::string::npos,
+            "insert into an unannotated flow mapping retains prior fields and unrelated comments");
+    if (flow_added.accepted) {
+        YamlValueEdit delete_second{"/editor/recordMetadata/rooms/second", ""};
+        delete_second.operation = YamlEditOperation::Remove;
+        const auto flow_removed = edit_yaml_source(flow_added.source, {delete_second});
+        require(flow_removed.accepted && flow_removed.source == generated_flow,
+                "delete from a generated flow mapping restores exact prior bytes");
+    }
+    const auto flow_default = edit_yaml_source(
+        "data: {\"first\":\"keep\",\"second\":\"changed\"}\n",
+        {{"/data/second", R"("default")", YamlCommentDisposition::Keep, R"("default")"}});
+    require(flow_default.accepted && flow_default.source == "data: {\"first\":\"keep\"}\n",
+            "sparse-default omission from a plain flow mapping preserves peer spelling");
+    YamlValueEdit remove_first{"/data/first", ""};
+    remove_first.operation = YamlEditOperation::Remove;
+    const auto first_flow_removed = edit_yaml_source(
+        "data: { first: [1,2], last: \"keep\" }\nother: 1 # retained\n", {remove_first});
+    require(first_flow_removed.accepted &&
+                first_flow_removed.source_json == R"({"data":{"last":"keep"},"other":1})" &&
+                first_flow_removed.source.find("last: \"keep\"") != std::string::npos &&
+                first_flow_removed.source.find("other: 1 # retained") != std::string::npos,
+            "removing the first flow entry preserves following peer spelling and comments");
+    YamlValueEdit remove_only{"/data/only", ""};
+    remove_only.operation = YamlEditOperation::Remove;
+    const auto empty_flow =
+        edit_yaml_source("data: {\"only\":{\"nested\":[1,2]}}\n", {remove_only});
+    require(empty_flow.accepted && empty_flow.source == "data: {}\n",
+            "removing the only flow entry leaves an empty mapping");
+    const auto multiline_flow =
+        edit_yaml_source("data: {\n  a: 1,\n  b: 2\n}\n", {{"/data/c", "3"}});
+    require(!multiline_flow.accepted,
+            "complex multiline flow mappings remain behind a conservative writer guard");
     const std::string flow = "data: {a: 1, b: 2} # authored flow\n";
     for (const auto& edit : {
              YamlValueEdit{"/data/c", "3"},

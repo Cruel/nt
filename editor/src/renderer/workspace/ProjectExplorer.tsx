@@ -32,12 +32,6 @@ import { referenceTargetFromEntity } from '@/project/entity-operations';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { buildJsonPointer, hasJsonAtPointer } from '@/project/json-pointer';
 import { buildNativeProjectSearchIndex } from '@/project/native-project-search';
-import {
-  ProjectCommentReviewContents,
-  resolveProjectComments,
-  setInlineProjectCommentOwner,
-  usePendingProjectComments,
-} from '@/project/project-comment-confirmation';
 import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -209,42 +203,7 @@ function EntityOperationDialog({
   const [replacementByEdgeId, setReplacementByEdgeId] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [pendingDeleteCommandId, setPendingDeleteCommandId] = useState<string | null>(null);
   const discardedDrafts = useRef<readonly DraftDirtyEntry[]>([]);
-  const commentConfirmation = usePendingProjectComments();
-  const inlineDeleteComments =
-    pendingDeleteCommandId && commentConfirmation?.operationLabel === 'entity.deleteRecord:forward'
-      ? commentConfirmation.impacts
-      : null;
-
-  useEffect(() => {
-    if (!pendingDeleteCommandId) return;
-    setInlineProjectCommentOwner('entity.deleteRecord:forward');
-    return () => setInlineProjectCommentOwner(null);
-  }, [pendingDeleteCommandId]);
-
-  useEffect(() => {
-    if (!pendingDeleteCommandId || !state || state.action !== 'delete') return;
-    const onPersisted = (event: Event) => {
-      const detail = (event as CustomEvent<{ commandId: string; result: { status: string } }>)
-        .detail;
-      if (detail.commandId !== pendingDeleteCommandId) return;
-      setPendingDeleteCommandId(null);
-      if (detail.result.status === 'persisted') {
-        discardedDrafts.current = [];
-        if (state.entityId) discardRecordTabs(state.collection, state.entityId);
-        onClose();
-      } else if (detail.result.status === 'cancelled') {
-        restoreDiscardedDrafts();
-        onClose();
-      } else {
-        restoreDiscardedDrafts();
-        setError('The deletion could not be saved.');
-      }
-    };
-    window.addEventListener('noveltea-structural-persistence-result', onPersisted);
-    return () => window.removeEventListener('noveltea-structural-persistence-result', onPersisted);
-  }, [pendingDeleteCommandId, state, onClose]);
 
   useEffect(() => {
     setError(null);
@@ -445,8 +404,14 @@ function EntityOperationDialog({
         if (!result.ok || failure) {
           restoreDiscardedDrafts();
           setError(failure?.message ?? 'Command failed.');
-        } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
-        else onClose();
+        } else {
+          // The native structural command has already committed its physical
+          // transaction before acknowledging success. No second persistence
+          // event will follow; close the dialog and discard obsolete tabs now.
+          discardedDrafts.current = [];
+          discardRecordTabs(state.collection, state.entityId);
+          onClose();
+        }
       } else if (state.action === 'metadata' && state.entityId) {
         await finish(
           executeCommand({
@@ -488,12 +453,8 @@ function EntityOperationDialog({
       open
       onOpenChange={(open) => {
         if (open) return;
-        // Escape/backdrop dismissal during an inline comment review must
-        // resolve the pending save, not orphan a queued structural transaction.
-        if (submitting || pendingDeleteCommandId) {
-          if (inlineDeleteComments) resolveProjectComments('cancel');
-          return;
-        }
+        // Keep the dialog mounted while a native transaction is in flight.
+        if (submitting) return;
         onClose();
       }}
     >
@@ -657,37 +618,25 @@ function EntityOperationDialog({
             </>
           )}
         </div>
-        {inlineDeleteComments ? (
-          <ProjectCommentReviewContents
-            impacts={inlineDeleteComments}
-            onDecision={resolveProjectComments}
-          />
-        ) : (
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              onClick={onClose}
-              disabled={submitting || !!pendingDeleteCommandId}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant={state.action === 'delete' ? 'destructive' : 'default'}
-              onClick={submit}
-              disabled={
-                submitting ||
-                (state.action === 'delete' &&
-                  (!!pendingDeleteCommandId ||
-                    !graphSnapshot ||
-                    (!forceDelete &&
-                      deleteRepairPlan !== null &&
-                      deleteRepairPlan.status !== 'ready')))
-              }
-            >
-              {pendingDeleteCommandId ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}
-            </Button>
-          </div>
-        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant={state.action === 'delete' ? 'destructive' : 'default'}
+            onClick={submit}
+            disabled={
+              submitting ||
+              (state.action === 'delete' &&
+                (!graphSnapshot ||
+                  (!forceDelete &&
+                    deleteRepairPlan !== null &&
+                    deleteRepairPlan.status !== 'ready')))
+            }
+          >
+            {submitting ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}
+          </Button>
+        </div>
       </DialogPopup>
     </Dialog>
   );
@@ -1762,6 +1711,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const lastMutationPublication = useProjectStore((state) => state.lastMutationPublication);
   const project = isAuthoringProjectView(projectDocument) ? projectDocument : null;
   const nativeWorkingRevision = useCommandStore((state) => state.nativeWorkingRevision);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
@@ -1857,6 +1807,42 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
       active = false;
     };
   }, [clearProjectSources, projectSessionId, refreshProjectSources]);
+
+  // Source inventory is independent of the semantic Project tree. The native
+  // structural writer acknowledges its own file additions/removals, so the
+  // physical watcher need not emit an external delta for a completed Save.
+  // Refresh on structural publications and when Files becomes visible.
+  useEffect(() => {
+    if (
+      !projectSessionId ||
+      !lastMutationPublication ||
+      lastMutationPublication.changeSet.kind === 'load'
+    )
+      return;
+    const changedRecordMembership = lastMutationPublication.changeSet.affectedPaths.some((path) => {
+      const segments = path.split('/');
+      return (
+        segments.length === 3 &&
+        Object.hasOwn(authoringCollectionMetadata, segments[1]) &&
+        Boolean(segments[2])
+      );
+    });
+    if (
+      changedRecordMembership &&
+      useProjectSourceStore.getState().projectSessionId === projectSessionId
+    )
+      void useProjectSourceStore.getState().reconcileExternal(projectSessionId);
+  }, [lastMutationPublication, projectSessionId]);
+
+  useEffect(() => {
+    if (
+      navigationMode !== 'files' ||
+      !projectSessionId ||
+      useProjectSourceStore.getState().projectSessionId !== projectSessionId
+    )
+      return;
+    void useProjectSourceStore.getState().reconcileExternal(projectSessionId);
+  }, [navigationMode, projectSessionId]);
 
   const explorer = useMemo(
     () => ({

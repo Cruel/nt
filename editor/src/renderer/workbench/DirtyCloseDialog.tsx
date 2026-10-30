@@ -14,11 +14,16 @@ import {
   useDraftDirtyStore,
 } from './draft-dirty-store';
 import { getTabDirtyState, restoreSaveUnitPatchesFromSaved } from './dirty-state';
+import { projectNativeExternalResult } from '@/project/native-external-projection';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { saveActiveSaveUnit } from '@/project/project-save-coordinator';
 import {
   buildCurrentEditorRecoveryState,
+  buildEditorProjectStateSnapshot,
   discardLoadedRecoverySaveUnits,
+  editorProjectStateFromProject,
+  mergeEditorProjectState,
+  setLoadedEditorProjectState,
 } from './project-editor-state';
 import type { JsonPointer } from '@/project/json-pointer';
 import { useWorkbenchStore } from './workbench-store';
@@ -177,7 +182,58 @@ export function DirtyCloseDialog() {
         : undefined;
       return restoreSaveUnitPatchesFromSaved(dirtyTab, project, savedDocument, recoveryPaths ?? []);
     });
-    if (patches.length > 0) {
+    if (
+      patches.length > 0 &&
+      useCommandStore.getState().nativeWorkingRevision !== null &&
+      useCommandStore.getState().nativeMutationFailure !== null
+    ) {
+      for (const saveUnitId of restoredSaveUnitIds) {
+        const result = await useCommandStore
+          .getState()
+          .useNativeDiskUnitAsync(saveUnitId, (acknowledged) => {
+            const state = useProjectStore.getState();
+            if (!state.document || !state.savedDocument)
+              throw new Error('Cannot discard without an admitted native Project.');
+            const previous = buildEditorProjectStateSnapshot();
+            const projected = projectNativeExternalResult({
+              saved: state.savedDocument,
+              working: state.document,
+              recovery: previous.recovery,
+              result: acknowledged,
+            });
+            const tracked = editorProjectStateFromProject(projected.working);
+            const savedTracked = editorProjectStateFromProject(projected.saved);
+            const workingEditorState = {
+              ...previous,
+              chapters: tracked.chapters,
+              tags: tracked.tags,
+              recordMetadata: tracked.recordMetadata,
+              recovery: projected.recovery,
+            };
+            const savedEditorState = {
+              ...previous,
+              chapters: savedTracked.chapters,
+              tags: savedTracked.tags,
+              recordMetadata: savedTracked.recordMetadata,
+              recovery: projected.recovery,
+            };
+            if (
+              !useProjectStore.getState().publishExternalReconciliation({
+                document: mergeEditorProjectState(projected.working, workingEditorState),
+                savedDocument: mergeEditorProjectState(projected.saved, savedEditorState),
+                scriptSourcePaths: state.scriptSourcePaths,
+                affectedPaths: [...projected.affectedPaths, ...patches.map((patch) => patch.path)],
+              })
+            )
+              throw new Error('Native Discard could not publish the authoritative Project.');
+            setLoadedEditorProjectState(workingEditorState);
+          });
+        if (!result.ok) {
+          setStatusMessage(result.diagnostics[0]?.message ?? 'Native Discard failed.');
+          return;
+        }
+      }
+    } else if (patches.length > 0) {
       const result = await executeCommand({
         type: 'project.applyPatch',
         ...MUTATION_SURFACE_ATTRIBUTIONS.discardDirtyUnits,
