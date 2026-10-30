@@ -300,6 +300,14 @@ if(WIN32)
 endif()
 noveltea_apply_policy_warnings(noveltea_cli_windows_pe)
 
+# Narrative parsing is a host-only consumer of the upstream catalog contract.
+add_library(noveltea_narrative STATIC
+    ../narrative/catalog.cpp ../narrative/progression.cpp)
+target_compile_features(noveltea_narrative PUBLIC cxx_std_20)
+target_link_libraries(noveltea_narrative PRIVATE
+    fyaml_static noveltea_project_authoring_contracts nlohmann_json::nlohmann_json)
+noveltea_apply_policy_warnings(noveltea_narrative)
+
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
     native_cli.cpp native_cli_daemon.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
     native_cli_platform.cpp native_cli_platform_stage.cpp
@@ -315,7 +323,7 @@ target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_CURRENT_SOURCE_D
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_SOURCE_DIR}/tools/project_authoring")
 target_include_directories(noveltea-native-cli PRIVATE "${CMAKE_BINARY_DIR}/tools/project_authoring")
 target_link_libraries(noveltea-native-cli PRIVATE noveltea_tooling_native
-    nlohmann_json::nlohmann_json miniz::miniz noveltea_cli_windows_pe)
+    nlohmann_json::nlohmann_json miniz::miniz noveltea_cli_windows_pe noveltea_narrative)
 if(WIN32)
     target_link_libraries(noveltea-native-cli PRIVATE winhttp)
 endif()
@@ -378,6 +386,9 @@ if(BUILD_TESTING OR NOVELTEA_CLI_CROSS_HOST_EXPORT_CERTIFY)
         COMMAND noveltea-cli-android-export-certify)
 endif()
 if(BUILD_TESTING)
+    add_test(NAME native_cli_narrative
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/narrative.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")

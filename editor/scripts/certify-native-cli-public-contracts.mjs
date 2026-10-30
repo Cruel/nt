@@ -82,7 +82,7 @@ try {
   assert.equal(help.stderr, '');
   assert.doesNotMatch(helpText, /__editor-native/);
   // The packaged Electron editor uses the same installed native CLI for its
-  // private operations; this is not a public command in the 39-path inventory.
+  // private operations; this is not a public command in the public inventory.
   const internal = (operation, payload) => {
     const invocation = spawnSync(cli, ['__editor-native', operation], {
       env: environment,
@@ -107,6 +107,21 @@ try {
     ok: false,
     error: 'unknown native operation',
   });
+  const narrativeAcceptance = spawnSync(
+    process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'),
+    [
+      path.resolve(import.meta.dirname, '../../tests/native_cli/narrative.py'),
+      cli,
+      path.resolve(import.meta.dirname, '../..'),
+    ],
+    { env: environment, encoding: 'utf8', timeout: 180_000 },
+  );
+  assert.ifError(narrativeAcceptance.error);
+  assert.equal(
+    narrativeAcceptance.status,
+    0,
+    `Installed narrative CLI acceptance failed: ${narrativeAcceptance.stdout}\n${narrativeAcceptance.stderr}`,
+  );
   error(json(['--not-a-global-option'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
   error(json(['validate', '--invalid'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
 

@@ -47,8 +47,18 @@ Its representation metadata may change independently of authored Animation and p
 semantics, so it owns a current-only transport version. The prior unversioned manifest is rejected;
 development packages/cache artifacts must be regenerated, not imported implicitly.
 
-No other current schema has an independent compatibility epoch unless it is first added to this
-inventory by an explicit architecture decision.
+Externally owned compatibility contracts are inventoried separately in
+`cmake/schema_version_policy/external-contracts.tsv`. They retain the upstream
+version and exact pinned contract rather than receiving a parallel engine schema.
+The narrative Story catalog is the explicitly approved #526 exception: experimental
+`schema: '0.1'`, owned by `Cruel/noveltea-skills`, consumed through generated native
+inputs. Its in-place/current-only policy remains upstream-owned; see
+[distribution and verification](../editor/NARRATIVE_CLI.md#one-upstream-contract-reproducible-native-distribution).
+The NovelTea-owned development/version-1 rule above does not rename or bump this
+external contract.
+
+No other current schema has an independent compatibility epoch unless it is first added to the
+appropriate inventory by an explicit architecture decision.
 
 ## What Is Not Independently Versioned
 

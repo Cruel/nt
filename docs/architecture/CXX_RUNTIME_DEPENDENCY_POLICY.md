@@ -78,6 +78,15 @@ integration and Web verification remain in progress; this admission report is no
 - Web and Android apply `-fno-exceptions -fno-rtti` to every source-built C++ dependency target.
 - MSVC desktop target libraries use `/GR- /EHs-c- /D_HAS_EXCEPTIONS=0`; the Windows CLI GNU triplet applies the corresponding `-fno-exceptions -fno-rtti` dependency policy.
 
+The host-only narrative validator (`noveltea_narrative`, exact implementations
+`tools/narrative/catalog.cpp` and `progression.cpp`) uses the same ordinary host
+exception/RTTI model as native Project tooling. It reuses the existing libfyaml,
+nlohmann-json, and Project string-normalization implementations, adds no runtime
+dependency, and is linked only into the native CLI. Web/Android/player targets do
+not compile or link it. Catalog admission catches expected YAML/schema/I/O
+failures and returns CLI diagnostics; this exemption is not permission to use its
+DOM or exception model in engine runtime code.
+
 The host `noveltea` CLI statically links the pinned bgfx shaderc source closure, including its
 SPIRV-Cross/glslang compiler stack. That build-host/editor tooling may use the normal host exception
 and RTTI model because it is isolated from the player graph. NovelTea does not enable vcpkg

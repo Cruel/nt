@@ -1,0 +1,1261 @@
+{
+  "revision": "688758b03f22a80635def8b385859e3a03263f4a",
+  "cases": [
+    {
+      "name": "canonical",
+      "fixture": "reference-story",
+      "patches": {},
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "5166d66e19ce965e5a2bead1ccc51107d41f4e036baa230aecaeb88b1edb5d5a",
+        "coverageHash": "6afbcbf50e0dc66bdd63412587cb2100e52cef943ba69f338fa70cf2bfe1cc5b"
+      }
+    },
+    {
+      "name": "01-foundation",
+      "fixture": "planning-stages/01-foundation",
+      "patches": {},
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "2d715d5b9f8ac81f3487cf361f6d89bb4d6106f088f50ab9787c53e221388a9b",
+        "coverageHash": "061293eb3349b6e5f550e3adab8f886cdad61306b0cd91ebd71e4ccd7bc03ae9"
+      }
+    },
+    {
+      "name": "02-architecture",
+      "fixture": "planning-stages/02-architecture",
+      "patches": {},
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "5c9ae2d5190e7f9c2d55e86bf03486defc47dcb01146ef02e45025cb7d472da2",
+        "coverageHash": "38e658014d8aad52e9c1780da71e2e0ca7c06b005c4b78ef80c6bbbabaaec837"
+      }
+    },
+    {
+      "name": "03-events",
+      "fixture": "planning-stages/03-events",
+      "patches": {},
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "2992027ef287e43a3511fb0fe6babca9e540956388eded8a245ee807f5d1492b",
+        "coverageHash": "117793a74261e7372677ba873212355749ac9b7d09d18523ab271d156a015a08"
+      }
+    },
+    {
+      "name": "04-composition",
+      "fixture": "planning-stages/04-composition",
+      "patches": {},
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "7cf68320bded1e2992e528f5c0558bea740b7fbd0d7befbc8ca3b6bc924dd176",
+        "coverageHash": "117793a74261e7372677ba873212355749ac9b7d09d18523ab271d156a015a08"
+      }
+    },
+    {
+      "name": "duplicate-id",
+      "fixture": "reference-story",
+      "patches": {
+        "duplicate.md": "---\nschema: '0.1'\ntype: fact\nid: fact.false-report\ntitle: The wreck report blamed Mara unjustly\nstatus: draft\ndecisions: []\ninitial: true\n---\n# The older wound\n\nThe previous wreck followed an owner's order to sail, not a failed repair. Ivo signed a report blaming Mara because he feared losing the tower. The optional logbook investigation exposes this separate wrong; recovering the clapper does not automatically expose it.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "duplicate-id",
+            "path": "facts/false-report.md",
+            "line": 4,
+            "column": 5
+          },
+          {
+            "code": "broken-reference",
+            "path": "characters/ivo.md",
+            "line": 11,
+            "column": 12
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/read-logbook.md",
+            "line": 25,
+            "column": 64
+          },
+          {
+            "code": "broken-reference",
+            "path": "revelations/cleared-name.md",
+            "line": 8,
+            "column": 7
+          }
+        ],
+        "recordsHash": "fb41f5b9e477392232a47c98677473b7ff84544d793effc7585dbd598c165855",
+        "coverageHash": "c09f3e99cfef65f61cc4b98a7d8e8a4f02c3516adbce919b2b0f32990a8c2331"
+      }
+    },
+    {
+      "name": "missing-reference",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\n  - character.absent\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "broken-reference",
+            "path": "events/bell-falls-silent.md",
+            "line": 11,
+            "column": 5
+          }
+        ],
+        "recordsHash": "f5366b4fc68c9505e228ab548141b669c7d51dbccfe6eb2cf95b45e0f86c232e",
+        "coverageHash": "879b4684eba7ec5f2ba73e6321da290c6bf82853333b1e89552daf3808057e7b"
+      }
+    },
+    {
+      "name": "mistyped-reference",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\n  - event.absent\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 11,
+            "column": 5
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "duplicate-reference",
+      "fixture": "reference-story",
+      "patches": {
+        "puzzles/recover-clapper.md": "---\nschema: \"0.1\"\ntype: puzzle\nid: puzzle.recover-clapper\ntitle: Recover the clapper from the tide well\nstatus: draft\ndecisions: []\nobjective: Retrieve the iron clapper without descending into moving water.\nclues:\n  - authored-content.well\nsolutions:\n  - event.lift-clapper\n  - event.drain-well\n  - event.lift-clapper\n---\n# Two methods, one dangerous space\n\nAccess to the tower exposes a sounding magnet, its intact line, the sluice lever and a diagram. The clapper can be lifted by the magnet or exposed on the dry shelf by closing the inlet and holding the counterweighted drain lever. Each solution uses objects already visible in this room and makes the other unnecessary. Both lead to the same conversation, but only one recovery Event may occur.\n\nReaching into the water fails safely: Mara withdraws before committing her weight. The magnet initially sticks to a wall bracket; pulling it sideways frees it. The drain lever slips back if released; its counterweight loop fits the nearby mooring pin. Hints escalate from the painted iron symbol to naming the magnet, or from the waterline mark to the lever's retaining loop. No timing reflexes or knowledge from the optional logbook is required. The clapper is usable after either approach; the later choice concerns Ivo, not a hidden mechanical penalty.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "puzzles/recover-clapper.md",
+            "line": 12,
+            "column": 3
+          }
+        ],
+        "recordsHash": "96e6f150b821b7ad6a8f6cbc7c281cc087b8b4d9e1d1ec661f27e875b9c13d24",
+        "coverageHash": "c73374808f0d4f24c3dc793e07bba3bd4427d99d48a6707c79e1b87015bf3c4c"
+      }
+    },
+    {
+      "name": "schema-number",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: 0.1\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 2,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "schema-other",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.2\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 2,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "status",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: published\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 6,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "unknown-key",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\nunrecognized: true\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 23,
+            "column": 15
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "blank-text",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: \" \\t \"\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 5,
+            "column": 8
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "empty-body",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: '0.1'\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants: [character.mara, character.ivo]\narcs: [arc.stolen-warning, arc.earned-trust]\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "body",
+            "path": "events/bell-falls-silent.md",
+            "line": 2,
+            "column": 1
+          }
+        ],
+        "recordsHash": "7eb611d77442011e86aa5775703be370e4e35dcc2063f03a0d175978eda9e354",
+        "coverageHash": "8f61ae2e25b4efe17f3d49f3cc9f4da7f86472cd4a854a4dca93593385015edc"
+      }
+    },
+    {
+      "name": "chronology-cycle",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter:\n  - event.bell-falls-silent\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "chronology-cycle",
+            "path": "events/bell-falls-silent.md",
+            "line": 15,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/bell-falls-silent.md",
+            "line": 17,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/bell-restored.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/drain-well.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/find-cut-strap.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/horn-warning.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/inspection-permitted.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/lift-clapper.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/present-evidence.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/question-ivo.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/read-logbook.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/accept-investigation.md",
+            "line": 16,
+            "column": 7
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/accept-investigation.md",
+            "line": 17,
+            "column": 7
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/fleet-warned.md",
+            "line": 12,
+            "column": 7
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/fleet-warned.md",
+            "line": 13,
+            "column": 7
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/inspection-permitted.md",
+            "line": 21,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/present-evidence.md",
+            "line": 21,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 22,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 29,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 36,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 40,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/read-logbook.md",
+            "line": 22,
+            "column": 9
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 13
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 33
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/tower-access.md",
+            "line": 10,
+            "column": 13
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/tower-access.md",
+            "line": 10,
+            "column": 41
+          }
+        ],
+        "recordsHash": "818195b27f481c1cf1244ddfbfa4638f808565a5542ca0dd6de5d333ec758ec5",
+        "coverageHash": "41d06cb4ba81af99abe750746a3b72e63e2e40451e715da38f5be717401df2db"
+      }
+    },
+    {
+      "name": "required-puzzle-cycle",
+      "fixture": "reference-story",
+      "patches": {
+        "events/lift-clapper.md": "---\nschema: \"0.1\"\ntype: event\nid: event.lift-clapper\ntitle: Mara lifts the clapper with the sounding magnet\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\narcs:\n  - arc.stolen-warning\nafter:\n  - event.inspection-permitted\n  - event.present-evidence\nprerequisites:\n  any_of:\n    - completed:\n        - event.lift-clapper\n      not_completed: []\nconsequences:\n  - The clapper is recovered dry and intact.\nsteps: []\n---\n# The answering knock\n\nThe line draws taut. Mara pulls sideways to free the magnet from the bracket, then lowers it until iron answers iron. She braces against the rail and winds the clapper up by hand. Fresh leather fibers cling to its eye; they show a cut, not a culprit.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "required-predecessor-cycle",
+            "path": "events/lift-clapper.md",
+            "line": 16,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/lift-clapper.md",
+            "line": 16,
+            "column": 3
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 13
+          }
+        ],
+        "recordsHash": "9bdd269526a6f67682f24f32d5d9073d2822811edf70b98ee3a0de99a43eb678",
+        "coverageHash": "e3be93da354e24cb7e24034147d8315580027287ab7b44bc80178dd2adc7e79e"
+      }
+    },
+    {
+      "name": "contradictory-completion",
+      "fixture": "reference-story",
+      "patches": {
+        "events/lift-clapper.md": "---\nschema: \"0.1\"\ntype: event\nid: event.lift-clapper\ntitle: Mara lifts the clapper with the sounding magnet\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\narcs:\n  - arc.stolen-warning\nafter:\n  - event.inspection-permitted\n  - event.present-evidence\nprerequisites:\n  any_of:\n    - completed:\n        - event.bell-falls-silent\n      not_completed:\n        - event.bell-falls-silent\nconsequences:\n  - The clapper is recovered dry and intact.\nsteps: []\n---\n# The answering knock\n\nThe line draws taut. Mara pulls sideways to free the magnet from the bracket, then lowers it until iron answers iron. She braces against the rail and winds the clapper up by hand. Fresh leather fibers cling to its eye; they show a cut, not a culprit.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/lift-clapper.md",
+            "line": 16,
+            "column": 3
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 13
+          }
+        ],
+        "recordsHash": "cf8f31e6cedfadf3fe8e7a5a5b2d4aed9e17c67e270fe53bdbc3ea9b3de1b469",
+        "coverageHash": "e3be93da354e24cb7e24034147d8315580027287ab7b44bc80178dd2adc7e79e"
+      }
+    },
+    {
+      "name": "optional-predecessor-not-required",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\n    - completed:\n        - event.lift-clapper\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "1b5ac7c17647c04dbe9ce57667d80dd6a9010b3f5e690e9fdef7d89930009b76",
+        "coverageHash": "db529e917f6c309092ca9e4be3e0b1a1c3b36c93864ce216c16e3459f122f6e8"
+      }
+    },
+    {
+      "name": "unknown-prerequisite",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\n      unverified: Requires editorial review\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "7562f39e092eaeb58d80a5bd25da79f2e57b245f7c78ae7e8a9fc0050ade1ce2",
+        "coverageHash": "380a69c02d55a29df6cac8ec5decd9b3cb288221bedfcedb242bf8e70a399678"
+      }
+    },
+    {
+      "name": "impossible-fulfillment",
+      "fixture": "reference-story",
+      "patches": {
+        "milestones/accept-investigation.md": "---\nschema: \"0.1\"\ntype: milestone\nid: milestone.accept-investigation\ntitle: The investigation becomes possible\nstatus: draft\ndecisions:\n  - id: permission-threshold\n    statement: The investigation begins through permission rather than trespass.\n    origin: agent\n    authority: delegated\nchange: Ivo permits Mara to investigate the missing clapper rather than locking\n  her out.\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nfulfillment:\n  any_of:\n    - - event.inspection-permitted\n    - - event.find-cut-strap\n      - event.present-evidence\n    - - event.question-ivo\n      - event.read-logbook\n---\n# The investigation becomes possible\n\nThe opening threshold is permission to act, not a solved mystery or restored\nfriendship. This Milestone affects both Arcs and belongs to neither. Mara can\nwin permission through a direct appeal, or combine finding the discarded strap\nwith presenting it to Ivo. Finding evidence alone does not open the tower.\nThese routes need not be exclusive; either is sufficient.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "7e5bdc81394828ef3a677216a3fab64cf478349ff8a6ae88a1e3494749cb3baf",
+        "coverageHash": "9de7de20fcf7421629c7e7a0f3467d26bc8d8ca453d750ba0c6d79880c27e8b5"
+      }
+    },
+    {
+      "name": "contradictory-state",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\n      conditions:\n        - kind: truth\n          fact: fact.false-report\n          value: true\n        - kind: truth\n          fact: fact.false-report\n          value: false\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "contradictory-state",
+            "path": "events/bell-falls-silent.md",
+            "line": 23,
+            "column": 11
+          }
+        ],
+        "recordsHash": "cd1863d924081c26e0a67dd7eae970be27a8871f019e1cc995a28aa9d5fcb10d",
+        "coverageHash": "bdd42b6d834a5a1125f47f1c092257013b804fb88fc2f430c2ecdcceff5fa431"
+      }
+    },
+    {
+      "name": "impossible-branch",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps:\n  - id: unreachable\n    branches:\n      - id: only\n        conditions:\n          - kind: truth\n            fact: fact.false-report\n            value: false\n        effects: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/bell-falls-silent.md",
+            "line": 16,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/bell-restored.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/drain-well.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/find-cut-strap.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/horn-warning.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/inspection-permitted.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/lift-clapper.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/present-evidence.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/question-ivo.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/read-logbook.md",
+            "line": 12,
+            "column": 3
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/accept-investigation.md",
+            "line": 16,
+            "column": 7
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/accept-investigation.md",
+            "line": 17,
+            "column": 7
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/fleet-warned.md",
+            "line": 12,
+            "column": 7
+          },
+          {
+            "code": "impossible-fulfillment",
+            "path": "milestones/fleet-warned.md",
+            "line": 13,
+            "column": 7
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/bell-falls-silent.md",
+            "line": 25,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/inspection-permitted.md",
+            "line": 21,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/present-evidence.md",
+            "line": 21,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 22,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 29,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 36,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/question-ivo.md",
+            "line": 40,
+            "column": 9
+          },
+          {
+            "code": "impossible-branch",
+            "path": "events/read-logbook.md",
+            "line": 22,
+            "column": 9
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 13
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 33
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/tower-access.md",
+            "line": 10,
+            "column": 13
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/tower-access.md",
+            "line": 10,
+            "column": 41
+          }
+        ],
+        "recordsHash": "9450830b70460434df5718ec8985c5fef2f830bd838dc276dfa914f6b8c1c05a",
+        "coverageHash": "0ac3af3b9ab0dc930a9566bf2f9db547e88e9e517f87748f63cc2c2af79ec447"
+      }
+    },
+    {
+      "name": "unknown-branch",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps:\n  - id: unknown\n    branches:\n      - id: only\n        conditions: []\n        effects: []\n        unverified: Unmodeled intent\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "1a66529909db3abbe2512704fe191c1c509867a6f6a6723c6982d0fdef983a2c",
+        "coverageHash": "e3511ae99f59d22cae1dfce8b439170a5e1380c02ee5ed257c14ec101747311a"
+      }
+    },
+    {
+      "name": "bad-outcome",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps:\n  - id: bad\n    branches:\n      - id: only\n        conditions: []\n        effects:\n          - kind: outcome\n            choice_point: choice-point.question-ivo\n            value: absent\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "invalid-outcome",
+            "path": "events/bell-falls-silent.md",
+            "line": 30,
+            "column": 20
+          }
+        ],
+        "recordsHash": "145b4bb51163d5e4f37f7cecf02e9f9f792440d2ab9f177ea0c7901cb2f4b6ae",
+        "coverageHash": "cda3ed4ae564f4215f4f4b2f38ba78633253377c490cba4f9721f1eeb6f0cf0d"
+      }
+    },
+    {
+      "name": "duplicate-steps",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps:\n  - id: same\n    branches: []\n  - id: same\n    branches: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 23,
+            "column": 3
+          },
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 24,
+            "column": 15
+          },
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 26,
+            "column": 15
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "duplicate-decisions",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions:\n  - id: same\n    statement: one\n    origin: agent\n    authority: delegated\n  - id: same\n    statement: two\n    origin: agent\n    authority: delegated\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 8,
+            "column": 3
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "user-decision-authority",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions:\n  - id: user\n    statement: Required intent\n    origin: user\n    authority: delegated\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "events/bell-falls-silent.md",
+            "line": 11,
+            "column": 16
+          },
+          {
+            "code": "broken-reference",
+            "path": "authored-content/quay.md",
+            "line": 8,
+            "column": 10
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/find-cut-strap.md",
+            "line": 13,
+            "column": 19
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 10,
+            "column": 9
+          },
+          {
+            "code": "broken-reference",
+            "path": "events/inspection-permitted.md",
+            "line": 13,
+            "column": 19
+          }
+        ],
+        "recordsHash": "a5b0bcb60ee85c58d7f90d9c5f1c94fbfae3b1b0d08485a4d40520f4ecbc7df3",
+        "coverageHash": "5b64f86db132593c0ec975c1c855f34396fb84f5e194cf55795e17041d09f5c9"
+      }
+    },
+    {
+      "name": "invalid-position",
+      "fixture": "reference-story",
+      "patches": {
+        "narrative-positions/after-question.md": "---\nschema: \"0.1\"\ntype: narrative-position\nid: narrative-position.after-question\ntitle: After the branching question\nstatus: draft\ndecisions: []\nevent: event.question-ivo\nat: step\nstep: absent\n---\n# Within the Event\n\nAcross both branches, the confession is conditional. The answer step must not use it unconditionally. The Relationship and Mara's knowledge have already changed on the ask branch, before this Event completes.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "invalid-position",
+            "path": "narrative-positions/after-question.md",
+            "line": 9,
+            "column": 5
+          }
+        ],
+        "recordsHash": "612b89ea1211712a6774cf8115bc60ce63f52282da38965d7f9415ca5d2d9d30",
+        "coverageHash": "8f61ae2e25b4efe17f3d49f3cc9f4da7f86472cd4a854a4dca93593385015edc"
+      }
+    },
+    {
+      "name": "duplicate-initial-knowledge",
+      "fixture": "reference-story",
+      "patches": {
+        "characters/ivo.md": "---\nschema: \"0.1\"\ntype: character\nid: character.ivo\ntitle: Ivo Reed\nstatus: draft\ndecisions: []\nmotivation: Prevent another loss at sea without admitting the harm caused by his\n  own silence and false accusation.\ninitial_knowledge:\n  - fact: fact.false-report\n    value: knows\n  - fact: fact.false-report\n    value: unknown\n---\n# Ivo Reed\n\nThe keeper polishes the names on the harbor memorial every morning. He treats\nprocedure as a promise to the dead. When the bell fails, he reaches first for\nthe tower key, not for help. His refusal costs time the fleet cannot afford.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "contradictory-state",
+            "path": "characters/ivo.md",
+            "line": 11,
+            "column": 3
+          }
+        ],
+        "recordsHash": "9a590f6e47219eda9e14945f68f403e6c1d4a1844fa5544a22dc3722bb4994f9",
+        "coverageHash": "8f61ae2e25b4efe17f3d49f3cc9f4da7f86472cd4a854a4dca93593385015edc"
+      }
+    },
+    {
+      "name": "partial-missing-routes",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps:\n  - id: unfinished\n    branches: []\ncompleteness: partial\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "1d644b24dbd79b1d2bbd5f089557f5cde6e01f7effdd24ef195276e199aef686",
+        "coverageHash": "d1e3830af0e06b7d5ff70732c704c751ab8028a524244a474cc63dc99e7ca6e8"
+      }
+    },
+    {
+      "name": "partial-unknown-effects",
+      "fixture": "reference-story",
+      "patches": {
+        "events/bell-falls-silent.md": "---\nschema: \"0.1\"\ntype: event\nid: event.bell-falls-silent\ntitle: The bell falls silent\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\n  - character.ivo\narcs:\n  - arc.stolen-warning\n  - arc.earned-trust\nafter: []\nprerequisites:\n  any_of:\n    - completed: []\n      not_completed: []\nconsequences:\n  - The harbor cannot send its usual audible storm warning.\n  - Ivo blocks Mara from entering the bell tower.\nsteps: []\ncompleteness: partial\n---\n# The bell falls silent\n\nAt the noon test, the rope moves and the bell swings, but no sound comes.\nMara glimpses the severed strap through the service hatch. Ivo notices her\nreaching for her tools and locks the tower door.\n\n## Dramatic Beats\n\n- Familiar ritual becomes an alarming absence.\n- Mara moves to help; Ivo reads the gesture as another intrusion.\n- The departing boats make their private dispute a public risk.\n\nThese are embedded Beats, not separately identified records. Participation\nalone does not establish either Character's knowledge of the theft's cause.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "ba02a4f0eb6d17cfcb3c532f06de54a19c3f67e3c8a0cde38f3f1ce6db41718d",
+        "coverageHash": "13c0bf362147b365d06eda9fb8e126517f9772e7a06ed2e934dce81dc0bfb8b6"
+      }
+    },
+    {
+      "name": "partial-impossible-puzzle",
+      "fixture": "reference-story",
+      "patches": {
+        "events/lift-clapper.md": "---\nschema: \"0.1\"\ntype: event\nid: event.lift-clapper\ntitle: Mara lifts the clapper with the sounding magnet\nstatus: draft\ndecisions: []\nparticipants:\n  - character.mara\narcs:\n  - arc.stolen-warning\nafter:\n  - event.inspection-permitted\n  - event.present-evidence\nprerequisites:\n  any_of:\n    - completed:\n        - event.lift-clapper\n      not_completed: []\nconsequences:\n  - The clapper is recovered dry and intact.\nsteps: []\ncompleteness: partial\n---\n# The answering knock\n\nThe line draws taut. Mara pulls sideways to free the magnet from the bracket, then lowers it until iron answers iron. She braces against the rail and winds the clapper up by hand. Fresh leather fibers cling to its eye; they show a cut, not a culprit.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "required-predecessor-cycle",
+            "path": "events/lift-clapper.md",
+            "line": 16,
+            "column": 3
+          },
+          {
+            "code": "impossible-prerequisite",
+            "path": "events/lift-clapper.md",
+            "line": 16,
+            "column": 3
+          },
+          {
+            "code": "unobtainable-puzzle-solution",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 13
+          }
+        ],
+        "recordsHash": "d1aabf715c1147663d67be1a72a9da985f951829ff6e9d6c62c50c43fa9d8c2a",
+        "coverageHash": "e3be93da354e24cb7e24034147d8315580027287ab7b44bc80178dd2adc7e79e"
+      }
+    },
+    {
+      "name": "partial-empty-puzzle",
+      "fixture": "reference-story",
+      "patches": {
+        "puzzles/recover-clapper.md": "---\nschema: \"0.1\"\ntype: puzzle\nid: puzzle.recover-clapper\ntitle: Recover the clapper from the tide well\nstatus: draft\ndecisions: []\nobjective: Retrieve the iron clapper without descending into moving water.\nclues: []\nsolutions: []\ncompleteness: partial\n---\n# Two methods, one dangerous space\n\nAccess to the tower exposes a sounding magnet, its intact line, the sluice lever and a diagram. The clapper can be lifted by the magnet or exposed on the dry shelf by closing the inlet and holding the counterweighted drain lever. Each solution uses objects already visible in this room and makes the other unnecessary. Both lead to the same conversation, but only one recovery Event may occur.\n\nReaching into the water fails safely: Mara withdraws before committing her weight. The magnet initially sticks to a wall bracket; pulling it sideways frees it. The drain lever slips back if released; its counterweight loop fits the nearby mooring pin. Hints escalate from the painted iron symbol to naming the magnet, or from the waterline mark to the lever's retaining loop. No timing reflexes or knowledge from the optional logbook is required. The clapper is usable after either approach; the later choice concerns Ivo, not a hidden mechanical penalty.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "449b77449a52a625433c2aa6e770c36d02828aad14b22aebe4e118b61e1e375f",
+        "coverageHash": "59af298efe403911cb7c0479a680bb52cde1a773e4d5d54f7040ad7371a68f7d"
+      }
+    },
+    {
+      "name": "complete-empty-puzzle",
+      "fixture": "reference-story",
+      "patches": {
+        "puzzles/recover-clapper.md": "---\nschema: \"0.1\"\ntype: puzzle\nid: puzzle.recover-clapper\ntitle: Recover the clapper from the tide well\nstatus: draft\ndecisions: []\nobjective: Retrieve the iron clapper without descending into moving water.\nclues: []\nsolutions: []\n---\n# Two methods, one dangerous space\n\nAccess to the tower exposes a sounding magnet, its intact line, the sluice lever and a diagram. The clapper can be lifted by the magnet or exposed on the dry shelf by closing the inlet and holding the counterweighted drain lever. Each solution uses objects already visible in this room and makes the other unnecessary. Both lead to the same conversation, but only one recovery Event may occur.\n\nReaching into the water fails safely: Mara withdraws before committing her weight. The magnet initially sticks to a wall bracket; pulling it sideways frees it. The drain lever slips back if released; its counterweight loop fits the nearby mooring pin. Hints escalate from the painted iron symbol to naming the magnet, or from the waterline mark to the lever's retaining loop. No timing reflexes or knowledge from the optional logbook is required. The clapper is usable after either approach; the later choice concerns Ivo, not a hidden mechanical penalty.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "schema",
+            "path": "puzzles/recover-clapper.md",
+            "line": 9,
+            "column": 8
+          },
+          {
+            "code": "schema",
+            "path": "puzzles/recover-clapper.md",
+            "line": 10,
+            "column": 12
+          }
+        ],
+        "recordsHash": "96e6f150b821b7ad6a8f6cbc7c281cc087b8b4d9e1d1ec661f27e875b9c13d24",
+        "coverageHash": "c73374808f0d4f24c3dc793e07bba3bd4427d99d48a6707c79e1b87015bf3c4c"
+      }
+    },
+    {
+      "name": "partial-empty-choice",
+      "fixture": "reference-story",
+      "patches": {
+        "choice-points/question-ivo.md": "---\nschema: \"0.1\"\ntype: choice-point\nid: choice-point.question-ivo\ntitle: Ask for an account or leave Ivo behind\nstatus: draft\ndecisions: []\nprompt: With the clapper recovered, will Mara ask Ivo what happened or take the\n  emergency horn to the quay?\noutcomes: []\ncompleteness: partial\n---\n# Save the fleet either way\n\nAsking risks hearing an unwelcome answer but allows Ivo to take responsibility and help ring the bell. Leaving refuses further dependence on him; Mara warns the fleet with a horn while he remains alone. The decision affects player information, Character knowledge, their Relationship and the ending, not whether the player arbitrarily loses the game.\n"
+      },
+      "expected": {
+        "diagnostics": [
+          {
+            "code": "invalid-outcome",
+            "path": "events/bell-restored.md",
+            "line": 16,
+            "column": 75
+          },
+          {
+            "code": "invalid-outcome",
+            "path": "events/horn-warning.md",
+            "line": 16,
+            "column": 75
+          },
+          {
+            "code": "invalid-outcome",
+            "path": "events/question-ivo.md",
+            "line": 25,
+            "column": 77
+          },
+          {
+            "code": "invalid-outcome",
+            "path": "events/question-ivo.md",
+            "line": 32,
+            "column": 77
+          }
+        ],
+        "recordsHash": "b9cefe5910e209fa3529036ae845a141351fe2d66873d56bd0825cbafe12abfc",
+        "coverageHash": "f5e62d35f5035c231d80e481d5b774d39ee1797c8d3adf0add1d1c6027a55de8"
+      }
+    },
+    {
+      "name": "anchors-and-explicit-tags",
+      "fixture": "reference-story",
+      "patches": {
+        "facts/false-report.md": "---\nschema: '0.1'\ntype: fact\nid: fact.false-report\ntitle: &unused The wreck report blamed Mara unjustly\nstatus: draft\ndecisions: []\ninitial: !!bool true\n---\n# The older wound\n\nThe previous wreck followed an owner's order to sail, not a failed repair. Ivo signed a report blaming Mara because he feared losing the tower. The optional logbook investigation exposes this separate wrong; recovering the clapper does not automatically expose it.\n"
+      },
+      "expected": {
+        "diagnostics": [],
+        "recordsHash": "5166d66e19ce965e5a2bead1ccc51107d41f4e036baa230aecaeb88b1edb5d5a",
+        "coverageHash": "6afbcbf50e0dc66bdd63412587cb2100e52cef943ba69f338fa70cf2bfe1cc5b"
+      }
+    }
+  ]
+}

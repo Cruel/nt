@@ -14,6 +14,7 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
+  narrative validate <catalog-root>
   fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
   localization sync [--dry-run]
   localization reconcile [--apply]

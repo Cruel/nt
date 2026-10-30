@@ -39,7 +39,9 @@ list(APPEND approved_header_paths
     "tools/editor_tool/native_cli_media.hpp"
     "tools/editor_tool/native_cli_platform.hpp"
     "tools/editor_tool/native_cli_platform_stage.hpp"
-    "tools/editor_tool/native_cli_test_catalog.hpp")
+    "tools/editor_tool/native_cli_test_catalog.hpp"
+    "tools/narrative/catalog.hpp"
+    "tools/narrative/catalog_internal.hpp")
 set(approved_source_paths
     "apps/benchmark/benchmark_capacity_tests.cpp"
     "apps/benchmark/benchmark_comparison.cpp"
@@ -101,6 +103,8 @@ set(approved_source_paths
     "tools/editor_tool/tooling_native_dispatch.cpp"
     "tools/editor_tool/tooling_runtime_cache.cpp"
     "tools/editor_tool/tooling_ui_test_runner.cpp"
+    "tools/narrative/catalog.cpp"
+    "tools/narrative/progression.cpp"
     "tools/project_authoring/contracts.cpp"
     "tools/project_authoring/yaml_codec.cpp"
     "tools/project_authoring/yaml_certify.cpp")

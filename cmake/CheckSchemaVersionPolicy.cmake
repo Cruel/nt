@@ -72,6 +72,28 @@ foreach(record IN LISTS contract_records)
     validate_inventory_paths("${contract_id}" "consumer" "${consumers}")
 endforeach()
 
+# External contracts keep their upstream version and ownership rather than
+# acquiring a second NovelTea-controlled compatibility epoch.
+set(external_contracts "${SOURCE_ROOT}/cmake/schema_version_policy/external-contracts.tsv")
+if(EXISTS "${external_contracts}")
+    read_tsv("${external_contracts}" 5 external_records)
+    foreach(record IN LISTS external_records)
+        string(REPLACE "\t" ";" fields "${record}")
+        list(GET fields 0 contract_id)
+        list(GET fields 1 current_version)
+        list(GET fields 2 upstream_owner)
+        list(GET fields 3 pin_path)
+        list(GET fields 4 consumers)
+        if(contract_id IN_LIST contract_ids OR current_version STREQUAL "" OR
+           NOT upstream_owner MATCHES "^[A-Za-z0-9_-]+/[A-Za-z0-9_-]+$")
+            message(FATAL_ERROR "Invalid external compatibility boundary: ${record}")
+        endif()
+        list(APPEND contract_ids "${contract_id}")
+        validate_inventory_paths("${contract_id}" "pin" "${pin_path}")
+        validate_inventory_paths("${contract_id}" "consumer" "${consumers}")
+    endforeach()
+endif()
+
 read_tsv("${RULES}" 4 rule_records)
 read_tsv("${EXCEPTIONS}" 4 exception_records)
 

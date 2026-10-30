@@ -70,6 +70,14 @@ The directory is a deliberate host-only authoring boundary, **not** a blanket li
 arbitrary editor or engine code. Nested authoring paths remain unapproved and the fixed checker
 fixtures reject relocating unowned native tooling beside the CLI.
 
+Standalone narrative admission has its own exact-path **host-only** authoring
+adapter: `tools/narrative/catalog.cpp`, `progression.cpp`, `catalog.hpp`, and
+`catalog_internal.hpp`. Its schema-checked Story read model, bounded solver state,
+and JSON CLI report never enter a player or any engine domain/runtime API. The
+native CLI is its only production consumer. These four paths are admitted
+individually; this does not authorize JSON throughout `tools/narrative/` or add
+narrative state to engine runtime. See [Narrative CLI](../editor/NARRATIVE_CLI.md).
+
 JSON decoding mechanics are concentrated in the content-owned `engine/src/core/json_decoder.hpp`.
 That module owns checked member lookup, scalar conversion, object/array validation, JSON-pointer
 construction, and diagnostic accumulation on top of `json_access`. Artifact codecs retain their own

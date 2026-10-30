@@ -1,0 +1,2 @@
+contract_id	current_version	upstream_owner	pin_path	consumer_paths
+narrative-story	0.1	Cruel/noveltea-skills	tools/narrative/generated/contract.json	tools/narrative/catalog.cpp,tools/narrative/progression.cpp

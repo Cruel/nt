@@ -1,4 +1,5 @@
 #include "native_cli_contract.hpp"
+#include "../narrative/catalog.hpp"
 #include "native_cli_paths.hpp"
 #include "native_cli_daemon.hpp"
 #include "native_cli_agent.hpp"
@@ -2819,6 +2820,26 @@ int run(const std::vector<std::string>& argv)
                          {"diagnostics", Json::array()},
                          {"daemon", daemon}},
                         args.json, human);
+        }
+        if (family == "narrative" && operation == "validate") {
+            if (!args.project.empty() || args.command.size() != 3 || args.command[2].empty() ||
+                args.command[2].starts_with("--"))
+                return usage(
+                    args.json,
+                    "Expected narrative validate <catalog-root>; --project is not supported.");
+            auto catalog = narrative::validate(native_path_from_utf8(args.command[2]));
+            auto diagnostics = catalog.at("diagnostics");
+            for (auto& item : diagnostics)
+                item["sourceUrl"] = item.at("path");
+            const bool valid = diagnostics.empty();
+            return emit({{"success", valid},
+                         {"exitCode", valid ? 0 : 1},
+                         {"diagnostics", diagnostics},
+                         {"catalog", catalog}},
+                        args.json,
+                        valid ? "Narrative catalog is structurally valid; inspect JSON coverage "
+                                "for incomplete/unverified obligations."
+                              : "Narrative catalog has structural errors.");
         }
         if (family == "media-tool" && operation == "check") {
             if (args.command.size() != 2)

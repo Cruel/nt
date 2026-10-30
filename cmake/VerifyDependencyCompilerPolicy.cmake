@@ -64,6 +64,7 @@ foreach(index RANGE 0 ${last_command})
     # isolated from players and use the host
     # exception/RTTI model.
     if(source MATCHES "/tools/(editor_tool|project_authoring)/" OR
+       source MATCHES "/tools/narrative/(catalog|progression)\\.cpp$" OR
        output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication|macos-export|android-export)-certify\\.dir[/\\]")
         set(is_first_party FALSE)
     endif()

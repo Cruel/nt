@@ -31,6 +31,7 @@ const witnesses = {
   'comfyui verify': 'certify-native-cli-comfyui-contracts.mjs',
   'comfyui run': 'certify-native-cli-comfyui-contracts.mjs',
   validate: 'certify-native-daemon-validation.mjs',
+  'narrative validate': 'certify-native-cli-public-contracts.mjs',
   fmt: 'certify-native-cli-project-routing.mjs',
   'localization sync': 'certify-native-cli-project-routing.mjs',
   'localization reconcile': 'certify-native-cli-mutations.mjs',

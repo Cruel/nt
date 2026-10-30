@@ -54,10 +54,13 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES
     "${SOURCE_ROOT}/tools/benchmark/*.cpp"
     "${SOURCE_ROOT}/tools/benchmark/*.h"
     "${SOURCE_ROOT}/tools/benchmark/*.hpp"
+    "${SOURCE_ROOT}/tools/narrative/*.cpp"
+    "${SOURCE_ROOT}/tools/narrative/*.hpp"
     "${SOURCE_ROOT}/tools/project_authoring/*.cpp"
     "${SOURCE_ROOT}/tools/project_authoring/*.h"
     "${SOURCE_ROOT}/tools/project_authoring/*.hpp"
 )
+list(FILTER NOVELTEA_FORMAT_SOURCES EXCLUDE REGEX "/tools/narrative/generated/")
 list(SORT NOVELTEA_FORMAT_SOURCES)
 
 if(MODE STREQUAL "check")
