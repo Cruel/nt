@@ -87,6 +87,7 @@ const ownedActions = [
   'project-diagnostic-locations',
   'project-validate',
   'source-generation-proof',
+  'validation-source-generation-proof',
   'workspace-preflight',
   'platform-profiles-preparation',
   'asset-audit',
