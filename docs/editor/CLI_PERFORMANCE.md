@@ -80,6 +80,79 @@ test checkout; production cache admission still requires a build-bound
 compiler identity. Web, Android and Windows/macOS certification were not
 run in this Linux qualification.
 
+#### Post-#572 XXH3 qualification and matched Release A/B (2026-10-30)
+
+The existing `tests/native_cli/validation_performance.py` driver was
+repeated on the same Linux Ryzen 7 5700G host with two saved Release CLI
+executables and disposable fixture copies. The earlier executable
+(`e446b3521bba24553bba33ed891f0a6c34cfadd74f9bb68b4b229205b4f3df16`)
+already had SHA-NI-accelerated binary proofs; the XXH3 executable
+(`0b152cb46f801fe73975af6f85f47d00eea290393074daf659590a00efefad94`)
+replaces that path with XXH3-128. The runs alternated SHA-NI, XXH3,
+XXH3, SHA-NI to limit ordering effects. Each run measured cold and
+unchanged validation followed by three changed Room-label validations
+with a fresh isolated native daemon owner and cleared validation cache.
+Numbers below are the **median changed-label latency per run in ms**.
+
+| Project | SHA-NI run 1 | XXH3 run 1 | XXH3 run 2 | SHA-NI run 2 |
+|---|---:|---:|---:|---:|
+| Feature Lab | 427.83 | 398.55 | 394.74 | 408.92 |
+| 1 Room | 13.91 | 14.11 | 13.76 | 13.41 |
+| 101 Rooms | 50.71 | 50.55 | 48.97 | 48.29 |
+| 501 Rooms | 197.54 | 196.88 | 203.62 | 200.07 |
+
+Feature Lab's mean of per-run medians improved from **418.38 to 396.65 ms**
+(**21.73 ms / 5.2%**). The small Room-only cases showed no consistent
+benefit, as expected when large physical binary digests are absent. Cold
+Feature Lab admission remained around 3.2 s; unchanged validations were
+around 13 ms. These are local, small-sample measurements, not a
+machine-independent CI performance budget. The 200 ms exploratory Feature
+Lab goal remains unmet and is outside this hashing ticket.
+
+For a comparable CPU attribution check, `perf record -e cycles:u -F 599
+-p <resident-owner-pid>` sampled 12 successive changed-label validations
+per variant. Baseline: **2,542 samples**, zero lost;
+SHA `message_schedule` **10.22%** and `compress_sha_ni` **4.48%** exclusive
+samples. XXH3 candidate: **2,436 samples**, zero lost;
+the retained scalar `exact_source_revision` SHA used for text contracts
+accounted for **7.74%** exclusive samples, while
+`XXH3_hashLong_128b_default` was **0.17%** and
+`XXH3_update_regular` **0.09%**. The named symbols are not a complete
+partition of total hash cycles, and changed sampling profiles must not be
+interpreted as additive latency savings. This is a post-#572 and post-#571
+profile of resident owner work, not the original pre-deduplication 29.52%
+SHA-256 profile.
+
+Additional regression qualification used the rebuilt current-code Debug
+`noveltea_tooling_tests '[native-disk-validation]'` suite:
+**396 assertions across six test cases passed** (same-size Asset mutations
+with restored mtime, intervening edits, symlink substitution, source
+membership changes, and stale-generation rejection). Five focused
+`native_authoring_*` source-hash, Project-session and clean-cache CTests
+passed. The daemon broker/lifecycle regression and six-stage CLI
+performance gate also passed, preserving independent pre/post byte-exact
+fences and the `native-project-source-generation-v2` cache invalidation.
+
+The GitHub Build qualification on
+`qualification/571-xxh3` (run
+`41023248720`) passed native Project authoring on **Linux, Windows and
+macOS**, and Android cooperative compilation. Web/Emscripten compiled
+but its template packaging rejected the newly fetched xxHash source
+because its license/SBOM applicability was unclassified. Commit
+`905097c3` explicitly classifies the pinned xxHash BSD-2-Clause
+license for player targets, including Android; the metadata generator
+passed against the Linux dependency inventory and captured the actual
+license bytes. Follow-up cross-platform verification was dispatched on
+`qualification/571-xxh3-webfix` (run `41024794114`): its
+**Web/Emscripten** player build and template packaging both passed with
+xxHash's required notice included, and its macOS native-authoring job
+passed. The preceding run also passed Linux/Windows/macOS native authoring
+and Android cooperative compilation. This verifies native authoring on
+all three host platforms and runtime compilation on Web and Android.
+Standalone Windows player/Android emulator/runtime functional testing is
+not a hash-algorithm-specific requirement of #571; full Build workflow
+jobs may continue beyond this targeted qualification.
+
 ### #572: exact Asset proof boundaries and diagnostics
 
 The native owner retains these distinct byte-exact fingerprint checks on a successful
