@@ -5,6 +5,7 @@
 #include "tooling_native_project_sync.hpp"
 
 #include "../project_authoring/room_session.hpp"
+#include "../project_authoring/material_semantics.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -481,7 +482,7 @@ Json validate(std::string_view request_text)
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
         if (request.value("includeFontCoverageInputs", false)) {
             const auto prepared = state.session->prepare_complete_working(
-                state.session->snapshot().working_revision, {}, true);
+                state.session->working_revision(), {}, true);
             if (!prepared.accepted)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
                                          prepared.error);
@@ -510,9 +511,13 @@ Json validate(std::string_view request_text)
                         throw std::runtime_error("Native Material resolution failed: " + id);
                     const auto effective_material = Json::parse(*resolved);
                     material_effective[id] = effective_material;
-                    const auto request = state.session->material_compiler_request(id);
-                    if (request) {
-                        const auto programs = Json::parse(*request).at("programs");
+                    // The effective Material has already been resolved,
+                    // including inheritance and physical shader inputs.
+                    // Do not resolve it a second time for compiler requests.
+                    const auto compiler_request =
+                        noveltea::authoring::material_shader_program_request(id, *resolved);
+                    if (!compiler_request.empty()) {
+                        const auto programs = Json::parse(compiler_request).at("programs");
                         if (!programs.empty())
                             material_programs[id] = programs;
                     }

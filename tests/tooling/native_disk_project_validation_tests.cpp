@@ -341,3 +341,47 @@ TEST_CASE("localization projections reuse unchanged records and refresh changed 
                                                "Text.msg('lab.sample')")
                 .source_revision != lua_revision);
 }
+
+TEST_CASE("complete Project assembly reuses unchanged contributors across an external Room edit",
+          "[native-disk-validation]")
+{
+    Copy project;
+    std::string error;
+    auto session = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(session != nullptr);
+    REQUIRE(session->validate_project().valid);
+    const auto prepare = [&](noveltea::authoring::ProjectSession& owner) {
+        return owner.prepare_complete_working(owner.snapshot().working_revision, {}, true);
+    };
+    const auto cold = prepare(*session);
+    REQUIRE(cold.accepted);
+    REQUIRE(session->complete_project_assembly_work().second >= 200);
+    REQUIRE(session->complete_project_assembly_work().first == 0);
+    const auto unchanged = prepare(*session);
+    REQUIRE(unchanged.accepted);
+    REQUIRE(unchanged.complete_project_json == cold.complete_project_json);
+    REQUIRE(session->complete_project_assembly_work().second == 0);
+    REQUIRE(session->complete_project_assembly_work().first >= 200);
+
+    const auto path = project.root / "records/rooms/feature-lab-home.yaml";
+    auto contents = read(path);
+    const auto before = contents.find("label: Feature Lab Home");
+    REQUIRE(before != std::string::npos);
+    contents.replace(before, std::string("label: Feature Lab Home").size(),
+                     "label: Complete Project Cache Edit");
+    write(path, contents);
+    REQUIRE(session->validate_project().valid);
+    const auto changed = prepare(*session);
+    REQUIRE(changed.accepted);
+    REQUIRE(session->complete_project_assembly_work().second == 1);
+    REQUIRE(session->complete_project_assembly_work().first >= 200);
+    const auto parsed = Json::parse(changed.complete_project_json);
+    REQUIRE(parsed["rooms"]["feature-lab-home"]["label"] == "Complete Project Cache Edit");
+    REQUIRE(changed.complete_project_json != cold.complete_project_json);
+    auto fresh = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(fresh != nullptr);
+    REQUIRE(fresh->validate_project().valid);
+    const auto rebuilt = prepare(*fresh);
+    REQUIRE(rebuilt.accepted);
+    REQUIRE(Json::parse(rebuilt.complete_project_json) == parsed);
+}

@@ -299,17 +299,24 @@ public:
         std::map<std::string, std::string> shader_overlays;
         std::vector<Diagnostic> diagnostics;
     };
+    // Cached, assembled complete Project is owned by the serialized session.
+    // Its jsoncons representation stays in preview_preparation.cpp so public
+    // authoring headers do not need to include the heavyweight JSON DOM.
+    struct CompleteProjectCache;
     // The editor's opt-in preparation seam: capture one revision-consistent
     // effective working Project, without persisting it or invoking the CLI.
     WorkingPreparation prepare_working(std::uint64_t expected_revision,
                                        std::string_view test_id = {},
-                                       bool allow_invalid_test_semantics = false) const;
+                                       bool allow_invalid_test_semantics = false,
+                                       bool reuse_validated_snapshot = false) const;
+    std::uint64_t working_revision() const noexcept { return working_revision_; }
     // A caller that just completed clean validation may reuse its resident
     // snapshot; this still requires fresh physical observation on both sides
     // of complete preparation and fails closed if authority has advanced.
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
                                                 std::string_view test_id = {},
                                                 bool reuse_clean_validation = false);
+    std::pair<std::size_t, std::size_t> complete_project_assembly_work() const;
     // Read-only, revision-pinned semantic evidence from the resident native
     // Project. This deliberately does not require unrelated records to pass
     // semantic validation; incomplete owners are explicitly reported.
@@ -493,6 +500,7 @@ private:
     };
     mutable std::map<std::string, LocalizationSourcePathsCache> localization_source_paths_cache_;
     mutable std::uint64_t localization_source_path_cache_hits_ = 0;
+    std::shared_ptr<CompleteProjectCache> complete_project_cache_;
     std::map<std::string, ValidationResult> material_compiler_results_;
     std::uint64_t working_revision_ = 0;
     // Full cross-record resolver analysis is immutable between Project edit

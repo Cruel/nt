@@ -583,6 +583,62 @@ Lab goal remains unmet. Remaining work includes complete Project assembly,
 JSON allocations, Material compiler request preparation, and outer protocol
 overhead.
 
+### Incremental complete Project assembly and Material request reuse
+
+After `06f77864`, native complete-Project preparation was changed to
+retain a **session-local jsoncons complete Project DOM** and exact per-owner
+normalized/source-text identities. A repeated call with the identical
+prepared base Project, authored overrides, and test-error policy reuses the
+existing DOM; it inserts only changed validated record contributors and
+removes contributors deleted from the authoritative inventory. Any changed
+base/override policy reconstructs the Project, and every call still runs
+the existing post-assembly physical source observation and revision proof
+before publishing a complete Project. The same byte-exact record identity
+also guards the Layout-specific dependency shape fixup.
+
+The serialized complete Project and its runtime Asset-reference closure are
+still recomputed, as is the physical proof. Consequently this is a targeted
+reduction in **record parse and materialization** work, not a blanket skip of
+all preparation. No globally shared caches or timestamp-based assumptions
+were introduced. Direct disk-authoritative validation reuses the immediately
+preceding validated semantic snapshot for preparation only when its working
+revision matches and a fully accepted localization model is already
+available. Cold/independent preparations fall back to ordinary `snapshot()`.
+
+The public Material compiler-input projection now uses
+`material_shader_program_request` on the effective Material it just
+resolved, avoiding an identical second `resolve_material` traversal.
+Effective Material projection and the shader compiler's physical verification
+remain unchanged.
+
+An early build exposed an invalid `WorkingPreparation` destructor after
+adding fields to the public preparation structure. Those fields were
+removed and the instrumentation moved into the private complete-Project
+cache; Valgrind and gdb identified the invalid free, and subsequent Release
+validations and daemon certification no longer reproduce it. The
+new regression compares repeated assembly, a Room-label edit, and a
+fresh-session complete Project, and asserts that the warm edit projects
+only its changed contributor.
+
+Disposable Release daemon-backed benchmark medians:
+
+| Project | Prior batch | After incremental assembly |
+|---|---:|---:|
+| Feature Lab | 543.39 ms | **530.10 ms** |
+| 1 Room | 14.70 ms | **15.34 ms** |
+| 101 Rooms | 55.18 ms | **49.51 ms** |
+| 501 Rooms | 217.25 ms | **206.28 ms** |
+
+Two runs of this slice measured Feature Lab medians of **517.72 ms** and
+**530.10 ms**, compared to 543.39 ms before this slice. The difference is
+modest and partly subject to measurement noise; the latter measurement is
+shown above because it reflects the final overlay-precedence safeguard.
+The total reduction from the original ~934 ms warm-label baseline is
+approximately **43%**. The broader
+200 ms investigative target remains open; further JSON and allocation
+profiling is warranted rather than assuming all remaining time is spent in
+Project assembly.
+
 ## Measured critical path (original baseline)
 
 Temporary `steady_clock` phase probes wrote to a separate file, not CLI stdout/stderr.
