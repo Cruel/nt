@@ -35,10 +35,15 @@ changed-label public validation:
 For a warm label edit, the standalone post-validation cache-publication
 digest pass is no longer needed by the public native owner: it is merged into
 the later preparation proof only while both checks are inside the same
-serialized request. On a clean-cache hit, the initial exact cache proof and
-the *final* exact proof remain separate, but an intermediate identical proof
-previously made between cache loading and contributor hydration is unnecessary:
-the final proof covers both activities before returning a cached result.
+serialized request. On a **valid public native clean-cache hit**, the initial
+exact cache proof is retained as provisional digest evidence; the later
+independent preparation source-generation proof must match its complete
+path/digest map before the owner returns success. This avoids the separate
+`cache-final` Asset pass. The post-font/shader final proof remains independent.
+Standalone/editor consumers and invalid cached results still perform
+`cache-final` immediately because they have no guaranteed later generation
+proof. A mismatch revokes source authority and fails closed rather than
+accepting the cache or rewriting it.
 The revision map is consumed through an observation-scoped read-only view
 rather than copied merely to iterate; it must not be retained across source
 observation.
@@ -90,6 +95,35 @@ reuse a binary Asset digest across the shader/compiler boundary. This is a
 25% reduction in direct-route physical Asset digest work for this edit, not
 a 25% expected wall-clock reduction. On a resident warm owner, cache-admission
 is normally skipped; the pre, preparation and final passes remain independent.
+
+#### Additional valid cache-hit consolidation
+
+A further check of the same Release direct-route binary found that a fresh
+process reloading an unchanged durable clean cache still hashed all Assets in
+`cache-final`, even though its public validation owner would independently
+hash them again at `validation-preparation-generation`. For valid hydrated
+cache hits only, `cache-final` is now deferred to that later mandatory proof.
+An opt-in trace against disposable Feature Lab copies measured:
+
+| Unchanged `--no-daemon` clean-cache hit | Before | After |
+|---|---:|---:|
+| Referenced physical Assets | 25 | 25 |
+| Asset digest passes | 4 | 3 |
+| Asset read/hash operations | 100 | 75 |
+| Asset bytes read/hashed | 35,604,788 | 26,703,591 |
+
+Cold clean-cache misses continue to require three passes. The independent
+post-font/shader proof is unchanged. A focused native certification checks
+standalone immediate verification, valid public deferred-cache acceptance,
+no unnecessary cache rewrite, restored-size/mtime font mutation between
+admission and preparation proof (must reject), and fresh-owner recovery.
+The relocated CLI daemon-owner lifecycle suite and all six stages of native
+CLI performance certification pass. A fresh four-project daemon benchmark
+reported Feature Lab cold 3,230.28 ms, unchanged 13.19 ms, and median
+changed-label 471.90 ms; 1/101/501-Room changed-label medians were 14.21,
+49.09, and 228.95 ms. These are small observational samples, not a controlled
+same-host A/B latency claim; the trace above measures the exact proof-work
+reduction.
 
 The final Release CLI was also measured using
 `python3 tests/native_cli/validation_performance.py build/cli/linux/noveltea .`

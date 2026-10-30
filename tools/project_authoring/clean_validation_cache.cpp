@@ -588,13 +588,17 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
                     presentation_sources.emplace(path, *bytes);
                 }
                 if (cached->resident.is_object()) {
-                    // Only the final independent proof is needed: it protects
-                    // both cache reading and contributor hydration. A proof
-                    // between those two operations hashes every Asset again
-                    // without protecting an additional publication boundary.
+                    // The public native owner can defer this proof until its
+                    // post-preparation generation check. That independent
+                    // check must compare every digest against cache admission
+                    // before the cached result can be published to the CLI.
+                    // Standalone/editor consumers still prove immediately.
                     if (hydrate_resident(cached->resident, *revisions, cached->snapshot) &&
-                        proof(false, "cache-final") == revisions) {
+                        ((defer_valid_publication && cached->snapshot.valid) ||
+                         proof(false, "cache-final") == revisions)) {
                         validation_work_ = {};
+                        if (defer_valid_publication && cached->snapshot.valid)
+                            return {std::move(cached->snapshot), true, std::move(revisions)};
                         return {std::move(cached->snapshot), true};
                     }
                 } else if (proof(false, "cache-final") == revisions) {
@@ -646,7 +650,7 @@ bool ProjectSession::publish_deferred_clean_validation(
     const CleanValidation& validated, const std::map<std::string, std::string>& post_revisions)
 {
     if (!validated.deferred_exact_revisions)
-        return true; // Reused cache evidence was independently proven earlier.
+        return true; // Standalone cache hits were already independently proven.
     if (*validated.deferred_exact_revisions != post_revisions || !transactions_settled(root_) ||
         validation_pending_uncertain_ || !validation_pending_source_revisions_.empty() ||
         !validation_snapshot_ || !validated.snapshot.valid ||
@@ -662,11 +666,13 @@ bool ProjectSession::publish_deferred_clean_validation(
         if (record->snapshot().dirty)
             return false;
     }
-    try {
-        publish_clean_cache(root_, post_revisions, validated.snapshot,
-                            Json::parse(validated.deferred_resident_json));
-    } catch (...) {
-        // A malformed optional cache must never make a validated Project fail.
+    if (!validated.cache_hit) {
+        try {
+            publish_clean_cache(root_, post_revisions, validated.snapshot,
+                                Json::parse(validated.deferred_resident_json));
+        } catch (...) {
+            // A malformed optional cache must never make a validated Project fail.
+        }
     }
     return true;
 }

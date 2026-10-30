@@ -1,5 +1,7 @@
 #include "tooling_native_c.h"
+#include "tooling_native_project_sync.hpp"
 #include "../project_authoring/localization_semantics.hpp"
+#include "../project_authoring/room_session.hpp"
 #include "../project_authoring/source_authority.hpp"
 #include "../project_authoring/yaml_codec.hpp"
 
@@ -1687,6 +1689,77 @@ void certify_validation_exact_asset_boundary(const std::filesystem::path& source
                 "After a rejected physical conflict, a new Project proof can be established");
     }
 }
+
+void certify_deferred_cache_hit_asset_proof(const std::filesystem::path& source)
+{
+    Fixture fixture(source);
+    const auto root = fixture.root.string();
+    const auto validate = [&]() {
+        return disk_validate({{"action", "validate"}, {"projectRoot", root}});
+    };
+    const auto first = validate();
+    require(first.value("ok", false) && first.value("valid", false),
+            "Native validation creates a valid exact clean cache for deferred-hit certification");
+    const auto cache_path = fixture.root / ".noveltea/cache/authoring/native-clean-current.json";
+    const auto cache_bytes = read(cache_path);
+
+    // A standalone/editor consumer has no guaranteed later preparation proof.
+    std::string error;
+    auto editor = noveltea::authoring::ProjectSession::open(fixture.root, error);
+    require(editor != nullptr, "Standalone cache consumer can admit the Project: " + error);
+    const auto editor_hit = editor->validate_clean_project();
+    require(editor_hit.cache_hit && editor_hit.snapshot.valid &&
+                !editor_hit.deferred_exact_revisions,
+            "Standalone cache hits retain the immediate independent final Asset proof");
+
+    auto session = noveltea::authoring::ProjectSession::open(fixture.root, error);
+    require(session != nullptr, "Deferred cache-hit owner can admit the Project: " + error);
+    const auto hit = session->validate_clean_project(true, true);
+    require(hit.cache_hit && hit.snapshot.valid && hit.deferred_exact_revisions &&
+                hit.deferred_resident_json.empty(),
+            "Public cache hit retains exact admission revisions for the later generation fence");
+    const auto observation = session->observe_sources();
+    require(observation.authoritative && observation.unchanged && !observation.full_rescan,
+            "Deferred cache-hit owner remains physically authoritative before preparation proof");
+    std::map<std::string, std::string> post_revisions;
+    (void)native_project_source_generation(*session, fixture.root, true,
+                                           "certify-deferred-cache-hit", &post_revisions);
+    require(session->publish_deferred_clean_validation(hit, post_revisions) &&
+                read(cache_path) == cache_bytes,
+            "Matching post-preparation bytes accept the cache hit without republishing it");
+
+    // Mutate a physical Asset *after* cache hydration but *before* the
+    // independent generation check, preserving both its size and mtime.
+    session = noveltea::authoring::ProjectSession::open(fixture.root, error);
+    require(session != nullptr, "Mutation-case cache-hit owner can admit Project: " + error);
+    const auto raced = session->validate_clean_project(true, true);
+    require(raced.cache_hit && raced.deferred_exact_revisions,
+            "Mutation case first admits the cached generation provisionally");
+    const auto asset = fixture.root / "assets/fonts/DejaVuSans.ttf";
+    const auto original = read(asset);
+    const auto original_time = std::filesystem::last_write_time(asset);
+    auto changed = original;
+    require(!changed.empty(), "Deferred Asset race fixture has nonempty bytes");
+    changed[changed.size() / 2] ^= 1;
+    write(asset, changed);
+    std::filesystem::last_write_time(asset, original_time);
+    post_revisions.clear();
+    (void)native_project_source_generation(*session, fixture.root, false,
+                                           "certify-deferred-cache-race", &post_revisions);
+    require(!session->publish_deferred_clean_validation(raced, post_revisions) &&
+                read(cache_path) == cache_bytes,
+            "Restored-size-and-mtime Asset overwrite rejects provisional cache hit and keeps cache unchanged");
+
+    write(asset, original);
+    std::filesystem::last_write_time(asset, original_time);
+    require(disk_validate({{"action", "release"}, {"projectRoot", root}}).value("ok", false),
+            "A native owner can be released after deferred cache-hit certification");
+    const auto restarted = validate();
+    require(restarted.value("ok", false) && restarted.value("valid", false) &&
+                restarted.value("cacheHit", false) &&
+                restarted.at("sourceGeneration") == first.at("sourceGeneration"),
+            "Restarted public native owner reuses valid cache with the original exact generation");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -1731,6 +1804,7 @@ int main(int argc, char** argv)
         certify(argv[1]);
         certify_shader_preparation(argv[1]);
         certify_validation_exact_asset_boundary(argv[1]);
+        certify_deferred_cache_hit_asset_proof(argv[1]);
         std::cout << "Native CLI Project certification passed.\n";
         return 0;
     } catch (const std::exception& error) {

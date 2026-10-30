@@ -202,8 +202,9 @@ public:
     struct CleanValidation {
         RoomSessionSnapshot snapshot;
         bool cache_hit = false;
-        // Only populated for a valid public validation which defers clean-cache
-        // publication until its later independent preparation generation proof.
+        // A valid public validation can defer either clean-cache publication
+        // (miss) or cache-hit acceptance until the independent post-preparation
+        // generation proof. Standalone/editor cache hits verify immediately.
         std::optional<std::map<std::string, std::string>> deferred_exact_revisions;
         std::string deferred_resident_json;
     };
