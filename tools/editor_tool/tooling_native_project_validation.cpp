@@ -1,9 +1,11 @@
 #include "tooling_native_c.h"
+#include "tooling_native_project_asset.hpp"
 #include "tooling_native_project_bundle.hpp"
 #include "tooling_native_project_localization.hpp"
 #include "tooling_native_project_sync.hpp"
 
 #include "../project_authoring/room_session.hpp"
+#include "../project_authoring/material_semantics.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -43,6 +45,7 @@ struct OwnerValidation {
     std::mutex mutex;
     std::filesystem::path root;
     std::unique_ptr<ProjectSession> session;
+    std::uint64_t session_admissions = 0;
 };
 
 OwnerValidation& resident()
@@ -216,7 +219,7 @@ Json native_font_coverage_inputs(noveltea::authoring::ProjectSession& session, c
     // The internal opt-in source view also covers the source locale; the public
     // localization view command continues to reject source-locale requests.
     const auto sources = native_project_localization_view(
-        {{"locale", source_locale}, {"allowSourceLocale", true}}, session);
+        {{"locale", source_locale}, {"allowSourceLocale", true}}, session, true);
     trace_native_validation("native font inputs: source views resolved");
     if (!sources.value("ok", false) || !sources.contains("messages"))
         throw std::runtime_error(sources.value(
@@ -387,12 +390,41 @@ Json validate(std::string_view request_text)
         }
         return {{"ok", true}};
     }
+    if (request.value("action", std::string("validate")) == "source-generation-proof") {
+        const auto conflict = [&]() -> Json {
+            // Observation must not consume inventory changes that the next validation
+            // would otherwise use to revoke its admitted Project.
+            state.session.reset();
+            return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
+        };
+        if (state.root != root || !state.session || !request.contains("expectedSourceGeneration") ||
+            !request.at("expectedSourceGeneration").is_string())
+            return conflict();
+        const auto unchanged = [&]() {
+            if (!native_project_disk_safety(root).value("ok", false))
+                return false;
+            const auto observed = state.session->observe_sources();
+            return observed.authoritative && observed.unchanged;
+        };
+        // Bracket exact content hashing (including binary Assets) with retained
+        // membership/containment observations. Watcher hints never certify bytes.
+        if (!unchanged() ||
+            native_project_source_generation(*state.session, root, true) !=
+                request.at("expectedSourceGeneration").get<std::string>() ||
+            !unchanged())
+            return conflict();
+        return {{"ok", true}, {"sessionAdmissions", state.session_admissions}};
+    }
     if (request.value("action", std::string("validate")) != "validate")
         return {{"ok", false}, {"error", "Unknown disk-validation action."}};
     if (state.root != root) {
         state.session.reset();
         state.root = root;
     }
+    auto captures_before = state.session ? state.session->source_capture_count() : 0;
+    auto record_hits_before = state.session ? state.session->localization_record_cache_hits() : 0;
+    auto source_hits_before =
+        state.session ? state.session->localization_source_path_cache_hits() : 0;
     if (state.session) {
         const auto observed = state.session->observe_sources();
         // The retained validator incrementally handles edits to existing
@@ -400,13 +432,19 @@ Json validate(std::string_view request_text)
         // or removed source instead changes the inventory and requires fresh
         // Project admission; otherwise deleted records can remain in the view.
         if (observed.full_rescan || !observed.authoritative || !observed.delta.added.empty() ||
-            !observed.delta.removed.empty())
+            !observed.delta.removed.empty()) {
             state.session.reset();
+            // The replacement authority starts its scan count at zero.
+            captures_before = 0;
+            record_hits_before = 0;
+            source_hits_before = 0;
+        }
     }
     const bool warm = state.session != nullptr;
     std::string error;
     if (!state.session) {
         trace_native_validation("opening mutable Project session");
+        ++state.session_admissions;
         state.session = ProjectSession::open(root, error);
         trace_native_validation(state.session ? "mutable Project session opened"
                                               : "mutable Project session rejected");
@@ -424,10 +462,11 @@ Json validate(std::string_view request_text)
         return response_for(*cold, false, {});
     }
     trace_native_validation("starting resident Project validation");
-    const auto validated = state.session->validate_clean_project();
+    const auto validated = state.session->validate_clean_project(true);
     trace_native_validation("resident Project validation returned");
     auto result = response_for(validated.snapshot, warm, state.session->validation_work());
     result["cacheHit"] = validated.cache_hit;
+    result["work"]["sessionAdmissions"] = state.session_admissions;
     // A malformed physical source invalidates the mutable session's complete
     // source proof. Return its certified diagnostics without asking for that
     // proof: downstream preparation is only allowed for valid Projects.
@@ -442,14 +481,14 @@ Json validate(std::string_view request_text)
         result["entrypointConfigured"] =
             effective.contains("entrypoint") && !effective.at("entrypoint").is_null();
         if (request.value("includeFontCoverageInputs", false)) {
-            const auto prepared =
-                state.session->prepare_complete_working(state.session->snapshot().working_revision);
+            const auto prepared = state.session->prepare_complete_working(
+                state.session->working_revision(), {}, true);
             if (!prepared.accepted)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
                                          prepared.error);
             const auto admitted = Json::parse(prepared.complete_project_json);
             const auto portable = native_project_bundle(
-                {{"action", "test-source-preparation"}, {"admittedProject", admitted}},
+                {{"action", "validation-source-check"}, {"admittedProject", admitted}},
                 state.session.get(), root);
             if (!portable.value("ok", false)) {
                 result["portableFailure"] = portable.value(
@@ -472,9 +511,13 @@ Json validate(std::string_view request_text)
                         throw std::runtime_error("Native Material resolution failed: " + id);
                     const auto effective_material = Json::parse(*resolved);
                     material_effective[id] = effective_material;
-                    const auto request = state.session->material_compiler_request(id);
-                    if (request) {
-                        const auto programs = Json::parse(*request).at("programs");
+                    // The effective Material has already been resolved,
+                    // including inheritance and physical shader inputs.
+                    // Do not resolve it a second time for compiler requests.
+                    const auto compiler_request =
+                        noveltea::authoring::material_shader_program_request(id, *resolved);
+                    if (!compiler_request.empty()) {
+                        const auto programs = Json::parse(compiler_request).at("programs");
                         if (!programs.empty())
                             material_programs[id] = programs;
                     }
@@ -501,8 +544,20 @@ Json validate(std::string_view request_text)
         }
         // Bind a successful diagnostic graph to the exact physical generation
         // consumed by downstream preparation; never mix separate admissions.
-        result["sourceGeneration"] = native_project_source_generation(*state.session, root);
+        // Validate the source generation after all source-derived work. The
+        // observation certifies exact text hashes used by the fast generator;
+        // the generator still hashes binary Assets independently.
+        const auto final_observation = state.session->observe_sources();
+        if (!final_observation.authoritative || !final_observation.unchanged ||
+            final_observation.full_rescan)
+            throw std::runtime_error("Project sources changed during validation preparation.");
+        result["sourceGeneration"] = native_project_source_generation(*state.session, root, true);
     }
+    result["work"]["sourceCaptures"] = state.session->source_capture_count() - captures_before;
+    result["work"]["localizationRecordsReused"] =
+        state.session->localization_record_cache_hits() - record_hits_before;
+    result["work"]["localizationSourcePathsReused"] =
+        state.session->localization_source_path_cache_hits() - source_hits_before;
     return result;
 }
 

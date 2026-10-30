@@ -1918,71 +1918,105 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     return false;
                 }
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-                const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-                const auto probe_root = std::filesystem::temp_directory_path() /
-                                        ("noveltea-sampler-probe-" + cache_key + "-" +
-                                         std::to_string(nonce));
-                ScopedDirectoryCleanup probe_cleanup{probe_root};
-                const auto probe_project_root = probe_root / "project";
-                const auto probe_engine_root = probe_root / "engine";
-                std::filesystem::path probe_source_path;
-                bool probe_ready = true;
-                for (const auto& [identity, dependency_text] : stage.dependencies) {
-                    std::filesystem::path dependency_path;
-                    if (starts_with(identity, "project:/shaders/")) {
-                        dependency_path = probe_project_root /
-                                          path_from_utf8(identity.substr(
-                                              std::string_view("project:/shaders/").size()));
-                    } else if (starts_with(identity, "engine:/")) {
-                        dependency_path = probe_engine_root /
-                                          path_from_utf8(identity.substr(
-                                              std::string_view("engine:/").size()));
-                    } else {
-                        probe_ready = false;
-                        break;
+                // The compiler identity and binary SHA-256 were checked by
+                // cache_entry_matches(). Preserve the sampler-stage evidence
+                // derived from preprocessed includes in that same cache
+                // generation instead of preprocessing on every binary hit.
+                std::vector<std::pair<std::string, std::uint16_t>> sampler_stages;
+                bool have_sampler_stages = false;
+                if (cache_hit) {
+                    const auto entry = cache_manifest.find(package_path);
+                    if (entry != cache_manifest.end() && entry->is_object() &&
+                        entry->value("samplerStageSchema", std::string{}) == "preprocessed-v1" &&
+                        entry->contains("samplerStages") && entry->at("samplerStages").is_array()) {
+                        const auto& stages_json = entry->at("samplerStages");
+                        const auto proof = content_hash(
+                            cache_key + "\n" + metadata->byte_hash + "\n" + stages_json.dump());
+                        if (entry->value("samplerStageProof", std::string{}) == proof) {
+                            have_sampler_stages = true;
+                            for (const auto& item : stages_json) {
+                                if (!item.is_object() || !item.contains("name") ||
+                                    !item.at("name").is_string() || !item.contains("stage") ||
+                                    !item.at("stage").is_number_unsigned() ||
+                                    item.at("stage").get<std::uint64_t>() > UINT16_MAX ||
+                                    item.at("name").get_ref<const std::string&>().empty()) {
+                                    have_sampler_stages = false;
+                                    break;
+                                }
+                                sampler_stages.emplace_back(
+                                    item.at("name").get<std::string>(),
+                                    item.at("stage").get<std::uint16_t>());
+                            }
+                        }
                     }
-                    std::error_code probe_directory_error;
-                    std::filesystem::create_directories(dependency_path.parent_path(),
-                                                        probe_directory_error);
-                    if (probe_directory_error ||
-                        !write_text_file_if_changed(
-                            dependency_path,
-                            identity == stage.source.identity && stage.video_alpha_wrapped
-                                ? *wrap_engine_2d_video_alpha(
-                                      instrument_sampler_declarations(dependency_text))
-                                : instrument_sampler_declarations(dependency_text))) {
-                        probe_ready = false;
-                        break;
+                }
+                if (!have_sampler_stages) {
+                    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+                    const auto probe_root = std::filesystem::temp_directory_path() /
+                                            ("noveltea-sampler-probe-" + cache_key + "-" +
+                                             std::to_string(nonce));
+                    ScopedDirectoryCleanup probe_cleanup{probe_root};
+                    const auto probe_project_root = probe_root / "project";
+                    const auto probe_engine_root = probe_root / "engine";
+                    std::filesystem::path probe_source_path;
+                    bool probe_ready = true;
+                    for (const auto& [identity, dependency_text] : stage.dependencies) {
+                        std::filesystem::path dependency_path;
+                        if (starts_with(identity, "project:/shaders/")) {
+                            dependency_path = probe_project_root /
+                                              path_from_utf8(identity.substr(
+                                                  std::string_view("project:/shaders/").size()));
+                        } else if (starts_with(identity, "engine:/")) {
+                            dependency_path = probe_engine_root /
+                                              path_from_utf8(identity.substr(
+                                                  std::string_view("engine:/").size()));
+                        } else {
+                            probe_ready = false;
+                            break;
+                        }
+                        std::error_code probe_directory_error;
+                        std::filesystem::create_directories(dependency_path.parent_path(),
+                                                            probe_directory_error);
+                        if (probe_directory_error ||
+                            !write_text_file_if_changed(
+                                dependency_path,
+                                identity == stage.source.identity && stage.video_alpha_wrapped
+                                    ? *wrap_engine_2d_video_alpha(
+                                          instrument_sampler_declarations(dependency_text))
+                                    : instrument_sampler_declarations(dependency_text))) {
+                            probe_ready = false;
+                            break;
+                        }
+                        if (identity == stage.source.identity)
+                            probe_source_path = dependency_path;
                     }
-                    if (identity == stage.source.identity)
-                        probe_source_path = dependency_path;
+                    if (!probe_ready || probe_source_path.empty()) {
+                        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                       ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
+                                       stage.stage, variant.name, stage.source.path, output_path,
+                                       command_line, 0,
+                                       "Failed to prepare preprocessed sampler-stage reflection source.");
+                        return false;
+                    }
+                    std::vector<std::filesystem::path> probe_include_roots = {probe_project_root};
+                    if (!effective_options.engine_shader_root.empty())
+                        probe_include_roots.push_back(probe_engine_root);
+                    probe_include_roots.push_back(*embedded_include_root);
+                    const auto preprocessed = run_embedded_shaderc(
+                        args, stage.stage, variant, probe_source_path, probe_root / "probe.out",
+                        effective_varying.path, probe_include_roots, true);
+                    if (preprocessed.exit_code != 0) {
+                        add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                                       ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
+                                       stage.stage, variant.name, stage.source.path, output_path,
+                                       command_line, preprocessed.exit_code,
+                                       "shaderc preprocessing failed while reflecting sampler stages.\n" +
+                                           preprocessed.output);
+                        return false;
+                    }
+                    sampler_stages = sampler_stage_declarations(preprocessed.payload,
+                                                                 "NOVELTEA_SAMPLER_STAGE(");
                 }
-                if (!probe_ready || probe_source_path.empty()) {
-                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
-                                   ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
-                                   stage.stage, variant.name, stage.source.path, output_path,
-                                   command_line, 0,
-                                   "Failed to prepare preprocessed sampler-stage reflection source.");
-                    return false;
-                }
-                std::vector<std::filesystem::path> probe_include_roots = {probe_project_root};
-                if (!effective_options.engine_shader_root.empty())
-                    probe_include_roots.push_back(probe_engine_root);
-                probe_include_roots.push_back(*embedded_include_root);
-                const auto preprocessed = run_embedded_shaderc(
-                    args, stage.stage, variant, probe_source_path, probe_root / "probe.out",
-                    effective_varying.path, probe_include_roots, true);
-                if (preprocessed.exit_code != 0) {
-                    add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
-                                   ShaderCompileDiagnosticCode::ReflectionFailed, ShaderId{},
-                                   stage.stage, variant.name, stage.source.path, output_path,
-                                   command_line, preprocessed.exit_code,
-                                   "shaderc preprocessing failed while reflecting sampler stages.\n" +
-                                       preprocessed.output);
-                    return false;
-                }
-                const auto sampler_stages = sampler_stage_declarations(
-                    preprocessed.payload, "NOVELTEA_SAMPLER_STAGE(");
                 for (auto& input : reflected->inputs) {
                     if (input.kind != ShaderReflectedInputKind::SampledImage)
                         continue;
@@ -2058,6 +2092,15 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     {"byteHash", metadata->byte_hash},
                     {"byteSize", metadata->byte_size},
                 });
+#if NOVELTEA_HAS_EMBEDDED_SHADERC
+                nlohmann::json stage_json = nlohmann::json::array();
+                for (const auto& [name, index] : sampler_stages)
+                    stage_json.push_back({{"name", name}, {"stage", index}});
+                cache_manifest[package_path]["samplerStageSchema"] = "preprocessed-v1";
+                cache_manifest[package_path]["samplerStageProof"] = content_hash(
+                    cache_key + "\n" + metadata->byte_hash + "\n" + stage_json.dump());
+                cache_manifest[package_path]["samplerStages"] = std::move(stage_json);
+#endif
                 return true;
             };
 

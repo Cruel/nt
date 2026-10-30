@@ -654,17 +654,19 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
     if (action == "project-import")
         return import_bundle(request);
     if (action == "export-preparation" || action == "runtime-package-preparation" ||
-        action == "test-source-preparation") {
+        action == "test-source-preparation" || action == "validation-source-check") {
         if (!session)
             return failure("Native export preparation requires an admitted disk Project.");
         // Invoked exclusively by the native shader/Test/Runtime Package owner after its
         // prepare_complete_working gate. No public export action can supply
         // its own Project to bypass validation.
-        if (action == "test-source-preparation" &&
+        if ((action == "test-source-preparation" || action == "validation-source-check") &&
             (!request.contains("admittedProject") || !request.at("admittedProject").is_object()))
             return failure("Native Test source preparation requires an admitted Project.");
-        const auto effective = action == "test-source-preparation" ? request.at("admittedProject")
-                                                                   : complete_project(*session);
+        const auto effective =
+            action == "test-source-preparation" || action == "validation-source-check"
+                ? request.at("admittedProject")
+                : complete_project(*session);
         if (action == "runtime-package-preparation" &&
             (!effective.contains("export") || !effective.at("export").is_object() ||
              !effective.at("export").contains("runtime") ||
@@ -673,7 +675,30 @@ Json native_project_bundle(const Json& request, ProjectSession* session,
             return failure(
                 "Cannot prepare Runtime Package without a valid native runtime profile.");
         std::set<std::string> paths;
-        project_paths(effective, session, root, paths);
+        try {
+            project_paths(effective, session, root, paths);
+        } catch (const std::exception& error) {
+            return failure(error.what(), "invalid-project");
+        }
+        if (action == "validation-source-check") {
+            // Public validation consumes only success/failure, not the source
+            // inventory, Project copy, or revision map. project_paths() has
+            // already verified every source's existence and containment.
+            // Check stream readability without rehashing every file; the
+            // validation owner's final exact source-generation proof still
+            // detects in-flight physical mutations. Unlike this check-only
+            // path, test-source-preparation retains exact source revisions:
+            // the shader/runtime owner needs them to publish a pinned bundle.
+            for (const auto& source : paths) {
+                std::ifstream input(root / utf8_path(source), std::ios::binary);
+                if (!input)
+                    return failure("Portable Project source cannot be read: " + source);
+                (void)input.peek();
+                if (input.bad())
+                    return failure("Portable Project source read failed: " + source);
+            }
+            return {{"ok", true}};
+        }
         Json records = Json::array();
         Json revisions = Json::object();
         for (const auto& source : paths) {

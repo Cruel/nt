@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -75,6 +76,8 @@ public:
     std::vector<std::string> invalid_source_paths() const;
     // Only usable after a successful full observation; never a watcher-only proof.
     std::optional<std::map<std::string, std::string>> verified_revisions() const;
+    // Counts full physical scans (including retries) by this resident authority.
+    std::uint64_t source_capture_count() const noexcept { return source_capture_count_; }
     // Physical Asset media changes do not change the Asset's YAML revision.
     // Return the owning YAML records whose local membership checks must be
     // repeated after a proven physical observation.
@@ -105,6 +108,7 @@ private:
     std::unique_ptr<NativeWatch> native_;
     bool initialized_ = false;
     bool uncertain_ = true;
+    mutable std::uint64_t source_capture_count_ = 0;
 };
 
 // Temporarily makes the current verified generation available to native

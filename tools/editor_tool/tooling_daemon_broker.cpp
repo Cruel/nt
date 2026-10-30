@@ -4764,6 +4764,9 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
     std::optional<std::jthread> interrupt_watcher;
     if (interrupt_scope.enabled()) {
         interrupt_watcher.emplace([connection, request_id](std::stop_token stop_token) {
+            std::condition_variable_any wake;
+            std::mutex wait_mutex;
+            std::unique_lock wait_lock(wait_mutex);
             while (!stop_token.stop_requested()) {
                 if (client_interrupt_signal != 0) {
                     const auto cancel_deadline = Clock::now() + std::chrono::milliseconds(250);
@@ -4771,7 +4774,10 @@ Json client_request(const BrokerContext& context, std::string_view method, std::
                                        cancel_deadline);
                     return;
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                // A stop-aware wait retains periodic signal polling without
+                // delaying request completion until the next polling tick.
+                wake.wait_for(wait_lock, stop_token, std::chrono::milliseconds(5),
+                              [] { return false; });
             }
         });
     }

@@ -1,4 +1,7 @@
 #include "tooling_native_c.h"
+#include "../../tools/editor_tool/tooling_native_project_localization.hpp"
+#include "../../tools/editor_tool/tooling_native_project_bundle.hpp"
+#include "../../tools/project_authoring/room_session.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
@@ -14,16 +17,21 @@
 namespace {
 using Json = nlohmann::json;
 
-Json disk_validate(const std::filesystem::path& project_root, std::string action = "validate")
+Json disk_validate(const std::filesystem::path& project_root, std::string action = "validate",
+                   Json fields = Json::object())
 {
-    const auto text =
-        Json{{"projectRoot", project_root.string()}, {"action", std::move(action)}}.dump();
+    const bool command =
+        action == "project-validate" || action == "validation-source-generation-proof";
+    fields["projectRoot"] = project_root.string();
+    fields["action"] = std::move(action);
+    const auto text = fields.dump();
     std::vector<std::uint8_t> bytes(16 * 1024 * 1024);
     // The native operation is stateful. A size probe followed by execution
     // would consume cold authority and incorrectly turn one invocation warm.
-    const auto count = noveltea_tooling_native_disk_project_validation_json(
-        reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), bytes.data(),
-        bytes.size());
+    const auto invoke = command ? noveltea_tooling_native_project_commands_json
+                                : noveltea_tooling_native_disk_project_validation_json;
+    const auto count = invoke(reinterpret_cast<const std::uint8_t*>(text.data()), text.size(),
+                              bytes.data(), bytes.size());
     REQUIRE(count > 0);
     REQUIRE(count <= bytes.size());
     return Json::parse(std::string(reinterpret_cast<const char*>(bytes.data()), count));
@@ -146,4 +154,234 @@ TEST_CASE("native disk validation stays resident and proves edits without mutati
     REQUIRE(restarted["ok"] == true);
     REQUIRE(restarted["warm"] == false);
     REQUIRE(restarted["valid"] == true);
+}
+
+TEST_CASE("validation final proof reuses admission and rejects intervening disk changes",
+          "[native-disk-validation]")
+{
+    Copy project;
+    const auto room = project.root / "records/rooms/feature-lab-home.yaml";
+    const auto original = read(room);
+    const auto cold =
+        disk_validate(project.root, "project-validate", {{"includeFontCoverageInputs", true}});
+    REQUIRE(cold["valid"] == true);
+    auto edited = original;
+    const auto label = edited.find("label: Feature Lab Home");
+    REQUIRE(label != std::string::npos);
+    edited.replace(label, std::string("label: Feature Lab Home").size(), "label: Edited Home");
+    write(room, edited);
+    const auto changed =
+        disk_validate(project.root, "project-validate", {{"includeFontCoverageInputs", true}});
+    REQUIRE(changed["valid"] == true);
+    REQUIRE(changed["warm"] == true);
+    REQUIRE(changed["work"]["sessionAdmissions"] == cold["work"]["sessionAdmissions"]);
+    REQUIRE(changed["work"]["recheckedRecords"] == 1);
+    // An unrelated label edit must not admit a fresh Project or recursively
+    // multiply source scans through nested full Project preparation.
+    REQUIRE(changed["work"]["sourceCaptures"].get<std::uint64_t>() <= 5);
+    REQUIRE(changed["fontCoverageInputs"] == cold["fontCoverageInputs"]);
+    REQUIRE(changed["materialCompilerPrograms"] == cold["materialCompilerPrograms"]);
+    REQUIRE(changed["materialEffectiveInputs"] == cold["materialEffectiveInputs"]);
+    const auto proof = [&]() {
+        return disk_validate(project.root, "validation-source-generation-proof",
+                             {{"expectedSourceGeneration", changed.at("sourceGeneration")}});
+    };
+    const auto current = proof();
+    REQUIRE(current["ok"] == true);
+    REQUIRE(current["sessionAdmissions"] == cold["work"]["sessionAdmissions"]);
+
+    SECTION("same size Asset edit with restored timestamp")
+    {
+        const auto asset = project.root / "assets/images/ui-pattern.png";
+        auto bytes = read(asset);
+        REQUIRE(!bytes.empty());
+        const auto time = std::filesystem::last_write_time(asset);
+        bytes.back() ^= 1;
+        write(asset, bytes);
+        std::filesystem::last_write_time(asset, time);
+    }
+    SECTION("changed valid record") { write(room, original); }
+    SECTION("invalid record") { write(room, "not: [valid\n"); }
+    SECTION("removed record") { REQUIRE(std::filesystem::remove(room)); }
+    SECTION("added record")
+    {
+        write(project.root / "records/rooms/added.yaml", "id: added\nlabel: Added\n");
+    }
+    SECTION("pending transaction")
+    {
+        std::filesystem::create_directories(project.root / ".noveltea/transactions/pending");
+    }
+    SECTION("external Asset directory symlink with identical bytes")
+    {
+        std::filesystem::remove_all(project.root / "assets/images");
+        std::filesystem::create_directory_symlink(std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                                                      "tests/projects/feature-lab/assets/images",
+                                                  project.root / "assets/images");
+    }
+    SECTION("external symlink")
+    {
+        REQUIRE(std::filesystem::remove(room));
+        std::filesystem::create_symlink(
+            std::filesystem::path(NOVELTEA_SOURCE_DIR) /
+                "tests/projects/feature-lab/records/rooms/feature-lab-home.yaml",
+            room);
+    }
+    REQUIRE(proof()["ok"] == false);
+}
+
+TEST_CASE("same-size binary Asset edits cannot reuse exact generation evidence",
+          "[native-disk-validation]")
+{
+    Copy project;
+    const auto first = disk_validate(project.root, "project-validate");
+    REQUIRE(first["ok"] == true);
+    REQUIRE(first["valid"] == true);
+    const auto generation = first.at("sourceGeneration");
+
+    const auto asset = project.root / "assets/images/ui-pattern.png";
+    const auto modified = std::filesystem::last_write_time(asset);
+    auto contents = read(asset);
+    REQUIRE(!contents.empty());
+    contents.back() ^= 1;
+    write(asset, contents);
+    std::filesystem::last_write_time(asset, modified);
+
+    const auto changed = disk_validate(project.root, "project-validate");
+    REQUIRE(changed["ok"] == true);
+    REQUIRE(changed["valid"] == true);
+    REQUIRE(changed["sourceGeneration"] != generation);
+    REQUIRE(disk_validate(project.root, "validation-source-generation-proof",
+                          {{"expectedSourceGeneration", generation}})["ok"] == false);
+}
+
+TEST_CASE("portable validation checks source paths without exporting unused revision maps",
+          "[native-disk-validation]")
+{
+    Copy project;
+    std::string error;
+    auto session = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(session != nullptr);
+    REQUIRE(session->validate_project().valid);
+    const auto prepared =
+        session->prepare_complete_working(session->snapshot().working_revision, {}, true);
+    REQUIRE(prepared.accepted);
+    const auto admitted = Json::parse(prepared.complete_project_json);
+    const auto check = [&] {
+        return native_project_bundle(
+            {{"action", "validation-source-check"}, {"admittedProject", admitted}}, session.get(),
+            project.root);
+    };
+    const auto valid = check();
+    REQUIRE(valid.value("ok", false));
+    REQUIRE_FALSE(valid.contains("sourceRevisions"));
+    REQUIRE_FALSE(valid.contains("sourcePaths"));
+    REQUIRE_FALSE(valid.contains("project"));
+    const auto pinned = native_project_bundle(
+        {{"action", "test-source-preparation"}, {"admittedProject", admitted}}, session.get(),
+        project.root);
+    REQUIRE(pinned.value("ok", false));
+    REQUIRE(pinned.contains("sourceRevisions"));
+    REQUIRE(pinned.at("sourceRevisions").contains("project.yaml"));
+
+    REQUIRE(std::filesystem::remove(project.root / "records/rooms/feature-lab-home.yaml"));
+    REQUIRE_FALSE(check().value("ok", false));
+}
+
+TEST_CASE("localization projections reuse unchanged records and refresh changed Message inputs",
+          "[native-disk-validation]")
+{
+    Copy project;
+    std::string error;
+    auto session = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(session != nullptr);
+    REQUIRE(session->validate_project().valid);
+    const Json request{{"locale", "fr"}};
+    const auto initial = native_project_localization_view(request, *session, true);
+    REQUIRE(initial.value("ok", false));
+    REQUIRE(native_project_localization_view(request, *session, true) == initial);
+    REQUIRE(session->localization_record_cache_hits() >= 200);
+    REQUIRE(session->localization_source_path_cache_hits() >= 200);
+
+    const auto room = project.root / "records/rooms/feature-lab-home.yaml";
+    auto contents = read(room);
+    const auto original_label = contents.find("label: Feature Lab Home");
+    REQUIRE(original_label != std::string::npos);
+    contents.replace(original_label, std::string("label: Feature Lab Home").size(),
+                     "label: Localization Cache Probe");
+    write(room, contents);
+    REQUIRE(session->validate_project().valid);
+    const auto hits = session->localization_record_cache_hits();
+    const auto unchanged = native_project_localization_view(request, *session, true);
+    REQUIRE(unchanged == initial);
+    REQUIRE(session->localization_record_cache_hits() >= hits + 200);
+
+    const auto previous_key = contents.find("key: feature_lab.empty");
+    REQUIRE(previous_key != std::string::npos);
+    contents.replace(previous_key, std::string("key: feature_lab.empty").size(), "key: lab.sample");
+    write(room, contents);
+    REQUIRE(session->validate_project().valid);
+    const auto changed = native_project_localization_view(request, *session, true);
+    REQUIRE(changed.value("ok", false));
+    REQUIRE(changed != initial);
+
+    // A fresh Project must produce the identical projection, not a stale
+    // cached usage/fingerprint from before the record's localization edit.
+    auto fresh = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(fresh != nullptr);
+    REQUIRE(fresh->validate_project().valid);
+    REQUIRE(native_project_localization_view(request, *fresh, true) == changed);
+
+    const auto& lua = session->localization_inline_analysis(
+        "inline/rooms/cache-probe/data/source.lua", "Text.msg('lab.read')");
+    const auto lua_revision = lua.source_revision;
+    REQUIRE(&lua == &session->localization_inline_analysis(
+                        "inline/rooms/cache-probe/data/source.lua", "Text.msg('lab.read')"));
+    REQUIRE(session
+                ->localization_inline_analysis("inline/rooms/cache-probe/data/source.lua",
+                                               "Text.msg('lab.sample')")
+                .source_revision != lua_revision);
+}
+
+TEST_CASE("complete Project assembly reuses unchanged contributors across an external Room edit",
+          "[native-disk-validation]")
+{
+    Copy project;
+    std::string error;
+    auto session = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(session != nullptr);
+    REQUIRE(session->validate_project().valid);
+    const auto prepare = [&](noveltea::authoring::ProjectSession& owner) {
+        return owner.prepare_complete_working(owner.snapshot().working_revision, {}, true);
+    };
+    const auto cold = prepare(*session);
+    REQUIRE(cold.accepted);
+    REQUIRE(session->complete_project_assembly_work().second >= 200);
+    REQUIRE(session->complete_project_assembly_work().first == 0);
+    const auto unchanged = prepare(*session);
+    REQUIRE(unchanged.accepted);
+    REQUIRE(unchanged.complete_project_json == cold.complete_project_json);
+    REQUIRE(session->complete_project_assembly_work().second == 0);
+    REQUIRE(session->complete_project_assembly_work().first >= 200);
+
+    const auto path = project.root / "records/rooms/feature-lab-home.yaml";
+    auto contents = read(path);
+    const auto before = contents.find("label: Feature Lab Home");
+    REQUIRE(before != std::string::npos);
+    contents.replace(before, std::string("label: Feature Lab Home").size(),
+                     "label: Complete Project Cache Edit");
+    write(path, contents);
+    REQUIRE(session->validate_project().valid);
+    const auto changed = prepare(*session);
+    REQUIRE(changed.accepted);
+    REQUIRE(session->complete_project_assembly_work().second == 1);
+    REQUIRE(session->complete_project_assembly_work().first >= 200);
+    const auto parsed = Json::parse(changed.complete_project_json);
+    REQUIRE(parsed["rooms"]["feature-lab-home"]["label"] == "Complete Project Cache Edit");
+    REQUIRE(changed.complete_project_json != cold.complete_project_json);
+    auto fresh = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(fresh != nullptr);
+    REQUIRE(fresh->validate_project().valid);
+    const auto rebuilt = prepare(*fresh);
+    REQUIRE(rebuilt.accepted);
+    REQUIRE(Json::parse(rebuilt.complete_project_json) == parsed);
 }

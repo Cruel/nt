@@ -8,6 +8,27 @@
 #include <stdexcept>
 
 namespace noveltea::authoring {
+struct ProjectSession::CompleteProjectCache {
+    struct Contributor {
+        std::string normalized_json;
+        std::string source_json;
+    };
+    std::string base_project_json;
+    std::string override_json;
+    bool only_test_errors = false;
+    jsoncons::ojson complete;
+    std::map<std::string, Contributor> contributors;
+    std::size_t reused = 0;
+    std::size_t projected = 0;
+};
+
+std::pair<std::size_t, std::size_t> ProjectSession::complete_project_assembly_work() const
+{
+    return complete_project_cache_
+               ? std::make_pair(complete_project_cache_->reused, complete_project_cache_->projected)
+               : std::make_pair(std::size_t{0}, std::size_t{0});
+}
+
 namespace {
 using Json = jsoncons::ojson;
 
@@ -64,7 +85,8 @@ std::string bytes_at(const std::filesystem::path& path)
 
 ProjectSession::WorkingPreparation
 ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_view test_id,
-                                bool allow_invalid_test_semantics) const
+                                bool allow_invalid_test_semantics,
+                                bool reuse_validated_snapshot) const
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -81,7 +103,13 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
         // for every preview. The editor adapter already owns an independently
         // verified saved-workspace generation; only native dirty owners and
         // sources replace those values. No writer or CLI daemon is involved.
-        const auto current = snapshot();
+        const auto current = reuse_validated_snapshot && validation_snapshot_ &&
+                                     localization_cache_ && localization_cache_->accepted &&
+                                     validation_snapshot_->working_revision == expected_revision &&
+                                     !validation_pending_uncertain_ &&
+                                     validation_pending_source_revisions_.empty()
+                                 ? *validation_snapshot_
+                                 : snapshot();
         prepared.diagnostics = current.diagnostics;
         if (!current.valid && !allow_invalid_test_semantics) {
             prepared.error = "Active working Project has validation errors.";
@@ -247,7 +275,8 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
 }
 
 ProjectSession::WorkingPreparation
-ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id)
+ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id,
+                                         bool reuse_clean_validation)
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -257,7 +286,17 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
     }
     // Full validation supplies native normalized disk contributors for every
     // tracked record. It does not make uninspected owners editable or writable.
-    const auto validated = validate_project();
+    RoomSessionSnapshot validated;
+    if (reuse_clean_validation && test_id.empty() && validation_snapshot_ &&
+        validation_snapshot_->working_revision == expected_revision &&
+        validation_snapshot_->valid && !validation_pending_uncertain_ &&
+        validation_pending_source_revisions_.empty()) {
+        // A fresh post-assembly observation below rejects intervening edits.
+        // Do not rescan before assembling the same validated contributor set.
+        validated = *validation_snapshot_;
+    } else {
+        validated = validate_project();
+    }
     if (expected_revision != working_revision_) {
         prepared.working_revision = working_revision_;
         prepared.error = "Project source generation advanced during complete preparation.";
@@ -279,11 +318,27 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         prepared.error = "Full native working Project validation failed.";
         return prepared;
     }
-    prepared = prepare_working(expected_revision, test_id, only_test_errors);
+    prepared = prepare_working(expected_revision, test_id, only_test_errors,
+                               reuse_clean_validation && test_id.empty());
     if (!prepared.accepted)
         return prepared;
     try {
-        Json complete = Json::parse(prepared.project_json);
+        const bool reuse_assembly =
+            complete_project_cache_ &&
+            complete_project_cache_->base_project_json == prepared.project_json &&
+            complete_project_cache_->override_json == prepared.record_overrides_json &&
+            complete_project_cache_->only_test_errors == only_test_errors;
+        auto cache =
+            reuse_assembly ? complete_project_cache_ : std::make_shared<CompleteProjectCache>();
+        cache->reused = 0;
+        cache->projected = 0;
+        if (!reuse_assembly || cache->projected != 0) {
+            cache->base_project_json = prepared.project_json;
+            cache->override_json = prepared.record_overrides_json;
+            cache->only_test_errors = only_test_errors;
+            cache->complete = Json::parse(prepared.project_json);
+        }
+        Json& complete = cache->complete;
         // The workspace manifest deliberately does not persist prefetch hints yet. The complete
         // runtime Project nevertheless has the canonical empty registry (as in the generated
         // AuthoringProject contract), so downstream validation never needs to default it again.
@@ -291,10 +346,34 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
             complete.insert_or_assign("prefetchHints", Json::object());
         const auto contributors = only_test_errors ? reconciliation_disk_record_snapshots()
                                                    : validated_disk_record_snapshots();
+        // The validated collection is the complete owner inventory. Remove
+        // stale contributors on a structural deletion/replacement, even when
+        // their record bytes were identical before the removal.
+        for (auto it = cache->contributors.begin(); it != cache->contributors.end();) {
+            if (contributors.contains(it->first)) {
+                ++it;
+                continue;
+            }
+            const auto separator = it->first.find('/');
+            if (separator != std::string::npos && !it->first.starts_with("i18n/")) {
+                const auto family = it->first.substr(0, separator);
+                if (complete.contains(family))
+                    complete[family].erase(it->first.substr(separator + 1));
+            }
+            it = cache->contributors.erase(it);
+        }
         for (const auto& [owner, record] : contributors) {
             if ((!record.valid && !(only_test_errors && owner.starts_with("tests/"))) ||
                 record.normalized_json.empty())
                 throw std::runtime_error("Invalid native full-Project contributor: " + owner);
+            const auto retained = cache->contributors.find(owner);
+            if (retained != cache->contributors.end() &&
+                retained->second.normalized_json == record.normalized_json &&
+                retained->second.source_json == record.source_json) {
+                ++cache->reused;
+                continue;
+            }
+            ++cache->projected;
             if (owner == "traits" || owner == "editor") {
                 complete.insert_or_assign(owner, Json::parse(record.normalized_json));
             } else if (!owner.starts_with("i18n/")) {
@@ -320,18 +399,23 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
                 }
                 complete[family].insert_or_assign(id, std::move(effective));
             }
+            cache->contributors.insert_or_assign(
+                owner,
+                CompleteProjectCache::Contributor{record.normalized_json, record.source_json});
         }
         // Overlay only validated native dirty values (including Layout companion
         // source text). They have precedence over saved validation contributors.
-        const auto overrides = Json::parse(prepared.record_overrides_json);
-        for (const auto& family : overrides.object_range()) {
-            if (!complete.contains(family.key()))
-                complete.insert_or_assign(family.key(), Json::object());
-            for (const auto& record : family.value().object_range())
-                if (record.value().is_null())
-                    complete[family.key()].erase(record.key());
-                else
-                    complete[family.key()].insert_or_assign(record.key(), record.value());
+        if (!reuse_assembly) {
+            const auto overrides = Json::parse(prepared.record_overrides_json);
+            for (const auto& family : overrides.object_range()) {
+                if (!complete.contains(family.key()))
+                    complete.insert_or_assign(family.key(), Json::object());
+                for (const auto& record : family.value().object_range())
+                    if (record.value().is_null())
+                        complete[family.key()].erase(record.key());
+                    else
+                        complete[family.key()].insert_or_assign(record.key(), record.value());
+            }
         }
         for (const auto& [owner, record] : contributors) {
             std::string relative;
@@ -369,7 +453,9 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         collect_runtime_asset_references(complete, "", runtime_assets);
         prepared.referenced_asset_ids = std::move(runtime_assets);
         prepared.complete_project_json = complete.to_string();
+        complete_project_cache_ = std::move(cache);
     } catch (const std::exception& error) {
+        complete_project_cache_.reset();
         prepared.accepted = false;
         prepared.error = error.what();
     }

@@ -252,7 +252,7 @@ Json native_request(const Json& request)
         return *pinned;
     const auto serialized = request.dump();
     // No length probe or retry: an operation may have committed before its response is read.
-    std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
+    thread_local std::vector<std::uint8_t> buffer(16 * 1024 * 1024);
     const auto size = noveltea_tooling_native_project_commands_json(
         reinterpret_cast<const std::uint8_t*>(serialized.data()), serialized.size(), buffer.data(),
         buffer.size());
@@ -1924,7 +1924,7 @@ int project_read(const Arguments& args, std::string action)
                 }
             }
             const auto proof =
-                native_request({{"action", "source-generation-proof"},
+                native_request({{"action", "validation-source-generation-proof"},
                                 {"projectRoot", root_text},
                                 {"expectedSourceGeneration", response.at("sourceGeneration")}});
             if (!proof.value("ok", false))

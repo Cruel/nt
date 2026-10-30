@@ -287,7 +287,7 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
 }
 } // namespace
 
-ProjectSession::CleanValidation ProjectSession::validate_clean_project()
+ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool initially_observed)
 {
     const auto resident_state = [&]() -> Json {
         // A contributor bundle is optional acceleration, never the authority
@@ -454,13 +454,18 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
         }
         return true;
     };
-    const auto proof = [&]() -> std::optional<std::map<std::string, std::string>> {
+    const auto proof = [&](bool use_latest_observation =
+                               false) -> std::optional<std::map<std::string, std::string>> {
         try {
             if (!transactions_settled(root_))
                 return std::nullopt;
-            const auto observation = observe_sources();
-            if (observation.full_rescan || !observation.authoritative)
+            if (!use_latest_observation) {
+                const auto observation = observe_sources();
+                if (observation.full_rescan || !observation.authoritative)
+                    return std::nullopt;
+            } else if (source_authority_->uncertain() || !source_authority_->verified_revisions()) {
                 return std::nullopt;
+            }
             auto exact = exact_proof(root_, source_authority_->verified_revisions());
             return transactions_settled(root_) ? exact : std::nullopt;
         } catch (...) {
@@ -594,17 +599,17 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project()
     imported_clean_validation_.reset();
     imported_clean_sources_.clear();
     imported_clean_revisions_.clear();
-    // The proof before validation is the only legitimate cache-publication
-    // generation. Two post-validation identical manifests merely show that
-    // sources have stopped changing; they cannot establish which bytes the
-    // diagnostics were computed from.
-    const auto validated_input = clean() && !validation_pending_uncertain_ ? proof() : std::nullopt;
-    auto snapshot = validate_project();
+    // Cache publication must match the exact generation observed before
+    // validation, not merely two identical post-validation manifests.
+    const auto validated_input =
+        clean() && !validation_pending_uncertain_ ? proof(initially_observed) : std::nullopt;
+    auto snapshot = validate_project(validated_input.has_value());
     const bool completed = validation_snapshot_.has_value() &&
                            validation_snapshot_->working_revision == snapshot.working_revision &&
                            !validation_pending_uncertain_;
-    if (clean() && completed && validated_input && proof() == validated_input &&
-        proof() == validated_input)
+    // Rebuilt validation contributions have a final source observation.
+    // Recompute exact binary Asset hashes at this boundary in every case.
+    if (clean() && completed && validated_input && proof(true) == validated_input)
         publish_clean_cache(root_, *validated_input, snapshot, resident_state());
     return {std::move(snapshot), false};
 }

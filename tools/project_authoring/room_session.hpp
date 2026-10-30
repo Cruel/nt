@@ -194,14 +194,18 @@ public:
     // Complete certification-only Project validation. Unlike snapshot(), this
     // includes every tracked record, not just editor-admitted working owners.
     // Validation owners and their physical proofs stay resident across calls.
-    RoomSessionSnapshot validate_project();
+    // Only for a caller that just established an authoritative physical
+    // observation and will require a fresh post-validation observation.
+    RoomSessionSnapshot validate_project(bool observed_at_entry = false);
     // Portable exact-result cache shared by the opt-in editor worker and the
     // existing CLI Project owner; dirty working state is never published.
     struct CleanValidation {
         RoomSessionSnapshot snapshot;
         bool cache_hit = false;
     };
-    CleanValidation validate_clean_project();
+    // The native disk owner may have just observed the same source authority
+    // before entering this serialized validation call.
+    CleanValidation validate_clean_project(bool initially_observed = false);
     struct ValidationWork {
         std::size_t rechecked_records = 0;
         std::size_t retained_records = 0;
@@ -209,6 +213,16 @@ public:
         std::size_t retained_contributions = 0;
     };
     ValidationWork validation_work() const { return validation_work_; }
+    // An internal consumer of the same serialized certification request may
+    // reuse the resident semantic snapshot. The caller must subsequently
+    // prove physical authority before publishing its derived result.
+    std::optional<RoomSessionSnapshot> validated_snapshot_for_preparation() const
+    {
+        if (validation_pending_uncertain_ || !validation_pending_source_revisions_.empty() ||
+            source_authority_->uncertain())
+            return std::nullopt;
+        return validation_snapshot_;
+    }
     RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches,
                             const std::map<std::string, std::string>& disk_preconditions = {},
                             const std::map<std::string, std::string>& layout_copy_sources = {});
@@ -236,6 +250,30 @@ public:
     save_text_sources(std::uint64_t revision, const std::vector<std::string>& paths,
                       const std::map<std::string, std::string>& disk_preconditions);
     const std::map<std::string, SourceAnalysis>& source_analyses() const;
+    // Shared exact-text analysis for localization-only inline sources, including
+    // Layout RML which is not part of the indexed Lua source inventory.
+    const SourceAnalysis& localization_inline_analysis(std::string_view path,
+                                                       std::string_view source) const;
+    // A localization view's per-owner output is a pure projection of the
+    // normalized record and the explicitly tracked cross-record dependencies.
+    // Keep only the most recent projection per owner in this resident session.
+    const std::string* cached_localization_record(std::string_view owner,
+                                                  std::string_view normalized,
+                                                  std::string_view dependencies) const;
+    void store_localization_record(std::string owner, std::string normalized,
+                                   std::string dependencies, std::string output) const;
+    const std::set<std::string>*
+    cached_localization_source_paths(std::string_view owner, std::string_view normalized) const;
+    void store_localization_source_paths(std::string owner, std::string normalized,
+                                         std::set<std::string> paths) const;
+    std::uint64_t localization_record_cache_hits() const noexcept
+    {
+        return localization_record_cache_hits_;
+    }
+    std::uint64_t localization_source_path_cache_hits() const noexcept
+    {
+        return localization_source_path_cache_hits_;
+    }
     const std::map<std::string, std::string>& text_source_overlays() const
     {
         return text_source_overlays_;
@@ -261,13 +299,24 @@ public:
         std::map<std::string, std::string> shader_overlays;
         std::vector<Diagnostic> diagnostics;
     };
+    // Cached, assembled complete Project is owned by the serialized session.
+    // Its jsoncons representation stays in preview_preparation.cpp so public
+    // authoring headers do not need to include the heavyweight JSON DOM.
+    struct CompleteProjectCache;
     // The editor's opt-in preparation seam: capture one revision-consistent
     // effective working Project, without persisting it or invoking the CLI.
     WorkingPreparation prepare_working(std::uint64_t expected_revision,
                                        std::string_view test_id = {},
-                                       bool allow_invalid_test_semantics = false) const;
+                                       bool allow_invalid_test_semantics = false,
+                                       bool reuse_validated_snapshot = false) const;
+    std::uint64_t working_revision() const noexcept { return working_revision_; }
+    // A caller that just completed clean validation may reuse its resident
+    // snapshot; this still requires fresh physical observation on both sides
+    // of complete preparation and fails closed if authority has advanced.
     WorkingPreparation prepare_complete_working(std::uint64_t expected_revision,
-                                                std::string_view test_id = {});
+                                                std::string_view test_id = {},
+                                                bool reuse_clean_validation = false);
+    std::pair<std::size_t, std::size_t> complete_project_assembly_work() const;
     // Read-only, revision-pinned semantic evidence from the resident native
     // Project. This deliberately does not require unrelated records to pass
     // semantic validation; incomplete owners are explicitly reported.
@@ -339,6 +388,10 @@ public:
     std::optional<std::map<std::string, std::string>> verified_source_revisions() const
     {
         return source_authority_->verified_revisions();
+    }
+    std::uint64_t source_capture_count() const noexcept
+    {
+        return source_authority_->source_capture_count();
     }
     // The observer's immutable, exactly hashed capture. Diagnostic projections
     // must consume these same bytes, not reopen files after observation.
@@ -433,6 +486,21 @@ private:
     std::map<std::string, IndexedAsset> indexed_asset_sources_;
     std::map<std::string, std::set<std::string>> layout_declared_scripts_;
     mutable std::map<std::string, SourceAnalysis> text_analysis_cache_;
+    mutable std::map<std::string, SourceAnalysis> localization_inline_analysis_cache_;
+    struct LocalizationRecordCache {
+        std::string normalized;
+        std::string dependencies;
+        std::string output;
+    };
+    mutable std::map<std::string, LocalizationRecordCache> localization_record_cache_;
+    mutable std::uint64_t localization_record_cache_hits_ = 0;
+    struct LocalizationSourcePathsCache {
+        std::string normalized;
+        std::set<std::string> paths;
+    };
+    mutable std::map<std::string, LocalizationSourcePathsCache> localization_source_paths_cache_;
+    mutable std::uint64_t localization_source_path_cache_hits_ = 0;
+    std::shared_ptr<CompleteProjectCache> complete_project_cache_;
     std::map<std::string, ValidationResult> material_compiler_results_;
     std::uint64_t working_revision_ = 0;
     // Full cross-record resolver analysis is immutable between Project edit
