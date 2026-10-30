@@ -194,7 +194,12 @@ Json effective_translation(const Json& localization, std::string locale, const s
     std::set<std::string> visited;
     const auto source = localization.value("sourceLocale", std::string{});
     const auto& locales = localization.at("locales");
-    const auto translations = localization.value("translations", Json::object());
+    // Look up a locale's entries without copying the entire translation DOM
+    // for each Message. This projection is read-only for the whole request.
+    const Json empty_translations = Json::object();
+    const Json& translations = localization.contains("translations")
+                                   ? localization.at("translations")
+                                   : empty_translations;
     while (!locale.empty() && locale != source && visited.insert(locale).second) {
         if (translations.contains(locale) && translations.at(locale).is_object() &&
             translations.at(locale).contains(id))

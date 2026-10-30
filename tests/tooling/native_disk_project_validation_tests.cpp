@@ -229,6 +229,42 @@ TEST_CASE("validation final proof reuses admission and rejects intervening disk 
     REQUIRE(proof()["ok"] == false);
 }
 
+TEST_CASE("warm font coverage matches cold recomputation after a translation edit",
+          "[native-disk-validation]")
+{
+    Copy project;
+    const auto validate = [&]() {
+        return disk_validate(project.root, "project-validate",
+                             {{"includeFontCoverageInputs", true}});
+    };
+    const auto initial = validate();
+    REQUIRE(initial.value("valid", false));
+    const auto unchanged = validate();
+    REQUIRE(unchanged.value("valid", false));
+    REQUIRE(unchanged.at("fontCoverageInputs") == initial.at("fontCoverageInputs"));
+
+    const auto locale = project.root / "i18n/locales/fr.yaml";
+    auto text = read(locale);
+    const auto before = text.find("Bonjour, {name} !");
+    REQUIRE(before != std::string::npos);
+    text.replace(before, std::string("Bonjour, {name} !").size(), "Salut, {name} !");
+    write(locale, text);
+
+    const auto changed = validate();
+    REQUIRE(changed.value("valid", false));
+    REQUIRE(changed.at("fontCoverageInputs") != initial.at("fontCoverageInputs"));
+    REQUIRE(changed.at("fontCoverageInputs").dump().find("Salut, {name} !") != std::string::npos);
+
+    REQUIRE(disk_validate(project.root, "release").value("ok", false));
+    const auto cold = validate();
+    REQUIRE(cold.value("valid", false));
+    REQUIRE(cold.at("warm") == false);
+    for (const auto* field :
+         {"fontCoverageInputs", "materialCompilerPrograms", "materialEffectiveInputs",
+          "diagnostics", "cliDiagnostics", "sourceGeneration"})
+        REQUIRE(changed.at(field) == cold.at(field));
+}
+
 TEST_CASE("same-size binary Asset edits cannot reuse exact generation evidence",
           "[native-disk-validation]")
 {

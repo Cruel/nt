@@ -13,6 +13,91 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #573: eliminate per-Message translation DOM copies (2026-10-30)
+
+**Confirmed allocation source.** Heaptrack was attached to the **persistent native
+daemon Project-owner PID**, not to the short-lived CLI client, on the Linux
+Release (`-O3`) executable. The owner was warmed with a disposable Feature Lab
+copy and then received ten distinct `records/rooms/feature-lab-home.yaml` label
+edits and validations, with an isolated certification daemon runtime root.
+The before and after runs used the same checkout, fixture and request sequence,
+with the CLI rebuilt between runs. Release function symbols resolved the
+dominant stack through `native_font_coverage_inputs` to `effective_translation`:
+
+`effective_translation` used `localization.value("translations", Json::object())`,
+**copying the whole translation map for each Message and locale lookup**. This
+was independent of whether any individual Message actually had a translation.
+The replacement borrows the request-local immutable DOM and uses an empty
+fallback only for absent translations. It retains the same locale-parent
+lookup, source fallback, Message ordering and output shapes; no view or new
+cache survives the call.
+
+| Heaptrack owner, ten edits | Before | After | Change |
+|---|---:|---:|---:|
+| Allocation calls | 36,546,671 | 20,287,073 | -44.5% |
+| Bytes requested by allocations | 3,869,844,241 | 3,035,744,947 | -21.6% |
+| Highest allocation-call stack (all call sites, calls) | `std::_Rb_tree::_M_copy`, 9,544,539 | `std::_Rb_tree::_M_copy`, 1,866,514 | -80.4% |
+| Heaptrack-reported peak heap | 27.55 MB | 27.55 MB | no observed change |
+
+The before stack includes `nlohmann::json` copy construction inside
+`effective_translation`; after the change it is no longer among the dominant
+allocation stacks. The raw heaptrack `a` allocation definitions and `+`
+events were used to sum requested bytes, independent of allocation-call counts.
+The attach/detach streams reported incomplete final compressed trailers; the
+event data was recoverable by `heaptrack_print`, but the attach-time *leaked*
+bytes metric is not an owner-lifetime leak or retained-cache measurement. No
+cache was introduced. Source-level DWARF line attribution was unnecessary for
+this symbolized, confirmed call-site copy; no claim is made that the top
+allocator alone identified the problem before its callers were inspected.
+
+Uninstrumented, same-owner changed-label validations (excluding the first
+owner-admission call) yielded medians of **393.11 ms before** and **353.84 ms
+after**, a **39.27 ms / 10.0% improvement** over seven warm changed-label
+requests in each run. The after-only reproducible
+`tests/native_cli/validation_performance.py` run reported:
+
+| Project | Cold (ms) | Unchanged (ms) | Changed label median (ms) |
+|---|---:|---:|---:|
+| Feature Lab | 3,101.67 | 13.15 | 357.27 |
+| 1 Room | 106.53 | 5.58 | 15.58 |
+| 101 Rooms | 203.91 | 9.08 | 50.57 |
+| 501 Rooms | 616.37 | 21.48 | 197.20 |
+
+The 1/101/501-Room figures are **after-only scaling checks**, not A/B speedup
+estimates. Exclusive stage attribution is limited to the confirmed translation
+copy inside `native_font_coverage_inputs` (called from validation after
+`prepare_complete_working` and `native_project_localization_view`): source
+observation/proof, clean-cache validation, Project assembly, Material request
+projection, response serialization and daemon IPC were not modified by this
+slice. Their independent JSON and snapshot-copy costs remain potential future
+profiling targets, not measured gains attributed to this fix.
+
+The regression `warm font coverage matches cold recomputation after a
+translation edit` compares unchanged and cross-localization-dependency
+responses, including font coverage, Material inputs, diagnostics and source
+generation; the existing native disk suite covers a Room edit, stale proof,
+invalid sources and restarted owners. The original 200 ms Feature Lab target
+remains exploratory, not a CI gate.
+
+Verification: the rebuilt Debug `noveltea_tooling_tests '[native-disk-validation]'`
+passed **425 assertions in seven cases**; the relocated Release
+`tests/native_cli/daemon_owner.py` passed owner lifecycle, replacement,
+reconciliation, concurrent operations and restart; the six-stage native CLI
+performance gate passed. The CLI behavior change is internal to the C++
+authoring tool, not runtime gameplay, so Feature Lab needs no new authored
+scenario; its existing fixture serves the regression and profiling workload.
+
+**Final Debug integration qualification (2026-10-30):**
+`ctest --test-dir build/linux-debug --output-on-failure -R '^native_cli_feature_lab_cold$'`
+passed after rebuilding `noveltea-player` from the current checkout. The
+previous run had passed all 43 authored Tests, ZIP/package validation and CLI
+entrypoints but failed at the player startup smoke with prepared-media schema
+errors; its local player executable dated from October 10 while the CLI had
+been rebuilt on October 30. Rebuilding the player resolved that mismatch.
+The full rerun passed in 605.34 seconds, including player startup. The Debug
+public-contract, daemon-owner and font-coverage bridge CTests also passed in
+the same qualification cycle.
+
 ### #571: XXH3-128 physical-Asset proofs and shared hashing (2026-10-30)
 
 **Decision:** Use XXH3-128 for internal, independently repeated binary Asset
