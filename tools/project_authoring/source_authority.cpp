@@ -246,38 +246,79 @@ SourceAuthority::Capture SourceAuthority::capture() const
     Capture result;
     result.directories.insert(".");
     std::set<std::string> assets;
-    // Resolve each physical directory prefix once per capture. The same root
-    // and records/ prefixes otherwise go through weakly_canonical thousands
-    // of times. Leaf symlinks are still checked individually, and every
-    // cached prefix is reverified before the capture can be published.
-    std::map<std::filesystem::path, std::filesystem::path> verified_parents;
-    const auto secure = [&](std::string_view path) {
+    // Resolve each component of an observed parent once per capture. On POSIX,
+    // a normal directory extends its already-resolved parent; only symlinks
+    // need canonicalization. Rebuild this evidence at the publication fence.
+    // Windows retains full canonicalization for junction/reparse semantics.
+    struct PrefixEvidence {
+        std::filesystem::path resolved;
+        std::filesystem::file_type type;
+    };
+    std::map<std::filesystem::path, PrefixEvidence> verified_parents;
+    const auto resolve_parent = [&](auto&& self, const std::filesystem::path& prefix,
+                                    auto& evidence) -> const PrefixEvidence& {
+        if (const auto existing = evidence.find(prefix); existing != evidence.end())
+            return existing->second;
+        const auto parent = prefix.parent_path();
+        [[maybe_unused]] const auto& resolved_parent =
+            parent.empty() ? canonical_root_ : self(self, parent, evidence).resolved;
+        std::error_code error;
+        const auto type = std::filesystem::symlink_status(root_ / prefix, error).type();
+        if (error && error != std::errc::no_such_file_or_directory)
+            throw std::filesystem::filesystem_error("Cannot inspect Project source directory",
+                                                    root_ / prefix, error);
+        if (type != std::filesystem::file_type::directory &&
+            type != std::filesystem::file_type::not_found &&
+            type != std::filesystem::file_type::symlink)
+            throw std::runtime_error("Replaced Project source directory: " +
+                                     prefix.generic_string());
+#ifdef _WIN32
+        const auto resolved = std::filesystem::weakly_canonical(root_ / prefix);
+#else
+        const auto resolved = type == std::filesystem::file_type::symlink
+                                  ? std::filesystem::weakly_canonical(root_ / prefix)
+                                  : resolved_parent / prefix.filename();
+#endif
+        const auto within = resolved.lexically_relative(canonical_root_);
+        if (within.empty() || within == ".." || *within.begin() == "..")
+            throw std::runtime_error("Project source path escapes root: " +
+                                     prefix.generic_string());
+        return evidence.emplace(prefix, PrefixEvidence{resolved, type}).first->second;
+    };
+    const auto secure = [&](std::string_view path, std::filesystem::file_status* leaf = nullptr) {
         const std::filesystem::path relative{path};
         if (relative.empty() || relative.is_absolute() || relative != relative.lexically_normal() ||
             *relative.begin() == "..")
             throw std::runtime_error("Project source path escapes root: " + std::string(path));
         const auto parent = relative.parent_path();
-        if (!verified_parents.contains(parent)) {
-            const auto canonical = std::filesystem::weakly_canonical(root_ / parent);
-            const auto within = canonical.lexically_relative(canonical_root_);
-            if (within.empty() || within == ".." || *within.begin() == "..")
-                throw std::runtime_error("Project source path escapes root: " + std::string(path));
-            verified_parents.emplace(parent, canonical);
-        }
+        if (!parent.empty())
+            resolve_parent(resolve_parent, parent, verified_parents);
         const auto absolute = root_ / relative;
         const auto status = std::filesystem::symlink_status(absolute);
         if (status.type() == std::filesystem::file_type::symlink &&
             !contained(canonical_root_, absolute))
             throw std::runtime_error("Project source path escapes root: " + std::string(path));
+        if (leaf)
+            *leaf = status;
         return absolute;
     };
     const auto add = [&](const std::string& relative, bool physical_asset = false) {
-        const auto absolute = secure(relative);
+        std::filesystem::file_status leaf;
+        const auto absolute = secure(relative, &leaf);
         const auto parent = std::filesystem::path(relative).parent_path();
-        if (!parent.empty() && std::filesystem::is_directory(root_ / parent))
-            result.directories.insert(parent.generic_string());
+        if (!parent.empty()) {
+            const auto type = verified_parents.at(parent).type;
+            if (type == std::filesystem::file_type::directory ||
+                (type == std::filesystem::file_type::symlink &&
+                 std::filesystem::is_directory(root_ / parent)))
+                result.directories.insert(parent.generic_string());
+        }
         std::error_code ec;
-        const auto status = std::filesystem::status(absolute, ec);
+        // symlink_status already proves ordinary leaf type. Only a contained
+        // symlink needs a second, following status lookup.
+        const auto status = leaf.type() == std::filesystem::file_type::symlink
+                                ? std::filesystem::status(absolute, ec)
+                                : leaf;
         if (status.type() == std::filesystem::file_type::not_found ||
             ec == std::errc::no_such_file_or_directory) {
             result.revisions.emplace(relative, "absent");
@@ -315,10 +356,14 @@ SourceAuthority::Capture SourceAuthority::capture() const
         }
     };
     const auto scan = [&](const std::string& directory, auto&& accept) {
-        const auto absolute = secure(directory);
-        if (!std::filesystem::exists(absolute))
+        std::filesystem::file_status leaf;
+        const auto absolute = secure(directory, &leaf);
+        const auto status = leaf.type() == std::filesystem::file_type::symlink
+                                ? std::filesystem::status(absolute)
+                                : leaf;
+        if (status.type() == std::filesystem::file_type::not_found)
             return;
-        if (!std::filesystem::is_directory(absolute))
+        if (!std::filesystem::is_directory(status))
             throw std::runtime_error("Replaced Project source directory: " + directory);
         result.directories.insert(directory);
         for (const auto& entry : std::filesystem::directory_iterator(absolute)) {
@@ -472,10 +517,14 @@ SourceAuthority::Capture SourceAuthority::capture() const
         });
     });
     const auto scan_tree = [&](const std::string& directory, std::string_view extension) {
-        const auto absolute = secure(directory);
-        if (!std::filesystem::exists(absolute))
+        std::filesystem::file_status leaf;
+        const auto absolute = secure(directory, &leaf);
+        const auto status = leaf.type() == std::filesystem::file_type::symlink
+                                ? std::filesystem::status(absolute)
+                                : leaf;
+        if (status.type() == std::filesystem::file_type::not_found)
             return;
-        if (!std::filesystem::is_directory(absolute))
+        if (!std::filesystem::is_directory(status))
             throw std::runtime_error("Replaced Project source directory: " + directory);
         for (std::filesystem::recursive_directory_iterator
                  it(absolute, std::filesystem::directory_options::follow_directory_symlink),
@@ -536,9 +585,12 @@ SourceAuthority::Capture SourceAuthority::capture() const
     }
     if (std::filesystem::canonical(root_) != canonical_root_)
         throw std::runtime_error("Project root changed during physical observation.");
-    for (const auto& [parent, canonical] : verified_parents)
-        if (std::filesystem::weakly_canonical(root_ / parent) != canonical)
+    std::map<std::filesystem::path, PrefixEvidence> final_parents;
+    for (const auto& [parent, evidence] : verified_parents) {
+        const auto& final = resolve_parent(resolve_parent, parent, final_parents);
+        if (final.resolved != evidence.resolved || final.type != evidence.type)
             throw std::runtime_error("Project source directory changed during observation.");
+    }
     trace_source_proof_event("source-observation", "complete-capture");
     return result;
 }

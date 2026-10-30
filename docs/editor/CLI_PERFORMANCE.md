@@ -13,6 +13,104 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #574: capture-local filesystem component evidence (2026-10-30)
+
+**Attribution and change.** A targeted Release `strace -f` of two successive
+changed-label, `--no-daemon` Feature Lab validations, with
+`NOVELTEA_NATIVE_PROOF_TRACE=1`, confirmed six complete source captures per
+measured edit. The repeated `/tmp`, Project root, `records`, and
+`records/layouts` `readlink` calls come primarily from prefix walks by
+`SourceAuthority::capture` (`secure()` and its publication recheck). The same
+capture also performed a redundant follow-status of every non-symlink leaf,
+checked already-resolved source parents for directory watches, and checked
+scanned source directories twice. Separately, native source generation and
+clean-cache Asset exact proof used two file-type checks to establish a
+single no-follow regular-file requirement. The attribution combines syscall
+path histograms, the exact source call sites, and the opt-in capture/proof
+events; it is **not** an unwound stack count for every syscall.
+
+The observer now resolves each unique parent component once per capture:
+ordinary POSIX directory components extend their verified parent path without
+repeating a full canonical walk, and symlink components still use
+`weakly_canonical`. A **new** component map at the end of the capture checks
+both resolved targets and entry types before authority is published. The
+Project root is independently re-canonicalized. The already-observed
+`symlink_status` proves an ordinary leaf's type without a second `status`;
+contained symlinks still need following checks. Parent evidence is reused
+only within that capture for watcher registration. Windows retains full
+`weakly_canonical` resolution for each component because reparse points and
+junctions are not equivalent to POSIX directory entries. Two independent
+source-generation/cache proof sites now use one no-follow type query each.
+
+| Changed-label direct CLI, six captures | Before | After | Delta |
+|---|---:|---:|---:|
+| `newfstatat` | 26,039 | 19,932 | −6,107 (−23.5%) |
+| `readlink` | 9,110 | 6,578 | −2,532 (−27.8%) |
+| `openat` | 5,074 | 5,074 | 0 |
+| `getdents64` | 828 | 828 | 0 |
+| `readlink` of `/tmp` | 2,351 | 1,763 | −588 |
+| `readlink` of Project root | 2,351 | 1,763 | −588 |
+| `readlink` of `records` | 825 | 381 | −444 |
+| `readlink` of `records/layouts` | 357 | 93 | −264 |
+
+The traces used the same temporary Feature Lab Project, equivalent warm
+changed-label requests, and successive Release builds. Each compared sample
+had exactly six `complete-capture` events; `openat` and `getdents64` being
+unchanged corroborates that source membership scans and physical reads were
+not eliminated. Other checks continue outside `capture`: `exact_proof`,
+`native_project_source_generation`, portable `project_paths`, disk safety,
+and clean-cache operations enforce different admission/preparation/publication
+boundaries. The trace's opt-in *completion* events cannot precisely assign
+all intervening syscalls to a single phase, and the total count must not be
+called six identical per-capture costs.
+
+Uninstrumented `validation_performance.py` used the persistent native daemon
+owner and disposable Project fixtures, with the same three changed-label
+sequence per size. All values are milliseconds, with warm changed results
+reported as medians of three edits, not stability guarantees.
+
+| Project | Before cold / unchanged / changed | After cold / unchanged / changed |
+|---|---|---|
+| Feature Lab | 3,100.45 / 13.63 / 368.35 | 3,118.61 / 13.00 / 362.48 |
+| 1 Room | 104.04 / 5.77 / 13.77 | 101.03 / 6.26 / 13.12 |
+| 101 Rooms | 203.27 / 9.20 / 48.66 | 196.37 / 10.03 / 49.81 |
+| 501 Rooms | 609.93 / 21.44 / 208.27 | 605.74 / 21.58 / 190.49 |
+
+The Feature Lab changed-label median fell **5.87 ms (1.6%)** in this matched,
+small-sample run; one after-request took 509.51 ms, so the result is noisy.
+An intermediate observer-only build measured 352.17 ms, also illustrating
+run-to-run variation. Do **not** translate the much larger traced syscall
+reductions into equivalent wall-time percentages, and do not add them to the
+already-realized #571–#573 savings. The exploratory 200 ms target is still
+unmet. The Linux `strace` numbers are for direct CLI, whereas the untraced
+latencies include native daemon/broker overhead; the two modes are not
+interchangeable.
+
+Containment and correctness are unchanged in intent: prefix evidence lasts
+only through one capture, watcher hints remain non-authoritative, no source
+membership or byte-exact Asset digest pass was suppressed, and independent
+pre/post validation fences are preserved. Tests cover in-root directory
+aliases, escaping parent/leaf replacement and recovery, recursive aliases,
+source deletion/recreation, watcher-loss recovery, and same-size Asset edits
+with restored timestamps. Linux descriptor-relative `openat2` could provide a
+stronger atomic containment boundary but was not mixed into this portable
+optimization: preserving admitted in-root symlink aliases, mount behavior,
+cross-platform semantics, and all read/commit fences requires a separate
+design and acceptance matrix. This change makes no claim to eliminate all
+filesystem TOCTOU windows or to reject bind mounts already accepted by the
+existing `std::filesystem` path contract.
+
+**Qualification:** Linux Debug source-hash, Project-session,
+Project-validation and three clean-cache CTests passed (six tests); the
+native-disk validation regression passed 425 assertions across seven cases.
+The relocated Release daemon-owner certification and six-stage native CLI
+performance gate passed. The editor check and full editor test suite passed
+(2,103 tests passed; 135 skipped), as did clang-format and Release/Debug
+build targets. This slice did not run Windows/macOS runtime
+verification, mount-namespace escape tests or an intentional concurrent
+symlink-swap stress harness; Linux revalidation and the existing
+cross-platform fallback are not proof of those untested configurations.
+
 ### #573: eliminate per-Message translation DOM copies (2026-10-30)
 
 **Confirmed allocation source.** Heaptrack was attached to the **persistent native

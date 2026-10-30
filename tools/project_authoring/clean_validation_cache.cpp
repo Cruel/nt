@@ -123,8 +123,8 @@ exact_proof(const fs::path& root, const std::map<std::string, std::string>* obse
             continue;
         const fs::path path = root / relative;
         const auto contained = fs::weakly_canonical(path).lexically_relative(canonical_root);
-        if (!fs::is_regular_file(path) || fs::is_symlink(fs::symlink_status(path)) ||
-            contained.empty() || *contained.begin() == "..")
+        if (fs::symlink_status(path).type() != fs::file_type::regular || contained.empty() ||
+            *contained.begin() == "..")
             return std::nullopt;
         const auto bytes = read_exact_file(path);
         if (!bytes)

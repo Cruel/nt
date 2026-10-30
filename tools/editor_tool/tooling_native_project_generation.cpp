@@ -42,7 +42,8 @@ std::string native_project_source_generation(const ProjectSession& session,
             if (exact_revisions)
                 exact_revisions->emplace(relative, "absent");
         } else {
-            if (!std::filesystem::is_regular_file(path) || std::filesystem::is_symlink(path))
+            if (std::filesystem::symlink_status(path).type() !=
+                std::filesystem::file_type::regular)
                 throw std::runtime_error("Cannot verify native source generation: " + relative);
             // An authoritative observation already read and hashed all text
             // sources. Only binary Assets have physical (size/time) hints and

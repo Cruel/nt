@@ -349,6 +349,27 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
                              file_info.kind == ProjectFileKind::ProjectSource;
         require(alias_indexed, "In-root source aliases retain Project-relative source identity");
         std::filesystem::remove(temp.root / "scripts/alias");
+        std::filesystem::create_directory_symlink(fixture / "scripts", temp.root / "scripts/alias");
+        const auto escaped_parent = with_alias->observe_sources();
+        require(!escaped_parent.authoritative && !escaped_parent.scoped_authority &&
+                    escaped_parent.full_rescan,
+                "Replacing a verified source parent with an out-of-root symlink revokes authority");
+        std::filesystem::remove(temp.root / "scripts/alias");
+        std::filesystem::create_directory_symlink("shared-helper", temp.root / "scripts/alias");
+        require(with_alias->observe_sources().unchanged,
+                "Restoring an in-root directory alias recovers physical observation");
+        std::filesystem::remove(temp.root / "scripts/shared-helper/extra.lua");
+        std::filesystem::create_symlink(fixture / "project.yaml",
+                                        temp.root / "scripts/shared-helper/extra.lua");
+        const auto escaped_leaf = with_alias->observe_sources();
+        require(!escaped_leaf.authoritative && !escaped_leaf.scoped_authority &&
+                    escaped_leaf.full_rescan,
+                "Replacing a verified source leaf with an out-of-root symlink revokes authority");
+        std::filesystem::remove(temp.root / "scripts/shared-helper/extra.lua");
+        write(temp.root / "scripts/shared-helper/extra.lua", "return {}\n");
+        require(with_alias->observe_sources().unchanged,
+                "Restoring an in-root source leaf recovers physical observation");
+        std::filesystem::remove(temp.root / "scripts/alias");
         std::filesystem::create_directory_symlink(".", temp.root / "scripts/cycle");
         require(!ProjectSession::open(temp.root, error),
                 "Recursive source directory symlink must fail closed");
