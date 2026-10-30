@@ -542,6 +542,7 @@ endif()
 
 noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
+include("${CMAKE_SOURCE_DIR}/cmake/NovelTeaXxhash.cmake")
 add_subdirectory(engine)
 
 function(noveltea_attach_generated_shaders target)

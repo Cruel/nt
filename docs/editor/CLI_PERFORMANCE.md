@@ -13,9 +13,76 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #571: XXH3-128 physical-Asset proofs and shared hashing (2026-10-30)
+
+**Decision:** Use XXH3-128 for internal, independently repeated binary Asset
+fingerprints during native CLI validation, while preserving SHA-256 for
+externally visible source revisions, text revisions, authored Asset hashes,
+Project bundle manifests and player/package integrity. ZIP still uses CRC32.
+The public source-generation identity remains SHA-256, but its material now
+contains XXH3-128 binary member digests, so the canonical domain separator
+was advanced to `native-project-source-generation-v2` to invalidate old
+generation/cache entries. None of the three independent byte-exact physical
+Asset proof boundaries from #572 were removed or replaced by metadata hints.
+
+The selected XXH3-128 implementation is xxHash v0.8.4, pinned at
+`c87183a77d67f7d37e3d2d1b7eaac5e7c695e4f0` through
+`cmake/NovelTeaXxhash.cmake`, header-only, with no runtime linker dependency.
+`noveltea::core::Xxh3Hasher` provides incremental hashing without copying
+large binary sources, and uses upstream canonical digest byte order.
+The same wrapper is available to host authoring and engine code; runtime UI
+thumbnail filenames now use XXH3-64 rather than FNV-1a. No cryptographic
+digest in player/package verification or in externally trusted downloads
+was replaced.
+
+**Why not change every `sha256:` string?** These are not all local
+fingerprints. Several are persisted/editor-visible revision contracts, while
+others certify package, shader, or downloaded bytes. In particular, the
+editor's source buffers and native transaction preconditions still speak
+`sha256:<64 lowercase hex>`; changing only one side would make saves and
+recovery inconsistent. A full editor protocol/format migration is a
+separate atomic change, not hidden behind this performance optimization.
+
+The original #571 measurement on the Ryzen 7 5700G showed XXH3-128 at
+**21,425 MiB/s** on Feature Lab's 6,235,344-byte `ipag.ttf` input, versus
+**331 MiB/s** for the portable scalar SHA-256 and **754 MiB/s** for
+SHA-NI. That is 0.278 ms for XXH3 versus 17.95 ms for scalar SHA-256
+or 7.88 ms for SHA-NI (one-shot benchmark; excludes disk I/O).
+The committed SHA-NI specialization was removed in favor of XXH3 on the
+hot binary proof path. These are isolated hashing measurements, not an
+end-to-end validation speedup claim.
+
+The revised `tests/native_cli/source_hash_benchmark.cpp` compares XXH3
+streaming, independent libxxhash XXH3, and pinned libfyaml BLAKE3. The
+`native_authoring_source_hash` certification covers upstream reference
+vectors, binary data and incremental hashing across small and large
+chunk boundaries. Other source/cache/daemon and Feature Lab qualification
+still applies: the decision changes digest cost, not trust boundaries.
+The revised Release benchmark (same Ryzen 7 5700G, GCC `-O3`) measured
+the selected header-only XXH3-128 stream at **30,196 MiB/s** for 64 KiB
+updates on `ipag.ttf` (0.197 ms), compared with **21,751 MiB/s**
+for the independent one-shot libxxhash reference (0.273 ms).
+With 1 KiB updates the header-only stream measured 18,843 MiB/s.
+These measurements exclude disk reads, other proof work and CLI startup.
+
+**Qualification (Linux Debug, 2026-10-30):** The pinned XXH3 vectors and
+streaming tests, native Project session and validation certifications,
+clean-cache correctness, Feature Lab public validation, native daemon-owner
+relocation/concurrency/restart certification, clang-format, schema-version
+policy, and C++ module/dependency/compiler policy checks passed. The
+candidate native CLI performance gate passed its six stages
+(cold standalone 488 ms, cold daemon 505 ms, warm unchanged 12 ms, changed
+record 42 ms, changed Lua 38 ms, export preparation 479 ms). These six
+small-fixture stage timings are not an A/B comparison to the former SHA-NI
+code; the original hash microbenchmarks isolate the byte-digest gain.
+The daemon test required an explicit temporary build identity on the dirty
+test checkout; production cache admission still requires a build-bound
+compiler identity. Web, Android and Windows/macOS certification were not
+run in this Linux qualification.
+
 ### #572: exact Asset proof boundaries and diagnostics
 
-The native owner retains these distinct byte-exact SHA-256 checks on a successful
+The native owner retains these distinct byte-exact fingerprint checks on a successful
 changed-label public validation:
 
 1. Clean-validation pre-proof: checks the physical Asset bytes alongside the

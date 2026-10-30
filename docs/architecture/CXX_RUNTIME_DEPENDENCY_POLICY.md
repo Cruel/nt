@@ -202,6 +202,33 @@ remain requirements before authoritative cutover.
 
 ## Admission gate
 
+### Header-only XXH3 content fingerprints (#571)
+
+NovelTea uses the upstream xxHash v0.8.4 implementation (BSD 2-Clause),
+pinned to commit `c87183a77d67f7d37e3d2d1b7eaac5e7c695e4f0` through
+`cmake/NovelTeaXxhash.cmake`. The `noveltea_xxhash` INTERFACE target
+exposes the single upstream C header with `XXH_INLINE_ALL`: there are no
+new linked C++ objects, C or C++ archives, shared libraries, runtime loader
+dependencies, upstream background threads, RTTI, or exception requirements.
+The wrapper in `engine/include/noveltea/core/fingerprint.hpp` uses the
+no-allocation one-shot XXH3-128 and stack-owned streaming XXH3-128 API.
+Callers supply valid spans/string views; the underlying update routine
+reports failure only for invalid state/arguments. The runtime's thumbnail
+fingerprint uses the one-shot XXH3-64 function. Hashing is not a parser or
+an authentication boundary; it only fingerprints locally obtained bytes.
+Both engine and host objects retain their normal target-specific
+no-exceptions/no-RTTI policies.
+
+Linux x86-64 checks include upstream-known XXH3 vectors, binary and
+streaming-equivalence tests, and native validation qualification. Upstream
+xxHash provides portable scalar implementations and target-specific SIMD
+selection for desktop, WebAssembly, and ARM; the interface does not require
+an ISA-specific global compiler flag. Web/Android and Windows/macOS platform
+builds remain separate platform qualification requirements. As only
+inlined code is included in consumers, there is no transitive library size
+impact; incremental machine-code impact should be checked in final player
+binary comparison rather than presumed to be zero.
+
 Any pull request or implementation that adds or materially upgrades a shipped C++ dependency must add
 or update its row in the matrix above and provide all of the following evidence:
 

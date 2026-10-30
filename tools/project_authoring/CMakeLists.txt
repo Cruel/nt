@@ -6,6 +6,7 @@ endif()
 if(CMAKE_CROSSCOMPILING OR EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android")
     message(FATAL_ERROR "Project authoring contracts are host-only")
 endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/NovelTeaXxhash.cmake")
 
 include(FetchContent)
 FetchContent_Declare(noveltea_jsoncons
@@ -74,7 +75,7 @@ target_include_directories(noveltea_project_authoring_session PUBLIC "${CMAKE_CU
 target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(noveltea_project_authoring_session PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
 target_include_directories(noveltea_project_authoring_session SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
-target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project_authoring_yaml noveltea_project_authoring_contracts)
+target_link_libraries(noveltea_project_authoring_session PUBLIC noveltea_project_authoring_yaml noveltea_project_authoring_contracts noveltea_xxhash)
 # One deterministic semantic fingerprint for all host binaries, irrespective
 # of whether the session is linked into the daemon or the Node-API addon.
 # Tracked content changes force reconfiguration; old exact-result caches miss.
@@ -162,6 +163,11 @@ endif()
 add_executable(noveltea-schema-certify certify.cpp types_compile.cpp)
 target_link_libraries(noveltea-schema-certify PRIVATE noveltea_project_authoring_contracts)
 if(BUILD_TESTING)
+    add_executable(noveltea-source-hash-certify source_hash_certify.cpp)
+    target_compile_features(noveltea-source-hash-certify PRIVATE cxx_std_20)
+    target_include_directories(noveltea-source-hash-certify PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
+    target_link_libraries(noveltea-source-hash-certify PRIVATE noveltea_xxhash)
+    add_test(NAME native_authoring_source_hash COMMAND noveltea-source-hash-certify)
     add_test(NAME native_authoring_contracts COMMAND noveltea-schema-certify --self-test)
     # Keep broad Feature Lab coverage in the integration suites; small isolated
     # filesystem/cache regressions should not repeatedly validate its 294 YAML

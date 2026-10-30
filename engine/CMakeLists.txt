@@ -105,6 +105,7 @@ list(REMOVE_ITEM NOVELTEA_ENGINE_FILES
 )
 add_library(noveltea_engine STATIC ${NOVELTEA_ENGINE_FILES})
 noveltea_configure_internal_module(noveltea_engine)
+target_link_libraries(noveltea_engine PRIVATE noveltea_xxhash)
 if(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER)
     target_sources(noveltea_engine PRIVATE
         src/core/editor_asset_profiler_service.cpp

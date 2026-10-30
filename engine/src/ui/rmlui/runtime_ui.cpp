@@ -4,6 +4,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/compiled_project.hpp"
+#include "noveltea/core/fingerprint.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/world_presentation.hpp"
 #include "platform/sdl/sdl_cursor_realizer.hpp"
@@ -629,12 +630,7 @@ const char* runtime_shell_screen_name(core::RuntimeShellScreen screen)
 
 std::uint64_t runtime_shell_thumbnail_fingerprint(std::string_view bytes) noexcept
 {
-    std::uint64_t fingerprint = 14695981039346656037ull;
-    for (const unsigned char byte : bytes) {
-        fingerprint ^= byte;
-        fingerprint *= 1099511628211ull;
-    }
-    return fingerprint;
+    return XXH3_64bits(bytes.data(), bytes.size());
 }
 
 template<class T> T* first_component_as(Rml::ElementDocument& document, const char* tag)

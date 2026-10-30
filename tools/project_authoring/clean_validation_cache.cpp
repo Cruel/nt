@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include <noveltea/core/fingerprint.hpp>
 
 #include <jsoncons/json.hpp>
 
@@ -128,7 +129,7 @@ exact_proof(const fs::path& root, const std::map<std::string, std::string>* obse
         const auto bytes = read_exact_file(path);
         if (!bytes)
             return std::nullopt;
-        revision = exact_source_revision(*bytes);
+        revision = noveltea::core::xxh3_128_revision(*bytes);
         trace_exact_asset_proof(phase, relative, bytes->size());
     }
     return revisions;
