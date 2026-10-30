@@ -3,6 +3,7 @@ import { Worker, type WorkerOptions } from 'node:worker_threads';
 import {
   nativeAuthoringEventSchema,
   type NativeAuthoringCleanValidation,
+  type NativeAuthoringWorkingValidation,
   type NativeAuthoringCommand,
   type NativeAuthoringEvent,
   type NativeAuthoringPreparation,
@@ -148,12 +149,25 @@ export class NativeAuthoringSessionBridge {
     command: Extract<Command, { operation: 'validateClean' }>,
   ): Promise<NativeAuthoringCleanValidation>;
   request(
+    command: Extract<Command, { operation: 'validateWorking' }>,
+  ): Promise<NativeAuthoringWorkingValidation>;
+  request(
     command: Exclude<
       Command,
-      { operation: 'prepareWorking' | 'prepareCompleteWorking' | 'validateClean' | 'semanticGraph' }
+      {
+        operation:
+          | 'prepareWorking'
+          | 'prepareCompleteWorking'
+          | 'validateClean'
+          | 'validateWorking'
+          | 'semanticGraph';
+      }
     >,
   ): Promise<
-    Exclude<Response['result'], NativeAuthoringPreparation | NativeAuthoringCleanValidation>
+    Exclude<
+      Response['result'],
+      NativeAuthoringPreparation | NativeAuthoringCleanValidation | NativeAuthoringWorkingValidation
+    >
   >;
   async request(command: Command): Promise<Response['result']> {
     const state = this.current;

@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { parentPort, workerData } from 'node:worker_threads';
 import {
   nativeAuthoringCleanValidationSchema,
+  nativeAuthoringWorkingValidationSchema,
   nativeAuthoringCommandSchema,
   nativeAuthoringObservationSchema,
   nativeAuthoringResultSchema,
@@ -16,6 +17,7 @@ interface NativeBinding {
   close(handle: unknown): void;
   snapshot(handle: unknown): string;
   validateClean(handle: unknown): string;
+  validateWorking(handle: unknown, revision: number): string;
   inspect(handle: unknown, owner: string): string;
   reconcile(handle: unknown, owner: string): string;
   useDisk(handle: unknown, revision: number, owner: string, paths?: string): string;
@@ -182,6 +184,16 @@ parent.on('message', (raw: unknown) => {
             projectSessionId: start.sessionId,
             generation: start.generation,
           }),
+        };
+        break;
+      case 'validateWorking':
+        result = {
+          ...identity,
+          type: 'response',
+          requestId: command.requestId,
+          result: nativeAuthoringWorkingValidationSchema.parse(
+            JSON.parse(binding.validateWorking(handle, command.expectedRevision)),
+          ),
         };
         break;
       case 'validateClean':

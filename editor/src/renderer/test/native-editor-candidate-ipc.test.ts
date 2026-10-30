@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -52,7 +52,16 @@ describe.skipIf(!process.env.NOVELTEA_AUTHORING_NODE_ADDON)(
       const root = await mkdtemp(path.join(tmpdir(), 'native-editor-ipc-'));
       await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
         recursive: true,
+        filter: (source) => !source.split(path.sep).includes('.noveltea'),
       });
+      const manifest = path.join(root, 'project.yaml');
+      await writeFile(
+        manifest,
+        (await readFile(manifest, 'utf8')).replace(
+          /entrypoint:\n(?:  [^\n]*\n)+/u,
+          'entrypoint:\n  kind: room\n  id: feature-lab-home\n',
+        ),
+      );
       const sessions = new ActiveProjectSessionService();
       const handoff = new NativeEditorProjectHandoff(sessions, () => {
         const bridge = new NativeAuthoringSessionBridge(sessions, {

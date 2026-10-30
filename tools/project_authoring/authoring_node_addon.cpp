@@ -301,6 +301,40 @@ napi_value call(napi_env env, napi_callback_info info)
                     result["inventory"].push_back(file.path);
             return js_string(env, result.to_string());
         }
+        if (name == "validateWorking") {
+            if (argc != 2)
+                throw std::runtime_error("Working validation requires a working revision.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0 ||
+                static_cast<std::uint64_t>(revision) != session.project->working_revision())
+                throw std::runtime_error("Stale native working validation revision.");
+            const auto validated = session.project->validate_project();
+            if (static_cast<std::uint64_t>(revision) != session.project->working_revision())
+                throw std::runtime_error("Working Project changed during native validation.");
+            bool valid = validated.valid;
+            auto diagnostics = validated.diagnostics;
+            // Compiler readiness belongs to validation, not mutable Project admission.
+            // A Project without an entrypoint must remain editable in the editor.
+            if (valid && !validated.normalized_json.empty()) {
+                const auto project = Json::parse(validated.normalized_json);
+                if (!project.contains("entrypoint") || project.at("entrypoint").is_null()) {
+                    noveltea::authoring::Diagnostic issue{
+                        "/entrypoint", "COMPILER_ENTRYPOINT_REQUIRED",
+                        "A Room, Scene, or Dialogue entrypoint is required for compiled gameplay."};
+                    issue.source_path = "project.yaml";
+                    diagnostics.push_back(std::move(issue));
+                    valid = false;
+                }
+            }
+            Json result = Json::object();
+            result["workingRevision"] = static_cast<std::uint64_t>(revision);
+            result["valid"] = valid;
+            result["diagnostics"] =
+                Json::parse(noveltea::authoring::validation_result_json(
+                                noveltea::authoring::ValidationResult{valid, "", diagnostics}))
+                    .at("diagnostics");
+            return js_string(env, result.to_string());
+        }
         if (name == "validateClean") {
             if (argc != 1)
                 throw std::runtime_error("Clean validation takes only the session handle.");
@@ -853,6 +887,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "close",
                                     "snapshot",
                                     "validateClean",
+                                    "validateWorking",
                                     "observe",
                                     "inspect",
                                     "reconcile",

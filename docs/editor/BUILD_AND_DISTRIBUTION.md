@@ -57,6 +57,13 @@ pnpm package:smoke
 `dev` builds the profiler-enabled `web-editor-preview` engine preview before starting the editor.
 `dev:skip-preview` requires that preview to already exist. From the root, prefix with `pnpm -C editor run`.
 
+For local Linux/macOS development, prefer `./scripts/run-editor.sh` (or
+`./scripts/run-editor.sh --skip-preview`). The wrapper incrementally builds the native
+Node-API Project authoring addon and exports `NOVELTEA_AUTHORING_NODE_ADDON` before starting
+the editor. An explicitly supplied addon path bypasses this build but must point to an existing
+file. Direct `pnpm dev` launches still require the addon environment variable to be configured
+separately. The addon is distinct from the standalone `noveltea` CLI.
+
 ## Vite+ Toolchain
 
 Build-only compiled-Project/golden/platform-fixture entrypoints now emit to

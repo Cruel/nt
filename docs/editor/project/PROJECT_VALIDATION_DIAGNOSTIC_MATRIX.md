@@ -24,7 +24,14 @@ locale keys become `locale`. Thus messages may be translated without changing co
 
 In an admitted native Project session, the main-owned session/revision is the **only** authority for
 Project semantics. The renderer requests `nativeProjectValidate(sessionId, workingRevision)` and
-publishes the returned diagnostics without reclassifying their code, path, or severity. The request
+publishes the returned diagnostics without reclassifying their code, path, or severity.
+The editor's revision-pinned `validateWorking` native addon operation runs the complete Project
+validator, including retained informational diagnostics, and adds compiled-gameplay entrypoint
+readiness. `prepareCompleteWorking` is an authoring/runtime preparation operation, **not** a
+validation result: it can accept a project with a missing entrypoint, and successful preparation
+may omit nonblocking validation findings. A Project without an entrypoint remains editable, but
+Validate must report `COMPILER_ENTRYPOINT_REQUIRED` at `/entrypoint`. The native working validator
+also evaluates acknowledged unsaved revisions without requiring a disk Save. The request
 is gated on the active Project instance, session, working revision, and matching renderer projection;
 superseded replies are discarded and native errors remain errors. Pending raw form input remains a
 separate editor-local diagnostic and is never admitted as Project content. Record editors use native

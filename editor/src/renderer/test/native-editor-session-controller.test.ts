@@ -1,13 +1,24 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { cp, readFile, readdir, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import {
+  cp as copyDirectory,
+  readFile,
+  readdir,
+  mkdir,
+  mkdtemp,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import {
   authoringProjectSchema,
   createAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
-import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
+import type {
+  NativeAuthoringPreparation,
+  NativeAuthoringWorkingValidation,
+} from '../../main/services/native-authoring-worker-contract';
 import { NativeEditorSessionController } from '../../main/services/native-editor-session-controller';
 import { projectFromNativeCompletePreparation } from '../../main/services/native-authoring-runtime-preparation';
 import { openNativeEditorProject } from '../../main/services/native-editor-project-open';
@@ -28,6 +39,13 @@ import {
 import { toJsonValue } from '../project/json-value';
 import { createInitialCommandBusState, executeCommand } from '../commands/command-bus';
 import { confirmNativeCommand } from '../commands/native-command-execution';
+
+async function cp(source: string, destination: string, options: { recursive: true }) {
+  await copyDirectory(source, destination, {
+    ...options,
+    filter: (candidate) => !candidate.split(path.sep).includes('.noveltea'),
+  });
+}
 
 function fixture(projectRoot = '/trusted/project') {
   const saved = createAuthoringProject({ id: 'native-open', name: 'Open Project' });
@@ -67,6 +85,13 @@ function fixture(projectRoot = '/trusted/project') {
   };
   const open = vi.fn(async () => ({}));
   const prepareCompleteWorking = vi.fn(async () => preparation);
+  const validateWorking = vi.fn(
+    async (): Promise<NativeAuthoringWorkingValidation> => ({
+      valid: true,
+      workingRevision: 0,
+      diagnostics: [],
+    }),
+  );
   const applyRevisionedPatches = vi.fn(async () => ({
     accepted: true,
     error: '',
@@ -121,6 +146,7 @@ function fixture(projectRoot = '/trusted/project') {
   const working = {
     open,
     prepareCompleteWorking,
+    validateWorking,
     applyRevisionedPatches,
     snapshot,
     saveUnits,
@@ -149,6 +175,7 @@ function fixture(projectRoot = '/trusted/project') {
     open,
     preparation,
     prepareCompleteWorking,
+    validateWorking,
     applyRevisionedPatches,
     saveUnits,
     saveOwners,
@@ -418,10 +445,9 @@ describe('native admission at the editor main Project lifecycle', () => {
     await expect(test.controller.validate('one', 0)).rejects.toThrow('not admitted');
     await test.controller.admit('one', test.saved);
     await expect(test.controller.validate('one', 9)).rejects.toThrow('Stale');
-    test.prepareCompleteWorking.mockResolvedValueOnce({
-      ...test.preparation,
-      accepted: false,
-      error: 'Working Room source is invalid.',
+    test.validateWorking.mockResolvedValueOnce({
+      valid: false,
+      workingRevision: 0,
       diagnostics: [
         {
           code: 'room.bounds.invalid',

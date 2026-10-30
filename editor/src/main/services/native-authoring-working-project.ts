@@ -320,6 +320,22 @@ export class NativeAuthoringWorkingProject {
     });
   }
 
+  /** Validate every native working owner without conflating preparation and admission.
+   * The resulting diagnostics remain pinned to the observed working revision. */
+  async validateWorking() {
+    return this.serial(async () => {
+      if (!this.view) throw new Error('Native working Project has not opened.');
+      const expectedRevision = this.view.workingRevision;
+      const result = await this.bridge.request({
+        operation: 'validateWorking',
+        expectedRevision,
+      });
+      if (result.workingRevision !== expectedRevision)
+        throw new Error('Native validation advanced past the active working generation.');
+      return result;
+    });
+  }
+
   /** Native-owned, immutable-by-publication semantic graph for the active
    * working generation. No TypeScript authoring graph is consulted. */
   async semanticGraph(): Promise<import('./native-authoring-worker-contract').NativeSemanticGraph> {

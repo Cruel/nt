@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp as copyDirectory, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -12,6 +12,14 @@ import { NativeEditorSessionController } from '../../main/services/native-editor
 import { NativeEditorObserverWatchService } from '../../main/services/native-editor-observer-watch-service';
 import { saveProjectEditorMetadata } from '../../main/services/project-editor-metadata-service';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-watch-events';
+
+// A portable Project fixture never carries another root's ignored recovery journal.
+async function cp(source: string, destination: string, options: { recursive: true }) {
+  await copyDirectory(source, destination, {
+    ...options,
+    filter: (candidate) => !candidate.split(path.sep).includes('.noveltea'),
+  });
+}
 
 async function projectRoot() {
   const root = await mkdtemp(path.join(tmpdir(), 'native-project-handoff-'));
@@ -211,6 +219,68 @@ describe('native-only Project handoff keeps independent workers', () => {
 
 const nativeAddon = process.env.NOVELTEA_AUTHORING_NODE_ADDON;
 describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers', () => {
+  it('surfaces compiler-readiness errors and semantic advisories from the same unsaved native revision', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-validation-handoff-'));
+    await cp(path.resolve(process.cwd(), '../tests/projects/feature-lab'), root, {
+      recursive: true,
+    });
+    const manifestPath = path.join(root, 'project.yaml');
+    const manifest = await readFile(manifestPath, 'utf8');
+    const canonicalManifest = manifest.replace(
+      /entrypoint:\n(?:  [^\n]*\n)+/u,
+      'entrypoint:\n  kind: room\n  id: feature-lab-home\n',
+    );
+    expect(canonicalManifest).toContain('id: feature-lab-home');
+    await writeFile(manifestPath, canonicalManifest);
+    const sessions = new ActiveProjectSessionService();
+    const handoff = new NativeEditorProjectHandoff(sessions, () => {
+      const bridge = new NativeAuthoringSessionBridge(sessions, {
+        addonPath: path.resolve(nativeAddon!),
+        workerScript: path.resolve(
+          process.cwd(),
+          'dist-electron/authoring-worker/native-authoring-worker.cjs',
+        ),
+        pollIntervalMs: 0,
+      });
+      return new NativeEditorSessionController(
+        sessions,
+        bridge,
+        new NativeAuthoringWorkingProject(bridge),
+      );
+    });
+    try {
+      const opened = await handoff.open(root);
+      expect(opened.success, opened.error).toBe(true);
+      const id = opened.projectSessionId!;
+      const current = handoff.current()!;
+      const valid = await current.validate(id, opened.nativeWorkingRevision!);
+      expect(valid.success).toBe(true);
+      expect(valid.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'hotspot.authoring.target.none', severity: 'info' }),
+        ]),
+      );
+      const edited = await current.applyRevisionedPatches(id, opened.nativeWorkingRevision!, [
+        { op: 'replace', path: '/entrypoint', value: null },
+      ]);
+      expect(edited.accepted).toBe(true);
+      const invalid = await current.validate(id, edited.snapshot.workingRevision);
+      expect(invalid.success).toBe(false);
+      expect(invalid.diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'COMPILER_ENTRYPOINT_REQUIRED',
+            severity: 'error',
+            path: '/entrypoint',
+          }),
+        ]),
+      );
+      expect(await readFile(manifestPath, 'utf8')).toBe(canonicalManifest);
+    } finally {
+      handoff.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('keeps acknowledged dirty edits across rejected Open and same-root handoff, with native observation', async () => {
     const releaseNativeAuthorityGuard = guardNativeEditorProjectAuthority();
     const root = await mkdtemp(path.join(tmpdir(), 'native-handoff-real-'));

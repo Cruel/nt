@@ -66,6 +66,7 @@ export class NativeEditorSessionController {
       NativeAuthoringWorkingProject,
       | 'open'
       | 'prepareCompleteWorking'
+      | 'validateWorking'
       | 'semanticGraph'
       | 'applyRevisionedPatches'
       | 'saveUnits'
@@ -752,14 +753,15 @@ export class NativeEditorSessionController {
     this.authority.requireActiveProjectRoot(projectSessionId);
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native validation working revision.');
-    const prepared = await this.working.prepareCompleteWorking();
+    const validated = await this.working.validateWorking();
     if (
       generation !== this.generation ||
       !this.isAdmitted(projectSessionId) ||
-      this.working.snapshot()?.workingRevision !== expectedRevision
+      this.working.snapshot()?.workingRevision !== expectedRevision ||
+      validated.workingRevision !== expectedRevision
     )
       throw new Error('Native Project validation was superseded by another edit or Project.');
-    const diagnostics = prepared.diagnostics.map((diagnostic) => ({
+    const diagnostics = validated.diagnostics.map((diagnostic) => ({
       code: diagnostic.code,
       severity: diagnostic.severity,
       category: 'Native authoring validation',
@@ -768,19 +770,19 @@ export class NativeEditorSessionController {
         ? `${diagnostic.message} [${diagnostic.sourcePath}${diagnostic.line ? `:${diagnostic.line}` : ''}]`
         : diagnostic.message,
     }));
-    if (!prepared.accepted && !diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
+    if (!validated.valid && !diagnostics.some((diagnostic) => diagnostic.severity === 'error')) {
       diagnostics.push({
         code: 'editor.native-validation.rejected',
         severity: 'error',
         category: 'Native authoring validation',
         path: '/',
-        message: prepared.error || 'Native Project validation rejected the working generation.',
+        message: 'Native working Project validation rejected the current revision.',
       });
     }
     return {
       ok: true,
       success:
-        prepared.accepted && !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
+        validated.valid && !diagnostics.some((diagnostic) => diagnostic.severity === 'error'),
       diagnostics,
     };
   }
