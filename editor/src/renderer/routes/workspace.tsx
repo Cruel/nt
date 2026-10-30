@@ -107,6 +107,7 @@ import {
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
 import { createFileRoute } from '@tanstack/react-router';
+import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Group, Panel, usePanelRef } from 'react-resizable-panels';
@@ -211,6 +212,7 @@ interface WorkspaceAlert {
 export function WorkspacePage() {
   const { t } = useTranslation('workspace');
   const [, setBusy] = useState(false);
+  const [projectOpening, setProjectOpening] = useState(false);
   const [alert, setAlert] = useState<WorkspaceAlert | null>(null);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -751,8 +753,10 @@ export function WorkspacePage() {
   async function openProject(projectPathOverride?: string) {
     const dir = projectPathOverride ?? (await window.noveltea.selectProjectDirectory());
     if (!dir) return;
-    setBusy(true);
+    setProjectOpening(true);
     try {
+      // Let the loading indicator render before potentially expensive Project work.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       if (!(await flushProjectEditorMetadata('switch-project'))) return;
       if (Object.keys(useWorkbenchStore.getState().tabsById).length > 0)
         saveLocalEditorSessionSnapshot(projectFilePath ?? null);
@@ -876,7 +880,7 @@ export function WorkspacePage() {
       }
       setStatusMessage(message);
     } finally {
-      setBusy(false);
+      setProjectOpening(false);
     }
   }
 
@@ -2265,6 +2269,18 @@ export function WorkspacePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      {projectOpening ? (
+        <div
+          role="status"
+          aria-label="Loading project"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-[1px]"
+        >
+          <div className="flex items-center gap-3 rounded-lg border bg-card px-6 py-4 text-sm font-medium text-card-foreground shadow-xl">
+            <LoaderCircle className="size-5 animate-spin" aria-hidden="true" />
+            <span>Loading...</span>
+          </div>
+        </div>
+      ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <div className="min-w-0 flex-1 overflow-hidden">
           <Group

@@ -780,6 +780,73 @@ describe('WorkspacePage new project modal', () => {
     );
   });
 
+  it('shows Loading immediately for a recent Project until its Open completes', async () => {
+    const project = stripEditorProjectState(
+      createAuthoringProject({ id: 'large-story', name: 'Large Story' }),
+    );
+    let finishOpen!: (value: Awaited<ReturnType<typeof window.noveltea.openProject>>) => void;
+    vi.mocked(window.noveltea.openProject).mockImplementationOnce(
+      () => new Promise((resolve) => (finishOpen = resolve)),
+    );
+
+    render(<WorkspacePage />);
+    dispatchOpenProject('/mock/large-story');
+
+    const loading = screen.getByRole('status', { name: 'Loading project' });
+    expect(loading).toHaveTextContent('Loading...');
+    expect(loading).toHaveClass('fixed', 'inset-0', 'z-[60]');
+    expect(loading).toHaveClass('bg-black/45');
+    expect(loading.querySelector('.animate-spin')).not.toBeNull();
+    await waitFor(() =>
+      expect(window.noveltea.openProject).toHaveBeenCalledWith('/mock/large-story'),
+    );
+    expect(screen.getByRole('status', { name: 'Loading project' })).toBeInTheDocument();
+
+    await act(async () => {
+      finishOpen({
+        ok: true,
+        success: true,
+        projectPath: '/mock/large-story',
+        projectFilePath: '/mock/large-story/project.yaml',
+        projectSessionId: 'large-story-session',
+        contentProject: project,
+        savedContentProject: project,
+        editorState: emptyEditorProjectState(),
+        diagnostics: [],
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Loading project' })).not.toBeInTheDocument(),
+    );
+    expect(useProjectStore.getState().document).toMatchObject({
+      project: { id: 'large-story' },
+    });
+  });
+
+  it('shows Loading after choosing a Project directory and clears it on failure', async () => {
+    vi.mocked(window.noveltea.selectProjectDirectory).mockResolvedValueOnce('/mock/broken');
+    let failOpen!: (error: Error) => void;
+    vi.mocked(window.noveltea.openProject).mockImplementationOnce(
+      () => new Promise((_, reject) => (failOpen = reject)),
+    );
+
+    render(<WorkspacePage />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(WORKSPACE_TOOLBAR_COMMAND_EVENT, { detail: 'open-project' }),
+      );
+    });
+    await waitFor(() => expect(window.noveltea.openProject).toHaveBeenCalledWith('/mock/broken'));
+    expect(screen.getByRole('status', { name: 'Loading project' })).toHaveTextContent('Loading...');
+
+    await act(async () => failOpen(new Error('Could not open Project')));
+    await waitFor(() =>
+      expect(screen.queryByRole('status', { name: 'Loading project' })).not.toBeInTheDocument(),
+    );
+    expect(useWorkspaceStore.getState().statusMessage).toBe('Could not open Project');
+  });
+
   it('opens and closes a native recovered Project without legacy semantic admission', async () => {
     const clean = createAuthoringProject({ id: 'native-recovery', name: 'Saved title' });
     const dirty = structuredClone(clean);
