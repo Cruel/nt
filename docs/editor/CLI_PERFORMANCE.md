@@ -1387,3 +1387,83 @@ small and project-dependent. The native test directly checks that deferred
 preparation performs no further source capture and that a subsequent edit is
 detected by an authoritative observation. Broader scaling and the editor
 addon Save/patch stage remain unresolved.
+
+### Follow-up root-cause audit: current Release, warm single-Room edit
+
+Re-profiled the current `1d421c27` native Release CLI with short-lived opt-in
+wall-clock probes in both `project_read` and the resident disk validator. The
+probes have been removed; no production behavior was changed by this audit.
+The benchmark remains `tests/native_cli/validation_performance.py`, running
+three distinct Room-label edits in disposable Projects through the real daemon.
+Measured medians: Feature Lab **291.89 ms**; Feature Lab Layout Lua comment
+**343.36 ms**; 1 Room **13.17 ms**; 101 Rooms **43.85 ms**; 501 Rooms
+**162.46 ms**. Small sample sizes and variance preclude hard latency budgets.
+
+Feature Lab Room-label edit, medians in milliseconds:
+
+| Work | Median |
+| --- | ---: |
+| Native Project validation plus compiler input preparation | 192.45 |
+| Font coverage execution | 16.92 |
+| Shader compiler/cache verification | 15.47 |
+| Final source-generation proof | 32.59 |
+| CLI/daemon and other overhead, by difference | ~35 |
+
+Within the **192.45 ms** native request (non-overlapping probes):
+
+| Work | Median ms |
+| --- | ---: |
+| Initial complete physical source observation | 13.86 |
+| Clean validation, including its own final observation | 30.49 |
+| Complete Project assembly | 9.41 |
+| Portable-source path checks | 32.33 |
+| Font/localization input projection | 29.49 |
+| Material/compiler input projection | 22.09 |
+| Final physical observation | 20.04 |
+| Exact generation computation | 3.28 |
+| Response bookkeeping and other native work | ~32 |
+
+The observed source-verification multiplication is structural, not a timing
+accident. On this warm path there are **five** complete `SourceAuthority`
+captures: the initial observed source delta, `validate_project()`'s final
+observation, the validation request's final observation, and the two observations
+bracketing `source-generation-proof`. Each `SourceAuthority::capture()` traverses
+the same source directories and reads/hashes **all** tracked text sources,
+not merely the changed Room. Feature Lab's earlier per-capture audit counted
+370 such sources (~1.36 MB) plus 25 physical Asset references, implying
+roughly **1,850 redundant-or-repeated text-source reads across the five
+captures**, if that inventory remains unchanged. These are physical reads, not
+1,850 semantic Room validations. The authoritative daemon owner additionally
+performs **two** distinct broker authority observations, each of which begins
+with `owner_authority_configuration()` recursively enumerating the entire
+Project and then `ProjectAuthorityManager::observe()` traversing its manifest.
+On this Linux host broker evidence normally uses size/inode/mtime rather than
+rehashing every file; do not conflate it with the five native byte-exact scans.
+
+Additionally, public `validate` always requests `includeFontCoverageInputs`.
+Thus a changed Room's presentation label causes an entirely new portable source
+check, localization/font-input projection, Material program projection and
+shader compile/cache validation. The CLI's binary shader cache hits do not
+mean its derived evidence is free. For unrelated Room labels, these
+authoritative inputs should be reusable under their own exact dependency keys,
+with invalidation for actual localization, font, shader or Material changes.
+
+**Root cause:** semantic record invalidation is already scoped (one Room), but
+the outer **certification and source-authority pipeline is keyed to the entire
+Project**. Every legitimate single-record edit misses the whole-Project exact
+result cache and redoes several full-source proofs plus independently scoped
+global compiler/input checks. It is wrong to call this a cold validation:
+the mutable Project and its unchanged semantic contributions remain resident.
+
+**Next required engineering work:** consolidate the native and broker authority
+around request-scoped immutable source evidence with a bounded pre-/post-
+publication fence; avoid re-reading the same exact text generation at every
+internal boundary; build and retain independent portable path/font/localization/
+Material/shader validation contributions keyed by their *actual* dependencies.
+When authority is uncertain, fall back to a complete physical scan. Preserve
+symlink/replacement checks, additions/deletions, same-size edits with restored
+timestamps and concurrent mutations. A valid production optimization must
+include an outer daemon/public-CLI work-count regression for source captures,
+source reads and unrelated compiler/preparation calls—not merely
+`recheckedRecords == 1`. Do not replace exact physical authority with
+size/mtime-only cache hits.
