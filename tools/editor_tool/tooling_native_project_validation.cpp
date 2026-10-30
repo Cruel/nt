@@ -487,7 +487,7 @@ Json validate(std::string_view request_text)
                                          prepared.error);
             const auto admitted = Json::parse(prepared.complete_project_json);
             const auto portable = native_project_bundle(
-                {{"action", "test-source-preparation"}, {"admittedProject", admitted}},
+                {{"action", "validation-source-check"}, {"admittedProject", admitted}},
                 state.session.get(), root);
             if (!portable.value("ok", false)) {
                 result["portableFailure"] = portable.value(

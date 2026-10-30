@@ -538,6 +538,51 @@ inline Lua text receives a new lexical analysis. The 200 ms Feature Lab
 investigative budget remains unmet: portable-source preparation and
 shader-cache preprocessing are still independently expensive.
 
+### Shader cache-hit sampler evidence and portable validation check-only path
+
+The native source-program shader compiler now stores the preprocessor-derived
+sampler-stage map beside each cached shader binary in
+`shader-cache/manifest.json` (`samplerStageSchema: preprocessed-v1`). The
+metadata proof binds that map to the compiler/source/variant cache key and the
+**freshly verified binary SHA-256**; malformed, absent, or stale metadata
+falls back to real shaderc preprocessing and repairs the manifest. Reflected
+binary inputs, video-alpha reservations, contract validation, browser shader
+payloads, and byte-exact binary-cache corruption checks retain their original
+paths. A separate shader compilation regression verifies initial, cached,
+and corrupted-metadata reflection equality.
+
+The portable source collector has a separate internal
+`validation-source-check` action for **public validation only**.
+`project_paths()` continues to check source membership, containment, and
+ordinary-file safety; the check-only path also verifies stream readability,
+then returns only success/failure instead of reopening and SHA-256 hashing
+every source to construct an unused Project/revision-map response. Public
+validation still requires fresh exact source-generation proof after derived
+work. Crucially, **`test-source-preparation` is unchanged**: the daemon
+shader/runtime/package worker uses its pinned full source revisions and would
+abort if it received the check-only response. Regression coverage proves both
+action contracts, including missing-source rejection. During verification,
+that shared-action assumption caused a reproducible owner SIGABRT; it was
+diagnosed under gdb and fixed by giving the lightweight operation a distinct
+action, after which relocated daemon-owner certification passed.
+
+Disposable daemon-backed Release benchmark (three changed-label edits per
+Project; numbers are local observations, not a portable performance gate):
+
+| Project | After localization optimization | After shader + portability changes |
+|---|---:|---:|
+| Feature Lab | 691.71 ms | **543.39 ms** |
+| 1 Room | 14.17 ms | **14.70 ms** |
+| 101 Rooms | 52.93 ms | **55.18 ms** |
+| 501 Rooms | 209.19 ms | **217.25 ms** |
+
+The Feature Lab reduction is approximately **148 ms / 21%** on this slice.
+The small synthetic-Project changes are within run-to-run noise; their
+shader/portable workload is far smaller. The 200 ms investigative Feature
+Lab goal remains unmet. Remaining work includes complete Project assembly,
+JSON allocations, Material compiler request preparation, and outer protocol
+overhead.
+
 ## Measured critical path (original baseline)
 
 Temporary `steady_clock` phase probes wrote to a separate file, not CLI stdout/stderr.

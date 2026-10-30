@@ -1,5 +1,6 @@
 #include "tooling_native_c.h"
 #include "../../tools/editor_tool/tooling_native_project_localization.hpp"
+#include "../../tools/editor_tool/tooling_native_project_bundle.hpp"
 #include "../../tools/project_authoring/room_session.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -251,6 +252,39 @@ TEST_CASE("same-size binary Asset edits cannot reuse exact generation evidence",
     REQUIRE(changed["sourceGeneration"] != generation);
     REQUIRE(disk_validate(project.root, "validation-source-generation-proof",
                           {{"expectedSourceGeneration", generation}})["ok"] == false);
+}
+
+TEST_CASE("portable validation checks source paths without exporting unused revision maps",
+          "[native-disk-validation]")
+{
+    Copy project;
+    std::string error;
+    auto session = noveltea::authoring::ProjectSession::open(project.root, error);
+    REQUIRE(session != nullptr);
+    REQUIRE(session->validate_project().valid);
+    const auto prepared =
+        session->prepare_complete_working(session->snapshot().working_revision, {}, true);
+    REQUIRE(prepared.accepted);
+    const auto admitted = Json::parse(prepared.complete_project_json);
+    const auto check = [&] {
+        return native_project_bundle(
+            {{"action", "validation-source-check"}, {"admittedProject", admitted}}, session.get(),
+            project.root);
+    };
+    const auto valid = check();
+    REQUIRE(valid.value("ok", false));
+    REQUIRE_FALSE(valid.contains("sourceRevisions"));
+    REQUIRE_FALSE(valid.contains("sourcePaths"));
+    REQUIRE_FALSE(valid.contains("project"));
+    const auto pinned = native_project_bundle(
+        {{"action", "test-source-preparation"}, {"admittedProject", admitted}}, session.get(),
+        project.root);
+    REQUIRE(pinned.value("ok", false));
+    REQUIRE(pinned.contains("sourceRevisions"));
+    REQUIRE(pinned.at("sourceRevisions").contains("project.yaml"));
+
+    REQUIRE(std::filesystem::remove(project.root / "records/rooms/feature-lab-home.yaml"));
+    REQUIRE_FALSE(check().value("ok", false));
 }
 
 TEST_CASE("localization projections reuse unchanged records and refresh changed Message inputs",
