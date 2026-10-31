@@ -339,13 +339,22 @@ Catalog read_catalog(const std::filesystem::path& root,
         if (sources) {
             for (const auto& [path, content] : *sources) {
                 static_cast<void>(content);
-                paths.emplace_back(std::u8string(path.begin(), path.end()));
+                auto relative = std::filesystem::path(std::u8string(path.begin(), path.end()));
+                if (!is_private_inbox_path(relative))
+                    paths.push_back(std::move(relative));
             }
         } else {
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
-                if (entry.symlink_status().type() == std::filesystem::file_type::regular &&
-                    entry.path().extension() == ".md")
-                    paths.push_back(entry.path().lexically_relative(root));
+            std::filesystem::recursive_directory_iterator it(root), end;
+            for (; it != end; ++it) {
+                const auto relative = it->path().lexically_relative(root);
+                if (is_private_inbox_path(relative)) {
+                    it.disable_recursion_pending();
+                    continue;
+                }
+                if (it->symlink_status().type() == std::filesystem::file_type::regular &&
+                    it->path().extension() == ".md")
+                    paths.push_back(relative);
+            }
         }
         std::sort(paths.begin(), paths.end());
     } catch (const std::filesystem::filesystem_error& error) {

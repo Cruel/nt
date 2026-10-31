@@ -244,6 +244,11 @@ Snapshot baseline(const fs::path& root, const std::string& revision)
         const auto path = entry.substr(tab + 1);
         if (!path.ends_with(".md") || (!prefix.empty() && !path.starts_with(prefix + "/")))
             continue;
+        const auto path_in_story = std::string(path.substr(prefix.empty() ? 0 : prefix.size() + 1));
+        const auto relative_path =
+            fs::path(std::u8string(path_in_story.begin(), path_in_story.end()));
+        if (is_private_inbox_path(relative_path))
+            continue;
         const bool regular_blob =
             header.size() >= 14 &&
             (header.substr(0, 7) == "100644 " || header.substr(0, 7) == "100755 ") &&
@@ -253,7 +258,6 @@ Snapshot baseline(const fs::path& root, const std::string& revision)
         const auto object_id = std::string(header.substr(12));
         if (object_id.size() != 40 && object_id.size() != 64)
             throw std::runtime_error("Git baseline tree has an invalid object ID.");
-        const auto path_in_story = std::string(path.substr(prefix.empty() ? 0 : prefix.size() + 1));
         sources.emplace(path_in_story, run_git(story, {"cat-file", "blob", object_id}));
     }
     // A verified commit may predate this Story root. With no historical

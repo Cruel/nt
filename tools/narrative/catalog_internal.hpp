@@ -29,6 +29,12 @@ struct Catalog {
                 const std::string& pointer = "");
     const Record* find(const std::string& id) const;
 };
+// Private author idea storage is never part of the canonical Story catalog.
+inline bool is_private_inbox_path(const std::filesystem::path& relative)
+{
+    const auto first = relative.begin();
+    return first != relative.end() && *first == ".story-inbox";
+}
 // An in-memory source snapshot uses the exact same admission and reference parser as disk.
 Catalog read_catalog(const std::filesystem::path& root,
                      const std::map<std::string, std::string>* sources = nullptr);

@@ -214,7 +214,10 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
         git(fresh, 'config', 'user.email', 'test@example.invalid')
         if initial_files:
             (fresh / 'README.md').write_text('Repository documentation only\n')
-            (fresh / 'game' / 'story').mkdir(parents=True)
+            inbox = fresh / 'game' / 'story' / '.story-inbox' / 'ideas'
+            inbox.mkdir(parents=True)
+            (inbox / 'private.yaml').write_text('private: author-only idea\n')
+            (inbox / 'private.md').write_text('Private note without Story frontmatter\n')
             (fresh / 'game' / 'story' / 'notes.txt').write_text('No Story Markdown yet\n')
             git(fresh, 'add', '.')
         git(fresh, 'commit', '-qm', 'Before Story creation', '--allow-empty')
@@ -229,6 +232,7 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
         protection = catalog['protection']
         all_ids = {record['metadata']['id'] for record in catalog['records']}
         assert created['diagnostics'] == []
+        assert '.story-inbox' not in json.dumps(created)
         assert protection['status'] == 'checked' and protection['base'] == empty_sha
         assert protection['checkedDecisions'] == 0 and protection['findings'] == []
         assert set(protection['impact']['changed']) == all_ids and all_ids

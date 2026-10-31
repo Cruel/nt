@@ -5,7 +5,11 @@ Markdown without a Project, engine compilation, runtime artifacts, daemon, Node,
 network access, or installation-relative schema files. Supply the dedicated Story
 directory (for example `game/story`), **not** the game directory. Recursive discovery
 reads regular `.md` files only, in sorted root-relative path order; directory and
-file symlinks are not followed. No catalog or user-configuration files are written.
+file symlinks are not followed. The root-level private `.story-inbox/` tree is
+excluded before parsing, including nested `.md` files, for validation, readiness,
+context manifests and Git-baseline protection. Private ideas remain available only
+through their dedicated author-only channel, never ordinary Story diagnostics,
+manifests, source witnesses or content. No catalog or user-configuration files are written.
 Global `--project` and additional command arguments are usage errors.
 
 Exit codes are `0` for a structurally valid catalog without pending protected-decision

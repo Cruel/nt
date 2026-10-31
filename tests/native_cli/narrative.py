@@ -289,6 +289,30 @@ Independent fictional occurrence.
         assert value['protocolVersion'] == 1 and value['success'] == (code == 0)
         return value
 
+    # Private idea files are not canonical Story records, even when they use
+    # the Markdown extension and contain invalid Story frontmatter.
+    task = ('--kind', 'event', '--id', 'event.question-ivo', '--scope', 'related')
+    original_reports = (validate(), readiness(story, '--stage', 'composition'),
+                        context(story, *task))
+    private = story / '.story-inbox' / 'ideas'
+    (private / 'nested').mkdir(parents=True)
+    (private / 'private.yaml').write_text('private: author-only idea\n')
+    (private / 'private.md').write_text('private author-only Markdown, not Story frontmatter\n')
+    (private / 'nested' / 'draft.md').write_text('nested confidential draft\n')
+    private_reports = (validate(), readiness(story, '--stage', 'composition'),
+                       context(story, *task))
+    assert private_reports == original_reports
+    assert all('.story-inbox' not in json.dumps(report) for report in private_reports)
+
+    # The exclusion must not silence malformed Markdown in canonical folders.
+    malformed = story / 'events' / 'malformed.md'
+    malformed.write_text('Not a canonical Story record\n')
+    for report in (validate(story, 1), readiness(story, code=1),
+                   context(story, *task, code=1)):
+        assert any(d['code'] == 'frontmatter' and d['path'] == 'events/malformed.md'
+                   for d in report['diagnostics']), report['diagnostics']
+    malformed.unlink()
+
     expectations = [
         ('01-foundation', ('passed', 'needs-work', 'needs-work', 'needs-work', 'needs-work')),
         ('02-architecture', ('passed', 'passed', 'needs-work', 'needs-work', 'needs-work')),
