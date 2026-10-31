@@ -85,10 +85,28 @@ void certify_owner_session_reuse()
     require(initial_validation.value("ok", false) && initial_validation.value("valid", false) &&
                 initial_validation.contains("sourceGeneration"),
             "Clean native Project validation publishes generation proof.");
+    const auto& cold_work = initial_validation.at("work").at("endToEnd");
+    require(cold_work.at("sourceCaptures").get<std::size_t>() > 0 &&
+                cold_work.at("directoryEnumerations").get<std::size_t>() > 0 &&
+                cold_work.at("fileByteReads").get<std::size_t>() > 0 &&
+                cold_work.at("contentHashes").get<std::size_t>() > 0 &&
+                cold_work.at("parsedYaml").get<std::size_t>() > 0,
+            "Native CLI counters cover physical discovery, proof and YAML parsing.");
+    const auto unchanged_validation = disk_validate({{"projectRoot", fixture.root.string()}});
+    const auto& unchanged_work = unchanged_validation.at("work").at("endToEnd");
+    require(unchanged_validation.at("cliDiagnostics") == initial_validation.at("cliDiagnostics") &&
+                unchanged_validation.at("work").at("recheckedRecords") == 0 &&
+                unchanged_work.at("sourceCaptures").get<std::size_t>() > 0 &&
+                unchanged_work.at("directoryEnumerations").get<std::size_t>() > 0 &&
+                unchanged_work.at("contentHashes").get<std::size_t>() > 0,
+            "Unchanged native CLI work reports outer scans and hashes independently of semantic "
+            "reuse.");
     const auto manifest_file = fixture.root / "project.yaml";
     const auto manifest_bytes = read(manifest_file);
     write(manifest_file, manifest_bytes + "\ninvalid: [\n");
     const auto malformed_validation = disk_validate({{"projectRoot", fixture.root.string()}});
+    require(malformed_validation.at("work").at("endToEnd").at("parsedYaml") > 0,
+            "Invalid YAML still records physical parser work.");
     require(
         malformed_validation.value("ok", false) && !malformed_validation.value("valid", true) &&
             !malformed_validation.contains("sourceGeneration") &&
@@ -1748,7 +1766,8 @@ void certify_deferred_cache_hit_asset_proof(const std::filesystem::path& source)
                                            "certify-deferred-cache-race", &post_revisions);
     require(!session->publish_deferred_clean_validation(raced, post_revisions) &&
                 read(cache_path) == cache_bytes,
-            "Restored-size-and-mtime Asset overwrite rejects provisional cache hit and keeps cache unchanged");
+            "Restored-size-and-mtime Asset overwrite rejects provisional cache hit and keeps cache "
+            "unchanged");
 
     write(asset, original);
     std::filesystem::last_write_time(asset, original_time);

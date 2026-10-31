@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "validation_work_instrumentation.hpp"
 #include "source_authority.hpp"
 
 #include <jsoncons/json.hpp>
@@ -1590,7 +1591,15 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     require(cold.valid, "Feature Lab must pass complete cold native Project validation");
     require(project->validation_work().rechecked_records > 0,
             "Cold Project validation checks tracked record sources");
-    const auto repeated = project->validate_project();
+    ValidationWorkCounters repeated_work;
+    RoomSessionSnapshot repeated;
+    {
+        ScopedValidationWork measure(repeated_work);
+        repeated = project->validate_project();
+    }
+    require(repeated_work.source_captures > 0 && repeated_work.directory_enumerations > 0 &&
+                repeated_work.file_byte_reads > 0 && repeated_work.content_hashes > 0,
+            "Warm native validation work counters include physical source orchestration");
     require(repeated.valid && project->validation_work().rechecked_records == 0 &&
                 project->validation_work().retained_records > 0,
             "Unchanged native validation retains every source contribution");

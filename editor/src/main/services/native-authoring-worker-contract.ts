@@ -99,11 +99,33 @@ export const nativeAuthoringPreparationSchema = z
   })
   .strict();
 
+export const nativeValidationWorkCountersSchema = z
+  .object({
+    directoryEnumerations: z.number().int().nonnegative(),
+    statReadlinkCalls: z.number().int().nonnegative(),
+    fileByteReads: z.number().int().nonnegative(),
+    contentHashes: z.number().int().nonnegative(),
+    sourceCaptures: z.number().int().nonnegative(),
+    parsedYaml: z.number().int().nonnegative(),
+    parsedLua: z.number().int().nonnegative(),
+    parsedRml: z.number().int().nonnegative(),
+    parsedRcss: z.number().int().nonnegative(),
+    recordContributions: z.number().int().nonnegative(),
+    dependencyContributions: z.number().int().nonnegative(),
+    localizationChecks: z.number().int().nonnegative(),
+    fontPreparations: z.number().int().nonnegative(),
+    materialShaderPreparations: z.number().int().nonnegative(),
+    portableSourceChecks: z.number().int().nonnegative(),
+    fullResultAssemblies: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export const nativeAuthoringWorkingValidationSchema = z
   .object({
     valid: z.boolean(),
     workingRevision: z.number().int().nonnegative(),
     diagnostics: z.array(nativeAuthoringDiagnosticSchema),
+    work: nativeValidationWorkCountersSchema.optional(),
   })
   .strict();
 export type NativeAuthoringWorkingValidation = z.infer<
@@ -121,6 +143,7 @@ export const nativeAuthoringCleanValidationSchema = z
         retainedRecords: z.number().int().nonnegative(),
         recheckedContributions: z.number().int().nonnegative(),
         retainedContributions: z.number().int().nonnegative(),
+        endToEnd: nativeValidationWorkCountersSchema.optional(),
       })
       .strict(),
   })

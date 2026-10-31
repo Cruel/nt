@@ -5,6 +5,7 @@
 #include "tooling_native_project_sync.hpp"
 
 #include "../project_authoring/room_session.hpp"
+#include "../project_authoring/validation_work_instrumentation.hpp"
 #include "../project_authoring/material_semantics.hpp"
 
 #include <nlohmann/json.hpp>
@@ -304,6 +305,14 @@ Json native_font_coverage_inputs(noveltea::authoring::ProjectSession& session, c
     return result;
 }
 
+Json work_counts_json(const noveltea::authoring::ValidationWorkCounters& counts)
+{
+    Json result = Json::object();
+    for (const auto& [field, value] : counts.fields())
+        result[std::string(field)] = value;
+    return result;
+}
+
 Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool warm,
                   const ProjectSession::ValidationWork& work)
 {
@@ -388,6 +397,8 @@ Json validate(std::string_view request_text)
     if (!requested.is_absolute())
         return {{"ok", false}, {"error", "Native disk validation requires an absolute root."}};
     const auto root = std::filesystem::canonical(requested);
+    noveltea::authoring::ValidationWorkCounters work_counts;
+    noveltea::authoring::ScopedValidationWork work_scope(work_counts);
     auto& state = resident();
     std::scoped_lock lock(state.mutex);
     if (request.value("action", std::string("validate")) == "release") {
@@ -423,7 +434,9 @@ Json validate(std::string_view request_text)
             noveltea::authoring::trace_source_proof_event("validation-final", "conflict");
             return conflict();
         }
-        return {{"ok", true}, {"sessionAdmissions", state.session_admissions}};
+        return {{"ok", true},
+                {"sessionAdmissions", state.session_admissions},
+                {"work", work_counts_json(work_counts)}};
     }
     if (request.value("action", std::string("validate")) != "validate")
         return {{"ok", false}, {"error", "Unknown disk-validation action."}};
@@ -469,7 +482,9 @@ Json validate(std::string_view request_text)
         trace_native_validation("cold invalid-Project validation returned");
         if (!cold)
             return {{"ok", false}, {"error", error}};
-        return response_for(*cold, false, {});
+        auto result = response_for(*cold, false, {});
+        result["work"]["endToEnd"] = work_counts_json(work_counts);
+        return result;
     }
     trace_native_validation("starting resident Project validation");
     const auto validated = state.session->validate_clean_project(true, true);
@@ -497,6 +512,8 @@ Json validate(std::string_view request_text)
                 throw std::runtime_error("Native font coverage Project preparation failed: " +
                                          prepared.error);
             const auto admitted = Json::parse(prepared.complete_project_json);
+            noveltea::authoring::count_validation_work(
+                &noveltea::authoring::ValidationWorkCounters::portable_source_checks);
             const auto portable = native_project_bundle(
                 {{"action", "validation-source-check"}, {"admittedProject", admitted}},
                 state.session.get(), root);
@@ -507,6 +524,8 @@ Json validate(std::string_view request_text)
             }
             if (const auto notice_error = native_distribution_notice_error(root, admitted))
                 result["noticeValidationFailure"] = *notice_error;
+            noveltea::authoring::count_validation_work(
+                &noveltea::authoring::ValidationWorkCounters::font_preparations);
             result["fontCoverageInputs"] = native_font_coverage_inputs(*state.session, admitted);
             Json material_programs = Json::object();
             Json material_effective = Json::object();
@@ -516,6 +535,8 @@ Json validate(std::string_view request_text)
                     if (!inspected.accepted)
                         throw std::runtime_error("Native Material owner cannot be inspected: " +
                                                  id + ": " + inspected.error);
+                    noveltea::authoring::count_validation_work(
+                        &noveltea::authoring::ValidationWorkCounters::material_shader_preparations);
                     const auto resolved = state.session->material_compiler_effective(id);
                     if (!resolved)
                         throw std::runtime_error("Native Material resolution failed: " + id);
@@ -570,6 +591,11 @@ Json validate(std::string_view request_text)
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
     }
+    work_counts.record_contributions = state.session->validation_work().rechecked_contributions;
+    work_counts.dependency_contributions =
+        state.session->validation_work().reference_indexed_records;
+    work_counts.localization_checks = state.session->validation_work().localization_rebuilds;
+    result["work"]["endToEnd"] = work_counts_json(work_counts);
     result["work"]["sourceCaptures"] = state.session->source_capture_count() - captures_before;
     result["work"]["localizationRecordsReused"] =
         state.session->localization_record_cache_hits() - record_hits_before;

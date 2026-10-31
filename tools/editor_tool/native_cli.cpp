@@ -1809,6 +1809,8 @@ int project_read(const Arguments& args, std::string action)
     request["projectRoot"] = root_text;
     const auto response = native_request(request);
     if (action == "project-validate") {
+        const bool profile_work = std::getenv("NOVELTEA_VALIDATION_WORK_PROFILE") != nullptr;
+        Json work_profile = response.value("work", Json::object());
         if (!response.value("ok", false) && response.value("kind", std::string{}) == "conflict") {
             const auto message =
                 response.value("error", std::string("Project sources changed during validation."));
@@ -1886,6 +1888,9 @@ int project_read(const Arguments& args, std::string action)
                     return failure(args.json, 70, "NATIVE_PROJECT_VALIDATION_UNAVAILABLE", "/",
                                    "Native validation omitted its localization coverage inputs.",
                                    "Native validation omitted its localization coverage inputs.");
+                if (profile_work)
+                    work_profile["fontCoverageRuns"] =
+                        work_profile.value("fontCoverageRuns", 0) + 1;
                 const auto coverage =
                     native_font_coverage(root_text, response.at("fontCoverageInputs"));
                 for (const auto& item : coverage.value("diagnostics", Json::array())) {
@@ -1919,6 +1924,9 @@ int project_read(const Arguments& args, std::string action)
                     if (std::getenv("NOVELTEA_CLI_TRACE"))
                         std::cerr << "[native-cli] materials with compiler requests: "
                                   << response.at("materialCompilerPrograms").size() << '\n';
+                    if (profile_work)
+                        work_profile["shaderCompileRuns"] =
+                            work_profile.value("shaderCompileRuns", 0) + 1;
                     const auto compiled =
                         native_material_compile(root_text, response.at("materialCompilerPrograms"));
                     if (std::getenv("NOVELTEA_CLI_TRACE"))
@@ -1957,6 +1965,15 @@ int project_read(const Arguments& args, std::string action)
                     args.json, 5, "WORKSPACE_REVISION_CONFLICT", "/",
                     proof.value("error", std::string("Project sources changed during validation.")),
                     "Project sources changed during validation.");
+            if (profile_work && work_profile.contains("endToEnd") && proof.contains("work") &&
+                proof.at("work").is_object()) {
+                for (auto& [key, value] : work_profile["endToEnd"].items())
+                    if (value.is_number_unsigned() && proof.at("work").contains(key) &&
+                        proof.at("work").at(key).is_number_unsigned())
+                        value =
+                            value.get<std::size_t>() + proof.at("work").at(key).get<std::size_t>();
+                work_profile["finalGenerationProofs"] = 1;
+            }
             Json paths = Json::array();
             std::vector<std::size_t> indices;
             for (std::size_t i = 0; i < diagnostics.size(); ++i) {
@@ -1991,14 +2008,16 @@ int project_read(const Arguments& args, std::string action)
                 return item.value("code", std::string{}).starts_with("native.");
             });
         valid = valid && !errors;
-        return emit({{"success", valid},
-                     {"exitCode", valid          ? 0
-                                  : workspace    ? 3
-                                  : native_error ? 6
-                                                 : 4},
-                     {"diagnostics", diagnostics},
-                     {"projectRoot", root_text}},
-                    args.json,
+        Json output{{"success", valid},
+                    {"exitCode", valid          ? 0
+                                 : workspace    ? 3
+                                 : native_error ? 6
+                                                : 4},
+                    {"diagnostics", diagnostics},
+                    {"projectRoot", root_text}};
+        if (profile_work && work_profile.is_object())
+            output["validationWork"] = std::move(work_profile);
+        return emit(output, args.json,
                     valid ? "NovelTea validate succeeded." : "NovelTea validate failed.");
     }
     if (!response.value("ok", false)) {

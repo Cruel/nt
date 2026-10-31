@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "validation_work_instrumentation.hpp"
 
 #include <node_api.h>
 #include <jsoncons/json.hpp>
@@ -22,6 +23,14 @@ using noveltea::authoring::RoomPatch;
 using noveltea::authoring::RoomSessionResult;
 using noveltea::authoring::RoomSessionSnapshot;
 using noveltea::authoring::SourceObservation;
+
+Json validation_work_json(const noveltea::authoring::ValidationWorkCounters& counts)
+{
+    Json result = Json::object();
+    for (const auto& [field, value] : counts.fields())
+        result[std::string(field)] = value;
+    return result;
+}
 
 struct Session {
     std::unique_ptr<ProjectSession> project;
@@ -308,6 +317,8 @@ napi_value call(napi_env env, napi_callback_info info)
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0 ||
                 static_cast<std::uint64_t>(revision) != session.project->working_revision())
                 throw std::runtime_error("Stale native working validation revision.");
+            noveltea::authoring::ValidationWorkCounters counts;
+            noveltea::authoring::ScopedValidationWork measure(counts);
             const auto validated = session.project->validate_project();
             if (static_cast<std::uint64_t>(revision) != session.project->working_revision())
                 throw std::runtime_error("Working Project changed during native validation.");
@@ -328,6 +339,12 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             Json result = Json::object();
             result["workingRevision"] = static_cast<std::uint64_t>(revision);
+            counts.record_contributions =
+                session.project->validation_work().rechecked_contributions;
+            counts.dependency_contributions =
+                session.project->validation_work().reference_indexed_records;
+            counts.localization_checks = session.project->validation_work().localization_rebuilds;
+            result["work"] = validation_work_json(counts);
             result["valid"] = valid;
             result["diagnostics"] =
                 Json::parse(noveltea::authoring::validation_result_json(
@@ -338,6 +355,8 @@ napi_value call(napi_env env, napi_callback_info info)
         if (name == "validateClean") {
             if (argc != 1)
                 throw std::runtime_error("Clean validation takes only the session handle.");
+            noveltea::authoring::ValidationWorkCounters counts;
+            noveltea::authoring::ScopedValidationWork measure(counts);
             const auto validated = session.project->validate_clean_project();
             Json result = Json::object();
             result["valid"] = validated.snapshot.valid;
@@ -348,7 +367,11 @@ napi_value call(napi_env env, napi_callback_info info)
                                     validated.snapshot.valid, "", validated.snapshot.diagnostics}))
                     .at("diagnostics");
             const auto work = session.project->validation_work();
+            counts.record_contributions = work.rechecked_contributions;
+            counts.dependency_contributions = work.reference_indexed_records;
+            counts.localization_checks = work.localization_rebuilds;
             result["work"] = Json::object();
+            result["work"]["endToEnd"] = validation_work_json(counts);
             result["work"]["recheckedRecords"] = work.rechecked_records;
             result["work"]["retainedRecords"] = work.retained_records;
             result["work"]["recheckedContributions"] = work.rechecked_contributions;

@@ -1,4 +1,5 @@
 #include "source_analysis.hpp"
+#include "validation_work_instrumentation.hpp"
 
 #include "source_authority.hpp"
 
@@ -1033,12 +1034,16 @@ SourceAnalysis analyze_project_text(std::string_view relative_path, std::string_
     result.source_path = std::string(relative_path);
     result.source_revision = exact_source_revision(text);
     result.source_text = std::string(text);
-    if (relative_path.ends_with(".lua"))
+    if (relative_path.ends_with(".lua")) {
+        count_validation_work(&ValidationWorkCounters::parsed_lua);
         analyze_lua(result, text, 1, 1, 0, collect_lexical_literals);
-    else if (relative_path.ends_with(".rml"))
+    } else if (relative_path.ends_with(".rml")) {
+        count_validation_work(&ValidationWorkCounters::parsed_rml);
         analyze_rml(result, text, collect_lexical_literals);
-    else if (relative_path.ends_with(".rcss"))
+    } else if (relative_path.ends_with(".rcss")) {
+        count_validation_work(&ValidationWorkCounters::parsed_rcss);
         analyze_cursor_css(result, text, 1, 1);
+    }
     return result;
 }
 } // namespace noveltea::authoring

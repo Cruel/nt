@@ -13,6 +13,92 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #577: end-to-end native validation work counters and reproducible baselines
+
+Validation counters are opt-in and observational, not authorization evidence, cache keys,
+or timing thresholds. Set `NOVELTEA_VALIDATION_WORK_PROFILE=1` on the native CLI.
+JSON `noveltea validate` then includes `validationWork`; without the environment variable
+the existing public JSON diagnostic/exit-code contract is unchanged. The profiler deliberately
+disables the broker's exact-result shortcut for its requests so the native resident validator
+actually runs; **do not compare these timings to normal broker-cache hits**.
+
+`validationWork.endToEnd` accumulates work from native disk validation and its final
+source-generation proof. `sourceCaptures` counts actual `SourceAuthority::capture`
+invocations; `directoryEnumerations` counts calls initiating enumerations; and
+`statReadlinkCalls` records the instrumented containment/type checks (not every kernel
+`stat`/ `readlink` across the CLI). `fileByteReads` counts instrumented exact-file read
+attempts, including cache/proof reads; `contentHashes` counts calls to the authoritative
+`exact_source_revision` function, not bytes hashed or hashes in third-party code.
+`parsedYaml` counts actual decoder calls after its decode-cache short circuit.
+`parsedLua`, `parsedRml` and `parsedRcss` count native text analyzer calls, not
+runtime compiler parses. `recordContributions`, `dependencyContributions`, and
+`localizationChecks` report the native validator's rechecked/rebuilt semantic work.
+`fontPreparations`, `materialShaderPreparations`, `portableSourceChecks` and
+`fullResultAssemblies` cover corresponding preflight/projection stages; the
+top-level `fontCoverageRuns`, `shaderCompileRuns` and `finalGenerationProofs`
+count additional CLI stages. Zeros mean no instrumented work in that phase,
+not proof that no downstream caller did any related work.
+
+Native editor Node-API `validateWorking` returns `work` counters and `validateClean`
+returns `work.endToEnd`, retaining their existing semantic work fields.
+Counters are request-scoped and thread-local, so they cannot accumulate across
+successive requests or cause a saved/working Project to share cache authority.
+
+To reproduce from a Linux host with the pinned development dependencies:
+
+```bash
+cmake --build --preset linux-debug --target noveltea-native-cli
+node editor/scripts/build-native-authoring-addon.mjs --addon-only
+python3 tests/native_cli/validation_performance.py \
+  build/linux-debug/tools/editor_tool/native-cli/noveltea .
+```
+
+The harness copies Feature Lab, then creates disposable 1/101/501-Room Projects.
+For each it records uncached start, unchanged resident, three warm saved-label
+edits, daemon restart with native disk cache, daemon restart after clearing the
+native disk cache, and editor-side unchanged plus three *unsaved* in-memory label
+edits through the real Node-API binding. Feature Lab additionally exercises
+three warm Lua edits. All mutations, cache clearing, daemon runs, and editor
+patches use temporary Projects: the tracked fixtures and running editor are
+untouched. The JSON-lines output contains the source commit, working-tree state,
+executable paths and independently discovered CMake configurations for CLI and
+addon, cache state, individual operation latency and work. Build the
+CLI and addon from the same source revision; keep CPU, filesystem, compiler
+optimization level and fixture size constant when comparing like-for-like
+measurements.
+Do not check wall-clock thresholds into CI.
+
+The first complete instrumented Linux baseline (commit
+`c81eb346e` plus the working changes for #577) used a **Debug CLI** and
+**Release Node-API addon** and produced the following measurements in milliseconds. All changed values are medians of three label
+edits, editor values are *validation time only* (patch time is reported
+separately in the JSON-lines output).
+
+| Project | Uncached CLI | Unchanged resident | Warm saved label | Cached restart | Uncached restart | Editor unsaved label |
+|---|---:|---:|---:|---:|---:|---:|
+| Feature Lab | 14,335 | 955 | 1,003 | 12,475 | 13,898 | 60 |
+| 1 Room | 308 | 33 | 31 | 310 | 312 | 1 |
+| 101 Rooms | 693 | 102 | 110 | 684 | 682 | 4 |
+| 501 Rooms | 2,227 | 387 | 406 | 2,186 | 2,239 | 19 |
+
+Feature Lab's warm saved-label request rechecked **one of 306** records but
+still reported **five captures, 205 directory enumerations, 2,268 file-byte
+reads and 3,813 authoritative hash calls**. The unchanged resident request
+rechecked **zero records** but still reported **four captures, 164
+enumerations and 3,337 hashes**. Unsaved editor validation itself still
+observed two source captures. These instrumented CLI Debug measurements are
+*not* comparable to earlier uninstrumented Release CLI latency tables; Debug
+profiling also increases observable overhead. Editor and CLI measurements use
+**different build configurations** and must not be interpreted as a direct
+throughput comparison.
+
+Certifications assert semantic diagnostics and structural work properties
+rather than timing: unchanged requests have zero rechecked records yet still
+perform outer source work; the editor benchmark rejects changed semantic
+diagnostics or any physical YAML mutation from an unsaved patch. Saved YAML
+line/column annotations can differ for dirty in-memory owners, so editor
+comparison excludes those presentation coordinates.
+
 ### #574: capture-local filesystem component evidence (2026-10-30)
 
 **Attribution and change.** A targeted Release `strace -f` of two successive

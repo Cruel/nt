@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "validation_work_instrumentation.hpp"
 #include "property_semantics.hpp"
 #include "character_archetype_semantics.hpp"
 #include "asset_animation_semantics.hpp"
@@ -39,6 +40,7 @@ std::string pointer_token(std::string_view token);
 
 std::string read_bytes(const std::filesystem::path& path)
 {
+    count_validation_work(&ValidationWorkCounters::file_byte_reads);
     std::ifstream input(path, std::ios::binary);
     if (!input)
         throw std::runtime_error("Cannot read Room source: " + path.string());
@@ -267,6 +269,7 @@ std::string source_diagnostic_owner(std::string_view path, std::string_view owne
 // Save also checks original bytes exactly to eliminate reliance on the digest alone.
 std::string exact_source_revision(std::string_view source)
 {
+    count_validation_work(&ValidationWorkCounters::content_hashes);
     static constexpr std::array<std::uint32_t, 64> constants{
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
         0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,

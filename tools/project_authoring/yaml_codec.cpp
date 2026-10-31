@@ -1,4 +1,5 @@
 #include "yaml_codec.hpp"
+#include "validation_work_instrumentation.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -982,6 +983,7 @@ YamlSourceResult open_yaml_source(std::string_view source)
         if (found != active_decode_cache->results.end())
             return found->second;
     }
+    count_validation_work(&ValidationWorkCounters::parsed_yaml);
     YamlSourceResult result;
     try {
         Parsed parsed(source);

@@ -83,6 +83,7 @@ function validate(label, cold = false) {
       maxBuffer: 16 * 1024 * 1024,
       env: {
         ...process.env,
+        NOVELTEA_VALIDATION_WORK_PROFILE: '1',
         NOVELTEA_CLI_VALIDATION_PROFILE: '1',
         ...(cold ? { NOVELTEA_EXPORT_PROFILE: '1' } : {}),
       },
@@ -113,6 +114,7 @@ function validate(label, cold = false) {
     durationMs,
     diagnostics: result.diagnostics ?? [],
     metrics,
+    work: result.validationWork ?? null,
     trace,
   };
 }
@@ -251,6 +253,17 @@ try {
     throw new Error(`Missing selected cases: ${missingRequested.join(', ')}`);
 
   const baseline = validate('baseline');
+  const unchanged = validate('unchanged');
+  const unchangedRow = {
+    case: 'unchanged',
+    warmMs: unchanged.durationMs,
+    work: unchanged.work,
+    diagnosticsEqual: diagnosticSet(unchanged) === diagnosticSet(baseline),
+  };
+  if (!unchangedRow.diagnosticsEqual)
+    throw new Error('Unchanged resident validation changed diagnostics');
+  results.push(unchangedRow);
+  console.log(JSON.stringify(unchangedRow));
   console.log(`Baseline: ${baseline.durationMs} ms; ${cases.length} scenarios`);
   for (const item of cases) {
     const file = path.join(root, item.relativePath);
@@ -272,7 +285,9 @@ try {
         source: item.relativePath,
         warmMs: warm.durationMs,
         admissionMs: m?.workspaceAdmissionMs,
-        checks: m?.validationWork.executed,
+        checks: m?.validationWork?.executed,
+        work: warm.work,
+        coldWork: cold?.work,
         topChecks: m?.validationWork.checkFamilyMs?.slice(0, 5),
         graphMs: m?.dependencyMs,
         graphContributions: m?.dependencyWork.derivedContributions,

@@ -907,7 +907,9 @@ std::optional<int> route_native_project_owner(const std::vector<std::string>& ar
                  {"outputMode", json ? "json" : "human"},
                  {"nativeValidationRequest", validation},
                  {"authoringValidationSemanticKey",
-                  json && validation ? native_validation_semantic_key() : std::string{}}};
+                  json && validation && std::getenv("NOVELTEA_VALIDATION_WORK_PROFILE") == nullptr
+                      ? native_validation_semantic_key()
+                      : std::string{}}};
     if (stdin_text)
         payload["stdin"] = *stdin_text;
     const auto reply =

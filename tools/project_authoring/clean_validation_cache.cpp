@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "validation_work_instrumentation.hpp"
 #include <noveltea/core/fingerprint.hpp>
 
 #include <jsoncons/json.hpp>
@@ -33,6 +34,7 @@ using Json = jsoncons::ojson;
 // but read into a sized buffer with one bulk I/O operation.
 std::optional<std::string> read_exact_file(const fs::path& path)
 {
+    count_validation_work(&ValidationWorkCounters::file_byte_reads);
     std::error_code error;
     const auto size = fs::file_size(path, error);
     if (error || size > static_cast<std::uintmax_t>(std::numeric_limits<std::streamsize>::max()))
