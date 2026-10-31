@@ -1555,13 +1555,70 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         std::string source_error;
         require(authority.initialize(source_error),
                 "Physical Project source registry initializes: " + source_error);
+        const auto* initial =
+            authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml");
+        require(initial != nullptr, "Initial physical room source is retained");
+        ValidationWorkCounters quiet_work;
+        SourceObservation quiet;
+        {
+            ScopedValidationWork measure(quiet_work);
+            quiet = authority.observe();
+        }
+#ifdef __linux__
+        require(quiet.authoritative && quiet.unchanged &&
+                    authority.verified_source("records/rooms/room-lifecycle-roundtrip.yaml") ==
+                        initial &&
+                    quiet_work.source_captures == 1 && quiet_work.directory_enumerations == 0 &&
+                    quiet_work.file_byte_reads == 0 && quiet_work.content_hashes == 0 &&
+                    quiet_work.parsed_yaml == 0,
+                "Healthy watcher reuses unchanged directory and source evidence without IO");
+#else
+        require(quiet.authoritative && quiet.unchanged,
+                "Platform without native watchers retains conservative physical observation");
+#endif
+        const auto scripts = temp.root / "scripts";
+        const auto relocated_scripts = temp.root / "scripts-observer-relocated";
+        std::filesystem::rename(scripts, relocated_scripts);
+        std::filesystem::create_directory(scripts);
+        write(scripts / "replacement.lua", "return true\n");
+        const auto replaced = authority.observe();
+        require(replaced.authoritative &&
+                    std::find(replaced.delta.added.begin(), replaced.delta.added.end(),
+                              "scripts/replacement.lua") != replaced.delta.added.end() &&
+                    std::find(replaced.delta.removed.begin(), replaced.delta.removed.end(),
+                              "scripts/notice-board.lua") != replaced.delta.removed.end(),
+                "Replacing a top-level watched source directory refreshes its entire membership");
+        std::filesystem::remove_all(scripts);
+        std::filesystem::rename(relocated_scripts, scripts);
+        require(authority.observe().authoritative &&
+                    authority.verified_revisions()->contains("scripts/notice-board.lua"),
+                "Restoring top-level source directory restores its watched source inventory");
         const std::string owner = "records/rooms/room-lifecycle-roundtrip.yaml";
         const auto before = read(temp.root / owner);
         const auto* first = authority.verified_source(owner);
         require(first && first->yaml && first->yaml->accepted && first->bytes == before &&
                     first->revision == exact_source_revision(before),
                 "Verified source entry pins exact bytes, revision and YAML locations");
-        const auto original_revision = first->revision;
+        require(first->size == before.size() &&
+                    first->modified == std::filesystem::last_write_time(temp.root / owner),
+                "Verified source retains exact file metadata with observed bytes");
+        const auto previous_time = first->modified;
+        const auto previous_bytes = first->bytes;
+        const auto previous_revision = first->revision;
+        std::filesystem::last_write_time(temp.root / owner,
+                                         previous_time - std::chrono::seconds(2));
+        authority.hint(owner);
+        const auto metadata_observation = authority.observe();
+        const auto* timestamp_only = authority.verified_source(owner);
+        require(metadata_observation.authoritative && metadata_observation.delta.changed.empty() &&
+                    timestamp_only && timestamp_only->revision == previous_revision &&
+                    timestamp_only->modified ==
+                        std::filesystem::last_write_time(temp.root / owner) &&
+                    timestamp_only->bytes == previous_bytes &&
+                    previous_time != timestamp_only->modified,
+                "Timestamp-only notification updates retained metadata without changing source "
+                "identity");
+        const auto original_revision = previous_revision;
         write(temp.root / owner, before + "\n# physical generation change\n");
         const auto observed = authority.observe();
         const auto* changed = authority.verified_source(owner);
@@ -1629,9 +1686,8 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         ScopedValidationWork measure(repeated_work);
         repeated = project->validate_project();
     }
-    require(repeated_work.source_captures > 0 && repeated_work.directory_enumerations > 0 &&
-                repeated_work.file_byte_reads > 0 && repeated_work.content_hashes > 0,
-            "Warm native validation work counters include physical source orchestration");
+    require(repeated_work.source_captures > 0,
+            "Warm native validation still invokes source observation");
     require(repeated.valid && project->validation_work().rechecked_records == 0 &&
                 project->validation_work().retained_records > 0,
             "Unchanged native validation retains every source contribution");
@@ -1648,6 +1704,12 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     const auto media = temp.root / "assets/images/girl_normal.webp";
     const auto original_media = read(media);
     std::filesystem::remove(media);
+    const auto removed_asset_observation = project->observe_sources();
+    require(std::find(removed_asset_observation.delta.removed.begin(),
+                      removed_asset_observation.delta.removed.end(),
+                      "assets/images/girl_normal.webp") !=
+                removed_asset_observation.delta.removed.end(),
+            "Native watcher detects missing referenced binary before validation");
     const auto missing_media = project->validate_project();
     require(
         !missing_media.valid &&

@@ -66,12 +66,15 @@ struct SourceObservation {
 struct VerifiedProjectSource {
     std::string revision;
     std::string bytes;
+    std::uintmax_t size = 0;
+    std::filesystem::file_time_type modified{};
     std::optional<YamlSourceResult> yaml;
 };
 
-// Each editor/daemon Project session owns an independent instance. OS events are
-// scheduling hints, never evidence of a physical source revision. A successful
-// observation re-discovers canonical source membership and hashes exact bytes.
+// Each editor/daemon Project session owns an independent instance. A healthy
+// watched inventory retains unreported source bytes and directory membership;
+// reported paths are always re-proven, even when size and mtime are unchanged.
+// Lost watcher coverage requires a fresh physical inventory.
 // Neither an Asset's unrelated neighbors nor arbitrary Project-root files are read.
 class SourceAuthority {
 public:
@@ -91,12 +94,13 @@ public:
     void coverage_lost(); // watcher errors, overflow, resume, or a replaced directory
     bool uncertain() const { return uncertain_; }
     std::vector<std::string> invalid_source_paths() const;
-    // Only usable after a successful full observation; never a watcher-only proof.
+    // Only usable after a successful physical observation; the resident inventory
+    // is valid only with intact watcher coverage.
     std::optional<std::map<std::string, std::string>> verified_revisions() const;
     // Synchronous callers may inspect the immutable observed map without
     // copying it. Never retain this pointer across observe()/writes.
     const std::map<std::string, std::string>* verified_revisions_view() const noexcept;
-    // Counts full physical scans (including retries) by this resident authority.
+    // Counts physical observation captures, including warm and retry captures.
     std::uint64_t source_capture_count() const noexcept { return source_capture_count_; }
     // Physical Asset media changes do not change the Asset's YAML revision.
     // Return the owning YAML records whose local membership checks must be
@@ -109,18 +113,25 @@ public:
 private:
     struct NativeWatch;
     struct Capture {
+        struct Member {
+            bool directory = false;
+            bool regular = false;
+        };
         std::map<std::string, std::string> revisions;
         std::set<std::string> directories;
+        std::map<std::string, std::map<std::string, Member>> members;
         std::map<std::string, std::set<std::string>> asset_references;
         std::vector<InvalidSource> invalid_sources;
         std::map<std::string, std::shared_ptr<const VerifiedProjectSource>, std::less<>> sources;
     };
-    Capture capture() const;
+    Capture capture(const std::set<std::string>* hints = nullptr) const;
     void arm(const std::set<std::string>& directories);
 
     std::filesystem::path root_;
     std::filesystem::path canonical_root_;
     std::map<std::string, std::string> baseline_;
+    std::set<std::string> watched_directories_;
+    std::map<std::string, std::map<std::string, Capture::Member>> directory_members_;
     std::map<std::string, std::set<std::string>> asset_references_;
     std::vector<InvalidSource> invalid_sources_;
     std::map<std::string, std::shared_ptr<const VerifiedProjectSource>, std::less<>> sources_;

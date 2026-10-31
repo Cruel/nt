@@ -97,7 +97,8 @@ bool is_source_extension(const std::filesystem::path& path)
            path.extension() == ".lua" || path.extension() == ".rml" || path.extension() == ".rcss";
 }
 
-std::string read_exact_bytes(const std::filesystem::path& path)
+std::string read_exact_bytes(const std::filesystem::path& path,
+                             std::filesystem::file_time_type* observed_time = nullptr)
 {
     count_validation_work(&ValidationWorkCounters::file_byte_reads);
     const auto before_size = std::filesystem::file_size(path);
@@ -116,6 +117,8 @@ std::string read_exact_bytes(const std::filesystem::path& path)
         std::filesystem::last_write_time(path) != before_time)
         throw std::runtime_error("Project source changed during physical observation: " +
                                  path.string());
+    if (observed_time)
+        *observed_time = before_time;
     return bytes;
 }
 
@@ -150,6 +153,10 @@ struct SourceAuthority::NativeWatch {
 #ifdef __linux__
     int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
     std::map<std::string, int> descriptors;
+    std::set<int> removed_watches;
+    static constexpr auto mask = IN_CREATE | IN_DELETE | IN_CLOSE_WRITE | IN_ATTRIB |
+                                 IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF |
+                                 IN_UNMOUNT;
 
     ~NativeWatch()
     {
@@ -163,7 +170,25 @@ struct SourceAuthority::NativeWatch {
             close(fd);
         fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
         descriptors.clear();
+        removed_watches.clear();
         return fd >= 0;
+    }
+
+    bool watch(const std::filesystem::path& root, const std::string& directory)
+    {
+        if (fd < 0)
+            return false;
+        if (descriptors.contains(directory))
+            return true;
+        const auto wd = inotify_add_watch(fd, (root / directory).c_str(), mask);
+        if (wd < 0)
+            return false;
+        // A recycled descriptor with a pending IN_IGNORED has ambiguous
+        // ownership; force coverage recovery rather than swallowing its loss.
+        if (removed_watches.contains(wd))
+            return false;
+        descriptors.emplace(directory, wd);
+        return true;
     }
 
     bool drain(bool& observed, std::set<std::string>& hinted_paths)
@@ -190,8 +215,11 @@ struct SourceAuthority::NativeWatch {
                         if (event->wd == wd) {
                             const std::string name(event->name, strnlen(event->name, event->len));
                             hinted_paths.insert(directory == "." ? name : directory + "/" + name);
-                            break;
                         }
+                }
+                if ((event->mask & IN_IGNORED) && removed_watches.erase(event->wd)) {
+                    pos += sizeof(inotify_event) + event->len;
+                    continue;
                 }
                 if (event->mask &
                     (IN_Q_OVERFLOW | IN_IGNORED | IN_UNMOUNT | IN_DELETE_SELF | IN_MOVE_SELF))
@@ -210,26 +238,27 @@ struct SourceAuthority::NativeWatch {
                 ++it;
                 continue;
             }
-            inotify_rm_watch(fd, it->second);
+            const auto wd = it->second;
             it = descriptors.erase(it);
+            // Two in-root aliases may resolve to one inotify watch descriptor.
+            // Dropping one alias must not silently unwatch the other.
+            const auto still_used =
+                std::any_of(descriptors.begin(), descriptors.end(),
+                            [&](const auto& item) { return item.second == wd; });
+            if (!still_used && inotify_rm_watch(fd, wd) == 0)
+                removed_watches.insert(wd);
         }
-        constexpr auto mask = IN_CREATE | IN_DELETE | IN_CLOSE_WRITE | IN_ATTRIB | IN_MOVED_FROM |
-                              IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF | IN_UNMOUNT;
         bool covered = true;
         for (const auto& directory : directories) {
-            if (descriptors.contains(directory))
-                continue;
-            const auto wd = inotify_add_watch(fd, (root / directory).c_str(), mask);
-            if (wd < 0)
+            if (!watch(root, directory))
                 covered = false;
-            else
-                descriptors.emplace(directory, wd);
         }
         return covered;
     }
 #else
     bool reset() { return true; }
     bool drain(bool&, std::set<std::string>&) { return false; }
+    bool watch(const std::filesystem::path&, const std::string&) { return true; }
     bool refresh(const std::filesystem::path&, const std::set<std::string>&) { return true; }
 #endif
 };
@@ -242,12 +271,58 @@ SourceAuthority::SourceAuthority(std::filesystem::path root)
 
 SourceAuthority::~SourceAuthority() = default;
 
-SourceAuthority::Capture SourceAuthority::capture() const
+SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* hints) const
 {
     ++source_capture_count_;
     count_validation_work(&ValidationWorkCounters::source_captures);
     Capture result;
     result.directories.insert(".");
+    if (hints)
+        result.members = directory_members_;
+    else if (!native_->watch(root_, "."))
+        throw std::runtime_error("Cannot watch Project root during source admission.");
+    if (hints) {
+        // Watch events are invalidations, not a claim about what the leaf now
+        // contains. Refresh only the affected cached membership entry; a new
+        // directory is enumerated below with its watch armed first.
+        for (const auto& path : *hints) {
+            const auto relative = std::filesystem::path(path);
+            const auto parent = relative.parent_path().empty()
+                                    ? std::string(".")
+                                    : relative.parent_path().generic_string();
+            auto directory = result.members.find(parent);
+            const bool was_directory = result.members.contains(path);
+            if (directory == result.members.end() && !was_directory)
+                continue; // Fixed sources and referenced media need no directory inventory.
+            std::error_code error;
+            count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
+            const auto status = std::filesystem::symlink_status(root_ / relative, error);
+            if (error && error != std::errc::no_such_file_or_directory)
+                throw std::filesystem::filesystem_error("Cannot inspect changed Project path",
+                                                        root_ / relative, error);
+            if (status.type() == std::filesystem::file_type::symlink)
+                throw std::runtime_error("Changed Project symlink needs full source readmission: " +
+                                         path);
+            if (was_directory || status.type() == std::filesystem::file_type::directory) {
+                // A replacement may retain the same name but different children.
+                for (auto it = result.members.lower_bound(path); it != result.members.end();) {
+                    if (it->first == path || it->first.starts_with(path + "/"))
+                        it = result.members.erase(it);
+                    else
+                        break;
+                }
+            }
+            if (directory != result.members.end()) {
+                if (status.type() == std::filesystem::file_type::not_found) {
+                    directory->second.erase(path);
+                } else {
+                    directory->second[path] =
+                        Capture::Member{status.type() == std::filesystem::file_type::directory,
+                                        status.type() == std::filesystem::file_type::regular};
+                }
+            }
+        }
+    }
     std::set<std::string> assets;
     // Resolve each component of an observed parent once per capture. On POSIX,
     // a normal directory extends its already-resolved parent; only symlinks
@@ -308,6 +383,31 @@ SourceAuthority::Capture SourceAuthority::capture() const
         return absolute;
     };
     const auto add = [&](const std::string& relative, bool physical_asset = false) {
+        const auto dirty = [&] {
+            if (!hints)
+                return true;
+            for (const auto& hint : *hints)
+                if (relative == hint || relative.starts_with(hint + "/"))
+                    return true;
+            return false;
+        }();
+        if (!dirty) {
+            if (const auto prior = baseline_.find(relative); prior != baseline_.end()) {
+                const auto parent = std::filesystem::path(relative).parent_path().generic_string();
+                if (watched_directories_.contains(parent))
+                    result.directories.insert(parent);
+                if (physical_asset || prior->second == "absent") {
+                    result.revisions.emplace(relative, prior->second);
+                    return;
+                }
+                if (const auto source = sources_.find(relative);
+                    source != sources_.end() && source->second->revision == prior->second) {
+                    result.revisions.emplace(relative, prior->second);
+                    result.sources.emplace(relative, source->second);
+                    return;
+                }
+            }
+        }
         std::filesystem::file_status leaf;
         const auto absolute = secure(relative, &leaf);
         const auto parent = std::filesystem::path(relative).parent_path();
@@ -315,8 +415,12 @@ SourceAuthority::Capture SourceAuthority::capture() const
             const auto type = verified_parents.at(parent).type;
             if (type == std::filesystem::file_type::directory ||
                 (type == std::filesystem::file_type::symlink &&
-                 std::filesystem::is_directory(root_ / parent)))
+                 std::filesystem::is_directory(root_ / parent))) {
                 result.directories.insert(parent.generic_string());
+                if (!native_->watch(root_, parent.generic_string()))
+                    throw std::runtime_error("Cannot watch Project source parent: " +
+                                             parent.generic_string());
+            }
         }
         std::error_code ec;
         // symlink_status already proves ordinary leaf type. Only a contained
@@ -346,39 +450,72 @@ SourceAuthority::Capture SourceAuthority::capture() const
             result.revisions.emplace(relative, "physical:" + std::to_string(size) + ":" +
                                                    std::to_string(modified_ns));
         } else {
-            auto bytes = read_exact_bytes(absolute);
+            std::filesystem::file_time_type modified;
+            auto bytes = read_exact_bytes(absolute, &modified);
             auto revision = exact_source_revision(bytes);
             result.revisions.emplace(relative, revision);
-            if (const auto prior = sources_.find(relative);
-                prior != sources_.end() && prior->second->revision == revision) {
-                result.sources.emplace(relative, prior->second);
+            if (const auto prior = sources_.find(relative); prior != sources_.end() &&
+                                                            prior->second->revision == revision &&
+                                                            prior->second->bytes == bytes) {
+                if (prior->second->size == bytes.size() && prior->second->modified == modified) {
+                    result.sources.emplace(relative, prior->second);
+                } else {
+                    // Timestamp-only notifications keep parsed evidence, but
+                    // must advance metadata without mutating pinned snapshots.
+                    auto updated = std::make_shared<VerifiedProjectSource>(*prior->second);
+                    updated->size = bytes.size();
+                    updated->modified = modified;
+                    result.sources.emplace(relative, std::move(updated));
+                }
             } else {
                 auto source = std::make_shared<VerifiedProjectSource>();
                 source->revision = std::move(revision);
                 source->bytes = std::move(bytes);
+                source->size = source->bytes.size();
+                source->modified = modified;
                 if (relative.ends_with(".yaml"))
                     source->yaml = open_yaml_source(source->bytes);
                 result.sources.emplace(relative, std::move(source));
             }
         }
     };
+    struct InventoryEntry {
+        std::filesystem::path filename;
+        Capture::Member member;
+        const std::filesystem::path& path() const { return filename; }
+        bool is_directory() const { return member.directory; }
+        bool is_regular_file() const { return member.regular; }
+    };
     const auto scan = [&](const std::string& directory, auto&& accept) {
-        std::filesystem::file_status leaf;
-        const auto absolute = secure(directory, &leaf);
-        const auto status = leaf.type() == std::filesystem::file_type::symlink
-                                ? std::filesystem::status(absolute)
-                                : leaf;
-        if (status.type() == std::filesystem::file_type::not_found)
-            return;
-        if (!std::filesystem::is_directory(status))
-            throw std::runtime_error("Replaced Project source directory: " + directory);
-        result.directories.insert(directory);
-        count_validation_work(&ValidationWorkCounters::directory_enumerations);
-        for (const auto& entry : std::filesystem::directory_iterator(absolute)) {
-            const auto relative = entry.path().lexically_relative(root_).generic_string();
-            secure(relative);
-            accept(entry, relative);
+        auto current = result.members.find(directory);
+        if (current == result.members.end()) {
+            std::filesystem::file_status leaf;
+            const auto absolute = secure(directory, &leaf);
+            const auto status = leaf.type() == std::filesystem::file_type::symlink
+                                    ? std::filesystem::status(absolute)
+                                    : leaf;
+            if (status.type() == std::filesystem::file_type::not_found)
+                return;
+            if (!std::filesystem::is_directory(status))
+                throw std::runtime_error("Replaced Project source directory: " + directory);
+            if (!native_->watch(root_, directory))
+                throw std::runtime_error("Cannot watch Project source directory: " + directory);
+            count_validation_work(&ValidationWorkCounters::directory_enumerations);
+            auto& membership = result.members[directory];
+            for (const auto& entry : std::filesystem::directory_iterator(absolute)) {
+                const auto relative = entry.path().lexically_relative(root_).generic_string();
+                secure(relative);
+                membership.emplace(relative,
+                                   Capture::Member{entry.is_directory(), entry.is_regular_file()});
+            }
+            current = result.members.find(directory);
         }
+        result.directories.insert(directory);
+        // Copy the direct children because a nested scan may insert into the
+        // same membership index. No physical enumeration occurs on warm paths.
+        const auto entries = current->second;
+        for (const auto& [relative, member] : entries)
+            accept(InventoryEntry{root_ / relative, member}, relative);
     };
     for (const auto* path : fixed_sources) {
         add(path);
@@ -525,32 +662,20 @@ SourceAuthority::Capture SourceAuthority::capture() const
         });
     });
     const auto scan_tree = [&](const std::string& directory, std::string_view extension) {
-        std::filesystem::file_status leaf;
-        const auto absolute = secure(directory, &leaf);
-        const auto status = leaf.type() == std::filesystem::file_type::symlink
-                                ? std::filesystem::status(absolute)
-                                : leaf;
-        if (status.type() == std::filesystem::file_type::not_found)
-            return;
-        if (!std::filesystem::is_directory(status))
-            throw std::runtime_error("Replaced Project source directory: " + directory);
-        count_validation_work(&ValidationWorkCounters::directory_enumerations);
-        for (std::filesystem::recursive_directory_iterator
-                 it(absolute, std::filesystem::directory_options::follow_directory_symlink),
-             end;
-             it != end; ++it) {
-            const auto relative = it->path().lexically_relative(root_).generic_string();
-            secure(relative);
-            if (it.depth() > 16)
-                throw std::runtime_error("Project source directory traversal is cyclic or deep: " +
-                                         relative);
-            if (it->is_directory())
-                result.directories.insert(relative);
-            else if (it->is_regular_file() &&
-                     (it->path().extension() == extension ||
-                      (directory == "shaders" && it->path().extension() == ".sh")))
-                add(relative);
-        }
+        const auto visit = [&](auto&& self, const std::string& parent, int depth) -> void {
+            scan(parent, [&](const auto& entry, const std::string& relative) {
+                if (depth > 16)
+                    throw std::runtime_error(
+                        "Project source directory traversal is cyclic or deep: " + relative);
+                if (entry.is_directory())
+                    self(self, relative, depth + 1);
+                else if (entry.is_regular_file() &&
+                         (entry.path().extension() == extension ||
+                          (directory == "shaders" && entry.path().extension() == ".sh")))
+                    add(relative);
+            });
+        };
+        visit(visit, directory, 0);
     };
     scan_tree("scripts", ".lua");
     scan_tree("shaders", ".sc");
@@ -613,8 +738,23 @@ void SourceAuthority::arm(const std::set<std::string>& directories)
 bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
 {
     try {
-        auto captured = capture();
+        Capture captured;
+        bool stable = false;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            captured = capture();
+            bool changed_during_admission = false;
+            if (native_->drain(changed_during_admission, hinted_paths_))
+                throw std::runtime_error("Project watcher lost coverage during admission.");
+            if (!changed_during_admission) {
+                stable = true;
+                break;
+            }
+        }
+        if (!stable)
+            throw std::runtime_error("Project changed continuously during source admission.");
         baseline_ = std::move(captured.revisions);
+        watched_directories_ = captured.directories;
+        directory_members_ = std::move(captured.members);
         sources_ = std::move(captured.sources);
         asset_references_ = std::move(captured.asset_references);
         invalid_sources_ = std::move(captured.invalid_sources);
@@ -625,6 +765,9 @@ bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
         initialized_ = true;
         uncertain_ = false;
         arm(captured.directories);
+        if (uncertain_)
+            throw std::runtime_error("Project watcher could not cover all source directories.");
+        hinted_paths_.clear();
         error.clear();
         return true;
     } catch (const std::exception& e) {
@@ -661,7 +804,6 @@ bool SourceAuthority::acknowledge_own_write(std::string_view relative_path,
             const auto bytes = read_exact_bytes(absolute);
             if (!source_revision_matches(bytes, revision))
                 return false;
-            // This expand-phase observer still publishes SHA-256 identities.
             resident_revision = exact_source_revision(bytes);
         }
         // A journal can create or erase tracked records as well as update an
@@ -669,6 +811,7 @@ bool SourceAuthority::acknowledge_own_write(std::string_view relative_path,
         // identity; the next observation must not mistake it for an external
         // addition or leave authority permanently uncertain.
         baseline_.insert_or_assign(path, std::move(resident_revision));
+        hinted_paths_.insert(path);
         return true;
     } catch (...) {
         return false;
@@ -762,17 +905,28 @@ SourceObservation SourceAuthority::observe()
         uncertain_ = true;
     observation.full_rescan = uncertain_;
     try {
+        // Arm the replacement watcher *before* a recovery capture. Resetting
+        // after the capture would leave a blind window between proof and watch.
+        if (uncertain_ && !native_->reset())
+            throw std::runtime_error("Cannot restore Project watcher coverage.");
         // If native notifications arrive during a scan, the scanned set is not
         // necessarily a single stable physical generation. Retry instead of
         // publishing an unprovable snapshot as current.
         Capture captured;
         bool stable = false;
         for (int attempt = 0; attempt < 3; ++attempt) {
-            captured = capture();
+#ifdef __linux__
+            captured = capture(uncertain_ ? nullptr : &hinted_paths_);
+#else
+            captured = capture(); // No native watcher: re-prove every physical generation.
+#endif
             bool during_scan = false;
             if (native_->drain(during_scan, hinted_paths_)) {
                 uncertain_ = true;
                 observation.full_rescan = true;
+                if (!native_->reset())
+                    throw std::runtime_error("Cannot restore Project watcher coverage.");
+                during_scan = true;
             }
             if (!during_scan) {
                 stable = true;
@@ -811,13 +965,15 @@ SourceObservation SourceAuthority::observe()
                                 observation.delta.changed.empty() &&
                                 observation.delta.removed.empty();
         baseline_ = std::move(captured.revisions);
+        watched_directories_ = captured.directories;
+        directory_members_ = std::move(captured.members);
         sources_ = std::move(captured.sources);
         asset_references_ = std::move(captured.asset_references);
         invalid_sources_ = observation.invalid_sources;
-        if (uncertain_ && !native_->reset())
-            observation.full_rescan = true;
         uncertain_ = false;
         arm(captured.directories);
+        if (uncertain_)
+            throw std::runtime_error("Project watcher could not cover all source directories.");
         observation.watch_paths.assign(hinted_paths_.begin(), hinted_paths_.end());
         hinted_paths_.clear();
     } catch (const std::exception& e) {

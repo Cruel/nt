@@ -13,6 +13,33 @@ records baseline evidence from `4e0dcdfc`, not performance guarantees. See
 The problem is **repeated whole-Project work around an incremental validator**, not an
 unoptimized compiler build or failure to retain the primary validation session.
 
+### #582: watcher-backed native Project source inventory
+
+Linux resident `SourceAuthority` now arms inotify coverage during cold discovery,
+retains direct directory memberships and immutable verified source bytes/revisions/
+parsed YAML, and drains watcher invalidations before each observation. An
+unchanged, covered request uses the resident inventory without filesystem tree
+enumeration, source byte reads, or source rehashing. Reported file paths are
+re-read even if their size and mtime match the retained metadata. Added,
+removed, renamed, and newly nested sources update the affected membership;
+new directories are watched before enumeration. Changed Asset YAML also
+refreshes its referenced binary source membership without reading unrelated
+binary files.
+
+If coverage is lost (including inotify overflow or a replaced watched
+directory), authority is revoked until a full source readmission succeeds.
+Symlink changes, cycles and paths escaping the canonical Project root fail
+closed rather than reusing cached evidence. Platforms without native watcher
+coverage still perform full observations. The healthy-watcher policy
+intentionally does **not** detect unreported equal-size, restored-mtime changes
+on every request. Transaction compare-and-swap, root containment checks, and
+exact Asset/bundle publication proofs are **independent** of this source
+inventory cache; watcher evidence never substitutes for a write precondition.
+The performance counter `sourceCaptures` continues to count observation calls,
+including warm captures; the avoided work appears in `directoryEnumerations`,
+`fileByteReads`, `contentHashes`, and parser counters. Other validation and
+final-publication phases may still read/hash sources independently.
+
 ### #577: end-to-end native validation work counters and reproducible baselines
 
 Validation counters are opt-in and observational, not authorization evidence, cache keys,
