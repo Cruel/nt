@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "semantic_graph_dependencies.hpp"
 
 #include "source_authority.hpp"
 #include "yaml_codec.hpp"
@@ -205,6 +206,14 @@ std::vector<std::string> impact_paths(std::string_view role, std::string_view ta
     if (role == "condition-variable" || role == "variable-ref")
         return {std::string(target) + "/data/type", std::string(target) + "/data/defaultValue",
                 std::string(target) + "/data/enumValues"};
+    if (role == "animation-frame" || role == "animation-video")
+        return {std::string(target) + "/data/kind"};
+    if (role == "flow-call-scene")
+        return {std::string(target) + "/data/inputs", std::string(target) + "/data/events",
+                std::string(target) + "/data/terminal"};
+    if (role == "interaction-verb")
+        return {std::string(target) + "/data/slots", std::string(target) + "/data/offers",
+                std::string(target) + "/data/defaultProgram"};
     if (role == "room-cast-character")
         return {std::string(target) + "/data/defaults", std::string(target) + "/data/poses",
                 std::string(target) + "/data/expressions", std::string(target) + "/data/idles"};
@@ -359,6 +368,19 @@ void walk(const Json& value, const std::string& path, const Json& owner, Builder
         } else if ((family == "dialogues" || family == "scenes") && has("/data/") &&
                    path.ends_with("/asset")) {
             target_family = "assets";
+        } else if ((family == "dialogues" || family == "scenes") && has("/data/") &&
+                   path.ends_with("/scene")) {
+            target_family = "scenes";
+            role = "flow-call-scene";
+        } else if ((family == "dialogues" || family == "scenes") && has("/data/") &&
+                   path.ends_with("/dialogue")) {
+            target_family = "dialogues";
+        } else if ((family == "dialogues" || family == "scenes") && has("/data/") &&
+                   path.ends_with("/room")) {
+            target_family = "rooms";
+        } else if (family == "interactions" && has("/data/rules/") && path.ends_with("/verb")) {
+            target_family = "verbs";
+            role = "interaction-verb";
         } else if ((family == "dialogues" || family == "scenes" || family == "interactions") &&
                    has("/data/") && path.ends_with("/character")) {
             target_family = "characters";
@@ -366,6 +388,18 @@ void walk(const Json& value, const std::string& path, const Json& owner, Builder
             target_family = "layouts";
         } else if (family == "interactions" && has("/data/") && path.ends_with("/room")) {
             target_family = "rooms";
+        } else if ((family == "rooms" || family == "characters" || family == "interactables") &&
+                   path.ends_with("/archetype")) {
+            target_family = "archetypes";
+        } else if (family == "archetypes" && path.ends_with("/data/base")) {
+            target_family = "archetypes";
+        } else if (family == "animations" && has("/data/motions/") && has("/frames/") &&
+                   path.ends_with("/image")) {
+            target_family = "assets";
+            role = "animation-frame";
+        } else if (family == "animations" && has("/data/motions/") && path.ends_with("/video")) {
+            target_family = "assets";
+            role = "animation-video";
         }
         if (!target_family.empty())
             graph.edge(owner, record_key(target_family, id), path,
@@ -377,7 +411,9 @@ void walk(const Json& value, const std::string& path, const Json& owner, Builder
         return;
     if (value.contains("$ref") && value.at("$ref").is_object()) {
         const auto& ref = value.at("$ref");
-        const auto family = member_string(ref, "collection");
+        auto family = member_string(ref, "collection");
+        if (family.empty())
+            family = member_string(ref, "registry");
         const auto id = member_string(ref, "id");
         if (collection_known(family) && !id.empty()) {
             const auto target = record_key(family, id);
@@ -512,6 +548,57 @@ std::string read_contained_source(const std::filesystem::path& root, const std::
     return bytes;
 }
 } // namespace
+
+std::vector<SemanticGraphDependency>
+semantic_graph_record_dependencies(std::string_view owner, std::string_view normalized_json)
+{
+    std::vector<SemanticGraphDependency> dependencies;
+    const auto slash = owner.find('/');
+    if (slash == owner.npos || normalized_json.empty())
+        return dependencies;
+    const auto family = owner.substr(0, slash);
+    const auto id = owner.substr(slash + 1);
+    if (!collection_known(family))
+        return dependencies;
+    const auto record = Json::parse(normalized_json);
+    Builder graph;
+    const auto key = record_key(family, id);
+    walk(record, "/" + std::string(owner), key, graph);
+    if (family == "rooms" || family == "interactables")
+        collect_nested(record, family, id, graph);
+    for (const auto& edge : graph.edges.array_range()) {
+        const auto& target = edge.at("target");
+        const auto kind = member_string(target, "kind");
+        std::string target_owner;
+        if (kind == "record")
+            target_owner = member_string(target, "collection") + "/" + member_string(target, "id");
+        else if (kind == "nested")
+            target_owner =
+                member_string(target, "ownerCollection") + "/" + member_string(target, "ownerId");
+        if (target_owner.empty())
+            continue;
+        SemanticGraphDependency dependency;
+        dependency.target_owner = std::move(target_owner);
+        if (kind == "nested")
+            dependency.target_impact_paths.push_back(edge.at("targetPath").as<std::string>());
+        else
+            for (const auto& path : edge.at("targetImpactPaths").array_range())
+                dependency.target_impact_paths.push_back(path.as<std::string>());
+        // The public graph describes preview impact as well. Validation of a
+        // typed reference never consumes another record's display metadata;
+        // an unqualified graph root therefore means its semantic data and
+        // inherited configuration, not its label or description.
+        if (kind == "record" &&
+            dependency.target_impact_paths ==
+                std::vector<std::string>{edge.at("targetPath").as<std::string>()}) {
+            const auto& root = dependency.target_impact_paths.front();
+            dependency.target_impact_paths = {root + "/data", root + "/traits",
+                                              root + "/archetype"};
+        }
+        dependencies.push_back(std::move(dependency));
+    }
+    return dependencies;
+}
 
 std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
 {

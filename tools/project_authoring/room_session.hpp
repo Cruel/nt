@@ -1,6 +1,7 @@
 #pragma once
 
 #include "contracts.hpp"
+#include "semantic_graph_dependencies.hpp"
 #include "source_authority.hpp"
 #include "source_analysis.hpp"
 #include "yaml_codec.hpp"
@@ -225,6 +226,9 @@ public:
         std::size_t retained_contributions = 0;
         std::size_t reference_indexed_records = 0;
         std::size_t localization_rebuilds = 0;
+        // Profile-only explanations for conservative semantic work; these do
+        // not change validation diagnostics or source authority.
+        std::set<std::string> semantic_fallback_reasons;
     };
     ValidationWork validation_work() const { return validation_work_; }
     // An internal consumer of the same serialized certification request may
@@ -483,10 +487,11 @@ private:
     // validation generations, and invalidated by exact normalized content.
     struct IndexedNormalizedRecord {
         std::string normalized_json;
-        std::set<std::string> referenced_ids;
+        std::vector<SemanticGraphDependency> dependencies;
     };
     std::map<std::string, IndexedNormalizedRecord> validation_normalized_records_;
-    std::map<std::string, std::set<std::string>> validation_reference_consumers_;
+    std::map<std::string, std::map<std::string, std::vector<std::string>>>
+        validation_reference_consumers_;
     std::set<std::string> validation_invalidated_owners_;
     std::optional<ValidationResult> validation_room_map_cache_;
     std::map<std::string, std::string> shader_overlays_;

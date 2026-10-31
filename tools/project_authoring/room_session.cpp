@@ -179,18 +179,52 @@ bool references_any(const Json& value, const std::set<std::string>& ids)
     return false;
 }
 
-void collect_reference_tokens(const Json& value, std::set<std::string>& tokens)
+void changed_semantic_paths(const Json& before, const Json& after, const std::string& path,
+                            std::set<std::string>& changed)
 {
-    if (value.is_string())
-        tokens.insert(value.as<std::string>());
-    else if (value.is_array())
-        for (const auto& entry : value.array_range())
-            collect_reference_tokens(entry, tokens);
-    else if (value.is_object())
-        for (const auto& entry : value.object_range()) {
-            tokens.insert(std::string(entry.key()));
-            collect_reference_tokens(entry.value(), tokens);
+    if (before == after)
+        return;
+    if (before.is_object() && after.is_object()) {
+        for (const auto& field : before.object_range()) {
+            const auto child = path + "/" + pointer_token(field.key());
+            if (!after.contains(field.key()))
+                changed.insert(child);
+            else
+                changed_semantic_paths(field.value(), after.at(field.key()), child, changed);
         }
+        for (const auto& field : after.object_range())
+            if (!before.contains(field.key()))
+                changed.insert(path + "/" + pointer_token(field.key()));
+    } else if (before.is_array() && after.is_array()) {
+        if (before.size() != after.size()) {
+            changed.insert(path);
+            return;
+        }
+        for (std::size_t i = 0; i < before.size(); ++i)
+            changed_semantic_paths(before.at(i), after.at(i), path + "/" + std::to_string(i),
+                                   changed);
+    } else
+        changed.insert(path);
+}
+
+std::set<std::string> semantic_changed_paths(const std::string& owner, const std::string& before,
+                                             const std::string& after)
+{
+    const auto path = "/" + owner;
+    if (before.empty() || after.empty())
+        return before == after ? std::set<std::string>{} : std::set<std::string>{path};
+    std::set<std::string> changed;
+    changed_semantic_paths(Json::parse(before), Json::parse(after), path, changed);
+    return changed;
+}
+
+bool overlapping_semantic_paths(std::string_view changed, std::string_view consumed)
+{
+    const auto ancestor = [](std::string_view path, std::string_view other) {
+        return other == path ||
+               (other.size() > path.size() && other.starts_with(path) && other[path.size()] == '/');
+    };
+    return ancestor(changed, consumed) || ancestor(consumed, changed);
 }
 
 std::optional<Json> decoded_record(const std::filesystem::path& path)
@@ -1752,22 +1786,39 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         if (!shader_overlays_.contains(path))
             changed_physical(path);
 
-    // Each owner contributes its normalized references once per content change.
-    // Reverse edges preserve conservative matching of nested keys and scalars.
+    // Preserve the old half of the graph until impact has been calculated.
+    // This includes consumers of targets removed in this generation and edges
+    // that are no longer reachable after a reference is rewired.
+    std::map<std::string, std::string> old_normalized;
+    std::map<std::string, std::map<std::string, std::vector<std::string>>> old_consumers;
+    for (const auto& owner : validation_invalidated_owners_) {
+        if (const auto indexed = validation_normalized_records_.find(owner);
+            indexed != validation_normalized_records_.end())
+            old_normalized.emplace(owner, indexed->second.normalized_json);
+        if (const auto consumers = validation_reference_consumers_.find(owner);
+            consumers != validation_reference_consumers_.end())
+            old_consumers.emplace(owner, consumers->second);
+    }
+    const auto remove_edges = [&](const std::string& owner,
+                                  const IndexedNormalizedRecord& indexed) {
+        for (const auto& dependency : indexed.dependencies) {
+            auto consumers = validation_reference_consumers_.find(dependency.target_owner);
+            if (consumers == validation_reference_consumers_.end())
+                continue;
+            consumers->second.erase(owner);
+            if (consumers->second.empty())
+                validation_reference_consumers_.erase(consumers);
+        }
+    };
+    // Each owner contributes typed graph edges once per normalized-content
+    // change. There is no independent string/ID-token validation authority.
     for (auto it = validation_normalized_records_.begin();
          it != validation_normalized_records_.end();) {
         if (validation_records_.contains(it->first)) {
             ++it;
             continue;
         }
-        for (const auto& token : it->second.referenced_ids) {
-            if (auto consumers = validation_reference_consumers_.find(token);
-                consumers != validation_reference_consumers_.end()) {
-                consumers->second.erase(it->first);
-                if (consumers->second.empty())
-                    validation_reference_consumers_.erase(consumers);
-            }
-        }
+        remove_edges(it->first, it->second);
         it = validation_normalized_records_.erase(it);
     }
     for (const auto& [owner, record] : validation_records_) {
@@ -1785,57 +1836,82 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
             continue;
         if (const auto previous = validation_normalized_records_.find(owner);
             previous != validation_normalized_records_.end())
-            for (const auto& token : previous->second.referenced_ids) {
-                if (auto consumers = validation_reference_consumers_.find(token);
-                    consumers != validation_reference_consumers_.end()) {
-                    consumers->second.erase(owner);
-                    if (consumers->second.empty())
-                        validation_reference_consumers_.erase(consumers);
-                }
-            }
+            remove_edges(owner, previous->second);
         IndexedNormalizedRecord indexed;
         indexed.normalized_json = normalized;
         if (!normalized.empty())
-            collect_reference_tokens(Json::parse(normalized), indexed.referenced_ids);
-        for (const auto& token : indexed.referenced_ids)
-            validation_reference_consumers_[token].insert(owner);
+            indexed.dependencies = semantic_graph_record_dependencies(owner, normalized);
+        for (const auto& dependency : indexed.dependencies) {
+            auto& paths = validation_reference_consumers_[dependency.target_owner][owner];
+            paths.insert(paths.end(), dependency.target_impact_paths.begin(),
+                         dependency.target_impact_paths.end());
+        }
         validation_normalized_records_.insert_or_assign(owner, std::move(indexed));
     }
 
     if (validation_invalidated_owners_.contains("project") ||
         validation_invalidated_owners_.contains("traits")) {
+        if (validation_invalidated_owners_.contains("project"))
+            validation_work_.semantic_fallback_reasons.insert("manifest-global-input");
+        if (validation_invalidated_owners_.contains("traits"))
+            validation_work_.semantic_fallback_reasons.insert("trait-schema-global-input");
         for (const auto& [owner, record] : validation_records_)
             validation_invalidated_owners_.insert(owner);
     } else {
-        std::set<std::string> affected_ids;
-        for (const auto& owner : validation_invalidated_owners_) {
-            if (presentation_only_updates.contains(owner))
-                continue;
-            const auto slash = owner.find('/');
-            if (slash != std::string::npos && !owner.starts_with("i18n/"))
-                affected_ids.insert(owner.substr(slash + 1));
-        }
-        std::vector<std::string> pending(affected_ids.begin(), affected_ids.end());
-        while (!pending.empty()) {
-            auto token = std::move(pending.back());
-            pending.pop_back();
-            const auto consumers = validation_reference_consumers_.find(token);
-            if (consumers == validation_reference_consumers_.end())
-                continue;
-            for (const auto& owner : consumers->second) {
-                if (!validation_invalidated_owners_.insert(owner).second)
-                    continue;
-                const auto slash = owner.find('/');
-                if (slash != std::string::npos && !owner.starts_with("i18n/")) {
-                    auto id = owner.substr(slash + 1);
-                    if (affected_ids.insert(id).second)
-                        pending.push_back(std::move(id));
-                }
+        const auto changed_owners = validation_invalidated_owners_;
+        std::vector<std::pair<std::string, std::set<std::string>>> pending;
+        for (const auto& owner : changed_owners) {
+            const auto previous = old_normalized.contains(owner) ? old_normalized.at(owner) : "";
+            const auto current = validation_normalized_records_.contains(owner)
+                                     ? validation_normalized_records_.at(owner).normalized_json
+                                     : "";
+            auto changes = semantic_changed_paths(owner, previous, current);
+            // A physical Asset can change independently of the Asset YAML.
+            // Keep its content/source consumers invalidated even when the
+            // normalized record is byte-for-byte identical.
+            if (validation_pending_asset_owners_.contains(owner)) {
+                changes.insert("/" + owner + "/data/contentHash");
+                changes.insert("/" + owner + "/data/source");
             }
+            if (!changes.empty())
+                pending.emplace_back(owner, std::move(changes));
+        }
+        std::set<std::string> processed;
+        std::set<std::string> processed_derived;
+        while (!pending.empty()) {
+            auto [owner, changes] = std::move(pending.back());
+            pending.pop_back();
+            const bool derived = changes == std::set<std::string>{"/" + owner};
+            if (derived) {
+                if (!processed_derived.insert(owner).second)
+                    continue;
+            } else if (!processed.insert(owner).second || processed_derived.contains(owner))
+                continue;
+            const auto check = [&](const auto& reverse) {
+                const auto found = reverse.find(owner);
+                if (found == reverse.end())
+                    return;
+                for (const auto& [consumer, paths] : found->second) {
+                    if (std::any_of(paths.begin(), paths.end(), [&](const std::string& path) {
+                            return std::any_of(changes.begin(), changes.end(),
+                                               [&](const std::string& changed) {
+                                                   return overlapping_semantic_paths(changed, path);
+                                               });
+                        })) {
+                        validation_invalidated_owners_.insert(consumer);
+                        if (!processed_derived.contains(consumer))
+                            pending.emplace_back(consumer, std::set<std::string>{"/" + consumer});
+                    }
+                }
+            };
+            check(old_consumers);
+            check(validation_reference_consumers_);
         }
     }
-    if (!observation.authoritative && !observation.scoped_authority)
+    if (!observation.authoritative && !observation.scoped_authority) {
+        validation_work_.semantic_fallback_reasons.insert("source-authority-uncertain");
         validation_contributions_.clear();
+    }
     for (auto it = validation_contributions_.begin(); it != validation_contributions_.end();) {
         if (!validation_records_.contains(it->first))
             it = validation_contributions_.erase(it);
@@ -1912,6 +1988,7 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
                             owner.starts_with("layouts/") || owner.starts_with("variables/"));
                 });
         if (spatial_changed) {
+            validation_work_.semantic_fallback_reasons.insert("spatial-subsystem");
             Json complete = Json::parse(result.normalized_json);
             for (const auto& [owner, record] : validation_records_) {
                 const auto slash = owner.find('/');

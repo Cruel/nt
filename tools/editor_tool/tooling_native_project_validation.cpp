@@ -396,7 +396,8 @@ Json response_for(const noveltea::authoring::RoomSessionSnapshot& snapshot, bool
               {"recheckedContributions", work.rechecked_contributions},
               {"retainedContributions", work.retained_contributions},
               {"referenceIndexedRecords", work.reference_indexed_records},
-              {"localizationRebuilds", work.localization_rebuilds}}}};
+              {"localizationRebuilds", work.localization_rebuilds},
+              {"semanticFallbackReasons", work.semantic_fallback_reasons}}}};
 }
 
 Json validate(std::string_view request_text)

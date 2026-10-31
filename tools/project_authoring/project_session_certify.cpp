@@ -1800,6 +1800,15 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                           (issue.column ? std::to_string(*issue.column) : ""));
         return result;
     };
+    const auto ordered_signature = [](const RoomSessionSnapshot& snapshot) {
+        std::vector<std::string> result;
+        for (const auto& issue : snapshot.diagnostics)
+            result.push_back(issue.code + "|" + issue.path + "|" + issue.severity + "|" +
+                             issue.message + "|" + issue.source_path + "|" +
+                             (issue.line ? std::to_string(*issue.line) : "") + "|" +
+                             (issue.column ? std::to_string(*issue.column) : ""));
+        return result;
+    };
     const auto media = temp.root / "assets/images/girl_normal.webp";
     const auto original_media = read(media);
     std::filesystem::remove(media);
@@ -1957,6 +1966,120 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             "Changed Room cold/warm semantic diagnostics agree");
     write(temp.root / record_path, original_room);
     require(project->validate_project().valid, "Reverted Room returns to original valid state");
+
+    // Typed validation edges are the native semantic graph's edges, not a
+    // second index of every string that resembles a record ID.
+    const auto typed = semantic_graph_record_dependencies(
+        "animations/typed-test",
+        R"({"label":"ui-pattern","data":{"motions":[{"frames":[{"image":"ui-pattern"}]}]}})");
+    require(typed.size() == 1 && typed.front().target_owner == "assets/ui-pattern" &&
+                typed.front().target_impact_paths ==
+                    std::vector<std::string>{"/assets/ui-pattern/data/kind"},
+            "Only graph-admitted Animation image fields create Asset validation dependencies");
+    const auto flow_edges = semantic_graph_record_dependencies(
+        "scenes/typed-test",
+        R"({"label":"director-inherited","data":{"events":[{"type":"call-scene","scene":"director-inherited"}]}})");
+    require(flow_edges.size() == 1 &&
+                flow_edges.front().target_owner == "scenes/director-inherited" &&
+                std::find(flow_edges.front().target_impact_paths.begin(),
+                          flow_edges.front().target_impact_paths.end(),
+                          "/scenes/director-inherited/data/inputs") !=
+                    flow_edges.front().target_impact_paths.end(),
+            "Scalar Flow calls use the same typed graph and Scene input dependency paths");
+
+    const auto asset_path = temp.root / "records/assets/ui-pattern.yaml";
+    const auto original_asset = read(asset_path);
+    auto asset_label = original_asset;
+    const auto asset_label_position = asset_label.find("label: ui-pattern");
+    require(asset_label_position != std::string::npos, "Typed Asset fixture label exists");
+    asset_label.replace(asset_label_position, std::strlen("label: ui-pattern"),
+                        "label: A different presentation label");
+    write(asset_path, asset_label);
+    const auto label_only = project->validate_project();
+    require(label_only.valid && project->validation_work().rechecked_records == 1 &&
+                project->validation_work().rechecked_contributions == 1,
+            "Unconsumed Asset label changes do not invalidate typed Animation consumers");
+    auto asset_kind = asset_label;
+    const auto kind_position = asset_kind.find("kind: image");
+    require(kind_position != std::string::npos, "Typed Asset fixture kind exists");
+    asset_kind.replace(kind_position, std::strlen("kind: image"), "kind: audio");
+    write(asset_path, asset_kind);
+    const auto changed_kind = project->validate_project();
+    const auto typed_work = project->validation_work();
+    require(!changed_kind.valid && typed_work.rechecked_records == 1 &&
+                typed_work.rechecked_contributions > 1 &&
+                std::any_of(changed_kind.diagnostics.begin(), changed_kind.diagnostics.end(),
+                            [](const Diagnostic& issue) {
+                                return issue.path.starts_with("/animations/custom-board-loop/");
+                            }),
+            "Changing consumed Asset kind rechecks its typed Animation and diagnostics");
+    auto independent = ProjectSession::open(temp.root, error);
+    require(independent && ordered_signature(independent->validate_project()) ==
+                               ordered_signature(changed_kind),
+            "Changed typed-dependency diagnostics match fresh validation including order and "
+            "locations");
+    write(asset_path, original_asset);
+    require(project->validate_project().valid &&
+                signature(project->validate_project()) == signature(cold),
+            "Restored typed Asset target revokes its stale dependent diagnostics");
+
+    std::filesystem::remove(asset_path);
+    const auto missing_identity = project->validate_project();
+    require(!missing_identity.valid && project->validation_work().rechecked_contributions > 1,
+            "A present-to-missing typed target invalidates previously resolved consumers");
+    write(asset_path, original_asset);
+    const auto restored_identity = project->validate_project();
+    require(restored_identity.valid && signature(restored_identity) == signature(cold) &&
+                project->validation_work().rechecked_contributions > 1,
+            "A missing-to-present target invalidates previously unresolved consumers");
+
+    // Rewiring drops the old reverse edge as well as admitting the new edge.
+    // A later change to the former target must not diagnose the rewired
+    // Animation; a change to the new target must diagnose it.
+    const auto animation_path = temp.root / "records/animations/custom-board-loop.yaml";
+    const auto original_animation = read(animation_path);
+    auto rewired_animation = original_animation;
+    std::size_t replacement = 0;
+    for (std::size_t at = 0;
+         (at = rewired_animation.find("image: ui-pattern", at)) != std::string::npos;) {
+        rewired_animation.replace(at, std::strlen("image: ui-pattern"),
+                                  "image: pilot-button-sprite");
+        at += std::strlen("image: pilot-button-sprite");
+        ++replacement;
+    }
+    require(replacement == 3, "Animation fixture has three image references to rewire");
+    write(animation_path, rewired_animation);
+    require(project->validate_project().valid, "Rewired Animation target remains valid");
+    write(asset_path, asset_kind);
+    const auto old_target_changed = project->validate_project();
+    require(std::none_of(old_target_changed.diagnostics.begin(),
+                         old_target_changed.diagnostics.end(),
+                         [](const Diagnostic& issue) {
+                             return issue.path.starts_with("/animations/custom-board-loop/");
+                         }),
+            "Rewired Animation no longer consumes old Asset identity");
+    write(asset_path, original_asset);
+    require(project->validate_project().valid, "Old Asset target can be restored");
+    const auto new_asset_path = temp.root / "records/assets/pilot-button-sprite.yaml";
+    const auto original_new_asset = read(new_asset_path);
+    auto changed_new_asset = original_new_asset;
+    const auto new_kind = changed_new_asset.find("kind: image");
+    require(new_kind != std::string::npos, "Rewired target is a valid image Asset");
+    changed_new_asset.replace(new_kind, std::strlen("kind: image"), "kind: audio");
+    write(new_asset_path, changed_new_asset);
+    const auto new_target_changed = project->validate_project();
+    require(!new_target_changed.valid &&
+                std::any_of(new_target_changed.diagnostics.begin(),
+                            new_target_changed.diagnostics.end(),
+                            [](const Diagnostic& issue) {
+                                return issue.path.starts_with("/animations/custom-board-loop/");
+                            }),
+            "Rewired Animation now consumes new Asset identity");
+    write(new_asset_path, original_new_asset);
+    write(animation_path, original_animation);
+    require(project->validate_project().valid &&
+                signature(project->validate_project()) == signature(cold),
+            "Reverting both sides of a typed reference restores original diagnostics");
 
     write(temp.root / record_path, "not: [valid\n");
     const auto broken = project->validate_project();

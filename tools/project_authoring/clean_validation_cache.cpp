@@ -443,6 +443,25 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             validation_source_revisions_ = std::move(prepared_revisions);
             validation_source_paths_ = std::move(prepared_paths);
             validation_contributions_ = std::move(prepared_contributions);
+            // A portable result restores diagnostic contributions, but not
+            // their RAM-only graph. Rebuild typed edges from the same admitted
+            // normalized records before the first external mutation, including
+            // references to identities that do not currently exist.
+            validation_normalized_records_.clear();
+            validation_reference_consumers_.clear();
+            for (const auto& [owner, record] : validation_records_) {
+                IndexedNormalizedRecord indexed;
+                indexed.normalized_json = record->snapshot().normalized_json;
+                if (!indexed.normalized_json.empty())
+                    indexed.dependencies =
+                        semantic_graph_record_dependencies(owner, indexed.normalized_json);
+                for (const auto& dependency : indexed.dependencies) {
+                    auto& paths = validation_reference_consumers_[dependency.target_owner][owner];
+                    paths.insert(paths.end(), dependency.target_impact_paths.begin(),
+                                 dependency.target_impact_paths.end());
+                }
+                validation_normalized_records_.emplace(owner, std::move(indexed));
+            }
             validation_room_map_cache_ = std::move(prepared_spatial);
             validation_source_errors_.clear();
             for (const auto& [owner, record] : validation_records_)

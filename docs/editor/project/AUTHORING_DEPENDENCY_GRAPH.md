@@ -1,5 +1,31 @@
 # Authoring Dependency Graph
 
+## Native semantic validation contributions (#584)
+
+The resident native Project validator derives its reverse record consumers from
+`semantic_graph_record_dependencies`, which uses the same typed native graph
+walker and target-impact paths as editor graph publication. It does **not**
+scan arbitrary normalized JSON strings or keys as candidate record IDs.
+Missing targets retain typed reverse edges, and an incremental edit considers
+both the previous and current edges and target JSON-pointer changes before
+reusing per-record semantic diagnostics. A target's label or description is
+not a semantic dependency unless a validator explicitly consumes it. A changed
+consumed field invalidates the direct consumer and, conservatively, its typed
+downstream closure. A portable clean-cache import reconstructs the same
+RAM-only typed edges from its verified normalized records. Changed physical
+Asset bytes also mark source/content input paths as changed, independently of
+whether the Asset's normalized YAML changed.
+
+There are intentionally wider checks when the native validator consumes shared
+inputs rather than a single typed edge: manifest changes, Trait schema changes,
+and spatial (Room/Map) membership validation. In profiled public CLI results,
+`validationWork.semanticFallbackReasons` records these as
+`manifest-global-input`, `trait-schema-global-input`, or `spatial-subsystem`;
+`source-authority-uncertain` identifies the case where source evidence revokes
+reusable contributions. These reasons are **work diagnostics**, never project
+diagnostics, authorization, or cache keys. Source observation and publication
+fences remain independent of the semantic contribution cache.
+
 ## Native renderer consumers (#537; preparatory, not production)
 
 When the **admitted native Project-session mode** is enabled, the guarded
