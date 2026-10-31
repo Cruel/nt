@@ -1638,6 +1638,119 @@ void source_watcher_races(const std::filesystem::path& fixture)
 #endif
 }
 
+void typed_reference_invalidation_roundtrip(const std::filesystem::path& fixture)
+{
+    const auto typed = semantic_graph_record_dependencies(
+        "tests/review-test",
+        R"({"data":{"steps":[{"expectations":[{"type":"active-flow","operator":"eq","activeFlow":{"kind":"scene","flowId":"review-isolated"}},{"type":"current-room","operator":"eq","currentRoom":{"roomId":"test-room"}},{"type":"property","property":{"scope":"global","propertyId":"test-variable"}},{"type":"layout","layout":{"layoutId":"test-layout"}}]}],"finalExpectations":[{"type":"active-flow","operator":"ne","activeFlow":{"kind":"dialogue","flowId":"test-dialogue"}}]},"label":"review-isolated"})");
+    require(typed.size() == 5, "Test graph recognizes only five typed expectation references");
+    const auto contains_identity = [&](std::string_view target) {
+        return std::any_of(typed.begin(), typed.end(), [&](const auto& edge) {
+            return edge.target_owner == target &&
+                   edge.target_impact_paths ==
+                       std::vector<std::string>{"/" + std::string(target) + "/@identity"};
+        });
+    };
+    for (const auto target :
+         {"scenes/review-isolated", "rooms/test-room", "variables/test-variable",
+          "layouts/test-layout", "dialogues/test-dialogue"})
+        require(contains_identity(target), "Test field identity is typed: " + std::string(target));
+
+    TemporaryProject temp(fixture);
+    const auto isolated = temp.root / "records/scenes/review-isolated.yaml";
+    auto source = read(temp.root / "records/scenes/director-blank.yaml");
+    require(source.starts_with("id: director-blank\n"), "Isolated Scene source can be cloned");
+    source.replace(0, std::strlen("id: director-blank"), "id: review-isolated");
+    write(isolated, source);
+
+    const auto test_path = temp.root / "records/tests/runtime-diagnostics-ui.yaml";
+    auto test_source = read(test_path);
+    const auto position = test_source.find("flowId: runtime-diagnostics");
+    require(position != std::string::npos, "Feature Lab has an active-flow Test expectation");
+    test_source.replace(position, std::strlen("flowId: runtime-diagnostics"),
+                        "flowId: review-isolated");
+    write(test_path, test_source);
+
+    std::string error;
+    auto resident = ProjectSession::open(temp.root, error);
+    require(resident != nullptr, "Isolated typed reference fixture admits: " + error);
+    require(resident->validate_project().valid,
+            "An isolated Scene referenced by a Test is initially valid");
+    require(resident->validate_clean_project().snapshot.valid,
+            "Typed Test reference fixture publishes a portable valid generation");
+    auto imported = ProjectSession::open(temp.root, error);
+    require(imported && imported->validate_clean_project().cache_hit,
+            "An independent native session hydrates typed Test edges from portable cache");
+    const auto signature = [](const RoomSessionSnapshot& snapshot) {
+        std::vector<std::string> result;
+        for (const auto& issue : snapshot.diagnostics)
+            result.push_back(issue.code + "|" + issue.path + "|" + issue.message + "|" +
+                             issue.severity + "|" + issue.source_path + "|" +
+                             (issue.line ? std::to_string(*issue.line) : "") + "|" +
+                             (issue.column ? std::to_string(*issue.column) : ""));
+        return result;
+    };
+    const auto test_diagnostic = [](const RoomSessionSnapshot& snapshot) {
+        return std::any_of(snapshot.diagnostics.begin(), snapshot.diagnostics.end(),
+                           [](const Diagnostic& issue) {
+                               return issue.code == "authoring.test.reference-missing" &&
+                                      issue.path == "/tests/runtime-diagnostics-ui/data/steps/2/"
+                                                    "expectations/1/activeFlow/flowId";
+                           });
+    };
+
+    // A presentation-only change must not consume the Test's identity-only
+    // edge or replace its retained valid diagnostic contribution.
+    auto relabeled = source;
+    const auto label = relabeled.find("label: director-blank");
+    require(label != std::string::npos, "Isolated Scene presentation label exists");
+    relabeled.replace(label, std::strlen("label: director-blank"),
+                      "label: Isolated presentation edit");
+    write(isolated, relabeled);
+    require(resident->validate_project().valid &&
+                resident->validation_work().rechecked_contributions == 1,
+            "Unconsumed Scene label rechecks only its own semantic contribution");
+
+    std::filesystem::remove(isolated);
+    const auto missing = resident->validate_project();
+    require(!missing.valid && test_diagnostic(missing) &&
+                resident->validation_work().rechecked_contributions > 0,
+            "Deleting a Scene revokes the cached valid Test expectation");
+    require(
+        resident->validation_work().semantic_fallback_reasons.contains("test-identity-inventory"),
+        "A record inventory change explains its conservative Test recheck");
+    const auto missing_retained = resident->validate_project();
+    require(!missing_retained.valid && test_diagnostic(missing_retained) &&
+                resident->validation_work().rechecked_contributions == 0,
+            "Unchanged invalid Test diagnostics are retained without rechecking");
+    auto cold = ProjectSession::open(temp.root, error);
+    require(cold && signature(cold->validate_project()) == signature(missing),
+            "Missing-Scene warm and cold diagnostics agree in order and locations");
+    const auto imported_missing = imported->validate_project();
+    require(test_diagnostic(imported_missing) && signature(imported_missing) == signature(missing),
+            "Portable-hydrated Test reverse edges also revoke stale success after Scene deletion");
+    write(isolated, source);
+    const auto restored = resident->validate_project();
+    cold = ProjectSession::open(temp.root, error);
+    require(restored.valid && !test_diagnostic(restored) && cold &&
+                signature(cold->validate_project()) == signature(restored),
+            "Restoring the Scene retracts the missing Test diagnostic with cold parity");
+
+    // Rewire the expectation to a different existing Scene. The old identity
+    // must no longer invalidate this Test when it disappears.
+    const auto old_flow = test_source.find("flowId: review-isolated");
+    require(old_flow != std::string::npos, "Isolated Test reference can be rewired");
+    test_source.replace(old_flow, std::strlen("flowId: review-isolated"), "flowId: director-blank");
+    write(test_path, test_source);
+    require(resident->validate_project().valid, "Rewired Test expectation is valid");
+    std::filesystem::remove(isolated);
+    const auto rewired = resident->validate_project();
+    cold = ProjectSession::open(temp.root, error);
+    require(rewired.valid && !test_diagnostic(rewired) && cold &&
+                signature(cold->validate_project()) == signature(rewired),
+            "Deleting the former Scene target leaves the rewired Test valid");
+}
+
 void project_validation_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
@@ -2514,6 +2627,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--project-validation") {
             project_validation_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--typed-reference-invalidation") {
+            typed_reference_invalidation_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--source-watcher-races") {

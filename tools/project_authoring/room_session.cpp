@@ -1849,6 +1849,40 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
         validation_normalized_records_.insert_or_assign(owner, std::move(indexed));
     }
 
+    // Test expectations also inspect Project/registry identities, and future
+    // Test contracts can add new discriminated scalar reference positions.
+    // On inventory membership changes (not ordinary field/label edits),
+    // conservatively recheck the Test subsystem until every such position is
+    // graph-admitted. This protects against an omitted typed edge without
+    // reinstating the old broad string-token reverse index.
+    if (validation_snapshot_) {
+        static const std::set<std::string_view> test_targets = {
+            "scenes",  "dialogues", "rooms", "characters",
+            "layouts", "variables", "verbs", "interactables"};
+        bool test_inventory_changed = false;
+        const auto changed_owners = validation_invalidated_owners_;
+        for (const auto& owner : changed_owners) {
+            const auto slash = owner.find('/');
+            if (slash == std::string::npos || !test_targets.contains(owner.substr(0, slash)))
+                continue;
+            const auto previous = old_normalized.find(owner);
+            const bool before_absent = previous == old_normalized.end() || previous->second.empty();
+            const auto current = validation_normalized_records_.find(owner);
+            const bool now_absent = current == validation_normalized_records_.end() ||
+                                    current->second.normalized_json.empty();
+            if (before_absent != now_absent) {
+                test_inventory_changed = true;
+                break;
+            }
+        }
+        if (test_inventory_changed) {
+            validation_work_.semantic_fallback_reasons.insert("test-identity-inventory");
+            for (const auto& [owner, record] : validation_records_)
+                if (owner.starts_with("tests/"))
+                    validation_invalidated_owners_.insert(owner);
+        }
+    }
+
     if (validation_invalidated_owners_.contains("project") ||
         validation_invalidated_owners_.contains("traits")) {
         if (validation_invalidated_owners_.contains("project"))

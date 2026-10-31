@@ -16,6 +16,18 @@ RAM-only typed edges from its verified normalized records. Changed physical
 Asset bytes also mark source/content input paths as changed, independently of
 whether the Asset's normalized YAML changed.
 
+Authored Test expectations have additional typed scalar identity edges (for
+example, `activeFlow.flowId`, `currentRoom.roomId`, and layout/property owners)
+matching the native Test dependency validator. Their identity-only inputs use
+an explicit existence path so changing an unrelated target field does not
+recheck the Test. Test feature checks and Verb binding checks carry the fields
+they actually read. When a record identity enters or leaves a Test-relevant
+collection, the validator also conservatively invalidates the **Test subsystem**
+and reports `test-identity-inventory` in profiled semantic fallback reasons;
+this guards against future schema-added Test reference shapes without returning
+to a broad string/ID-token index. Missing and restored Scene Test diagnostics
+are certified against fresh validation, including imported clean-cache state.
+
 There are intentionally wider checks when the native validator consumes shared
 inputs rather than a single typed edge: manifest changes, Trait schema changes,
 and spatial (Room/Map) membership validation. In profiled public CLI results,

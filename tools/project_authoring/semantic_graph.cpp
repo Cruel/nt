@@ -116,6 +116,8 @@ Json localization_key(std::string_view locale, std::string_view id)
 std::string reference_role(std::string_view path, std::string_view target_collection)
 {
     const auto has = [&](std::string_view segment) { return path.find(segment) != path.npos; };
+    if (path.starts_with("/tests/"))
+        return path.ends_with("/runInteraction/verb/$ref") ? "test-verb-bindings" : "test-identity";
     if (path.ends_with("/data/base/material/$ref"))
         return "material-base";
     if (has("/data/background/asset/$ref"))
@@ -208,6 +210,16 @@ std::vector<std::string> impact_paths(std::string_view role, std::string_view ta
                 std::string(target) + "/data/enumValues"};
     if (role == "animation-frame" || role == "animation-video")
         return {std::string(target) + "/data/kind"};
+    // Identity-only checks consume the existence of an admitted record, not
+    // its content or label. The synthetic pointer is intentionally never a
+    // normalized record field; a whole-owner change on removal/restoration
+    // still overlaps it.
+    if (role == "test-identity")
+        return {std::string(target) + "/@identity"};
+    if (role == "test-feature")
+        return {std::string(target) + "/data/features"};
+    if (role == "test-verb-bindings")
+        return {std::string(target) + "/data/bindingOrder"};
     if (role == "flow-call-scene")
         return {std::string(target) + "/data/inputs", std::string(target) + "/data/events",
                 std::string(target) + "/data/terminal"};
@@ -326,6 +338,71 @@ struct Builder {
     }
 };
 
+// The Test validator interprets the discriminant and operator of each
+// expectation before checking its scalar reference IDs. Mirror those typed
+// positions here: scanning arbitrary strings (or all fields of inactive
+// expectations) would create a competing dependency authority.
+void test_expectation_edges(const Json& value, const std::string& path, const Json& owner,
+                            Builder& graph)
+{
+    const auto type = member_string(value, "type");
+    const auto op = member_string(value, "operator");
+    const auto equality = op == "eq" || op == "ne";
+    const auto field = [&](std::string_view key) -> const Json* {
+        const auto name = std::string(key);
+        return value.contains(name) && value.at(name).is_object() ? &value.at(name) : nullptr;
+    };
+    const auto add = [&](std::string_view family, std::string_view id,
+                         std::string_view source_suffix) {
+        if (id.empty() || !collection_known(family))
+            return;
+        const auto target = "/" + std::string(family) + "/" + escape_pointer(id);
+        graph.edge(owner, record_key(family, id), path + std::string(source_suffix), target,
+                   "test-identity");
+    };
+    if (type == "current-room" && equality) {
+        if (const auto* data = field("currentRoom"))
+            add("rooms", member_string(*data, "roomId"), "/currentRoom/roomId");
+    } else if (type == "active-flow" && equality) {
+        if (const auto* data = field("activeFlow"))
+            add(member_string(*data, "kind") == "scene" ? "scenes" : "dialogues",
+                member_string(*data, "flowId"), "/activeFlow/flowId");
+    } else if (type == "location") {
+        if (const auto* data = field("location")) {
+            if (member_string(*data, "entityKind") == "character")
+                add("characters", member_string(*data, "entityId"), "/location/entityId");
+            if (member_string(*data, "locationKind") == "room")
+                add("rooms", member_string(*data, "roomId"), "/location/roomId");
+        }
+    } else if (type == "trait") {
+        if (const auto* data = field("trait")) {
+            const auto kind = member_string(*data, "ownerKind");
+            if (kind == "room" || kind == "character")
+                add(kind == "room" ? "rooms" : "characters", member_string(*data, "ownerId"),
+                    "/trait/ownerId");
+        }
+    } else if (type == "entity-state") {
+        if (const auto* data = field("entityState"))
+            if (member_string(*data, "entityKind") == "character")
+                add("characters", member_string(*data, "entityId"), "/entityState/entityId");
+    } else if (type == "layout") {
+        if (const auto* data = field("layout"))
+            add("layouts", member_string(*data, "layoutId"), "/layout/layoutId");
+    } else if (type == "property") {
+        if (const auto* data = field("property")) {
+            const auto scope = member_string(*data, "scope");
+            if (scope == "global")
+                add("variables", member_string(*data, "propertyId"), "/property/propertyId");
+            else if (scope == "room" || scope == "character")
+                add(scope == "room" ? "rooms" : "characters", member_string(*data, "ownerId"),
+                    "/property/ownerId");
+        }
+    }
+    // Other Test expectation identities live in Project-owned
+    // interactableInstances/traits and are covered by manifest/Trait-wide
+    // invalidation, not by fictitious record nodes.
+}
+
 void walk(const Json& value, const std::string& path, const Json& owner, Builder& graph)
 {
     if (value.is_array()) {
@@ -409,6 +486,26 @@ void walk(const Json& value, const std::string& path, const Json& owner, Builder
     }
     if (!value.is_object())
         return;
+    if (member_string(owner, "collection") == "tests" && value.contains("type") &&
+        (path.find("/data/steps/") != std::string::npos &&
+             path.find("/expectations/") != std::string::npos ||
+         path.find("/data/finalExpectations/") != std::string::npos))
+        test_expectation_edges(value, path, owner, graph);
+    // Both Test and Interaction validators read a feature's existence from
+    // the normalized Room data, in addition to the typed Room $ref.
+    if ((member_string(owner, "collection") == "tests" ||
+         member_string(owner, "collection") == "verbs" ||
+         member_string(owner, "collection") == "interactions") &&
+        member_string(value, "ownerKind") == "room" && value.contains("featureId") &&
+        value.contains("room") && value.at("room").is_object()) {
+        const auto& room = value.at("room");
+        if (room.contains("$ref") && room.at("$ref").is_object()) {
+            const auto id = member_string(room.at("$ref"), "id");
+            if (!id.empty())
+                graph.edge(owner, record_key("rooms", id), path + "/featureId",
+                           "/rooms/" + escape_pointer(id), "test-feature");
+        }
+    }
     if (value.contains("$ref") && value.at("$ref").is_object()) {
         const auto& ref = value.at("$ref");
         auto family = member_string(ref, "collection");
