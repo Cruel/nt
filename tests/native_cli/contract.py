@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 binary, source = map(Path, sys.argv[1:3])
+compiler_identity = os.environ.get('NOVELTEA_TEST_COMPILER_IDENTITY', '')
 source = source.resolve()
 help_text = (source / 'tools/editor_tool/native_cli_help.txt').read_text()
 version = (source / 'VERSION').read_text().strip()
@@ -326,14 +327,25 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         source_path.write_text(value)
     linked_package = root / 'linked-game.ntpkg'
     unlinked_package = root / 'unlinked-game.ntpkg'
-    for project_root, output in [(story_link_project, linked_package),
-                                 (unlinked, unlinked_package)]:
-        exported = envelope('--project', str(project_root), 'package', 'export',
-                            '--output', str(output), timeout=180)
-        assert exported['success'] and output.is_file()
-    assert linked_package.read_bytes() == unlinked_package.read_bytes(), (
-        'Author-only narrativeRefs changed the native compiled runtime package.')
-    print('Native compiled Runtime Package bytes unchanged by narrative-only references.')
+    if compiler_identity:
+        for project_root, output in [(story_link_project, linked_package),
+                                     (unlinked, unlinked_package)]:
+            exported = envelope('--project', str(project_root), 'package', 'export',
+                                '--output', str(output), timeout=180)
+            assert exported['success'] and output.is_file()
+        assert linked_package.read_bytes() == unlinked_package.read_bytes(), (
+            'Author-only narrativeRefs changed the native compiled runtime package.')
+        print('Native compiled Runtime Package bytes unchanged by narrative-only references.')
+    else:
+        # A dirty or unsealed development build may not claim runtime compiler
+        # identity; it must reject both projects instead of bypassing the gate.
+        for project_root, output in [(story_link_project, linked_package),
+                                     (unlinked, unlinked_package)]:
+            blocked = envelope('--project', str(project_root), 'package', 'export',
+                               '--output', str(output), code=70)
+            assert blocked['diagnostics'][0]['code'] == 'CLI_NATIVE_RUNTIME_COMPILER_UNBOUND'
+            assert not output.exists()
+        print('Unbound native compiler correctly rejects both runtime package exports.')
 
     # Font coverage is a public validation contract, not only static YAML admission.
     coverage_root = root / 'font-coverage'

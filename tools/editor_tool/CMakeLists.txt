@@ -399,6 +399,8 @@ if(BUILD_TESTING)
     add_test(NAME native_cli_public_contract
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/contract.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    set_tests_properties(native_cli_public_contract PROPERTIES
+        ENVIRONMENT "NOVELTEA_TEST_COMPILER_IDENTITY=${NOVELTEA_NATIVE_CLI_COMPILER_IDENTITY}")
     add_test(NAME native_cli_production_regressions
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/production_regressions.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
