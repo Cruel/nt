@@ -259,7 +259,8 @@ if(BUILD_TESTING)
     target_link_libraries(noveltea-room-map-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_room_map COMMAND noveltea-room-map-certify --self-test)
     add_executable(noveltea-project-session-certify project_session_certify.cpp)
-    target_include_directories(noveltea-project-session-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_include_directories(noveltea-project-session-certify SYSTEM PRIVATE
+        "${noveltea_jsoncons_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
     target_link_libraries(noveltea-project-session-certify PRIVATE noveltea_project_authoring_session)
     add_executable(noveltea-semantic-graph-certify semantic_graph_certify.cpp)
     target_include_directories(noveltea-semantic-graph-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
@@ -351,6 +352,8 @@ if(BUILD_TESTING)
     target_link_libraries(noveltea-layout-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_layout COMMAND noveltea-layout-certify "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_executable(noveltea-yaml-transaction-certify yaml_transaction_certify.cpp)
+    target_include_directories(noveltea-yaml-transaction-certify PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/include")
     target_link_libraries(noveltea-yaml-transaction-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_yaml_transaction COMMAND noveltea-yaml-transaction-certify)
 

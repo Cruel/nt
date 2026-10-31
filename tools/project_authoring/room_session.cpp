@@ -14,6 +14,7 @@
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
+#include <noveltea/core/fingerprint.hpp>
 
 #include <algorithm>
 #include <array>
@@ -265,7 +266,45 @@ std::string source_diagnostic_owner(std::string_view path, std::string_view owne
 
 } // namespace
 
-// Use the same sha256:<hex> source identity as the existing Project Workspace.
+SourceRevisionAlgorithm source_revision_algorithm(std::string_view revision) noexcept
+{
+    if (revision == "absent")
+        return SourceRevisionAlgorithm::Absent;
+    const auto valid_hex = [](std::string_view value) {
+        return std::all_of(value.begin(), value.end(),
+                           [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+    };
+    if (revision.starts_with("sha256:") && revision.size() == 71 && valid_hex(revision.substr(7)))
+        return SourceRevisionAlgorithm::Sha256;
+    if (revision.starts_with("xxh3-128:") && revision.size() == 41 && valid_hex(revision.substr(9)))
+        return SourceRevisionAlgorithm::Xxh3_128;
+    return SourceRevisionAlgorithm::Invalid;
+}
+
+std::string source_revision_for(std::string_view bytes, SourceRevisionAlgorithm algorithm)
+{
+    switch (algorithm) {
+    case SourceRevisionAlgorithm::Sha256:
+        return exact_source_revision(bytes);
+    case SourceRevisionAlgorithm::Xxh3_128:
+        count_validation_work(&ValidationWorkCounters::content_hashes);
+        return noveltea::core::xxh3_128_revision(bytes);
+    case SourceRevisionAlgorithm::Absent:
+    case SourceRevisionAlgorithm::Invalid:
+        throw std::invalid_argument("Cannot hash an absent or invalid source revision.");
+    }
+    throw std::invalid_argument("Unknown source revision algorithm.");
+}
+
+bool source_revision_matches(std::string_view bytes, std::string_view revision)
+{
+    const auto algorithm = source_revision_algorithm(revision);
+    return algorithm != SourceRevisionAlgorithm::Absent &&
+           algorithm != SourceRevisionAlgorithm::Invalid &&
+           source_revision_for(bytes, algorithm) == revision;
+}
+
+// Preserve SHA-256 emission for existing Project Workspace clients until cutover.
 // Save also checks original bytes exactly to eliminate reliance on the digest alone.
 std::string exact_source_revision(std::string_view source)
 {
@@ -344,11 +383,15 @@ std::string exact_source_revision(std::string_view source)
 
 namespace {
 
-std::string source_revision_or_absent(const std::filesystem::path& path)
+std::string source_revision_or_absent(const std::filesystem::path& path,
+                                      std::string_view expected = {})
 {
     if (!std::filesystem::exists(path) && !std::filesystem::is_symlink(path))
         return "absent";
-    return exact_source_revision(read_bytes(path));
+    const auto algorithm = source_revision_algorithm(expected);
+    return source_revision_for(read_bytes(path), algorithm == SourceRevisionAlgorithm::Xxh3_128
+                                                     ? algorithm
+                                                     : SourceRevisionAlgorithm::Sha256);
 }
 
 std::string parse_pointer_token(std::string_view token)
@@ -3444,8 +3487,7 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
                 continue;
             const auto original = disk_preconditions.find(path);
             if (original == disk_preconditions.end() ||
-                original->second != text_disk_revisions_.at(path) ||
-                original->second != text_overlay_disk_revisions_.at(path))
+                text_disk_revisions_.at(path) != text_overlay_disk_revisions_.at(path))
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: staged text baseline " +
                                          path);
             const auto root = std::filesystem::canonical(root_);
@@ -3455,7 +3497,8 @@ ProjectSession::save_text_sources(std::uint64_t revision, const std::vector<std:
                 throw std::runtime_error("Text source escapes the Project root.");
             const auto baseline = read_bytes(canonical);
             const auto expected = text_disk_revisions_.at(path);
-            if (exact_source_revision(baseline) != expected)
+            if (exact_source_revision(baseline) != expected ||
+                !source_revision_matches(baseline, original->second))
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + path);
             YamlTransactionTarget target;
             target.path = path;
@@ -4579,7 +4622,9 @@ RoomSessionResult ProjectSession::save_owners(
                     const auto observed = std::filesystem::exists(absolute)
                                               ? exact_source_revision(on_disk)
                                               : std::string("absent");
-                    if (observed != file.expected_revision ||
+                    if ((observed == "absent"
+                             ? file.expected_revision != "absent"
+                             : !source_revision_matches(on_disk, file.expected_revision)) ||
                         (!file.contents && observed == "absent"))
                         throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + file.path);
                     YamlTransactionTarget target;
@@ -4649,7 +4694,7 @@ RoomSessionResult ProjectSession::save_owners(
                                 .generic_string() != staging)
                         throw std::runtime_error("Unsafe native Asset staged source.");
                     const auto bytes = read_bytes(source);
-                    if (exact_source_revision(bytes) != file.source_revision)
+                    if (!source_revision_matches(bytes, file.source_revision))
                         throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + staging);
                     YamlTransactionTarget remove;
                     remove.path = staging;
@@ -4957,7 +5002,8 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                 path = family == "layouts" ? root_ / "records" / family / id / "layout.yaml"
                                            : root_ / "records" / family / (id + ".yaml");
             }
-            if (source_revision_or_absent(path) != expected)
+            if (source_revision_algorithm(expected) == SourceRevisionAlgorithm::Invalid ||
+                source_revision_or_absent(path, expected) != expected)
                 throw std::runtime_error("Recovery source conflict for " + owner);
         }
     } catch (const std::exception& error) {
@@ -5903,7 +5949,10 @@ RoomSessionResult RoomSession::use_disk_paths(const std::vector<std::string>& pa
 RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
                                     const std::vector<std::string>& invalid_source_paths)
 {
-    if (expected_disk_revision != disk_revision_)
+    if (source_revision_algorithm(expected_disk_revision) == SourceRevisionAlgorithm::Invalid ||
+        (disk_revision_ == "absent"
+             ? expected_disk_revision != "absent"
+             : !source_revision_matches(disk_source_, expected_disk_revision)))
         return result(false, "Stale disk source revision.");
     if (unsaved_patches_.empty())
         return result(true);

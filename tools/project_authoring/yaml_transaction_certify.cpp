@@ -1,8 +1,10 @@
 #include "yaml_transaction.hpp"
 
 #include "source_authority.hpp"
+#include <noveltea/core/fingerprint.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -76,6 +78,22 @@ YamlTransactionTarget change(std::string path, std::string baseline, std::string
 
 void certify()
 {
+    require(source_revision_algorithm("absent") == SourceRevisionAlgorithm::Absent &&
+                source_revision_algorithm(exact_source_revision("abc")) ==
+                    SourceRevisionAlgorithm::Sha256 &&
+                source_revision_algorithm(noveltea::core::xxh3_128_revision("abc")) ==
+                    SourceRevisionAlgorithm::Xxh3_128 &&
+                !source_revision_matches("abc", "absent") &&
+                !source_revision_matches("abc", "xxh3-128:06B05AB6733A618578AF5F94892F3950") &&
+                !source_revision_matches("abc", "sha256:" + std::string(64, '0')) &&
+                source_revision_matches("abc", "xxh3-128:06b05ab6733a618578af5f94892f3950"),
+            "Algorithm-tagged source identities reject malformed and mismatched preconditions");
+    for (const std::string& invalid : std::array<std::string, 8>{
+             "", "sha256:", "sha256:invalid", "sha256:" + std::string(63, '0'),
+             "xxh3-128:" + std::string(33, '0'), "xxh3-128:" + std::string(31, '0'),
+             "xxh3-128:" + std::string(31, '0') + "g", "md5:" + std::string(32, '0')})
+        require(source_revision_algorithm(invalid) == SourceRevisionAlgorithm::Invalid,
+                "Unknown or malformed source revision must fail closed");
     TemporaryProject temp;
     YamlTransactionService writer(temp.root);
     const auto first = temp.root / "records/rooms/one.yaml";
@@ -141,6 +159,24 @@ void certify()
             "Raw Lua Save is durable and retains exact edited bytes");
     require(!writer.commit(text_prepared, TransactionDecision::KeepComments).accepted,
             "A raw text Save approval cannot replay over its newly published source");
+    // Legacy SHA callers and new XXH3 callers use the same journal and exact
+    // byte-CAS, not independent transaction implementations.
+    text_change.baseline_source = read(script);
+    text_change.expected_revision = noveltea::core::xxh3_128_revision(text_change.baseline_source);
+    text_change.raw_text_source = "return 25 -- xxh revision\n";
+    const auto xxh_prepared = writer.prepare({text_change}, TransactionDecision::KeepComments);
+    require(xxh_prepared.accepted && xxh_prepared.targets.size() == 1 &&
+                xxh_prepared.targets.front().before_revision == text_change.expected_revision &&
+                xxh_prepared.targets.front().after_revision ==
+                    noveltea::core::xxh3_128_revision(*text_change.raw_text_source) &&
+                writer.commit(xxh_prepared, TransactionDecision::KeepComments).accepted &&
+                read(script) == *text_change.raw_text_source,
+            "XXH3-128 source precondition commits through native transaction journal");
+    auto wrong_xxh = text_change;
+    wrong_xxh.baseline_source = read(script);
+    wrong_xxh.expected_revision = "xxh3-128:" + std::string(32, '0');
+    require(!writer.prepare({wrong_xxh}, TransactionDecision::KeepComments).accepted,
+            "Wrong-algorithm-content revisions cannot authorize a source transaction");
     text_change.baseline_source = read(script);
     text_change.expected_revision = exact_source_revision(text_change.baseline_source);
     text_change.raw_text_source = "return 3\n";
@@ -266,7 +302,7 @@ void certify()
     write(binary, binary_bytes);
     YamlTransactionTarget asset_delete;
     asset_delete.path = "assets/imports/certified.bin";
-    asset_delete.expected_revision = exact_source_revision(binary_bytes);
+    asset_delete.expected_revision = noveltea::core::xxh3_128_revision(binary_bytes);
     asset_delete.baseline_source = binary_bytes;
     asset_delete.erase = true;
     asset_delete.raw_asset_file = true;
@@ -307,7 +343,7 @@ void certify()
             "Binary journal rejects paths outside admitted Asset and Asset-trash roots");
     YamlTransactionTarget asset_restore;
     asset_restore.path = asset_create.path;
-    asset_restore.expected_revision = exact_source_revision(binary_bytes);
+    asset_restore.expected_revision = noveltea::core::xxh3_128_revision(binary_bytes);
     asset_restore.baseline_source = binary_bytes;
     asset_restore.erase = true;
     asset_restore.raw_asset_file = true;

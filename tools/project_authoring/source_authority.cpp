@@ -648,21 +648,27 @@ bool SourceAuthority::acknowledge_own_write(std::string_view relative_path,
         std::error_code error;
         count_validation_work(&ValidationWorkCounters::stat_readlink_calls);
         const auto status = std::filesystem::symlink_status(absolute, error);
+        std::string resident_revision;
         if (revision == "absent") {
             if ((error && error != std::errc::no_such_file_or_directory) ||
                 (status.type() != std::filesystem::file_type::not_found &&
                  status.type() != std::filesystem::file_type::none))
                 return false;
+            resident_revision = "absent";
         } else {
-            if (error || !std::filesystem::is_regular_file(status) ||
-                exact_source_revision(read_exact_bytes(absolute)) != revision)
+            if (error || !std::filesystem::is_regular_file(status))
                 return false;
+            const auto bytes = read_exact_bytes(absolute);
+            if (!source_revision_matches(bytes, revision))
+                return false;
+            // This expand-phase observer still publishes SHA-256 identities.
+            resident_revision = exact_source_revision(bytes);
         }
         // A journal can create or erase tracked records as well as update an
         // existing source. Own-write evidence pins their exact new physical
         // identity; the next observation must not mistake it for an external
         // addition or leave authority permanently uncertain.
-        baseline_.insert_or_assign(path, std::string(revision));
+        baseline_.insert_or_assign(path, std::move(resident_revision));
         return true;
     } catch (...) {
         return false;

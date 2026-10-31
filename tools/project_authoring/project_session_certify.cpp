@@ -14,6 +14,7 @@
 #include <string>
 #include <algorithm>
 #include <array>
+#include <noveltea/core/fingerprint.hpp>
 #include <set>
 
 #ifdef _WIN32
@@ -148,7 +149,7 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
         project->patch(2, {{RoomPatch::Operation::Replace, "/inventories/0/id", "\"inventory\""}});
     require(repaired.accepted && repaired.snapshot.valid && !repaired.diagnostics_removed.empty(),
             "Invalid manifest can be repaired");
-    const auto saved = project->save(first.disk_source_revision);
+    const auto saved = project->save(noveltea::core::xxh3_128_revision(unchanged));
     require(saved.accepted && saved.snapshot.valid && !saved.snapshot.dirty &&
                 saved.snapshot.disk_source_revision != first.disk_source_revision &&
                 saved.snapshot.working_revision == 3,
@@ -982,7 +983,7 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
     publication.publications.push_back(
         {"assets/native-structural/published.bin",
          ".noveltea/native-asset-import/123e4567-e89b-12d3-a456-426614174000",
-         exact_source_revision(asset_bytes)});
+         noveltea::core::xxh3_128_revision(asset_bytes)});
     auto wrong_revision = publication;
     wrong_revision.publications[0].source_revision = "sha256:invalid";
     const auto rejected_publication =
@@ -1032,8 +1033,9 @@ void structural_record_roundtrip(const std::filesystem::path& fixture)
             "Native source-file collision refuses overwrite");
     ProjectAssetTransition source_move;
     source_move.kind = ProjectAssetTransition::Kind::SourceFiles;
-    source_move.source_files.push_back(
-        {"scripts/native-file-511.lua", exact_source_revision("return 511\n"), std::nullopt});
+    source_move.source_files.push_back({"scripts/native-file-511.lua",
+                                        noveltea::core::xxh3_128_revision("return 511\n"),
+                                        std::nullopt});
     source_move.source_files.push_back(
         {"scripts/native-file-511-moved.lua", "absent", "return 511\n"});
     const auto source_moved =
@@ -1521,6 +1523,27 @@ void working_preparation_roundtrip(const std::filesystem::path& fixture)
     require(invalid.accepted && !invalid.snapshot.valid &&
                 !editor->prepare_working(invalid.snapshot.working_revision).accepted,
             "Dirty source validation failures block preview and authored Test preparation");
+    auto text_editor = ProjectSession::open(temp.root, error);
+    require(text_editor != nullptr, "Native text Save opens independent Project session");
+    const auto text_staged =
+        text_editor->stage_text_source(text_editor->snapshot().working_revision, script_path,
+                                       saved_script + "\n-- xxh source revision\n");
+    require(text_staged.accepted && text_staged.snapshot.valid,
+            "Valid native Lua overlay is available for XXH3-128 Save precondition");
+    require(!text_editor
+                    ->save_text_sources(text_staged.snapshot.working_revision, {script_path},
+                                        {{script_path, "xxh3-128:" + std::string(32, '0')}})
+                    .accepted &&
+                read(temp.root / script_path) == saved_script,
+            "Stale XXH3-128 precondition does not publish the staged text");
+    const auto text_saved = text_editor->save_text_sources(
+        text_staged.snapshot.working_revision, {script_path},
+        {{script_path, noveltea::core::xxh3_128_revision(saved_script)}});
+    require(
+        text_saved.accepted &&
+            read(temp.root / script_path) == saved_script + "\n-- xxh source revision\n" &&
+            text_saved.snapshot.valid,
+        "Editor native text Save accepts correct XXH3-128 precondition while publishing SHA-256");
 }
 
 void project_validation_roundtrip(const std::filesystem::path& fixture)
@@ -1551,6 +1574,16 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
         require(authority.observe().authoritative && authority.verified_source(owner) &&
                     authority.verified_source(owner)->revision == original_revision,
                 "Restoring exact source bytes restores their verified identity");
+        write(temp.root / owner, before + "\n# acknowledged XXH3 write\n");
+        require(authority.acknowledge_own_write(
+                    owner, noveltea::core::xxh3_128_revision(read(temp.root / owner))),
+                "Native source observer accepts verified XXH3-128 own-write identity");
+        const auto own_observation = authority.observe();
+        require(own_observation.authoritative && own_observation.delta.changed.empty(),
+                "Native source observer stores canonical SHA-256 after XXH3-128 own-write proof");
+        write(temp.root / owner, before);
+        require(authority.observe().authoritative,
+                "Source observer restores original bytes after XXH3-128 certification");
     }
     std::string error;
     auto project = ProjectSession::open(temp.root, error);
@@ -1673,6 +1706,19 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
     require(independent_cli && independent_cli->validate_clean_project().cache_hit,
             "Eviction and fresh daemon owner admission recheck physical cache proof");
     const auto cache_bytes = read(cached_path);
+    const auto cache_value = Json::parse(cache_bytes);
+    require(cache_value.at("sourceRevisionAlgorithm") == "sha256" &&
+                cache_value.at("assetProofAlgorithm") == "xxh3-128",
+            "Native cache explicitly records both local hash algorithms");
+    for (const auto& key : {"sourceRevisionAlgorithm", "assetProofAlgorithm"}) {
+        auto corrupted = cache_value;
+        corrupted[key] = "wrong-algorithm";
+        write(cached_path, corrupted.to_string());
+        auto incompatible = ProjectSession::open(temp.root, error);
+        require(incompatible && !incompatible->validate_clean_project().cache_hit,
+                "Native clean cache rejects evidence published under an incompatible algorithm");
+        write(cached_path, cache_bytes);
+    }
     const auto unsaved = editor->patch(
         editor->snapshot().working_revision,
         {{RoomPatch::Operation::Replace, "/rooms/room-lifecycle-roundtrip/label", "\"Unsaved\""}});

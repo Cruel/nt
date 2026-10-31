@@ -56,6 +56,10 @@ constexpr std::string_view kContract = "noveltea.native-clean-validation.v1";
 constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-502.2";
 constexpr std::string_view kSemanticFingerprint = NOVELTEA_NATIVE_VALIDATION_FINGERPRINT;
 constexpr std::string_view kRelative = ".noveltea/cache/authoring/native-clean-current.json";
+// Keep the source and binary-media proof algorithms explicit. A future source
+// cutover must not import a byte-identical-looking cache from the old algorithm.
+constexpr std::string_view kSourceRevisionAlgorithm = "sha256";
+constexpr std::string_view kAssetProofAlgorithm = "xxh3-128";
 
 std::string cache_project_root(const fs::path& root)
 {
@@ -181,9 +185,11 @@ read_clean_cache(const fs::path& root, const std::map<std::string, std::string>&
             return std::nullopt;
         std::ifstream input(path, std::ios::binary);
         const auto value = Json::parse(input);
-        if (!value.is_object() || value.size() != 7 || value.at("contract") != kContract ||
+        if (!value.is_object() || value.size() != 9 || value.at("contract") != kContract ||
             value.at("semanticKey") != kSemanticKey ||
             value.at("semanticFingerprint") != kSemanticFingerprint ||
+            value.at("sourceRevisionAlgorithm") != kSourceRevisionAlgorithm ||
+            value.at("assetProofAlgorithm") != kAssetProofAlgorithm ||
             value.at("projectRoot") != cache_project_root(root) ||
             value.at("revisions") != revision_json(revisions))
             return std::nullopt;
@@ -248,6 +254,8 @@ void publish_clean_cache(const fs::path& root, const std::map<std::string, std::
         value["contract"] = std::string(kContract);
         value["semanticKey"] = std::string(kSemanticKey);
         value["semanticFingerprint"] = std::string(kSemanticFingerprint);
+        value["sourceRevisionAlgorithm"] = std::string(kSourceRevisionAlgorithm);
+        value["assetProofAlgorithm"] = std::string(kAssetProofAlgorithm);
         value["projectRoot"] = cache_project_root(root);
         value["revisions"] = revision_json(revisions);
         value["result"] = Json::object();

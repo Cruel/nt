@@ -15,6 +15,17 @@
 namespace noveltea::authoring {
 
 // Common physical-byte identity used by the YAML session and source observer.
+// During the source-revision expand phase, new callers may supply XXH3-128
+// preconditions while existing native/editor callers still publish SHA-256.
+enum class SourceRevisionAlgorithm {
+    Absent,
+    Sha256,
+    Xxh3_128,
+    Invalid
+};
+SourceRevisionAlgorithm source_revision_algorithm(std::string_view revision) noexcept;
+std::string source_revision_for(std::string_view bytes, SourceRevisionAlgorithm algorithm);
+bool source_revision_matches(std::string_view bytes, std::string_view revision);
 std::string exact_source_revision(std::string_view bytes);
 
 // Opt-in, per-physical-read diagnostics. The caller supplies the proof phase;

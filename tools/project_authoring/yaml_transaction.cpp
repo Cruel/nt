@@ -141,7 +141,7 @@ bool regular_source_exists(const fs::path& path)
     return true;
 }
 
-std::string revision(const fs::path& path)
+std::string revision(const fs::path& path, std::string_view expected = {})
 {
     if (!regular_source_exists(path))
         return "absent";
@@ -150,7 +150,10 @@ std::string revision(const fs::path& path)
     const auto bytes = read_source(path);
     if (bytes.size() != size || fs::last_write_time(path) != before || fs::file_size(path) != size)
         throw std::runtime_error("Project source changed during exact revision read.");
-    return exact_source_revision(bytes);
+    const auto algorithm = source_revision_algorithm(expected);
+    return source_revision_for(bytes, algorithm == SourceRevisionAlgorithm::Xxh3_128
+                                          ? algorithm
+                                          : SourceRevisionAlgorithm::Sha256);
 }
 
 void write_atomic(const fs::path& path, std::string_view contents)
@@ -195,12 +198,7 @@ std::string approval_for(const PreparedYamlTransaction& prepared)
 
 bool valid_revision(std::string_view text)
 {
-    if (text == "absent")
-        return true;
-    if (!text.starts_with("sha256:") || text.size() != 71)
-        return false;
-    return std::all_of(text.begin() + 7, text.end(),
-                       [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+    return source_revision_algorithm(text) != SourceRevisionAlgorithm::Invalid;
 }
 
 ValidationResult effective_record_for_compaction(std::string_view family, std::string_view source)
@@ -463,16 +461,43 @@ void remove_owned_directory(const fs::path& directory, std::string_view token)
     sync_directory(directory.parent_path());
 }
 
+std::optional<std::string> journal_target_bytes(const fs::path& directory,
+                                                std::string_view identity, std::string_view blob)
+{
+    if (identity == "absent")
+        return std::nullopt;
+    if (blob.empty() || !path_safe(blob))
+        throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: missing blob");
+    const auto blob_path = directory / blob;
+    if (!fs::is_regular_file(fs::symlink_status(blob_path)))
+        throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: unsafe blob");
+    auto bytes = read_source(blob_path);
+    if (!source_revision_matches(bytes, identity))
+        throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: corrupt blob");
+    return bytes;
+}
+
+bool journal_target_matches(const fs::path& root, const fs::path& directory,
+                            const JournalTarget& target, bool after)
+{
+    const auto bytes =
+        journal_target_bytes(directory, after ? target.after_revision : target.before_revision,
+                             after ? target.after_blob : target.before_blob);
+    const auto path = safe_source_path(root, target.path);
+    return bytes ? regular_source_exists(path) && read_source(path) == *bytes
+                 : !regular_source_exists(path);
+}
+
 void apply_target(const fs::path& root, const fs::path& directory, const JournalTarget& target,
                   bool after)
 {
     const auto path = safe_source_path(root, target.path);
     const auto& wanted = after ? target.after_revision : target.before_revision;
-    const auto& alternative = after ? target.before_revision : target.after_revision;
-    const auto current = revision(path);
-    if (current == wanted)
+    // A noncryptographic digest is sufficient to label local source revisions,
+    // but crash recovery must prove the exact stored original bytes.
+    if (journal_target_matches(root, directory, target, after))
         return;
-    if (current != alternative)
+    if (!journal_target_matches(root, directory, target, !after))
         throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: " + target.path);
     if (wanted == "absent") {
         if (fs::exists(path)) {
@@ -481,16 +506,8 @@ void apply_target(const fs::path& root, const fs::path& directory, const Journal
         }
         return;
     }
-    const auto& blob = after ? target.after_blob : target.before_blob;
-    if (blob.empty() || !path_safe(blob))
-        throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: missing blob");
-    const auto blob_path = directory / blob;
-    if (!fs::is_regular_file(fs::symlink_status(blob_path)))
-        throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: unsafe blob");
-    const auto bytes = read_source(blob_path);
-    if (exact_source_revision(bytes) != wanted)
-        throw std::runtime_error("WORKSPACE_TRANSACTION_RECOVERY_CONFLICT: corrupt blob");
-    write_atomic(path, bytes);
+    write_atomic(path, *journal_target_bytes(directory, wanted,
+                                             after ? target.after_blob : target.before_blob));
 }
 
 void recover_journals(const fs::path& root)
@@ -528,10 +545,10 @@ void recover_journals(const fs::path& root)
             for (const auto& target : journal.targets) {
                 if (!distinct.insert(target.path).second)
                     throw std::runtime_error("Duplicate transaction journal target.");
-                const auto current = revision(safe_source_path(root, target.path));
-                if (current != target.before_revision && current != target.after_revision)
+                const bool before = journal_target_matches(root, directory, target, false);
+                if (!before && !journal_target_matches(root, directory, target, true))
                     throw std::runtime_error("Unknown target revision: " + target.path);
-                if (journal.state == "rolled-back" && current != target.before_revision)
+                if (journal.state == "rolled-back" && !before)
                     throw std::runtime_error("Rolled-back transaction target diverged.");
             }
             if (journal.state == "committed") {
@@ -744,9 +761,8 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: " + target.path);
             if (!valid_revision(target.expected_revision))
                 throw std::runtime_error("Invalid expected YAML source revision.");
-            if (target.expected_revision != (target.expected_revision == "absent"
-                                                 ? "absent"
-                                                 : exact_source_revision(target.baseline_source)))
+            if (target.expected_revision != "absent" &&
+                !source_revision_matches(target.baseline_source, target.expected_revision))
                 throw std::runtime_error("Untrusted YAML transaction baseline.");
             if (target.erase && (!target.edits.empty() || target.create_source))
                 throw std::runtime_error("YAML deletion cannot include field edits.");
@@ -758,10 +774,10 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 throw std::runtime_error("Semantic compaction requires a whole-source format.");
             if (target.create_source && target.expected_revision != "absent")
                 throw std::runtime_error("New YAML source requires absent expected revision.");
-            const auto current_revision = revision(absolute);
+            const auto current_revision = revision(absolute, target.expected_revision);
             const auto current =
                 current_revision == "absent" ? std::string{} : read_source(absolute);
-            if (current_revision != "absent" && exact_source_revision(current) != current_revision)
+            if (current_revision != "absent" && !source_revision_matches(current, current_revision))
                 throw std::runtime_error("YAML source changed during preparation.");
             if (current_revision != target.expected_revision) {
                 if (current_revision == "absent" || target.erase || target.create_source ||
@@ -797,7 +813,8 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 if (current_revision == "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing text source.");
                 prepared.after_source = *target.raw_text_source;
-                prepared.after_revision = exact_source_revision(prepared.after_source);
+                prepared.after_revision = source_revision_for(
+                    prepared.after_source, source_revision_algorithm(prepared.before_revision));
             } else if (target.create_source) {
                 if (current_revision != "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: existing target.");
@@ -848,7 +865,8 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 if (hash_fragments(current) != hash_fragments(*target.replacement_source))
                     throw std::runtime_error("YAML formatting must preserve all comment text.");
                 prepared.after_source = *target.replacement_source;
-                prepared.after_revision = exact_source_revision(prepared.after_source);
+                prepared.after_revision = source_revision_for(
+                    prepared.after_source, source_revision_algorithm(prepared.before_revision));
             } else {
                 if (current_revision == "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing YAML source.");
@@ -875,7 +893,8 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                     throw std::runtime_error("YAML comment-aware preflight rejected: " +
                                              edited.error);
                 prepared.after_source = edited.source;
-                prepared.after_revision = exact_source_revision(prepared.after_source);
+                prepared.after_revision = source_revision_for(
+                    prepared.after_source, source_revision_algorithm(prepared.before_revision));
             }
             if (prepared.before_revision != prepared.after_revision)
                 result.targets.push_back(std::move(prepared));
@@ -952,13 +971,13 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
                 }))
                 throw std::runtime_error("WORKSPACE_INVALID_SOURCE_DEPENDENCY: " + target.path);
             const auto absolute = checked_path(target.path);
-            if (revision(absolute) != target.before_revision ||
+            if (revision(absolute, target.before_revision) != target.before_revision ||
                 (target.before_revision != "absent" &&
                  read_source(absolute) != target.before_source))
                 throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: " + target.path);
             if ((target.erase && target.after_revision != "absent") ||
                 (!target.erase &&
-                 target.after_revision != exact_source_revision(target.after_source)))
+                 !source_revision_matches(target.after_source, target.after_revision)))
                 throw std::runtime_error("Stale YAML transaction approval payload.");
         }
         const auto directory = root_ / journal_root / id;
@@ -990,7 +1009,8 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
             sync_directory(directory.parent_path());
             persisted = true;
             for (const auto& target : journal.targets)
-                if (revision(checked_path(target.path)) != target.before_revision)
+                if (revision(checked_path(target.path), target.before_revision) !=
+                    target.before_revision)
                     throw std::runtime_error(
                         "WORKSPACE_REVISION_CONFLICT: target changed after staging: " +
                         target.path);
@@ -1023,8 +1043,9 @@ YamlTransactionResult YamlTransactionService::commit(const PreparedYamlTransacti
                 // writer cannot overwrite external bytes of unknown revision.
                 try {
                     for (const auto& target : journal.targets) {
-                        const auto current = revision(checked_path(target.path));
-                        if (current != target.before_revision && current != target.after_revision)
+                        const auto path = checked_path(target.path);
+                        if (revision(path, target.before_revision) != target.before_revision &&
+                            revision(path, target.after_revision) != target.after_revision)
                             throw std::runtime_error("Unknown source revision during rollback.");
                     }
                     for (auto it = journal.targets.rbegin(); it != journal.targets.rend(); ++it)

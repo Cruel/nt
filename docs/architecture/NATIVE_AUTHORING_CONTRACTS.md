@@ -1,5 +1,33 @@
 # Native Project schema contracts
 
+## Local authoring source-revision expand phase (#578)
+
+Native authoring source revisions are **local byte-identity/CAS tokens**, not
+cryptographic attestations. The native parser distinguishes `absent`, legacy
+`sha256:` followed by 64 lowercase hexadecimal digits, and `xxh3-128:` followed
+by 32 lowercase hexadecimal digits. Unknown algorithms, uppercase hexadecimal,
+truncated digests, and malformed tokens fail closed; the algorithm tag is part
+of the identity. The native YAML/text/Asset transaction journal verifies the
+actual bytes against the supplied algorithm and still compares original bytes
+at commit. It never treats equal-length hash strings from different algorithms
+as interchangeable.
+
+During expansion, the native source observer and session snapshots **continue
+emitting SHA-256 revisions** for existing CLI/editor consumers, while transaction
+preconditions can already accept either algorithm. `absent` continues to mean
+physical nonexistence, never the digest of an empty source. The clean native
+validation cache explicitly records `sourceRevisionAlgorithm: sha256` and
+`assetProofAlgorithm: xxh3-128` and discards cache entries with missing or
+mismatched algorithm identities. This is a disposable cache compatibility check,
+not an authored Project format migration. The later source-revision cutover must
+change the source algorithm and invalidate previous evidence before changing
+default emission.
+
+Cryptographic SHA-256 proofs for published bundles, exported packages, runtime
+integrity, and other security-sensitive contracts remain separate and are **not**
+replaced by XXH3. XXH3 is noncryptographic and must never authorize a trusted
+download or package-integrity decision.
+
 ## Read-only native semantic graph projection (#536)
 
 The host-only `ProjectSession::semantic_graph` is compiled into the resident native

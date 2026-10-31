@@ -18,9 +18,10 @@ enum class TransactionDecision {
 };
 
 struct YamlTransactionTarget {
-    std::string path;              // canonical Project-relative tracked YAML source
-    std::string expected_revision; // sha256:<hex> or absent
-    std::string baseline_source;   // exact bytes that edits were authored against
+    std::string path; // canonical Project-relative tracked YAML source
+    std::string
+        expected_revision; // sha256:<64 lowercase hex>, xxh3-128:<32 lowercase hex>, or absent
+    std::string baseline_source; // exact bytes that edits were authored against
     std::vector<YamlValueEdit> edits;
     std::optional<std::string> create_source; // only when expected_revision is absent
     bool erase = false;
