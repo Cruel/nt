@@ -283,8 +283,7 @@ ProjectSession::prepare_working(std::uint64_t expected_revision, std::string_vie
 
 ProjectSession::WorkingPreparation
 ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::string_view test_id,
-                                         bool reuse_clean_validation,
-                                         bool defer_final_observation)
+                                         bool reuse_clean_validation, bool defer_final_observation)
 {
     WorkingPreparation prepared;
     prepared.working_revision = working_revision_;
@@ -473,8 +472,7 @@ ProjectSession::prepare_complete_working(std::uint64_t expected_revision, std::s
         // retains the immediate complete-preparation freshness fence.
         if (!defer_final_observation) {
             const auto observed = observe_sources();
-            if (observed.full_rescan ||
-                (!observed.authoritative && !observed.scoped_authority) ||
+            if (observed.full_rescan || (!observed.authoritative && !observed.scoped_authority) ||
                 !observed.delta.changed.empty() || !observed.delta.added.empty() ||
                 !observed.delta.removed.empty())
                 throw std::runtime_error(

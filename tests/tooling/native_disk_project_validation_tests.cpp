@@ -425,8 +425,8 @@ TEST_CASE("complete Project assembly reuses unchanged contributors across an ext
     // downstream preparation. Deferring only the redundant *intermediate*
     // observation must not initiate another full source capture.
     const auto captures_before = session->source_capture_count();
-    const auto deferred = session->prepare_complete_working(
-        session->working_revision(), {}, true, true);
+    const auto deferred =
+        session->prepare_complete_working(session->working_revision(), {}, true, true);
     REQUIRE(deferred.accepted);
     REQUIRE(deferred.complete_project_json == unchanged.complete_project_json);
     REQUIRE(session->source_capture_count() == captures_before);
