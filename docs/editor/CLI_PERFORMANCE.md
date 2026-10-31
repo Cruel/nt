@@ -40,6 +40,49 @@ including warm captures; the avoided work appears in `directoryEnumerations`,
 `fileByteReads`, `contentHashes`, and parser counters. Other validation and
 final-publication phases may still read/hash sources independently.
 
+#### #582 reference-machine certification (2026-10-31)
+
+The separate [watcher-backed result](performance/baselines/validation-2026-10-31-watcher-backed.json)
+contains all **83 samples** from the unchanged #577 harness, with a clean source
+commit `04cfc4c9`, Release native CLI and Release Node-API addon. The reference
+Ryzen 7 5700G machine, OS/tool versions, fixture/cache conditions, build flags,
+and harness SHA-256 agree with the [#577 baseline](performance/baselines/validation-2026-10-31-release.json).
+Every comparable sample's **diagnostic digest matches**; semantic recheck counts,
+source-capture counts, and font/shader/final-generation stage invocation counts
+also remain unchanged. All timings below are request milliseconds, using medians
+for repeated states; editor timing excludes patch application.
+
+| Project | Unchanged resident, #577 → #582 | Warm saved label, #577 → #582 | Editor unsaved label, #577 → #582 |
+|---|---:|---:|---:|
+| Feature Lab | 328.4 → 220.1 | 323.3 → 233.1 | 94.4 → 68.2 |
+| 1 Room | 13.1 → 10.2 | 13.2 → 11.9 | 1.2 → 0.7 |
+| 101 Rooms | 38.9 → 30.8 | 45.2 → 31.3 | 7.5 → 3.5 |
+| 501 Rooms | 152.1 → 117.7 | 168.0 → 118.9 | 34.1 → 15.0 |
+
+Feature Lab **unchanged resident** work fell from 164 to **0** directory
+enumerations, 1,847 to **367** instrumented file reads, and 3,337 to **1,857**
+hash calls (four source captures, zero record rechecks, and one font coverage,
+shader compile and final-generation proof in both runs). Its **warm saved label**
+fell from 205 to **0** enumerations, 2,268 to **419** reads and 3,813 to
+**1,964** hashes (five captures and one record recheck in both runs).
+For **501 Rooms**, unchanged resident work fell from 24 to **0** enumerations,
+2,047 to **3** reads and 2,048 to **4** hashes. Its warm label change fell from
+30 to **0** enumerations, 2,559 to **5** reads and 2,561 to **7** hashes;
+semantic work remains one record recheck. The editor's 501-Room in-memory
+validation fell from 12 to **0** enumerations, 1,024 to **2** reads and 1,023
+to **1** hash, still with two source captures.
+
+Cold admission also avoids repeated *inner* captures' physical tree work:
+Feature Lab cold-start enumerations fell 246 → **41**, reads 3,333 → **1,483**
+and hash calls 4,766 → **2,916**, with the same 306 record rechecks and six
+source captures. The one-room cold-start latency increased from 86 to 102 ms;
+the optimization is not a universal cold-latency improvement. The #577-to-#582
+time differences also include the intervening #579 source-hash optimization:
+against the separate [post-#579 reference](performance/baselines/validation-2026-10-31-xxh3-128.json),
+Feature Lab unchanged-resident time is 247.2 → **220.1** ms and 501-Room
+unchanged-resident time is 157.7 → **117.7** ms. These measurements describe
+end-to-end work, not a new authorization or source-revision proof contract.
+
 ### #577: end-to-end native validation work counters and reproducible baselines
 
 Validation counters are opt-in and observational, not authorization evidence, cache keys,
