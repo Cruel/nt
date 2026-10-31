@@ -639,7 +639,7 @@ describe('dirty tab close guard', () => {
           projectRelativePath: sourceId,
           kind: 'lua',
           text: true,
-          contentHash: `sha256:${'a'.repeat(64)}`,
+          contentHash: `xxh3-128:${'a'.repeat(32)}`,
         },
       ],
       textById: { [sourceId]: 'return submitted' },
@@ -647,7 +647,7 @@ describe('dirty tab close guard', () => {
         [sourceId]: {
           text: 'return submitted',
           baseText: 'return clean',
-          baseContentHash: `sha256:${'a'.repeat(64)}`,
+          baseContentHash: `xxh3-128:${'a'.repeat(32)}`,
           dirty: true,
           conflict: null,
         },
@@ -659,7 +659,7 @@ describe('dirty tab close guard', () => {
       ok: boolean;
       success: boolean;
       sourceId: string;
-      contentHash: `sha256:${string}`;
+      contentHash: `xxh3-128:${string}`;
     }) => void;
     vi.mocked(window.noveltea.writeProjectSource).mockImplementationOnce(
       () =>
@@ -676,7 +676,7 @@ describe('dirty tab close guard', () => {
       ok: true,
       success: true,
       sourceId,
-      contentHash: `sha256:${'b'.repeat(64)}`,
+      contentHash: `xxh3-128:${'b'.repeat(32)}`,
     });
 
     await waitFor(() =>

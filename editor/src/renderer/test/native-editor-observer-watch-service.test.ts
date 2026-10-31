@@ -8,8 +8,8 @@ import {
 type Delta = Extract<NativeAuthoringEvent, { type: 'delta' }>;
 
 function event(overrides: Partial<Delta['observation']> = {}): Delta {
-  const projectHash = `sha256:${'a'.repeat(64)}`;
-  const assetHash = `sha256:${'b'.repeat(64)}`;
+  const projectHash = `xxh3-128:${'a'.repeat(32)}`;
+  const assetHash = `xxh3-128:${'b'.repeat(32)}`;
   return {
     type: 'delta',
     sessionId: 'project-1',
@@ -46,7 +46,7 @@ describe('native observer as sole physical Project watcher', () => {
     expect(result?.sourceChangedPaths).toEqual(['scripts/start.lua']);
     expect(result?.assetChangedPaths).toEqual(['assets/scene.png']);
     expect(result?.assetFileRevisions).toEqual({
-      'assets/scene.png': `sha256:${'b'.repeat(64)}`,
+      'assets/scene.png': `xxh3-128:${'b'.repeat(32)}`,
     });
   });
 

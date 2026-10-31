@@ -84,9 +84,10 @@ void certify()
                 SourceRevisionAlgorithm::Xxh3_128 &&
             source_revision_algorithm(noveltea::core::xxh3_128_revision("abc")) ==
                 SourceRevisionAlgorithm::Xxh3_128 &&
-            source_revision_for("abc", SourceRevisionAlgorithm::Sha256) ==
-                "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" &&
-            source_revision_matches(
+            source_revision_algorithm(
+                "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") ==
+                SourceRevisionAlgorithm::Invalid &&
+            !source_revision_matches(
                 "abc", "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") &&
             !source_revision_matches("abc", "absent") &&
             !source_revision_matches("abc", "xxh3-128:06B05AB6733A618578AF5F94892F3950") &&
@@ -164,8 +165,7 @@ void certify()
             "Raw Lua Save is durable and retains exact edited bytes");
     require(!writer.commit(text_prepared, TransactionDecision::KeepComments).accepted,
             "A raw text Save approval cannot replay over its newly published source");
-    // Legacy SHA callers and new XXH3 callers use the same journal and exact
-    // byte-CAS, not independent transaction implementations.
+    // Source transactions publish canonical XXH3-128 revisions.
     text_change.baseline_source = read(script);
     text_change.expected_revision = noveltea::core::xxh3_128_revision(text_change.baseline_source);
     text_change.raw_text_source = "return 25 -- xxh revision\n";
@@ -179,23 +179,17 @@ void certify()
             "XXH3-128 source precondition commits through native transaction journal");
     text_change.baseline_source = read(script);
     text_change.expected_revision =
-        source_revision_for(text_change.baseline_source, SourceRevisionAlgorithm::Sha256);
-    text_change.raw_text_source = "return 26 -- legacy source precondition\n";
+        "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    text_change.raw_text_source = "return 26 -- retired source precondition\n";
     const auto legacy_prepared = writer.prepare({text_change}, TransactionDecision::KeepComments);
-    require(legacy_prepared.accepted && legacy_prepared.targets.size() == 1 &&
-                legacy_prepared.targets.front().before_revision == text_change.expected_revision &&
-                legacy_prepared.targets.front().after_revision ==
-                    exact_source_revision(*text_change.raw_text_source) &&
-                writer.commit(legacy_prepared, TransactionDecision::KeepComments).accepted &&
-                read(script) == *text_change.raw_text_source,
-            "Legacy SHA-256 preconditions remain valid while new transactions publish XXH3-128");
+    require(!legacy_prepared.accepted && read(script) == text_change.baseline_source,
+            "Retired SHA-256 source preconditions cannot authorize any mutation");
     text_change.baseline_source = read(script);
-    text_change.expected_revision =
-        source_revision_for(text_change.baseline_source, SourceRevisionAlgorithm::Sha256);
+    text_change.expected_revision = exact_source_revision(text_change.baseline_source);
     text_change.raw_text_source = text_change.baseline_source;
     const auto legacy_unchanged = writer.prepare({text_change}, TransactionDecision::KeepComments);
     require(legacy_unchanged.accepted && legacy_unchanged.targets.empty(),
-            "Changing source revision algorithms must not fabricate a no-op write");
+            "Canonical source revision does not fabricate a no-op write");
     auto wrong_xxh = text_change;
     wrong_xxh.baseline_source = read(script);
     wrong_xxh.expected_revision = "xxh3-128:" + std::string(32, '0');

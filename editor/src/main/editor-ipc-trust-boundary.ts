@@ -78,10 +78,6 @@ const MAX_EXPORT_IDENTIFIER_LENGTH = 512;
 const MAX_EXPORT_COLLECTION_ENTRIES = 10_000;
 const MAX_EXPORT_ARGUMENTS = 1_024;
 const MAX_EXPORT_ARGUMENT_LENGTH = 32_768;
-const sha256DigestSchema = z.custom<`sha256:${string}`>(
-  (value) => typeof value === 'string' && /^sha256:[0-9a-f]{64}$/u.test(value),
-);
-
 export interface EditorFrame {
   detached: boolean;
   url: string;
@@ -338,7 +334,7 @@ const attachmentPathSchema = z.string().min(1).max(2048).refine(isSafeProjectAtt
 const xxh3DigestSchema = z.custom<`xxh3-128:${string}`>(
   (value) => typeof value === 'string' && /^xxh3-128:[0-9a-f]{32}$/u.test(value),
 );
-const sourceDigestSchema = z.union([sha256DigestSchema, xxh3DigestSchema]);
+const sourceDigestSchema = xxh3DigestSchema;
 const sourceRevisionSchema = z.union([sourceDigestSchema, z.literal('absent')]);
 
 export const projectSourceUsagesArgumentsSchema = z.tuple([
@@ -780,11 +776,7 @@ export const nativeProjectSaveTextArgumentsSchema = z.tuple([
       ) || /^records\/layouts\/[a-z][a-z0-9-]*\/layout\.(?:lua|rml|rcss)$/u.test(value),
     'Native text Save must target an admitted Lua/RML/RCSS source.',
   ),
-  z
-    .string()
-    .min(7)
-    .max(71)
-    .regex(/^sha256:[0-9a-f]{64}$/u),
+  xxh3DigestSchema,
   z.string().refine((value) => utf8ByteLength(value) <= 4 * 1024 * 1024),
 ]);
 export const nativeProjectValidateArgumentsSchema = z.tuple([

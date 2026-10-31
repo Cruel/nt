@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdir, rm, writeFile, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -50,9 +50,9 @@ export class NativeAssetStagingService {
       if ((await lstat(directory)).isSymbolicLink())
         throw new Error('Native Asset staging directory is a symbolic link.');
       const stagedRelativePath = `.noveltea/native-asset-import/${randomUUID()}`;
-      const sourceRevision = this.sourceRevisionFor
-        ? this.sourceRevisionFor(bytes)
-        : `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      if (!this.sourceRevisionFor)
+        throw new Error('Native XXH3-128 source revision provider is unavailable.');
+      const sourceRevision = this.sourceRevisionFor(bytes);
       await writeFile(path.join(this.root, stagedRelativePath), bytes, { flag: 'wx' });
       if (this.closed) {
         await rm(path.join(this.root, stagedRelativePath), { force: true });

@@ -104,14 +104,11 @@ export function watchEventFromNativeObservation(
   const sources = paths.filter(
     (file) => !file.endsWith('.yaml') && !file.endsWith('.yml') && !assetSet.has(file),
   );
-  const assetRevisions: Record<string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'> = {};
+  const assetRevisions: Record<string, `xxh3-128:${string}` | 'absent'> = {};
   for (const file of assets) {
     const hash = observation.revisions[file];
-    if (
-      hash === 'absent' ||
-      (hash && /^(?:sha256:[a-f0-9]{64}|xxh3-128:[a-f0-9]{32})$/u.test(hash))
-    )
-      assetRevisions[file] = hash as `sha256:${string}` | `xxh3-128:${string}` | 'absent';
+    if (hash === 'absent' || (hash && /^xxh3-128:[a-f0-9]{32}$/u.test(hash)))
+      assetRevisions[file] = hash as `xxh3-128:${string}` | 'absent';
   }
   const absentProof = assets.filter((file) => !(file in assetRevisions));
   if (absentProof.length)

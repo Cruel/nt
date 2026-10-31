@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { promises as fs, constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import {
@@ -13,7 +13,6 @@ import type {
   ProjectSourceFile,
 } from '../../shared/project-source-files';
 import {
-  isSha256Digest,
   isSourceRevisionDigest,
   PROJECT_TEXT_SOURCE_LIMITS,
   projectTextSourceBoundaryCode,
@@ -83,13 +82,10 @@ export class ActiveProjectSessionService {
     this.nativeSourceRevisionFor = hash;
   }
 
-  private sourceRevision(
-    bytes: Uint8Array,
-    native: boolean,
-  ): `sha256:${string}` | `xxh3-128:${string}` {
-    return native && this.nativeSourceRevisionFor
-      ? this.nativeSourceRevisionFor(bytes)
-      : `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  private sourceRevision(bytes: Uint8Array): `xxh3-128:${string}` {
+    if (!this.nativeSourceRevisionFor)
+      throw new Error('Native XXH3-128 source revision provider is unavailable.');
+    return this.nativeSourceRevisionFor(bytes);
   }
 
   private active: ActiveProjectSession | null = null;
@@ -295,10 +291,7 @@ export class ActiveProjectSessionService {
             text: kind !== 'asset',
             ...(kind !== 'asset'
               ? {
-                  contentHash: this.sourceRevision(
-                    await fs.readFile(real),
-                    !!active.nativeLayoutIds,
-                  ),
+                  contentHash: this.sourceRevision(await fs.readFile(real)),
                 }
               : {}),
           });
@@ -352,7 +345,7 @@ export class ActiveProjectSessionService {
             projectRelativePath: relative,
             kind: `layout-${channel}`,
             text: true,
-            contentHash: this.sourceRevision(await fs.readFile(canonical), true),
+            contentHash: this.sourceRevision(await fs.readFile(canonical)),
             layout: { id: layoutId, channel },
           });
         }
@@ -468,13 +461,8 @@ export class ActiveProjectSessionService {
           continue;
         }
         aggregateBytes += bytes.byteLength;
-        const digest = this.sourceRevision(bytes, !!active.nativeLayoutIds);
-        if (
-          entry.expectedContentHash !== null &&
-          (isSha256Digest(entry.expectedContentHash)
-            ? this.sourceRevision(bytes, false) !== entry.expectedContentHash
-            : digest !== entry.expectedContentHash)
-        ) {
+        const digest = this.sourceRevision(bytes);
+        if (entry.expectedContentHash !== null && digest !== entry.expectedContentHash) {
           results.push(
             unavailable(
               entry,

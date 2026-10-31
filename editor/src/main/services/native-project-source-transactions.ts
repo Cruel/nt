@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -50,10 +49,6 @@ function validFilePath(value: string): boolean {
   );
 }
 
-function hash(bytes: Buffer): string {
-  return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-}
-
 /** Only the native worker publishes these plans. This module performs no filesystem writes. */
 export async function planNativeProjectSourceTransaction(
   root: string,
@@ -91,12 +86,10 @@ export async function planNativeProjectSourceTransaction(
     if (bytes.byteLength > 4 * 1024 * 1024)
       throw new Error('Source file is too large: ' + relative);
     const requested = expectedRevisions[relative] ?? admittedRevisions[relative];
-    const revision = sourceRevision ? sourceRevision(bytes) : hash(bytes);
-    if (
-      requested &&
-      requested !== revision &&
-      (!requested.startsWith('sha256:') || requested !== hash(bytes))
-    )
+    if (!sourceRevision)
+      throw new Error('Native XXH3-128 source revision provider is unavailable.');
+    const revision = sourceRevision(bytes);
+    if (requested && requested !== revision)
       throw new Error('WORKSPACE_REVISION_CONFLICT: ' + relative);
     return { bytes, revision };
   };
@@ -179,9 +172,7 @@ export async function planNativeProjectSourceTransaction(
     const bytes = await fs.readFile(path.join(root, fromPath));
     if (
       expectedRevisions[fromPath] &&
-      (expectedRevisions[fromPath].startsWith('sha256:')
-        ? expectedRevisions[fromPath] !== hash(bytes)
-        : !sourceRevision || expectedRevisions[fromPath] !== sourceRevision(bytes))
+      (!sourceRevision || expectedRevisions[fromPath] !== sourceRevision(bytes))
     )
       throw new Error('WORKSPACE_REVISION_CONFLICT: ' + fromPath);
     try {

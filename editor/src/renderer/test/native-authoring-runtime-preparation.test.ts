@@ -14,6 +14,11 @@ import {
 import type { NativeAuthoringPreparation } from '../../main/services/native-authoring-worker-contract';
 import { logicalRuntimeArtifactPaths } from '../../shared/runtime-artifact-preparation';
 
+// Test-only revision oracle. Real XXH3-128 is verified through the native addon tests.
+const sourceRevisionFor = (bytes: Uint8Array) =>
+  `xxh3-128:${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}`;
+const digest = (text: string) => sourceRevisionFor(Buffer.from(text));
+
 function fixture() {
   const project = createAuthoringProject({ id: 'native-working', name: 'Saved Project' });
   project.rooms.start = createDefaultAuthoringRecord(
@@ -22,7 +27,7 @@ function fixture() {
   ) as typeof project.rooms.start;
   project.entrypoint = { kind: 'room', id: 'start' };
   project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
-  const revision = 'sha256:' + createHash('sha256').update('source').digest('hex');
+  const revision = digest('source');
   const prepared: NativeAuthoringPreparation = {
     accepted: true,
     error: '',
@@ -102,13 +107,14 @@ describe('native working Project runtime preparation', () => {
         },
         sourceRevisions: {
           ...prepared.sourceRevisions,
-          'assets/asset.bin': 'sha256:' + createHash('sha256').update('asset source').digest('hex'),
+          'assets/asset.bin': digest('asset source'),
         },
       };
       const options = {
         prepared: native,
         projectRoot: root,
         paths: logicalRuntimeArtifactPaths,
+        sourceRevisionFor,
       };
       const result = await prepareNativeWorkingRuntime(options);
       expect(result.status).toBe('prepared');
@@ -145,8 +151,6 @@ describe('native working Project runtime preparation', () => {
       const journal = path.join(root, '.noveltea/editor/native-dirty-state.json');
       await mkdir(path.dirname(journal), { recursive: true });
       await writeFile(journal, 'unsaved native replay evidence');
-      const digest = (value: string) =>
-        'sha256:' + createHash('sha256').update(value).digest('hex');
       const baseline: NativeAuthoringPreparation = {
         ...prepared,
         referencedAssetIds: [],
@@ -160,6 +164,7 @@ describe('native working Project runtime preparation', () => {
         projectRoot: root,
         prepared: baseline,
         paths: logicalRuntimeArtifactPaths,
+        sourceRevisionFor,
         testId: 'smoke',
       });
       expect(first.status).toBe('prepared');
@@ -170,6 +175,7 @@ describe('native working Project runtime preparation', () => {
       const next = await cache.prepare({
         projectRoot: root,
         paths: logicalRuntimeArtifactPaths,
+        sourceRevisionFor,
         testId: 'smoke',
         prepared: {
           ...baseline,

@@ -29,7 +29,7 @@ import type { ProjectWorkspaceFileSystem } from './project-workspace-file-system
 /** Native CLI/daemon Project owner, independent of editor sessions. */
 type Identity = Readonly<{ sessionEpoch: number; generation: number }>;
 type PhysicalEntry = ResidentProjectAuthorityObservation['manifest']['entries'][number];
-type TextSource = Readonly<{ text: string; contentHash: `sha256:${string}` }>;
+type TextSource = Readonly<{ text: string; contentHash: `xxh3-128:${string}` }>;
 type Portable = Readonly<{
   identity: Identity;
   snapshot: LoadedProjectWorkspaceSnapshot;
@@ -72,8 +72,10 @@ const scopes = [
 let nextEpoch = 1;
 const digest = (bytes: Uint8Array): `sha256:${string}` =>
   `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
-const validHash = (hash: unknown): hash is `sha256:${string}` =>
+const validAssetHash = (hash: unknown): hash is `sha256:${string}` =>
   typeof hash === 'string' && /^sha256:[0-9a-f]{64}$/u.test(hash);
+const validSourceHash = (hash: unknown): hash is `xxh3-128:${string}` =>
+  typeof hash === 'string' && /^xxh3-128:[0-9a-f]{32}$/u.test(hash);
 const safePath = (name: string): boolean =>
   !!name &&
   !name.includes('\\') &&
@@ -126,6 +128,7 @@ export class NativeResidentProjectOwner {
   constructor(
     private readonly files: ProjectWorkspaceFileSystem,
     private readonly authority: ResidentProjectAuthority,
+    private readonly sourceRevisionFor: (bytes: Uint8Array) => `xxh3-128:${string}`,
     epoch?: number,
   ) {
     if (!authority.prepareNativeProject || !authority.proveNativeProject)
@@ -192,7 +195,7 @@ export class NativeResidentProjectOwner {
         throw error;
       }
       if (
-        !validHash(native.sourceGeneration) ||
+        !validSourceHash(native.sourceGeneration) ||
         !native.project ||
         !native.sourceRevisions ||
         !native.sourceOverlays ||
@@ -204,18 +207,18 @@ export class NativeResidentProjectOwner {
         .sort();
       if (!paths.includes('project.yaml'))
         throw new Error('Native admission omitted project.yaml.');
-      const fileRevisions: Record<string, { contentHash: `sha256:${string}`; byteSize: number }> =
+      const fileRevisions: Record<string, { contentHash: `xxh3-128:${string}`; byteSize: number }> =
         {};
       let raced = false;
       for (const name of paths) {
         const revision = native.sourceRevisions[name];
-        if (!safePath(name) || !validHash(revision)) {
+        if (!safePath(name) || !validSourceHash(revision)) {
           raced = true;
           break;
         }
         try {
           const bytes = await this.files.readBytes(this.files.joinPath(root, name));
-          if (digest(bytes) !== revision) {
+          if (this.sourceRevisionFor(bytes) !== revision) {
             raced = true;
             break;
           }
@@ -358,7 +361,7 @@ export class NativeResidentProjectOwner {
       if (!bytes) return null;
       sources[name] = {
         text: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes),
-        contentHash: digest(bytes),
+        contentHash: this.sourceRevisionFor(bytes),
       };
       if (
         native.sourceRevisions[name] &&
@@ -425,7 +428,7 @@ export class NativeResidentProjectOwner {
       portable.snapshot.projectRoot !== canonical ||
       portable.snapshot.snapshotKind !== 'loaded' ||
       portable.snapshot.sourceRevision !== portable.nativePreparation?.sourceGeneration ||
-      !validHash(portable.nativePreparation.sourceGeneration) ||
+      !validSourceHash(portable.nativePreparation.sourceGeneration) ||
       !Number.isSafeInteger(portable.identity?.generation) ||
       portable.identity.generation < 1 ||
       !Number.isSafeInteger(portable.identity?.sessionEpoch) ||
@@ -455,7 +458,7 @@ export class NativeResidentProjectOwner {
       if (
         !safePath(name) ||
         (revision !== 'absent' &&
-          !validHash(revision) &&
+          !validSourceHash(revision) &&
           !/^physical:[0-9]+:-?[0-9]+$/u.test(revision)) ||
         // Native portable export also pins non-Asset text sources (e.g.
         // distribution notices) outside the Project observer's discovery
@@ -481,8 +484,8 @@ export class NativeResidentProjectOwner {
     for (const [name, source] of Object.entries(portable.projectTextSources)) {
       if (
         !safePath(name) ||
-        !validHash(source?.contentHash) ||
-        digest(new TextEncoder().encode(source.text)) !== source.contentHash ||
+        !validSourceHash(source?.contentHash) ||
+        this.sourceRevisionFor(new TextEncoder().encode(source.text)) !== source.contentHash ||
         (portable.nativePreparation.sourceRevisions[name] &&
           portable.nativePreparation.sourceRevisions[name] !== source.contentHash)
       )
@@ -499,7 +502,7 @@ export class NativeResidentProjectOwner {
       assets.some(
         (name) =>
           !portable.externalAssets.some(
-            (asset) => asset.path === name && validHash(asset.contentHash),
+            (asset) => asset.path === name && validAssetHash(asset.contentHash),
           ),
       )
     )

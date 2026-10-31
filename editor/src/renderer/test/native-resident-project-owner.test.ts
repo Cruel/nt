@@ -10,8 +10,9 @@ import type {
 } from '../../shared/project-workspace/native-project-preparation-contracts';
 
 const root = '/native-project';
-const hash = (text: string) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
-const generation = `sha256:${'a'.repeat(64)}`;
+const hash = (text: string): `xxh3-128:${string}` =>
+  `xxh3-128:${createHash('sha256').update(text).digest('hex').slice(0, 32)}`;
+const generation = `xxh3-128:${'a'.repeat(32)}`;
 const text = 'schema: noveltea.project\nschemaVersion: 1\n';
 const project = createAuthoringProject();
 const preparation: NativeResidentProjectPreparation = {
@@ -64,7 +65,15 @@ function owner(options: { text?: string; prove?: boolean } = {}) {
     prepareNativeProject: vi.fn(async () => preparation),
     proveNativeProject: vi.fn(async () => options.prove ?? true),
   } satisfies ResidentProjectAuthority;
-  return { owner: new NativeResidentProjectOwner(files, authority, 7), authority };
+  return {
+    owner: new NativeResidentProjectOwner(
+      files,
+      authority,
+      (bytes) => hash(new TextDecoder().decode(bytes)),
+      7,
+    ),
+    authority,
+  };
 }
 
 describe('native-only resident Project owner', () => {

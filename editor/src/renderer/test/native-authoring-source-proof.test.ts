@@ -25,10 +25,10 @@ describe('native authoring source proof algorithms', () => {
     ).toThrow('changed since admission');
   });
 
-  it('preserves SHA-256 for legacy source baselines and Asset content integrity', () => {
-    expect(() =>
-      verifyNativeSourceBytes('scripts/one.lua', sha, bytes, new Map(), native),
-    ).not.toThrow();
+  it('rejects retired SHA-256 source baselines but preserves Asset cryptographic integrity', () => {
+    expect(() => verifyNativeSourceBytes('scripts/one.lua', sha, bytes, new Map(), native)).toThrow(
+      'changed since admission',
+    );
     expect(() =>
       verifyNativeSourceBytes('scripts/one.lua', sha, changed, new Map(), native),
     ).toThrow('changed since admission');

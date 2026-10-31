@@ -24,7 +24,7 @@ export interface OpenProjectResponse {
   savedContentProject?: unknown;
   editorState?: import('./project-schema/editor-project-state').EditorProjectState;
   repairs?: never[];
-  recoveryFileRevisions?: Record<string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'>;
+  recoveryFileRevisions?: Record<string, `xxh3-128:${string}` | 'absent'>;
   scriptSourcePaths?: Record<string, string>;
   diagnostics: ToolDiagnostic[];
   error?: string;

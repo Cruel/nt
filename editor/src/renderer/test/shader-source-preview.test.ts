@@ -109,24 +109,21 @@ describe('shader source preview discovery', () => {
           'shaders/panel.fs.sc': {
             text: 'dirty shader',
             baseText: 'saved shader',
-            baseContentHash:
-              'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            baseContentHash: 'xxh3-128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
             dirty: true,
             conflict: null,
           },
           'shaders/common/color.sh': {
             text: 'dirty include',
             baseText: 'saved include',
-            baseContentHash:
-              'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+            baseContentHash: 'xxh3-128:cccccccccccccccccccccccccccccccc',
             dirty: true,
             conflict: null,
           },
           'scripts/main.lua': {
             text: 'dirty lua',
             baseText: 'saved lua',
-            baseContentHash:
-              'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            baseContentHash: 'xxh3-128:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
             dirty: true,
             conflict: null,
           },
@@ -143,18 +140,18 @@ describe('shader source preview discovery', () => {
       {
         id: 'shaders/panel.fs.sc',
         kind: 'shader' as const,
-        contentHash: `sha256:${'a'.repeat(64)}` as const,
+        contentHash: `xxh3-128:${'a'.repeat(32)}` as const,
       },
       {
         id: 'shaders/common.sc',
         kind: 'shader' as const,
-        contentHash: `sha256:${'b'.repeat(64)}` as const,
+        contentHash: `xxh3-128:${'b'.repeat(32)}` as const,
       },
     ];
     const first = shaderSourcePreviewAuthorityKey(['panel'], {}, files);
     const second = shaderSourcePreviewAuthorityKey(['panel'], {}, [
       files[0]!,
-      { ...files[1]!, contentHash: `sha256:${'c'.repeat(64)}` as const },
+      { ...files[1]!, contentHash: `xxh3-128:${'c'.repeat(32)}` as const },
     ]);
 
     expect(second).not.toBe(first);

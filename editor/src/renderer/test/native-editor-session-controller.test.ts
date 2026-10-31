@@ -63,6 +63,11 @@ function fixture(projectRoot = '/trusted/project') {
   const close = vi.fn();
   const bridge = {
     close,
+    // The fixture supplies a deterministic XXH3-shaped oracle; real native
+    // bridging is exercised by the integration cases later in this file.
+    sourceRevision(bytes: Uint8Array) {
+      return `xxh3-128:${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}`;
+    },
     onFailure(callback: (error: Error) => void) {
       fail = callback;
       return () => {
@@ -120,7 +125,7 @@ function fixture(projectRoot = '/trusted/project') {
     error: '',
     snapshot: { workingRevision: 2 },
     textSourceDiskRevisions: {
-      'scripts/game.lua': 'sha256:' + 'a'.repeat(64),
+      'scripts/game.lua': 'xxh3-128:' + 'a'.repeat(32),
     },
   }));
   const reconcile = vi.fn(async () => ({
@@ -248,7 +253,7 @@ describe('native admission at the editor main Project lifecycle', () => {
       await writeFile(path.join(root, 'project.yaml'), source);
       const test = fixture(root);
       test.preparation.sourceRevisions = {
-        'project.yaml': `sha256:${createHash('sha256').update(source).digest('hex')}`,
+        'project.yaml': `xxh3-128:${createHash('sha256').update(source).digest('hex').slice(0, 32)}`,
       };
       await test.controller.admit('one', test.saved);
       expect(await test.controller.prepareCleanExport('one')).toEqual(test.saved);
@@ -323,7 +328,7 @@ describe('native admission at the editor main Project lifecycle', () => {
       batches: [
         {
           patches: [{ operation: 'replace' as const, path: '/project/name', value: 'Dirty' }],
-          diskPreconditions: { project: `sha256:${'a'.repeat(64)}` },
+          diskPreconditions: { project: `xxh3-128:${'a'.repeat(32)}` },
         },
       ],
       textSources: {},
@@ -475,7 +480,7 @@ describe('native admission at the editor main Project lifecycle', () => {
   });
   it('guards source Save schema and resolves revisioned Stage/Save through the admitted owner', async () => {
     const id = 'b107a86e-0e36-472d-8db1-1ab0de300e04';
-    const hash = 'sha256:' + '1'.repeat(64);
+    const hash = 'xxh3-128:' + '1'.repeat(32);
     const mixed = {
       textPaths: ['scripts/game.lua'],
       textContents: { 'scripts/game.lua': 'return true' },
@@ -522,6 +527,15 @@ describe('native admission at the editor main Project lifecycle', () => {
         'return true',
       ]).success,
     ).toBe(true);
+    expect(
+      nativeProjectSaveTextArgumentsSchema.safeParse([
+        id,
+        0,
+        'scripts/game.lua',
+        `sha256:${'a'.repeat(64)}`,
+        'return true',
+      ]).success,
+    ).toBe(false);
     for (const path of ['../escape.lua', '/tmp/script.lua', '.noveltea/config.lua'])
       expect(
         nativeProjectSaveTextArgumentsSchema.safeParse([id, 0, path, hash, 'return true']).success,
@@ -1038,7 +1052,7 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
           projectSessionId: id,
           operation: { kind: 'delete', path: 'scripts/issue-511-moved.lua' },
           expectedRevisions: {
-            'scripts/issue-511-moved.lua': `sha256:${'0'.repeat(64)}`,
+            'scripts/issue-511-moved.lua': `xxh3-128:${'0'.repeat(32)}`,
           },
         }),
       ).rejects.toThrow('WORKSPACE_REVISION_CONFLICT');

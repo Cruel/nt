@@ -44,28 +44,29 @@ export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
       entries: entries.map((entry) => ({
         readKey: entry.assetId,
         projectRelativePath: entry.projectRelativePath,
-        expectedContentHash: entry.expectedContentHash,
+        // Source reads accept XXH3-128 only. Packaging pins SHA-256 independently below.
+        expectedContentHash: null,
       })),
     });
     const byKey = new Map(response.entries.map((entry) => [entry.readKey, entry]));
     return Promise.all(
-      entries.map(async ({ assetId, projectRelativePath }) => {
+      entries.map(async ({ assetId, projectRelativePath, expectedContentHash }) => {
         const result = byKey.get(assetId);
-        return result?.status === 'ready'
-          ? {
-              status: 'ready' as const,
-              assetId,
-              projectRelativePath,
-              // Export/runtime Asset integrity remains cryptographic SHA-256,
-              // independent of the local editor's XXH3 source revision.
-              contentHash: result.contentHash.startsWith('sha256:')
-                ? (result.contentHash as `sha256:${string}`)
-                : await sha256TextSourceBytes(result.text, result.hadUtf8Bom),
-              text: result.text,
-              byteLength:
-                new TextEncoder().encode(result.text).byteLength + (result.hadUtf8Bom ? 3 : 0),
-            }
-          : { status: 'unavailable' as const, assetId };
+        if (result?.status !== 'ready') return { status: 'unavailable' as const, assetId };
+        const contentHash = await sha256TextSourceBytes(result.text, result.hadUtf8Bom);
+        if (expectedContentHash !== null && contentHash !== expectedContentHash)
+          return { status: 'unavailable' as const, assetId };
+        return {
+          status: 'ready' as const,
+          assetId,
+          projectRelativePath,
+          // Export/runtime Asset integrity remains cryptographic SHA-256,
+          // independent of the local editor's XXH3 source revision.
+          contentHash,
+          text: result.text,
+          byteLength:
+            new TextEncoder().encode(result.text).byteLength + (result.hadUtf8Bom ? 3 : 0),
+        };
       }),
     );
   },

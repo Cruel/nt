@@ -34,8 +34,8 @@ import {
 import type { ProjectSourceFile } from '../../shared/project-source-files';
 import { admitNativeRendererCommandFixture } from '../test-support/native-acknowledged-command-fixture';
 
-const roomFileRevision = `sha256:${'b'.repeat(64)}` as const;
-const sourceRevision = `sha256:${'a'.repeat(64)}` as const;
+const roomFileRevision = `xxh3-128:${'b'.repeat(32)}` as const;
+const sourceRevision = `xxh3-128:${'a'.repeat(32)}` as const;
 const helperSource: ProjectSourceFile = {
   id: 'scripts/helpers.lua',
   displayPath: 'scripts/helpers.lua',
@@ -240,7 +240,7 @@ describe('project save coordinator', () => {
     });
     useCommandStore.getState().enableNativeCommandMode(0);
     useWorkbenchStore.getState().openTab(buildProjectSourceTab(helperSource));
-    const savedHash = `sha256:${'e'.repeat(64)}`;
+    const savedHash = `xxh3-128:${'e'.repeat(32)}`;
     const nativeSave = vi.fn().mockResolvedValue({
       accepted: true,
       error: '',
@@ -609,7 +609,7 @@ describe('project save coordinator', () => {
         },
       },
     });
-    const hash = `sha256:${'e'.repeat(64)}`;
+    const hash = `xxh3-128:${'e'.repeat(32)}`;
     const save = vi.fn().mockResolvedValue({
       accepted: true,
       error: '',
@@ -674,7 +674,7 @@ describe('project save coordinator', () => {
         },
       },
     });
-    const hash = `sha256:${'f'.repeat(64)}`;
+    const hash = `xxh3-128:${'f'.repeat(32)}`;
     const save = vi
       .fn()
       .mockResolvedValueOnce({
@@ -737,7 +737,7 @@ describe('project save coordinator', () => {
       ok: true,
       success: true,
       sourceId: helperSource.id,
-      contentHash: `sha256:${'c'.repeat(64)}`,
+      contentHash: `xxh3-128:${'c'.repeat(32)}`,
     });
 
     const result = await saveActiveSaveUnit();
@@ -776,7 +776,7 @@ describe('project save coordinator', () => {
       accepted: true,
       error: '',
       snapshot: { workingRevision: 0 },
-      textSourceDiskRevisions: { [helperSource.id]: `sha256:${'d'.repeat(64)}` },
+      textSourceDiskRevisions: { [helperSource.id]: `xxh3-128:${'d'.repeat(32)}` },
     });
     Object.defineProperty(window.noveltea, 'nativeProjectSaveUnit', {
       configurable: true,
@@ -1065,13 +1065,13 @@ describe('project save coordinator', () => {
           'rooms/foyer': {
             source: working.rooms.foyer,
             baseline: working.rooms.foyer,
-            diskSourceRevision: `sha256:${'e'.repeat(64)}`,
+            diskSourceRevision: `xxh3-128:${'e'.repeat(32)}`,
             conflictingPaths: [],
           },
           'rooms/kitchen': {
             source: working.rooms.kitchen,
             baseline: diskKitchen,
-            diskSourceRevision: `sha256:${'f'.repeat(64)}`,
+            diskSourceRevision: `xxh3-128:${'f'.repeat(32)}`,
             conflictingPaths: ['/label'],
           },
         },
@@ -1112,7 +1112,7 @@ describe('project save coordinator', () => {
     ).toMatchObject({
       conflictingPaths: ['/rooms/kitchen/label'],
       externalFileRevisions: {
-        'records/rooms/kitchen.yaml': `sha256:${'f'.repeat(64)}`,
+        'records/rooms/kitchen.yaml': `xxh3-128:${'f'.repeat(32)}`,
       },
     });
     expect(nativeSave).toHaveBeenCalledWith('test-project-session', 0, 'record:rooms:foyer', {

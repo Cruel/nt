@@ -26,7 +26,7 @@ export type PortableResidentProjectAuthorityEntry = Readonly<{
 }>;
 
 export type PortableResidentProjectTextSource = Readonly<{
-  contentHash: `sha256:${string}`;
+  contentHash: `xxh3-128:${string}`;
   text: string;
 }>;
 

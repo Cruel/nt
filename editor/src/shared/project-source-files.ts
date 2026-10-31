@@ -33,7 +33,7 @@ export interface ListProjectSourceFilesResponse {
   folders?: readonly string[];
 }
 
-export type ProjectSourceExpectedRevision = `sha256:${string}` | `xxh3-128:${string}` | 'absent';
+export type ProjectSourceExpectedRevision = `xxh3-128:${string}` | 'absent';
 
 export interface ProjectSourceUsage {
   kind:

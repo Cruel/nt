@@ -31,10 +31,9 @@ export function verifyNativeSourceBytes(
     if (trackedHash && sha256() !== trackedHash)
       throw new Error(`Native Asset content hash does not match admitted Project: ${relative}`);
   } else if (
-    (/^sha256:[a-f0-9]{64}$/u.test(revision) && sha256() !== revision) ||
-    (/^xxh3-128:[a-f0-9]{32}$/u.test(revision) &&
-      (!sourceRevision || sourceRevision(bytes) !== revision)) ||
-    !/^(?:sha256:[a-f0-9]{64}|xxh3-128:[a-f0-9]{32})$/u.test(revision)
+    !/^xxh3-128:[a-f0-9]{32}$/u.test(revision) ||
+    !sourceRevision ||
+    sourceRevision(bytes) !== revision
   ) {
     throw new Error(`Native export source changed since admission: ${relative}`);
   }

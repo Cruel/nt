@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { EditorProjectState } from '../../shared/project-schema/editor-project-state';
@@ -32,9 +31,7 @@ export async function withNativeRecoveredTextSources(
     )
       throw new Error('Native recovered source escaped the active Project.');
     const baseText = await readFile(canonicalSource, 'utf8');
-    const revision = source.diskRevision.startsWith('xxh3-128:')
-      ? sourceRevisionFor?.(Buffer.from(baseText))
-      : `sha256:${createHash('sha256').update(baseText).digest('hex')}`;
+    const revision = sourceRevisionFor?.(Buffer.from(baseText));
     if (revision !== source.diskRevision)
       throw new Error(`Native recovered text source '${physicalPath}' changed on disk.`);
     const prior = sourceRecoveryById[file.id];

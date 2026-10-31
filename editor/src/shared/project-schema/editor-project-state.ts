@@ -240,7 +240,6 @@ const editorRecoveryConflictValueSchema = z.union([
 ]);
 
 const editorRecoveryFileRevisionSchema = z.union([
-  z.string().regex(/^sha256:[0-9a-f]{64}$/),
   z.string().regex(/^xxh3-128:[0-9a-f]{32}$/),
   z.literal('absent'),
 ]);

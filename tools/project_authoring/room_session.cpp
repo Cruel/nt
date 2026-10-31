@@ -274,20 +274,14 @@ SourceRevisionAlgorithm source_revision_algorithm(std::string_view revision) noe
         return std::all_of(value.begin(), value.end(),
                            [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
     };
-    if (revision.starts_with("sha256:") && revision.size() == 71 && valid_hex(revision.substr(7)))
-        return SourceRevisionAlgorithm::Sha256;
     if (revision.starts_with("xxh3-128:") && revision.size() == 41 && valid_hex(revision.substr(9)))
         return SourceRevisionAlgorithm::Xxh3_128;
     return SourceRevisionAlgorithm::Invalid;
 }
 
-std::string legacy_sha256_source_revision(std::string_view source);
-
 std::string source_revision_for(std::string_view bytes, SourceRevisionAlgorithm algorithm)
 {
     switch (algorithm) {
-    case SourceRevisionAlgorithm::Sha256:
-        return legacy_sha256_source_revision(bytes);
     case SourceRevisionAlgorithm::Xxh3_128:
         count_validation_work(&ValidationWorkCounters::content_hashes);
         return noveltea::core::xxh3_128_revision(bytes);
@@ -306,83 +300,6 @@ bool source_revision_matches(std::string_view bytes, std::string_view revision)
            source_revision_for(bytes, algorithm) == revision;
 }
 
-// Legacy preconditions are checked against their original algorithm. The
-// transaction layer separately proves the exact baseline bytes before writing.
-std::string legacy_sha256_source_revision(std::string_view source)
-{
-    count_validation_work(&ValidationWorkCounters::content_hashes);
-    static constexpr std::array<std::uint32_t, 64> constants{
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
-        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
-        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
-        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
-        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
-        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
-        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
-        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
-        0xc67178f2};
-    std::array<std::uint32_t, 8> state{0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-                                       0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
-    const auto block = [&](const unsigned char* bytes) {
-        std::array<std::uint32_t, 64> words{};
-        for (std::size_t i = 0; i < 16; ++i)
-            words[i] = (static_cast<std::uint32_t>(bytes[i * 4]) << 24) |
-                       (static_cast<std::uint32_t>(bytes[i * 4 + 1]) << 16) |
-                       (static_cast<std::uint32_t>(bytes[i * 4 + 2]) << 8) | bytes[i * 4 + 3];
-        for (std::size_t i = 16; i < 64; ++i) {
-            const auto a =
-                std::rotr(words[i - 15], 7) ^ std::rotr(words[i - 15], 18) ^ (words[i - 15] >> 3);
-            const auto b =
-                std::rotr(words[i - 2], 17) ^ std::rotr(words[i - 2], 19) ^ (words[i - 2] >> 10);
-            words[i] = words[i - 16] + a + words[i - 7] + b;
-        }
-        auto [a, b, c, d, e, f, g, h] = std::tuple{state[0], state[1], state[2], state[3],
-                                                   state[4], state[5], state[6], state[7]};
-        for (std::size_t i = 0; i < 64; ++i) {
-            const auto s1 = std::rotr(e, 6) ^ std::rotr(e, 11) ^ std::rotr(e, 25);
-            const auto ch = (e & f) ^ (~e & g);
-            const auto temp1 = h + s1 + ch + constants[i] + words[i];
-            const auto s0 = std::rotr(a, 2) ^ std::rotr(a, 13) ^ std::rotr(a, 22);
-            const auto maj = (a & b) ^ (a & c) ^ (b & c);
-            const auto temp2 = s0 + maj;
-            h = g;
-            g = f;
-            f = e;
-            e = d + temp1;
-            d = c;
-            c = b;
-            b = a;
-            a = temp1 + temp2;
-        }
-        for (std::size_t i = 0; i < state.size(); ++i)
-            state[i] += std::array{a, b, c, d, e, f, g, h}[i];
-    };
-    const auto bytes = reinterpret_cast<const unsigned char*>(source.data());
-    std::size_t offset = 0;
-    while (source.size() - offset >= 64) {
-        block(bytes + offset);
-        offset += 64;
-    }
-    std::array<unsigned char, 128> final{};
-    const auto remaining = source.size() - offset;
-    if (remaining)
-        std::memcpy(final.data(), bytes + offset, remaining);
-    final[remaining] = 0x80;
-    const auto length = remaining >= 56 ? 128U : 64U;
-    const auto bit_length = static_cast<std::uint64_t>(source.size()) * 8;
-    for (unsigned int i = 0; i < 8; ++i)
-        final[length - 8 + i] = static_cast<unsigned char>(bit_length >> (56 - i * 8));
-    block(final.data());
-    if (length == 128)
-        block(final.data() + 64);
-    std::ostringstream out;
-    out << "sha256:" << std::hex << std::setfill('0');
-    for (const auto word : state)
-        out << std::setw(8) << word;
-    return out.str();
-}
-
 std::string exact_source_revision(std::string_view source)
 {
     return source_revision_for(source, SourceRevisionAlgorithm::Xxh3_128);
@@ -390,15 +307,11 @@ std::string exact_source_revision(std::string_view source)
 
 namespace {
 
-std::string source_revision_or_absent(const std::filesystem::path& path,
-                                      std::string_view expected = {})
+std::string source_revision_or_absent(const std::filesystem::path& path)
 {
     if (!std::filesystem::exists(path) && !std::filesystem::is_symlink(path))
         return "absent";
-    const auto algorithm = source_revision_algorithm(expected);
-    return source_revision_for(read_bytes(path), algorithm == SourceRevisionAlgorithm::Sha256
-                                                     ? algorithm
-                                                     : SourceRevisionAlgorithm::Xxh3_128);
+    return exact_source_revision(read_bytes(path));
 }
 
 std::string parse_pointer_token(std::string_view token)
@@ -5010,7 +4923,7 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
                                            : root_ / "records" / family / (id + ".yaml");
             }
             if (source_revision_algorithm(expected) == SourceRevisionAlgorithm::Invalid ||
-                source_revision_or_absent(path, expected) != expected)
+                source_revision_or_absent(path) != expected)
                 throw std::runtime_error("Recovery source conflict for " + owner);
         }
     } catch (const std::exception& error) {

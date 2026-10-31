@@ -5,6 +5,7 @@ import path from 'node:path';
 import { NativeAssetStagingService } from '../../main/services/native-asset-staging-service';
 
 const roots: string[] = [];
+const revisionFor = (_bytes: Uint8Array) => `xxh3-128:${'a'.repeat(32)}`;
 async function testRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'noveltea-native-asset-'));
   roots.push(root);
@@ -17,12 +18,12 @@ afterEach(async () => {
 describe('native Project file import staging', () => {
   it('retains byte-exact, session-owned publication claims until the native journal commits', async () => {
     const root = await testRoot();
-    const service = new NativeAssetStagingService(root);
+    const service = new NativeAssetStagingService(root, revisionFor);
     const bytes = Buffer.from([0, 255, 42, 0, 9]);
     await service.stage('assets/images/clip.png', bytes);
     const claim = service.publication(['assets/images/clip.png']);
     expect(claim.files).toHaveLength(1);
-    expect(claim.files[0]?.sourceRevision).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(claim.files[0]?.sourceRevision).toMatch(/^xxh3-128:[0-9a-f]{32}$/);
     expect(await readFile(path.join(root, claim.files[0]!.stagedRelativePath))).toEqual(bytes);
     await expect(readFile(path.join(root, 'assets/images/clip.png'))).rejects.toMatchObject({
       code: 'ENOENT',
@@ -39,7 +40,7 @@ describe('native Project file import staging', () => {
 
   it('stages supporting files but rejects traversal, unrelated paths and symlinked staging roots', async () => {
     const root = await testRoot();
-    const service = new NativeAssetStagingService(root);
+    const service = new NativeAssetStagingService(root, revisionFor);
     await service.stage('support/licenses/NOTICE.txt', Buffer.from('License'));
     expect(service.publication(['support/licenses/NOTICE.txt']).files).toHaveLength(1);
     const staged = service.publication(['support/licenses/NOTICE.txt']).files[0]!;
@@ -59,13 +60,13 @@ describe('native Project file import staging', () => {
     await mkdir(path.join(another, '.noveltea'), { recursive: true });
     await symlink(root, path.join(another, '.noveltea/native-asset-import'));
     await expect(
-      new NativeAssetStagingService(another).stage('assets/a.bin', Buffer.from('bad')),
+      new NativeAssetStagingService(another, revisionFor).stage('assets/a.bin', Buffer.from('bad')),
     ).rejects.toThrow();
   });
 
   it('reserves pending paths before awaiting disk writes and rejects imports after closing', async () => {
     const root = await testRoot();
-    const service = new NativeAssetStagingService(root);
+    const service = new NativeAssetStagingService(root, revisionFor);
     const first = service.stage('assets/images/same.png', Buffer.from('one'));
     await expect(service.stage('assets/images/same.png', Buffer.from('two'))).rejects.toThrow(
       /pending/,

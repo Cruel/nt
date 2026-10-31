@@ -7,8 +7,9 @@ export const PROJECT_TEXT_SOURCE_LIMITS = Object.freeze({
   maxAggregateBytes: 16 * 1024 * 1024,
 });
 
+// Separate cryptographic payload identity; never accepted as a source revision.
 export type Sha256Digest = `sha256:${string}`;
-export type SourceRevisionDigest = Sha256Digest | `xxh3-128:${string}`;
+export type SourceRevisionDigest = `xxh3-128:${string}`;
 
 export interface ReadProjectTextSourcesRequest {
   projectSessionId: string;
@@ -70,10 +71,6 @@ export function projectTextSourceBoundaryCode(code: string): ProjectTextSourceBo
   }
 }
 
-export function isSha256Digest(value: string): value is Sha256Digest {
-  return /^sha256:[0-9a-f]{64}$/u.test(value);
-}
-
 export function isSourceRevisionDigest(value: string): value is SourceRevisionDigest {
-  return isSha256Digest(value) || /^xxh3-128:[0-9a-f]{32}$/u.test(value);
+  return /^xxh3-128:[0-9a-f]{32}$/u.test(value);
 }

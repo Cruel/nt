@@ -17,8 +17,6 @@ import {
   inferAssetKindFromExtension,
   sanitizeAssetFilename,
 } from '../../shared/project-schema/authoring-assets';
-import type { ProjectSourceExpectedRevision } from '../../shared/project-source-files';
-import { readProjectAssetFileRevision } from './project-asset-file-revision';
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
@@ -86,7 +84,6 @@ async function copyAssetIntoProject(
   sourcePath: string,
   replacement?: Readonly<{
     path: string;
-    expectedRevision: ProjectSourceExpectedRevision;
   }>,
   assertAuthority?: () => void,
   stageAsset?: (projectRelativePath: string, bytes: Uint8Array) => Promise<void>,
@@ -271,21 +268,13 @@ export async function reimportAsset(
       error: 'Asset reimport requires a saved project file.',
     };
   assertAuthority?.();
-  const projectRoot = projectRootFromFile(projectFilePath);
-  let replacementExpectedRevision: ProjectSourceExpectedRevision;
-  try {
-    replacementExpectedRevision = await readProjectAssetFileRevision(
-      projectRoot,
-      projectRelativePath,
-    );
-  } catch (error) {
+  if (!stageAsset)
     return {
       ok: false,
       success: false,
       diagnostics: [],
-      error: error instanceof Error ? error.message : 'Asset reimport precondition failed.',
+      error: 'Native Asset staging is required.',
     };
-  }
   assertAuthority?.();
   const result = await dialog.showOpenDialog(owner, {
     title: 'Reimport Asset',
@@ -299,12 +288,7 @@ export async function reimportAsset(
     const asset = await copyAssetIntoProject(
       projectFilePath,
       result.filePaths[0],
-      stageAsset
-        ? undefined
-        : {
-            path: projectRelativePath,
-            expectedRevision: replacementExpectedRevision,
-          },
+      undefined,
       assertAuthority,
       stageAsset,
     );

@@ -8,7 +8,9 @@ import { withNativeRecoveredTextSources } from '../../main/services/native-recov
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
 
 const original = 'return "saved"\n';
-const revision = `sha256:${createHash('sha256').update(original).digest('hex')}` as const;
+const revision = `xxh3-128:${'a'.repeat(32)}` as const;
+const revisionFor = (bytes: Uint8Array) =>
+  Buffer.from(bytes).toString('utf8') === original ? revision : `xxh3-128:${'0'.repeat(32)}`;
 const checkpoint = {
   batches: [
     {
@@ -90,6 +92,23 @@ describe('durable native editor recovery', () => {
       const location = path.join(root, '.noveltea/editor/native-dirty-state.json');
       const published = JSON.parse(await readFile(location, 'utf8'));
       expect(published).toMatchObject({ version: 1, projectId: 'same-project' });
+      await writeFile(
+        location,
+        JSON.stringify({
+          ...published,
+          checkpoint: {
+            ...published.checkpoint,
+            textSources: {
+              'scripts/helper.lua': {
+                text: 'unsaved',
+                diskRevision: `sha256:${createHash('sha256').update(original).digest('hex')}`,
+              },
+            },
+          },
+        }),
+      );
+      await expect(store.read(root, 'same-project')).rejects.toThrow('incomplete or incompatible');
+      await writeFile(location, JSON.stringify(published));
       await writeFile(location, '{"version":1,"projectId":');
       await expect(store.read(root, 'same-project')).rejects.toThrow('incomplete or incompatible');
       await writeFile(location, JSON.stringify({ ...published, version: 2 }));
@@ -151,9 +170,15 @@ describe('durable native editor recovery', () => {
           text: true,
         },
       ];
-      const state = await withNativeRecoveredTextSources(root, emptyEditorProjectState(), files, {
-        [source]: { text: '<rml>dirty</rml>', diskRevision: revision },
-      });
+      const state = await withNativeRecoveredTextSources(
+        root,
+        emptyEditorProjectState(),
+        files,
+        {
+          [source]: { text: '<rml>dirty</rml>', diskRevision: revision },
+        },
+        revisionFor,
+      );
       expect(state.sourceRecoveryById['layouts/hall/layout.rml']).toMatchObject({
         text: '<rml>dirty</rml>',
         baseText: original,
@@ -162,9 +187,15 @@ describe('durable native editor recovery', () => {
       });
       await writeFile(path.join(root, source), 'external edit');
       await expect(
-        withNativeRecoveredTextSources(root, emptyEditorProjectState(), files, {
-          [source]: { text: 'dirty', diskRevision: revision },
-        }),
+        withNativeRecoveredTextSources(
+          root,
+          emptyEditorProjectState(),
+          files,
+          {
+            [source]: { text: 'dirty', diskRevision: revision },
+          },
+          revisionFor,
+        ),
       ).rejects.toThrow('changed on disk');
     } finally {
       await rm(root, { recursive: true, force: true });

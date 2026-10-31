@@ -64,7 +64,7 @@ describe('project Files navigation', () => {
         status: 'ready' as const,
         readKey: entry.readKey,
         projectRelativePath: entry.projectRelativePath,
-        contentHash: 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        contentHash: 'xxh3-128:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         text: 'return unreferenced_magic_helper()',
         hadUtf8Bom: false,
       })),
@@ -117,7 +117,7 @@ describe('project Files navigation', () => {
         status: 'ready' as const,
         readKey: entry.readKey,
         projectRelativePath: entry.projectRelativePath,
-        contentHash: `sha256:${'b'.repeat(64)}` as const,
+        contentHash: `xxh3-128:${'b'.repeat(32)}` as const,
         text: entry.readKey === secondSource.id ? 'return second disk' : 'return first disk',
         hadUtf8Bom: false,
       })),
@@ -134,7 +134,7 @@ describe('project Files navigation', () => {
         },
         text: 'return obsolete recovery',
         baseText: 'return first disk',
-        baseContentHash: `sha256:${'a'.repeat(64)}`,
+        baseContentHash: `xxh3-128:${'a'.repeat(32)}`,
       },
     };
     expect(
@@ -353,7 +353,7 @@ describe('project Files navigation', () => {
         status: 'ready' as const,
         readKey: entry.readKey,
         projectRelativePath: entry.projectRelativePath,
-        contentHash: `sha256:${'a'.repeat(64)}` as const,
+        contentHash: `xxh3-128:${'a'.repeat(32)}` as const,
         text: 'return disk baseline',
         hadUtf8Bom: false,
       })),
@@ -370,7 +370,7 @@ describe('project Files navigation', () => {
           },
           text: 'return initial recovery',
           baseText: 'return disk baseline',
-          baseContentHash: `sha256:${'a'.repeat(64)}`,
+          baseContentHash: `xxh3-128:${'a'.repeat(32)}`,
         },
       };
     });
@@ -418,7 +418,7 @@ describe('project Files navigation', () => {
           },
           text: 'return should not restore',
           baseText: 'return disk baseline',
-          baseContentHash: `sha256:${'a'.repeat(64)}`,
+          baseContentHash: `xxh3-128:${'a'.repeat(32)}`,
         },
       };
     });
@@ -461,7 +461,7 @@ describe('project Files navigation', () => {
 
   it('reloads clean external source changes and surfaces dirty-buffer conflicts', async () => {
     let diskText = 'return 1';
-    let diskHash = `sha256:${'a'.repeat(64)}` as const;
+    let diskHash = `xxh3-128:${'a'.repeat(32)}` as const;
     vi.mocked(window.noveltea.readProjectTextSources).mockImplementation(async (request) => ({
       entries: request.entries.map((entry) => ({
         status: 'ready' as const,
@@ -476,7 +476,7 @@ describe('project Files navigation', () => {
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]?.text).toBe('return 1');
 
     diskText = 'return 2';
-    diskHash = `sha256:${'b'.repeat(64)}`;
+    diskHash = `xxh3-128:${'b'.repeat(32)}`;
     await useProjectSourceStore.getState().reconcileExternal('session-source');
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
       text: 'return 2',
@@ -486,7 +486,7 @@ describe('project Files navigation', () => {
 
     useProjectSourceStore.getState().setText(helperSource.id, 'return local');
     diskText = 'return 3';
-    diskHash = `sha256:${'c'.repeat(64)}`;
+    diskHash = `xxh3-128:${'c'.repeat(32)}`;
     await useProjectSourceStore.getState().reconcileExternal('session-source');
     expect(useProjectSourceStore.getState().buffersById[helperSource.id]).toMatchObject({
       text: 'return local',
@@ -540,7 +540,7 @@ describe('project Files navigation', () => {
       ok: true,
       success: true,
       sourceId: helperSource.id,
-      contentHash: `sha256:${'d'.repeat(64)}`,
+      contentHash: `xxh3-128:${'d'.repeat(32)}`,
     });
 
     await expect(saving).resolves.toBe(true);
@@ -571,7 +571,7 @@ describe('project Files navigation', () => {
       ok: true,
       success: true,
       sourceId: helperSource.id,
-      contentHash: `sha256:${'d'.repeat(64)}`,
+      contentHash: `xxh3-128:${'d'.repeat(32)}`,
     });
 
     await expect(useProjectSourceStore.getState().save(helperSource.id, true)).resolves.toBe(true);

@@ -301,6 +301,9 @@ describe.skipIf(!nativeAddon)('native editor lifecycle with real addon workers',
         ),
         pollIntervalMs: 100,
       });
+      sessions.setNativeSourceRevisionFor(
+        (bytes) => bridge.sourceRevision(bytes) as `xxh3-128:${string}`,
+      );
       const controller = new NativeEditorSessionController(
         sessions,
         bridge,

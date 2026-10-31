@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
-import { planNativeProjectSourceTransaction } from '../../main/services/native-project-source-transactions';
+import { planNativeProjectSourceTransaction as plan } from '../../main/services/native-project-source-transactions';
 
 const roots: string[] = [];
 async function fixture() {
@@ -20,11 +20,28 @@ async function fixture() {
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
-const digest = (text: string): `sha256:${string}` =>
-  `sha256:${createHash('sha256').update(text).digest('hex')}`;
+// This planner test injects an identity oracle; native bridge parity is tested separately.
+const digest = (text: string): `xxh3-128:${string}` =>
+  `xxh3-128:${createHash('sha256').update(text).digest('hex').slice(0, 32)}`;
+const planNativeProjectSourceTransaction: typeof plan = (
+  root,
+  project,
+  operation,
+  expected,
+  admitted,
+  revisionFor,
+) =>
+  plan(
+    root,
+    project,
+    operation,
+    expected,
+    admitted,
+    revisionFor ?? ((bytes) => digest(Buffer.from(bytes).toString('utf8'))),
+  );
 
 describe('native Project source transaction planning (no TypeScript authoring writes)', () => {
-  it('accepts both native and legacy source preconditions, but publishes native revisions and rejects stale bytes', async () => {
+  it('accepts canonical preconditions and rejects retired SHA-256 or stale source bytes', async () => {
     const { root, project } = await fixture();
     const file = 'scripts/helper.lua';
     await writeFile(path.join(root, file), 'abc');
@@ -32,22 +49,30 @@ describe('native Project source transaction planning (no TypeScript authoring wr
     const sourceRevision = (bytes: Uint8Array) =>
       Buffer.from(bytes).toString('utf8') === 'abc' ? nativeRevision : `xxh3-128:${'0'.repeat(32)}`;
     const move = { kind: 'move' as const, fromPath: file, toPath: 'scripts/renamed.lua' };
-    for (const expected of [nativeRevision, digest('abc')]) {
-      const planned = await planNativeProjectSourceTransaction(
+    const planned = await planNativeProjectSourceTransaction(
+      root,
+      project,
+      move,
+      { [file]: nativeRevision },
+      {},
+      sourceRevision,
+    );
+    expect(planned.transition).toMatchObject({
+      kind: 'source-files',
+      files: expect.arrayContaining([
+        expect.objectContaining({ path: file, expectedRevision: nativeRevision, contents: null }),
+      ]),
+    });
+    await expect(
+      planNativeProjectSourceTransaction(
         root,
         project,
         move,
-        { [file]: expected },
+        { [file]: ('sha256:' + '0'.repeat(64)) as never },
         {},
         sourceRevision,
-      );
-      expect(planned.transition).toMatchObject({
-        kind: 'source-files',
-        files: expect.arrayContaining([
-          expect.objectContaining({ path: file, expectedRevision: nativeRevision, contents: null }),
-        ]),
-      });
-    }
+      ),
+    ).rejects.toThrow('WORKSPACE_REVISION_CONFLICT');
     await writeFile(path.join(root, file), 'external mutation');
     for (const expected of [nativeRevision, digest('abc')]) {
       await expect(

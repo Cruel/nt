@@ -67,7 +67,7 @@ describe('project recovery reconstruction', () => {
     const recovered = adoptNativeRecoveredProject(
       reconstructEditorProject(disk, disk, emptyEditorProjectState(), []),
       toJsonValue({ ...saved, project: { ...saved.project, name: 'Local' } }),
-      { project: { paths: ['/project/name'], revision: `sha256:${'d'.repeat(64)}` } },
+      { project: { paths: ['/project/name'], revision: `xxh3-128:${'d'.repeat(32)}` } },
     );
     expect(
       recovered.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
@@ -75,7 +75,7 @@ describe('project recovery reconstruction', () => {
       conflictingPaths: ['/project/name'],
       localValueByPath: { '/project/name': { exists: true, value: 'Local' } },
       externalValueByPath: { '/project/name': { exists: true, value: 'Saved' } },
-      externalFileRevisions: { 'project.yaml': `sha256:${'d'.repeat(64)}` },
+      externalFileRevisions: { 'project.yaml': `xxh3-128:${'d'.repeat(32)}` },
     });
   });
 
@@ -177,8 +177,8 @@ describe('project recovery reconstruction', () => {
   it('marks recovered edits conflicted when their persisted workspace baseline is stale', () => {
     const project = createAuthoringProject({ id: 'demo', name: 'Disk changed' });
     const content = toJsonValue(stripEditorProjectState(project));
-    const oldRevision = `sha256:${'a'.repeat(64)}` as const;
-    const currentRevision = `sha256:${'b'.repeat(64)}` as const;
+    const oldRevision = `xxh3-128:${'a'.repeat(32)}` as const;
+    const currentRevision = `xxh3-128:${'b'.repeat(32)}` as const;
     const editorState = {
       ...emptyEditorProjectState(),
       recovery: {

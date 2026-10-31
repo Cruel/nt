@@ -256,7 +256,7 @@ describe('guarded editor IPC registrar', () => {
         {
           readKey: 'source',
           projectRelativePath: 'assets/source.lua',
-          expectedContentHash: `sha256:${'a'.repeat(64)}`,
+          expectedContentHash: `xxh3-128:${'a'.repeat(32)}`,
         },
       ],
     };
@@ -267,6 +267,12 @@ describe('guarded editor IPC registrar', () => {
     expect(service).toHaveBeenCalledWith(request);
 
     for (const arguments_ of [
+      [
+        {
+          ...request,
+          entries: [{ ...request.entries[0], expectedContentHash: `sha256:${'a'.repeat(64)}` }],
+        },
+      ],
       [{ ...request, unexpected: true }],
       [{ ...request, entries: [{ ...request.entries[0], unexpected: true }] }],
       [request, 'extra'],

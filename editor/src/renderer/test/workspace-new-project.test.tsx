@@ -372,7 +372,7 @@ describe('WorkspacePage new project modal', () => {
 
   it('routes asset-only watcher events to asset audit without republishing authoring state', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-    const assetRevision = `sha256:${'b'.repeat(64)}` as `sha256:${string}`;
+    const assetRevision = `xxh3-128:${'b'.repeat(32)}` as `xxh3-128:${string}`;
     useProjectStore.getState().loadProjectDocument({
       document: project,
       savedDocument: project,
@@ -483,7 +483,7 @@ describe('WorkspacePage new project modal', () => {
   it('clears a latched external-source error when the repaired source returns to the current revision', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
-    const revision = `sha256:${'a'.repeat(64)}` as `sha256:${string}`;
+    const revision = `xxh3-128:${'a'.repeat(32)}` as `xxh3-128:${string}`;
     useProjectStore.getState().loadProjectDocument({
       document: project,
       savedDocument: project,
@@ -571,7 +571,7 @@ describe('WorkspacePage new project modal', () => {
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
     const externalProject = structuredClone(project);
     externalProject.rooms.hall!.description = 'Changed outside NovelTea';
-    const roomRevision = `sha256:${'c'.repeat(64)}` as `sha256:${string}`;
+    const roomRevision = `xxh3-128:${'c'.repeat(32)}` as `xxh3-128:${string}`;
     useProjectStore.getState().loadProjectDocument({
       document: project,
       savedDocument: project,
@@ -654,7 +654,7 @@ describe('WorkspacePage new project modal', () => {
         workingRevision: 1,
         source: {},
         baseline: {},
-        diskSourceRevision: `sha256:${'a'.repeat(64)}`,
+        diskSourceRevision: `xxh3-128:${'a'.repeat(32)}`,
         normalized: null,
         dirty: false,
         valid: true,
@@ -662,7 +662,7 @@ describe('WorkspacePage new project modal', () => {
         recordSnapshots: {
           'rooms/hall': {
             workingRevision: 1,
-            diskSourceRevision: `sha256:${'d'.repeat(64)}`,
+            diskSourceRevision: `xxh3-128:${'d'.repeat(32)}`,
             source: { ...project.rooms.hall!, description: 'Authoritative native source' },
             baseline: { ...project.rooms.hall!, description: 'Authoritative native source' },
             normalized: null,
@@ -692,7 +692,7 @@ describe('WorkspacePage new project modal', () => {
           externalValueByPath: {
             '/rooms/hall/description': { exists: true, value: 'Changed on disk' },
           },
-          fileRevisions: { 'records/rooms/hall.yaml': `sha256:${'c'.repeat(64)}` },
+          fileRevisions: { 'records/rooms/hall.yaml': `xxh3-128:${'c'.repeat(32)}` },
           scriptSourcePaths: {},
         },
       });
