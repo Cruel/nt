@@ -411,6 +411,114 @@ A declared predecessor.
                and f['line'] > 1 and f['column'] > 0
                for f in bad['readiness']['design']['stages']['architecture']['findings'])
 
+    # Rejected records have no admitted status: never silently drop their errors
+    # from a readiness gate (including a requested implementation cluster).
+    rejected = root / 'rejected-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/planning-stages/04-composition', rejected)
+    for document in rejected.rglob('*.md'):
+        document.write_text(document.read_text().replace('status: draft', 'status: approved'))
+    baseline = readiness(rejected, '--stage', 'composition')['readiness']
+    assert all(baseline[view]['stages']['composition']['minimum'] == 'passed'
+               for view in ['design', 'approved'])
+    for text in ['not frontmatter', '---\ninvalid: [\n---\nProse',
+                 "---\nschema: broken\n---\nProse"]:
+        (rejected / 'broken.md').write_text(text)
+        value = readiness(rejected, '--stage', 'composition', '--milestone',
+                          'milestone.warning', code=1)['readiness']
+        assert value['focus']['minimum'] != 'passed'
+        assert value['clusters'][0]['minimum'] != 'passed'
+        assert all(value[view]['stages']['foundation']['minimum'] != 'passed'
+                   for view in ['design', 'approved'])
+        assert any(f['path'] == 'broken.md' for f in value['focus']['blockingGaps'])
+
+    uncertain = root / 'uncertain-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/planning-stages/04-composition', uncertain)
+    event = uncertain / 'events/restore-bell.md'
+    original = event.read_text()
+    event.write_text(original.replace('not_completed: []',
+        'not_completed: []\n      unverified: Access has not been verified.'))
+    value = readiness(uncertain)['readiness']
+    for stage, code in [('architecture', 'milestone-route'),
+                        ('interactive', 'milestone-fulfillment')]:
+        assert next(f for f in value['design']['stages'][stage]['findings']
+                    if f['code'] == code)['status'] == 'unverified'
+    event.write_text(original.replace('completeness: complete', 'completeness: partial'))
+    value = readiness(uncertain)['readiness']
+    assert next(f for f in value['focus']['findings']
+                if f['code'] == 'milestone-fulfillment')['status'] == 'missing'
+
+    # State producers are dependencies even without explicit completed-Event links.
+    producers = root / 'state-producer-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/planning-stages/04-composition', producers)
+    (producers / 'facts').mkdir()
+    (producers / 'facts/ready.md').write_text("""---
+schema: '0.1'
+type: fact
+id: fact.ready
+title: Repair supplies
+status: draft
+decisions: []
+initial: false
+---
+The repair supplies are ready.
+""")
+    event = producers / 'events/restore-bell.md'
+    original = event.read_text()
+    event.write_text(original.replace('not_completed: []',
+        'not_completed: []\n      conditions:\n'
+        '        - kind: truth\n          fact: fact.ready\n          value: true'))
+    setter = producers / 'events/get-ready.md'
+    setter.write_text(original.replace('event.restore-bell', 'event.get-ready').replace(
+        'effects: []', 'effects:\n          - kind: truth\n'
+        '            fact: fact.ready\n            value: true'))
+    value = readiness(producers, '--milestone', 'milestone.warning')['readiness']
+    assert value['focus']['minimum'] == 'passed'
+    assert value['clusters'][0]['minimum'] == 'passed'
+    assert 'event.get-ready' in value['clusters'][0]['recordIds']
+    assert not value['clusters'][0]['bounded']['truncated']
+    setter_source = setter.read_text()
+    setter.write_text(setter_source.replace('value: true', 'value: false'))
+    value = readiness(producers, '--milestone', 'milestone.warning', code=1)['readiness']
+    assert value['clusters'][0]['minimum'] != 'passed'
+    setter.write_text(setter_source)
+    event.write_text(original.replace('conditions: []',
+        'conditions:\n          - kind: truth\n            fact: fact.ready\n            value: true'))
+    value = readiness(producers, '--milestone', 'milestone.warning')['readiness']
+    assert value['clusters'][0]['minimum'] == 'passed'
+    assert 'event.get-ready' in value['clusters'][0]['recordIds']
+
+    # Recursively discovered state writers obey the same depth budget. A
+    # truncated producer chain must not be reported as an impossible route.
+    fact_source = (producers / 'facts/ready.md').read_text()
+    for idx in range(6):
+        (producers / f'facts/supply-{idx}.md').write_text(fact_source.replace(
+            'fact.ready', f'fact.supply-{idx}'))
+        writer = setter if idx == 0 else producers / f'events/supply-{idx - 1}.md'
+        writer.write_text(writer.read_text().replace('not_completed: []',
+            'not_completed: []\n      conditions:\n'
+            f'        - kind: truth\n          fact: fact.supply-{idx}\n          value: true'))
+        (producers / f'events/supply-{idx}.md').write_text(setter_source.replace(
+            'event.get-ready', f'event.supply-{idx}').replace('fact.ready', f'fact.supply-{idx}'))
+    value = readiness(producers, '--milestone', 'milestone.warning')['readiness']
+    assert value['focus']['minimum'] == 'passed'
+    assert value['clusters'][0]['bounded']['truncated']
+    assert value['clusters'][0]['minimum'] == 'unverified'
+
+    # Different Puzzles may share solution Events without sharing requirement IDs.
+    shared = root / 'shared-puzzle-readiness'
+    shutil.copytree(source / 'tests/fixtures/narrative/reference-story', shared)
+    puzzle = shared / 'puzzles/tower-access.md'
+    (shared / 'puzzles/second.md').write_text(puzzle.read_text().replace(
+        'puzzle.tower-access', 'puzzle.second'))
+    value = readiness(shared)['readiness']
+    findings = value['focus']['findings']
+    keys = [f['requirementId'] for f in findings]
+    assert len(keys) == len(set(keys))
+    for code in ['puzzle-solution', 'puzzle-clue-access']:
+        assert {f['path'] for f in findings if f['code'] == code} >= {
+            'puzzles/tower-access.md', 'puzzles/second.md'}
+    print('Readiness regression contracts: rejected input, uncertainty, state dependencies and IDs passed.')
+
     missing = readiness(root / 'missing-root', code=1)
     assert any(d['code'] == 'io' for d in missing['diagnostics'])
     invalid = readiness(story, '--milestone', 'event.question-ivo', code=1)

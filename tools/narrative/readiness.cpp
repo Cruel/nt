@@ -41,6 +41,18 @@ std::string state_status(const Json& finding)
         return "blocked";
     return "unverified";
 }
+std::string route_status(const Json& routes)
+{
+    bool unknown = false, incomplete = false;
+    for (const auto& route : routes) {
+        const auto status = state_status(route);
+        if (status == "satisfied")
+            return status;
+        unknown = unknown || status == "unverified";
+        incomplete = incomplete || status == "missing";
+    }
+    return unknown ? "unverified" : incomplete || routes.empty() ? "missing" : "blocked";
+}
 std::string message_for(std::string_view status)
 {
     if (status == "satisfied")
@@ -176,8 +188,11 @@ Gate assess(const Catalog& source, bool approved)
         paths.insert(r.path);
         ids.insert(id(r));
     }
-    // Exclude global graph deductions: they must be recalculated for this
-    // status view. Keep source/YAML/schema errors only for members of the view.
+    std::set<std::string> admitted_paths;
+    for (const auto& r : source.records)
+        admitted_paths.insert(r.path);
+    // Rejected records have no trustworthy status; only admitted out-of-scope
+    // records can safely have their diagnostics excluded from readiness.
     const std::set<std::string> computed{"chronology-cycle",        "required-predecessor-cycle",
                                          "impossible-prerequisite", "impossible-fulfillment",
                                          "impossible-branch",       "unobtainable-puzzle-solution",
@@ -185,6 +200,7 @@ Gate assess(const Catalog& source, bool approved)
     for (const auto& d : source.diagnostics)
         if (!computed.contains(d.at("code").get<std::string>()) &&
             (paths.contains(d["path"].get<std::string>()) ||
+             (d["path"] != "." && !admitted_paths.contains(d["path"].get<std::string>())) ||
              (d["path"] == "." && d["code"] == "io")))
             out.source.diagnostics.push_back(d);
     for (const auto& ref : source.references)
@@ -259,28 +275,17 @@ Gate assess(const Catalog& source, bool approved)
     }
     for (const auto* milestone : milestones) {
         const auto* coverage = coverage_item(out.evidence["milestoneRoutes"], "id", id(*milestone));
-        bool realized = coverage && std::any_of((*coverage)["routes"].begin(),
-                                                (*coverage)["routes"].end(), [](const Json& route) {
-                                                    return route["status"] == "reachable";
-                                                });
-        auto status = realized                         ? "satisfied"
-                      : partial(*milestone)            ? "satisfied"
-                      : out.source.diagnostics.empty() ? "blocked"
-                                                       : "unverified";
+        const auto fulfillment_status =
+            coverage ? route_status((*coverage)["routes"]) : "unverified";
+        const bool realized = fulfillment_status == "satisfied";
+        const auto status = partial(*milestone) ? std::string("satisfied") : fulfillment_status;
         add("architecture", "milestone-route", status,
             realized ? "A declared fulfillment alternative is reachable."
             : partial(*milestone)
                 ? "Partial Milestone binding may be deferred to interactive design."
                 : "Complete Milestone lacks a proven fulfillment alternative.",
             milestone, "/fulfillment", coverage ? (*coverage)["routes"] : Json::array());
-        status = realized ? "satisfied" : "unverified";
-        if (!realized && coverage && !out.source.diagnostics.empty())
-            status = "unverified";
-        else if (!realized && coverage && (*coverage)["routes"].empty())
-            status = "missing";
-        else if (!realized && coverage)
-            status = "blocked";
-        add("interactive", "milestone-fulfillment", status,
+        add("interactive", "milestone-fulfillment", fulfillment_status,
             realized ? "A fulfillment alternative is structurally reachable."
                      : "Complete a reachable fulfillment alternative.",
             milestone, "/fulfillment", coverage ? (*coverage)["routes"] : Json::array());
@@ -309,13 +314,13 @@ Gate assess(const Catalog& source, bool approved)
             const auto target = solution["event"].get<std::string>();
             add("interactive", "puzzle-solution", state_status(solution),
                 message_for(state_status(solution)), r, solution.value("pointer", "/solutions"),
-                Json::array({witness(id(*r), target, "/solutions")}), target);
+                Json::array({witness(id(*r), target, "/solutions")}), id(*r) + "#" + target);
             const auto& access = solution["clueAccess"];
             Json refs = Json::array();
             for (const auto& clue : access["availableClues"])
                 refs.push_back(witness(id(*r), clue.get<std::string>(), "/clues"));
             add("interactive", "puzzle-clue-access", state_status(access),
-                message_for(state_status(access)), r, "/clues", refs, target);
+                message_for(state_status(access)), r, "/clues", refs, id(*r) + "#" + target);
         }
     }
     for (const auto* choice : records_of_type("choice-point")) {
@@ -373,7 +378,7 @@ Gate assess(const Catalog& source, bool approved)
     for (const auto& d : out.source.diagnostics) {
         const bool foundational =
             d["code"] != "scope-reference-missing" &&
-            (d["path"] == "." ||
+            (d["path"] == "." || !admitted_paths.contains(d["path"].get<std::string>()) ||
              std::any_of(directions.begin(), directions.end(),
                          [&](const Record* r) { return r->path == d["path"].get<std::string>(); }));
         const std::string due = foundational ? "foundation" : "architecture";
@@ -435,6 +440,17 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
     std::map<std::string, const Record*> records;
     for (const auto& record : source.records)
         records[id(record)] = &record;
+    const auto slot = [](Json predicate) {
+        predicate.erase("value");
+        return nlohmann::json(predicate).dump();
+    };
+    std::map<std::string, std::set<std::string>> producers;
+    for (const auto& record : source.records)
+        if (type(record) == "event")
+            for (const auto& step : record.metadata["steps"])
+                for (const auto& branch : step["branches"])
+                    for (const auto& effect : branch["effects"])
+                        producers[slot(effect)].insert(id(record));
     std::vector<std::pair<std::string, int>> queue;
     auto enqueue = [&](const std::string& key, int depth) {
         if (result.ids.contains(key))
@@ -453,12 +469,19 @@ Cluster cluster(const Catalog& source, const std::string& milestone)
     for (std::size_t i = 0; i < queue.size(); ++i) {
         const auto [current, depth] = queue[i];
         const auto* record = records.at(current);
-        if (depth == cluster_depth) {
-            for (const auto& ref : source.references)
-                if (ref["source"] == current &&
-                    !result.ids.contains(ref["target"].get<std::string>()))
-                    result.truncated = true;
-            continue;
+        if (type(*record) == "event") {
+            // Typed state requirements depend on writers, not just on the Fact
+            // or Relationship record that declares the initial state.
+            const auto include_producers = [&](const Json& conditions) {
+                for (const auto& condition : conditions)
+                    for (const auto& producer : producers[slot(condition)])
+                        enqueue(producer, depth + 1);
+            };
+            for (const auto& route : record->metadata["prerequisites"]["any_of"])
+                include_producers(route.value("conditions", Json::array()));
+            for (const auto& step : record->metadata["steps"])
+                for (const auto& branch : step["branches"])
+                    include_producers(branch["conditions"]);
         }
         for (const auto& ref : source.references)
             if (ref["source"] == current)
@@ -510,6 +533,9 @@ Json readiness_report(const std::filesystem::path& root, const std::string& stag
                 scoped.references.push_back(ref);
         for (const auto& d : source.diagnostics)
             if (d["path"] == "." ||
+                std::none_of(
+                    source.records.begin(), source.records.end(),
+                    [&](const Record& r) { return r.path == d["path"].get<std::string>(); }) ||
                 std::any_of(scoped.records.begin(), scoped.records.end(), [&](const Record& r) {
                     return r.path == d["path"].get<std::string>();
                 }))

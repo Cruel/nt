@@ -91,6 +91,10 @@ as `readiness.focus`.
 Each finding carries stable `requirementId`, `code`, `status` (`satisfied`, `missing`,
 `blocked`, `unverified`), `subjectId`, `requiredBy`, `message`,
 `witnesses` and canonical `path`/`pointer`/`line`/`column`.
+Puzzle requirement IDs include both the owning Puzzle and its solution Event, so
+shared solutions do not collapse independent obligations. Milestone summaries preserve
+unknown route evidence as `unverified` and unfinished evidence as `missing`; absence of
+a proven route alone is not proof that the requirement is blocked.
 The `readiness.outstanding` array separately identifies partial-record
 obligations by ID, field, code, location and earliest due stage. It is derived
 from current Markdown metadata, not a stored checklist or a document-count
@@ -118,13 +122,19 @@ The native minimum policy follows the upstream experimental Story catalog:
 
 A `passed` design minimum is not approved canon. Each status scope recomputes
 its own progression and detects missing cross-status dependencies. An
-unrelated draft/superseded Event does not invalidate approved-canon evidence.
-Unresolved typed dependencies, partial records and search-budget exhaustion
-never become affirmative proof.
+unrelated, admitted draft/superseded Event does not invalidate approved-canon evidence.
+A file rejected during source/YAML/schema admission has no trustworthy status and
+remains a readiness blocker, including for requested clusters, rather than silently
+disappearing from the gate. Unresolved typed dependencies, partial records and
+search-budget exhaustion never become affirmative proof.
 
 Requested `readiness.clusters` select each target Milestone plus bounded
 declarative Event prerequisites, references, linked Authored Content and
-related Puzzle dependencies. Cluster selection deliberately excludes arbitrary
+related Puzzle dependencies. Typed prerequisite and branch conditions also select
+Events declaring effects on the same state slots, recursively within the same bounds.
+This conservative dependency selection includes potential state writers, not just
+initial Fact/Relationship declarations; unmodeled prose effects remain unverified.
+Cluster selection deliberately excludes arbitrary
 future Arc siblings; it exposes sorted `recordIds`, the selected stage
 minimum, findings and `bounded` parameters (at most 128 records and 6
 reference hops). Truncation is `unverified`, never `passed`. A later
