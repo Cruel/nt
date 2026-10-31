@@ -20,6 +20,10 @@ selection, status-scoped evidence and read-only filesystem behavior. Its generat
 Node or sibling checkout at test time. See
 [the contract refresh procedure](../../docs/editor/NARRATIVE_CLI.md#one-upstream-contract-reproducible-native-distribution).
 Run it alone with `ctest --test-dir build/linux-debug -R '^native_cli_narrative$' --output-on-failure`.
+`narrative_git.py` additionally exercises the public `--base` Git boundary,
+protected-decision status and source locations, graph impact witnesses, path
+moves, modified/untracked files, invalid history and read-only failure modes.
+Run both with `ctest --test-dir build/linux-debug -R '^native_cli_narrative(_git)?$' --output-on-failure`.
 
 The `compiled_project_parity.py` and `runtime_artifact_parity.py` drivers
 compare native outputs with temporary TypeScript reference implementations.

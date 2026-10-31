@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-') as temporary:
     missing = validate(root / 'missing', 1)
     assert any(d['code'] == 'io' and d['line'] == 1 for d in missing['diagnostics'])
 
-    for args in [[], [str(story), '--base', 'HEAD'], ['--wat'], [str(story), 'extra']]:
+    for args in [[], [str(story), '--base'], ['--wat'], [str(story), 'extra']]:
         result = subprocess.run([str(binary), '--json', 'narrative', 'validate', *args],
                                 cwd=root, env=env, capture_output=True, encoding='utf-8')
         assert result.returncode == 2 and not result.stderr

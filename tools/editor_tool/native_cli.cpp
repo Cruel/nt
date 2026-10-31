@@ -2937,24 +2937,31 @@ int run(const std::vector<std::string>& argv)
                               : "Narrative context has invalid targets or catalog errors.");
         }
         if (family == "narrative" && operation == "validate") {
-            if (!args.project.empty() || args.command.size() != 3 || args.command[2].empty() ||
-                args.command[2].starts_with("--"))
-                return usage(
-                    args.json,
-                    "Expected narrative validate <catalog-root>; --project is not supported.");
-            auto catalog = narrative::validate(native_path_from_utf8(args.command[2]));
+            if (!args.project.empty() || (args.command.size() != 3 && args.command.size() != 5) ||
+                args.command[2].empty() || args.command[2].starts_with("--") ||
+                (args.command.size() == 5 &&
+                 (args.command[3] != "--base" || args.command[4].empty() ||
+                  args.command[4].starts_with("--"))))
+                return usage(args.json,
+                             "Expected narrative validate <catalog-root> [--base <commit>]; "
+                             "--project is not supported.");
+            auto catalog = narrative::validate(native_path_from_utf8(args.command[2]),
+                                               args.command.size() == 5 ? args.command[4] : "");
             auto diagnostics = catalog.at("diagnostics");
             for (auto& item : diagnostics)
                 item["sourceUrl"] = item.at("path");
-            const bool valid = diagnostics.empty();
+            const bool valid =
+                diagnostics.empty() &&
+                catalog.value("authorization", Json::object()).value("status", "not-assessed") !=
+                    "approval-required";
             return emit({{"success", valid},
                          {"exitCode", valid ? 0 : 1},
                          {"diagnostics", diagnostics},
                          {"catalog", catalog}},
                         args.json,
-                        valid ? "Narrative catalog is structurally valid; inspect JSON coverage "
-                                "for incomplete/unverified obligations."
-                              : "Narrative catalog has structural errors.");
+                        valid ? "Narrative catalog analyzed; inspect coverage and Git protection "
+                                "if a baseline was requested."
+                              : "Narrative catalog has structural or protected-decision findings.");
         }
         if (family == "media-tool" && operation == "check") {
             if (args.command.size() != 2)

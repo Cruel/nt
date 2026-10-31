@@ -29,6 +29,10 @@ struct Catalog {
                 const std::string& pointer = "");
     const Record* find(const std::string& id) const;
 };
-Catalog read_catalog(const std::filesystem::path& root);
+// An in-memory source snapshot uses the exact same admission and reference parser as disk.
+Catalog read_catalog(const std::filesystem::path& root,
+                     const std::map<std::string, std::string>* sources = nullptr);
 Json analyze(Catalog& catalog);
+Json inspect_git_baseline(const std::filesystem::path& root, const std::string& revision,
+                          const Catalog& current);
 } // namespace noveltea::narrative

@@ -5,7 +5,8 @@ set(NOVELTEA_HOST_NARRATIVE_SOURCES
     tools/narrative/catalog.cpp
     tools/narrative/progression.cpp
     tools/narrative/context_manifest.cpp
-    tools/narrative/readiness.cpp)
+    tools/narrative/readiness.cpp
+    tools/narrative/git_protection.cpp)
 
 # Accept exact repository-relative paths or absolute paths ending in the same
 # repository-relative source path. Do not exempt the entire tools/narrative tree.

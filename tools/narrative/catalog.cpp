@@ -326,7 +326,8 @@ const Record* Catalog::find(const std::string& id) const
                                  [&](const Record& r) { return r.metadata["id"] == id; });
     return it == records.end() ? nullptr : &*it;
 }
-Catalog read_catalog(const std::filesystem::path& root)
+Catalog read_catalog(const std::filesystem::path& root,
+                     const std::map<std::string, std::string>* sources)
 {
     Catalog catalog;
     const auto contract = Json::parse(contract_source);
@@ -335,10 +336,17 @@ Catalog read_catalog(const std::filesystem::path& root)
     std::vector<std::filesystem::path> paths;
     bool root_readable = true;
     try {
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
-            if (entry.symlink_status().type() == std::filesystem::file_type::regular &&
-                entry.path().extension() == ".md")
-                paths.push_back(entry.path().lexically_relative(root));
+        if (sources) {
+            for (const auto& [path, content] : *sources) {
+                static_cast<void>(content);
+                paths.emplace_back(std::u8string(path.begin(), path.end()));
+            }
+        } else {
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
+                if (entry.symlink_status().type() == std::filesystem::file_type::regular &&
+                    entry.path().extension() == ".md")
+                    paths.push_back(entry.path().lexically_relative(root));
+        }
         std::sort(paths.begin(), paths.end());
     } catch (const std::filesystem::filesystem_error& error) {
         root_readable = false;
@@ -349,17 +357,22 @@ Catalog read_catalog(const std::filesystem::path& root)
         Record record;
         const auto utf8 = path.generic_u8string();
         record.path = std::string(utf8.begin(), utf8.end());
-        std::ifstream file(root / path, std::ios::binary);
-        if (!file) {
-            record.locations[""] = {1, 1};
-            catalog.report(record, "io", "Cannot read record.");
-            continue;
-        }
-        const std::string source((std::istreambuf_iterator<char>(file)), {});
-        if (file.bad()) {
-            record.locations[""] = {1, 1};
-            catalog.report(record, "io", "Cannot read record bytes.");
-            continue;
+        std::string source;
+        if (sources) {
+            source = sources->at(record.path);
+        } else {
+            std::ifstream file(root / path, std::ios::binary);
+            if (!file) {
+                record.locations[""] = {1, 1};
+                catalog.report(record, "io", "Cannot read record.");
+                continue;
+            }
+            source.assign(std::istreambuf_iterator<char>(file), {});
+            if (file.bad()) {
+                record.locations[""] = {1, 1};
+                catalog.report(record, "io", "Cannot read record bytes.");
+                continue;
+            }
         }
         if (!valid_utf8(source)) {
             record.locations[""] = {1, 1};
@@ -443,7 +456,7 @@ Catalog read_catalog(const std::filesystem::path& root)
     }
     return catalog;
 }
-Json validate(const std::filesystem::path& root)
+Json validate(const std::filesystem::path& root, const std::string& base)
 {
     auto catalog = read_catalog(root);
     const auto coverage = analyze(catalog);
@@ -451,14 +464,44 @@ Json validate(const std::filesystem::path& root)
     Json records = Json::array();
     for (const auto& r : catalog.records)
         records.push_back({{"path", r.path}, {"metadata", r.metadata}, {"body", r.body}});
-    return {{"contractRevision", contract["revision"]},
-            {"records", records},
-            {"diagnostics", catalog.diagnostics},
-            {"reverseReferences", catalog.references},
-            {"coverage", coverage},
-            {"authorization",
-             {{"status", "not-assessed"},
-              {"reason", "Structural validation does not compare Git baselines or establish human "
-                         "authorization."}}}};
+    Json authorization = {{"status", "not-assessed"},
+                          {"reason", "Structural validation alone does not establish human "
+                                     "authorization."}};
+    Json protection = nullptr;
+    if (!base.empty()) {
+        try {
+            protection = inspect_git_baseline(root, base, catalog);
+            const bool approval_required = !protection.at("findings").empty();
+            const bool complete = catalog.diagnostics.empty();
+            protection["complete"] = complete;
+            authorization = {{"status", !complete           ? "indeterminate"
+                                        : approval_required ? "approval-required"
+                                                            : "unchanged"},
+                             {"verified", false},
+                             {"reason", "Git metadata comparison detects changes but cannot "
+                                        "verify human authorization."}};
+        } catch (const std::exception& error) {
+            catalog.diagnostics.push_back(
+                {{"code", "baseline-invalid"},
+                 {"severity", "error"},
+                 {"path", "."},
+                 {"pointer", ""},
+                 {"line", 1},
+                 {"column", 1},
+                 {"message", std::string("Cannot verify Git baseline: ") + error.what()}});
+            protection = {{"status", "unavailable"},
+                          {"findings", Json::array()},
+                          {"reason", "Baseline inspection failed closed."}};
+        }
+    }
+    Json result = {{"contractRevision", contract["revision"]},
+                   {"records", records},
+                   {"diagnostics", catalog.diagnostics},
+                   {"reverseReferences", catalog.references},
+                   {"coverage", coverage},
+                   {"authorization", authorization}};
+    if (!base.empty())
+        result["protection"] = protection;
+    return result;
 }
 } // namespace noveltea::narrative

@@ -14,7 +14,7 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
-  narrative validate <catalog-root>
+  narrative validate <catalog-root> [--base <verified-commit>]
   narrative readiness <catalog-root> [--stage <foundation|architecture|interactive|composition|review>]
                       [--view <design|approved>] [--milestone <milestone-id>]...
   narrative context <catalog-root> --kind <dialogue|event|character|puzzle|milestone|review>

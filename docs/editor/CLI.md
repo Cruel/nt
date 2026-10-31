@@ -46,11 +46,13 @@ runs `pnpm -C editor run noveltea:certify` with the real native authoring addon.
 
 ## Standalone narrative catalogs
 
-`noveltea [--json] narrative validate <catalog-root>` reads a canonical Story
+`noveltea [--json] narrative validate <catalog-root> [--base <commit>]` reads a canonical Story
 Markdown root without Project discovery, compilation, daemon or file mutation.
 It emits source-located structural diagnostics and bounded narrative coverage;
 structural success does not prove completeness, engine behavior, or revision
-authorization. See [Narrative CLI](NARRATIVE_CLI.md) for the command, report,
+authorization. With an explicit verified `--base`, the native CLI additionally reports
+Git-backed protected-decision changes and conservative relationship impact;
+these findings cannot certify human permission. See [Narrative CLI](NARRATIVE_CLI.md) for the command, report,
 upstream contract ownership, partial/unverified semantics and refresh procedure.
 
 `noveltea [--json] narrative context <catalog-root> --kind <task-kind>
@@ -109,7 +111,7 @@ noveltea project create <directory> --name <project-name>
 noveltea project export --output <bundle.ntproject>
 noveltea project import <bundle.ntproject> <destination-directory>
 noveltea validate
-noveltea narrative validate <catalog-root>
+noveltea narrative validate <catalog-root> [--base <verified-commit>]
 noveltea narrative context <catalog-root> --kind dialogue --id <event-id> [--position <position-id>]
 noveltea narrative readiness <catalog-root> [--stage interactive] [--view design|approved]
                            [--milestone <milestone-id>]...

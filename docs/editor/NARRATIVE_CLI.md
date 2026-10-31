@@ -1,6 +1,6 @@
 # Standalone narrative validation
 
-`noveltea [--json] narrative validate <catalog-root>` validates canonical Story
+`noveltea [--json] narrative validate <catalog-root> [--base <commit>]` validates canonical Story
 Markdown without a Project, engine compilation, runtime artifacts, daemon, Node,
 network access, or installation-relative schema files. Supply the dedicated Story
 directory (for example `game/story`), **not** the game directory. Recursive discovery
@@ -8,8 +8,10 @@ reads regular `.md` files only, in sorted root-relative path order; directory an
 file symlinks are not followed. No catalog or user-configuration files are written.
 Global `--project` and additional command arguments are usage errors.
 
-Exit codes are `0` for structurally valid input, `1` for catalog diagnostics
-(including root I/O failures), and `2` for usage errors. A structural pass does not
+Exit codes are `0` for a structurally valid catalog without pending protected-decision
+changes, `1` for structural errors, invalid Git baselines, or approval-required findings,
+and `2` for usage errors. Without `--base`, only structural diagnostics determine exit
+status; a successful check still does not certify authorization. A structural pass does not
 mean that the Story is complete, approved, editorially sound, or playable.
 
 ## JSON and diagnostics
@@ -55,10 +57,58 @@ content Event to precede a solution, not actual player presentation or fairness.
 All declared statuses participate in this structural coverage. The `minimumProgress`
 field is only the declared-Milestone reachability summary, not a readiness gate.
 Use `narrative readiness` for status-scoped staged minimums and planning obligations.
-Git-baseline protected-decision comparison and deterministic impact are follow-up
-#535; this command accepts neither `--base` nor permission acknowledgements.
+Git-baseline protected-decision comparison is opt-in via `--base`. The CLI does not
+accept a permission acknowledgement as proof of human approval.
 Narrative Events and predicates are not engine Scene Events or gameplay Conditions.
 No engine linkage, project schema, compiler or runtime behavior is changed.
+
+## Git-baseline protection and change impact
+
+Use `noveltea --json narrative validate story --base <verified-commit>` to compare the
+working Story with an explicitly selected commit in the same Git worktree. The
+Story may be a standalone Git repository or a directory inside a monorepo or
+game Project. The command reads committed blobs directly through Git; it neither
+checks out the baseline nor updates Git state or Story files. Current working
+files are read as they are, including staged, unstaged and untracked Markdown.
+Git must be installed and the commit must resolve to a commit object. Absent
+commits, unsupported historical record metadata, invalid baseline records or
+unsupported Git tree entries fail closed with a `baseline-invalid` structural
+error. Validation without `--base` retains its ordinary standalone behavior.
+
+The ordinary `catalog.diagnostics` array remains **structural errors only**.
+`catalog.protection` has `status: checked|unavailable`, the verified `base`
+commit SHA, `checkedDecisions`, `findings`, `impact` and
+`authorizationVerified: false` on successful inspection. The additional
+`protection.complete` flag is false if current structural errors make the
+comparison incomplete; without a positive finding this yields
+`authorization.status: indeterminate`, never a misleading clean verdict. Each
+`protected-decision-change` finding contains a stable
+`record-id#decision-id`, `severity: approval-required`, a category
+(`changed`, `demoted`, `removed`, `record-deleted`, or `record-retired`),
+old/new decision metadata, before/after source positions, and baseline SHA.
+Path moves without metadata changes are not protected-decision violations.
+Record `status` and decision `authority` remain independent: a previously
+protected decision stays protected in draft records; a user-approved
+agent-origin decision is protected even if its origin remains `agent`.
+
+`impact.changed` lists stable IDs whose parsed metadata or Markdown body
+changed (including additions/deletions). `impact.moved` records unchanged
+identities with new locations. `impact.affected` supplies conservative
+linked-dependency review candidates with IDs, current or historical locations,
+types, statuses and source-located `witnesses` from the same parsed typed
+reference graphs as validation, including edges removed since the baseline.
+This is a bounded, undirected relationship review queue, not a proof of
+causality, prose consistency, creative correctness or author approval.
+`impact.bounded.truncated` signals the 2048-ID limit;
+`impact.unverified` lists unprovable aspects. Direct changes may have no
+relationship witnesses; linked candidates have at least one.
+
+A protected change returns exit 1 with `catalog.authorization.status:
+approval-required` even if `diagnostics` is empty. These findings
+**do not establish that the author did or did not authorize the change**.
+The CLI deliberately has no `--allow-protected-change` bypass. Independent
+human review or a separately trusted GitHub review workflow must establish
+permission; the current CLI cannot certify it.
 
 ## Native narrative readiness and Milestone handoff
 
