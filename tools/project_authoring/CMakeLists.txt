@@ -134,7 +134,13 @@ foreach(input IN LISTS NOVELTEA_NATIVE_VALIDATION_SOURCES)
     file(SHA256 "${input}" digest)
     # Cache compatibility must not depend on which CI/worktree path compiled
     # the CLI or editor binary. Only stable source-relative names and bytes.
-    file(RELATIVE_PATH relative_input "${CMAKE_CURRENT_SOURCE_DIR}" "${input}")
+    if(input STREQUAL "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}/contracts.json")
+        # Generated contracts live in each host's independent build directory.
+        # Their bytes are authoritative, but the directory is not semantic.
+        set(relative_input "generated/contracts.json")
+    else()
+        file(RELATIVE_PATH relative_input "${CMAKE_CURRENT_SOURCE_DIR}" "${input}")
+    endif()
     string(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "${relative_input}:${digest};")
 endforeach()
 string(SHA256 NOVELTEA_NATIVE_VALIDATION_FINGERPRINT "${NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES}")

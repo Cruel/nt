@@ -227,7 +227,18 @@ Json reported_tests(const std::vector<std::filesystem::path>& paths, Json& error
     Json entries = Json::array();
     for (const auto& path : paths) {
         try {
-            if (std::filesystem::file_size(path) > 8 * 1024 * 1024)
+            // On macOS a throwing filesystem::file_size for a missing report
+            // can terminate the installed CLI before the exception reaches
+            // this boundary. Preserve a structured failure with the error-code
+            // overload instead of relying on exception propagation.
+            std::error_code file_error;
+            const auto size = std::filesystem::file_size(path, file_error);
+            if (file_error) {
+                errors.push_back(issue("coverage.test-report-invalid", path.generic_string(),
+                                       "Cannot inspect Test report: " + file_error.message()));
+                continue;
+            }
+            if (size > 8 * 1024 * 1024)
                 throw std::runtime_error("Test report exceeds the 8 MiB input limit.");
             const auto run = Json::parse(read_source(path));
             if (!run.is_object() || !run.contains("native") || !run["native"].is_object() ||

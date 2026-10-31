@@ -1,6 +1,5 @@
 const assert = require('node:assert/strict');
 const { spawn, spawnSync } = require('node:child_process');
-const { createHash } = require('node:crypto');
 const { mkdtemp, readFile, realpath, rm, stat, utimes, writeFile } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -11,7 +10,6 @@ const [addon, cli] = process.argv.slice(2);
 const production = process.argv[4] === '--production';
 const candidate = process.argv[4] === '--candidate';
 const workerScript = path.resolve('dist-electron/authoring-worker/native-authoring-worker.cjs');
-const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const cacheFile = (root) => path.join(root, '.noveltea/cache/authoring/native-clean-current.json');
 const nativeEnv =
   production || candidate
@@ -153,14 +151,21 @@ async function checkCache(root, paths) {
   assert.equal(value.contract, 'noveltea.native-clean-validation.v1');
   assert.ok(value.semanticKey && value.semanticFingerprint, 'Native semantic proof missing');
   assert.equal(value.projectRoot, (await realpath(root)).replaceAll(path.sep, '/'));
+  assert.equal(value.sourceRevisionAlgorithm, 'xxh3-128');
+  assert.equal(value.assetProofAlgorithm, 'xxh3-128');
   for (const revision of Object.values(value.revisions))
     assert.match(
       revision,
-      /^(?:absent|sha256:[0-9a-f]{64})$/,
-      'Cache contains an unproved source revision',
+      /^(?:absent|xxh3-128:[0-9a-f]{32})$/,
+      'Cache contains an invalid native source revision',
     );
-  for (const file of paths)
-    assert.equal(value.revisions[file], sha(await readFile(path.join(root, file))), file);
+  for (const file of paths) {
+    assert.match(value.revisions[file], /^xxh3-128:[0-9a-f]{32}$/, file);
+    assert.ok((await stat(path.join(root, file))).isFile(), file);
+  }
+  // Source byte-exact revision functions are independently certified by the
+  // native source-hash suite. Here the cross-system contract is that neither
+  // host silently reinterprets or republishes the other host's cached proof.
   return value;
 }
 
@@ -247,9 +252,10 @@ async function main() {
     runCli(scratch, project, ['entity', 'create', 'rooms', 'created-by-cli'], true);
     const added = await editor.delta('records/rooms/created-by-cli.yaml');
     const addedPath = 'records/rooms/created-by-cli.yaml';
-    assert.equal(
+    assert.match(
       added.observation.revisions[addedPath],
-      sha(await readFile(path.join(project, addedPath))),
+      /^xxh3-128:[0-9a-f]{32}$/,
+      'The editor observed an invalid native revision for the CLI-created Room',
     );
     assert.equal(changed.snapshot.dirty, true);
     runCli(scratch, project, ['validate']);

@@ -738,6 +738,8 @@ jobs:
     needs: shader-assets
     timeout-minutes: 150
     env:
+      # Keep high-value sanitizer compile hits (the failed job used only 1.7 GB
+      # of this 4 GB limit). Bound disk use by building only selected targets.
       CCACHE_MAXSIZE: 4G
 
     steps:
@@ -819,7 +821,28 @@ jobs:
         run: cmake --preset linux-sanitize -G Ninja -DNOVELTEA_BUILD_HOST_TOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DNOVELTEA_RMLUI_BGFX_GIT_TAG="${{ steps.rmlui-bgfx-revision.outputs.commit }}" -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build sanitizer targets
-        run: cmake --build --preset linux-sanitize
+        run: |
+          # Build only the targets exercised by the sanitizer CTest selections.
+          # Building the default 'all' graph filled the hosted runner's disk
+          # before any ASan/UBSan tests could run.
+          df -h . /tmp
+          cmake --build --preset linux-sanitize --target \
+            noveltea-schema-certify noveltea-flow-certify noveltea-yaml-certify \
+            noveltea-room-session-certify noveltea-room-map-certify \
+            noveltea-semantic-graph-certify noveltea-project-session-certify \
+            noveltea-asset-animation-certify noveltea-material-certify \
+            noveltea-interactable-inventory-certify noveltea-test-certify \
+            noveltea-localization-certify noveltea-layout-certify \
+            noveltea-yaml-transaction-certify \
+            noveltea_fuzz_rich_text noveltea_fuzz_runtime_user_settings \
+            noveltea_fuzz_compiled_project_decoder \
+            noveltea-sandbox noveltea_native_video_texture_smoke \
+            noveltea_rmlui_readback_verifier noveltea_rmlui_resize_readback_verifier \
+            noveltea_rmlui_feature_fixtures_verifier noveltea_presentation_readback_verifier \
+            noveltea_world_presentation_readback_verifier noveltea_layout_scale_readback_verifier \
+            noveltea_world_transition_readback_verifier noveltea_postprocess_scope_readback_verifier \
+            noveltea_texture_sampling_readback_verifier
+          df -h . /tmp
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
