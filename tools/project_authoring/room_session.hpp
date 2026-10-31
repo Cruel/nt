@@ -196,7 +196,8 @@ public:
     // Validation owners and their physical proofs stay resident across calls.
     // Only for a caller that just established an authoritative physical
     // observation and will require a fresh post-validation observation.
-    RoomSessionSnapshot validate_project(bool observed_at_entry = false);
+    RoomSessionSnapshot validate_project(bool observed_at_entry = false,
+                                         bool defer_publication_proof = false);
     // Portable exact-result cache shared by the opt-in editor worker and the
     // existing CLI Project owner; dirty working state is never published.
     struct CleanValidation {

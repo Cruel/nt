@@ -1438,7 +1438,8 @@ std::unique_ptr<ProjectSession> ProjectSession::open_impl(const std::filesystem:
     }
 }
 
-RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
+RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry,
+                                                     bool defer_publication_proof)
 {
     ScopedYamlDecodeCache decoding(*yaml_decode_cache_);
     ScopedVerifiedProjectSources observed(*source_authority_);
@@ -1994,7 +1995,22 @@ RoomSessionSnapshot ProjectSession::validate_project(bool observed_at_entry)
     }
     // Validation can be expensive for a cold Project. Confirm that its input
     // authority did not advance while we were building the diagnostic set.
-    const auto final_observation = observe_sources();
+    SourceObservation final_observation;
+#ifdef __linux__
+    if (defer_publication_proof && observed_at_entry) {
+        // The native public owner will independently check the pinned exact
+        // Asset generation at its final CLI publication boundary. Fencing
+        // the healthy watcher epoch here avoids a second source capture.
+        if (fence_observed_sources()) {
+            final_observation.authoritative = true;
+            final_observation.scoped_authority = true;
+            final_observation.unchanged = true;
+        } else {
+            final_observation.full_rescan = true;
+        }
+    } else
+#endif
+        final_observation = observe_sources();
     if (final_observation.full_rescan ||
         (!final_observation.authoritative && !final_observation.scoped_authority)) {
         result.valid = false;

@@ -1729,6 +1729,25 @@ void certify_validation_exact_asset_boundary(const std::filesystem::path& source
     const auto validate = [&]() {
         return disk_validate({{"action", "validate"}, {"projectRoot", root}});
     };
+    const auto room = fixture.root / "records/rooms/room-lifecycle-roundtrip.yaml";
+    const auto saved_room = read(room);
+    const auto label = saved_room.find("label: ");
+    require(label != std::string::npos, "Native label change fixture has a Room label");
+    const auto label_end = saved_room.find('\n', label);
+    auto changed_room = saved_room;
+    changed_room.replace(label, label_end - label, "label: Pinned Public Generation");
+    require(validate().value("valid", false), "Initial public generation is valid");
+    write(room, changed_room);
+    const auto changed_label = validate();
+#ifdef __linux__
+    require(changed_label.value("valid", false) &&
+                changed_label.at("work").at("recheckedRecords") == 1 &&
+                changed_label.at("work").at("endToEnd").at("sourceCaptures") == 1 &&
+                changed_label.at("work").at("endToEnd").at("directoryEnumerations") == 0,
+            "A changed public Room label reuses one pinned observation for every native stage");
+#endif
+    write(room, saved_room);
+    require(validate().value("valid", false), "Restored Room label is admitted for Asset proofs");
     for (const auto* relative : {"assets/images/girl_normal.webp", "assets/fonts/DejaVuSans.ttf",
                                  "shaders/lab-grade.fs.sc"}) {
         const auto asset = fixture.root / relative;

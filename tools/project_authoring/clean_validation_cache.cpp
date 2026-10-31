@@ -640,7 +640,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
             ? (cache_admission_evidence ? std::move(cache_admission_evidence)
                                         : proof(initially_observed, "validation-pre"))
             : std::nullopt;
-    auto snapshot = validate_project(validated_input.has_value());
+    auto snapshot = validate_project(validated_input.has_value(), defer_valid_publication);
     const bool completed = validation_snapshot_.has_value() &&
                            validation_snapshot_->working_revision == snapshot.working_revision &&
                            !validation_pending_uncertain_;
