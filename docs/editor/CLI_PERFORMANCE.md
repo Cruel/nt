@@ -298,6 +298,47 @@ rechecks or other downstream stages; those reductions belong to later tickets.
 Timings vary, with regressions for some small fixtures and 501-Room requests;
 these measurements are **informational, never CI stopwatch thresholds**.
 
+### #584: typed dependency contribution certification (2026-10-31)
+
+The [typed-dependency Release dataset](performance/baselines/validation-2026-10-31-typed-dependencies.json)
+was captured at implementation commit `d02a9b9e` on the same Ryzen 7 5700G
+reference Linux machine, with Release CLI and Release Node-API addon, the
+unchanged #577 benchmark harness, and **83 samples** under matching fixture,
+cache and profiler settings. The source tree was clean. All 83 corresponding
+public CLI diagnostic fingerprints agree with the original #577 baseline.
+
+| Project | Unchanged resident, #577 → #584 | Warm saved label, #577 → #584 | Editor unsaved label, #577 → #584 |
+|---|---:|---:|---:|
+| Feature Lab | 328 → 211 ms | 323 → 218 ms | 94 → 29 ms |
+| 1 Room | 13.1 → 11.0 ms | 13.2 → 11.5 ms | 1.2 → 0.9 ms |
+| 101 Rooms | 38.9 → 28.5 ms | 45.2 → 30.7 ms | 7.5 → 3.5 ms |
+| 501 Rooms | 152 → 112 ms | 168 → 110 ms | 34.1 → 16.1 ms |
+
+These are **cumulative #577→#584 results**, including improvements from the
+preceding watcher, source-hash and pinned-generation tickets; they **do not**
+isolate the marginal performance benefit of #584. The 1-Room uncached start
+increased from 86 ms to 101 ms; single-sample cold-start timings are not a
+gating threshold. The original baseline remains unchanged.
+
+For Feature Lab warm saved-label validation, semantic contributions are still
+**1 rechecked / 305 retained**, with 1 dependency-index rebuild. End-to-end
+source captures are 5 → 1, directory enumerations 205 → 0, byte reads
+2,268 → 419 and content hashes 3,813 → 1,964. Unchanged resident checks still
+recheck **0** contributions, with byte reads 1,847 → 367 and hashes
+3,337 → 1,857. The dependent font and shader stages remain at **1 invocation
+each**, and the final-generation proof also runs once; these stages have not
+been eliminated. For 501 Rooms the warm edit still rechecks **1** contribution
+and retains **508**, while byte reads fall from 2,559 to 5 and hashes from
+2,561 to 7. The working editor's Feature Lab unsaved-label counter drops
+from 106 to 1 record contribution with identical diagnostic fingerprints.
+
+The additional #584 Project-session certification exercises unrelated target
+fields, consumed target fields, missing/restored records, old/new rewired edges
+and fresh-versus-warm diagnostic **ordering and source coordinates**. Profiled
+public CLI work may include `semanticFallbackReasons` for shared inputs and
+conservative subsystems; these are non-authoritative work explanations, not
+new user-facing diagnostic findings.
+
 ### Historical Debug baseline (not comparable to the Release baseline)
 
 The first instrumented baseline was measured on **a different machine** with a **Debug CLI**
