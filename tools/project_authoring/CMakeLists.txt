@@ -227,7 +227,7 @@ if(BUILD_TESTING)
         add_test(NAME native_authoring_flow_contract_generation
             COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/generate-native-schema.mjs"
-                --check)
+                --output "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}" --check)
     endif()
     add_executable(noveltea-flow-session-certify flow_session_certify.cpp)
     target_include_directories(noveltea-flow-session-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
