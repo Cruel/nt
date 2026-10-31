@@ -9,7 +9,10 @@
 
 NovelTea ships one public headless executable: `noveltea`. It is a natively
 compiled C++ binary including Project authoring, daemon, shader, package,
-platform, Agent Kit, ComfyUI and Test command families. The editor invokes
+platform, Agent Kit, ComfyUI and Test command families. Global options such as
+`--json`, `--no-daemon`, and `--project <directory>` are accepted before,
+between, or after the command arguments (for example,
+`noveltea narrative validate story --json`). The editor invokes
 this installed binary for headless operations. The old
 `noveltea-editor-tool`, ScriptC host and separately distributed bgfx
 `shaderc` executable are retired.

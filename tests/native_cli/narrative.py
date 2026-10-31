@@ -41,6 +41,23 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-') as temporary:
     before = snapshot(root)
     report = validate()
     assert report['diagnostics'] == []
+    # Global switches are position-independent, including after a positional root.
+    for arguments in [
+        ['narrative', 'validate', str(story), '--json'],
+        ['narrative', '--json', 'validate', str(story)],
+        ['--no-daemon', 'narrative', 'validate', str(story), '--json'],
+        ['narrative', 'validate', '--json', str(story), '--no-daemon'],
+    ]:
+        positioned = subprocess.run([str(binary), *arguments], cwd=root, env=env,
+                                    capture_output=True, encoding='utf-8')
+        assert (positioned.returncode, positioned.stderr) == (0, ''), positioned
+        assert json.loads(positioned.stdout)['catalog'] == report['catalog']
+    repeated = subprocess.run([str(binary), 'narrative', '--json', 'validate',
+                               str(story), '--json'], cwd=root, env=env,
+                              capture_output=True, encoding='utf-8')
+    assert repeated.returncode == 2 and repeated.stderr == ''
+    assert json.loads(repeated.stdout)['diagnostics'][0]['message'] == (
+        "Global option '--json' may be supplied only once.")
     assert len(report['catalog']['records']) == 36
     assert report['catalog']['coverage']['minimumProgress'] == 'declared-milestones-reachable'
     assert snapshot(root) == before

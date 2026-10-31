@@ -2,6 +2,7 @@ NovelTea headless CLI
 
 Usage:
   noveltea [--project <project-directory>] [--json] [--no-daemon] <command> ...
+  --json, --no-daemon and --project may also appear between or after command arguments.
 
 Commands:
   project create <directory> --name <project-name>

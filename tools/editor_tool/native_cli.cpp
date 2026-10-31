@@ -91,9 +91,20 @@ struct Arguments {
 Arguments parse(const std::vector<std::string>& args)
 {
     Arguments result;
-    std::size_t i = 0;
-    for (; i < args.size() && args[i].starts_with("--"); ++i) {
+    // Pull recognized global switches from any position; leave unknown switches
+    // after the command path for the subcommand's own option parser.
+    bool after_separator = false;
+    for (std::size_t i = 0; i < args.size(); ++i) {
         const auto& arg = args[i];
+        if (arg == "--") {
+            after_separator = true;
+            result.command.push_back(arg);
+            continue;
+        }
+        if (after_separator || !arg.starts_with("--")) {
+            result.command.push_back(arg);
+            continue;
+        }
         bool* flag = arg == "--json"        ? &result.json
                      : arg == "--no-daemon" ? &result.no_daemon
                                             : nullptr;
@@ -113,11 +124,12 @@ Arguments parse(const std::vector<std::string>& args)
                 throw std::invalid_argument(
                     "Global option '--project' requires a project directory.");
             result.project = args[++i];
-        } else {
+        } else if (result.command.empty()) {
             throw std::invalid_argument("Unknown global option '" + arg + "'.");
+        } else {
+            result.command.push_back(arg);
         }
     }
-    result.command.assign(args.begin() + static_cast<std::ptrdiff_t>(i), args.end());
     if ((result.help || result.version) && !result.command.empty())
         throw std::invalid_argument("--help and --version do not accept a command path.");
     if (result.help && result.version)

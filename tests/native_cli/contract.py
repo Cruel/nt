@@ -90,6 +90,17 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
                        'active-text-finish')
     assert feature['record']['label'] == 'Notice acknowledged'
     assert feature['record']['data']['anchors'] == []
+    # Project selection and JSON output work on either side of a command path.
+    after = envelope('entity', 'inspect', 'rooms', 'active-text-finish', '--project',
+                     str(feature_lab))
+    assert after == feature
+    between = envelope('entity', '--project', str(feature_lab), 'inspect', 'rooms',
+                       'active-text-finish')
+    assert between == feature
+    mixed = run('entity', 'inspect', 'rooms', 'active-text-finish', '--project',
+                str(feature_lab), '--json')
+    assert mixed.returncode == 0 and mixed.stderr == ''
+    assert json.loads(mixed.stdout) == feature
 
     created = root / 'created'
     new = envelope('project', 'create', str(created), '--name', 'Native CLI Test')

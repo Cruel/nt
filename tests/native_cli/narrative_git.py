@@ -58,6 +58,15 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
     seed_index = git(repo, 'ls-files', '--stage')
 
     untouched = invoke(repo, story, '--base', base)
+    # A global switch must not interrupt parsing a command-local value pair.
+    for command in [
+        ['narrative', 'validate', str(story), '--base', base, '--json'],
+        ['narrative', 'validate', str(story), '--base', '--json', base],
+    ]:
+        positioned = subprocess.run([str(binary), *command], cwd=repo,
+                                    capture_output=True, text=True)
+        assert positioned.returncode == 0 and positioned.stderr == '', positioned
+        assert json.loads(positioned.stdout) == untouched
     protection = untouched['catalog']['protection']
     assert protection['status'] == 'checked' and protection['base'] == base
     assert protection['checkedDecisions'] == 1 and protection['findings'] == []
