@@ -8,6 +8,8 @@ if(NOT EXISTS "${ALLOWLIST}")
     message(FATAL_ERROR "JSON boundary allowlist does not exist: ${ALLOWLIST}")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/NovelTeaHostNarrativeSources.cmake")
+
 # Benchmark report import/export is an external JSON codec, isolated from engine models.
 set(approved_header_paths
     "apps/benchmark/benchmark_comparison.hpp"
@@ -103,11 +105,10 @@ set(approved_source_paths
     "tools/editor_tool/tooling_native_dispatch.cpp"
     "tools/editor_tool/tooling_runtime_cache.cpp"
     "tools/editor_tool/tooling_ui_test_runner.cpp"
-    "tools/narrative/catalog.cpp"
-    "tools/narrative/progression.cpp"
     "tools/project_authoring/contracts.cpp"
     "tools/project_authoring/yaml_codec.cpp"
     "tools/project_authoring/yaml_certify.cpp")
+list(APPEND approved_source_paths ${NOVELTEA_HOST_NARRATIVE_SOURCES})
 
 # Native authoring has its own host-only JSON wire/schema boundary. Its
 # ProjectSession and CLI command adapters operate on JSON values internally;

@@ -4,6 +4,8 @@ if(NOT DEFINED BUILD_DIR OR NOT DEFINED PLATFORM_NAME)
     message(FATAL_ERROR "BUILD_DIR and PLATFORM_NAME are required")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/NovelTeaHostNarrativeSources.cmake")
+
 string(TOLOWER "${PLATFORM_NAME}" platform_name)
 
 set(compile_database "${BUILD_DIR}/compile_commands.json")
@@ -61,10 +63,11 @@ foreach(index RANGE 0 ${last_command})
 
     # Host compiler/schema tooling and the PE resource/platform-publication
     # host-tool certifications (including Android Gradle/APK fixtures) are
-    # isolated from players and use the host
-    # exception/RTTI model.
+    # isolated from players and use the host exception/RTTI model. Narrative
+    # sources are exempt only when compiled into their host-only CLI target.
+    noveltea_is_host_narrative_source("${source}" host_narrative_source)
     if(source MATCHES "/tools/(editor_tool|project_authoring)/" OR
-       source MATCHES "/tools/narrative/(catalog|progression)\\.cpp$" OR
+       (host_narrative_source AND output MATCHES "CMakeFiles[/\\]noveltea_narrative\\.dir[/\\]") OR
        output MATCHES "CMakeFiles[/\\]noveltea-cli-(windows-pe|platform-publication|macos-export|android-export)-certify\\.dir[/\\]")
         set(is_first_party FALSE)
     endif()

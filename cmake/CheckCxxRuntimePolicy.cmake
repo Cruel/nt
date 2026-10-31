@@ -4,6 +4,8 @@ if(NOT DEFINED SOURCE_ROOT OR NOT DEFINED ALLOWLIST)
     message(FATAL_ERROR "SOURCE_ROOT and ALLOWLIST are required")
 endif()
 
+include("${CMAKE_CURRENT_LIST_DIR}/NovelTeaHostNarrativeSources.cmake")
+
 file(STRINGS "${ALLOWLIST}" allowed REGEX "^[^#].+")
 file(GLOB_RECURSE sources
     "${SOURCE_ROOT}/engine/*.cpp" "${SOURCE_ROOT}/engine/*.h" "${SOURCE_ROOT}/engine/*.hpp"
@@ -36,8 +38,8 @@ set(failures "")
 foreach(source IN LISTS sources)
     file(RELATIVE_PATH relative "${SOURCE_ROOT}" "${source}")
     # Host compiler/schema tooling is isolated from players and uses the host exception/RTTI model.
-    if(relative MATCHES "^tools/(editor_tool|project_authoring)/" OR
-       relative MATCHES "^tools/narrative/(catalog|progression)\\.cpp$")
+    noveltea_is_host_narrative_source("${relative}" host_narrative_source)
+    if(relative MATCHES "^tools/(editor_tool|project_authoring)/" OR host_narrative_source)
         continue()
     endif()
     file(STRINGS "${source}" lines)

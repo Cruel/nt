@@ -76,3 +76,32 @@ if(NOT positive_result EQUAL 0)
         "The C++ runtime policy checker rejected an ordinary non-JSON value() method:\n"
         "${positive_output}\n${positive_error}")
 endif()
+
+# Explicit narrative CLI implementations use the host exception/JSON model.
+# An unlisted narrative source must still be audited as runtime C++.
+file(MAKE_DIRECTORY "${fixture_root}/tools/narrative")
+file(WRITE "${fixture_root}/tools/narrative/readiness.cpp" [=[
+void host_boundary() { value.at(0); value.get<int>(); }
+]=])
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${fixture_root}
+        -DALLOWLIST=${fixture_root}/allowlist.txt
+        -P "${SOURCE_ROOT}/cmake/CheckCxxRuntimePolicy.cmake"
+    RESULT_VARIABLE host_result
+    ERROR_VARIABLE host_error)
+if(NOT host_result EQUAL 0)
+    message(FATAL_ERROR "The C++ runtime policy rejected host-only narrative source: ${host_error}")
+endif()
+file(WRITE "${fixture_root}/tools/narrative/unclassified.cpp" [=[
+void unclassified() { value.at(0); value.get<int>(); }
+]=])
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DSOURCE_ROOT=${fixture_root}
+        -DALLOWLIST=${fixture_root}/allowlist.txt
+        -P "${SOURCE_ROOT}/cmake/CheckCxxRuntimePolicy.cmake"
+    RESULT_VARIABLE unclassified_result
+    ERROR_VARIABLE unclassified_error)
+if(unclassified_result EQUAL 0 OR NOT unclassified_error MATCHES "unclassified.cpp")
+    message(FATAL_ERROR
+        "The C++ runtime policy failed to reject an unclassified narrative source: ${unclassified_error}")
+endif()

@@ -119,6 +119,12 @@ expect_tool_boundary(native-cli-source "tools/editor_tool/tooling_native_project
     "#include <nlohmann/json.hpp>\nvoid transport(nlohmann::json value) {}\n" TRUE)
 expect_tool_boundary(other-tool-source "tools/editor_tool/other_json.cpp"
     "#include <nlohmann/json.hpp>\n" FALSE)
+expect_tool_boundary(host-narrative-source "tools/narrative/readiness.cpp"
+    "#include <nlohmann/json.hpp>\nvoid readiness(nlohmann::json value) {}\n" TRUE)
+expect_tool_boundary(unclassified-narrative-source "tools/narrative/unclassified.cpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
+expect_tool_boundary(unclassified-narrative-header "tools/narrative/unclassified.hpp"
+    "#include <nlohmann/json.hpp>\n" FALSE)
 expect_tool_boundary(other-tool-header "tools/editor_tool/other_json.hpp"
     "#include <nlohmann/json.hpp>\n" FALSE)
 expect_tool_boundary(nested-authoring-source "tools/project_authoring/internal/other.cpp"
