@@ -329,6 +329,8 @@ Raw `noveltea shaderc ...` intentionally preserves bgfx shaderc's argument/outpu
 
 Raw `noveltea texturec ...` preserves bimg texturec's argument/output/return-code behavior and supports the upstream bimg texture formats and conversion options.
 
+Once either raw command name is encountered, **all following arguments** are passed to the embedded tool unchanged, even arguments named like NovelTea global options (`--help`, `--version`, `--json`, or `--project`). Global NovelTea options must precede the raw command name; in particular, `--json` still cannot wrap a raw tool's output.
+
 ## Concurrency and transactions
 
 Non-dry-run structural operations write through the same workspace transaction service as editor structural mutations. NovelTea writers use the project writer lock and exact target revisions; stale or concurrent changes fail closed rather than overwrite. A pending transaction needing recovery also causes a dry run to fail rather than mutate recovery state.

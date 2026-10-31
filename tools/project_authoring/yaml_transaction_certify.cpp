@@ -87,6 +87,43 @@ void certify()
     write(second, source_b);
     write(temp.root / "unrelated.bin", std::string_view("\0binary", 7));
 
+    // CRLF and LF must preserve identical comment text during formatting.
+    // Exact revision/CAS still works on original bytes, and a changed comment
+    // must never be accepted as a formatting-only transaction.
+    const auto crlf_path = temp.root / "records/rooms/crlf.yaml";
+    const std::string crlf_source =
+        "# header comment\r\nid: crlf\r\nlabel: Value # inline comment\r\n";
+    write(crlf_path, crlf_source);
+    const auto formatted_crlf = format_yaml_source(crlf_source);
+    require(formatted_crlf.accepted && formatted_crlf.source.find('\r') == std::string::npos,
+            "Native YAML formatter emits normalized LF from CRLF input");
+    YamlTransactionTarget crlf_format;
+    crlf_format.path = "records/rooms/crlf.yaml";
+    crlf_format.expected_revision = exact_source_revision(crlf_source);
+    crlf_format.baseline_source = crlf_source;
+    crlf_format.replacement_source = formatted_crlf.source;
+    const auto crlf_prepared = writer.prepare({crlf_format}, TransactionDecision::KeepComments);
+    require(crlf_prepared.accepted && crlf_prepared.targets.size() == 1,
+            "CRLF source comments survive a formatting-only LF conversion");
+    require(writer.commit(crlf_prepared, TransactionDecision::KeepComments).accepted &&
+                read(crlf_path) == formatted_crlf.source,
+            "CRLF formatting commits without changing comment text");
+    const auto second_format = format_yaml_source(read(crlf_path));
+    require(second_format.accepted && second_format.source == read(crlf_path),
+            "Normalized YAML formatting is idempotent");
+    write(crlf_path, crlf_source);
+    const auto altered_comment = formatted_crlf.source.find("# inline comment");
+    require(altered_comment != std::string::npos,
+            "Formatted CRLF fixture retains the inline comment");
+    auto tampered = formatted_crlf.source;
+    tampered.replace(altered_comment, std::string("# inline comment").size(), "# altered comment");
+    crlf_format.replacement_source = tampered;
+    const auto rejected_comments = writer.prepare({crlf_format}, TransactionDecision::KeepComments);
+    require(!rejected_comments.accepted &&
+                rejected_comments.error == "YAML formatting must preserve all comment text." &&
+                read(crlf_path) == crlf_source,
+            "Formatting still rejects real comment text changes without writing");
+
     // Native staged text sources are not YAML. They still need the identical
     // exact-revision lock/journal/recovery guarantees as Project authoring.
     const auto script = temp.root / "scripts/game.lua";

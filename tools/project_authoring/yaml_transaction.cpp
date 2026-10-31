@@ -216,7 +216,11 @@ std::vector<std::string> hash_fragments(std::string_view source)
     std::vector<std::string> fragments;
     for (std::size_t start = 0; start < source.size();) {
         const auto end = source.find('\n', start);
-        const auto line = source.substr(start, (end == source.npos ? source.size() : end) - start);
+        auto line = source.substr(start, (end == source.npos ? source.size() : end) - start);
+        // CRLF and LF are equivalent line separators for comment text. Preserve
+        // every byte of the actual comment, but exclude the CR delimiter.
+        if (!line.empty() && line.back() == '\r')
+            line.remove_suffix(1);
         if (const auto marker = line.find('#'); marker != line.npos)
             fragments.emplace_back(line.substr(marker));
         if (end == source.npos)

@@ -92,11 +92,17 @@ struct Arguments {
 Arguments parse(const std::vector<std::string>& args)
 {
     Arguments result;
-    // Pull recognized global switches from any position; leave unknown switches
-    // after the command path for the subcommand's own option parser.
+    // Pull recognized global switches from any position, except after raw
+    // shaderc/texturec command names: every following token belongs to that
+    // tool, including --help, --version, --json, --project and -- itself.
     bool after_separator = false;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const auto& arg = args[i];
+        if (!result.command.empty() &&
+            (result.command.front() == "shaderc" || result.command.front() == "texturec")) {
+            result.command.push_back(arg);
+            continue;
+        }
         if (arg == "--") {
             after_separator = true;
             result.command.push_back(arg);

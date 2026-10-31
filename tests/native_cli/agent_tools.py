@@ -135,6 +135,13 @@ with tempfile.TemporaryDirectory(prefix='noveltea-agent-native-') as temporary:
         raw = run(name, '--help')
         assert raw.returncode == 1 and raw.stderr == '', (name, raw)
         assert f'Usage: {name}' in raw.stdout
+        # Raw tool arguments remain opaque to NovelTea, including switches
+        # that would otherwise be interpreted as position-independent globals.
+        for raw_options in [('--version',), ('--json',), ('--no-daemon',),
+                            ('--project', 'not-a-project'), ('--', '--help')]:
+            forwarded = run(name, *raw_options)
+            assert 'CLI_USAGE' not in forwarded.stderr, (name, raw_options, forwarded)
+            assert 'NovelTea headless CLI' not in forwarded.stdout, (name, raw_options, forwarded)
     if os.name != 'nt':
         mock = root / 'ffmpeg'
         mock.write_text('#!/bin/sh\ncase "$1" in\n-version) echo "ffmpeg version 15.1 test" ;;\n'

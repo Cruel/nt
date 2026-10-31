@@ -299,6 +299,10 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         assert any(d['code'] == 'WORKSPACE_SOURCE_READ'
                    for d in rejected['diagnostics']), rejected
         path.write_text(updated)
+    # Exercise Windows-style tracked YAML on every CI platform. The native
+    # formatter may normalize line endings but must not change comment text.
+    for _, _, path in linked.values():
+        path.write_bytes(path.read_text().replace('\n', '\r\n').encode('utf-8'))
     envelope('--project', str(story_link_project), 'fmt', '--strip-defaults')
     for family, (record_id, inspected, _) in linked.items():
         reopened = envelope('--project', str(story_link_project),
