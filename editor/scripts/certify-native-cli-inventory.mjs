@@ -33,6 +33,7 @@ const witnesses = {
   validate: 'certify-native-daemon-validation.mjs',
   'narrative validate': 'certify-native-cli-public-contracts.mjs',
   'narrative context': 'certify-native-cli-public-contracts.mjs',
+  'narrative coverage': 'certify-native-cli-public-contracts.mjs',
   'narrative readiness': 'certify-native-cli-public-contracts.mjs',
   fmt: 'certify-native-cli-project-routing.mjs',
   'localization sync': 'certify-native-cli-project-routing.mjs',

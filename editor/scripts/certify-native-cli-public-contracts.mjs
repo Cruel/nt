@@ -122,6 +122,24 @@ try {
     0,
     `Installed narrative CLI acceptance failed: ${narrativeAcceptance.stdout}\n${narrativeAcceptance.stderr}`,
   );
+  // Public command inventory owns executable coverage certification as well
+  // as Story validation/context/readiness. Exercise the installed CLI, not a
+  // separately built test-only executable.
+  const coverageAcceptance = spawnSync(
+    process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'),
+    [
+      path.resolve(import.meta.dirname, '../../tests/native_cli/narrative_coverage.py'),
+      cli,
+      path.resolve(import.meta.dirname, '../..'),
+    ],
+    { env: environment, encoding: 'utf8', timeout: 180_000 },
+  );
+  assert.ifError(coverageAcceptance.error);
+  assert.equal(
+    coverageAcceptance.status,
+    0,
+    `Installed narrative coverage acceptance failed: ${coverageAcceptance.stdout}\n${coverageAcceptance.stderr}`,
+  );
   error(json(['--not-a-global-option'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
   error(json(['validate', '--invalid'], { projectRoot: null }), 2, 'CLI_USAGE', '/');
 
