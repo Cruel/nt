@@ -96,6 +96,36 @@ not an unqualified performance win. With profiling enabled, the broker's exact-r
 is disabled, so unchanged resident results represent actual native validation work rather than
 the fastest normal-public-CLI cache path.
 
+### #579: XXH3-128 source-revision comparison (2026-10-31)
+
+The separate [post-cutover Release result](performance/baselines/validation-2026-10-31-xxh3-128.json)
+uses the **unchanged #577 harness**, the same Ryzen 7 5700G reference Linux machine,
+Release CLI and Release Node-API addon, equivalent temporary fixtures/cache conditions,
+and all **83 samples**. The original pre-optimization baseline remains untouched.
+The dataset identifies implementation commit `8fe2a379`; the native algorithm
+changes were committed before capture so `workingTreeModified` is false.
+
+| Project | Unchanged resident, before → after | Warm saved label, before → after | Editor unsaved label, before → after |
+|---|---:|---:|---:|
+| Feature Lab | 328 → 247 ms | 323 → 268 ms | 94 → 85 ms |
+| 1 Room | 13.1 → 11.4 ms | 13.2 → 15.0 ms | 1.2 → 1.2 ms |
+| 101 Rooms | 38.9 → 36.6 ms | 45.2 → 43.4 ms | 7.5 → 7.2 ms |
+| 501 Rooms | 152.1 → 157.7 ms | 168.0 → 170.4 ms | 34.1 → 32.9 ms |
+
+These are medians of the same repeated request states, excluding editor patch time.
+**All matching diagnostic fingerprints agree** across both datasets. For Feature Lab,
+unchanged-resident work is still **2 top-level source captures** (4 end-to-end),
+**164 directory enumerations**, **1,847 file-byte reads**, **3,337 content-hash calls**,
+**0 records rechecked**, and **1 each** font coverage, shader compile and final-generation
+proof. Warm saved label remains **3 top-level captures** (5 end-to-end), **205
+enumerations**, **2,268 byte reads**, **3,813 hash calls**, **1 record rechecked**,
+and the same downstream stages. The remaining fixtures likewise have generally
+unchanged work counts (one small unchanged-resident cache sample differs).
+This cutover changes the *cost per source hash*, not the frequency of captures,
+rechecks or other downstream stages; those reductions belong to later tickets.
+Timings vary, with regressions for some small fixtures and 501-Room requests;
+these measurements are **informational, never CI stopwatch thresholds**.
+
 ### Historical Debug baseline (not comparable to the Release baseline)
 
 The first instrumented baseline was measured on **a different machine** with a **Debug CLI**
