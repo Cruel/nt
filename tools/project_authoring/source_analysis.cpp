@@ -984,6 +984,8 @@ void analyze_rml(SourceAnalysis& output, std::string_view source, bool collect_l
             };
             if (tag == "script")
                 reference("script", "src");
+            if (tag == "link" && lower(attributes["type"]) == "text/rcss")
+                reference("stylesheet", "href");
             if (tag == "link" && lower(attributes["type"]) == "text/template")
                 reference("template-link", "href");
             if (tag == "template")

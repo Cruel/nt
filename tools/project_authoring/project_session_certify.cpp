@@ -1201,6 +1201,17 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
                 markup.references.size() == 1 && markup.references[0].kind == "script" &&
                 markup.references[0].target == "scripts/menu.lua",
             "RML event handlers, embedded Lua and external dependencies share source analysis");
+    const auto linked = analyze_project_text(
+        "assets/ui/probe.rml",
+        "<rml><head><link type=\"text/rcss\" href=\"project:/assets/ui/shared.rcss\"/>"
+        "<link type=\"text/template\" href=\"project:/assets/ui/counter-template.rml\"/>"
+        "</head><body><script src=\"project:/scripts/layout-counter-ui.lua\"/></body></rml>");
+    require(linked.complete && linked.references.size() == 3 &&
+                linked.references[0].kind == "stylesheet" &&
+                linked.references[0].target == "project:/assets/ui/shared.rcss" &&
+                linked.references[1].kind == "template-link" &&
+                linked.references[2].kind == "script",
+            "Native RML analysis recognizes stylesheet, template and script resource purposes");
     const auto inline_messages = analyze_project_text(
         "records/layouts/probe/layout.rml", "<rml><body><nt-tr>Source <b>markup</b></nt-tr>"
                                             "<nt-tr key=\"lab.read\" /></body></rml>");
@@ -1353,6 +1364,65 @@ void source_analysis_roundtrip(const std::filesystem::path& fixture)
     require(restored_layout.accepted && restored_layout.snapshot.valid &&
                 !restored_layout.snapshot.dirty,
             "RML source restoration also clears dependent diagnostics");
+    const auto missing_stylesheet = editor->stage_text_source(
+        restored_layout.snapshot.working_revision, layout_path,
+        "<rml><head><link type=\"text/rcss\" "
+        "href=\"project:/assets/ui/not-declared.rcss\"/></head><body/></rml>");
+    require(missing_stylesheet.accepted &&
+                std::any_of(missing_stylesheet.snapshot.diagnostics.begin(),
+                            missing_stylesheet.snapshot.diagnostics.end(),
+                            [](const auto& issue) {
+                                return issue.code ==
+                                           "authoring.rml.external_stylesheet_unresolved" &&
+                                       issue.severity == "warning";
+                            }),
+            "Unresolvable RML stylesheet links expose targeted reference warnings");
+    const auto linked_stylesheet = editor->stage_text_source(
+        missing_stylesheet.snapshot.working_revision, layout_path,
+        "<rml><head><link type=\"text/rcss\" href=\"layout.rcss\"/></head><body/></rml>");
+    require(linked_stylesheet.accepted &&
+                std::none_of(linked_stylesheet.snapshot.diagnostics.begin(),
+                             linked_stylesheet.snapshot.diagnostics.end(),
+                             [](const auto& issue) {
+                                 return issue.code ==
+                                        "authoring.rml.external_stylesheet_unresolved";
+                             }),
+            "Resolving the stylesheet link clears its reference warning");
+    const auto removed_stylesheet = editor->stage_text_source(
+        linked_stylesheet.snapshot.working_revision, layout_path, "<rml><body/></rml>");
+    require(removed_stylesheet.accepted &&
+                std::none_of(removed_stylesheet.snapshot.diagnostics.begin(),
+                             removed_stylesheet.snapshot.diagnostics.end(),
+                             [](const auto& issue) {
+                                 return issue.code ==
+                                        "authoring.rml.external_stylesheet_unresolved";
+                             }),
+            "Removing a formerly unresolved stylesheet link clears stale reference diagnostics");
+    require(editor
+                ->stage_text_source(removed_stylesheet.snapshot.working_revision, layout_path,
+                                    layout_source)
+                .accepted,
+            "Restoring the RML source preserves later source tests");
+    const std::string shared_rcss = "assets/ui/shared.rcss";
+    const auto saved_rcss = read(temp.root / shared_rcss);
+    const auto before_rcss = editor->source_analyses().at(shared_rcss).source_revision;
+    const auto before_parent_rml =
+        editor->source_analyses().at("assets/ui/counter.rml").source_revision;
+    ValidationWorkCounters css_work;
+    RoomSessionResult css_edit;
+    {
+        ScopedValidationWork measured(css_work);
+        css_edit = editor->stage_text_source(editor->snapshot().working_revision, shared_rcss,
+                                             saved_rcss + "\n/* stylesheet-only change */\n");
+    }
+    require(css_edit.accepted && css_work.parsed_rcss >= 1 && css_work.parsed_rml == 0 &&
+                editor->source_analyses().at(shared_rcss).source_revision != before_rcss &&
+                editor->source_analyses().at("assets/ui/counter.rml").source_revision ==
+                    before_parent_rml,
+            "Linked stylesheet edits reanalyze RCSS without reparsing an unchanged parent RML");
+    require(editor->stage_text_source(css_edit.snapshot.working_revision, shared_rcss, saved_rcss)
+                .accepted,
+            "Reverting a linked stylesheet preserves independent downstream source tests");
 
     write(temp.root / path, "Text.tr(dynamic_value)\n");
     const auto observed = editor->observe_sources();

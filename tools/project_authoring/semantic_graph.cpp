@@ -276,7 +276,7 @@ struct Builder {
 
     void edge(const Json& source, const Json& target, const std::string& path,
               const std::string& target_path, std::string_view role = "explicit-ref",
-              std::string_view repair_kind = "blocked")
+              std::string_view repair_kind = "blocked", std::string_view source_kind = {})
     {
         const auto selected_role = role == "explicit-ref"
                                        ? reference_role(path, member_string(target, "collection"))
@@ -293,6 +293,19 @@ struct Builder {
         item["targetPath"] = target_path;
         item["role"] = selected_role;
         item["facets"] = Json::array({"reference-integrity", "tooling-reference"});
+        const bool source_edge = selected_role == "source-recognized-reference" ||
+                                 selected_role == "lua-recognized-reference";
+        if (source_edge) {
+            // Physical resource and Lua lookup edges describe reference
+            // management, packaging and preview/runtime impact, not a
+            // semantic validation dependency on the target's implementation.
+            item["facets"] = Json::array({"tooling-reference", "runtime-only"});
+            if (source_kind == "script" || source_kind == "stylesheet" ||
+                source_kind.starts_with("template") || source_kind == "lua-import") {
+                item["facets"].push_back("resource");
+                item["facets"].push_back("preview-ui");
+            }
+        }
         if (selected_role == "localization-text") {
             item["facets"] = Json::array({"tooling-reference", "preview-ui", "validation"});
         }
@@ -306,15 +319,29 @@ struct Builder {
             item["facets"].push_back("preview-visual");
         if (selected_role == "system-layout" || selected_role == "room-overlay-layout" ||
             selected_role == "room-placement-layout" || selected_role.starts_with("layout-") ||
-            selected_role == "default-font" || selected_role == "font-stack" ||
-            selected_role == "source-recognized-reference")
+            selected_role == "default-font" || selected_role == "font-stack")
             item["facets"].push_back("preview-ui");
         if (selected_role == "room-background" || selected_role.starts_with("layout-") ||
             selected_role == "material-texture" || selected_role == "default-font" ||
-            selected_role == "font-stack" || selected_role == "source-recognized-reference")
+            selected_role == "font-stack")
             item["facets"].push_back("resource");
         item["targetImpactPaths"] = Json::array();
-        for (const auto& field : impact_paths(selected_role, target_path))
+        std::vector<std::string> consumed = impact_paths(selected_role, target_path);
+        if (source_edge) {
+            consumed = {target_path + "/@identity"};
+            if (source_kind == "lua-import" || source_kind == "script" ||
+                source_kind == "stylesheet" || source_kind.starts_with("template")) {
+                const auto family = member_string(target, "collection");
+                if (family == "assets")
+                    consumed = impact_paths("layout-stylesheet", target_path);
+                else if (family == "scripts")
+                    consumed = {target_path + "/data/source"};
+                else if (family == "layouts")
+                    consumed = {target_path + "/data/rml", target_path + "/data/rcss",
+                                target_path + "/data/dependencies"};
+            }
+        }
+        for (const auto& field : consumed)
             item["targetImpactPaths"].push_back(field);
         item["repair"] = Json::object();
         // Only schema-proven nullable reference fields can be cleared. The
@@ -1020,8 +1047,7 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
             }
         }
         response["textSourceRevisions"][path] = analysis.source_revision;
-        const auto lexical = analyze_project_text(path, analysis.source_text, true);
-        if (!lexical.complete)
+        if (!analysis.complete)
             incomplete.push_back(path);
         const auto owner_it = text_source_owners_.find(path);
         if (owner_it == text_source_owners_.end())
@@ -1054,7 +1080,7 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
             }
         }
         std::set<std::size_t> recognized_literal_starts;
-        for (const auto& reference : lexical.recognized_references) {
+        for (const auto& reference : analysis.recognized_references) {
             if (reference.id.empty())
                 continue;
             Json target = Json::null();
@@ -1083,12 +1109,14 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
                 if (!graph.node_keys.contains(source_key.to_string()))
                     continue;
                 recognized = true;
-                graph.edge(source_key, target, "/" + owner, target_path,
-                           "lua-recognized-reference");
+                const bool imports = reference.recognized_by == "noveltea.script-module-import" ||
+                                     reference.recognized_by == "noveltea.room-hook-module";
+                graph.edge(source_key, target, "/" + owner, target_path, "lua-recognized-reference",
+                           "blocked", imports ? "lua-import" : "lua-identity");
                 Json occurrence = Json::object();
                 occurrence["ownerPath"] = "/" + owner;
                 occurrence["sourceUrl"] = "project:/" + path;
-                occurrence["sourceRevision"] = lexical.source_revision;
+                occurrence["sourceRevision"] = analysis.source_revision;
                 occurrence["line"] = reference.line;
                 occurrence["column"] = reference.column;
                 occurrence["startUtf16"] = reference.start_utf16;
@@ -1101,12 +1129,12 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
                 // UTF-16 offsets and expected text. Only unescaped text
                 // literals in a single-owned physical file are eligible.
                 if (!path.starts_with("inline/") && owner_it->second.size() == 1 &&
-                    reference.expected_text && reference.end_utf16 <= lexical.source_text.size() &&
-                    std::all_of(lexical.source_text.begin(),
-                                lexical.source_text.begin() + reference.end_utf16,
+                    reference.expected_text && reference.end_utf16 <= analysis.source_text.size() &&
+                    std::all_of(analysis.source_text.begin(),
+                                analysis.source_text.begin() + reference.end_utf16,
                                 [](unsigned char c) { return c < 128; }) &&
-                    lexical.source_text.substr(reference.start_utf16,
-                                               reference.end_utf16 - reference.start_utf16) ==
+                    analysis.source_text.substr(reference.start_utf16,
+                                                reference.end_utf16 - reference.start_utf16) ==
                         *reference.expected_text) {
                     occurrence["classification"] = "exact-rewriteable";
                     occurrence["rewriteRange"] = Json::object();
@@ -1145,7 +1173,8 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
                 const auto origin = record_key(owner.substr(0, split), owner.substr(split + 1));
                 if (!graph.node_keys.contains(origin.to_string()))
                     continue;
-                graph.edge(origin, target, "/" + owner, target_path, "source-recognized-reference");
+                graph.edge(origin, target, "/" + owner, target_path, "source-recognized-reference",
+                           "blocked", reference.kind);
                 Json occurrence = Json::object();
                 occurrence["ownerPath"] = "/" + owner;
                 occurrence["sourceUrl"] = "project:/" + path;
@@ -1225,7 +1254,7 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
                 }
             }
         }
-        for (const auto& literal : lexical.lua_literals) {
+        for (const auto& literal : analysis.lua_literals) {
             if (named_literal_starts.contains(literal.start_utf16) ||
                 recognized_literal_starts.contains(literal.start_utf16))
                 continue;
@@ -1237,7 +1266,7 @@ std::string ProjectSession::semantic_graph(std::uint64_t expected_revision)
                     Json occurrence = Json::object();
                     occurrence["ownerPath"] = "/" + owner;
                     occurrence["sourceUrl"] = "project:/" + path;
-                    occurrence["sourceRevision"] = lexical.source_revision;
+                    occurrence["sourceRevision"] = analysis.source_revision;
                     occurrence["line"] = literal.line;
                     occurrence["column"] = literal.column;
                     occurrence["startUtf16"] = literal.start_utf16;

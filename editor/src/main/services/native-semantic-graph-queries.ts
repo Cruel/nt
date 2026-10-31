@@ -48,7 +48,10 @@ export function nativeGraphUsages(
     // Physical source references also have per-occurrence evidence. Their
     // aggregate edge is an impact dependency, not a second usage to count.
     confirmed: graph.edges.filter(
-      (edge) => edge.role !== 'source-recognized-reference' && sameKey(edge.target, target),
+      (edge) =>
+        edge.role !== 'source-recognized-reference' &&
+        edge.role !== 'lua-recognized-reference' &&
+        sameKey(edge.target, target),
     ),
     possible: graph.occurrences.filter(
       (occurrence) =>

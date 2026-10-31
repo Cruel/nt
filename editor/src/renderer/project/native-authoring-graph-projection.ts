@@ -122,7 +122,8 @@ export function projectNativeGraphForRenderer(
     // as one or more occurrence records. Find Usages presents the precise
     // occurrences once; retain the aggregate only in the native DTO for
     // dependency/preview impact calculations.
-    if (edge.role === 'source-recognized-reference') continue;
+    if (edge.role === 'source-recognized-reference' || edge.role === 'lua-recognized-reference')
+      continue;
     insert(edges, incoming, outgoing, {
       ...edge,
       source: key(edge.source),

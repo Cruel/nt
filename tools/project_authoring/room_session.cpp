@@ -3016,6 +3016,36 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                 continue;
             const auto declared = layout_declared_scripts_.find(owner);
             for (const auto& reference : analysis.references) {
+                if (reference.kind == "stylesheet") {
+                    const auto href = trim_ecmascript(reference.target);
+                    std::string resolved;
+                    if (href.starts_with("project:/"))
+                        resolved = href.substr(sizeof("project:/") - 1);
+                    else if (!href.empty() && href.front() != '/' && href.find(':') == href.npos)
+                        resolved = (std::filesystem::path(path).parent_path() / href)
+                                       .lexically_normal()
+                                       .generic_string();
+                    const auto declared_source = text_source_owners_.find(resolved);
+                    if (!resolved.empty() && !resolved.starts_with("../") &&
+                        !std::filesystem::path(resolved).is_absolute() &&
+                        resolved.ends_with(".rcss") &&
+                        declared_source != text_source_owners_.end() &&
+                        declared_source->second.contains(owner) &&
+                        text_source_paths_.contains(resolved))
+                        continue;
+                    Diagnostic issue{inline_source_diagnostic_paths_.contains(path)
+                                         ? inline_source_diagnostic_paths_.at(path)
+                                         : source_diagnostic_owner(path, owner),
+                                     "authoring.rml.external_stylesheet_unresolved",
+                                     "RML stylesheet '" + reference.target +
+                                         "' does not resolve to a declared Project source.",
+                                     "warning"};
+                    issue.source_path = path;
+                    issue.line = reference.line;
+                    issue.column = reference.column;
+                    state.diagnostics.push_back(std::move(issue));
+                    continue;
+                }
                 if (reference.kind != "script")
                     continue;
                 std::string resolved = trim_ecmascript(reference.target);
@@ -3073,14 +3103,16 @@ const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() c
         const auto source = inlined != inline_text_sources_.end()    ? inlined->second
                             : overlay == text_source_overlays_.end() ? read_bytes(root_ / path)
                                                                      : overlay->second;
-        text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, source));
+        // Retain native lexical/recognized references with the validation
+        // analysis; graph publication must not tokenize these bytes again.
+        text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, source, true));
     }
     for (const auto& [path, content] : staged_sources) {
         const auto revision = exact_source_revision(content);
         if (const auto cached = text_analysis_cache_.find(path);
             cached != text_analysis_cache_.end() && cached->second.source_revision == revision)
             continue;
-        text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, content));
+        text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, content, true));
     }
     for (auto it = text_analysis_cache_.begin(); it != text_analysis_cache_.end();) {
         if (!text_source_paths_.contains(it->first) && !staged_sources.contains(it->first))
@@ -3276,12 +3308,13 @@ void ProjectSession::index_text_owner(std::string_view owner, std::string_view r
                         layout_declared_scripts_[key].insert(entry.as<std::string>());
                         track(entry.as<std::string>());
                     }
-            if (dependencies.contains("templates") && dependencies.at("templates").is_array())
-                for (const auto& ref : dependencies.at("templates").array_range())
-                    if (ref.is_string())
-                        track_asset(ref.as<std::string>());
-                    else if (ref.is_object() && ref.contains("$ref"))
-                        track_asset(ref.at("$ref").at("id").as<std::string>());
+            for (const char* kind : {"templates", "stylesheets"})
+                if (dependencies.contains(kind) && dependencies.at(kind).is_array())
+                    for (const auto& ref : dependencies.at(kind).array_range())
+                        if (ref.is_string())
+                            track_asset(ref.as<std::string>());
+                        else if (ref.is_object() && ref.contains("$ref"))
+                            track_asset(ref.at("$ref").at("id").as<std::string>());
         }
     }
 }

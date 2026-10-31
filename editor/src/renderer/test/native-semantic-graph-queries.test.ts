@@ -86,6 +86,91 @@ const fixture: NativeSemanticGraph = nativeSemanticGraphSchema.parse({
 });
 
 describe('revision-pinned native graph presentation-only queries', () => {
+  it('separates source resource preview impact from unrelated target fields and duplicate usages', () => {
+    const layout = { kind: 'record' as const, collection: 'layouts' as const, id: 'menu' };
+    const style = { kind: 'record' as const, collection: 'assets' as const, id: 'menu-style' };
+    const script = { kind: 'record' as const, collection: 'scripts' as const, id: 'logic' };
+    const graph = nativeSemanticGraphSchema.parse({
+      ...fixture,
+      nodes: [
+        {
+          key: layout,
+          keyText: JSON.stringify(layout),
+          owningPath: '/layouts/menu',
+          label: 'Menu',
+        },
+        {
+          key: style,
+          keyText: JSON.stringify(style),
+          owningPath: '/assets/menu-style',
+          label: 'Styles',
+        },
+        {
+          key: script,
+          keyText: JSON.stringify(script),
+          owningPath: '/scripts/logic',
+          label: 'Logic',
+        },
+      ],
+      edges: [
+        {
+          id: 'rcss',
+          source: layout,
+          target: style,
+          sourcePath: '/layouts/menu',
+          targetPath: '/assets/menu-style',
+          role: 'source-recognized-reference',
+          facets: ['tooling-reference', 'runtime-only', 'resource', 'preview-ui'],
+          targetImpactPaths: [
+            '/assets/menu-style/data/source/path',
+            '/assets/menu-style/data/contentHash',
+          ],
+          repair: { kind: 'blocked', reason: 'Requires manual source edit.' },
+        },
+        {
+          id: 'import',
+          source: script,
+          target: script,
+          sourcePath: '/scripts/logic',
+          targetPath: '/scripts/logic',
+          role: 'lua-recognized-reference',
+          facets: ['tooling-reference', 'runtime-only', 'resource', 'preview-ui'],
+          targetImpactPaths: ['/scripts/logic/data/source'],
+          repair: { kind: 'blocked', reason: 'Requires manual source edit.' },
+        },
+      ],
+      occurrences: [
+        {
+          ownerPath: '/scripts/logic',
+          sourceUrl: 'project:/scripts/logic.lua',
+          sourceRevision: first.sourceRevision,
+          line: 1,
+          column: 8,
+          value: 'logic',
+          classification: 'exact-manual',
+          recognizedBy: 'noveltea.script-module-import',
+          target: script,
+        },
+      ],
+    });
+    expect(nativeGraphImpactedOwnerPaths(graph, ['/assets/menu-style/label'], 'resource')).toEqual(
+      [],
+    );
+    expect(
+      nativeGraphImpactedOwnerPaths(graph, ['/assets/menu-style/data/contentHash'], 'resource'),
+    ).toEqual(['/layouts/menu']);
+    expect(nativeGraphImpactedOwnerPaths(graph, ['/scripts/logic/label'], 'preview-ui')).toEqual(
+      [],
+    );
+    expect(nativeGraphUsageCounts(graph, script)).toEqual({
+      confirmed: 0,
+      possible: 0,
+      recognized: 1,
+    });
+    const projection = projectNativeGraphForRenderer(graph, 'source-purpose', 1);
+    expect(semanticUsagesForTarget(projection, script)).toHaveLength(1);
+  });
+
   it('renames a flow target with its native wire shape, even when deletion repair is blocked', () => {
     const project = createAuthoringProject();
     project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };

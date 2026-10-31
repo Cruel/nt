@@ -1,5 +1,43 @@
 # Authoring Dependency Graph
 
+## Operation-specific physical-source impact (#585)
+
+Source analysis remains a single native, revision-keyed contribution per Lua,
+RML, or RCSS source. The resident Project session retains lexical literals and
+typed recognizer evidence alongside localization diagnostics, so the native
+semantic graph does not re-tokenize the source when publishing reference
+occurrences. The RML recognizer includes external `text/rcss` links as well as
+script and template references. Declared Layout stylesheet and template Assets
+are indexed as physical source owners; links inside transitive template sources
+can therefore contribute the same graph evidence as links in the Layout RML.
+
+Purpose is expressed using the existing graph facets, not a second validation
+dependency index: `tooling-reference` is reference management, `resource` is
+build/preparation impact, `preview-ui` is focused preview impact, and
+`runtime-only` denotes a runtime relationship. Physical script, stylesheet,
+template and Lua import edges intentionally have **no** `validation` or
+`reference-integrity` facet; a linked file's implementation change never
+becomes a dependency of its caller's semantic diagnostic contribution. Asset
+source metadata and Script source fields are consumed precisely instead of
+unrelated labels. Missing Script IDs still retain their native typed target.
+Literal RML `text/rcss` hrefs resolve relative to the containing source or as
+`project:/` paths; unresolved, undeclared and unsupported hrefs produce the
+non-fatal `authoring.rml.external_stylesheet_unresolved` warning with an RML
+source location. Missing physical declared sources retain the Project session's existing
+source-resolution diagnostics. The renderer retains aggregate source edges only
+for impact, presenting individual analyzer occurrences once for Find Usages and
+manual rename/deletion review.
+
+Unresolvable relative paths and dynamic Lua expressions do **not** become
+invented typed targets or automatic rewrite permissions. Their existing native
+source warnings and declared-dependency checks remain authoritative. When a
+physical source changes without a structured Project revision, the focused
+preview coordinator continues its conservative full-preview fallback because
+the revision delta has no proven record field path. A stylesheet content edit
+reanalyzes that stylesheet and any affected source diagnostics, but does not
+reparse unchanged parent RML. No Lua type checking or cross-module contract
+inference is introduced.
+
 ## Native semantic validation contributions (#584)
 
 The resident native Project validator derives its reverse record consumers from

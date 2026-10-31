@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "validation_work_instrumentation.hpp"
 
 #include <jsoncons/json.hpp>
 
@@ -97,6 +98,7 @@ int main(int argc, char** argv)
                 "Native graph omitted record, trait, localized or nested identities.");
         require(collections.size() == 16, "Native graph must enumerate all 16 record collections.");
         bool room_asset = false, room_asset_repair = false, cursor = false;
+        bool linked_stylesheet = false, linked_template = false, imported_module = false;
         for (const auto& edge : base.at("edges").array_range()) {
             room_asset |= edge.at("role") == "room-background" &&
                           edge.at("target").at("kind") == "record" &&
@@ -110,10 +112,43 @@ int main(int argc, char** argv)
                                      edge.at("repair").at("path") == expected;
             }
             cursor |= edge.at("role") == "source-recognized-reference";
+            const auto source_edge = edge.at("role") == "source-recognized-reference";
+            const auto source_owner = edge.at("source");
+            const auto target = edge.at("target");
+            const auto has_facet = [&](std::string_view facet) {
+                for (const auto& value : edge.at("facets").array_range())
+                    if (value == facet)
+                        return true;
+                return false;
+            };
+            if (source_edge && source_owner.at("kind") == "record" &&
+                source_owner.at("collection") == "layouts" &&
+                source_owner.at("id") == "flow-counter" && target.at("kind") == "record" &&
+                target.at("collection") == "assets") {
+                const auto stylesheet = target.at("id") == "counter-shared-style";
+                const auto templated = target.at("id") == "counter-template";
+                linked_stylesheet |= stylesheet && has_facet("resource") &&
+                                     has_facet("preview-ui") && !has_facet("reference-integrity") &&
+                                     !has_facet("validation");
+                linked_template |= templated && has_facet("resource") && !has_facet("validation");
+            }
+            if (edge.at("role") == "lua-recognized-reference" &&
+                source_owner.at("kind") == "record" && source_owner.at("collection") == "scripts" &&
+                source_owner.at("id") == "graph-oracle" && target.at("kind") == "record" &&
+                target.at("collection") == "scripts" &&
+                target.at("id") == "feature-lab-bootstrap") {
+                imported_module |=
+                    has_facet("runtime-only") && has_facet("resource") &&
+                    !has_facet("validation") &&
+                    edge.at("targetImpactPaths")[0] == "/scripts/feature-lab-bootstrap/data/source";
+            }
         }
         require(room_asset, "Native YAML scalar Asset roles are not indexed.");
         require(room_asset_repair,
                 "Native nullable Room background references need exact set-null repair evidence.");
+        require(linked_stylesheet && linked_template && imported_module,
+                "Physical stylesheet/template and Lua import edges have targeted resource/preview "
+                "purposes without semantic validation dependencies");
         bool lexical = false, exact = false, recognized_import = false, recognized_hook = false,
              recognized_room = false, false_comment = false, recognized_cursor = false;
         for (const auto& item : base.at("occurrences").array_range()) {
@@ -160,6 +195,15 @@ int main(int argc, char** argv)
                 "Typed missing Script target must remain explicit native graph evidence.");
         require(query(*project, 0).to_string() == base.to_string(),
                 "Native graph ordering must be deterministic.");
+        noveltea::authoring::ValidationWorkCounters graph_work;
+        {
+            noveltea::authoring::ScopedValidationWork measured(graph_work);
+            require(query(*project, 0).to_string() == base.to_string(),
+                    "Warm graph evidence must retain exact native occurrences.");
+        }
+        require(graph_work.parsed_lua == 0 && graph_work.parsed_rml == 0 &&
+                    graph_work.parsed_rcss == 0,
+                "Graph requests reuse source-recognizer tokens instead of a second analysis pass.");
         const auto edit = project->patch(
             0, {{RoomPatch::Operation::Replace, "/project/name", R"("Graph certification")"}});
         require(edit.accepted, "Could not mutate dirty native Project working revision.");
