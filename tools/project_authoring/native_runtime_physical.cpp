@@ -126,7 +126,23 @@ struct PreparationError : std::runtime_error {
         if (safe_relative(value))
             return value;
     } else {
-        const auto relative = path.lexically_relative(root);
+        fs::path source_for_containment = path;
+#if defined(__APPLE__)
+        // macOS exposes /var and /tmp through system-owned /private aliases.
+        // Resolve only those verified aliases; checked_source still rejects
+        // symlinks anywhere below the canonical Project root.
+        const auto first = std::next(path.begin());
+        if (first != path.end() && (*first == "var" || *first == "tmp")) {
+            const auto alias = path.root_path() / *first;
+            std::error_code ec;
+            if (fs::is_symlink(fs::symlink_status(alias, ec)) && !ec) {
+                const auto canonical_alias = fs::canonical(alias, ec);
+                if (!ec && canonical_alias == path.root_path() / "private" / *first)
+                    source_for_containment = canonical_alias / path.lexically_relative(alias);
+            }
+        }
+#endif
+        const auto relative = source_for_containment.lexically_relative(root);
         if (!relative.empty() && relative != "." && *relative.begin() != fs::path("..") &&
             safe_relative(relative.generic_string()))
             return relative.generic_string();

@@ -164,6 +164,25 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
     assert manifest_file.is_file(), (manifest_artifact, sorted(p.name for p in root.iterdir()))
     manifest = json.loads(manifest_file.read_text())
     assert manifest['deployment']['target'] == 'macos'
+    # The macOS /var alias must not make ordinary sources appear unsafe, but
+    # actual symlinks inside the Project must still be rejected before publishing.
+    alternate_font = project / 'assets/fonts/alternate.ttf'
+    original_font = alternate_font.read_bytes()
+    original_package = (output / 'Contents/Resources/game.ntpkg').read_bytes()
+    alternate_font.unlink()
+    alternate_font.symlink_to('body.ttf')
+    try:
+        unsafe_source = subprocess.run(
+            [str(cli), '--no-daemon', '--json', *map(str, arguments), '--force'],
+            cwd=root, env=environment, capture_output=True, text=True, timeout=240)
+        unsafe_result = json.loads(unsafe_source.stdout)
+        assert unsafe_source.returncode != 0 and any(
+            item['code'] == 'native.runtime.physical'
+            for item in unsafe_result['diagnostics']), (unsafe_result, unsafe_source.stderr)
+        assert (output / 'Contents/Resources/game.ntpkg').read_bytes() == original_package
+    finally:
+        alternate_font.unlink()
+        alternate_font.write_bytes(original_font)
     files = {item['path']: item for item in manifest['files']}
     assert files and 'Contents/MacOS/game' in files
     with zipfile.ZipFile(root / 'Tea Fixture.zip') as zipped:

@@ -2789,7 +2789,8 @@ int run(const std::vector<std::string>& argv)
                         {"disposableBusyWorkers", response.value("disposableBusyWorkers", 0)}};
             if (const char* certification = std::getenv("NOVELTEA_CLI_CERTIFICATION");
                 certification && std::string_view(certification) == "1") {
-                for (const char* field : {"exactValidationResults", "engineeringCounters"})
+                for (const char* field :
+                     {"exactValidationResults", "engineeringCounters", "engineeringOwners"})
                     if (response.contains(field))
                         daemon[field] = response.at(field);
             }

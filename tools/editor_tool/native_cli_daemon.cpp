@@ -170,6 +170,10 @@ bool set_environment_variable(const std::string& name, const std::string* value)
 #if defined(_WIN32)
     const auto wide_name = wide_from_utf8(name);
     const auto wide_value = value ? wide_from_utf8(*value) : std::wstring{};
+    // Win32 updates alone leave the CRT's getenv() table stale in a reusable worker.
+    // Keep both the CRT and the process environment synchronized for each request.
+    if (_wputenv_s(wide_name.c_str(), value ? wide_value.c_str() : L"") != 0)
+        return false;
     return SetEnvironmentVariableW(wide_name.c_str(), value ? wide_value.c_str() : nullptr) != 0;
 #else
     return value ? ::setenv(name.c_str(), value->c_str(), 1) == 0 : ::unsetenv(name.c_str()) == 0;

@@ -244,18 +244,19 @@ with tempfile.TemporaryDirectory(prefix='nt-549-') as temporary:
         # Once a resident owner exits unexpectedly, the existing broker must
         # replace it rather than replaying a possibly committed mutation.
         if sys.platform.startswith('linux'):
-            broker_pid = status['pid']
-            child_file = Path(f'/proc/{broker_pid}/task/{broker_pid}/children')
-            assert child_file.exists(), status
-            owner_ids = []
-            for raw_pid in child_file.read_text().split():
-                cmdline = Path(f'/proc/{raw_pid}/cmdline').read_bytes()
-                if b'__daemon-owner' in cmdline and b'--owner-worker-id\x001\x00' in cmdline:
-                    owner_ids.append(int(raw_pid))
-                    assert Path(f'/proc/{raw_pid}/exe').resolve() == installed
-            assert len(owner_ids) == 1, owner_ids
-            sessions_before_failure = daemon_status()['projectSessions']
-            os.kill(owner_ids[0], signal.SIGKILL)
+            current = daemon_status()
+            owners = [owner for owner in current['engineeringOwners']
+                      if owner['canonicalRoot'] == str(project.resolve())]
+            assert len(owners) == 1, (owners, current)
+            owner = owners[0]
+            owner_pid = owner['pid']
+            cmdline = Path(f'/proc/{owner_pid}/cmdline').read_bytes()
+            assert b'__daemon-owner\x00' in cmdline, cmdline
+            assert (b'--owner-worker-id\x00' + str(owner['workerId']).encode() + b'\x00'
+                    in cmdline), cmdline
+            assert Path(f'/proc/{owner_pid}/exe').resolve() == installed
+            sessions_before_failure = current['projectSessions']
+            os.kill(owner_pid, signal.SIGKILL)
             time.sleep(0.1)
             recovered = project_command('entity', 'inspect', 'rooms', 'renamed')
             assert recovered == changed
