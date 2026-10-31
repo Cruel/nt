@@ -5,12 +5,14 @@
 #include "../project_authoring/source_authority.hpp"
 #include "../project_authoring/yaml_codec.hpp"
 
+#include <noveltea/core/player_bootstrap.hpp>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <span>
 #include <iterator>
 #include <stdexcept>
 #include <string>
@@ -25,6 +27,11 @@ void require(bool condition, std::string_view message)
 {
     if (!condition)
         throw std::runtime_error(std::string(message));
+}
+
+std::string independent_sha256(std::string_view bytes)
+{
+    return "sha256:" + noveltea::core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size())));
 }
 
 std::string read(const std::filesystem::path& file)
@@ -465,6 +472,8 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
         require(inspected.value("ok", false),
                 "Generated ComfyUI fixture must be valid image bytes.");
         const auto& image = inspected.at("fields").at("assets").at(0);
+        require(image.at("contentHash") == independent_sha256(read(staged)),
+                "Native generated image inspection must publish the independently verified SHA-256.");
         const auto output = Json{{"format", "webp"},
                                  {"mimeType", "image/webp"},
                                  {"byteSize", std::filesystem::file_size(staged)},
@@ -508,12 +517,38 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
                         std::string::npos &&
                     metadata.value("ok", false) &&
                     metadata.at("fields").at("record").at("data").at("contentHash") ==
-                        output.at("contentHash"),
+                        output.at("contentHash") &&
+                    metadata.at("fields").at("record").at("data").at("preview")
+                            .at("thumbnailRevision") == output.at("contentHash"),
                 "Native ComfyUI Asset must persist exact source bytes and a schema-valid record.");
         const auto repeated = command(request);
         require(repeated.value("ok", false) &&
                     repeated.at("fields").at("assets").at(0).at("assetId") != id,
                 "Independent ComfyUI runs must allocate collision-safe Asset identities.");
+        const auto staged_sidecar = fixture.root / "comfyui-sidecar.noveltea-stage";
+        const auto published_sidecar = fixture.root / "comfyui-sidecar.txt";
+        const std::string sidecar_bytes = "Verified generated sidecar bytes.\n";
+        write(staged_sidecar, sidecar_bytes);
+        auto mixed = request;
+        mixed["filesystemOutputs"] = Json::array(
+            {{{"stagedPath", staged_sidecar.string()},
+              {"finalPath", published_sidecar.string()},
+              {"contentHash", independent_sha256(sidecar_bytes)},
+              {"force", false}}});
+        auto rejected_mixed = mixed;
+        rejected_mixed["filesystemOutputs"][0]["contentHash"] =
+            "xxh3-128:00000000000000000000000000000000";
+        const auto mismatched = command(rejected_mixed);
+        require(!mismatched.value("ok", false) &&
+                    std::filesystem::is_regular_file(staged_sidecar) &&
+                    !std::filesystem::exists(published_sidecar),
+                "Mixed ComfyUI publication rejects non-SHA-256 integrity hashes without writes.");
+        const auto mixed_published = command(mixed);
+        require(mixed_published.value("ok", false) &&
+                    std::filesystem::is_regular_file(published_sidecar) &&
+                    read(published_sidecar) == sidecar_bytes,
+                "Native mixed ComfyUI filesystem publication accepts SHA-256-pinned sidecars: " +
+                    mixed_published.dump().substr(0, 600));
         std::filesystem::remove(staged);
     }
     for (const auto& [original, name, classification] :
@@ -537,6 +572,8 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
         std::filesystem::remove(input);
     }
     const auto source = fixture.root / "native-asset-import-note.txt";
+    const std::string expected_content_hash =
+        "sha256:9a6e1ebfa1cf0325d23dcdff56f58a1b95322a31de42ec25cf81a2da3b119ceb";
     {
         std::ofstream output(source, std::ios::binary);
         output << "Asset import has to commit the exact bytes.\n";
@@ -565,7 +602,11 @@ void certify_asset_import(const std::filesystem::path& fixture_source)
                                     {"dryRun", false}});
     require(committed.value("ok", false) && committed.at("fields").at("dryRun") == false &&
                 std::filesystem::is_regular_file(destination) &&
-                std::filesystem::is_regular_file(record) && read(destination) == read(source),
+                std::filesystem::is_regular_file(record) && read(destination) == read(source) &&
+                committed.at("fields").at("assets").at(0).at("contentHash") ==
+                    expected_content_hash &&
+                read(record).find("contentHash: " + Json(expected_content_hash).dump()) !=
+                    std::string::npos,
             "Native Asset import publishes one source and its record together: " +
                 committed.dump());
     require(command({{"action", "entity-inspect"},
@@ -1187,6 +1228,12 @@ void certify(const std::filesystem::path& source)
             "Native editable Project export must produce the current portable contract: " +
                 exported.dump().substr(0, 600));
     const auto& files = exported.at("manifest").at("files");
+    for (const auto& file : files) {
+        const auto relative = file.at("path").get<std::string>();
+        require(file.at("sha256") == independent_sha256(read(fixture.root / relative)),
+                "Portable bundle manifest SHA-256 must equal the independent file digest: " +
+                    relative);
+    }
     require(
         std::any_of(files.begin(), files.end(),
                     [](const Json& entry) { return entry.at("path") == "workflows/keep.lua"; }) &&

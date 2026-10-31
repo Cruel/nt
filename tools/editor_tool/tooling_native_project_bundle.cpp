@@ -5,6 +5,8 @@
 #include "../project_authoring/source_authority.hpp"
 #include "../project_authoring/yaml_codec.hpp"
 
+#include <noveltea/core/player_bootstrap.hpp>
+
 #include <miniz/miniz.h>
 
 #include <algorithm>
@@ -16,6 +18,7 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -25,6 +28,11 @@ namespace {
 using Json = nlohmann::json;
 using Ordered = nlohmann::ordered_json;
 using namespace noveltea::authoring;
+
+std::string bundle_sha256(std::string_view bytes)
+{
+    return "sha256:" + noveltea::core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size())));
+}
 
 Json failure(std::string message, std::string_view kind = "mutation")
 {
@@ -342,7 +350,7 @@ Json export_bundle(const Json& request, ProjectSession* session, const std::file
                                relative,
                            "source-changed");
         manifest["files"].push_back(
-            Ordered{{"path", relative}, {"size", bytes.size()}, {"sha256", revision}});
+            Ordered{{"path", relative}, {"size", bytes.size()}, {"sha256", bundle_sha256(bytes)}});
         revisions.emplace(relative, revision);
     }
     TempDirectory stage(output, "bundle");
@@ -575,7 +583,7 @@ Json import_bundle(const Json& request)
         if (excluded(relative) || relative == "ntproject.json" ||
             (!previous.empty() && previous >= relative) || !data.contains(relative) ||
             entry.at("size").get<std::size_t>() != data.at(relative).size() ||
-            entry.at("sha256").get<std::string>() != exact_source_revision(data.at(relative)))
+            entry.at("sha256").get<std::string>() != bundle_sha256(data.at(relative)))
             return failure("Portable Project bundle manifest inventory is corrupt or unsafe.",
                            "invalid-bundle");
         previous = relative;

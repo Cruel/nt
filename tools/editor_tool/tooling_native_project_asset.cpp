@@ -9,6 +9,8 @@
 #include "tooling_native_asset_media.hpp"
 #include "tooling_native_project_sync.hpp"
 
+#include <noveltea/core/player_bootstrap.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -23,6 +25,7 @@
 #include <optional>
 #include <regex>
 #include <set>
+#include <span>
 #include <sstream>
 #include <string>
 #include <stdexcept>
@@ -41,6 +44,11 @@ namespace {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 using namespace noveltea::authoring;
+
+std::string asset_content_hash(std::string_view bytes)
+{
+    return "sha256:" + noveltea::core::sha256_hex(std::as_bytes(std::span(bytes.data(), bytes.size())));
+}
 
 Json failure(std::string code, std::string path, std::string reason)
 {
@@ -893,7 +901,7 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                 return fail("Asset source changed during physical inspection: " + filename);
             if (bytes->empty())
                 return fail("Asset import source cannot be empty: " + filename);
-            const auto revision = exact_source_revision(*bytes);
+            const auto revision = asset_content_hash(*bytes);
             if (generated && (metadata["byteSize"].get<std::size_t>() != bytes->size() ||
                               metadata["contentHash"].get<std::string>() != revision ||
                               metadata["mimeType"].get<std::string>() != mime(from_utf8(filename)) ||
@@ -1035,7 +1043,7 @@ Json native_project_asset_import(const Json& request, ProjectSession& session, c
                     return fail("Mixed ComfyUI filesystem staging is unsafe.");
                 const auto bytes = read_reliable(source);
                 if (!bytes ||
-                    exact_source_revision(*bytes) != item["contentHash"].get<std::string>())
+                    asset_content_hash(*bytes) != item["contentHash"].get<std::string>())
                     return fail("Mixed ComfyUI staged bytes changed before publication.");
                 const auto state = fs::symlink_status(destination);
                 if (state.type() != fs::file_type::not_found &&
