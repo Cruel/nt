@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { Worker, type WorkerOptions } from 'node:worker_threads';
 import {
   nativeAuthoringEventSchema,
@@ -57,6 +58,7 @@ export interface NativeAuthoringSessionOptions {
  * main-owned active session is the only source of the worker's filesystem root.
  */
 export class NativeAuthoringSessionBridge {
+  private sourceHasher?: { sourceRevision(bytes: Buffer): string };
   private current: OpenSession | null = null;
   private generation = 0;
   private readonly terminations = new Set<Promise<void>>();
@@ -70,6 +72,15 @@ export class NativeAuthoringSessionBridge {
     >,
     private readonly options: NativeAuthoringSessionOptions,
   ) {}
+
+  /** The same pinned native algorithm used by SourceAuthority, without a
+   * second JavaScript digest implementation or an extra filesystem read. */
+  sourceRevision(bytes: Uint8Array): string {
+    this.sourceHasher ??= createRequire(this.options.addonPath)(this.options.addonPath) as {
+      sourceRevision(bytes: Buffer): string;
+    };
+    return this.sourceHasher.sourceRevision(Buffer.from(bytes));
+  }
 
   subscribe(handler: (delta: Delta) => void): () => void {
     this.subscribers.add(handler);

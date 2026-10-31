@@ -139,7 +139,7 @@ async function verifyCompleteNativeSources(options: NativeWorkingRuntimeOptions)
     if (expected === 'absent' && bytes === null) continue;
     if (bytes === null || expected === 'absent')
       throw new Error('Native complete preparation source changed on disk: ' + relative);
-    verifyNativeSourceBytes(relative, expected, bytes, assetHashes);
+    verifyNativeSourceBytes(relative, expected, bytes, assetHashes, options.sourceRevisionFor);
   }
 }
 
@@ -224,13 +224,13 @@ export class NativeWorkingRuntimePreparationCache {
     // artifacts under an otherwise unchanged key.
     for (const [relative, revision] of Object.entries(options.prepared.sourceRevisions)) {
       if (!relative.startsWith('shaders/')) continue;
-      const actual =
-        'sha256:' +
-        createHash('sha256')
-          .update(await readFile(path.join(options.projectRoot, relative)))
-          .digest('hex');
-      if (revision !== actual)
-        throw new Error('Native preview shader source changed during preparation: ' + relative);
+      verifyNativeSourceBytes(
+        relative,
+        revision,
+        await readFile(path.join(options.projectRoot, relative)),
+        new Map(),
+        options.sourceRevisionFor,
+      );
     }
     const key = this.key(options);
     let retained = this.entries.get(key);
@@ -296,6 +296,7 @@ export class NativeWorkingRuntimePreparationCache {
 export interface NativeWorkingRuntimeOptions {
   prepared: NativeAuthoringPreparation;
   projectRoot: string;
+  sourceRevisionFor?: (bytes: Uint8Array) => string;
   testId?: string;
   testSuite?: boolean;
   shaderVariant?: ShaderVariant;

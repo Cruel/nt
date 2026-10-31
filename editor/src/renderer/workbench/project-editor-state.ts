@@ -53,7 +53,9 @@ export interface ReconstructedEditorProject {
 }
 
 export interface ReconstructEditorProjectOptions {
-  currentFileRevisions?: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
+  currentFileRevisions?: Readonly<
+    Record<string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'>
+  >;
 }
 
 let recoveryContext: RecoveryContext = {

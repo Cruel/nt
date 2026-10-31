@@ -4,6 +4,7 @@ import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type {
   ProjectSourceFile,
+  ProjectSourceExpectedRevision,
   ProjectSourceStructuralOperation,
   ProjectSourceStructuralResponse,
   ProjectSourceUsage,
@@ -13,13 +14,13 @@ import type { EditorSourceRecoveryEntry } from '../../shared/project-schema/edit
 export interface ProjectSourceConflict {
   externalExists: boolean;
   externalText: string;
-  externalContentHash: `sha256:${string}` | 'absent';
+  externalContentHash: ProjectSourceExpectedRevision;
 }
 
 export interface ProjectSourceBuffer {
   text: string;
   baseText: string;
-  baseContentHash: `sha256:${string}` | 'absent';
+  baseContentHash: ProjectSourceExpectedRevision;
   dirty: boolean;
   conflict: ProjectSourceConflict | null;
 }
@@ -59,7 +60,7 @@ function cancelSourceStage(sourceId: string) {
 async function loadSourceSnapshot(projectSessionId: string) {
   const listed = await window.noveltea.listProjectSourceFiles({ projectSessionId });
   const textById: Record<string, string> = {};
-  const contentHashById: Record<string, `sha256:${string}`> = {};
+  const contentHashById: Record<string, ProjectSourceExpectedRevision> = {};
   const textFiles = listed.files.filter((file) => file.text);
   for (let index = 0; index < textFiles.length; index += READ_BATCH_SIZE) {
     const batch = textFiles.slice(index, index + READ_BATCH_SIZE);
@@ -407,7 +408,7 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
     const result = nativeResult
       ? {
           success: nativeResult.ok,
-          contentHash: nativeResult.contentHash as `sha256:${string}` | undefined,
+          contentHash: nativeResult.contentHash as ProjectSourceExpectedRevision | undefined,
           error: nativeResult.error,
         }
       : await window.noveltea.writeProjectSource({
@@ -594,21 +595,23 @@ export function acknowledgeNativeSavedSources(
     if (
       !buffer ||
       buffer.baseContentHash !== source.baseContentHash ||
-      !/^sha256:[0-9a-f]{64}$/u.test(revisions[sourceId] ?? '')
+      !/^(?:sha256:[0-9a-f]{64}|xxh3-128:[0-9a-f]{32})$/u.test(revisions[sourceId] ?? '')
     )
       throw new Error(`Native source Save acknowledgment is stale or incomplete: ${sourceId}`);
   }
   const buffersById = { ...state.buffersById };
   const files = state.files.map((file) => {
     const source = submitted[file.id];
-    return source ? { ...file, contentHash: revisions[file.id] as `sha256:${string}` } : file;
+    return source
+      ? { ...file, contentHash: revisions[file.id] as ProjectSourceExpectedRevision }
+      : file;
   });
   for (const [sourceId, source] of Object.entries(submitted)) {
     const prior = buffersById[sourceId]!;
     buffersById[sourceId] = {
       ...prior,
       baseText: source.text,
-      baseContentHash: revisions[sourceId] as `sha256:${string}`,
+      baseContentHash: revisions[sourceId] as ProjectSourceExpectedRevision,
       dirty: prior.text !== source.text,
       conflict: null,
     };

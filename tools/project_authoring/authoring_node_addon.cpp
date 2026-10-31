@@ -271,6 +271,18 @@ napi_value call(napi_env env, napi_callback_info info)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
     try {
+        if (name == "sourceRevision") {
+            if (argc != 1)
+                throw std::runtime_error("sourceRevision requires a byte Buffer.");
+            bool is_buffer = false;
+            void* data = nullptr;
+            std::size_t size = 0;
+            if (napi_is_buffer(env, argv[0], &is_buffer) != napi_ok || !is_buffer ||
+                napi_get_buffer_info(env, argv[0], &data, &size) != napi_ok)
+                throw std::runtime_error("Expected a source byte Buffer.");
+            return js_string(env, noveltea::authoring::exact_source_revision(
+                                      std::string_view(static_cast<const char*>(data), size)));
+        }
         if (name == "open") {
             if (argc != 1)
                 throw std::runtime_error("open requires one canonical Project root.");
@@ -907,6 +919,7 @@ napi_value call(napi_env env, napi_callback_info info)
 napi_value initialize(napi_env env, napi_value exports)
 {
     static const char* operations[]{"open",
+                                    "sourceRevision",
                                     "close",
                                     "snapshot",
                                     "validateClean",

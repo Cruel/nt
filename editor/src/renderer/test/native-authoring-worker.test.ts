@@ -385,7 +385,7 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       expect(graph).toMatchObject({
         projectSessionId: 'working-certification',
         workingRevision: 0,
-        sourceRevisions: { 'project.yaml': expect.stringMatching(/^sha256:/u) },
+        sourceRevisions: { 'project.yaml': expect.stringMatching(/^xxh3-128:/u) },
       });
       expect(
         graph.nodes.some((node) => node.key.kind === 'record' && node.key.collection === 'rooms'),
@@ -626,7 +626,7 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
         });
       });
       await writeFile(roomPath, (await readFile(roomPath, 'utf8')) + '\n# external source edit\n');
-      await expect(observedRevision).resolves.toMatch(/^sha256:[0-9a-f]{64}$/u);
+      await expect(observedRevision).resolves.toMatch(/^xxh3-128:[0-9a-f]{32}$/u);
     } finally {
       await bridge?.closeAndWait();
       await rm(root, { recursive: true, force: true });
@@ -685,7 +685,7 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
         changed: ['records/rooms/room-lifecycle-roundtrip.yaml'],
       });
       expect(changes).toContainEqual(['rooms/room-lifecycle-roundtrip']);
-      expect(verifiedRevisions).toEqual([expect.stringMatching(/^sha256:[0-9a-f]{64}$/u)]);
+      expect(verifiedRevisions).toEqual([expect.stringMatching(/^xxh3-128:[0-9a-f]{32}$/u)]);
       const modified = bridge.request({
         operation: 'patch',
         expectedRevision: 0,

@@ -56,9 +56,8 @@ constexpr std::string_view kContract = "noveltea.native-clean-validation.v1";
 constexpr std::string_view kSemanticKey = "workspace-v1/native-project-validation-502.2";
 constexpr std::string_view kSemanticFingerprint = NOVELTEA_NATIVE_VALIDATION_FINGERPRINT;
 constexpr std::string_view kRelative = ".noveltea/cache/authoring/native-clean-current.json";
-// Keep the source and binary-media proof algorithms explicit. A future source
-// cutover must not import a byte-identical-looking cache from the old algorithm.
-constexpr std::string_view kSourceRevisionAlgorithm = "sha256";
+// Discriminate cached source generations from pre-cutover SHA-256 evidence.
+constexpr std::string_view kSourceRevisionAlgorithm = "xxh3-128";
 constexpr std::string_view kAssetProofAlgorithm = "xxh3-128";
 
 std::string cache_project_root(const fs::path& root)

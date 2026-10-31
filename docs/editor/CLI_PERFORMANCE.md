@@ -389,6 +389,17 @@ editor's source buffers and native transaction preconditions still speak
 recovery inconsistent. A full editor protocol/format migration is a
 separate atomic change, not hidden behind this performance optimization.
 
+**#579 local authoring cutover:** Native Project/record/text revisions now
+publish `xxh3-128:<32 lowercase hex>`, including source observation, journal
+after-revisions and the clean native validation cache's algorithm-tagged proof.
+The native writer still checks previously captured SHA-256 preconditions against
+SHA-256 and returns XXH3-128 for new revisions. Editor source reading, Save
+acknowledgment, and recovery accept both formats; the native addon supplies
+the same pinned XXH3 implementation to main-process source-byte verification.
+Existing clean cache entries tagged `sha256` are rejected and recalculated.
+Runtime Asset content hashes and download/package/shader integrity remain
+cryptographic SHA-256, not local source-revision hashes.
+
 The original #571 measurement on the Ryzen 7 5700G showed XXH3-128 at
 **21,425 MiB/s** on Feature Lab's 6,235,344-byte `ipag.ttf` input, versus
 **331 MiB/s** for the portable scalar SHA-256 and **754 MiB/s** for

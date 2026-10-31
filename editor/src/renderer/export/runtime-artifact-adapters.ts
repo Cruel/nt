@@ -7,6 +7,19 @@ import type {
 import { useProjectStore } from '../project/project-store';
 import { useShaderCompileStore } from '../shaders/shader-compile-store';
 import { joinHostPath } from '../host-filesystem-path';
+import { sha256PrefixedBytes } from '../../shared/web-crypto';
+
+async function sha256TextSourceBytes(
+  text: string,
+  hadUtf8Bom: boolean,
+): Promise<`sha256:${string}`> {
+  const bytes = new TextEncoder().encode(text);
+  if (!hadUtf8Bom) return sha256PrefixedBytes(bytes);
+  const withBom = new Uint8Array(bytes.byteLength + 3);
+  withBom.set([0xef, 0xbb, 0xbf]);
+  withBom.set(bytes, 3);
+  return sha256PrefixedBytes(withBom);
+}
 
 export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   resolveProjectSource(projectRoot, source) {
@@ -35,20 +48,26 @@ export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
       })),
     });
     const byKey = new Map(response.entries.map((entry) => [entry.readKey, entry]));
-    return entries.map(({ assetId, projectRelativePath }) => {
-      const result = byKey.get(assetId);
-      return result?.status === 'ready'
-        ? {
-            status: 'ready' as const,
-            assetId,
-            projectRelativePath,
-            contentHash: result.contentHash,
-            text: result.text,
-            byteLength:
-              new TextEncoder().encode(result.text).byteLength + (result.hadUtf8Bom ? 3 : 0),
-          }
-        : { status: 'unavailable' as const, assetId };
-    });
+    return Promise.all(
+      entries.map(async ({ assetId, projectRelativePath }) => {
+        const result = byKey.get(assetId);
+        return result?.status === 'ready'
+          ? {
+              status: 'ready' as const,
+              assetId,
+              projectRelativePath,
+              // Export/runtime Asset integrity remains cryptographic SHA-256,
+              // independent of the local editor's XXH3 source revision.
+              contentHash: result.contentHash.startsWith('sha256:')
+                ? (result.contentHash as `sha256:${string}`)
+                : await sha256TextSourceBytes(result.text, result.hadUtf8Bom),
+              text: result.text,
+              byteLength:
+                new TextEncoder().encode(result.text).byteLength + (result.hadUtf8Bom ? 3 : 0),
+            }
+          : { status: 'unavailable' as const, assetId };
+      }),
+    );
   },
 };
 

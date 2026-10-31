@@ -895,7 +895,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(result).toMatchObject({
       accepted: true,
       textSourceDiskRevisions: {
-        [textPath]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        [textPath]: expect.stringMatching(/^xxh3-128:[0-9a-f]{32}$/),
       },
     });
     expect(await readFile(yamlPath, 'utf8')).toContain(newLabel);
@@ -1035,7 +1035,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     expect(saved).toMatchObject({
       accepted: true,
       textSourceDiskRevisions: {
-        [relative]: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+        [relative]: expect.stringMatching(/^xxh3-128:[0-9a-f]{32}$/),
       },
     });
     expect(await readFile(file, 'utf8')).toBe(first);

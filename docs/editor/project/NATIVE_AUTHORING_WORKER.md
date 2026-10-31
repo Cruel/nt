@@ -45,7 +45,7 @@ observer outside the Electron main/renderer threads, initially at 200 ms.
 Each observation verifies exact physical source bytes; OS watcher hints are
 not evidence. The worker posts a typed initial source snapshot at sequence
 zero and subsequently publishes monotonically numbered deltas with
-Project-relative paths, exact SHA-256 revisions for changed/added source paths
+Project-relative paths, exact XXH3-128 revisions for changed/added source paths
 (`absent` for removals), changed record owners and attributable invalid-source
 diagnostics. Physical deltas are **not** interpreted as newly normalized or
 compiled record values; resident cross-record reconciliation remains a later

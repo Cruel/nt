@@ -359,6 +359,9 @@ function createNativeEditorController(): NativeEditorSessionController {
     process.env.NOVELTEA_AUTHORING_NODE_ADDON?.trim() ||
     path.join(process.resourcesPath, 'authoring', 'noveltea-authoring-node.node');
   const bridge = new NativeAuthoringSessionBridge(activeProjectSessions, { addonPath });
+  activeProjectSessions.setNativeSourceRevisionFor(
+    (bytes) => bridge.sourceRevision(bytes) as `xxh3-128:${string}`,
+  );
   const controller = new NativeEditorSessionController(
     activeProjectSessions,
     bridge,

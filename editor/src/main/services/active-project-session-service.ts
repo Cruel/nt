@@ -14,6 +14,7 @@ import type {
 } from '../../shared/project-source-files';
 import {
   isSha256Digest,
+  isSourceRevisionDigest,
   PROJECT_TEXT_SOURCE_LIMITS,
   projectTextSourceBoundaryCode,
   type ProjectTextSourceReadEntry,
@@ -76,6 +77,21 @@ function admittedAssetsFromProject(
 }
 
 export class ActiveProjectSessionService {
+  private nativeSourceRevisionFor?: (bytes: Uint8Array) => `xxh3-128:${string}`;
+
+  setNativeSourceRevisionFor(hash: (bytes: Uint8Array) => `xxh3-128:${string}`): void {
+    this.nativeSourceRevisionFor = hash;
+  }
+
+  private sourceRevision(
+    bytes: Uint8Array,
+    native: boolean,
+  ): `sha256:${string}` | `xxh3-128:${string}` {
+    return native && this.nativeSourceRevisionFor
+      ? this.nativeSourceRevisionFor(bytes)
+      : `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  }
+
   private active: ActiveProjectSession | null = null;
   private stagedNative: StagedNativeProjectSession | null = null;
   private projectActivationGeneration = 0;
@@ -279,9 +295,10 @@ export class ActiveProjectSessionService {
             text: kind !== 'asset',
             ...(kind !== 'asset'
               ? {
-                  contentHash: `sha256:${createHash('sha256')
-                    .update(await fs.readFile(real))
-                    .digest('hex')}` as const,
+                  contentHash: this.sourceRevision(
+                    await fs.readFile(real),
+                    !!active.nativeLayoutIds,
+                  ),
                 }
               : {}),
           });
@@ -335,9 +352,7 @@ export class ActiveProjectSessionService {
             projectRelativePath: relative,
             kind: `layout-${channel}`,
             text: true,
-            contentHash: `sha256:${createHash('sha256')
-              .update(await fs.readFile(canonical))
-              .digest('hex')}`,
+            contentHash: this.sourceRevision(await fs.readFile(canonical), true),
             layout: { id: layoutId, channel },
           });
         }
@@ -374,7 +389,7 @@ export class ActiveProjectSessionService {
       if (this.active !== active) return staleSessionResponse(entries);
       if (
         !entry.readKey ||
-        (entry.expectedContentHash !== null && !isSha256Digest(entry.expectedContentHash))
+        (entry.expectedContentHash !== null && !isSourceRevisionDigest(entry.expectedContentHash))
       ) {
         results.push(unavailable(entry, 'invalid-request', 'Text source request is malformed.'));
         continue;
@@ -453,8 +468,13 @@ export class ActiveProjectSessionService {
           continue;
         }
         aggregateBytes += bytes.byteLength;
-        const digest = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
-        if (entry.expectedContentHash !== null && digest !== entry.expectedContentHash) {
+        const digest = this.sourceRevision(bytes, !!active.nativeLayoutIds);
+        if (
+          entry.expectedContentHash !== null &&
+          (isSha256Digest(entry.expectedContentHash)
+            ? this.sourceRevision(bytes, false) !== entry.expectedContentHash
+            : digest !== entry.expectedContentHash)
+        ) {
           results.push(
             unavailable(
               entry,

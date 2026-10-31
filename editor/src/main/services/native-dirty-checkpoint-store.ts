@@ -5,7 +5,10 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { patchOwner, type NativeDirtyCheckpoint } from './native-authoring-working-project';
 
-const revision = z.union([z.literal('absent'), z.string().regex(/^sha256:[a-f0-9]{64}$/)]);
+const revision = z.union([
+  z.literal('absent'),
+  z.string().regex(/^(?:sha256:[a-f0-9]{64}|xxh3-128:[a-f0-9]{32})$/),
+]);
 const patch = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('remove'), path: z.string().startsWith('/') }).strict(),
   z

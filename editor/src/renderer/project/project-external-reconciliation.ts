@@ -19,7 +19,9 @@ export interface ProjectExternalReconciliationInput {
   localDocument: JsonValue;
   externalDocument: JsonValue;
   recovery: EditorRecoveryState;
-  externalFileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
+  externalFileRevisions: Readonly<
+    Record<string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'>
+  >;
 }
 
 export interface ProjectExternalReconciliationResult {
@@ -115,7 +117,9 @@ function conflictSnapshot(
   local: JsonValue,
   external: JsonValue,
   paths: readonly JsonPointer[],
-  externalFileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>,
+  externalFileRevisions: Readonly<
+    Record<string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'>
+  >,
   previous?: EditorRecoveryExternalConflict,
 ): EditorRecoveryExternalConflict {
   const baseValueByPath: EditorRecoveryExternalConflict['baseValueByPath'] = {};
@@ -140,7 +144,9 @@ function conflictSnapshot(
 
 function advanceBaselineFileRevisions(
   entry: EditorRecoveryState['saveUnitsById'][string],
-  externalFileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>,
+  externalFileRevisions: Readonly<
+    Record<string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'>
+  >,
 ) {
   if (!entry.baselineFileRevisions) return entry;
   const baselineFileRevisions = { ...entry.baselineFileRevisions };

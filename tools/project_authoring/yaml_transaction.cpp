@@ -151,9 +151,9 @@ std::string revision(const fs::path& path, std::string_view expected = {})
     if (bytes.size() != size || fs::last_write_time(path) != before || fs::file_size(path) != size)
         throw std::runtime_error("Project source changed during exact revision read.");
     const auto algorithm = source_revision_algorithm(expected);
-    return source_revision_for(bytes, algorithm == SourceRevisionAlgorithm::Xxh3_128
+    return source_revision_for(bytes, algorithm == SourceRevisionAlgorithm::Sha256
                                           ? algorithm
-                                          : SourceRevisionAlgorithm::Sha256);
+                                          : SourceRevisionAlgorithm::Xxh3_128);
 }
 
 void write_atomic(const fs::path& path, std::string_view contents)
@@ -193,7 +193,9 @@ std::string approval_for(const PreparedYamlTransaction& prepared)
         material += std::to_string(target.path.size()) + ":" + target.path + ":" +
                     target.before_revision + ":" + target.after_revision + ":" +
                     (target.erase ? "delete" : "write") + ";";
-    return exact_source_revision(material);
+    // Review/approval tokens are authorization evidence, not local source
+    // identities. Retain the cryptographic SHA-256 contract.
+    return source_revision_for(material, SourceRevisionAlgorithm::Sha256);
 }
 
 bool valid_revision(std::string_view text)
@@ -813,8 +815,7 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 if (current_revision == "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing text source.");
                 prepared.after_source = *target.raw_text_source;
-                prepared.after_revision = source_revision_for(
-                    prepared.after_source, source_revision_algorithm(prepared.before_revision));
+                prepared.after_revision = exact_source_revision(prepared.after_source);
             } else if (target.create_source) {
                 if (current_revision != "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: existing target.");
@@ -865,8 +866,7 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                 if (hash_fragments(current) != hash_fragments(*target.replacement_source))
                     throw std::runtime_error("YAML formatting must preserve all comment text.");
                 prepared.after_source = *target.replacement_source;
-                prepared.after_revision = source_revision_for(
-                    prepared.after_source, source_revision_algorithm(prepared.before_revision));
+                prepared.after_revision = exact_source_revision(prepared.after_source);
             } else {
                 if (current_revision == "absent")
                     throw std::runtime_error("WORKSPACE_REVISION_CONFLICT: missing YAML source.");
@@ -893,10 +893,14 @@ YamlTransactionService::prepare(const std::vector<YamlTransactionTarget>& target
                     throw std::runtime_error("YAML comment-aware preflight rejected: " +
                                              edited.error);
                 prepared.after_source = edited.source;
-                prepared.after_revision = source_revision_for(
-                    prepared.after_source, source_revision_algorithm(prepared.before_revision));
+                prepared.after_revision = exact_source_revision(prepared.after_source);
             }
-            if (prepared.before_revision != prepared.after_revision)
+            // Compare exact bytes, not algorithm-tagged digests: a legacy
+            // SHA-256 precondition and an XXH3-128 after-revision can describe
+            // the same unchanged source. An absent target still represents a
+            // physical create/delete even when the source contents are empty.
+            if (prepared.before_revision == "absent" || prepared.after_revision == "absent" ||
+                prepared.before_source != prepared.after_source)
                 result.targets.push_back(std::move(prepared));
         }
         std::sort(result.targets.begin(), result.targets.end(),

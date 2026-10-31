@@ -281,11 +281,13 @@ SourceRevisionAlgorithm source_revision_algorithm(std::string_view revision) noe
     return SourceRevisionAlgorithm::Invalid;
 }
 
+std::string legacy_sha256_source_revision(std::string_view source);
+
 std::string source_revision_for(std::string_view bytes, SourceRevisionAlgorithm algorithm)
 {
     switch (algorithm) {
     case SourceRevisionAlgorithm::Sha256:
-        return exact_source_revision(bytes);
+        return legacy_sha256_source_revision(bytes);
     case SourceRevisionAlgorithm::Xxh3_128:
         count_validation_work(&ValidationWorkCounters::content_hashes);
         return noveltea::core::xxh3_128_revision(bytes);
@@ -304,9 +306,9 @@ bool source_revision_matches(std::string_view bytes, std::string_view revision)
            source_revision_for(bytes, algorithm) == revision;
 }
 
-// Preserve SHA-256 emission for existing Project Workspace clients until cutover.
-// Save also checks original bytes exactly to eliminate reliance on the digest alone.
-std::string exact_source_revision(std::string_view source)
+// Legacy preconditions are checked against their original algorithm. The
+// transaction layer separately proves the exact baseline bytes before writing.
+std::string legacy_sha256_source_revision(std::string_view source)
 {
     count_validation_work(&ValidationWorkCounters::content_hashes);
     static constexpr std::array<std::uint32_t, 64> constants{
@@ -381,6 +383,11 @@ std::string exact_source_revision(std::string_view source)
     return out.str();
 }
 
+std::string exact_source_revision(std::string_view source)
+{
+    return source_revision_for(source, SourceRevisionAlgorithm::Xxh3_128);
+}
+
 namespace {
 
 std::string source_revision_or_absent(const std::filesystem::path& path,
@@ -389,9 +396,9 @@ std::string source_revision_or_absent(const std::filesystem::path& path,
     if (!std::filesystem::exists(path) && !std::filesystem::is_symlink(path))
         return "absent";
     const auto algorithm = source_revision_algorithm(expected);
-    return source_revision_for(read_bytes(path), algorithm == SourceRevisionAlgorithm::Xxh3_128
+    return source_revision_for(read_bytes(path), algorithm == SourceRevisionAlgorithm::Sha256
                                                      ? algorithm
-                                                     : SourceRevisionAlgorithm::Sha256);
+                                                     : SourceRevisionAlgorithm::Xxh3_128);
 }
 
 std::string parse_pointer_token(std::string_view token)

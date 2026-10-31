@@ -8,13 +8,14 @@ export const PROJECT_TEXT_SOURCE_LIMITS = Object.freeze({
 });
 
 export type Sha256Digest = `sha256:${string}`;
+export type SourceRevisionDigest = Sha256Digest | `xxh3-128:${string}`;
 
 export interface ReadProjectTextSourcesRequest {
   projectSessionId: string;
   entries: readonly {
     readKey: string;
     projectRelativePath: string;
-    expectedContentHash: Sha256Digest | null;
+    expectedContentHash: SourceRevisionDigest | null;
   }[];
 }
 
@@ -23,7 +24,7 @@ export type ProjectTextSourceReadEntry =
       status: 'ready';
       readKey: string;
       projectRelativePath: string;
-      contentHash: Sha256Digest;
+      contentHash: SourceRevisionDigest;
       text: string;
       hadUtf8Bom: boolean;
     }
@@ -71,4 +72,8 @@ export function projectTextSourceBoundaryCode(code: string): ProjectTextSourceBo
 
 export function isSha256Digest(value: string): value is Sha256Digest {
   return /^sha256:[0-9a-f]{64}$/u.test(value);
+}
+
+export function isSourceRevisionDigest(value: string): value is SourceRevisionDigest {
+  return isSha256Digest(value) || /^xxh3-128:[0-9a-f]{32}$/u.test(value);
 }

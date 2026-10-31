@@ -1,5 +1,6 @@
 import type { ProjectMutationPathValue } from './editor-tooling';
 import type { ProjectValidationDiagnostic } from './project-schema/project-diagnostic-projection';
+import type { ProjectSourceExpectedRevision } from './project-source-files';
 
 /** Renderer-facing event contract. This carries a native-authoritative event
  * projection; it does not own Project observation, parsing or reconciliation. */
@@ -9,7 +10,7 @@ export type ProjectWorkspaceAuthoringWatchResult =
       readonly diagnostics: readonly ProjectValidationDiagnostic[];
       readonly affectedPaths: readonly string[];
       readonly externalValueByPath: Readonly<Record<string, ProjectMutationPathValue>>;
-      readonly fileRevisions: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
+      readonly fileRevisions: Readonly<Record<string, ProjectSourceExpectedRevision>>;
       readonly scriptSourcePaths: Readonly<Record<string, string>>;
     }
   | {
@@ -24,7 +25,7 @@ export interface ProjectWorkspaceWatchEvent {
   readonly assetChangedPaths: readonly string[];
   readonly sourceChangedPaths?: readonly string[];
   readonly sourceDiagnostics?: readonly ProjectValidationDiagnostic[];
-  readonly assetFileRevisions?: Readonly<Record<string, `sha256:${string}` | 'absent'>>;
+  readonly assetFileRevisions?: Readonly<Record<string, ProjectSourceExpectedRevision>>;
   readonly assetDiagnostics?: readonly ProjectValidationDiagnostic[];
   readonly authoring?: ProjectWorkspaceAuthoringWatchResult;
 }

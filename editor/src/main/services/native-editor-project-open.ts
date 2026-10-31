@@ -23,7 +23,8 @@ type NativeOpenController = Pick<
   | 'recoveredConflicts'
   | 'recoveredTextSources'
   | 'close'
->;
+> &
+  Partial<Pick<NativeEditorSessionController, 'sourceRevisionFor'>>;
 
 /**
  * Native-only editor Open admission, prepared for the atomic editor/CLI
@@ -65,6 +66,7 @@ export async function openNativeEditorProject(
           state,
           (await sessions.listProjectSourceFiles({ projectSessionId })).files,
           textSources,
+          native.sourceRevisionFor?.(),
         )
       : state;
     if (!sessions.isProjectActivationCurrent(activationGeneration))
@@ -76,8 +78,8 @@ export async function openNativeEditorProject(
     );
     const recoveryFileRevisions = Object.fromEntries(
       Object.entries(admitted.sourceRevisions).filter(
-        (pair): pair is [string, `sha256:${string}` | 'absent'] =>
-          pair[1] === 'absent' || /^sha256:[a-f0-9]{64}$/u.test(pair[1]),
+        (pair): pair is [string, `sha256:${string}` | `xxh3-128:${string}` | 'absent'] =>
+          pair[1] === 'absent' || /^(?:sha256:[a-f0-9]{64}|xxh3-128:[a-f0-9]{32})$/u.test(pair[1]),
       ),
     );
     const recovered = native.recoveredContentProject();

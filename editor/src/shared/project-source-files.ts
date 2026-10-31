@@ -15,7 +15,7 @@ export interface ProjectSourceFile {
   projectRelativePath: string;
   kind: ProjectSourceFileKind;
   text: boolean;
-  contentHash?: `sha256:${string}`;
+  contentHash?: ProjectSourceExpectedRevision;
   assetIds?: readonly string[];
   layout?: {
     id: string;
@@ -33,7 +33,7 @@ export interface ListProjectSourceFilesResponse {
   folders?: readonly string[];
 }
 
-export type ProjectSourceExpectedRevision = `sha256:${string}` | 'absent';
+export type ProjectSourceExpectedRevision = `sha256:${string}` | `xxh3-128:${string}` | 'absent';
 
 export interface ProjectSourceUsage {
   kind:
@@ -89,7 +89,7 @@ export interface ProjectSourceWriteResponse {
   ok: boolean;
   success: boolean;
   sourceId: string;
-  contentHash?: `sha256:${string}`;
+  contentHash?: ProjectSourceExpectedRevision;
   error?: string;
 }
 

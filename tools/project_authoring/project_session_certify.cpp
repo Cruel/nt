@@ -1539,11 +1539,10 @@ void working_preparation_roundtrip(const std::filesystem::path& fixture)
     const auto text_saved = text_editor->save_text_sources(
         text_staged.snapshot.working_revision, {script_path},
         {{script_path, noveltea::core::xxh3_128_revision(saved_script)}});
-    require(
-        text_saved.accepted &&
-            read(temp.root / script_path) == saved_script + "\n-- xxh source revision\n" &&
-            text_saved.snapshot.valid,
-        "Editor native text Save accepts correct XXH3-128 precondition while publishing SHA-256");
+    require(text_saved.accepted &&
+                read(temp.root / script_path) == saved_script + "\n-- xxh source revision\n" &&
+                text_saved.snapshot.valid,
+            "Editor native text Save accepts correct XXH3-128 precondition and publishes XXH3-128");
 }
 
 void project_validation_roundtrip(const std::filesystem::path& fixture)
@@ -1580,7 +1579,7 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                 "Native source observer accepts verified XXH3-128 own-write identity");
         const auto own_observation = authority.observe();
         require(own_observation.authoritative && own_observation.delta.changed.empty(),
-                "Native source observer stores canonical SHA-256 after XXH3-128 own-write proof");
+                "Native source observer stores canonical XXH3-128 after own-write proof");
         write(temp.root / owner, before);
         require(authority.observe().authoritative,
                 "Source observer restores original bytes after XXH3-128 certification");
@@ -1707,7 +1706,7 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
             "Eviction and fresh daemon owner admission recheck physical cache proof");
     const auto cache_bytes = read(cached_path);
     const auto cache_value = Json::parse(cache_bytes);
-    require(cache_value.at("sourceRevisionAlgorithm") == "sha256" &&
+    require(cache_value.at("sourceRevisionAlgorithm") == "xxh3-128" &&
                 cache_value.at("assetProofAlgorithm") == "xxh3-128",
             "Native cache explicitly records both local hash algorithms");
     for (const auto& key : {"sourceRevisionAlgorithm", "assetProofAlgorithm"}) {

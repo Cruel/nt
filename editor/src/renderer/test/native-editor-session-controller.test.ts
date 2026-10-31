@@ -892,6 +892,12 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       ),
       pollIntervalMs: 100,
     });
+    expect(bridge.sourceRevision(Buffer.from('abc'))).toBe(
+      'xxh3-128:06b05ab6733a618578af5f94892f3950',
+    );
+    sessions.setNativeSourceRevisionFor(
+      (bytes) => bridge.sourceRevision(bytes) as `xxh3-128:${string}`,
+    );
     const working = new NativeAuthoringWorkingProject(bridge);
     const controller = new NativeEditorSessionController(sessions, bridge, working);
     try {
@@ -906,7 +912,28 @@ describe.skipIf(!nativeAddon)('real native worker admission of the editor Projec
       expect(opened.nativeWorkingRevision).toBeGreaterThanOrEqual(0);
       expect(sessions.currentProjectIdentity()).toEqual({ id: 'feature-lab', name: 'Feature Lab' });
       expect(opened.editorState).toBeDefined();
-      expect(opened.recoveryFileRevisions?.['project.yaml']).toMatch(/^sha256:[a-f0-9]{64}$/u);
+      expect(opened.recoveryFileRevisions?.['project.yaml']).toMatch(/^xxh3-128:[a-f0-9]{32}$/u);
+      const listed = await sessions.listProjectSourceFiles({
+        projectSessionId: opened.projectSessionId!,
+      });
+      const script = listed.files.find((file) => file.id === 'scripts/notice-board.lua');
+      expect(script?.contentHash).toMatch(/^xxh3-128:[a-f0-9]{32}$/u);
+      const physical = await readFile(path.join(root, script!.projectRelativePath));
+      expect(script?.contentHash).toBe(bridge.sourceRevision(physical));
+      const sourceRead = await sessions.read({
+        projectSessionId: opened.projectSessionId!,
+        entries: [
+          {
+            readKey: script!.id,
+            projectRelativePath: script!.projectRelativePath,
+            expectedContentHash: script!.contentHash as `xxh3-128:${string}`,
+          },
+        ],
+      });
+      expect(sourceRead.entries[0]).toMatchObject({
+        status: 'ready',
+        contentHash: script?.contentHash,
+      });
       expect('requireActiveWorkspace' in sessions).toBe(false);
       const raw = await working.prepareCompleteWorking();
       const projected = projectFromNativeCompletePreparation(raw);

@@ -12,6 +12,7 @@ export async function withNativeRecoveredTextSources(
   editorState: EditorProjectState,
   files: readonly ProjectSourceFile[],
   textSources: NativeDirtyCheckpoint['textSources'],
+  sourceRevisionFor?: (bytes: Uint8Array) => string,
 ): Promise<EditorProjectState> {
   const sourceRecoveryById = { ...editorState.sourceRecoveryById };
   const canonicalRoot = await realpath(root);
@@ -31,7 +32,9 @@ export async function withNativeRecoveredTextSources(
     )
       throw new Error('Native recovered source escaped the active Project.');
     const baseText = await readFile(canonicalSource, 'utf8');
-    const revision = `sha256:${createHash('sha256').update(baseText).digest('hex')}`;
+    const revision = source.diskRevision.startsWith('xxh3-128:')
+      ? sourceRevisionFor?.(Buffer.from(baseText))
+      : `sha256:${createHash('sha256').update(baseText).digest('hex')}`;
     if (revision !== source.diskRevision)
       throw new Error(`Native recovered text source '${physicalPath}' changed on disk.`);
     const prior = sourceRecoveryById[file.id];
@@ -48,7 +51,7 @@ export async function withNativeRecoveredTextSources(
       },
       text: source.text,
       baseText,
-      baseContentHash: source.diskRevision as `sha256:${string}`,
+      baseContentHash: source.diskRevision,
     };
   }
   return { ...editorState, sourceRecoveryById };

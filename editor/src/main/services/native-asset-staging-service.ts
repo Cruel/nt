@@ -20,7 +20,10 @@ export class NativeAssetStagingService {
   private readonly root: string;
   private closed = false;
 
-  constructor(projectRoot: string) {
+  constructor(
+    projectRoot: string,
+    private readonly sourceRevisionFor?: (bytes: Uint8Array) => string,
+  ) {
     this.root = path.resolve(projectRoot);
   }
 
@@ -47,7 +50,9 @@ export class NativeAssetStagingService {
       if ((await lstat(directory)).isSymbolicLink())
         throw new Error('Native Asset staging directory is a symbolic link.');
       const stagedRelativePath = `.noveltea/native-asset-import/${randomUUID()}`;
-      const sourceRevision = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+      const sourceRevision = this.sourceRevisionFor
+        ? this.sourceRevisionFor(bytes)
+        : `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
       await writeFile(path.join(this.root, stagedRelativePath), bytes, { flag: 'wx' });
       if (this.closed) {
         await rm(path.join(this.root, stagedRelativePath), { force: true });

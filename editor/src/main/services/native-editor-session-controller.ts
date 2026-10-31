@@ -61,7 +61,8 @@ export class NativeEditorSessionController {
       ActiveProjectSessionService,
       'isCurrent' | 'requireActiveProjectRoot'
     >,
-    private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'>,
+    private readonly bridge: Pick<NativeAuthoringSessionBridge, 'close' | 'onFailure'> &
+      Partial<Pick<NativeAuthoringSessionBridge, 'sourceRevision'>>,
     private readonly working: Pick<
       NativeAuthoringWorkingProject,
       | 'open'
@@ -94,6 +95,10 @@ export class NativeEditorSessionController {
       this.recoveryFailure = `Native Project worker failed: ${error.message}. Reopen the Project to restore acknowledged unsaved changes.`;
       void this.recoverWorker(sessionId, generation);
     });
+  }
+
+  sourceRevisionFor(): ((bytes: Uint8Array) => string) | undefined {
+    return this.bridge.sourceRevision?.bind(this.bridge);
   }
 
   private async recoverWorker(sessionId: string, generation: number): Promise<void> {
@@ -257,7 +262,7 @@ export class NativeEditorSessionController {
         finalRevision = recovered.workingRevision;
       }
       this.projectIdentity = native.project.id;
-      this.assetStaging = new NativeAssetStagingService(root);
+      this.assetStaging = new NativeAssetStagingService(root, this.sourceRevisionFor());
       this.activeId = projectSessionId;
       return {
         revision: finalRevision,
@@ -429,6 +434,7 @@ export class NativeEditorSessionController {
       request.operation,
       request.expectedRevisions ?? {},
       prepared.sourceRevisions,
+      this.sourceRevisionFor(),
     );
     if (!plan.response.success) return plan.response;
     if (generation !== this.generation || revision !== this.currentRevision(projectSessionId))
@@ -864,7 +870,7 @@ export class NativeEditorSessionController {
       } finally {
         await file.close();
       }
-      verifyNativeSourceBytes(relative, revisionHash, bytes, assetHashes);
+      verifyNativeSourceBytes(relative, revisionHash, bytes, assetHashes, this.sourceRevisionFor());
     }
     if (revision !== this.currentRevision(projectSessionId))
       throw new Error('Native Project changed during export preparation.');
@@ -923,7 +929,13 @@ export class NativeEditorSessionController {
         throw new Error('Native saved source escapes its admitted identity: ' + relative);
       const file = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
       try {
-        verifyNativeSourceBytes(relative, revisionHash, await file.readFile(), assetHashes);
+        verifyNativeSourceBytes(
+          relative,
+          revisionHash,
+          await file.readFile(),
+          assetHashes,
+          this.sourceRevisionFor(),
+        );
       } finally {
         await file.close();
       }
@@ -960,6 +972,7 @@ export class NativeEditorSessionController {
     const result = await this.runtimeCache.prepare({
       prepared,
       projectRoot: root,
+      sourceRevisionFor: this.sourceRevisionFor(),
       shaderVariant,
     });
     if (
@@ -1016,7 +1029,12 @@ export class NativeEditorSessionController {
     if (this.working.snapshot()?.workingRevision !== expectedRevision)
       throw new Error('Stale native Test readiness revision.');
     const prepared = await this.working.prepareCompleteWorking(testId);
-    const result = await this.runtimeCache.prepare({ prepared, projectRoot: root, testId });
+    const result = await this.runtimeCache.prepare({
+      prepared,
+      projectRoot: root,
+      testId,
+      sourceRevisionFor: this.sourceRevisionFor(),
+    });
     let readiness: import('../../shared/project-schema/test-playback-projection').TestRunReadiness;
     try {
       if (
@@ -1068,6 +1086,7 @@ export class NativeEditorSessionController {
     const result = await this.runtimeCache.prepare({
       prepared,
       projectRoot: root,
+      sourceRevisionFor: this.sourceRevisionFor(),
       testId,
     });
     try {
@@ -1123,6 +1142,7 @@ export class NativeEditorSessionController {
     const result = await this.runtimeCache.prepare({
       prepared,
       projectRoot: root,
+      sourceRevisionFor: this.sourceRevisionFor(),
       testSuite: true,
     });
     try {

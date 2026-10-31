@@ -61,6 +61,7 @@ export async function planNativeProjectSourceTransaction(
   operation: ProjectSourceStructuralOperation,
   expectedRevisions: Readonly<Record<string, ProjectSourceExpectedRevision>>,
   admittedRevisions: Readonly<Record<string, string>>,
+  sourceRevision?: (bytes: Uint8Array) => string,
 ): Promise<NativeSourcePlan> {
   const candidate = structuredClone(project);
   const fileEntries = new Map<string, FileEntry>();
@@ -89,9 +90,13 @@ export async function planNativeProjectSourceTransaction(
     const bytes = await fs.readFile(path.join(root, relative));
     if (bytes.byteLength > 4 * 1024 * 1024)
       throw new Error('Source file is too large: ' + relative);
-    const revision = hash(bytes);
     const requested = expectedRevisions[relative] ?? admittedRevisions[relative];
-    if (requested && requested !== revision)
+    const revision = sourceRevision ? sourceRevision(bytes) : hash(bytes);
+    if (
+      requested &&
+      requested !== revision &&
+      (!requested.startsWith('sha256:') || requested !== hash(bytes))
+    )
       throw new Error('WORKSPACE_REVISION_CONFLICT: ' + relative);
     return { bytes, revision };
   };
@@ -172,7 +177,12 @@ export async function planNativeProjectSourceTransaction(
     if (fromPath === toPath) throw new Error('Attachment destination must be different.');
     await verifyExisting(fromPath);
     const bytes = await fs.readFile(path.join(root, fromPath));
-    if (expectedRevisions[fromPath] && expectedRevisions[fromPath] !== hash(bytes))
+    if (
+      expectedRevisions[fromPath] &&
+      (expectedRevisions[fromPath].startsWith('sha256:')
+        ? expectedRevisions[fromPath] !== hash(bytes)
+        : !sourceRevision || expectedRevisions[fromPath] !== sourceRevision(bytes))
+    )
       throw new Error('WORKSPACE_REVISION_CONFLICT: ' + fromPath);
     try {
       await fs.lstat(path.join(root, toPath));

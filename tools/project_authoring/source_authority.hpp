@@ -15,8 +15,8 @@
 namespace noveltea::authoring {
 
 // Common physical-byte identity used by the YAML session and source observer.
-// During the source-revision expand phase, new callers may supply XXH3-128
-// preconditions while existing native/editor callers still publish SHA-256.
+// New local source identities use XXH3-128. Legacy SHA-256 preconditions
+// remain readable for in-flight transactions and saved editor baselines.
 enum class SourceRevisionAlgorithm {
     Absent,
     Sha256,

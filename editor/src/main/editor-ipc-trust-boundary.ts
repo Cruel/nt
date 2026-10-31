@@ -335,7 +335,11 @@ export const listProjectSourceFilesArgumentsSchema = z.tuple([
 
 const sourcePathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH);
 const attachmentPathSchema = z.string().min(1).max(2048).refine(isSafeProjectAttachmentPath);
-const sourceRevisionSchema = z.union([sha256DigestSchema, z.literal('absent')]);
+const xxh3DigestSchema = z.custom<`xxh3-128:${string}`>(
+  (value) => typeof value === 'string' && /^xxh3-128:[0-9a-f]{32}$/u.test(value),
+);
+const sourceDigestSchema = z.union([sha256DigestSchema, xxh3DigestSchema]);
+const sourceRevisionSchema = z.union([sourceDigestSchema, z.literal('absent')]);
 
 export const projectSourceUsagesArgumentsSchema = z.tuple([
   z
@@ -405,7 +409,7 @@ export const readProjectTextSourcesArgumentsSchema = z.tuple([
             .object({
               readKey: z.string().min(1).max(MAX_TEXT_SOURCE_READ_KEY_LENGTH),
               projectRelativePath: z.string().min(1).max(MAX_PROJECT_PATH_LENGTH),
-              expectedContentHash: sha256DigestSchema.nullable(),
+              expectedContentHash: sourceDigestSchema.nullable(),
             })
             .strict(),
         )
