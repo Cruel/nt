@@ -112,11 +112,12 @@ struct PreparationError : std::runtime_error {
         throw PreparationError("runtime-artifact.physical-source.unpinned", "/sourceRevisions",
                                "Project source was not admitted: '" + relative + "'.");
     const auto bytes = read_bytes(checked_source(root, relative), max_bytes);
-    const auto actual = sha256(bytes);
-    if (actual != revisions.at(relative).get<std::string>())
+    // Local admission identities may be XXH3-128 or legacy SHA-256. The
+    // package manifest still requires an independent cryptographic SHA-256.
+    if (!authoring::source_revision_matches(bytes, revisions.at(relative).get<std::string>()))
         throw PreparationError("runtime-artifact.physical-source.stale", "/sourceRevisions",
                                "Project source changed after admission: '" + relative + "'.");
-    return actual;
+    return sha256(bytes);
 }
 
 [[nodiscard]] std::string relative_source(const fs::path& root, const std::string& value)

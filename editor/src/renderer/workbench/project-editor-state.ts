@@ -349,7 +349,7 @@ export function adoptNativeRecoveredProject(
         conflictingPaths: [...new Set([...(previous?.conflictingPaths ?? []), path])].sort(),
         externalFileRevisions: {
           ...previous?.externalFileRevisions,
-          [file]: conflict.revision as `sha256:${string}` | 'absent',
+          [file]: conflict.revision as `sha256:${string}` | `xxh3-128:${string}` | 'absent',
         },
       };
       if (!entry.affectedPaths.includes(path)) entry.affectedPaths.push(path);

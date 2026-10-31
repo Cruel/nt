@@ -24,6 +24,46 @@ const digest = (text: string): `sha256:${string}` =>
   `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
 describe('native Project source transaction planning (no TypeScript authoring writes)', () => {
+  it('accepts both native and legacy source preconditions, but publishes native revisions and rejects stale bytes', async () => {
+    const { root, project } = await fixture();
+    const file = 'scripts/helper.lua';
+    await writeFile(path.join(root, file), 'abc');
+    const nativeRevision = 'xxh3-128:06b05ab6733a618578af5f94892f3950' as const;
+    const sourceRevision = (bytes: Uint8Array) =>
+      Buffer.from(bytes).toString('utf8') === 'abc' ? nativeRevision : `xxh3-128:${'0'.repeat(32)}`;
+    const move = { kind: 'move' as const, fromPath: file, toPath: 'scripts/renamed.lua' };
+    for (const expected of [nativeRevision, digest('abc')]) {
+      const planned = await planNativeProjectSourceTransaction(
+        root,
+        project,
+        move,
+        { [file]: expected },
+        {},
+        sourceRevision,
+      );
+      expect(planned.transition).toMatchObject({
+        kind: 'source-files',
+        files: expect.arrayContaining([
+          expect.objectContaining({ path: file, expectedRevision: nativeRevision, contents: null }),
+        ]),
+      });
+    }
+    await writeFile(path.join(root, file), 'external mutation');
+    for (const expected of [nativeRevision, digest('abc')]) {
+      await expect(
+        planNativeProjectSourceTransaction(
+          root,
+          project,
+          move,
+          { [file]: expected },
+          {},
+          sourceRevision,
+        ),
+      ).rejects.toThrow('WORKSPACE_REVISION_CONFLICT');
+    }
+    await expect(readFile(path.join(root, file), 'utf8')).resolves.toBe('external mutation');
+    await expect(readFile(path.join(root, 'scripts/renamed.lua'))).rejects.toThrow();
+  });
   it('creates source files only as exact-revision native journal targets', async () => {
     const { root, project } = await fixture();
     const created = await planNativeProjectSourceTransaction(

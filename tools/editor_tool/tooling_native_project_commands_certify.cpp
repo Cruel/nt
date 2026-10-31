@@ -292,6 +292,14 @@ void certify_owner_session_reuse()
     require(native_preparation.value("ok", false),
             "Native owner captures export generation: " + native_preparation.dump() +
                 disk_validate({{"projectRoot", fixture.root.string()}}).dump());
+    require(
+        native_preparation.at("sourceRevisions").at("project.yaml") ==
+                noveltea::authoring::exact_source_revision(read(fixture.root / "project.yaml")) &&
+            native_preparation.at("sourceRevisions")
+                .at("project.yaml")
+                .get<std::string>()
+                .starts_with("xxh3-128:"),
+        "Public native Project preparation emits XXH3-128 revisions with exact source bytes.");
     const Json pinned_export{{"action", "project-export"},
                              {"projectRoot", fixture.root.string()},
                              {"pinnedProject", native_preparation.at("project")},

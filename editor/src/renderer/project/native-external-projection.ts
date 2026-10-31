@@ -234,7 +234,10 @@ export function projectNativeExternalResult(input: {
         conflictingPaths: [...new Set([...(previous?.conflictingPaths ?? []), path])].sort(),
         externalFileRevisions: {
           ...previous?.externalFileRevisions,
-          [diskPath(conflict.owner)]: conflict.revision as `sha256:${string}` | 'absent',
+          [diskPath(conflict.owner)]: conflict.revision as
+            | `sha256:${string}`
+            | `xxh3-128:${string}`
+            | 'absent',
         },
       };
       conflicts.set(unit, newConflict);

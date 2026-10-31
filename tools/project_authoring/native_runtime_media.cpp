@@ -1,4 +1,5 @@
 #include "native_runtime_media.hpp"
+#include "source_authority.hpp"
 #include "tooling_native_c.h"
 
 #include <noveltea/core/player_bootstrap.hpp>
@@ -489,7 +490,7 @@ struct ColorConversion {
     const auto input = source_path(root, relative);
     const auto source = read(input, 512ull * 1024 * 1024);
     if (!revisions.at(relative).is_string() ||
-        "sha256:" + digest(source) != revisions.at(relative).get<std::string>())
+        !authoring::source_revision_matches(source, revisions.at(relative).get<std::string>()))
         throw VideoError("Video source changed after Project admission.");
     const auto& canvas = request.at("canvas");
     const int width = canvas.at("width").get<int>();

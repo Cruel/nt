@@ -22,6 +22,63 @@ const checkpoint = {
 };
 
 describe('durable native editor recovery', () => {
+  it('restores XXH3-128 dirty text across a checkpoint reopen and fails closed on changed bytes', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-dirty-xxh3-'));
+    const name = 'scripts/helper.lua';
+    const hash = 'xxh3-128:06b05ab6733a618578af5f94892f3950' as const;
+    const sourceRevisionFor = (bytes: Uint8Array) =>
+      Buffer.from(bytes).toString('utf8') === 'abc'
+        ? hash
+        : (`xxh3-128:${'0'.repeat(32)}` as const);
+    try {
+      await mkdir(path.join(root, 'scripts'));
+      await writeFile(path.join(root, name), 'abc');
+      const files = [
+        {
+          id: name,
+          displayPath: name,
+          projectRelativePath: name,
+          kind: 'lua' as const,
+          text: true,
+        },
+      ];
+      const store = new NativeDirtyCheckpointStore();
+      await store.write(root, 'project-xxh3', {
+        ...checkpoint,
+        batches: [{ ...checkpoint.batches[0], diskPreconditions: { project: hash } }],
+        textSources: { [name]: { text: 'unsaved', diskRevision: hash } },
+      });
+      const loaded = await new NativeDirtyCheckpointStore().read(root, 'project-xxh3');
+      expect(loaded?.batches[0].diskPreconditions).toEqual({ project: hash });
+      const recovered = await withNativeRecoveredTextSources(
+        root,
+        emptyEditorProjectState(),
+        files,
+        loaded!.textSources,
+        sourceRevisionFor,
+      );
+      expect(recovered.sourceRecoveryById[name]).toMatchObject({
+        baseText: 'abc',
+        baseContentHash: hash,
+        text: 'unsaved',
+      });
+      await expect(
+        withNativeRecoveredTextSources(root, emptyEditorProjectState(), files, loaded!.textSources),
+      ).rejects.toThrow('changed on disk');
+      await writeFile(path.join(root, name), 'external edit');
+      await expect(
+        withNativeRecoveredTextSources(
+          root,
+          emptyEditorProjectState(),
+          files,
+          loaded!.textSources,
+          sourceRevisionFor,
+        ),
+      ).rejects.toThrow('changed on disk');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('writes a versioned atomic local checkpoint and rejects old identity or partial data', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'native-dirty-'));
     try {
