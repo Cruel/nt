@@ -1467,3 +1467,13 @@ include an outer daemon/public-CLI work-count regression for source captures,
 source reads and unrelated compiler/preparation calls—not merely
 `recheckedRecords == 1`. Do not replace exact physical authority with
 size/mtime-only cache hits.
+
+**Decision update, 2026-10-30:** The last sentence above describes the
+strict behavior assumed during the original investigation, **not** the newly
+accepted warm-validation policy. Compiler-style metadata reuse and watcher-
+directed invalidation are now explicitly accepted, with a documented
+timestamp-preserving-edit tradeoff, optimized (not removed) containment checks,
+XXH3 local revisions and a resident inventory. The four accepted decisions,
+their scope and the still-unimplemented end-to-end validation reuse proposal
+are tracked in
+[CLI_INCREMENTAL_VALIDATION_PLAN.md](CLI_INCREMENTAL_VALIDATION_PLAN.md).
