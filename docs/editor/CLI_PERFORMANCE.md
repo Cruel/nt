@@ -63,10 +63,10 @@ time **excluding patch application** (which is recorded separately in JSON).
 
 | Project | Uncached start | Unchanged resident | Warm saved label | Cached restart | Uncached restart | `--no-daemon` | Editor unsaved label |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Feature Lab | 3,144 | 271 | 292 | 2,646 | 3,087 | 2,623 | 92 |
-| 1 Room | 102 | 11 | 13 | 103 | 103 | 85 | 1 |
-| 101 Rooms | 200 | 38 | 43 | 197 | 196 | 171 | 8 |
-| 501 Rooms | 594 | 155 | 165 | 583 | 592 | 534 | 35 |
+| Feature Lab | 3,440 | 328 | 323 | 2,930 | 3,334 | 2,632 | 94 |
+| 1 Room | 86 | 13 | 13 | 104 | 105 | 83 | 1 |
+| 101 Rooms | 205 | 39 | 45 | 198 | 196 | 169 | 8 |
+| 501 Rooms | 595 | 152 | 168 | 588 | 648 | 627 | 34 |
 
 The final baseline contains **83 complete samples** across the four fixtures, measured with
 a clean committed harness (identified by the artifact's source commit). The Feature Lab unchanged resident calls rechecked
