@@ -645,6 +645,16 @@ else:
     assert run(*requested, '--check', '--allow-untrusted-template', '--force', code=4)[
         'diagnostics'][0]['code'] == 'platform-output-symlink-forbidden'
     (root / 'web-export').unlink()
+    # A linked Asset source must fail as structured physical-preparation
+    # evidence before any compiler/cache path can dereference it.
+    linked_asset = platform_project / 'assets/linked-asset.txt'
+    linked_asset.symlink_to(platform_project / 'project.yaml')
+    try:
+        rejected = run('--no-daemon', *requested, '--check',
+                       '--allow-untrusted-template', code=4)
+        assert rejected['diagnostics'][0]['code'] == 'native.runtime.physical', rejected
+    finally:
+        linked_asset.unlink()
 
     # Replacing a non-directory output or following a linked output parent is
     # never permitted, even when the user explicitly allows replacement.

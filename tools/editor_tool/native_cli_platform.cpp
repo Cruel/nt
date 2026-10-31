@@ -1384,6 +1384,31 @@ std::vector<fs::path> export_artifacts(const fs::path& output, const Json& profi
     return artifacts;
 }
 
+// Reject linked Asset sources before native Project admission, which may
+// otherwise load an existing runtime cache or inspect physical sources before
+// the later package preparation can enforce its own symlink checks. The scan
+// is read-only and does not follow directory symlinks.
+std::optional<std::string> linked_asset_source(const fs::path& root)
+{
+    const auto assets = root / "assets";
+    if (native_path_is_link(assets))
+        return text(assets);
+    std::error_code error;
+    const auto status = fs::symlink_status(assets, error);
+    if (error == std::errc::no_such_file_or_directory || status.type() == fs::file_type::not_found)
+        return std::nullopt;
+    if (error || !fs::is_directory(status))
+        return text(assets);
+    for (fs::recursive_directory_iterator it(assets, fs::directory_options::none, error), end;
+         !error && it != end; it.increment(error)) {
+        if (native_path_is_link(it->path()))
+            return text(it->path());
+    }
+    if (error)
+        return text(assets);
+    return std::nullopt;
+}
+
 PlatformCliResult export_preflight(const std::vector<std::string>& command, const fs::path& root,
                                    const std::function<Json(const Json&)>& project_request,
                                    const PlatformExportTools& export_tools)
@@ -1394,6 +1419,9 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
     if (root.empty())
         return fail("WORKSPACE_NOT_FOUND", "/project.yaml",
                     "No NovelTea project.yaml was found from the current directory upward.", 3);
+    if (const auto linked = linked_asset_source(root))
+        return fail("native.runtime.physical", "/assets",
+                    "Platform export refuses a linked or unsafe Asset source: " + *linked + ".");
     const auto admitted =
         project_request({{"action", "platform-export-preparation"}, {"projectRoot", text(root)}});
     if (!admitted.value("ok", false))
@@ -1612,7 +1640,7 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
     for (const auto& path : export_artifacts(output, *profile)) {
         for (auto parent = path.parent_path(); !parent.empty(); parent = parent.parent_path()) {
             const auto parent_status = fs::symlink_status(parent);
-            if (fs::is_symlink(parent_status))
+            if (native_path_is_link(parent))
                 return fail("platform-output-symlink-forbidden", "/outputDirectory",
                             "Export refuses a symbolic-link output parent: " + text(parent) + ".");
             if (fs::exists(parent_status) && !fs::is_directory(parent_status))
@@ -1622,7 +1650,7 @@ PlatformCliResult export_preflight(const std::vector<std::string>& command, cons
                 break;
         }
         const auto status = fs::symlink_status(path);
-        if (fs::is_symlink(status))
+        if (native_path_is_link(path))
             symlinks.push_back(text(path));
         if (fs::exists(status) && !fs::is_symlink(status) &&
             (path == output ? !fs::is_directory(status) : !fs::is_regular_file(status)))

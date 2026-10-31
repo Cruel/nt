@@ -220,7 +220,7 @@ std::optional<std::string> publication_parent_issue(const fs::path& destination)
         const auto status = fs::symlink_status(parent, error);
         if (error && error != std::errc::no_such_file_or_directory)
             return "Cannot inspect platform output parent: " + path_text(parent);
-        if (fs::is_symlink(status) || (fs::exists(status) && !fs::is_directory(status)))
+        if (native_path_is_link(parent) || (fs::exists(status) && !fs::is_directory(status)))
             return "Unsafe platform output parent: " + path_text(parent);
         if (parent == parent.root_path())
             break;
@@ -3674,7 +3674,11 @@ validate_native_platform_export_settings(const PlatformResolvedExportSettings& s
 
 std::optional<std::string> validate_platform_publication_path(const fs::path& destination)
 {
-    return publication_parent_issue(destination);
+    if (const auto issue = publication_parent_issue(destination))
+        return issue;
+    if (native_path_is_link(destination))
+        return "Unsafe symbolic-link platform output: " + path_text(destination);
+    return std::nullopt;
 }
 
 PlatformPublicationLock::PlatformPublicationLock(const fs::path& destination)

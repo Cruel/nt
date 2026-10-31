@@ -175,6 +175,9 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-macos-release-') as tem
         unsafe_source = subprocess.run(
             [str(cli), '--no-daemon', '--json', *map(str, arguments), '--force'],
             cwd=root, env=environment, capture_output=True, text=True, timeout=240)
+        assert unsafe_source.stdout.strip(), (
+            'Unsafe source export returned no structured CLI response',
+            unsafe_source.returncode, unsafe_source.stderr)
         unsafe_result = json.loads(unsafe_source.stdout)
         assert unsafe_source.returncode != 0 and any(
             item['code'] == 'native.runtime.physical'
