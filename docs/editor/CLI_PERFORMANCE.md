@@ -117,6 +117,31 @@ capture calls are the deterministically verified improvement, not a time
 budget or a claim of uniformly faster requests. Source-gen fences still
 perform independent exact binary checks and fail closed on uncertainty.
 
+#### #582/#583 watcher correctness review follow-up (2026-10-31)
+
+Commit `95ec9f47` corrects the open-writer and file-symlink notification gaps:
+Linux invalidates on `IN_MODIFY` before the writer closes the descriptor, and
+contained file-symlink sources whose resolved targets may be unwatched are
+conservatively reproven at observation and publication fences. Focused native
+regressions cover a flushed but still-open Lua writer, an altered target in an
+untracked directory, absent target creation, and lexical symlink deletion.
+
+The separate [watcher review result](performance/baselines/validation-2026-10-31-watcher-review-fix.json)
+contains all **83 samples**, measured with Release CLI and Node-API addon on
+the same Ryzen 7 5700G reference host using the unchanged harness SHA-256,
+build flags and fixture/cache conditions as #583. **All 83 diagnostic digests
+match** the pre-fix pinned-generation run. Across every comparable sample,
+source captures, directory enumerations, byte reads, hashes, semantic rechecks,
+font/shader preparation invocations, and final proof counts also match. Feature
+Lab's saved Room-label median changes from **218.8 to 219.1 ms** (one capture,
+zero tree enumerations, one semantic recheck in both); unchanged-resident time
+is **210.2 to 213.6 ms** (one capture, zero enumerations, no semantic rechecks).
+The 501-Room saved-label median is **126.3 to 109.8 ms** (one capture, zero
+enumerations, five reads, seven hashes and one record recheck in both).
+These timings are informational. The standard fixtures have no newly introduced
+file-symlink aliases; conservative reproof applies to such aliases specifically,
+and their correctness is certified independently of the benchmark.
+
 #### #582 reference-machine certification (2026-10-31)
 
 The separate [watcher-backed result](performance/baselines/validation-2026-10-31-watcher-backed.json)
