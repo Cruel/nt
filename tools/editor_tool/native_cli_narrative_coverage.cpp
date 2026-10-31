@@ -1,4 +1,5 @@
 #include "native_cli_narrative_coverage.hpp"
+#include "native_cli_paths.hpp"
 
 #include "../narrative/catalog.hpp"
 #include "../project_authoring/room_session.hpp"
@@ -205,6 +206,19 @@ std::vector<Link> project_links(const std::filesystem::path& root, Json& errors)
     return links;
 }
 
+// Compare physical Project identity instead of JSON path spelling. Windows
+// reporters may emit backslashes, while the native CLI uses generic '/' paths;
+// redundant components and absolute aliases are equivalent as well. Missing
+// or relative report roots cannot claim evidence for the active Project.
+bool same_project_root(const std::string& reported_root, const std::filesystem::path& project_root)
+{
+    const auto reported = native_path_from_utf8(reported_root);
+    if (!reported.is_absolute() || !project_root.is_absolute())
+        return false;
+    std::error_code error;
+    return std::filesystem::equivalent(reported, project_root, error) && !error;
+}
+
 // An externally supplied CLI Test result is evidence of what was *reported*.
 // It cannot certify that the saved result is authentic, fresh, or exercises
 // the narrative obligations that its authoring Test references.
@@ -293,7 +307,7 @@ Json narrative_coverage(const std::filesystem::path& story_root,
             evidence["execution"] = "not-observed";
             for (const auto& run : reports)
                 if (run["testId"] == association["recordId"] &&
-                    run["projectRoot"] == project_root.generic_string()) {
+                    same_project_root(run["projectRoot"].get<std::string>(), project_root)) {
                     evidence["execution"] = "externally-reported";
                     evidence["reportedStatus"] = run["status"];
                     evidence["reportPath"] = run["reportPath"];

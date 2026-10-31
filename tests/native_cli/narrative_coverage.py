@@ -148,15 +148,44 @@ data:
     story_event.write_text(original_event)
 
     test_report = root / 'test-run.json'
-    test_report.write_text(json.dumps({
-        'projectRoot': str(project),
-        'native': {'report': {'entries': [{'id': 'permission-proof', 'status': 'passed'}]}}}))
+    reported = {
+        # A legitimate Project root can use native Windows backslashes,
+        # forward slashes, and redundant path components independently of
+        # the CLI's generic-string path presentation.
+        'projectRoot': project.as_posix() + '/./',
+        'native': {'report': {'entries': [{'id': 'permission-proof', 'status': 'passed'}]}}
+    }
+    test_report.write_text(json.dumps(reported))
     attached = coverage('--test-report', test_report)['coverage']
     evidence = next(r for r in attached['requirements'] if r['id'] == 'event.question-ivo')['tests'][0]
-    assert evidence['execution'] == 'externally-reported'
+    assert evidence['execution'] == 'externally-reported', evidence
     assert evidence['reportedStatus'] == 'passed' and evidence['provenanceVerified'] is False
     assert next(r for r in attached['requirements']
                 if r['id'] == 'event.question-ivo')['behaviorVerified'] is False
+    # The native path spelling used by Windows Test runners must work too.
+    reported['projectRoot'] = str(project)
+    test_report.write_text(json.dumps(reported))
+    native_spelling = coverage('--test-report', test_report)['coverage']
+    native_evidence = next(r for r in native_spelling['requirements']
+                           if r['id'] == 'event.question-ivo')['tests'][0]
+    assert native_evidence['execution'] == 'externally-reported', native_evidence
+    # An unrelated existing Project must not receive another Project's evidence.
+    (root / 'other-project').mkdir()
+    reported['projectRoot'] = str(root / 'other-project')
+    test_report.write_text(json.dumps(reported))
+    unrelated = coverage('--test-report', test_report)['coverage']
+    unrelated_evidence = next(r for r in unrelated['requirements']
+                              if r['id'] == 'event.question-ivo')['tests'][0]
+    assert unrelated_evidence['execution'] == 'not-observed', unrelated_evidence
+    assert unrelated_evidence.get('reportedStatus') is None
+    # Relative report paths are not authoritative Project identities, even if
+    # the CLI's current working directory could resolve them to this Project.
+    reported['projectRoot'] = 'game'
+    test_report.write_text(json.dumps(reported))
+    relative = coverage('--test-report', test_report)['coverage']
+    relative_evidence = next(r for r in relative['requirements']
+                             if r['id'] == 'event.question-ivo')['tests'][0]
+    assert relative_evidence['execution'] == 'not-observed', relative_evidence
 
     dialogue.write_text(dialogue.read_text().replace(
         '[choice-point.question-ivo, event.question-ivo]',
