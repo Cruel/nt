@@ -44,7 +44,64 @@ returns `work.endToEnd`, retaining their existing semantic work fields.
 Counters are request-scoped and thread-local, so they cannot accumulate across
 successive requests or cause a saved/working Project to share cache authority.
 
-To reproduce from a Linux host with the pinned development dependencies:
+### Authoritative pre-optimization baseline: Linux Release (#577)
+
+Future #576 optimization tickets should compare against the **complete, machine-readable**
+baseline at [validation-2026-10-31-release.json](performance/baselines/validation-2026-10-31-release.json).
+This dataset was measured on the reference Linux machine planned for the follow-up work,
+with an AMD Ryzen 7 5700G (16 logical CPUs), **Release** CLI and **Release** native
+Node-API addon. The JSON preserves every operation's latency, complete work-counter payload,
+diagnostic fingerprint, source commit, executable SHA-256, compiler flags, CMake build directories,
+CPU/kernel/tool versions and cache policy. In addition to the original scenarios, it repeats
+unchanged resident validations and cached/uncached daemon restarts three times each, and
+measures three `--no-daemon` requests per fixture (after the final uncached daemon restart
+has populated the disk cache). It is evidence, not a latency budget.
+
+The measured times below are in milliseconds. Cold-start is one sample per Project; all other
+columns are medians of three samples. The editor column is the native working validation
+time **excluding patch application** (which is recorded separately in JSON).
+
+| Project | Uncached start | Unchanged resident | Warm saved label | Cached restart | Uncached restart | `--no-daemon` | Editor unsaved label |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Feature Lab | 3,144 | 271 | 292 | 2,646 | 3,087 | 2,623 | 92 |
+| 1 Room | 102 | 11 | 13 | 103 | 103 | 85 | 1 |
+| 101 Rooms | 200 | 38 | 43 | 197 | 196 | 171 | 8 |
+| 501 Rooms | 594 | 155 | 165 | 583 | 592 | 534 | 35 |
+
+The final baseline contains **83 complete samples** across the four fixtures, measured with
+a clean committed harness (identified by the artifact's source commit). The Feature Lab unchanged resident calls rechecked
+zero records while still performing four source captures, 164 directory enumerations,
+1,847 instrumented file reads and 3,337 authoritative hash calls. Warm label changes
+rechecked one record but still performed five captures, 205 enumerations, 2,268 reads and
+3,813 hashes. This distinguishes the true end-to-end work bottleneck from semantic
+incrementality, and gives #583–#594 stable baseline counters to reduce.
+
+Reproduce the baseline on the reference Linux machine (or rerun after each optimization using the same
+machine/configuration) with the pinned source revision and dependencies:
+
+```bash
+cmake --build build/linux-authoring-release --target noveltea-native-cli
+cmake --build build/native-authoring-host --target noveltea-authoring-node
+python3 tests/native_cli/validation_performance.py \
+  build/linux-authoring-release/tools/editor_tool/native-cli/noveltea . \
+  --machine reference-linux \
+  --output docs/editor/performance/baselines/validation-2026-10-31-release.json
+```
+
+For subsequent tickets, write a **new dated baseline file** instead of overwriting the original.
+Compare scenario-level medians and all work counters, including file reads, hashes, source captures,
+semantic rechecks, preparatory stages, and diagnostic fingerprints. Only compare latency on the
+same machine and optimization level; changed diagnostic fingerprints require semantic investigation,
+not an unqualified performance win. With profiling enabled, the broker's exact-result shortcut
+is disabled, so unchanged resident results represent actual native validation work rather than
+the fastest normal-public-CLI cache path.
+
+### Historical Debug baseline (not comparable to the Release baseline)
+
+The first instrumented baseline was measured on **a different machine** with a **Debug CLI**
+and a Release addon. It is retained only as historical evidence, not the baseline for #578–#594.
+
+To reproduce that older Debug experiment from a Linux host with the pinned development dependencies:
 
 ```bash
 cmake --build --preset linux-debug --target noveltea-native-cli
@@ -68,7 +125,7 @@ optimization level and fixture size constant when comparing like-for-like
 measurements.
 Do not check wall-clock thresholds into CI.
 
-The first complete instrumented Linux baseline (commit
+That initial instrumented Linux baseline (commit
 `c81eb346e` plus the working changes for #577) used a **Debug CLI** and
 **Release Node-API addon** and produced the following measurements in milliseconds. All changed values are medians of three label
 edits, editor values are *validation time only* (patch time is reported
@@ -499,7 +556,7 @@ between distinct requests, or after any uncertainty about source authority.
 
 #### Reproduced proof-work reduction (2026-10-29)
 
-On this Linux dev-lawdeep checkout, two successive local Release CLI builds
+On the Linux profiling host, two successive local Release CLI builds
 were run against identical disposable Feature Lab copies. Each copy was first
 validated with `--no-daemon`, then the home Room's `label` was changed and a
 second direct validation ran with `NOVELTEA_NATIVE_PROOF_TRACE=1`. The earlier
