@@ -263,6 +263,70 @@ different source fingerprint; consumers compare these with their already-loaded
 versions and read all missing/changed Markdown paths in one filesystem/tool
 batch. The CLI cannot inspect an agent's context and never returns prose.
 
+## Native Story-to-Project implementation coverage (#530)
+
+`noveltea --json narrative coverage <catalog-root> --project <project-root>`
+reads the canonical Story catalog alongside the **saved** native-admitted
+NovelTea Project. It does not write mapping sidecars, modify Story Markdown,
+compile gameplay, execute Tests, invoke a daemon, or change either source tree.
+The command accepts up to 16 optional `--test-report <suite.json>` files from
+earlier `noveltea --json test run` suite invocations.
+
+```sh
+noveltea --json narrative coverage ./story --project ./game
+noveltea --json narrative coverage ./story --project ./game \
+  --test-report ./evidence/native-test-suite.json
+```
+
+`coverage.contractRevision` is the same pinned Story contract revision as
+`narrative validate`, `context`, and `readiness`.
+`coverage.requirements` is sorted by canonical Story ID, and each entry
+contains the Story source path, type, authoring status and reverse-linked
+`claims` from engine records. Claims retain engine collection/record identity,
+the nested Scene operation, Dialogue block/segment/edge or Interaction rule
+identity, relative tracked YAML source path, source pointer, and one-based
+line/column. A single requirement may have many engine claims, and one engine
+element may claim several requirements. A Scene operation is **not** a narrative
+Event; a linked Dialogue choice edge is not proof that the branch is reachable.
+
+`association` is `unmapped`, `draft-only` for an unapproved Story record
+with claims, `claimed-unverified` for a claim of an approved record, or
+`ambiguous` for non-unique Story IDs. `dangling` contains links whose Story
+ID does not resolve; `duplicate` contains repeated IDs at one source element;
+`ambiguous` contains links to multiply declared Story IDs. All contain
+source locations. These are *report findings*, not automatic Story rewrites,
+permission to override protected decisions, or hard authoring validation rules
+for projects without Story catalogs. Invalid Project/Story sources or attached
+report inputs produce diagnostics and exit code 1; command usage errors return 2.
+
+The optional `coverage.routeCandidates` array contains bounded (up to 256)
+structural witnesses: the same Choice Point and Event claimed on a Dialogue
+choice edge, the Dialogue's explicit completion Scene and an Event-linked
+Scene gameplay mutation operation. The `choiceEdge` and `sceneEffect`
+entries retain exact locations and stable nested IDs. These candidates are
+`declared-unverified`, with `reachabilityVerified: false` and
+`stateEffectVerified: false`; an edge's presence does not establish that a
+player can select it or that an effect actually executes. A truncated report
+sets `routeCandidatesTruncated: true`.
+
+Tests are **not** implementation claims. `requirements[].tests` shows
+separately linked authored headless Test definitions as `not-observed`. When
+an external suite JSON report lists that same Test ID and the same Project
+root, its observed result appears as `externally-reported`, with the report
+path, reported status and `provenanceVerified: false`. Imported report files
+are untrusted: neither their authenticity nor the current executable/source
+generation is certified. Even a passed Test does not establish that its asserted
+state change, the requested narrative branch, or the player's perception
+fulfills the Story requirement. `behaviorVerified` stays false, and the
+qualitative assessment explicitly lists unverified behavior, test provenance,
+state changes, and presentation feasibility. Use the actual headless Test
+runner and editorial review to establish those separately.
+
+For planning, consumers can join this report to the existing Context Manifest
+(`manifest.files[].id`) and stage/Milestone readiness outputs using the
+canonical typed Story ID. Coverage never changes readiness gates or narrative
+approval. No Story catalog is required to compile/play an unlinked Project.
+
 ## One upstream contract, reproducible native distribution
 
 `Cruel/noveltea-skills` owns the evolving experimental `schema: '0.1'` contract:

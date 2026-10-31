@@ -61,7 +61,12 @@ Project export/import retain these optional fields. Both the native and
 TypeScript compiler lowering explicitly construct gameplay wire data rather
 than copying authoring-only references into the compiled runtime contract.
 This is authoring implementation intent, not gameplay data, user authorization,
-or a certificate of VN production feasibility.
+or a certificate of VN production feasibility. The read-only
+`noveltea narrative coverage <story-root> --project <project-root>` command
+indexes the saved engine-owned references by Story ID and reports unverified
+claims, missing/duplicate links, and separate authored Test evidence without
+promoting mapping metadata into gameplay authority. See
+[the narrative CLI reference](../editor/NARRATIVE_CLI.md#native-story-to-project-implementation-coverage-530).
 
 ## Startup and Settings
 

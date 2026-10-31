@@ -65,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
     assert bad.stderr == "[error] CLI_USAGE /: Unknown global option '--wat'.\nUnknown global option '--wat'.\n\n" + help_text
     public_section = help_text.split('\nCommands:\n', 1)[1].split('\nGlobal options:\n', 1)[0]
     public_paths = set(re.findall(r'^  ([a-z][a-z0-9-]*(?: [a-z][a-z0-9-]*)*)', public_section, re.MULTILINE))
-    assert len(public_paths) == 42
+    assert len(public_paths) == 43
     project_commands = {
         'validate', 'fmt', 'project create', 'project import', 'project export',
         'entity inspect', 'entity create', 'entity rename', 'entity delete',
@@ -75,6 +75,7 @@ with tempfile.TemporaryDirectory(prefix='noveltea-native-cli-') as temporary:
         'test run', 'test run-spec', 'test run-ui-spec', 'package export',
         'agent sync', 'media-tool check', 'daemon status', 'daemon stop', 'narrative validate', 'narrative context', 'narrative readiness',
         'comfyui status', 'comfyui workflows', 'comfyui verify',
+        'narrative coverage',
     }
     assert project_commands <= public_paths
     claimed_platform = {'comfyui run', 'platform profiles', 'platform export',

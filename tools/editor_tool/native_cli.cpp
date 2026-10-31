@@ -3,6 +3,7 @@
 #include "native_cli_paths.hpp"
 #include "native_cli_daemon.hpp"
 #include "native_cli_agent.hpp"
+#include "native_cli_narrative_coverage.hpp"
 #include "native_cli_comfyui.hpp"
 #include "native_cli_media.hpp"
 #include "native_cli_platform.hpp"
@@ -2833,6 +2834,44 @@ int run(const std::vector<std::string>& argv)
                          {"diagnostics", Json::array()},
                          {"daemon", daemon}},
                         args.json, human);
+        }
+        if (family == "narrative" && operation == "coverage") {
+            if (args.command.size() < 3 || args.command[2].empty() ||
+                args.command[2].starts_with("--"))
+                return usage(args.json,
+                             "Expected narrative coverage <catalog-root> --project <project-root> "
+                             "[--test-report <suite.json>]...");
+            if (args.project.empty())
+                return usage(args.json, "Narrative coverage requires --project <project-root>.");
+            std::vector<std::filesystem::path> test_reports;
+            for (std::size_t i = 3; i < args.command.size();) {
+                if (args.command[i++] != "--test-report" || i == args.command.size() ||
+                    args.command[i].starts_with("--") || test_reports.size() >= 16)
+                    return usage(args.json, "Expected --test-report <suite.json> (up to 16).");
+                test_reports.push_back(native_path_from_utf8(args.command[i++]));
+            }
+            const auto project = project_root(args.project);
+            if (project.empty())
+                return failure(args.json, 3, "WORKSPACE_NOT_FOUND", "/project.yaml",
+                               "Narrative coverage requires an existing NovelTea Project.",
+                               "Narrative coverage requires an existing NovelTea Project.");
+            const auto story = std::filesystem::absolute(native_path_from_utf8(args.command[2]))
+                                   .lexically_normal();
+            auto report = narrative_coverage(story, project, test_reports);
+            auto diagnostics = report.at("diagnostics");
+            for (auto& item : diagnostics)
+                if (item.contains("path"))
+                    item["sourceUrl"] = item["path"];
+            report.erase("diagnostics");
+            const bool valid = diagnostics.empty();
+            return emit({{"success", valid},
+                         {"exitCode", valid ? 0 : 1},
+                         {"diagnostics", diagnostics},
+                         {"coverage", report}},
+                        args.json,
+                        valid ? "Narrative implementation claims inspected; gameplay and "
+                                "presentation remain unverified."
+                              : "Narrative coverage has invalid source or report input.");
         }
         if (family == "narrative" && operation == "readiness") {
             if (!args.project.empty() || args.command.size() < 3 || args.command[2].empty() ||

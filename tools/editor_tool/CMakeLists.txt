@@ -314,6 +314,7 @@ noveltea_apply_policy_warnings(noveltea_narrative)
 
 add_executable(noveltea-native-cli EXCLUDE_FROM_ALL
     native_cli.cpp native_cli_daemon.cpp native_cli_agent.cpp native_cli_media.cpp native_cli_comfyui.cpp
+    native_cli_narrative_coverage.cpp
     native_cli_platform.cpp native_cli_platform_stage.cpp
     native_cli_comfyui_http.cpp
     "${_native_comfyui_header}"
@@ -392,6 +393,9 @@ endif()
 if(BUILD_TESTING)
     add_test(NAME native_cli_narrative
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/narrative.py"
+            "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
+    add_test(NAME native_cli_narrative_coverage
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/narrative_coverage.py"
             "$<TARGET_FILE:noveltea-native-cli>" "${CMAKE_SOURCE_DIR}")
     add_test(NAME native_cli_narrative_git
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/native_cli/narrative_git.py"

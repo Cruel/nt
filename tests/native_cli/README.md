@@ -24,6 +24,10 @@ Run it alone with `ctest --test-dir build/linux-debug -R '^native_cli_narrative$
 protected-decision status and source locations, graph impact witnesses, path
 moves, modified/untracked files, invalid history and read-only failure modes.
 Run both with `ctest --test-dir build/linux-debug -R '^native_cli_narrative(_git)?$' --output-on-failure`.
+`narrative_coverage.py` additionally exercises read-only Story-to-Project implementation
+claims, nested Choice/Scene locations, dangling/duplicate links and separate
+untrusted headless Test report attachments. Run with
+`ctest --test-dir build/linux-debug -R '^native_cli_narrative_coverage$' --output-on-failure`.
 
 The `compiled_project_parity.py` and `runtime_artifact_parity.py` drivers
 compare native outputs with temporary TypeScript reference implementations.
