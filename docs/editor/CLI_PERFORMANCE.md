@@ -1874,3 +1874,51 @@ XXH3 local revisions and a resident inventory. The four accepted decisions,
 their scope and the still-unimplemented end-to-end validation reuse proposal
 are tracked in
 [CLI_INCREMENTAL_VALIDATION_PLAN.md](CLI_INCREMENTAL_VALIDATION_PLAN.md).
+
+### #585 source-relationship impact qualification (2026-10-31)
+
+The committed reference-machine baseline is
+[`performance/baselines/validation-2026-10-31-release.json`](performance/baselines/validation-2026-10-31-release.json)
+at `0ac2e181`. The separately retained post-change evidence is
+[`performance/baselines/validation-2026-10-31-source-impacts.json`](performance/baselines/validation-2026-10-31-source-impacts.json)
+at `345317e3`. Both were captured on `reference-linux` (Ryzen 7 5700G), with
+matching Release CLI and Release Node-API addon builds, the same profiler,
+disposable Project/cache conditions and three-repetition harness. The new run
+was performed from a clean working tree. Figures below are median elapsed
+milliseconds for matching scenarios; they are *observations*, not CI budgets.
+
+| Scenario | Baseline | Post-change |
+| --- | ---: | ---: |
+| Feature Lab, warm saved Room label | 323.31 | 247.42 |
+| Feature Lab, warm Layout Lua source edit | 347.79 | 270.82 |
+| Feature Lab, unchanged resident | 328.37 | 251.36 |
+| Feature Lab, uncached start | 3440.47 | 3062.35 |
+| 501 Rooms, warm saved Room label | 167.99 | 116.79 |
+| 501 Rooms, unchanged resident | 152.07 | 109.62 |
+| 1 Room, warm saved Room label | 13.17 | 12.14 |
+
+For the **Feature Lab warm saved Room-label** request, median native
+end-to-end counters changed as follows: source captures **5 → 1**, directory
+enumerations **205 → 0**, byte reads **2268 → 419**, and content hashes
+**3813 → 1964**. Semantic record rechecks and contribution rechecks stayed at
+**1 → 1**. Font coverage, shader compile, final generation proof, font input
+preparation, portable path preparation, and Material/shader preparation
+invocation counts were unchanged (**1, 1, 1, 1, 1, and 13**, respectively).
+For the **501-Room** warm saved label request, captures **5 → 1**, directory
+enumerations **30 → 0**, byte reads **2559 → 5**, hashes **2561 → 7**, and
+semantic contribution rechecks **1 → 1**.
+
+Per-state diagnostic digests matched **for every sample** across all four
+project inventories (Feature Lab, 1, 101 and 501 Rooms). The #585 native
+certification also tests RCSS-only source edits with no parent RML reparsing,
+warm graph queries with zero repeated Lua/RML/RCSS tokenization, and focused
+editor preview/resource field impact. No separate pre-change RCSS-only latency
+sample is claimed, because that operation was not present in the original
+benchmark fixture.
+
+**Attribution limit:** these two revisions span other incremental-authoring
+optimizations (#582–#584), including source-authority capture changes. The
+large reductions in physical source work are an end-to-end comparison across
+that range, **not** evidence that #585 alone eliminated those captures. The
+specific #585 avoided work is established by the source-analysis work-count
+certifications, not by attributing all elapsed-time changes to this ticket.
