@@ -893,6 +893,52 @@ std::set<std::string> SourceAuthority::affected_asset_records(const SourceDelta&
     return records;
 }
 
+bool SourceAuthority::fence()
+{
+    if (!initialized_ || uncertain_)
+        return false;
+    bool observed = false;
+    if (native_->drain(observed, hinted_paths_)) {
+        coverage_lost();
+        return false;
+    }
+#ifndef __linux__
+    // Without native watcher guarantees, a pinned generation cannot be
+    // certified by a cheap fence. Callers must use full physical observation.
+    return false;
+#else
+    // Root-level unrelated files and local editor/cache state are outside
+    // source authority. An event without a path is not attributable and
+    // requires conservative readmission.
+    if (observed && hinted_paths_.empty()) {
+        coverage_lost();
+        return false;
+    }
+    for (const auto& path : hinted_paths_) {
+        if (path == ".noveltea" || path.starts_with(".noveltea/"))
+            continue;
+        const bool tracked = baseline_.contains(path) || watched_directories_.contains(path) ||
+                             directory_members_.contains(path) || path == "records" ||
+                             path.starts_with("records/") || path == "scripts" ||
+                             path.starts_with("scripts/") || path == "shaders" ||
+                             path.starts_with("shaders/") || path == "i18n" ||
+                             path.starts_with("i18n/");
+        if (tracked) {
+            coverage_lost();
+            return false;
+        }
+    }
+    try {
+        if (std::filesystem::canonical(root_) != canonical_root_)
+            throw std::runtime_error("Project root changed during validation.");
+    } catch (...) {
+        coverage_lost();
+        return false;
+    }
+    return true;
+#endif
+}
+
 SourceObservation SourceAuthority::observe()
 {
     SourceObservation observation;

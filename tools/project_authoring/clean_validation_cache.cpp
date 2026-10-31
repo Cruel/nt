@@ -509,7 +509,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     // regular cache entries instead rehydrate complete contributor evidence.
     if (clean() && !validation_snapshot_ && imported_clean_validation_ &&
         !validation_pending_uncertain_) {
-        if (const auto revisions = proof()) {
+        if (const auto revisions = proof(initially_observed)) {
             std::vector<std::string> changed;
             for (const auto& [path, revision] : *revisions)
                 if (!imported_clean_revisions_.contains(path) ||
@@ -578,7 +578,7 @@ ProjectSession::CleanValidation ProjectSession::validate_clean_project(bool init
     std::optional<std::map<std::string, std::string>> cache_admission_evidence;
     if (clean() && !validation_pending_uncertain_ && !validation_snapshot_ &&
         validation_pending_source_revisions_.empty()) {
-        if (const auto revisions = proof()) {
+        if (const auto revisions = proof(initially_observed)) {
             // This is the same pre-validation source boundary. Cache lookup
             // itself cannot change tracked sources, and the independent
             // post-preparation proof must still match these exact digests.

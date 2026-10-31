@@ -18,10 +18,11 @@ using noveltea::authoring::ProjectSession;
 
 // Keep the exact disk-generation proof available to the production CLI and to
 // the lightweight runtime-cache test seam without linking all editor tooling.
-std::string native_project_source_generation(const ProjectSession& session,
-                                             const std::filesystem::path& root,
-                                             bool observed_at_entry, std::string_view proof_phase,
-                                             std::map<std::string, std::string>* exact_revisions)
+std::string
+native_project_source_generation(const ProjectSession& session, const std::filesystem::path& root,
+                                 bool observed_at_entry, std::string_view proof_phase,
+                                 std::map<std::string, std::string>* exact_revisions,
+                                 const std::map<std::string, std::string>* pinned_revisions)
 {
     // The binary member digests changed to XXH3; invalidate durable generations.
     std::string identity = "native-project-source-generation-v2";
@@ -32,6 +33,7 @@ std::string native_project_source_generation(const ProjectSession& session,
     const auto* revisions = session.verified_source_revisions_view();
     if (!revisions)
         throw std::runtime_error("Cannot verify an uncertain native source generation.");
+    const auto canonical_root = std::filesystem::canonical(root);
     if (exact_revisions)
         exact_revisions->clear();
     for (const auto& [relative, revision] : *revisions) {
@@ -42,17 +44,36 @@ std::string native_project_source_generation(const ProjectSession& session,
             if (exact_revisions)
                 exact_revisions->emplace(relative, "absent");
         } else {
-            if (std::filesystem::symlink_status(path).type() !=
-                std::filesystem::file_type::regular)
-                throw std::runtime_error("Cannot verify native source generation: " + relative);
-            // An authoritative observation already read and hashed all text
-            // sources. Only binary Assets have physical (size/time) hints and
-            // still require a fresh byte-exact digest for generation proof.
+            // The watched generation already pins text existence, type,
+            // containment and exact bytes. The publication fence checks that
+            // no relevant event has invalidated that evidence; do not stat
+            // every text leaf again on each outer CLI stage.
             if (observed_at_entry && !revision.starts_with("physical:")) {
                 identity.append(revision).push_back('\0');
                 if (exact_revisions)
                     exact_revisions->emplace(relative, revision);
                 ++text_reuse_hits;
+                continue;
+            }
+            if (std::filesystem::symlink_status(path).type() != std::filesystem::file_type::regular)
+                throw std::runtime_error("Cannot verify native source generation: " + relative);
+            if (revision.starts_with("physical:")) {
+                const auto contained =
+                    std::filesystem::weakly_canonical(path).lexically_relative(canonical_root);
+                if (contained.empty() || contained == ".." || *contained.begin() == "..")
+                    throw std::runtime_error("Native Asset source escapes Project: " + relative);
+            }
+            // The public owner pins exact Asset digests at cache admission.
+            // A healthy watcher fence lets preparation reuse that same
+            // generation. Final publication separately re-proves binary bytes.
+            if (observed_at_entry && revision.starts_with("physical:") && pinned_revisions) {
+                const auto pinned = pinned_revisions->find(relative);
+                if (pinned == pinned_revisions->end() || !pinned->second.starts_with("xxh3-128:"))
+                    throw std::runtime_error("Missing pinned Asset generation evidence: " +
+                                             relative);
+                identity.append(pinned->second).push_back('\0');
+                if (exact_revisions)
+                    exact_revisions->emplace(relative, pinned->second);
                 continue;
             }
             std::ifstream input(path, std::ios::binary);
@@ -76,8 +97,8 @@ std::string native_project_source_generation(const ProjectSession& session,
                 }
                 digest = hasher.finish();
             } else {
-                // Text revisions remain SHA-256, including fresh non-admission
-                // proofs where their observed digest cannot be reused.
+                // Fresh non-admission text proofs retain the native XXH3-128
+                // authoring revision contract.
                 std::string bytes(static_cast<std::size_t>(size), '\0');
                 if (!bytes.empty() &&
                     !input.read(bytes.data(), static_cast<std::streamsize>(bytes.size())))

@@ -40,6 +40,31 @@ including warm captures; the avoided work appears in `directoryEnumerations`,
 `fileByteReads`, `contentHashes`, and parser counters. Other validation and
 final-publication phases may still read/hash sources independently.
 
+### #583: one pinned generation across public validation
+
+The resident native CLI owner now starts with one watcher-backed observation
+and pins that generation for semantic validation, clean-cache admission,
+preparation, and source-generation assembly. The previously observed source
+authority is reused by cache admission instead of making another physical
+capture. Exact Asset revisions proven at admission are carried into preparation,
+without rereading all Asset bytes. Linux checks the watched source epoch before
+and after preparation and final publication, with **no new directory inventory
+or `SourceAuthority::capture` calls**. New tracked notifications, watcher loss,
+root replacement, or a mismatched final generation deny publication. Other
+platforms retain conservative full source observations when native coverage
+is unavailable.
+
+The public CLI's **final** independent proof still rehashes referenced binary
+Asset bytes and checks containment: a same-size, restored-mtime binary edit
+between preparation and publication cannot reuse the prior result even if its
+native event has not yet arrived. The watcher epoch is likewise fenced around
+that exact proof, so edits during hashing cannot silently publish stale
+diagnostics. The owner stays scoped to one canonical Project per daemon
+process; `--no-daemon` uses the same validation contract for its short-lived
+owner. Source transactions and publication security checks remain separate
+from the cached semantic evidence. This optimization changes internal work
+counters, not CLI diagnostics, source-generation identity, or cache schema.
+
 #### #582 reference-machine certification (2026-10-31)
 
 The separate [watcher-backed result](performance/baselines/validation-2026-10-31-watcher-backed.json)

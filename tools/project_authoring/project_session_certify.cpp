@@ -1572,6 +1572,12 @@ void project_validation_roundtrip(const std::filesystem::path& fixture)
                     quiet_work.file_byte_reads == 0 && quiet_work.content_hashes == 0 &&
                     quiet_work.parsed_yaml == 0,
                 "Healthy watcher reuses unchanged directory and source evidence without IO");
+        require(authority.fence(), "Quiet resident generation has an unchanged watcher epoch");
+        authority.hint("records/rooms/room-lifecycle-roundtrip.yaml");
+        require(!authority.fence(),
+                "An explicitly reported source path revokes the pinned publication epoch");
+        require(authority.observe().authoritative,
+                "Revoked pinned source generation is re-admitted before further reads");
 #else
         require(quiet.authoritative && quiet.unchanged,
                 "Platform without native watchers retains conservative physical observation");

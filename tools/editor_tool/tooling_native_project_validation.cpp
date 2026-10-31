@@ -46,6 +46,9 @@ struct OwnerValidation {
     std::mutex mutex;
     std::filesystem::path root;
     std::unique_ptr<ProjectSession> session;
+    // Only the most recent valid public validation may be finalized. This
+    // generation belongs to the resident session and is never persisted.
+    std::string pending_generation;
     std::uint64_t session_admissions = 0;
 };
 
@@ -53,6 +56,16 @@ OwnerValidation& resident()
 {
     static OwnerValidation value;
     return value;
+}
+
+bool fence_resident_sources(ProjectSession& session)
+{
+#ifdef __linux__
+    return session.fence_observed_sources();
+#else
+    const auto observation = session.observe_sources();
+    return observation.authoritative && observation.unchanged && !observation.full_rescan;
+#endif
 }
 
 // Distribution notices are physical authored inputs, not YAML fragments.
@@ -405,6 +418,7 @@ Json validate(std::string_view request_text)
         if (state.root == root) {
             state.session.reset();
             state.root.clear();
+            state.pending_generation.clear();
         }
         return {{"ok", true}};
     }
@@ -413,24 +427,32 @@ Json validate(std::string_view request_text)
             // Observation must not consume inventory changes that the next validation
             // would otherwise use to revoke its admitted Project.
             state.session.reset();
+            state.pending_generation.clear();
             return {{"ok", false}, {"kind", "conflict"}, {"error", "Project sources changed."}};
         };
         if (state.root != root || !state.session || !request.contains("expectedSourceGeneration") ||
-            !request.at("expectedSourceGeneration").is_string())
+            !request.at("expectedSourceGeneration").is_string() ||
+            state.pending_generation.empty() ||
+            request.at("expectedSourceGeneration").get<std::string>() != state.pending_generation)
             return conflict();
         const auto unchanged = [&]() {
             if (!native_project_disk_safety(root).value("ok", false))
                 return false;
-            const auto observed = state.session->observe_sources();
-            return observed.authoritative && observed.unchanged;
+            return fence_resident_sources(*state.session);
         };
-        // Bracket exact content hashing (including binary Assets) with retained
-        // membership/containment observations. Watcher hints never certify bytes.
-        if (!unchanged() ||
-            native_project_source_generation(*state.session, root, true,
-                                             "validation-final-generation") !=
-                request.at("expectedSourceGeneration").get<std::string>() ||
-            !unchanged()) {
+        // Bracket the independent exact binary-Asset proof with watcher/epoch
+        // fences. This does not rescan or rehash the full authoring inventory.
+        bool matching = false;
+        try {
+            matching = unchanged() &&
+                       native_project_source_generation(*state.session, root, true,
+                                                        "validation-final-generation") ==
+                           request.at("expectedSourceGeneration").get<std::string>() &&
+                       unchanged();
+        } catch (const std::exception&) {
+            matching = false;
+        }
+        if (!matching) {
             noveltea::authoring::trace_source_proof_event("validation-final", "conflict");
             return conflict();
         }
@@ -440,6 +462,7 @@ Json validate(std::string_view request_text)
     }
     if (request.value("action", std::string("validate")) != "validate")
         return {{"ok", false}, {"error", "Unknown disk-validation action."}};
+    state.pending_generation.clear();
     if (state.root != root) {
         state.session.reset();
         state.root = root;
@@ -498,6 +521,10 @@ Json validate(std::string_view request_text)
     // Computing it for invalid validation turns a workspace error into an
     // internal CLI failure (and hides the actionable YAML location).
     if (validated.snapshot.valid) {
+        if (!validated.deferred_exact_revisions)
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project source generation cannot be pinned."}};
         const auto effective = Json::parse(validated.snapshot.normalized_json, nullptr, false);
         if (!effective.is_object())
             throw std::runtime_error("Native validation returned no normalized Project.");
@@ -578,18 +605,34 @@ Json validate(std::string_view request_text)
         // Validate the source generation after all source-derived work. The
         // observation certifies exact text hashes used by the fast generator;
         // the generator still hashes binary Assets independently.
-        const auto final_observation = state.session->observe_sources();
-        if (!final_observation.authoritative || !final_observation.unchanged ||
-            final_observation.full_rescan)
-            throw std::runtime_error("Project sources changed during validation preparation.");
+        if (!fence_resident_sources(*state.session))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during validation preparation."}};
         std::map<std::string, std::string> post_revisions;
-        result["sourceGeneration"] = native_project_source_generation(
-            *state.session, root, true, "validation-preparation-generation",
-            validated.deferred_exact_revisions ? &post_revisions : nullptr);
+        try {
+            result["sourceGeneration"] = native_project_source_generation(
+                *state.session, root, true, "validation-preparation-generation", &post_revisions,
+                &*validated.deferred_exact_revisions);
+        } catch (const std::exception&) {
+            state.session->source_watch_coverage_lost();
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during validation preparation."}};
+        }
+        if (!fence_resident_sources(*state.session))
+            return {{"ok", false},
+                    {"kind", "conflict"},
+                    {"error", "Project sources changed during validation preparation."}};
         if (!state.session->publish_deferred_clean_validation(validated, post_revisions))
             return {{"ok", false},
                     {"kind", "conflict"},
                     {"error", "Project sources changed during validation preparation."}};
+        state.pending_generation = result.at("sourceGeneration").get<std::string>();
+    } else if (!fence_resident_sources(*state.session)) {
+        return {{"ok", false},
+                {"kind", "conflict"},
+                {"error", "Project sources changed during validation."}};
     }
     work_counts.record_contributions = state.session->validation_work().rechecked_contributions;
     work_counts.dependency_contributions =

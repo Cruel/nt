@@ -104,10 +104,13 @@ void certify_owner_session_reuse()
     require(unchanged_validation.at("cliDiagnostics") == initial_validation.at("cliDiagnostics") &&
                 unchanged_validation.at("work").at("recheckedRecords") == 0 &&
                 unchanged_work.at("sourceCaptures").get<std::size_t>() > 0 &&
-                unchanged_work.at("directoryEnumerations").get<std::size_t>() > 0 &&
                 unchanged_work.at("contentHashes").get<std::size_t>() > 0,
-            "Unchanged native CLI work reports outer scans and hashes independently of semantic "
-            "reuse.");
+            "Unchanged native CLI work retains source observation and semantic reuse.");
+#ifdef __linux__
+    require(unchanged_work.at("sourceCaptures").get<std::size_t>() == 1 &&
+                unchanged_work.at("directoryEnumerations").get<std::size_t>() == 0,
+            "Warm public validation reuses one pinned source generation without repeated scans");
+#endif
     const auto manifest_file = fixture.root / "project.yaml";
     const auto manifest_bytes = read(manifest_file);
     write(manifest_file, manifest_bytes + "\ninvalid: [\n");
@@ -1739,8 +1742,15 @@ void certify_validation_exact_asset_boundary(const std::filesystem::path& source
         const auto proof = Json{{"action", "source-generation-proof"},
                                 {"projectRoot", root},
                                 {"expectedSourceGeneration", initial.at("sourceGeneration")}};
-        require(disk_validate(proof).value("ok", false),
+        const auto final_proof = disk_validate(proof);
+        require(final_proof.value("ok", false),
                 "The native final proof accepts unchanged Project bytes");
+#ifdef __linux__
+        require(
+            final_proof.at("work").at("sourceCaptures") == 0 &&
+                final_proof.at("work").at("directoryEnumerations") == 0,
+            "Final public proof fences the pinned watcher epoch without another source capture");
+#endif
 
         auto overwritten = original;
         overwritten[overwritten.size() / 2] ^= 1;

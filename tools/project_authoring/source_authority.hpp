@@ -87,6 +87,10 @@ public:
     // not appear as externally added files.
     bool initialize(std::string& error, bool allow_invalid_sources = false);
     SourceObservation observe();
+    // Publication fence for one already observed resident generation. Drains
+    // native events without capturing source bytes or walking the inventory.
+    // A relevant event or uncertainty revokes the pinned generation.
+    bool fence();
     // Adopt only a successfully persisted source whose current bytes still
     // prove the writer's revision. Other external changes remain observable.
     bool acknowledge_own_write(std::string_view relative_path, std::string_view revision);

@@ -401,6 +401,7 @@ public:
     // Certified physical changes are separate from working-state mutation; #495
     // will reconcile these paths into the resident editor/daemon Project model.
     SourceObservation observe_sources();
+    bool fence_observed_sources() { return source_authority_->fence(); }
     std::optional<std::map<std::string, std::string>> verified_source_revisions() const
     {
         return source_authority_->verified_revisions();
