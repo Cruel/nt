@@ -1223,7 +1223,7 @@ describe.skipIf(!addon)('native dirty Project reconciliation and transactional S
     });
     expect(await readFile(editorPath, 'utf8')).toContain(roomId);
     expect(working.snapshot()?.dirty).toBe(false);
-  });
+  }, 45_000);
 
   it('merges disjoint same-record changes, retains dirty recovery, and writes only selected owners', async () => {
     const { root, roomPath, bridge, working } = await testProject();

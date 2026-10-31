@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,7 +51,10 @@ async function nativeCommand(action, fields = {}, accepted = true) {
   assert.equal(response.ok, accepted, `Native ${action}: ${result.stdout} ${result.stderr}`);
   return response;
 }
-const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const exactRevision = (value) => {
+  assert.match(value, /^xxh3-128:[0-9a-f]{32}$/);
+  return value;
+};
 const source = (root, relative) => readFile(path.join(root, relative));
 async function identical(relative) {
   assert.deepEqual(
@@ -107,20 +109,44 @@ try {
     const renamedId = 'native-parity-renamed';
     const renamed = `records/variables/${renamedId}.yaml`;
     oracle(['entity', 'rename', 'variables', variableId, renamedId]);
+    const renamePlan = await nativeCommand('entity-rename', {
+      collection: 'variables',
+      id: variableId,
+      toId: renamedId,
+      dryRun: true,
+    });
+    const renameRevision = exactRevision(renamePlan.sourceRevision);
+    const staleRename = await nativeCommand(
+      'entity-rename',
+      {
+        collection: 'variables',
+        id: variableId,
+        toId: renamedId,
+        dryRun: false,
+        sourceRevision: 'xxh3-128:' + '0'.repeat(32),
+      },
+      false,
+    );
+    assert.equal(staleRename.error, 'Structural mutation requires an exact source revision.');
     await nativeCommand('entity-rename', {
       collection: 'variables',
       id: variableId,
       toId: renamedId,
       dryRun: false,
-      sourceRevision: sha(await source(nativeRoot, created)),
+      sourceRevision: renameRevision,
     });
     await identical(renamed);
     oracle(['entity', 'delete', 'variables', renamedId]);
+    const deletePlan = await nativeCommand('entity-delete', {
+      collection: 'variables',
+      id: renamedId,
+      dryRun: true,
+    });
     await nativeCommand('entity-delete', {
       collection: 'variables',
       id: renamedId,
       dryRun: false,
-      sourceRevision: sha(await source(nativeRoot, renamed)),
+      sourceRevision: exactRevision(deletePlan.sourceRevision),
     });
     for (const root of [oracleRoot, nativeRoot]) {
       await assert.rejects(source(root, created), { code: 'ENOENT' });
@@ -133,10 +159,13 @@ try {
       return s.replace('name: Feature Lab', 'name:   Feature Lab');
     });
     oracle(['fmt', 'project.yaml']);
+    const formatPlan = await nativeCommand('fmt', { path: 'project.yaml', check: true });
+    assert.equal(formatPlan.changed, true);
+    exactRevision(formatPlan.diskPreconditions['project.yaml']);
     await nativeCommand('fmt', {
       path: 'project.yaml',
       check: false,
-      diskPreconditions: { 'project.yaml': sha(await source(nativeRoot, 'project.yaml')) },
+      diskPreconditions: formatPlan.diskPreconditions,
     });
     await identical('project.yaml');
   }
@@ -155,7 +184,7 @@ try {
   oracle(['localization', 'sync']);
   await nativeCommand('localization-sync', {
     dryRun: false,
-    sourceRevision: sha(await source(nativeRoot, 'i18n/tracking.yaml')),
+    sourceRevision: exactRevision(sync.sourceRevision),
     expectedSourceGeneration: sync.sourceGeneration,
   });
   await semanticallyIdenticalYaml('i18n/tracking.yaml');
@@ -175,15 +204,14 @@ try {
     };
     oracle(['localization', 'reconcile', '--apply'], input);
     const affected = ['i18n/tracking.yaml', 'i18n/orphans.yaml'];
+    const diskPreconditions = Object.fromEntries(
+      affected.map((name) => [name, exactRevision(reconcile.diskPreconditions[name])]),
+    );
     await nativeCommand('localization-reconcile', {
       ...input,
       workspaceRevision: input.expectedWorkspaceRevision,
       expectedSourceGeneration: reconcile.sourceGeneration,
-      diskPreconditions: Object.fromEntries(
-        await Promise.all(
-          affected.map(async (name) => [name, sha(await source(nativeRoot, name))]),
-        ),
-      ),
+      diskPreconditions,
       dryRun: false,
     });
     for (const relative of affected) await semanticallyIdenticalYaml(relative);
@@ -203,7 +231,7 @@ try {
       messageIds: [messageId],
       dryRun: false,
       expectedSourceGeneration: inspection.sourceGeneration,
-      sourceRevision: sha(await source(nativeRoot, 'i18n/locales/ja.yaml')),
+      sourceRevision: exactRevision(inspection.sourceRevision),
     });
     await identical('i18n/locales/ja.yaml');
   }

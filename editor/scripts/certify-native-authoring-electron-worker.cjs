@@ -82,7 +82,7 @@ async function main() {
     );
     assert.match(
       delta.observation.revisions['records/rooms/room-lifecycle-roundtrip.yaml'],
-      /^sha256:[0-9a-f]{64}$/,
+      /^xxh3-128:[0-9a-f]{32}$/,
     );
     worker.postMessage({
       operation: 'patch',
