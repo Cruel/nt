@@ -1,7 +1,6 @@
 // #534: independent installed native CLI contracts. No imported Project
 // validator, TypeScript reference executable, differential or candidate flag.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -25,7 +24,14 @@ const scratch = await mkdtemp(path.join(os.tmpdir(), 'noveltea-534-public-contra
 const project = path.join(scratch, 'project');
 const home = path.join(scratch, 'home');
 const environment = isolatedProductionEnvironment(process.env, home);
-const hash = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const exactRevision = (revision, name) => {
+  assert.match(
+    revision,
+    /^xxh3-128:[0-9a-f]{32}$/,
+    `${name} must carry an XXH3-128 source revision.`,
+  );
+  return revision;
+};
 let checked = 0;
 
 function json(args, { daemon = false, projectRoot = project, env = {} } = {}) {
@@ -185,8 +191,8 @@ try {
   const cacheFile = path.join(project, '.noveltea/cache/authoring/native-clean-current.json');
   const cache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.equal(cache.contract, 'noveltea.native-clean-validation.v1');
-  assert.equal(cache.revisions['project.yaml'], hash(await readFile(created.projectFilePath)));
-  assert.equal(cache.revisions['records/rooms/start.yaml'], hash(await readFile(roomFile)));
+  const manifestRevision = exactRevision(cache.revisions['project.yaml'], 'project.yaml');
+  const roomRevision = exactRevision(cache.revisions['records/rooms/start.yaml'], 'rooms/start');
   await writeFile(cacheFile, '{not a native cache');
   success(json(['validate']), 'Rejected corrupt disposable cache');
   assert.equal(JSON.parse(await readFile(cacheFile, 'utf8')).contract, cache.contract);
@@ -201,6 +207,18 @@ try {
     ),
   );
   success(json(['fmt', 'project.yaml']), 'Native format write');
+  success(json(['validate']), 'Validation after formatting');
+  const formattedCache = JSON.parse(await readFile(cacheFile, 'utf8'));
+  assert.notEqual(
+    exactRevision(formattedCache.revisions['project.yaml'], 'formatted project.yaml'),
+    manifestRevision,
+    'Formatting a source must invalidate its previous cached revision.',
+  );
+  assert.equal(
+    exactRevision(formattedCache.revisions['records/rooms/start.yaml'], 'unchanged rooms/start'),
+    roomRevision,
+    'Unchanged sources retain their exact cached revisions.',
+  );
   const fmt = success(json(['fmt', 'project.yaml', '--check']), 'Formatting check');
   assert.deepEqual(
     { checked: fmt.checked, changed: fmt.changed, files: fmt.files },

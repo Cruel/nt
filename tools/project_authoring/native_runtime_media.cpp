@@ -747,9 +747,8 @@ struct ColorConversion {
     }
     if (cancelled && cancelled())
         throw VideoError("Video preparation was cancelled.");
-    if (!revisions.at(relative).is_string() ||
-        "sha256:" + digest(read(input, 512ull * 1024 * 1024)) !=
-            revisions.at(relative).get<std::string>())
+    if (!authoring::source_revision_matches(read(input, 512ull * 1024 * 1024),
+                                            revisions.at(relative).get<std::string>()))
         throw VideoError("Video source changed while preparing media.");
     const auto alpha_digest =
         encoded_alpha ? "sha256:" + digest(read(stage_alpha, 128ull * 1024 * 1024)) : std::string{};

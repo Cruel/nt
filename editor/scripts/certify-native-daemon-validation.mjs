@@ -146,17 +146,28 @@ try {
   // retention on every host. An unproved generation must safely miss. Check
   // exact-result retention with a small independently created Project if the
   // Feature Lab's conservative source proof declined the optimization.
-  if (started.exactValidationResults !== undefined || retained.exactValidationResults !== undefined) {
+  if (
+    started.exactValidationResults !== undefined ||
+    retained.exactValidationResults !== undefined
+  ) {
     if (started.exactValidationResults >= 1) {
       assert.ok(retained.exactValidationResults >= 1, 'The native exact result was lost.');
       if (started.engineeringCounters !== undefined || retained.engineeringCounters !== undefined)
         assert.ok(
-          retained.engineeringCounters?.exactResultHits > started.engineeringCounters?.exactResultHits,
+          retained.engineeringCounters?.exactResultHits >
+            started.engineeringCounters?.exactResultHits,
           'Repeated unchanged validation did not hit the native exact-result cache.',
         );
     } else {
       const simpleProject = path.join(root, 'exact-result-fixture');
-      const created = execute(['--json', 'project', 'create', simpleProject, '--name', 'Exact Result Fixture']);
+      const created = execute([
+        '--json',
+        'project',
+        'create',
+        simpleProject,
+        '--name',
+        'Exact Result Fixture',
+      ]);
       assert.equal(created.status, 0, describeProcess(created));
       const smallArgs = ['--project', simpleProject, '--json', 'validate'];
       const smallOracle = execute(['--no-daemon', ...smallArgs]);

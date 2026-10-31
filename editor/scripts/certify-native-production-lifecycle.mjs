@@ -90,6 +90,11 @@ const project = path.join(scratch, 'feature-lab');
 const imported = path.join(scratch, 'reimported');
 const stages = [];
 const sha = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const exactRevision = (revisions, relative) => {
+  const revision = revisions[relative];
+  assert.match(revision, /^xxh3-128:[0-9a-f]{32}$/, `${relative} lacks an exact source revision.`);
+  return revision;
+};
 
 function run(projectRoot, command, daemon = false) {
   const argv = [
@@ -149,11 +154,12 @@ try {
   const cache = JSON.parse(await readFile(cacheFile, 'utf8'));
   assert.equal(cache.contract, 'noveltea.native-clean-validation.v1');
   assert.ok(cache.semanticKey && cache.semanticFingerprint);
-  assert.equal(
-    cache.revisions['project.yaml'],
-    sha(await readFile(path.join(project, 'project.yaml'))),
-    'Cold cache lacks exact Project source proof.',
+  const initialManifestRevision = exactRevision(cache.revisions, 'project.yaml');
+  const initialYamlRevision = exactRevision(
+    cache.revisions,
+    'records/rooms/world-composition.yaml',
   );
+  const initialLuaRevision = exactRevision(cache.revisions, 'scripts/feature-lab-bootstrap.lua');
   const warm = expectSuccess(
     run(project, ['validate'], true),
     'warm independent daemon validation',
@@ -174,9 +180,16 @@ try {
   const yamlBefore = await readFile(yamlPath);
   await writeFile(yamlPath, `${yamlBefore.toString('utf8')}\n# qualification YAML source edit\n`);
   expectSuccess(run(project, ['validate']), 'changed Room YAML validation');
+  const changedYamlCache = JSON.parse(await readFile(cacheFile, 'utf8'));
+  assert.notEqual(
+    exactRevision(changedYamlCache.revisions, 'records/rooms/world-composition.yaml'),
+    initialYamlRevision,
+    'A changed Room record must invalidate its exact source revision.',
+  );
+  assert.equal(exactRevision(changedYamlCache.revisions, 'project.yaml'), initialManifestRevision);
   assert.equal(
-    JSON.parse(await readFile(cacheFile, 'utf8')).revisions['records/rooms/world-composition.yaml'],
-    sha(await readFile(yamlPath)),
+    exactRevision(changedYamlCache.revisions, 'scripts/feature-lab-bootstrap.lua'),
+    initialLuaRevision,
   );
   await writeFile(yamlPath, yamlBefore);
 
@@ -184,12 +197,30 @@ try {
   const luaBefore = await readFile(luaPath);
   await writeFile(luaPath, `${luaBefore.toString('utf8')}\n-- qualification Lua source edit\n`);
   expectSuccess(run(project, ['validate']), 'changed Lua source validation');
+  const changedLuaCache = JSON.parse(await readFile(cacheFile, 'utf8'));
+  assert.notEqual(
+    exactRevision(changedLuaCache.revisions, 'scripts/feature-lab-bootstrap.lua'),
+    initialLuaRevision,
+    'A changed Lua script must invalidate its exact source revision.',
+  );
   assert.equal(
-    JSON.parse(await readFile(cacheFile, 'utf8')).revisions['scripts/feature-lab-bootstrap.lua'],
-    sha(await readFile(luaPath)),
+    exactRevision(changedLuaCache.revisions, 'records/rooms/world-composition.yaml'),
+    initialYamlRevision,
+    'Restored Room bytes must recover the original exact source revision.',
   );
   await writeFile(luaPath, luaBefore);
   expectSuccess(run(project, ['validate']), 'restored tracked source validation');
+  const restoredCache = JSON.parse(await readFile(cacheFile, 'utf8'));
+  for (const [relative, expected] of [
+    ['project.yaml', initialManifestRevision],
+    ['records/rooms/world-composition.yaml', initialYamlRevision],
+    ['scripts/feature-lab-bootstrap.lua', initialLuaRevision],
+  ])
+    assert.equal(
+      exactRevision(restoredCache.revisions, relative),
+      expected,
+      `Restoring ${relative} must recover its original source revision.`,
+    );
 
   const included = [];
   const missing = [];
