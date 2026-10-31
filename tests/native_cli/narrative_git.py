@@ -188,4 +188,83 @@ with tempfile.TemporaryDirectory(prefix='nt-narrative-git-') as temporary:
     independent_result = invoke(independent, independent, '--base', standalone_sha)
     assert independent_result['catalog']['protection']['base'] == standalone_sha
     assert independent_result['catalog']['protection']['impact']['changed'] == []
-    print('Native Git baseline protection, impact witnesses, moves and read-only failures passed.')
+
+    # A commit whose tree lists an unreadable Story blob is not an empty baseline.
+    # Build a detached test commit containing a missing blob without altering HEAD.
+    missing_blob = 'f' * 40
+    missing_tree = subprocess.run(
+        ['git', '-C', str(independent), 'mktree', '--missing'],
+        input=f'100644 blob {missing_blob}\tmissing.md\n',
+        capture_output=True, text=True)
+    assert missing_tree.returncode == 0, missing_tree.stderr
+    missing_commit = git(independent, 'commit-tree', missing_tree.stdout.strip(),
+                         '-m', 'Tree references unreadable Story data')
+    unreadable = invoke(independent, independent, '--base', missing_commit, code=1)
+    assert any(d['code'] == 'baseline-invalid' for d in unreadable['diagnostics'])
+    assert unreadable['catalog']['protection']['status'] == 'unavailable'
+    assert git(independent, 'rev-parse', 'HEAD') == standalone_sha
+
+    # Valid commits predating Story authoring are empty baselines, even if the
+    # Story directory did not exist or had only non-Markdown files at that SHA.
+    for initial_files in (False, True):
+        fresh = repo.parent / ('empty-story-tree' if initial_files else 'empty-git-tree')
+        fresh.mkdir()
+        git(fresh, 'init', '-q')
+        git(fresh, 'config', 'user.name', 'Test Author')
+        git(fresh, 'config', 'user.email', 'test@example.invalid')
+        if initial_files:
+            (fresh / 'README.md').write_text('Repository documentation only\n')
+            (fresh / 'game' / 'story').mkdir(parents=True)
+            (fresh / 'game' / 'story' / 'notes.txt').write_text('No Story Markdown yet\n')
+            git(fresh, 'add', '.')
+        git(fresh, 'commit', '-qm', 'Before Story creation', '--allow-empty')
+        empty_sha = git(fresh, 'rev-parse', 'HEAD')
+        fresh_story = fresh / 'game' / 'story'
+        shutil.copytree(source / 'tests/fixtures/narrative/reference-story', fresh_story,
+                        dirs_exist_ok=True)
+        before_story = snapshot(fresh_story)
+        before_index = git(fresh, 'ls-files', '--stage')
+        created = invoke(fresh, fresh_story, '--base', empty_sha)
+        catalog = created['catalog']
+        protection = catalog['protection']
+        all_ids = {record['metadata']['id'] for record in catalog['records']}
+        assert created['diagnostics'] == []
+        assert protection['status'] == 'checked' and protection['base'] == empty_sha
+        assert protection['checkedDecisions'] == 0 and protection['findings'] == []
+        assert set(protection['impact']['changed']) == all_ids and all_ids
+        assert len(protection['impact']['affected']) == len(all_ids)
+        assert protection['impact']['moved'] == []
+        assert protection['complete'] is True and protection['authorizationVerified'] is False
+        assert catalog['authorization']['status'] == 'unchanged'
+        assert catalog['authorization']['verified'] is False
+        assert snapshot(fresh_story) == before_story
+        assert git(fresh, 'ls-files', '--stage') == before_index
+        assert git(fresh, 'rev-parse', 'HEAD') == empty_sha
+
+        # An empty historical snapshot does not excuse malformed current Story.
+        candidate = fresh_story / 'milestones' / 'accept-investigation.md'
+        original_candidate = candidate.read_bytes()
+        update(candidate, "schema: '0.1'", "schema: '0.0'")
+        broken = invoke(fresh, fresh_story, '--base', empty_sha, code=1)
+        assert any(d['code'] == 'schema' for d in broken['diagnostics'])
+        assert broken['catalog']['protection']['status'] == 'checked'
+        assert broken['catalog']['protection']['complete'] is False
+        assert broken['catalog']['authorization']['status'] == 'indeterminate'
+        candidate.write_bytes(original_candidate)
+
+        # After Story is committed, its protected decisions must still require
+        # human review if subsequently modified; empty history grants no waiver.
+        update(candidate, 'authority: delegated', 'authority: user-protected')
+        git(fresh, 'add', 'game/story')
+        git(fresh, 'commit', '-qm', 'Introduce protected Story decisions')
+        protected_sha = git(fresh, 'rev-parse', 'HEAD')
+        update(candidate, 'permission rather than trespass',
+               'trespass rather than permission')
+        protected_change = invoke(fresh, fresh_story, '--base', protected_sha, code=1)
+        assert protected_change['diagnostics'] == []
+        assert protected_change['catalog']['protection']['status'] == 'checked'
+        assert protected_change['catalog']['protection']['findings'][0]['category'] == 'changed'
+        assert protected_change['catalog']['authorization']['status'] == 'approval-required'
+        assert protected_change['catalog']['authorization']['verified'] is False
+
+    print('Native Git baseline protection, empty history, impact, moves and read-only failures passed.')

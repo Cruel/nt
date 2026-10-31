@@ -70,10 +70,14 @@ Story may be a standalone Git repository or a directory inside a monorepo or
 game Project. The command reads committed blobs directly through Git; it neither
 checks out the baseline nor updates Git state or Story files. Current working
 files are read as they are, including staged, unstaged and untracked Markdown.
-Git must be installed and the commit must resolve to a commit object. Absent
-commits, unsupported historical record metadata, invalid baseline records or
-unsupported Git tree entries fail closed with a `baseline-invalid` structural
-error. Validation without `--base` retains its ordinary standalone behavior.
+Git must be installed and the commit must resolve to a commit object. A valid
+commit with no tracked Story Markdown at the selected root (including a commit
+from before that root existed) is checked as an empty baseline: it has zero
+historical records and protected decisions, and new Story IDs appear in
+`impact.changed`. This does not establish human authorization. Absent commits,
+unreadable Git objects, unsupported historical record metadata, invalid baseline
+records or unsupported Git tree entries fail closed with a `baseline-invalid`
+structural error. Validation without `--base` retains its ordinary standalone behavior.
 
 The ordinary `catalog.diagnostics` array remains **structural errors only**.
 `catalog.protection` has `status: checked|unavailable`, the verified `base`

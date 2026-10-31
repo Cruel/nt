@@ -256,16 +256,22 @@ Snapshot baseline(const fs::path& root, const std::string& revision)
         const auto path_in_story = std::string(path.substr(prefix.empty() ? 0 : prefix.size() + 1));
         sources.emplace(path_in_story, run_git(story, {"cat-file", "blob", object_id}));
     }
-    if (sources.empty())
-        throw std::runtime_error(
-            "Baseline commit contains no tracked Story Markdown at this root.");
-    auto catalog = read_catalog(".", &sources);
-    if (!catalog.diagnostics.empty())
-        throw std::runtime_error("Baseline Story has invalid or unsupported historical metadata.");
-    // Run structural analysis on the baseline through the canonical native graph.
-    (void)analyze(catalog);
-    if (!catalog.diagnostics.empty())
-        throw std::runtime_error("Baseline Story does not satisfy the current narrative contract.");
+    // A verified commit may predate this Story root. With no historical
+    // Markdown there are no records or decisions to check; applying today's
+    // required Creative Direction rule to that empty snapshot would incorrectly
+    // reject a valid Git baseline. Nonempty snapshots still fail closed through
+    // the canonical reader and structural analysis.
+    Catalog catalog;
+    if (!sources.empty()) {
+        catalog = read_catalog(".", &sources);
+        if (!catalog.diagnostics.empty())
+            throw std::runtime_error(
+                "Baseline Story has invalid or unsupported historical metadata.");
+        (void)analyze(catalog);
+        if (!catalog.diagnostics.empty())
+            throw std::runtime_error(
+                "Baseline Story does not satisfy the current narrative contract.");
+    }
     return {sha, std::move(catalog)};
 }
 
