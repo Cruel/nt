@@ -154,7 +154,7 @@ struct SourceAuthority::NativeWatch {
     int fd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
     std::map<std::string, int> descriptors;
     std::set<int> removed_watches;
-    static constexpr auto mask = IN_CREATE | IN_DELETE | IN_CLOSE_WRITE | IN_ATTRIB |
+    static constexpr auto mask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_CLOSE_WRITE | IN_ATTRIB |
                                  IN_MOVED_FROM | IN_MOVED_TO | IN_DELETE_SELF | IN_MOVE_SELF |
                                  IN_UNMOUNT;
 
@@ -277,9 +277,10 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
     count_validation_work(&ValidationWorkCounters::source_captures);
     Capture result;
     result.directories.insert(".");
-    if (hints)
+    if (hints) {
         result.members = directory_members_;
-    else if (!native_->watch(root_, "."))
+        result.symlink_revisions = symlink_revisions_;
+    } else if (!native_->watch(root_, "."))
         throw std::runtime_error("Cannot watch Project root during source admission.");
     if (hints) {
         // Watch events are invalidations, not a claim about what the leaf now
@@ -300,7 +301,8 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
             if (error && error != std::errc::no_such_file_or_directory)
                 throw std::filesystem::filesystem_error("Cannot inspect changed Project path",
                                                         root_ / relative, error);
-            if (status.type() == std::filesystem::file_type::symlink)
+            if (status.type() == std::filesystem::file_type::symlink &&
+                !symlink_revisions_.contains(path))
                 throw std::runtime_error("Changed Project symlink needs full source readmission: " +
                                          path);
             if (was_directory || status.type() == std::filesystem::file_type::directory) {
@@ -318,7 +320,10 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                 } else {
                     directory->second[path] =
                         Capture::Member{status.type() == std::filesystem::file_type::directory,
-                                        status.type() == std::filesystem::file_type::regular};
+                                        status.type() == std::filesystem::file_type::regular ||
+                                            (status.type() == std::filesystem::file_type::symlink &&
+                                             std::filesystem::is_regular_file(root_ / relative)),
+                                        status.type() == std::filesystem::file_type::symlink};
                 }
             }
         }
@@ -408,6 +413,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                 }
             }
         }
+        result.symlink_revisions.erase(relative);
         std::filesystem::file_status leaf;
         const auto absolute = secure(relative, &leaf);
         const auto parent = std::filesystem::path(relative).parent_path();
@@ -433,6 +439,8 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
         if (status.type() == std::filesystem::file_type::not_found ||
             ec == std::errc::no_such_file_or_directory) {
             result.revisions.emplace(relative, "absent");
+            if (leaf.type() == std::filesystem::file_type::symlink)
+                result.symlink_revisions.emplace(relative, "absent");
             return;
         }
         if (ec || !std::filesystem::is_regular_file(status))
@@ -449,10 +457,15 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                     .count();
             result.revisions.emplace(relative, "physical:" + std::to_string(size) + ":" +
                                                    std::to_string(modified_ns));
+            if (leaf.type() == std::filesystem::file_type::symlink)
+                result.symlink_revisions.emplace(relative,
+                                                 exact_source_revision(read_exact_bytes(absolute)));
         } else {
             std::filesystem::file_time_type modified;
             auto bytes = read_exact_bytes(absolute, &modified);
             auto revision = exact_source_revision(bytes);
+            if (leaf.type() == std::filesystem::file_type::symlink)
+                result.symlink_revisions.emplace(relative, revision);
             result.revisions.emplace(relative, revision);
             if (const auto prior = sources_.find(relative); prior != sources_.end() &&
                                                             prior->second->revision == revision &&
@@ -485,6 +498,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
         const std::filesystem::path& path() const { return filename; }
         bool is_directory() const { return member.directory; }
         bool is_regular_file() const { return member.regular; }
+        bool is_symlink() const { return member.symlink; }
     };
     const auto scan = [&](const std::string& directory, auto&& accept) {
         auto current = result.members.find(directory);
@@ -506,7 +520,8 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                 const auto relative = entry.path().lexically_relative(root_).generic_string();
                 secure(relative);
                 membership.emplace(relative,
-                                   Capture::Member{entry.is_directory(), entry.is_regular_file()});
+                                   Capture::Member{entry.is_directory(), entry.is_regular_file(),
+                                                   entry.is_symlink()});
             }
             current = result.members.find(directory);
         }
@@ -548,7 +563,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
     }
     for (const auto* directory : {"i18n/locales", "i18n/assets"})
         scan(directory, [&](const auto& entry, const std::string& relative) {
-            if (entry.is_regular_file() &&
+            if ((entry.is_regular_file() || entry.is_symlink()) &&
                 (entry.path().extension() == ".yaml" || entry.path().extension() == ".json"))
                 add(relative);
         });
@@ -565,7 +580,8 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                 if (std::filesystem::is_empty(entry.path()))
                     return;
                 scan(record, [&](const auto& leaf, const std::string& file) {
-                    if (leaf.is_regular_file() && is_source_extension(leaf.path()))
+                    if ((leaf.is_regular_file() || leaf.is_symlink()) &&
+                        is_source_extension(leaf.path()))
                         add(file);
                 });
                 const auto metadata = record + "/layout.yaml";
@@ -587,7 +603,8 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                     if (!opened.accepted)
                         result.invalid_sources.push_back({metadata, opened.error});
                 }
-            } else if (entry.is_regular_file() && is_source_extension(entry.path())) {
+            } else if ((entry.is_regular_file() || entry.is_symlink()) &&
+                       is_source_extension(entry.path())) {
                 add(record);
                 if (relative != "records/assets" && entry.path().extension() == ".yaml") {
                     // Validate the changed physical owner only. Preserve an
@@ -669,7 +686,7 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                         "Project source directory traversal is cyclic or deep: " + relative);
                 if (entry.is_directory())
                     self(self, relative, depth + 1);
-                else if (entry.is_regular_file() &&
+                else if ((entry.is_regular_file() || entry.is_symlink()) &&
                          (entry.path().extension() == extension ||
                           (directory == "shaders" && entry.path().extension() == ".sh")))
                     add(relative);
@@ -717,6 +734,14 @@ SourceAuthority::Capture SourceAuthority::capture(const std::set<std::string>* h
                     {"project.yaml", "Distribution notice path is not contained in the Project."});
         }
     }
+    // A deleted lexical symlink need not appear in an inventory walk. Revoke
+    // its previous target proof rather than carrying a stale alias forward.
+    for (auto it = result.symlink_revisions.begin(); it != result.symlink_revisions.end();) {
+        if (!result.revisions.contains(it->first))
+            it = result.symlink_revisions.erase(it);
+        else
+            ++it;
+    }
     if (std::filesystem::canonical(root_) != canonical_root_)
         throw std::runtime_error("Project root changed during physical observation.");
     std::map<std::filesystem::path, PrefixEvidence> final_parents;
@@ -757,6 +782,7 @@ bool SourceAuthority::initialize(std::string& error, bool allow_invalid_sources)
         directory_members_ = std::move(captured.members);
         sources_ = std::move(captured.sources);
         asset_references_ = std::move(captured.asset_references);
+        symlink_revisions_ = std::move(captured.symlink_revisions);
         invalid_sources_ = std::move(captured.invalid_sources);
         if (!allow_invalid_sources && !invalid_sources_.empty()) {
             error = "Project contains an invalid Asset source: " + invalid_sources_.front().path;
@@ -902,6 +928,33 @@ bool SourceAuthority::fence()
         coverage_lost();
         return false;
     }
+    // A lexical watch on the source parent cannot observe writes made via an
+    // in-root symlink target in an otherwise untracked directory. Reprove only
+    // those target bytes, including contained binary aliases, before accepting
+    // this pinned generation. A mismatch is a targeted invalidation, not proof
+    // of the previous generation.
+    for (const auto& [relative, revision] : symlink_revisions_) {
+        try {
+            const auto path = root_ / relative;
+            if (std::filesystem::symlink_status(path).type() !=
+                    std::filesystem::file_type::symlink ||
+                !contained(canonical_root_, path)) {
+                hinted_paths_.insert(relative);
+                return false;
+            }
+            if (revision == "absent") {
+                if (std::filesystem::status(path).type() == std::filesystem::file_type::not_found)
+                    continue;
+            } else if (exact_source_revision(read_exact_bytes(path)) == revision) {
+                continue;
+            }
+            hinted_paths_.insert(relative);
+            return false;
+        } catch (...) {
+            coverage_lost();
+            return false;
+        }
+    }
 #ifndef __linux__
     // Without native watcher guarantees, a pinned generation cannot be
     // certified by a cheap fence. Callers must use full physical observation.
@@ -949,6 +1002,10 @@ SourceObservation SourceAuthority::observe()
     bool observed = false;
     if (native_->drain(observed, hinted_paths_))
         uncertain_ = true;
+    // Unwatched resolved targets must never be silently reused on a warm
+    // observation, even when no event reached the lexical source directory.
+    for (const auto& [relative, _] : symlink_revisions_)
+        hinted_paths_.insert(relative);
     observation.full_rescan = uncertain_;
     try {
         // Arm the replacement watcher *before* a recovery capture. Resetting
@@ -1015,6 +1072,7 @@ SourceObservation SourceAuthority::observe()
         directory_members_ = std::move(captured.members);
         sources_ = std::move(captured.sources);
         asset_references_ = std::move(captured.asset_references);
+        symlink_revisions_ = std::move(captured.symlink_revisions);
         invalid_sources_ = observation.invalid_sources;
         uncertain_ = false;
         arm(captured.directories);

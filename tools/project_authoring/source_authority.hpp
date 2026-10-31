@@ -120,11 +120,15 @@ private:
         struct Member {
             bool directory = false;
             bool regular = false;
+            bool symlink = false;
         };
         std::map<std::string, std::string> revisions;
         std::set<std::string> directories;
         std::map<std::string, std::map<std::string, Member>> members;
         std::map<std::string, std::set<std::string>> asset_references;
+        // Lexical source symlinks can resolve outside watched source directories.
+        // Their exact target bytes are reproven at every observation/fence.
+        std::map<std::string, std::string> symlink_revisions;
         std::vector<InvalidSource> invalid_sources;
         std::map<std::string, std::shared_ptr<const VerifiedProjectSource>, std::less<>> sources;
     };
@@ -137,6 +141,7 @@ private:
     std::set<std::string> watched_directories_;
     std::map<std::string, std::map<std::string, Capture::Member>> directory_members_;
     std::map<std::string, std::set<std::string>> asset_references_;
+    std::map<std::string, std::string> symlink_revisions_;
     std::vector<InvalidSource> invalid_sources_;
     std::map<std::string, std::shared_ptr<const VerifiedProjectSource>, std::less<>> sources_;
     std::set<std::string> hinted_paths_;

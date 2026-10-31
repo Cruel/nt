@@ -280,6 +280,8 @@ if(BUILD_TESTING)
         --source-analysis "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_project_validation COMMAND noveltea-project-session-certify
         --project-validation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_source_watcher_races COMMAND noveltea-project-session-certify
+        --source-watcher-races "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_clean_cache_path_alias COMMAND noveltea-project-session-certify
         --clean-cache-alias "${NOVELTEA_AUTHORING_SMALL_PROJECT}")
     add_test(NAME native_authoring_missing_record_inspection COMMAND noveltea-project-session-certify

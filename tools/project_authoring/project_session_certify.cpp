@@ -17,6 +17,11 @@
 #include <noveltea/core/fingerprint.hpp>
 #include <set>
 
+#ifdef __linux__
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 #ifdef _WIN32
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
@@ -1545,6 +1550,94 @@ void working_preparation_roundtrip(const std::filesystem::path& fixture)
             "Editor native text Save accepts correct XXH3-128 precondition and publishes XXH3-128");
 }
 
+void source_watcher_races(const std::filesystem::path& fixture)
+{
+#ifdef __linux__
+    constexpr std::string_view source = "scripts/notice-board.lua";
+    constexpr std::string_view changed = "\n-- open file writer must invalidate before close\n";
+    const auto check_changed = [=](SourceAuthority& authority, std::string_view original,
+                                   std::string_view reason) {
+        require(!authority.fence(), reason);
+        const auto observed = authority.observe();
+        const auto* current = authority.verified_source(source);
+        require(observed.authoritative && !observed.unchanged &&
+                    std::find(observed.delta.changed.begin(), observed.delta.changed.end(),
+                              source) != observed.delta.changed.end() &&
+                    current && current->bytes != original && current->bytes.ends_with(changed),
+                "Watcher observation must replace stale Lua evidence with actual written bytes");
+    };
+    {
+        TemporaryProject temp(fixture);
+        std::string error;
+        SourceAuthority authority(temp.root);
+        require(authority.initialize(error), "Open-writer watcher fixture: " + error);
+        const auto path = temp.root / source;
+        const auto original = read(path);
+        const int fd = ::open(path.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC);
+        require(fd >= 0, "Open tracked Lua writer");
+        require(::write(fd, changed.data(), changed.size()) ==
+                        static_cast<ssize_t>(changed.size()) &&
+                    ::fsync(fd) == 0,
+                "Tracked Lua writer has flushed without closing");
+        check_changed(authority, original, "An open writer invalidates pinned source generation");
+        ::close(fd);
+    }
+    {
+        TemporaryProject temp(fixture);
+        const auto lexical = temp.root / source;
+        const auto original = read(lexical);
+        const auto target = temp.root / "untracked/helper.lua";
+        std::filesystem::create_directories(target.parent_path());
+        std::filesystem::rename(lexical, target);
+        std::filesystem::create_symlink("../untracked/helper.lua", lexical);
+        std::string error;
+        SourceAuthority authority(temp.root);
+        require(authority.initialize(error), "In-root symlinked Lua source admitted: " + error);
+        require(authority.fence(), "Unchanged symlinked source starts with valid evidence");
+        const int fd = ::open(target.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC);
+        require(fd >= 0 &&
+                    ::write(fd, changed.data(), changed.size()) ==
+                        static_cast<ssize_t>(changed.size()) &&
+                    ::fsync(fd) == 0,
+                "Unwatched symlink target is modified through its resolved path");
+        ::close(fd);
+        check_changed(authority, original,
+                      "Unwatched symlink targets cannot pass pinned publication fence");
+        require(authority.fence(), "Reproved symlink bytes allow a new pinned generation");
+        std::filesystem::remove(lexical);
+        const auto removed = authority.observe();
+        require(removed.authoritative &&
+                    std::find(removed.delta.removed.begin(), removed.delta.removed.end(), source) !=
+                        removed.delta.removed.end() &&
+                    authority.fence(),
+                "Deleted lexical symlinks revoke their stale target proof and membership");
+    }
+    {
+        TemporaryProject temp(fixture);
+        const auto lexical = temp.root / source;
+        const auto target = temp.root / "untracked/not-yet-created.lua";
+        std::filesystem::create_directories(target.parent_path());
+        std::filesystem::remove(lexical);
+        std::filesystem::create_symlink("../untracked/not-yet-created.lua", lexical);
+        std::string error;
+        SourceAuthority authority(temp.root);
+        require(authority.initialize(error) && authority.fence(),
+                "Missing contained file-symlink target remains tracked as absent: " + error);
+        write(target, "return true\n");
+        require(!authority.fence(),
+                "Creating an unwatched symlink target invalidates the absent generation");
+        const auto appeared = authority.observe();
+        require(appeared.authoritative &&
+                    std::find(appeared.delta.added.begin(), appeared.delta.added.end(), source) !=
+                        appeared.delta.added.end() &&
+                    authority.verified_source(source) != nullptr && authority.fence(),
+                "New symlink target is re-admitted with exact source bytes");
+    }
+#else
+    (void)fixture;
+#endif
+}
+
 void project_validation_roundtrip(const std::filesystem::path& fixture)
 {
     TemporaryProject temp(fixture);
@@ -2298,6 +2391,10 @@ int main(int argc, char** argv)
         }
         if (argc == 3 && std::string_view(argv[1]) == "--project-validation") {
             project_validation_roundtrip(argv[2]);
+            return 0;
+        }
+        if (argc == 3 && std::string_view(argv[1]) == "--source-watcher-races") {
+            source_watcher_races(argv[2]);
             return 0;
         }
         if (argc == 3 && std::string_view(argv[1]) == "--clean-cache-alias") {

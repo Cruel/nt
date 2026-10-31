@@ -28,6 +28,16 @@ binary files.
 
 If coverage is lost (including inotify overflow or a replaced watched
 directory), authority is revoked until a full source readmission succeeds.
+Linux watches include write-time `IN_MODIFY` notifications, not only close-write,
+so a writer that flushes while retaining an open descriptor cannot publish an
+unchanged generation. For source files admitted through in-root **file symlinks**,
+the lexical parent watcher cannot guarantee coverage of an untracked resolved
+target directory. Those aliases therefore use conservative exact target-byte
+reproof on each observation and publication fence; changes invalidate the
+pinned generation even without a lexical inotify event. Referenced binary
+Asset aliases use the same conservative exact-byte evidence. This exceptional
+path trades symlink-target IO for correctness without imposing it on ordinary
+file sources.
 Symlink changes, cycles and paths escaping the canonical Project root fail
 closed rather than reusing cached evidence. Platforms without native watcher
 coverage still perform full observations. The healthy-watcher policy
