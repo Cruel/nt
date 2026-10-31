@@ -52,8 +52,9 @@ export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-12}"
 
 ## Native authoring schema certification
 
-The certification-only host build, Node-free C++ build commands, generator freshness check, and
-native/Zod differential test invocation are documented in
+The host-only authoring build generates native contracts from the pinned Node/pnpm
+schema sources during CMake configuration; C++ compilation itself is Node-free.
+Generator reproducibility and native/Zod differential tests are documented in
 [Native Project schema contracts](../architecture/NATIVE_AUTHORING_CONTRACTS.md#verification).
 It is separate from player/runtime verification and does not change production Project authority.
 

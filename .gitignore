@@ -1,4 +1,5 @@
 build/
+tools/project_authoring/generated/
 !docs/build/
 docs/build/*
 !docs/build/*.md

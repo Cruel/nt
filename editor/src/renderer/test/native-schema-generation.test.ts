@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,7 +15,7 @@ describe('native Project schema generation', () => {
     expect(Object.keys(contracts.roots).sort()).toEqual(Object.keys(nativeSchemaSources).sort());
     expect(contracts.schemas.Project).toHaveProperty('properties.rooms');
   });
-  it('detects stale committed outputs through the generator command', () => {
+  it('preserves unchanged generated file timestamps and detects stale build outputs', () => {
     const output = mkdtempSync(path.join(tmpdir(), 'nt-schema-'));
     const script = path.resolve('scripts/generate-native-schema.mjs');
     const run = (...args: string[]) =>
@@ -25,6 +25,9 @@ describe('native Project schema generation', () => {
       expect(generated.status, generated.stderr).toBe(0);
       expect(run('--check').status).toBe(0);
       const target = path.join(output, 'contracts.json');
+      const timestamp = statSync(target).mtimeMs;
+      expect(run().status).toBe(0);
+      expect(statSync(target).mtimeMs).toBe(timestamp);
       writeFileSync(target, readFileSync(target, 'utf8') + ' ');
       const stale = run('--check');
       expect(stale.status).toBe(1);

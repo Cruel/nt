@@ -37,8 +37,47 @@ function(noveltea_add_host_libfyaml)
 endfunction()
 noveltea_add_host_libfyaml()
 
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json")
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json" contract_json)
+# Generate the Zod-owned host contracts into the build tree at configure time.
+# Configure-time generation is required because CMake embeds contracts.json and
+# fingerprints its exact bytes before defining the native targets.
+file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../editor" NOVELTEA_NATIVE_SCHEMA_SOURCE_ROOT)
+file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../.." NOVELTEA_NATIVE_SCHEMA_REPOSITORY_ROOT)
+set(NOVELTEA_NATIVE_SCHEMA_GENERATOR "${NOVELTEA_NATIVE_SCHEMA_SOURCE_ROOT}/scripts/generate-native-schema.mjs")
+set(NOVELTEA_NATIVE_SCHEMA_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+# ABI-floor containers may consume outputs prepared and verified by their host
+# checkout, without installing Node into the constrained compiler image.
+option(NOVELTEA_NATIVE_SCHEMA_PREGENERATED "Consume externally prepared native schema contracts" OFF)
+if(NOT NOVELTEA_NATIVE_SCHEMA_PREGENERATED)
+    find_program(NOVELTEA_SCHEMA_NODE_EXECUTABLE NAMES node REQUIRED)
+endif()
+file(GLOB_RECURSE NOVELTEA_NATIVE_SCHEMA_INPUTS CONFIGURE_DEPENDS
+    "${NOVELTEA_NATIVE_SCHEMA_SOURCE_ROOT}/src/shared/*.ts"
+    "${NOVELTEA_NATIVE_SCHEMA_SOURCE_ROOT}/scripts/native-schema/*.ts"
+    "${NOVELTEA_NATIVE_SCHEMA_SOURCE_ROOT}/scripts/native-schema/*.mjs")
+list(APPEND NOVELTEA_NATIVE_SCHEMA_INPUTS
+    "${NOVELTEA_NATIVE_SCHEMA_GENERATOR}"
+    "${NOVELTEA_NATIVE_SCHEMA_SOURCE_ROOT}/package.json"
+    "${NOVELTEA_NATIVE_SCHEMA_REPOSITORY_ROOT}/pnpm-lock.yaml"
+    "${NOVELTEA_NATIVE_SCHEMA_REPOSITORY_ROOT}/.node-version")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${NOVELTEA_NATIVE_SCHEMA_INPUTS})
+if(NOT NOVELTEA_NATIVE_SCHEMA_PREGENERATED)
+    execute_process(
+        COMMAND "${NOVELTEA_SCHEMA_NODE_EXECUTABLE}" "${NOVELTEA_NATIVE_SCHEMA_GENERATOR}"
+            --output "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}"
+        WORKING_DIRECTORY "${NOVELTEA_NATIVE_SCHEMA_REPOSITORY_ROOT}"
+        RESULT_VARIABLE NOVELTEA_NATIVE_SCHEMA_RESULT
+        OUTPUT_VARIABLE NOVELTEA_NATIVE_SCHEMA_LOG
+        ERROR_VARIABLE NOVELTEA_NATIVE_SCHEMA_ERROR)
+    if(NOT NOVELTEA_NATIVE_SCHEMA_RESULT STREQUAL "0")
+        message(FATAL_ERROR "Native schema generation failed (${NOVELTEA_NATIVE_SCHEMA_RESULT}):\n${NOVELTEA_NATIVE_SCHEMA_LOG}\n${NOVELTEA_NATIVE_SCHEMA_ERROR}\nInstall pinned dependencies using pnpm install --frozen-lockfile.")
+    endif()
+endif()
+foreach(artifact IN ITEMS contracts.json operations.hpp project_types.hpp)
+    if(NOT EXISTS "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}/${artifact}")
+        message(FATAL_ERROR "Missing native schema artifact ${artifact} in ${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}")
+    endif()
+endforeach()
+file(READ "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}/contracts.json" contract_json)
 string(LENGTH "${contract_json}" contract_length)
 set(NOVELTEA_NATIVE_CONTRACT_CHUNKS "")
 set(offset 0)
@@ -87,7 +126,7 @@ list(FILTER NOVELTEA_NATIVE_VALIDATION_SOURCES EXCLUDE REGEX "(_certify|authorin
 # the repository root, and without adding a ../.. alias to Ninja dependencies.
 file(REAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION" _noveltea_repository_version)
 list(APPEND NOVELTEA_NATIVE_VALIDATION_SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json" "${NOVELTEA_MATERIAL_REGISTRY}"
+    "${NOVELTEA_NATIVE_SCHEMA_DIRECTORY}/contracts.json" "${NOVELTEA_MATERIAL_REGISTRY}"
     "${_noveltea_repository_version}")
 set(NOVELTEA_NATIVE_VALIDATION_SOURCE_IDENTITIES "")
 foreach(input IN LISTS NOVELTEA_NATIVE_VALIDATION_SOURCES)
@@ -161,6 +200,7 @@ if(NOVELTEA_BUILD_AUTHORING_NODE_ADDON)
 endif()
 # Deliberately no engine/player link or install rule: this is a certification-only host library.
 add_executable(noveltea-schema-certify certify.cpp types_compile.cpp)
+target_include_directories(noveltea-schema-certify PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(noveltea-schema-certify PRIVATE noveltea_project_authoring_contracts)
 if(BUILD_TESTING)
     add_executable(noveltea-source-hash-certify source_hash_certify.cpp)

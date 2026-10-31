@@ -1,6 +1,6 @@
 #include "contracts.hpp"
 #include "embedded_contracts.hpp"
-#include "generated/operations.hpp"
+#include <generated/operations.hpp>
 #include "localization_operations.hpp"
 
 #include <jsoncons/json.hpp>

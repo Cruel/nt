@@ -1,8 +1,10 @@
 // Independent native command contracts. Production additionally certifies
 // every emitted editor JS root, never a CLI scripting island.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createCertificationRoot } from './certification-temp-root.mjs';
@@ -18,14 +20,22 @@ import {
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
-// Use the checked native-generated record source inventory, not a runtime
-// import of the retired/renderer schema authoring implementation.
-const generatedContracts = JSON.parse(
-  await readFile(
-    path.join(repositoryRoot, 'tools/project_authoring/generated/contracts.json'),
-    'utf8',
-  ),
-);
+// Generate an independent certification inventory rather than depending on
+// an obsolete checked-in build artifact or importing renderer authority at runtime.
+const schemaScratch = await mkdtemp(path.join(tmpdir(), 'noveltea-certify-schema-'));
+let generatedContracts;
+try {
+  execFileSync(
+    process.execPath,
+    [path.join(editorRoot, 'scripts/generate-native-schema.mjs'), '--output', schemaScratch],
+    { cwd: repositoryRoot, stdio: 'pipe' },
+  );
+  generatedContracts = JSON.parse(
+    await readFile(path.join(schemaScratch, 'contracts.json'), 'utf8'),
+  );
+} finally {
+  await rm(schemaScratch, { recursive: true, force: true });
+}
 const authoringCollectionKeys = [
   'assets',
   ...Object.keys(generatedContracts.entityRecordSources),

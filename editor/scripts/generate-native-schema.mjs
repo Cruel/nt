@@ -149,7 +149,7 @@ if (outputIndex !== -1 && !process.argv[outputIndex + 1])
   throw new Error('--output requires a directory');
 const root =
   outputIndex === -1
-    ? fileURLToPath(new URL('../../tools/project_authoring/generated/', import.meta.url))
+    ? fileURLToPath(new URL('../../build/native-schema/generated/', import.meta.url))
     : path.resolve(process.argv[outputIndex + 1]);
 const files = new Map([
   ['project_types.hpp', types],
@@ -246,7 +246,9 @@ for (const [name, content] of files) {
       console.error(`Stale native schema artifact: ${target}`);
       stale = true;
     }
-  } else await writeFile(target, content);
+  } else if ((await readFile(target, 'utf8').catch(() => null)) !== content) {
+    await writeFile(target, content);
+  }
 }
 for (const name of await readdir(root))
   if (!files.has(name)) {

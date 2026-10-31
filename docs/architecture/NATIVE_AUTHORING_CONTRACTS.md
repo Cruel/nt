@@ -269,12 +269,26 @@ add validation coverage without changing runtime-visible fixtures.
 
 ## Generation
 
-Run from the repository root:
+Native host CMake configuration generates contracts automatically into
+`<cmake-build-dir>/tools/project_authoring/generated/` (or
+`<cmake-build-dir>/generated/` for standalone host CMake configuration).
+Node 24 and the pinned pnpm dependencies are required on the **host** for
+the initial generation; subsequent native compilation uses only generated data.
+For constrained compiler containers, pre-generate all three files in the target CMake
+binary directory and configure with `-DNOVELTEA_NATIVE_SCHEMA_PREGENERATED=ON`.
+Release CI verifies the host-generated outputs before mounting them into its Linux
+ABI-floor container. That opt-in is not the default for ordinary native builds.
+Schema source changes automatically trigger CMake reconfiguration. The generator
+does not rewrite unchanged outputs, preserving incremental C++ builds.
+
+For an independent generation/reproducibility check from the repository root:
 
 ```sh
 node editor/scripts/generate-native-schema.mjs
 node editor/scripts/generate-native-schema.mjs --check
 ```
+
+Those direct commands use the ignored `build/native-schema/generated/` directory.
 
 The generator is tested against the lockfile's Zod **4.4.3**; changing that version fails generation
 until the visitor and differential tests are reviewed. Structural JSON Schema comes from Zod's
@@ -284,7 +298,7 @@ metadata. Recursive lazies use the public cached `unwrap()` interface rather tha
 independently. Generation therefore does not rely solely on private Zod representations or the
 reference-document exporter's deliberately permissive `unrepresentable: 'any'` behavior.
 
-Committed outputs under `tools/project_authoring/generated/` are deterministic:
+Ignored build-tree outputs are deterministic:
 
 - `contracts.json`: structural JSON Schemas, node/child relationships, ordered check stages, roots,
   semantic operation references, literal defaults, Room/Map sparse-source omissions,
@@ -295,8 +309,9 @@ Committed outputs under `tools/project_authoring/generated/` are deterministic:
 
 The artifacts are same-build generated implementation data, not an independently versioned protocol.
 `--check` rejects changed, missing, or unexpected artifacts. `--output <directory>` supports isolated
-regeneration/staleness tests. The editor `check` task and Build CI enforce freshness. CMake consumes
-only committed artifacts; ordinary native configuration/build does not execute Node or Zod.
+regeneration/staleness tests. The editor `check` task and Build CI verify reproducibility.
+CMake generates these artifacts during native host configuration and embeds only the generated
+build-tree copies; the subsequent C++ compilation does not execute Node or Zod.
 
 ## Semantic registration and failure policy
 

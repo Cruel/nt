@@ -1766,6 +1766,12 @@ jobs:
         if: runner.os == 'Linux'
         run: node editor/scripts/build-native-authoring-addon.mjs --headers-only
 
+      - name: Generate Linux authoring contracts for the ABI-floor container
+        if: runner.os == 'Linux'
+        run: |
+          node editor/scripts/generate-native-schema.mjs --output build/native-authoring-host/generated
+          node editor/scripts/generate-native-schema.mjs --output build/native-authoring-host/generated --check
+
       - name: Build Linux authoring addon at the supported ABI floor
         if: runner.os == 'Linux'
         shell: bash
@@ -1791,6 +1797,7 @@ jobs:
               cmake -S tools/project_authoring -B build/native-authoring-host -G Ninja \
                 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
                 -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON \
+                -DNOVELTEA_NATIVE_SCHEMA_PREGENERATED=ON \
                 -DNOVELTEA_NODE_API_INCLUDE_DIR="/workspace/build/electron-authoring-headers/$ELECTRON_VERSION/include/node" \
                 "-DCMAKE_MODULE_LINKER_FLAGS=-static-libstdc++ -static-libgcc"
               cmake --build build/native-authoring-host --target noveltea-authoring-node

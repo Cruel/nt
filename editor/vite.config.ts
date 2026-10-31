@@ -267,7 +267,8 @@ export default defineConfig({
         output: [],
       },
       'check:native-schema': {
-        command: 'node scripts/generate-native-schema.mjs --check',
+        command:
+          'node scripts/generate-native-schema.mjs && node scripts/generate-native-schema.mjs --check',
         cache: true,
         input: [
           'src/shared/**/*',
@@ -276,7 +277,7 @@ export default defineConfig({
           'package.json',
           '../pnpm-lock.yaml',
           '../.node-version',
-          '../tools/project_authoring/generated/*',
+          '../tools/project_authoring/CMakeLists.txt',
         ],
         output: [],
       },

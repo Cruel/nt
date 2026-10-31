@@ -77,11 +77,10 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Verify Material contract projections
         run: node scripts/generate-material-contract-registry.mjs --check
-      - name: Verify native Project schema projections
-        run: node editor/scripts/generate-native-schema.mjs --check
-      - name: Build committed host contracts without Node generation
+      - name: Build host contracts with generated schema outputs
         run: |
           cmake -S tools/project_authoring -B build/native-authoring -DCMAKE_BUILD_TYPE=Release -DNOVELTEA_BUILD_AUTHORING_NODE_ADDON=ON
+          node editor/scripts/generate-native-schema.mjs --output build/native-authoring/generated --check
           cmake --build build/native-authoring
           ctest --test-dir build/native-authoring --output-on-failure
       - name: Certify native and Zod Project contract parity
