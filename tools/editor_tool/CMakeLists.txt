@@ -503,4 +503,7 @@ target_compile_definitions(noveltea-cli-native-certify PRIVATE ${NOVELTEA_NLOHMA
 if(BUILD_TESTING)
     add_test(NAME native_authoring_cli_commands
         COMMAND noveltea-cli-native-certify "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
+    add_test(NAME native_authoring_cli_validation_generation
+        COMMAND noveltea-cli-native-certify --validation-generation
+                "${CMAKE_SOURCE_DIR}/tests/projects/feature-lab")
 endif()

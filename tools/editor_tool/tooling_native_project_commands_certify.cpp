@@ -1871,6 +1871,12 @@ int main(int argc, char** argv)
             std::cout << "Native pinned shader preparation certification passed.\n";
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[1]) == "--validation-generation") {
+            certify_validation_exact_asset_boundary(argv[2]);
+            certify_deferred_cache_hit_asset_proof(argv[2]);
+            std::cout << "Native public validation generation certification passed.\n";
+            return 0;
+        }
         // Test-only direct adapter seam for real two-root mutation comparison.
         // This is not linked into the installed production CLI command parser.
         if (argc == 3 && std::string_view(argv[1]) == "--request-file") {
