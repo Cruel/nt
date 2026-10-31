@@ -65,6 +65,48 @@ owner. Source transactions and publication security checks remain separate
 from the cached semantic evidence. This optimization changes internal work
 counters, not CLI diagnostics, source-generation identity, or cache schema.
 
+#### #583 reference-machine certification (2026-10-31)
+
+The separate [pinned-generation result](performance/baselines/validation-2026-10-31-pinned-generation.json)
+records all **83 samples** against the unmodified #577 benchmark harness with
+the clean implementation commit `ed488efc`, Release native CLI and Release
+Node-API addon. The machine (Ryzen 7 5700G), tool versions, cache/fixture
+conditions, compiler flags, and harness SHA-256 match the pre-optimization
+[#577 baseline](performance/baselines/validation-2026-10-31-release.json) and
+[#582 result](performance/baselines/validation-2026-10-31-watcher-backed.json).
+All **83 diagnostic fingerprints match both**; semantic recheck counts,
+dependent font/shader preparation invocations, and final-generation-proof
+counts also agree. All times are milliseconds, median of the repeated cases.
+
+| Project | Unchanged resident, #582 → #583 | Warm saved label, #582 → #583 | `--no-daemon`, #582 → #583 |
+|---|---:|---:|---:|
+| Feature Lab | 220.1 → 210.2 | 233.1 → 218.8 | 2,555.7 → 2,542.8 |
+| 1 Room | 10.2 → 9.9 | 11.9 → 11.0 | 81.9 → 79.8 |
+| 101 Rooms | 30.8 → 28.8 | 31.3 → 30.4 | 161.4 → 178.2 |
+| 501 Rooms | 117.7 → 110.8 | 118.9 → 126.3 | 522.8 → 497.1 |
+
+Feature Lab **warm saved label** now performs **one** end-to-end source
+capture instead of five (and still one record recheck), with **zero**
+directory enumerations in both #582 and #583. **Unchanged resident** drops
+from four captures to **one**, with zero record rechecks. Cold Feature Lab
+also drops from six captures to **one**. All matching Feature Lab byte-read
+and hash counters remain unchanged: the final binary Asset proof is still
+independently performed. The warm saved label has **419** instrumented byte
+reads and **1,964** content hashes in both results, with one font coverage,
+shader compile, and final-generation proof invocation. Relative to the
+original #577 baseline, the same warm label went from **205 directory
+enumerations to zero**, **five captures to one**, 2,268 reads to 419, and
+3,813 hashes to 1,964.
+
+The 501-Room warm-label case likewise falls from five to one capture with
+zero enumerations, five reads, seven hashes and one record recheck in both
+#582 and #583. Editor in-memory measurements and work counters are unchanged
+by this public-CLI-specific optimization. Median latencies fluctuate in
+either direction, especially for small Projects and cold restarts; reduced
+capture calls are the deterministically verified improvement, not a time
+budget or a claim of uniformly faster requests. Source-gen fences still
+perform independent exact binary checks and fail closed on uncertainty.
+
 #### #582 reference-machine certification (2026-10-31)
 
 The separate [watcher-backed result](performance/baselines/validation-2026-10-31-watcher-backed.json)
