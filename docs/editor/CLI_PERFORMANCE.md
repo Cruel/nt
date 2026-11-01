@@ -62,6 +62,13 @@ should report zero `materialShaderPreparations`, zero `shaderCompileRuns`,
 and zero `materialInterfaceValidations`, while
 still proving the relevant binary outputs before publishing diagnostics.
 Focused coverage is `native_cli_shader_validation_cache`.
+The test also changes saved Material YAML: an explorer-label-only edit,
+an inherited parameter value, a fragment-source switch to an existing or
+new shader program, and a missing Material shader reference followed by
+repair. The public disk validator resolves these edits from its certified
+clean contributors, not potentially stale editor-inspected record owners.
+Metadata-only Material edits retain compiler inputs; shader and interface
+reuse remains scoped to verified program and effective Material identities.
 
 The matched 83-sample Release CLI/Release addon run on the reference Ryzen
 7 5700G is retained as

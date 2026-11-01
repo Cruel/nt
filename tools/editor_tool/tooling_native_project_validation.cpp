@@ -644,23 +644,34 @@ Json validate(std::string_view request_text)
             }
             const Json materials = admitted.value("materials", Json::object());
             const Json assets = admitted.value("assets", Json::object());
-            const bool reuse_materials = state.material_records && state.material_assets &&
-                                         *state.material_records == materials &&
-                                         *state.material_assets == assets;
+            const bool same_assets = state.material_assets && *state.material_assets == assets;
+            // Presentation metadata never enters shader compiler inputs.
+            // Compare the saved data itself without introducing an additional
+            // per-Material cache authority into the resident owner.
+            const auto authored_shader_inputs = [](Json records) {
+                for (auto& [id, record] : records.items()) {
+                    (void)id;
+                    if (record.is_object()) {
+                        record.erase("label");
+                        record.erase("description");
+                    }
+                }
+                return records;
+            };
+            const bool reuse_materials = same_assets && state.material_records &&
+                                         authored_shader_inputs(*state.material_records) ==
+                                             authored_shader_inputs(materials);
             Json material_programs = reuse_materials ? state.material_programs : Json::object();
             Json material_effective = reuse_materials ? state.material_effective : Json::object();
             result["work"]["materialInputReuses"] = reuse_materials ? 1 : 0;
             if (!reuse_materials && materials.is_object()) {
                 for (const auto& [id, _] : materials.items()) {
-                    const auto inspected = state.session->inspect_record("materials/" + id);
-                    if (!inspected.accepted)
-                        throw std::runtime_error("Native Material owner cannot be inspected: " +
-                                                 id + ": " + inspected.error);
                     noveltea::authoring::count_validation_work(
                         &noveltea::authoring::ValidationWorkCounters::material_shader_preparations);
-                    const auto resolved = state.session->material_compiler_effective(id);
+                    const auto resolved = state.session->validated_material_compiler_effective(id);
                     if (!resolved)
-                        throw std::runtime_error("Native Material resolution failed: " + id);
+                        throw std::runtime_error("Native validated Material resolution failed: " +
+                                                 id);
                     const auto effective_material = Json::parse(*resolved);
                     material_effective[id] = effective_material;
                     // The effective Material has already been resolved,

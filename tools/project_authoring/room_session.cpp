@@ -3705,6 +3705,29 @@ std::optional<std::string> ProjectSession::resolved_material(std::string_view ma
     return result.accepted ? std::optional<std::string>{result.effective_json} : std::nullopt;
 }
 
+std::optional<std::string>
+ProjectSession::validated_material_compiler_effective(std::string_view material_id) const
+{
+    if (!validation_snapshot_ || !validation_snapshot_->valid)
+        return std::nullopt;
+    const auto found = validation_records_.find("materials/" + std::string(material_id));
+    if (found == validation_records_.end())
+        return std::nullopt;
+    const auto source = found->second->snapshot();
+    if (!source.valid)
+        return std::nullopt;
+    const AuthoringRecordResolver resolve = [&](std::string_view family,
+                                                std::string_view id) -> std::optional<std::string> {
+        const auto entry = validation_records_.find(std::string(family) + "/" + std::string(id));
+        if (entry == validation_records_.end())
+            return std::nullopt;
+        const auto snapshot = entry->second->snapshot();
+        return snapshot.valid ? std::optional<std::string>{snapshot.normalized_json} : std::nullopt;
+    };
+    const auto effective = resolve_material(material_id, source.normalized_json, resolve, root_);
+    return effective.accepted ? std::optional<std::string>{effective.effective_json} : std::nullopt;
+}
+
 std::optional<std::string> ProjectSession::material_compiler_request(std::string_view id) const
 {
     const auto effective = resolved_material(id);

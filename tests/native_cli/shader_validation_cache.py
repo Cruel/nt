@@ -108,4 +108,73 @@ with TemporaryDirectory(prefix="noveltea-shader-validation-") as temporary:
     assert signature(corrupt) == initial_diagnostics
     assert work(validate(), "shaderCompileRuns") == 0
 
+    # A saved Material label is not a codegen or reflected-interface input.
+    # This must not turn into shader compilation just because Material YAML
+    # changed; the public diagnostic output remains identical.
+    grade = project / "records/materials/lab-grade.yaml"
+    original_grade = grade.read_text()
+    grade.write_text(original_grade.replace(
+        "label: Premultiplied green grade",
+        "label: Premultiplied green grade (renamed)"))
+    material_label = validate()
+    assert work(material_label, "shaderCompileRuns") == 0, material_label["validationWork"]
+    assert work(material_label, "materialInputReuses") == 1
+    assert work(material_label, "materialInterfaceValidations") == 0
+    assert material_label["validationWork"]["endToEnd"]["materialShaderPreparations"] == 0
+    assert signature(material_label) == initial_diagnostics
+
+    # Parameter-only edits change effective Material data (including inherited
+    # children), but not shader source, variants or compiler program inputs.
+    parent = project / "records/materials/engine2d-draw-contract.yaml"
+    original_parent = parent.read_text()
+    assert "value: 0.25" in original_parent
+    parent.write_text(original_parent.replace("value: 0.25", "value: 0.35"))
+    material_parameter = validate()
+    assert work(material_parameter, "shaderCompileRuns") == 0, material_parameter["validationWork"]
+    assert work(material_parameter, "shaderProgramsReused") > 0
+    assert material_parameter["validationWork"]["endToEnd"]["materialShaderPreparations"] > 0
+    # Only the parent and inheriting child require refreshed interface checks.
+    assert work(material_parameter, "materialInterfaceValidations") == 2, material_parameter["validationWork"]
+    assert signature(material_parameter) == initial_diagnostics
+
+    # Changing a Material's fragment path to an already compiled request
+    # should alias its outputs without recompiling unrelated programs.
+    invert = project / "records/materials/lab-invert.yaml"
+    original_invert = invert.read_text()
+    original_fragment = "shaders/lab-invert.fs.sc"
+    assert original_fragment in original_invert
+    invert.write_text(original_invert.replace(original_fragment, "shaders/lab-grade.fs.sc"))
+    shared_program = validate()
+    assert work(shared_program, "shaderCompileRuns") == 0, shared_program["validationWork"]
+    assert shared_program["validationWork"]["endToEnd"]["materialShaderPreparations"] > 0
+    assert signature(shared_program) == initial_diagnostics
+
+    # A new, valid Material shader choice invalidates only its program. Other
+    # Material programs and cached reflection contributions must survive.
+    alternative = project / "shaders/material-alternative.fs.sc"
+    alternative.write_text(shader.read_text() + "\n// alternative Material source\n")
+    invert.write_text(original_invert.replace(original_fragment,
+                                               "shaders/material-alternative.fs.sc"))
+    selected = validate()
+    assert work(selected, "shaderCompileRuns") == 1, selected["validationWork"]
+    assert selected["validationWork"]["endToEnd"]["materialShaderPreparations"] > 0
+    assert work(selected, "shaderProgramsReused") > 0
+    assert work(selected, "materialInterfaceReuses") > 0
+    assert signature(selected) == initial_diagnostics
+    assert work(validate(), "shaderCompileRuns") == 0
+
+    # A Material reference to a missing shader must diagnose on its new YAML
+    # path, never reuse the previous successful compiler evidence. Repairing
+    # the Material restores diagnostics without restarting the daemon.
+    invert.write_text(original_invert.replace(original_fragment,
+                                               "shaders/material-does-not-exist.fs.sc"))
+    missing_material_shader = validate(False)
+    assert any("shader" in d["code"] and "missing" in d["code"]
+               for d in signature(missing_material_shader)), missing_material_shader
+    invert.write_text(original_invert)
+    material_repaired = validate()
+    assert signature(material_repaired) == initial_diagnostics
+    assert work(material_repaired, "shaderCompileRuns") == 0, material_repaired["validationWork"]
+    assert signature(validate(local=True)) == initial_diagnostics
+
     print("Resident shader validation cache certification passed")

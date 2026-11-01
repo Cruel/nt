@@ -350,12 +350,16 @@ public:
                                                        std::string_view material_id,
                                                        std::string_view native_tool_result_json);
     std::optional<std::string> material_compiler_request(std::string_view material_id) const;
-    // Effective native Material inputs for disk-authoritative compiler/reflection
-    // certification. Call only after inspecting the Material owner.
+    // Effective inputs for the editor's inspected (possibly dirty) Material.
     std::optional<std::string> material_compiler_effective(std::string_view material_id) const
     {
         return resolved_material(material_id);
     }
+    // The public disk validator must use the clean validation contributors,
+    // not editor-inspected records_: those can be stale after saved edits or
+    // carry unsaved overlays. Only call after successful clean validation.
+    std::optional<std::string>
+    validated_material_compiler_effective(std::string_view material_id) const;
     const std::map<std::string, std::string>& shader_source_overlays() const
     {
         return shader_overlays_;
